@@ -2,6 +2,7 @@ import AppKit
 import ApplicationServices
 import CoreGraphics
 import Darwin
+import Dispatch
 import Foundation
 import Security
 
@@ -74,6 +75,69 @@ if op == "list_windows" {
 }
 
 let appQuery = inputObject["app"] as? String ?? ""
+if op == "open_app" {
+    let trimmedAppQuery = appQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedAppQuery.isEmpty else {
+        fail("provider.appNotFound", "app not found: \(appQuery)", details: ["app": appQuery])
+    }
+    if let runningApp = resolveApp(
+        trimmedAppQuery,
+        targetPid: nil,
+        targetBundleIdentifier: nil,
+        allowPartialMatch: true
+    ) {
+        _ = runningApp.activate(options: [])
+        jsonOut(["ok": true, "target": appInfo(runningApp)])
+    }
+
+    let notificationCenter = NSWorkspace.shared.notificationCenter
+    // One-shot deadline for a LaunchServices request that never produces its promised lifecycle signal.
+    let launchDeadline = DispatchSource.makeTimerSource(queue: .main)
+    launchDeadline.schedule(deadline: .now() + 10)
+    launchDeadline.setEventHandler {
+        fail("provider.appNotFound", "app not found: \(appQuery)", details: ["app": appQuery])
+    }
+    launchDeadline.resume()
+    _ = notificationCenter.addObserver(
+        forName: NSWorkspace.didLaunchApplicationNotification,
+        object: nil,
+        queue: .main
+    ) { notification in
+        guard let launchedApp = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+              launchedApp.matchesApplicationQuery(trimmedAppQuery) else { return }
+        launchDeadline.cancel()
+        _ = launchedApp.activate(options: [])
+        jsonOut(["ok": true, "target": appInfo(launchedApp)])
+    }
+
+    let openProcess = Process()
+    openProcess.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+    let isBundleIdentifier = inputObject["bundleIdentifier"] as? Bool ?? false
+    openProcess.arguments = [isBundleIdentifier ? "-b" : "-a", trimmedAppQuery]
+    openProcess.standardOutput = Pipe()
+    openProcess.standardError = Pipe()
+    do {
+        try openProcess.run()
+        openProcess.waitUntilExit()
+    } catch {
+        fail("provider.processFailed", "failed to request app launch")
+    }
+    guard openProcess.terminationStatus == 0 else {
+        fail("provider.appNotFound", "app not found: \(appQuery)", details: ["app": appQuery])
+    }
+    if let launchedApp = resolveApp(
+        trimmedAppQuery,
+        targetPid: nil,
+        targetBundleIdentifier: nil,
+        allowPartialMatch: true
+    ) {
+        launchDeadline.cancel()
+        _ = launchedApp.activate(options: [])
+        jsonOut(["ok": true, "target": appInfo(launchedApp)])
+    }
+    dispatchMain()
+}
+
 let targetPid = (inputObject["targetPid"] as? NSNumber).map { pid_t($0.intValue) }
 let targetBundleIdentifier = inputObject["targetBundleIdentifier"] as? String
 let allowPartialMatch = inputObject["allowPartialMatch"] as? Bool ?? false

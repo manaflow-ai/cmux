@@ -80,8 +80,6 @@ const MAX_TOOL_CALL_ARGUMENT_BYTES = 256 * 1024;
 const MAX_TYPE_TEXT_CHARS = positiveIntegerEnv("CMUX_CU_MAX_TYPE_TEXT_CHARS", 8000);
 const MAX_RETAINED_SNAPSHOTS = 4;
 const MAX_SCROLL_PAGES = 20;
-const OPEN_RESOLVE_TIMEOUT_MS = 2000;
-const OPEN_RESOLVE_POLL_MS = 50;
 const INCLUDE_SCREENSHOT_CURSOR = process.env.CMUX_CU_SCREENSHOT_CURSOR !== "0";
 // Explicit opt-in for headless automation: pre-approve the engine's per-app
 // control elicitations instead of forwarding them to the MCP client. Headless
@@ -633,7 +631,8 @@ class FakeComputerUseProvider {
     this.ensureActive();
     if (["dormanttestapp", "com.cmux.dormant"].includes(app.toLowerCase())) {
       this.dormantTestAppOpened = true;
-      return null;
+      this.dormantTestAppResolveAttempts = 2;
+      return this.identityForApp("DormantTestApp");
     }
     return this.resolveApp(app, { allowPartialMatch: true });
   }
@@ -847,34 +846,8 @@ class MacComputerUseProvider {
   }
 
   async openApp(app) {
-    try {
-      let target = null;
-      try {
-        target = await this.resolveApp(app, { allowPartialMatch: true });
-      } catch (error) {
-        if (error?.providerCode !== "provider.appNotFound") throw error;
-      }
-      const args = target?.bundleIdentifier
-        ? ["-b", target.bundleIdentifier]
-        : isBundleIdentifier(app)
-          ? ["-b", app]
-          : ["-a", target?.name ?? app];
-      await execFileTool("/usr/bin/open", args, {
-        timeout: TIMEOUT_MS,
-        env: childEnv(),
-      });
-      try {
-        return await this.resolveApp(target?.bundleIdentifier || target?.name || app, {
-          allowPartialMatch: true,
-        });
-      } catch (error) {
-        if (error?.providerCode === "provider.appNotFound") return null;
-        throw error;
-      }
-    } catch (error) {
-      if (error instanceof ProviderOperationError) throw error;
-      throw new ProviderOperationError("provider.processFailed", shortErrorMessage(error));
-    }
+    const result = await this.run({ op: "open_app", app, bundleIdentifier: isBundleIdentifier(app) });
+    return result.target ?? null;
   }
 
   async getState(app, { includeScreenshot = true, target = null } = {}) {
@@ -1007,26 +980,6 @@ class ComputerUseSession {
   revoke(app, target = null) {
     const key = this.key(app, target);
     if (key) this.remove(key);
-  }
-
-  async resolveOpenedTarget(app) {
-    const deadline = Date.now() + OPEN_RESOLVE_TIMEOUT_MS;
-    let lastNotFound = null;
-    do {
-      throwIfActiveToolCancelled();
-      try {
-        const target = retainableTarget(await this.provider.resolveApp(app, { allowPartialMatch: true }));
-        if (target) return target;
-      } catch (error) {
-        if (error?.providerCode !== "provider.appNotFound") throw error;
-        lastNotFound = error;
-      }
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) break;
-      await delay(Math.min(OPEN_RESOLVE_POLL_MS, remaining));
-    } while (Date.now() < deadline);
-    if (lastNotFound) throw lastNotFound;
-    return null;
   }
 
   dispose() {
@@ -1645,7 +1598,6 @@ const TOOLS = [
         let openedTarget = retainableTarget(
           await s.provider.openApp(target?.bundleIdentifier || target?.name || normalizedApp)
         );
-        if (!openedTarget) openedTarget = await s.resolveOpenedTarget(normalizedApp);
         if (!openedTarget) {
           throw new ProviderOperationError("provider.appNotFound", `app not found: ${app}`, { app });
         }

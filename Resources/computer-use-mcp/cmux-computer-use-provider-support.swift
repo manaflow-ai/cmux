@@ -119,6 +119,16 @@ func appInfo(_ app: NSRunningApplication) -> [String: Any] {
     ]
 }
 
+extension NSRunningApplication {
+    func matchesApplicationQuery(_ query: String) -> Bool {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let lower = trimmed.lowercased()
+        return (bundleIdentifier ?? "").lowercased().contains(lower) ||
+            (localizedName ?? "").localizedStandardContains(trimmed)
+    }
+}
+
 func singleResolvedApp(_ apps: [NSRunningApplication], query: String) -> NSRunningApplication? {
     if apps.count > 1 {
         fail("provider.appAmbiguous", "ambiguous app match: \(query)", details: ["app": query])
