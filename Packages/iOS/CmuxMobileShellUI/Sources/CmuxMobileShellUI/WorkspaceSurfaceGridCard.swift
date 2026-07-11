@@ -4,10 +4,14 @@ import SwiftUI
 import UIKit
 #endif
 
-struct WorkspaceSurfaceGridCard: View {
+struct WorkspaceSurfaceGridCard: View, Equatable {
     let item: WorkspaceSurfaceGridItem
     let open: () -> Void
     let close: () -> Void
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.item == rhs.item
+    }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {

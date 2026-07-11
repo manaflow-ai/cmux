@@ -1,3 +1,4 @@
+import CmuxAuthRuntime
 import CmuxMobileBrowser
 import CmuxMobileShell
 import SwiftUI
@@ -9,6 +10,7 @@ import AppKit
 #endif
 
 public struct CMUXMobileAppView: View {
+    @Environment(AuthCoordinator.self) private var authManager
     @State private var store: CMUXMobileShellStore
     /// Phone-local browser surfaces, owned for the app's lifetime and injected
     /// into the environment so the workspace detail view can present a browser
@@ -52,8 +54,14 @@ public struct CMUXMobileAppView: View {
         #if os(iOS)
         CMUXMobileRootView(store: store, onboardingStore: onboardingStore)
             .environment(browserStore)
-            .onAppear(perform: reconcileBrowserSurfacesIfAuthoritative)
+            .onAppear(perform: synchronizeBrowserPersistenceScope)
+            .onChange(of: browserPersistenceScope) { _, _ in
+                synchronizeBrowserPersistenceScope()
+            }
             .onChange(of: store.connectionState) { _, _ in
+                reconcileBrowserSurfacesIfAuthoritative()
+            }
+            .onChange(of: store.browserWorkspaceListIsAuthoritative) { _, _ in
                 reconcileBrowserSurfacesIfAuthoritative()
             }
             .onChange(of: browserWorkspaceIdentities) { _, _ in
@@ -62,8 +70,14 @@ public struct CMUXMobileAppView: View {
         #else
         CMUXMobileRootView(store: store)
             .environment(browserStore)
-            .onAppear(perform: reconcileBrowserSurfacesIfAuthoritative)
+            .onAppear(perform: synchronizeBrowserPersistenceScope)
+            .onChange(of: browserPersistenceScope) { _, _ in
+                synchronizeBrowserPersistenceScope()
+            }
             .onChange(of: store.connectionState) { _, _ in
+                reconcileBrowserSurfacesIfAuthoritative()
+            }
+            .onChange(of: store.browserWorkspaceListIsAuthoritative) { _, _ in
                 reconcileBrowserSurfacesIfAuthoritative()
             }
             .onChange(of: browserWorkspaceIdentities) { _, _ in
@@ -76,11 +90,24 @@ public struct CMUXMobileAppView: View {
         store.workspaces.map(\.browserSurfaceIdentity)
     }
 
+    private var browserPersistenceScope: BrowserPersistenceScope? {
+        guard authManager.isAuthenticated,
+              let userID = authManager.currentUser?.id,
+              !userID.isEmpty else { return nil }
+        return BrowserPersistenceScope(userID: userID, teamID: authManager.selectedTeamID)
+    }
+
+    private func synchronizeBrowserPersistenceScope() {
+        browserStore.setPersistenceScope(browserPersistenceScope)
+        reconcileBrowserSurfacesIfAuthoritative()
+    }
+
     private func reconcileBrowserSurfacesIfAuthoritative() {
         // A connected store has already applied its initial workspace list.
         // Before that point an empty list is transitional and must not erase
         // restorable browser sessions from the prior launch.
         guard store.connectionState == .connected,
+              store.browserWorkspaceListIsAuthoritative,
               store.workspaces.allSatisfy(\.hasStableBrowserSurfaceIdentity) else { return }
         browserStore.reconcileWorkspaces(browserWorkspaceIdentities)
     }

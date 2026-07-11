@@ -47,6 +47,7 @@ struct WorkspaceSurfaceGridView: View {
             return WorkspaceSurfaceGridContent(selectedWorkspace: nil, filteredSurfaceItems: [])
         }
 
+        let browserSnapshot = browserStore.browserSnapshot(for: workspace.browserSurfaceIdentity)
         var items = workspace.terminals.map { terminal in
             WorkspaceSurfaceGridItem(
                 id: "terminal-\(terminal.id.rawValue)",
@@ -58,24 +59,24 @@ struct WorkspaceSurfaceGridView: View {
                     : L10n.string("mobile.surfaceGrid.terminalStarting", defaultValue: "Starting"),
                 detail: workspace.previewLine,
                 systemImage: terminal.isFocused ? "terminal.fill" : "terminal",
-                isSelected: terminal.id == selectedTerminalID && browserStore.activeBrowser(for: workspace.browserSurfaceIdentity) == nil,
+                isSelected: terminal.id == selectedTerminalID && browserSnapshot?.isSelected != true,
                 isDimmed: connectionStatus != .connected || !terminal.isReady,
                 canClose: false
             )
         }
 
-        if let browser = browserStore.browser(for: workspace.browserSurfaceIdentity) {
+        if let browserSnapshot {
             items.insert(
                 WorkspaceSurfaceGridItem(
-                    id: "browser-\(browser.id.rawValue)",
+                    id: "browser-\(browserSnapshot.surfaceID)",
                     workspaceID: workspace.id,
                     kind: .browser,
-                    title: browser.title ?? L10n.string("mobile.surfaceGrid.browserTitle", defaultValue: "Browser"),
+                    title: browserSnapshot.title ?? L10n.string("mobile.surfaceGrid.browserTitle", defaultValue: "Browser"),
                     subtitle: L10n.string("mobile.surfaceGrid.browser", defaultValue: "Browser"),
-                    detail: browser.currentURL?.absoluteString
+                    detail: browserSnapshot.currentURL
                         ?? L10n.string("mobile.surfaceGrid.browserAddressEmpty", defaultValue: "No page loaded"),
                     systemImage: "globe",
-                    isSelected: browserStore.isBrowserSelected(for: workspace.browserSurfaceIdentity),
+                    isSelected: browserSnapshot.isSelected,
                     isDimmed: false,
                     canClose: true
                 ),
@@ -337,6 +338,7 @@ struct WorkspaceSurfaceGridView: View {
                 } close: {
                     close(item)
                 }
+                .equatable()
             }
         }
         .overlay {

@@ -24,6 +24,9 @@ public final class BrowserSurfaceStore {
     /// Workspace IDs whose browser is currently selected instead of a terminal.
     private var selectedBrowserWorkspaceIDs: Set<String>
 
+    /// Equality-filtered, per-workspace values read by lazy-grid consumers.
+    private var snapshotSourcesByWorkspace: [String: BrowserSurfaceSnapshotSource]
+
     /// Produces a fresh, unique surface id. Injected so tests are deterministic.
     private let makeSurfaceID: () -> BrowserSurfaceState.ID
 
@@ -36,6 +39,9 @@ public final class BrowserSurfaceStore {
 
     /// UserDefaults key for the versioned snapshot array.
     private let persistenceKey: String
+
+    /// The authenticated owner allowed to read and write the persisted archive.
+    private var persistenceScope: BrowserPersistenceScope?
 
     /// Coalesces page-controlled same-document URL churn into bounded durable
     /// writes instead of serializing every retained surface for every callback.
@@ -67,8 +73,32 @@ public final class BrowserSurfaceStore {
         self.persistenceKey = persistenceKey
         self.surfacesByWorkspace = [:]
         self.selectedBrowserWorkspaceIDs = []
+        self.snapshotSourcesByWorkspace = [:]
+        self.persistenceScope = nil
         self.scheduledPersistenceTask = nil
+    }
 
+    /// Moves durable browser state to a new authenticated account and team.
+    ///
+    /// Every real transition clears live browser references synchronously. The
+    /// prior owner's archive is deleted, and restoration succeeds only when the
+    /// persisted archive declares the exact new owner. Passing `nil` keeps any
+    /// subsequently opened browsers memory-only.
+    ///
+    /// - Parameter newScope: The authenticated owner, or `nil` while signed out.
+    public func setPersistenceScope(_ newScope: BrowserPersistenceScope?) {
+        guard newScope != persistenceScope else { return }
+        scheduledPersistenceTask?.cancel()
+        scheduledPersistenceTask = nil
+        hasPendingPersistence = false
+        if persistenceScope != nil {
+            persistenceDefaults?.removeObject(forKey: persistenceKey)
+        }
+        surfacesByWorkspace.removeAll()
+        selectedBrowserWorkspaceIDs.removeAll()
+        snapshotSourcesByWorkspace.removeAll()
+        persistenceScope = newScope
+        guard newScope != nil else { return }
         restorePersistedSurfaces()
         installPersistenceCallbacks()
     }
@@ -102,6 +132,23 @@ public final class BrowserSurfaceStore {
     /// durable string.
     public func browser(for workspaceID: String) -> BrowserSurfaceState? {
         browser(for: BrowserWorkspaceIdentity(rawValue: workspaceID))
+    }
+
+    /// The reduced immutable browser value used at lazy collection boundaries.
+    ///
+    /// Reads observe only this workspace's equality-filtered snapshot source;
+    /// WebKit loading and progress changes do not invalidate grid cards.
+    ///
+    /// - Parameter workspace: The workspace's stable identity.
+    /// - Returns: Its retained browser snapshot, or `nil` when none is open.
+    public func browserSnapshot(for workspace: BrowserWorkspaceIdentity) -> BrowserSurfaceSnapshot? {
+        guard let key = existingKey(for: workspace) else { return nil }
+        return snapshotSourcesByWorkspace[key]?.value
+    }
+
+    /// Compatibility overload for callers whose workspace identity is durable.
+    public func browserSnapshot(for workspaceID: String) -> BrowserSurfaceSnapshot? {
+        browserSnapshot(for: BrowserWorkspaceIdentity(rawValue: workspaceID))
     }
 
     /// Whether a workspace currently has a browser pane open.
@@ -143,17 +190,19 @@ public final class BrowserSurfaceStore {
     /// - Returns: The active browser surface for the workspace.
     @discardableResult
     public func openBrowser(for workspace: BrowserWorkspaceIdentity) -> BrowserSurfaceState {
-        if let existingKey = existingKey(for: workspace),
-           let existing = surfacesByWorkspace[existingKey] {
-            migrateBrowserIfNeeded(from: existingKey, to: workspace.rawValue)
+        if let existing = surfacesByWorkspace[workspace.rawValue] {
             selectedBrowserWorkspaceIDs.insert(workspace.rawValue)
+            refreshSnapshot(workspaceID: workspace.rawValue, surface: existing)
             persistImmediately()
             return existing
         }
         let surface = BrowserSurfaceState(id: makeSurfaceID(), initialURL: defaultURL)
         surfacesByWorkspace[workspace.rawValue] = surface
         selectedBrowserWorkspaceIDs.insert(workspace.rawValue)
-        installPersistenceCallback(on: surface)
+        snapshotSourcesByWorkspace[workspace.rawValue] = BrowserSurfaceSnapshotSource(
+            value: makeSnapshot(workspaceID: workspace.rawValue, surface: surface)
+        )
+        installPersistenceCallback(on: surface, workspaceID: workspace.rawValue)
         persistImmediately()
         return surface
     }
@@ -172,6 +221,7 @@ public final class BrowserSurfaceStore {
     public func showNonBrowserSurface(for workspace: BrowserWorkspaceIdentity) {
         guard let key = existingKey(for: workspace),
               selectedBrowserWorkspaceIDs.remove(key) != nil else { return }
+        refreshSnapshot(workspaceID: key, surface: surfacesByWorkspace[key])
         persistImmediately()
     }
 
@@ -188,6 +238,7 @@ public final class BrowserSurfaceStore {
         guard let key = existingKey(for: workspace) else { return }
         surfacesByWorkspace.removeValue(forKey: key)
         selectedBrowserWorkspaceIDs.remove(key)
+        snapshotSourcesByWorkspace.removeValue(forKey: key)
         persistImmediately()
     }
 
@@ -201,20 +252,38 @@ public final class BrowserSurfaceStore {
     ///
     /// - Parameter workspaces: The complete authoritative stable workspace identity set.
     public func reconcileWorkspaces(_ workspaces: [BrowserWorkspaceIdentity]) {
+        let aliasClaimCounts = workspaces.reduce(into: [String: Int]()) { counts, workspace in
+            for alias in workspace.aliases {
+                counts[alias, default: 0] += 1
+            }
+        }
+        var didChange = false
+        for (alias, count) in aliasClaimCounts where count > 1 {
+            if surfacesByWorkspace.removeValue(forKey: alias) != nil {
+                selectedBrowserWorkspaceIDs.remove(alias)
+                snapshotSourcesByWorkspace.removeValue(forKey: alias)
+                didChange = true
+            }
+        }
         var validWorkspaceIDs = Set<String>()
         for workspace in workspaces.sorted(by: { $0.rawValue < $1.rawValue }) {
             if surfacesByWorkspace[workspace.rawValue] == nil,
-               let alias = existingAlias(for: workspace) {
+               let alias = workspace.aliases.sorted().first(where: {
+                   aliasClaimCounts[$0] == 1 && surfacesByWorkspace[$0] != nil
+               }) {
                 migrateBrowserIfNeeded(from: alias, to: workspace.rawValue)
+                didChange = true
             }
             validWorkspaceIDs.insert(workspace.rawValue)
         }
         let removedWorkspaceIDs = surfacesByWorkspace.keys.filter { !validWorkspaceIDs.contains($0) }
-        guard !removedWorkspaceIDs.isEmpty else { return }
         for workspaceID in removedWorkspaceIDs {
             surfacesByWorkspace.removeValue(forKey: workspaceID)
             selectedBrowserWorkspaceIDs.remove(workspaceID)
+            snapshotSourcesByWorkspace.removeValue(forKey: workspaceID)
+            didChange = true
         }
+        guard didChange else { return }
         persistImmediately()
     }
 
@@ -225,60 +294,67 @@ public final class BrowserSurfaceStore {
     }
 
     private func existingKey(for workspace: BrowserWorkspaceIdentity) -> String? {
-        if surfacesByWorkspace[workspace.rawValue] != nil {
-            return workspace.rawValue
-        }
-        return existingAlias(for: workspace)
-    }
-
-    private func existingAlias(for workspace: BrowserWorkspaceIdentity) -> String? {
-        workspace.aliases.sorted().first { surfacesByWorkspace[$0] != nil }
+        surfacesByWorkspace[workspace.rawValue] == nil ? nil : workspace.rawValue
     }
 
     private func migrateBrowserIfNeeded(from oldKey: String, to newKey: String) {
         guard oldKey != newKey, surfacesByWorkspace[newKey] == nil,
               let surface = surfacesByWorkspace.removeValue(forKey: oldKey) else { return }
         surfacesByWorkspace[newKey] = surface
+        let source = snapshotSourcesByWorkspace.removeValue(forKey: oldKey)
+        snapshotSourcesByWorkspace[newKey] = source ?? BrowserSurfaceSnapshotSource(
+            value: makeSnapshot(workspaceID: newKey, surface: surface)
+        )
         if selectedBrowserWorkspaceIDs.remove(oldKey) != nil {
             selectedBrowserWorkspaceIDs.insert(newKey)
         }
+        installPersistenceCallback(on: surface, workspaceID: newKey)
+        refreshSnapshot(workspaceID: newKey, surface: surface)
     }
 
     /// Remove every retained browser when the signed-in workspace scope ends.
     public func removeAllBrowsers() {
-        guard !surfacesByWorkspace.isEmpty || !selectedBrowserWorkspaceIDs.isEmpty else { return }
+        scheduledPersistenceTask?.cancel()
+        scheduledPersistenceTask = nil
+        hasPendingPersistence = false
         surfacesByWorkspace.removeAll()
         selectedBrowserWorkspaceIDs.removeAll()
-        persistImmediately()
+        snapshotSourcesByWorkspace.removeAll()
+        persistenceDefaults?.removeObject(forKey: persistenceKey)
     }
 
     private func installPersistenceCallbacks() {
-        for surface in surfacesByWorkspace.values {
-            installPersistenceCallback(on: surface)
+        for (workspaceID, surface) in surfacesByWorkspace {
+            installPersistenceCallback(on: surface, workspaceID: workspaceID)
         }
     }
 
-    private func installPersistenceCallback(on surface: BrowserSurfaceState) {
-        surface.installPersistence { [weak self] immediately in
+    private func installPersistenceCallback(on surface: BrowserSurfaceState, workspaceID: String) {
+        surface.installPersistence { [weak self, weak surface] immediately in
+            guard let self, let surface,
+                  self.surfacesByWorkspace[workspaceID] === surface else { return }
+            self.refreshSnapshot(workspaceID: workspaceID, surface: surface)
             if immediately {
-                self?.persistImmediately()
+                self.persistImmediately()
             } else {
-                self?.schedulePersistence()
+                self.schedulePersistence()
             }
         }
     }
 
     private func restorePersistedSurfaces() {
-        guard let data = persistenceDefaults?.data(forKey: persistenceKey),
-              let snapshots = try? JSONDecoder().decode([BrowserSurfaceSnapshot].self, from: data)
-        else {
+        guard let persistenceDefaults, let persistenceScope,
+              let data = persistenceDefaults.data(forKey: persistenceKey) else { return }
+        guard let archive = try? JSONDecoder().decode(BrowserSurfaceArchive.self, from: data),
+              archive.scope == persistenceScope else {
+            persistenceDefaults.removeObject(forKey: persistenceKey)
             return
         }
 
         // Decode into the workspace-keyed source of truth. Duplicate rows from
         // an interrupted or older writer cannot create duplicate browser cards;
         // the first valid persisted association wins deterministically.
-        for snapshot in snapshots where surfacesByWorkspace[snapshot.workspaceID] == nil {
+        for snapshot in archive.surfaces where surfacesByWorkspace[snapshot.workspaceID] == nil {
             let restoredURL = snapshot.currentURL.flatMap(URL.init(string:))
             let surface = BrowserSurfaceState(
                 id: .init(rawValue: snapshot.surfaceID),
@@ -290,6 +366,7 @@ public final class BrowserSurfaceStore {
             if snapshot.isSelected {
                 selectedBrowserWorkspaceIDs.insert(snapshot.workspaceID)
             }
+            snapshotSourcesByWorkspace[snapshot.workspaceID] = BrowserSurfaceSnapshotSource(value: snapshot)
         }
     }
 
@@ -322,20 +399,35 @@ public final class BrowserSurfaceStore {
     }
 
     private func persist() {
-        guard let persistenceDefaults else { return }
+        guard let persistenceDefaults, let persistenceScope else { return }
         let snapshots = surfacesByWorkspace.keys.sorted().compactMap { workspaceID -> BrowserSurfaceSnapshot? in
             guard let surface = surfacesByWorkspace[workspaceID] else { return nil }
-            return BrowserSurfaceSnapshot(
-                workspaceID: workspaceID,
-                surfaceID: surface.id.rawValue,
-                currentURL: surface.currentURL?.absoluteString,
-                title: surface.title,
-                contentMode: contentModeRawValue(surface.contentModePreference),
-                isSelected: selectedBrowserWorkspaceIDs.contains(workspaceID)
-            )
+            return makeSnapshot(workspaceID: workspaceID, surface: surface)
         }
-        guard let data = try? JSONEncoder().encode(snapshots) else { return }
+        let archive = BrowserSurfaceArchive(scope: persistenceScope, surfaces: snapshots)
+        guard let data = try? JSONEncoder().encode(archive) else { return }
         persistenceDefaults.set(data, forKey: persistenceKey)
+    }
+
+    private func makeSnapshot(workspaceID: String, surface: BrowserSurfaceState) -> BrowserSurfaceSnapshot {
+        BrowserSurfaceSnapshot(
+            workspaceID: workspaceID,
+            surfaceID: surface.id.rawValue,
+            currentURL: surface.currentURL?.absoluteString,
+            title: surface.title,
+            contentMode: contentModeRawValue(surface.contentModePreference),
+            isSelected: selectedBrowserWorkspaceIDs.contains(workspaceID)
+        )
+    }
+
+    private func refreshSnapshot(workspaceID: String, surface: BrowserSurfaceState?) {
+        guard let surface else { return }
+        let snapshot = makeSnapshot(workspaceID: workspaceID, surface: surface)
+        if let source = snapshotSourcesByWorkspace[workspaceID] {
+            source.update(snapshot)
+        } else {
+            snapshotSourcesByWorkspace[workspaceID] = BrowserSurfaceSnapshotSource(value: snapshot)
+        }
     }
 
     private func contentModePreference(_ rawValue: String) -> BrowserContentModePreference {
@@ -352,5 +444,20 @@ public final class BrowserSurfaceStore {
         case .mobile: "mobile"
         case .desktop: "desktop"
         }
+    }
+}
+
+@MainActor
+@Observable
+private final class BrowserSurfaceSnapshotSource {
+    private(set) var value: BrowserSurfaceSnapshot
+
+    init(value: BrowserSurfaceSnapshot) {
+        self.value = value
+    }
+
+    func update(_ nextValue: BrowserSurfaceSnapshot) {
+        guard nextValue != value else { return }
+        value = nextValue
     }
 }

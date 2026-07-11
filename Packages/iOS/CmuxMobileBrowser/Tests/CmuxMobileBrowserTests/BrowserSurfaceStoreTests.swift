@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 
 @testable import CmuxMobileBrowser
@@ -116,13 +117,30 @@ import Testing
             aliases: ["remote-ws"]
         )
 
-        #expect(store.browser(for: stableIdentity) === browser)
-
         store.reconcileWorkspaces([stableIdentity])
 
         #expect(store.browser(for: stableIdentity) === browser)
         #expect(store.browser(for: "remote-ws") == nil)
         #expect(store.activeBrowser(for: stableIdentity) === browser)
+    }
+
+    @Test func ambiguousRemoteAliasIsNotAssignedToEitherMac() {
+        let store = makeStore()
+        _ = store.openBrowser(for: "shared")
+        let firstIdentity = BrowserWorkspaceIdentity(
+            rawValue: "5:mac-a:shared",
+            aliases: ["shared"]
+        )
+        let secondIdentity = BrowserWorkspaceIdentity(
+            rawValue: "5:mac-b:shared",
+            aliases: ["shared"]
+        )
+
+        store.reconcileWorkspaces([firstIdentity, secondIdentity])
+
+        #expect(store.browser(for: firstIdentity) == nil)
+        #expect(store.browser(for: secondIdentity) == nil)
+        #expect(store.browser(for: "shared") == nil)
     }
 
     @Test func identicalRemoteWorkspaceIDsRemainScopedToTheirOwningMacs() {
@@ -154,6 +172,7 @@ import Testing
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         var counter = 0
+        let scope = BrowserPersistenceScope(userID: "user-a", teamID: "team-a")
         let firstStore = BrowserSurfaceStore(
             defaultURL: nil,
             makeSurfaceID: {
@@ -162,6 +181,7 @@ import Testing
             },
             persistenceDefaults: defaults
         )
+        firstStore.setPersistenceScope(scope)
         let first = firstStore.openBrowser(for: "ws-a")
         first.navigationDidFinish(
             url: URL(string: "https://example.com/a")!,
@@ -181,6 +201,7 @@ import Testing
             makeSurfaceID: { .init(rawValue: "must-not-be-used") },
             persistenceDefaults: defaults
         )
+        restored.setPersistenceScope(scope)
 
         let restoredA = try #require(restored.browser(for: "ws-a"))
         let restoredB = try #require(restored.browser(for: "ws-b"))
@@ -210,6 +231,7 @@ import Testing
             makeSurfaceID: { .init(rawValue: "fresh") },
             persistenceDefaults: defaults
         )
+        store.setPersistenceScope(.init(userID: "user-a", teamID: "team-a"))
 
         #expect(store.browser(for: "ws-1") == nil)
         #expect(store.openBrowser(for: "ws-1").id == .init(rawValue: "fresh"))
@@ -238,16 +260,167 @@ import Testing
                 isSelected: false
             ),
         ]
-        defaults.set(
-            try JSONEncoder().encode(snapshots),
-            forKey: "cmux.mobile.browserSurfaces.v1"
-        )
+        let scope = BrowserPersistenceScope(userID: "user-a", teamID: "team-a")
+        let archive = BrowserSurfaceArchive(scope: scope, surfaces: snapshots)
+        defaults.set(try JSONEncoder().encode(archive), forKey: "cmux.mobile.browserSurfaces.v1")
 
         let store = BrowserSurfaceStore(defaultURL: nil, persistenceDefaults: defaults)
+        store.setPersistenceScope(scope)
         let restored = try #require(store.browser(for: "ws-1"))
 
         #expect(restored.id == .init(rawValue: "first"))
         #expect(restored.currentURL?.absoluteString == "https://first.example")
         #expect(store.activeBrowser(for: "ws-1") === restored)
+    }
+
+    @Test func persistenceRequiresAnAuthenticatedScope() throws {
+        let suiteName = "BrowserSurfaceStoreTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = BrowserSurfaceStore(defaultURL: nil, persistenceDefaults: defaults)
+        _ = store.openBrowser(for: "ws-1")
+
+        #expect(defaults.data(forKey: "cmux.mobile.browserSurfaces.v1") == nil)
+    }
+
+    @Test func accountOrTeamMismatchFailsClosedAndDeletesOwnerArchive() throws {
+        let suiteName = "BrowserSurfaceStoreTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let owner = BrowserPersistenceScope(userID: "user-a", teamID: "team-a")
+
+        let first = BrowserSurfaceStore(defaultURL: nil, persistenceDefaults: defaults)
+        first.setPersistenceScope(owner)
+        _ = first.openBrowser(for: "ws-1")
+
+        let otherAccount = BrowserSurfaceStore(defaultURL: nil, persistenceDefaults: defaults)
+        otherAccount.setPersistenceScope(.init(userID: "user-b", teamID: "team-a"))
+        #expect(otherAccount.browser(for: "ws-1") == nil)
+        #expect(defaults.data(forKey: "cmux.mobile.browserSurfaces.v1") == nil)
+
+        first.setPersistenceScope(owner)
+        _ = first.openBrowser(for: "ws-2")
+        let otherTeam = BrowserSurfaceStore(defaultURL: nil, persistenceDefaults: defaults)
+        otherTeam.setPersistenceScope(.init(userID: "user-a", teamID: "team-b"))
+        #expect(otherTeam.browser(for: "ws-2") == nil)
+        #expect(defaults.data(forKey: "cmux.mobile.browserSurfaces.v1") == nil)
+    }
+
+    @Test func scopeTransitionsClearLiveAndDurableBrowserState() throws {
+        let suiteName = "BrowserSurfaceStoreTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let scope = BrowserPersistenceScope(userID: "user-a", teamID: "team-a")
+        let store = BrowserSurfaceStore(defaultURL: nil, persistenceDefaults: defaults)
+
+        store.setPersistenceScope(scope)
+        let browser = store.openBrowser(for: "ws-1")
+        store.setPersistenceScope(scope)
+        #expect(store.browser(for: "ws-1") === browser)
+
+        store.setPersistenceScope(.init(userID: "user-a", teamID: "team-b"))
+        #expect(store.browser(for: "ws-1") == nil)
+        #expect(defaults.data(forKey: "cmux.mobile.browserSurfaces.v1") == nil)
+
+        _ = store.openBrowser(for: "ws-2")
+        store.setPersistenceScope(nil)
+        #expect(store.browser(for: "ws-2") == nil)
+        #expect(defaults.data(forKey: "cmux.mobile.browserSurfaces.v1") == nil)
+    }
+
+    @Test func ownerlessLegacyArrayIsNeverClaimedByNextAccount() throws {
+        let suiteName = "BrowserSurfaceStoreTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let snapshots = [
+            BrowserSurfaceSnapshot(
+                workspaceID: "ws-1",
+                surfaceID: "ownerless",
+                currentURL: "https://private.example",
+                title: "Private",
+                contentMode: "recommended",
+                isSelected: true
+            ),
+        ]
+        defaults.set(try JSONEncoder().encode(snapshots), forKey: "cmux.mobile.browserSurfaces.v1")
+
+        let store = BrowserSurfaceStore(defaultURL: nil, persistenceDefaults: defaults)
+        store.setPersistenceScope(.init(userID: "user-a", teamID: nil))
+
+        #expect(store.browser(for: "ws-1") == nil)
+        #expect(defaults.data(forKey: "cmux.mobile.browserSurfaces.v1") == nil)
+    }
+
+    @Test func browserSnapshotsFilterUnrelatedAndDuplicateChanges() async throws {
+        let store = makeStore()
+        let first = store.openBrowser(for: "ws-a")
+        let second = store.openBrowser(for: "ws-b")
+        first.navigationDidFinish(url: URL(string: "https://a.example")!, title: "A")
+
+        await confirmation("other workspace does not notify", expectedCount: 0) { didChange in
+            withObservationTracking {
+                _ = store.browserSnapshot(for: "ws-a")
+            } onChange: {
+                didChange()
+            }
+            second.navigationDidFinish(url: URL(string: "https://b.example")!, title: "B")
+        }
+
+        await confirmation("loading state does not notify", expectedCount: 0) { didChange in
+            withObservationTracking {
+                _ = store.browserSnapshot(for: "ws-a")
+            } onChange: {
+                didChange()
+            }
+            first.navigationDidStart()
+        }
+
+        await confirmation("equal durable state does not notify", expectedCount: 0) { didChange in
+            withObservationTracking {
+                _ = store.browserSnapshot(for: "ws-a")
+            } onChange: {
+                didChange()
+            }
+            first.navigationDidFinish(url: URL(string: "https://a.example")!, title: "A")
+        }
+
+        await confirmation("changed title notifies once") { didChange in
+            withObservationTracking {
+                _ = store.browserSnapshot(for: "ws-a")
+            } onChange: {
+                didChange()
+            }
+            first.pageTitleDidChange("A updated")
+        }
+    }
+
+    @Test func browserSnapshotsTrackSelectionAndAliasMigration() throws {
+        let store = makeStore()
+        let browser = store.openBrowser(for: "remote")
+        browser.navigationDidFinish(url: URL(string: "https://example.com")!, title: "Example")
+        let initial = try #require(store.browserSnapshot(for: "remote"))
+        #expect(initial.surfaceID == browser.id.rawValue)
+        #expect(initial.title == "Example")
+        #expect(initial.isSelected)
+
+        store.showNonBrowserSurface(for: "remote")
+        #expect(store.browserSnapshot(for: "remote")?.isSelected == false)
+        _ = store.openBrowser(for: "remote")
+        #expect(store.browserSnapshot(for: "remote")?.isSelected == true)
+
+        let stable = BrowserWorkspaceIdentity(rawValue: "5:mac-a:remote", aliases: ["remote"])
+        store.reconcileWorkspaces([stable])
+        let migrated = try #require(store.browserSnapshot(for: stable))
+        #expect(migrated.workspaceID == stable.rawValue)
+        #expect(migrated.surfaceID == browser.id.rawValue)
+        #expect(store.browserSnapshot(for: "remote") == nil)
+
+        store.closeBrowser(for: stable)
+        #expect(store.browserSnapshot(for: stable) == nil)
     }
 }

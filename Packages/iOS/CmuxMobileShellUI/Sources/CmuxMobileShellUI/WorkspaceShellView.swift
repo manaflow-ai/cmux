@@ -21,7 +21,7 @@ struct WorkspaceShellView: View {
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
     let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
-    @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(MobileDisplaySettings.self) var displaySettings
     @Environment(BrowserSurfaceStore.self) private var browserStore
     @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
     @State var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
@@ -30,7 +30,7 @@ struct WorkspaceShellView: View {
     @State private var showingCompactSettings = false
     @State private var showingCompactDeviceTree = false
     @State private var showingCompactWorkspaceManager = false
-    @State private var macSelection: WorkspaceMacSelection = .all
+    @State var macSelection: WorkspaceMacSelection = .all
     @State private var isCreatingTerminalFromSurfaceGrid = false
     @State var workspaceActionToast: WorkspaceActionToastContent?
     @State private var pendingMacSwitchID: String?
@@ -52,7 +52,7 @@ struct WorkspaceShellView: View {
         #endif
     }
 
-    private var listConnectionStatus: MobileMacConnectionStatus {
+    var listConnectionStatus: MobileMacConnectionStatus {
         if isInitialConnectionLoading || initialConnectionTimedOut {
             return .reconnecting
         }
@@ -116,8 +116,8 @@ struct WorkspaceShellView: View {
                 workspaces: store.workspaces,
                 selectedWorkspaceID: compactSurfaceGridSelectedWorkspaceID,
                 selectedTerminalID: store.selectedTerminalID,
-                host: store.connectedHostName,
-                connectionStatus: listConnectionStatus,
+                host: compactSurfaceGridHost,
+                connectionStatus: compactSurfaceGridConnectionStatus,
                 canCreateWorkspace: canCreateWorkspace,
                 canCreateTerminal: canCreateTerminal,
                 selectWorkspace: selectWorkspaceFromSurfaceGrid,
@@ -221,50 +221,6 @@ struct WorkspaceShellView: View {
         }
     }
 
-    private var compactWorkspaceManager: some View {
-        WorkspaceListView(
-            workspaces: store.workspaces,
-            groups: store.workspaceGroups,
-            selectedWorkspaceID: store.selectedWorkspaceID,
-            host: store.connectedHostName,
-            connectionStatus: listConnectionStatus,
-            navigationStyle: .sidebar,
-            showsNavigationToolbar: false,
-            wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
-            previewLineLimit: displaySettings.workspacePreviewLineCount,
-            unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
-            profilePictureLeftShift: displaySettings.profilePictureLeftShift,
-            profilePictureSize: displaySettings.profilePictureSize,
-            selectWorkspace: selectWorkspaceFromSurfaceGrid,
-            createWorkspace: createWorkspaceInCompactStack,
-            createWorkspaceInGroup: createWorkspaceInGroupInCompactStackClosure,
-            createWorkspaceGroup: createWorkspaceGroupInCompactStackClosure,
-            canCreateWorkspace: canCreateWorkspaceForMacSelection,
-            macSelection: $macSelection,
-            switchMac: { macDeviceID in
-                await switchMacFromWorkspacePicker(macDeviceID: macDeviceID)
-            },
-            cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
-            refresh: refreshWorkspacesClosure,
-            reconnect: reconnectClosure,
-            showAddDevice: showAddDevice,
-            store: store,
-            renameWorkspace: renameWorkspaceClosure,
-            setPinned: setWorkspacePinnedClosure,
-            setUnread: setWorkspaceUnreadClosure,
-            closeWorkspace: closeWorkspaceClosure,
-            moveWorkspace: moveWorkspaceClosure,
-            renameWorkspaceGroup: renameWorkspaceGroupClosure,
-            setGroupPinned: setWorkspaceGroupPinnedClosure,
-            ungroupWorkspaceGroup: ungroupWorkspaceGroupClosure,
-            deleteWorkspaceGroup: deleteWorkspaceGroupClosure,
-            toggleGroupCollapsed: toggleGroupCollapsedClosure,
-            isInitialConnectionLoading: isInitialConnectionLoading,
-            initialConnectionTimedOut: initialConnectionTimedOut,
-            retryInitialConnection: retryInitialConnection
-        )
-    }
-
     private var splitLayout: some View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
             WorkspaceListView(
@@ -345,7 +301,7 @@ struct WorkspaceShellView: View {
         }
     }
 
-    private func selectWorkspaceFromSurfaceGrid(_ id: MobileWorkspacePreview.ID) {
+    func selectWorkspaceFromSurfaceGrid(_ id: MobileWorkspacePreview.ID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
         store.selectedWorkspaceID = id
         compactNavigationPath = []
@@ -405,7 +361,7 @@ struct WorkspaceShellView: View {
     /// `mobile.workspace.list` re-sync so the system refresh spinner reflects the
     /// actual round-trip. Captures `store` as a local so the closure (not a store
     /// reference) is what crosses into the `List`-hosting view.
-    private var refreshWorkspacesClosure: @Sendable () async -> Void {
+    var refreshWorkspacesClosure: @Sendable () async -> Void {
         let store = store
         // Reconnect-or-refresh: when offline, pull-to-refresh re-attempts the saved
         // active Mac or the visible unavailable workspace owner instead of
@@ -414,7 +370,7 @@ struct WorkspaceShellView: View {
     }
 
     /// Manual reconnect for the offline status row's Reconnect button.
-    private var reconnectClosure: () -> Void {
+    var reconnectClosure: () -> Void {
         let store = store
         return { Task { await store.reconnectOrRefresh() } }
     }
@@ -424,15 +380,27 @@ struct WorkspaceShellView: View {
     }
 
     private var canCreateTerminal: Bool {
-        canCreateWorkspaceOnForegroundConnection && !isCreatingTerminalFromSurfaceGrid
+        compactSurfaceGridConnectionStatus == .connected && !isCreatingTerminalFromSurfaceGrid
     }
 
     private var compactSurfaceGridSelectedWorkspaceID: MobileWorkspacePreview.ID? {
+        compactSurfaceGridSelectedWorkspace?.id
+    }
+
+    private var compactSurfaceGridSelectedWorkspace: MobileWorkspacePreview? {
         if let selectedWorkspaceID = store.selectedWorkspaceID,
-           store.workspaces.contains(where: { $0.id == selectedWorkspaceID }) {
-            return selectedWorkspaceID
+           let selectedWorkspace = store.workspaces.first(where: { $0.id == selectedWorkspaceID }) {
+            return selectedWorkspace
         }
-        return store.workspaces.first?.id
+        return store.workspaces.first
+    }
+
+    private var compactSurfaceGridConnectionStatus: MobileMacConnectionStatus {
+        compactSurfaceGridSelectedWorkspace?.macConnectionStatus ?? listConnectionStatus
+    }
+
+    private var compactSurfaceGridHost: String {
+        compactSurfaceGridSelectedWorkspace?.macDisplayName ?? store.connectedHostName
     }
 
     var canCreateWorkspaceForMacSelection: Bool {
@@ -443,7 +411,7 @@ struct WorkspaceShellView: View {
     }
 
     @MainActor
-    private func switchMacFromWorkspacePicker(macDeviceID: String) async -> Bool {
+    func switchMacFromWorkspacePicker(macDeviceID: String) async -> Bool {
         pendingMacSwitchGeneration &+= 1
         let generation = pendingMacSwitchGeneration
         pendingMacSwitchID = macDeviceID
@@ -456,7 +424,7 @@ struct WorkspaceShellView: View {
     }
 
     @MainActor
-    private func cancelMacSwitchFromWorkspacePicker(restorePreviousOnCancel: Bool) async {
+    func cancelMacSwitchFromWorkspacePicker(restorePreviousOnCancel: Bool) async {
         pendingMacSwitchGeneration &+= 1
         let generation = pendingMacSwitchGeneration
         let restoreTask = store.cancelPendingMacSwitch(restorePreviousOnCancel: restorePreviousOnCancel)

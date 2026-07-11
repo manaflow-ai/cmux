@@ -586,7 +586,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// the selection. A freshly created terminal therefore never steals the
     /// keyboard, while push-notification navigation (``selectTerminal(_:)``) is
     /// intentionally left out of the set and allowed to autofocus.
-    private var terminalAutoFocusSuppressedSurfaceIDs: Set<String> = []
+    var terminalAutoFocusSuppressedSurfaceIDs: Set<String> = []
 
     let runtime: (any MobileSyncRuntime)?
     let pairedMacStore: (any MobilePairedMacStoring)?
@@ -756,6 +756,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// switch can cancel it; its scope guards then bail before any cross-account
     /// write. Replaced (cancelling the prior) on each scheduled pass.
     private var secondaryAggregationTask: Task<Void, Never>?
+    /// Whether the visible workspace list includes a completed secondary-Mac pass.
+    public private(set) var browserWorkspaceListIsAuthoritative = false
     /// Bumped on Stack team switches so every aggregation caller, including
     /// direct pull-to-refresh calls that are not owned by
     /// ``secondaryAggregationTask``, can reject old-team results after awaits.
@@ -3532,8 +3534,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// switch can cancel it (its scope guards then bail before any cross-account
     /// write). Replaces any prior in-flight pass.
     func scheduleSecondaryAggregation() {
+        browserWorkspaceListIsAuthoritative = false
         secondaryAggregationTask?.cancel()
-        secondaryAggregationTask = Task { [weak self] in await self?.refreshSecondaryMacWorkspaces() }
+        secondaryAggregationTask = Task { @MainActor [weak self] in
+            await self?.refreshSecondaryMacWorkspaces()
+            guard !Task.isCancelled else { return }
+            self?.browserWorkspaceListIsAuthoritative = true
+        }
     }
 
     func refreshSecondaryMacWorkspaces() async {
@@ -3834,6 +3841,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// and cancel any in-flight aggregation pass so it cannot resume and re-seed
     /// the torn-down entries for a now-signed-out / switched account.
     private func teardownSecondaryMacSubscriptions() {
+        browserWorkspaceListIsAuthoritative = false
         secondaryAggregationTask?.cancel()
         secondaryAggregationTask = nil
         for (_, subscription) in secondaryMacSubscriptions { subscription.cancel() }
@@ -4155,8 +4163,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// workspace row) should pass its id so an in-flight create can't land in a
     /// different workspace if the selection drifts before the async work runs.
     ///
-    /// - Returns: `true` when creation started or completed, or `false` when
-    ///   the request was rejected before starting.
+    /// - Returns: `true` when creation starts or completes, or `false` when rejected before starting.
     @discardableResult
     public func createTerminal(in workspaceID: MobileWorkspacePreview.ID? = nil) -> Bool {
         let targetWorkspaceID = workspaceID ?? selectedWorkspace?.id
@@ -4196,50 +4203,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return true
     }
 
-    /// Select the active terminal by id without changing workspace selection.
-    public func selectTerminal(_ id: MobileTerminalPreview.ID?) {
-        selectedTerminalID = id
-    }
-
     /// One-shot "actually navigate" deep-link intent; API in
     /// `MobileShellComposite+DeeplinkNavigation.swift` (storage must live here).
     public internal(set) var deeplinkWorkspaceNavigationRequest: DeeplinkWorkspaceNavigationRequest?
-
-    /// Selects `id` as a chrome action (the terminal picker), so the surface
-    /// that comes up does not grab the keyboard.
-    ///
-    /// Switching terminals from the picker is a navigation intent, not a typing
-    /// intent, so unlike ``selectTerminal(_:)`` (which a push-notification deep
-    /// link uses and which is allowed to autofocus) this suppresses the target
-    /// surface's next autofocus. Re-confirming the already-selected terminal is
-    /// a no-op suppression, since no surface re-attach happens.
-    public func selectTerminalFromChrome(_ id: MobileTerminalPreview.ID) {
-        if id != selectedTerminalID {
-            terminalAutoFocusSuppressedSurfaceIDs.insert(id.rawValue)
-        }
-        selectedTerminalID = id
-    }
-
-    /// Whether the surface for `terminalID` may grab the keyboard on its next
-    /// window attach. False while a one-shot suppression is pending for it.
-    public func shouldAutoFocusTerminalSurface(_ terminalID: String) -> Bool {
-        !terminalAutoFocusSuppressedSurfaceIDs.contains(terminalID)
-    }
-
-    /// Clears the one-shot autofocus suppression for `terminalID` once its
-    /// surface has mounted (and so has already attached with autofocus
-    /// disabled). Called from the surface's `onAppear`.
-    public func consumeTerminalAutoFocusSuppression(for terminalID: String) {
-        terminalAutoFocusSuppressedSurfaceIDs.remove(terminalID)
-    }
-
-    /// Marks `terminalID` so its surface does not autofocus on its next window
-    /// attach. Called by every create path the instant the new terminal becomes
-    /// the selection, so a freshly created terminal never steals the keyboard.
-    func suppressTerminalAutoFocusOnNextAttach(for terminalID: MobileTerminalPreview.ID?) {
-        guard let terminalID else { return }
-        terminalAutoFocusSuppressedSurfaceIDs.insert(terminalID.rawValue)
-    }
 
     /// Record the latest measured terminal viewport for sizing future shell RPCs.
     public func reportTerminalViewport(
