@@ -12,15 +12,18 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
         case clearGitBranch(UUID, UUID)
         case pullRequestBadge(UUID, UUID, SidebarPullRequestBadge)
         case clearPullRequestBadge(UUID, UUID)
+        case scheduleGitMetadataProbe(UUID, UUID, String)
         case clearAllGitMetadata
         case clearAllPullRequestMetadata
     }
 
     struct PanelState {
         var directory: String?
+        var hasTrustedRemoteDirectory = false
         var branch: SidebarPanelGitBranch?
         var badge: SidebarPullRequestBadge?
         var isTerminal = true
+        var isRemoteTerminal = false
     }
 
     struct WorkspaceState {
@@ -85,8 +88,14 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
     func hasTerminalPanel(workspaceId: UUID, panelId: UUID) -> Bool {
         state(workspaceId)?.panels[panelId]?.isTerminal ?? false
     }
+    func isRemoteTerminalPanel(workspaceId: UUID, panelId: UUID) -> Bool {
+        state(workspaceId)?.panels[panelId]?.isRemoteTerminal ?? false
+    }
     func gitProbeDirectory(workspaceId: UUID, panelId: UUID) -> String? {
         state(workspaceId)?.panels[panelId]?.directory?.nonEmptyNormalizedGitProbeDirectory
+    }
+    func hasTrustedRemotePanelDirectory(workspaceId: UUID, panelId: UUID) -> Bool {
+        state(workspaceId)?.panels[panelId]?.hasTrustedRemoteDirectory ?? false
     }
     func panelGitBranch(workspaceId: UUID, panelId: UUID) -> SidebarPanelGitBranch? {
         state(workspaceId)?.panels[panelId]?.branch
@@ -125,6 +134,18 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
         return true
     }
 
+    @discardableResult
+    func updateRemotePanelDirectory(workspaceId: UUID, panelId: UUID, directory: String, displayLabel: String?) -> Bool {
+        guard updatePanelDirectory(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            directory: directory,
+            displayLabel: displayLabel
+        ) else { return false }
+        mutate(workspaceId) { $0.panels[panelId]?.hasTrustedRemoteDirectory = true }
+        return true
+    }
+
     func updatePanelGitBranch(workspaceId: UUID, panelId: UUID, branch: String, isDirty: Bool) {
         mutate(workspaceId) {
             $0.panels[panelId]?.branch = SidebarPanelGitBranch(branch: branch, isDirty: isDirty)
@@ -148,6 +169,10 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
     func clearPanelPullRequest(workspaceId: UUID, panelId: UUID) {
         mutate(workspaceId) { $0.panels[panelId]?.badge = nil }
         record(.clearPullRequestBadge(workspaceId, panelId))
+    }
+
+    func schedulePanelGitMetadataProbe(workspaceId: UUID, panelId: UUID, reason: String) {
+        record(.scheduleGitMetadataProbe(workspaceId, panelId, reason))
     }
 
     func clearAllSidebarGitMetadata() {

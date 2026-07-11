@@ -36,12 +36,14 @@ export default async function VaultSessionsPage({
     limit: VAULT_SESSION_LIST_PAGE_SIZE,
   });
   const serialized = serializeVaultSessionListPage(page);
+  const initialNowIso = new Date().toISOString();
 
   return (
     <SessionsTable
       initialQuery={filters.q ?? ""}
       initialRows={serialized.sessions}
       initialNextCursor={serialized.nextCursor ?? null}
+      initialNowIso={initialNowIso}
     />
   );
 }

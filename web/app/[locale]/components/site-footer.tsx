@@ -7,11 +7,23 @@ function isExternal(href: string) {
   return href.startsWith("http") || href.startsWith("mailto:");
 }
 
+type FooterLink = {
+  label: string;
+  href: string;
+  proUpgrade?: boolean;
+  unlocalized?: boolean;
+};
+
+type FooterColumn = {
+  heading: string;
+  links: FooterLink[];
+};
+
 export async function SiteFooter() {
   const t = await getTranslations("footer");
   const year = new Date().getFullYear();
 
-  const columns = [
+  const columns: FooterColumn[] = [
     {
       heading: t("product"),
       links: [
@@ -20,7 +32,7 @@ export async function SiteFooter() {
         { label: t("community"), href: "/community" },
         { label: t("nightly"), href: "/nightly" },
         { label: t("assets"), href: "/assets" },
-      ],
+      ] satisfies FooterLink[],
     },
     {
       heading: t("resources"),
@@ -29,15 +41,15 @@ export async function SiteFooter() {
         { label: t("guides"), href: "/guides" },
         { label: t("compare"), href: "/compare" },
         { label: t("changelog"), href: "/docs/changelog" },
-      ],
+      ] satisfies FooterLink[],
     },
     {
       heading: t("legal"),
       links: [
-        { label: t("privacy"), href: "/privacy-policy" },
-        { label: t("terms"), href: "/terms-of-service" },
-        { label: t("eula"), href: "/eula" },
-      ],
+        { label: t("privacy"), href: "/privacy-policy", unlocalized: true },
+        { label: t("terms"), href: "/terms-of-service", unlocalized: true },
+        { label: t("eula"), href: "/eula", unlocalized: true },
+      ] satisfies FooterLink[],
     },
     {
       heading: t("social"),
@@ -46,7 +58,7 @@ export async function SiteFooter() {
         { label: t("twitter"), href: "https://twitter.com/manaflowai" },
         { label: t("discord"), href: "https://discord.gg/xsgFEVrWCZ" },
         { label: t("contact"), href: "mailto:founders@manaflow.com" },
-      ],
+      ] satisfies FooterLink[],
     },
   ];
 
@@ -63,11 +75,15 @@ export async function SiteFooter() {
                 {col.links.map((link) => {
                   const item = (
                     <li key={link.href}>
-                      {isExternal(link.href) ? (
+                      {isExternal(link.href) || link.unlocalized ? (
                         <a
                           href={link.href}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                          target={isExternal(link.href) ? "_blank" : undefined}
+                          rel={
+                            isExternal(link.href)
+                              ? "noopener noreferrer"
+                              : undefined
+                          }
                           className="text-sm text-muted hover:text-foreground transition-colors"
                         >
                           {link.label}

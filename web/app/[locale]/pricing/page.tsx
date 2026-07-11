@@ -7,7 +7,7 @@ import { PRO_CHECKOUT_URL, TEAM_CHECKOUT_URL } from "../../lib/billing";
 import { DOWNLOAD_CONFIRMATION_HREF } from "../../lib/download";
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import { resolveProPlanStatus } from "../../../services/billing/pro";
-import { buildAlternates } from "../../../i18n/seo";
+import { buildAlternates, seoDescription } from "../../../i18n/seo";
 import {
   CurrentPlanBadge,
   DisabledButton,
@@ -25,6 +25,7 @@ import {
   type FaqItem,
   type SizeRow,
 } from "../../components/pricing-shared";
+import { CheckoutButton } from "../../components/checkout-navigation";
 
 // The Pro CTA destination is decided at runtime by the proCheckout PostHog
 // flag inside <ProCtaLink> (see app/lib/feature-flags.ts); the download
@@ -41,9 +42,13 @@ export async function generateMetadata({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "pricing" });
+  const description = seoDescription(
+    locale,
+    SHOW_VAULT ? t("metaDescription") : t("metaDescriptionNoVault"),
+  );
   return {
     title: t("metaTitle"),
-    description: SHOW_VAULT ? t("metaDescription") : t("metaDescriptionNoVault"),
+    description,
     alternates: buildAlternates(locale, "/pricing"),
   };
 }
@@ -73,14 +78,14 @@ export default async function PricingPage({
   const faqItems = visibleFaqItems(t.raw("faq.items") as FaqItem[]);
 
   const linkClass =
-    "underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors";
+    "underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors";
 
   return (
     <div className="min-h-screen">
       <SiteHeader />
 
       <main className="w-full max-w-6xl mx-auto px-6 py-16 sm:py-20">
-        {/* Post-checkout / billing states from /api/billing/checkout|confirm */}
+        {/* Post-checkout / billing states from /api/billing/checkout */}
         <Suspense fallback={null}>
           <ProWelcomeBanner />
         </Suspense>
@@ -100,7 +105,7 @@ export default async function PricingPage({
             <p className="mt-5 text-sm font-medium text-muted">
               {t("free.featuresLead")}
             </p>
-            <FeatureList items={freeFeatures} muted />
+            <FeatureList items={freeFeatures} />
           </PlanCard>
 
           {/* Pro */}
@@ -136,7 +141,7 @@ export default async function PricingPage({
             price={t("team.price")}
             period={t("perUserMonth")}
           >
-            <PrimaryLink href={TEAM_CHECKOUT_URL}>{t("team.cta")}</PrimaryLink>
+            <CheckoutButton href={TEAM_CHECKOUT_URL}>{t("team.cta")}</CheckoutButton>
             <p className="mt-5 text-sm font-medium">{t("team.featuresLead")}</p>
             <FeatureList items={teamFeatures} />
           </PlanCard>
@@ -157,9 +162,8 @@ export default async function PricingPage({
         </div>
 
         {/* Compare plans. Header row is sticky under the 48px h-12 site header.
-            No overflow-x wrapper: an overflow container becomes a scroll context
-            on both axes and would anchor the sticky header to itself instead of
-            the page. */}
+            Horizontal scrolling is mobile-only so desktop keeps the page as the
+            sticky scroll container. */}
         <section className="mt-16">
           <PricingCompareTable
             rows={compareRows}
@@ -196,9 +200,9 @@ export default async function PricingPage({
                 )
               ),
               team: (
-                <PrimaryLink href={TEAM_CHECKOUT_URL} size="compact">
+                <CheckoutButton href={TEAM_CHECKOUT_URL} size="compact">
                   {t("team.cta")}
-                </PrimaryLink>
+                </CheckoutButton>
               ),
               enterprise: (
                 <SecondaryLink href={ENTERPRISE_CTA_URL} size="compact">
@@ -270,16 +274,19 @@ export default async function PricingPage({
   );
 }
 
-async function currentPlanSnapshot(): Promise<{ isPro: boolean }> {
+async function currentPlanSnapshot(): Promise<{
+  isPro: boolean;
+  billingManagement: "stripe" | "none";
+}> {
   if (!isStackConfigured()) {
-    return { isPro: false };
+    return { isPro: false, billingManagement: "none" };
   }
 
   const user = await getStackServerApp().getUser({ or: ANONYMOUS_IF_EXISTS });
   if (!user) {
-    return { isPro: false };
+    return { isPro: false, billingManagement: "none" };
   }
 
   const status = await resolveProPlanStatus(user);
-  return { isPro: status.isPro };
+  return { isPro: status.isPro, billingManagement: status.billingManagement };
 }

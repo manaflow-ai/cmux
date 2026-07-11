@@ -11,18 +11,7 @@ private var cmuxWindowTerminalPortalCloseObserverKey: UInt8 = 0
 
 final class WindowTerminalHostView: NSView {
     private typealias DividerRegion = PortalSplitDividerRegion
-
-    private enum DividerCursorKind: Equatable {
-        case vertical
-        case horizontal
-
-        var cursor: NSCursor {
-            switch self {
-            case .vertical: return .resizeLeftRight
-            case .horizontal: return .resizeUpDown
-            }
-        }
-    }
+    private typealias DividerCursorKind = PortalDividerCursorKind
 
     override var isOpaque: Bool { false }
     private static let sidebarLeadingEdgeEpsilon: CGFloat = 1
@@ -35,6 +24,8 @@ final class WindowTerminalHostView: NSView {
     private var splitDividerResizeObserver: NSObjectProtocol?
     private var trackingArea: NSTrackingArea?
     private var activeDividerCursorKind: DividerCursorKind?
+    private let dividerCursorOcclusion = PortalDividerCursorOcclusion()
+    let paneDropRoutingSession = PaneDropRoutingSession()
 #if DEBUG
     private var lastDragRouteSignature: String?
 #endif
@@ -85,7 +76,7 @@ final class WindowTerminalHostView: NSView {
         super.resetCursorRects()
         invalidateSplitDividerRegionCache()
         let regions = splitDividerRegions()
-        let expansion: CGFloat = 4
+        let expansion = PortalSplitDividerRegion.dividerHitExpansion
         for region in regions {
             var rectInHost = convert(region.rectInWindow, from: nil)
             rectInHost = rectInHost.insetBy(
@@ -118,13 +109,11 @@ final class WindowTerminalHostView: NSView {
     }
 
     override func cursorUpdate(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        updateDividerCursor(at: point)
+        updateDividerCursor(at: convert(event.locationInWindow, from: nil))
     }
 
     override func mouseMoved(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        updateDividerCursor(at: point)
+        updateDividerCursor(at: convert(event.locationInWindow, from: nil))
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -162,22 +151,18 @@ final class WindowTerminalHostView: NSView {
             }
 
             if let kind = splitDividerCursorKind(at: point) {
-                activeDividerCursorKind = kind
-                kind.cursor.set()
-                TerminalWindowPortalRegistry.noteSplitDividerInteraction(
-                    in: window,
-                    event: currentEvent
-                )
+                assertDividerCursor(kind)
+                TerminalWindowPortalRegistry.noteSplitDividerInteraction(in: window, event: currentEvent)
                 return nil
             }
 
             clearActiveDividerCursor(restoreArrow: true)
-
-            if routingContext.allowsTerminalPortalDragRouting {
+            if routingContext.allowsTerminalPortalDragRouting,
+               routingContext.eventKind != .pointerUp || hasActivePaneDropDrag || AppDelegate.shared?.sidebarWorkspaceDragRegistry.currentWorkspaceId != nil {
                 let dragPasteboardTypes = NSPasteboard(name: .drag).types
                 let shouldPassThrough = DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
                     pasteboardTypes: dragPasteboardTypes,
-                    eventType: eventType
+                    eventType: eventType, hasActiveDropDrag: hasActivePaneDropDrag || AppDelegate.shared?.sidebarWorkspaceDragRegistry.currentWorkspaceId != nil
                 )
                 if shouldPassThrough {
                     let hitView = super.hitTest(point)
@@ -350,8 +335,18 @@ final class WindowTerminalHostView: NSView {
             clearActiveDividerCursor(restoreArrow: true)
             return
         }
-        activeDividerCursorKind = nextKind
-        nextKind.cursor.set()
+        assertDividerCursor(nextKind)
+    }
+
+    // A registry-latched divider drag owned by this window bypasses occlusion; a pressed button alone is not ownership.
+    private func assertDividerCursor(_ kind: DividerCursorKind) {
+        guard TerminalWindowPortalRegistry.isSplitDividerDragActive(in: window)
+            || dividerCursorOcclusion.mayAssertDividerCursor(in: window) else {
+            clearActiveDividerCursor(restoreArrow: false)
+            return
+        }
+        activeDividerCursorKind = kind
+        kind.cursor.set()
     }
 
     private func clearActiveDividerCursor(restoreArrow: Bool) {
@@ -365,8 +360,7 @@ final class WindowTerminalHostView: NSView {
 
     private func splitDividerCursorKind(at point: NSPoint) -> DividerCursorKind? {
         guard window != nil else { return nil }
-        let windowPoint = convert(point, to: nil)
-        return Self.dividerCursorKind(at: windowPoint, in: splitDividerRegions(), checkLiveness: false)
+        return Self.dividerCursorKind(at: convert(point, to: nil), in: splitDividerRegions(), checkLiveness: false)
     }
 
     static func hasSplitDivider(atScreenPoint screenPoint: NSPoint, in window: NSWindow) -> Bool {
@@ -1265,11 +1259,8 @@ final class WindowTerminalPortal: NSObject {
     }
 
     private func reconcileVisibleHostedViewsAfterGeometrySync(reason: String) {
-        // During live resize, AppKit can deliver frame churn where outer portal geometry
-        // settles a tick before the terminal's own scroll/surface hierarchy. Only force an
-        // in-place surface refresh when reconciliation actually changed terminal geometry.
         for entry in entriesByHostedId.values {
-            guard let hostedView = entry.hostedView, !hostedView.isHidden else { continue }
+            guard entry.visibleInUI, let hostedView = entry.hostedView, !hostedView.isHidden else { continue }
             if hostedView.reconcileGeometryNow() {
                 hostedView.refreshSurfaceNow(reason: reason)
             }
@@ -1591,8 +1582,11 @@ final class WindowTerminalPortal: NSObject {
             }
             CATransaction.commit()
             if geometryChanged {
-                hostedView.reconcileGeometryNow()
-                hostedView.refreshSurfaceNow(reason: "portal.frameChange")
+                _ = hostedView.reconcileGeometryNow()
+                // Hidden surfaces keep geometry bookkeeping and redraw on reveal.
+                if entry.visibleInUI, !shouldHide, !hostedView.isHidden {
+                    hostedView.refreshSurfaceNow(reason: "portal.frameChange")
+                }
             }
         }
 
@@ -1865,14 +1859,20 @@ enum TerminalWindowPortalRegistry {
         return false
     }
 
+    fileprivate static func isSplitDividerDragActive(in window: NSWindow?) -> Bool {
+        guard let window, isCurrentEventSplitDividerDrag() else { return false }
+        return activeSplitDividerDragWindowId == ObjectIdentifier(window)
+    }
+
     private static func clearActiveSplitDividerDrag() {
         activeSplitDividerDragWindowId = nil
         activeSplitDividerDragEventNumber = nil
     }
 
+    // Only the event's own window may latch drag ownership: a foreign drag routed through an occluded host must not self-authorize its cursor.
     fileprivate static func noteSplitDividerInteraction(in window: NSWindow?, event: NSEvent?) {
-        guard let window, let event else { return }
-        guard (NSEvent.pressedMouseButtons & 1) != 0 else { return }
+        guard let window, let event, event.window === window,
+              (NSEvent.pressedMouseButtons & 1) != 0 else { return }
 
         switch event.type {
         case .leftMouseDown, .leftMouseDragged:

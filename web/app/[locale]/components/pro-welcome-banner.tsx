@@ -3,8 +3,8 @@
 import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
 
-// Reads the ?welcome= / ?billing= states set by /api/billing/checkout and
-// /api/billing/confirm so the /pro page itself can stay static.
+// Reads the ?welcome= / ?billing= states set by /api/billing/checkout so the
+// /pro page itself can stay static.
 // Render inside <Suspense> (useSearchParams requirement).
 export function ProWelcomeBanner() {
   const t = useTranslations("pricing");
@@ -42,8 +42,8 @@ export function ProWelcomeBanner() {
         <>
           {" "}
           <a
-            href="/api/billing/confirm"
-            className="underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors"
+            href="/pricing"
+            className="underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors"
           >
             {t("welcomePendingAction")}
           </a>

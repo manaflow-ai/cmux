@@ -62,11 +62,19 @@ export function makeBillingCompleteHandler(
           session.payment_status === "paid" ||
           session.payment_status === "no_payment_required"
         ) {
-          await dependencies.recordCheckoutCompletion({
+          const completion = await dependencies.recordCheckoutCompletion({
             session,
             subscription: expandedSubscription(session),
             customer: expandedCustomer(session),
           });
+          if ("skipped" in completion) {
+            return NextResponse.redirect(new URL("/pricing?billing=account_deletion", request.url));
+          }
+          if (session.metadata?.plan === "team") {
+            return NextResponse.redirect(
+              new URL("/dashboard/billing?welcome=team", request.nextUrl.origin),
+            );
+          }
           const success = new URL("/billing/success", request.nextUrl.origin);
           success.searchParams.set("session_id", session.id);
           success.searchParams.set("cmux_scheme", scheme);

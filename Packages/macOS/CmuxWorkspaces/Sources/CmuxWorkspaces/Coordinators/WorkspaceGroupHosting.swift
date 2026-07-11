@@ -28,12 +28,15 @@ public protocol WorkspaceGroupHosting<Tab>: WorkspaceOrderHosting {
         inheritWorkingDirectory: Bool,
         select: Bool
     ) -> Tab
-    /// Creates a member workspace for `createWorkspaceInGroup` (legacy
-    /// `addWorkspace(workingDirectory:initialSurface:inheritWorkingDirectory:
-    /// select:autoWelcomeIfNeeded: false)`).
+    /// Creates a member workspace for `createWorkspaceInGroup`, preserving
+    /// the app target's workspace construction options for the initial surface.
     func createWorkspaceForGroup(
+        title: String?,
         workingDirectory: String?,
         initialSurface: NewWorkspaceInitialSurface,
+        initialBrowserURL: URL?,
+        initialBrowserOmnibarVisible: Bool,
+        initialBrowserTransparentBackground: Bool,
         inheritWorkingDirectory: Bool,
         select: Bool
     ) -> Tab

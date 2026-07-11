@@ -1,6 +1,6 @@
 import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
-import { buildAlternates } from "@/i18n/seo";
+import { buildAlternates, seoDescription } from "@/i18n/seo";
 import { Link } from "@/i18n/navigation";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { DOWNLOAD_CONFIRMATION_HREF } from "@/app/lib/download";
@@ -275,7 +275,7 @@ export async function generateMetadata({
   const t = await getTranslations({ locale, namespace: "deeplink" });
   return {
     title: t(`${kind}.metaTitle`),
-    description: t(`${kind}.metaDescription`),
+    description: seoDescription(locale, t(`${kind}.metaDescription`)),
     alternates: buildAlternates(locale, `/deeplink/${kind}`),
   };
 }
@@ -386,7 +386,7 @@ export default async function DeeplinkPage({
           {t("examplePrefix")}{" "}
           <a
             href={definition.exampleHref}
-            className="underline underline-offset-2 decoration-border hover:decoration-foreground"
+            className="underline underline-offset-2 decoration-link-underline hover:decoration-foreground"
           >
             {t("exampleLink")}
           </a>

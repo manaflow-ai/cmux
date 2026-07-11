@@ -53,9 +53,14 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             object: tabManager,
             queue: .main
         ) { [weak self] notification in
-            let changedWorkspaceId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID
-            Task { @MainActor [weak self, changedWorkspaceId] in
-                guard let self, changedWorkspaceId == self.tabManager?.selectedTabId, self.tabManager?.shouldScheduleRawTitleRefresh(forWorkspaceId: changedWorkspaceId) == false else { return }
+            // Extract Sendable values where the notification is delivered; the
+            // non-Sendable Notification must not cross the Task boundary.
+            let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID
+            let surfaceSourced = notification.userInfo?[GhosttyNotificationKey.surfaceId] != nil
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.tabManager?.shouldRefreshTitleChrome(tabId: tabId, surfaceSourced: surfaceSourced) == true
+                else { return }
                 self.scheduleFocusedCommandTextUpdate()
             }
         })

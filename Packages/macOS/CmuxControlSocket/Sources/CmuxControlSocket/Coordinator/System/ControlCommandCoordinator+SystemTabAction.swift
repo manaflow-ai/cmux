@@ -10,7 +10,7 @@ extension ControlCommandCoordinator {
         "close_left", "close_right", "close_others",
         "new_terminal_right", "new_browser_right",
         "reload", "duplicate", "move_to_new_workspace", "detach_to_workspace", "detach_to_new_workspace",
-        "pin", "unpin", "mark_read", "mark_unread",
+        "pin", "unpin", "mark_read", "mark_unread", "toggle_full_width_tab",
     ]
 
     /// `surface.action` / `tab.action` — run one surface-tab mutation.
@@ -71,6 +71,8 @@ extension ControlCommandCoordinator {
             return browserDisabledResult(outcome)
         case .tabPaneNotFound:
             return .err(code: "not_found", message: "Tab pane not found", data: nil)
+        case .fullWidthTabToggleFailed:
+            return .err(code: "invalid_state", message: "Failed to toggle full-width tab mode", data: nil)
         case .tabNotFoundInPane:
             return .err(code: "not_found", message: "Tab not found in pane", data: nil)
         case .createFailed:
@@ -105,6 +107,8 @@ extension ControlCommandCoordinator {
                 payload["title"] = .string(title)
             case .pinned(let pinned):
                 payload["pinned"] = .bool(pinned)
+            case .fullWidthTabMode(let enabled):
+                payload["full_width_tab_mode"] = .bool(enabled)
             case .created(let createdID):
                 payload["created_surface_id"] = .string(createdID.uuidString)
                 payload["created_surface_ref"] = ref(.surface, createdID)

@@ -1,5 +1,6 @@
 import Foundation
 import CmuxCore
+import CmuxWorkspaces
 import Darwin
 import CmuxNotifications
 import CmuxSidebar
@@ -27,6 +28,7 @@ extension Workspace {
         let isLoading: Bool
         let isPinned: Bool
         let directory: String?
+        let directoryIsTrustedRemoteReport: Bool
         let directoryDisplayLabel: String?
         let ttyName: String?
         let cachedTitle: String?
@@ -36,6 +38,8 @@ extension Workspace {
         let restoredUnreadIndicator: RestoredPanelUnreadIndicator?
         let restorableAgent: SessionRestorableAgentSnapshot?
         let restorableAgentResumeState: RestoredAgentResumeState?
+        let restoredAgentCompletedGeneration: RestoredAgentCompletedGeneration?
+        let shellActivityState: PanelShellActivityState?
         let restoredResumeSessionWorkingDirectory: String?
         let resumeBinding: SurfaceResumeBindingSnapshot?
         let agentRuntime: DetachedAgentRuntimeState?
@@ -56,6 +60,7 @@ extension Workspace {
                 isLoading: isLoading,
                 isPinned: isPinned,
                 directory: directory,
+                directoryIsTrustedRemoteReport: directoryIsTrustedRemoteReport,
                 directoryDisplayLabel: directoryDisplayLabel,
                 ttyName: ttyName,
                 cachedTitle: cachedTitle,
@@ -65,6 +70,8 @@ extension Workspace {
                 restoredUnreadIndicator: restoredUnreadIndicator,
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
+                restoredAgentCompletedGeneration: restoredAgentCompletedGeneration,
+                shellActivityState: shellActivityState,
                 restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
                 resumeBinding: resumeBinding,
                 agentRuntime: agentRuntime,

@@ -51,7 +51,10 @@
       "vaultSessions": "セッション",
       "vaultCliSetup": "CLI設定",
       "subrouterGroup": "subrouter",
-      "subrouterOverview": "概要"
+      "subrouterOverview": "概要",
+      "accountGroup": "アカウント",
+      "billing": "請求",
+      "testflight": "iOS TestFlight"
     },
     "home": {
       "title": "ダッシュボード",
@@ -66,6 +69,109 @@
     "subrouter": {
       "title": "subrouter",
       "description": "subrouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。"
+    },
+    "billing": {
+      "eyebrow": "アカウント",
+      "title": "請求",
+      "description": "cmuxプランを確認し、サブスクリプション請求を管理します。",
+      "banners": {
+        "cancelled": "現在の請求期間の終了時にプランがキャンセルされます。",
+        "resumed": "プランは再開され、通常どおり更新されます。",
+        "nosub": "このアカウントに有効なStripeサブスクリプションは見つかりませんでした。",
+        "error": "請求を更新できませんでした。しばらくしてから再試行してください。"
+      },
+      "free": {
+        "name": "Free",
+        "body": "現在はFreeプランです。Proの上限やホスト型機能が必要になったらアップグレードしてください。",
+        "upsellTitle": "クラウドエージェントやチーム請求が必要になったらアップグレードできます。",
+        "upsellBody": "個人向けクラウド機能にはPro、共有請求とシート管理にはTeamを選択してください。",
+        "testflightTitle": "cmux iOSアプリを入手",
+        "testflightBody": "iOSベータは、有効なProユーザーとTeamメンバーがTestFlightで利用できます。",
+        "testflightCta": "iOSベータに参加"
+      },
+      "pro": {
+        "name": "cmux Pro",
+        "activeBody": "プランは{date}に更新されます。",
+        "pendingBody": "プランは{date}に終了する予定です。"
+      },
+      "team": {
+        "name": "cmux Team",
+        "fallbackName": "チーム",
+        "activeBody": "{team}は{date}に更新されます。",
+        "pendingBody": "{team}は{date}に終了する予定です。",
+        "price": "$35/シート/月"
+      },
+      "details": {
+        "renewsOn": "更新日",
+        "endsOn": "終了日",
+        "price": "料金",
+        "seats": "シート数"
+      },
+      "dates": {
+        "unknown": "不明"
+      },
+      "cancel": {
+        "body": "Proアクセスは{date}まで有効です。請求期間の終了時にキャンセルすることを確認するには、チェックボックスを選択してください。",
+        "teamBody": "Teamアクセスは{date}まで有効です。請求期間の終了時にキャンセルすることを確認するには、チェックボックスを選択してください。",
+        "checkbox": "現在の請求期間の終了時にプランが終了することを理解しました。"
+      },
+      "actions": {
+        "viewPricing": "料金を見る",
+        "manageBilling": "請求を管理",
+        "cancelSummary": "プランをキャンセル",
+        "confirmCancel": "キャンセルを確定",
+        "resume": "プランを再開"
+      },
+      "plan": {
+        "heading": "個人プラン",
+        "free": "無料",
+        "pro": "Pro",
+        "loading": "読み込み中…"
+      }
+    },
+    "testflight": {
+      "eyebrow": "アカウント",
+      "title": "iOS TestFlight",
+      "description": "有効なサブスクリプションでcmux iOSベータに参加します。",
+      "banners": {
+        "joined": "AppleからTestFlightの招待メールがまもなく届きます。",
+        "left": "iOS TestFlightグループから退出しました。",
+        "error": "TestFlightを更新できませんでした。しばらくしてから再試行してください。",
+        "ineligible": "iOS TestFlightには有効なProまたはTeamサブスクリプションが必要です。",
+        "needs_email": "iOS TestFlightに参加する前に、確認済みのメインメールを追加してください。",
+        "unavailable": "現在、TestFlight登録は利用できません。"
+      },
+      "notEligible": {
+        "title": "サブスクリプションが必要です",
+        "body": "iOS TestFlightアクセスは、有効なProユーザーとTeamサブスクリプションのメンバーが利用できます。"
+      },
+      "needsEmail": {
+        "title": "確認済みメールが必要です",
+        "body": "AppleがTestFlight招待を送信できるよう、アカウントに確認済みのメインメールを追加してください。"
+      },
+      "unavailable": {
+        "title": "登録を利用できません",
+        "body": "この環境ではTestFlight登録が設定されていません。しばらくしてから再試行してください。"
+      },
+      "join": {
+        "title": "iOSベータに参加",
+        "body": "Appleが{email}にTestFlight招待を送信します。iPhoneにTestFlightをインストールして、招待を承認してください。"
+      },
+      "enrolled": {
+        "title": "登録済みです",
+        "body": "{email}はcmux iOS TestFlightグループに登録されています。",
+        "lapseNote": "サブスクリプションが失効すると、アクセスは自動的に終了します。"
+      },
+      "details": {
+        "email": "メール",
+        "status": "ステータス",
+        "enrolled": "登録済み"
+      },
+      "actions": {
+        "viewPricing": "料金を見る",
+        "join": "iOS TestFlightに参加",
+        "leave": "TestFlightから退出"
+      }
     },
     "aiAccounts": {
       "metaTitle": "AIアカウント — cmux",
@@ -1216,9 +1322,9 @@
       "enableTitle": "有効にする",
       "enableDesc": "設定 → ベータ機能 を開き、「リモート tmux」をオンにします。デフォルトはオフなので、オプトインするまでローカルのターミナルには何も影響しません。",
       "attachTitle": "接続する",
-      "attachIntro": "ターミナルで cmux ssh-tmux <宛先>（~/.ssh/config のエイリアスまたは user@host）を実行します。cmux はそのホストの tmux セッションをミラーリングする新しいウィンドウを開きます。各セッションはワークスペースに、各ウィンドウはタブに、複数ペインのウィンドウはタブ内の分割になります。",
-      "attachSockets": "remote.tmux.* のソケットコマンド（下記）でより細かく制御できます。たとえば remote.tmux.mirror は、専用ウィンドウを開く代わりに、ホストのセッションを現在のウィンドウのサイドバーにミラーリングします。",
-      "attachCli": "非対話で認証されるホスト（ssh-agent や ~/.ssh/config の鍵）はプロンプトなしで接続されます。対話的な認証（パスワード、ホストキーの確認、多要素認証）が必要なホストでは、cmux がそのターミナル内で ssh を実行するため、その場で認証でき、その後 cmux がミラーウィンドウを開きます。--port と --identity を指定できます。",
+      "attachIntro": "ターミナルで cmux ssh-tmux <宛先>（~/.ssh/config のエイリアスまたは user@host）を実行します。cmux はそのホストの tmux セッションを現在のウィンドウのサイドバーにミラーリングします。各セッションはワークスペースに、各ウィンドウはタブに、複数ペインのウィンドウはタブ内の分割になります。",
+      "attachSockets": "remote.tmux.* のソケットコマンド（下記）でより細かく制御できます。remote.tmux.mirror がミラーリングのエントリポイントで、ウィンドウや呼び出し元のルーティングを受け取り、必要に応じてミラーワークスペースを選択できます。",
+      "attachCli": "非対話で認証されるホスト（ssh-agent や ~/.ssh/config の鍵）はプロンプトなしで接続されます。対話的な認証（パスワード、ホストキーの確認、多要素認証）が必要なホストでは、cmux がそのターミナル内で ssh を実行するため、その場で認証でき、その後 cmux が現在のウィンドウにミラーリングします。--port、--identity、--no-focus を指定できます。",
       "troubleshootTitle": "「Permission denied」が出る場合",
       "troubleshootDesc": "宛先はそのまま ssh に渡されるため、エイリアスにはログインに必要な設定をすべて含める必要があります。特に User（未指定だと ssh はローカルのユーザー名を使います）と IdentityFile です:",
       "troubleshootFallback": "または cmux ssh-tmux dev@my-ssh-alias のようにユーザーを明示指定してください。素の ssh <宛先> でログインできない場合は、cmux ssh-tmux <宛先> でも接続できません。",
@@ -1233,14 +1339,13 @@
       "behaviorMouse": "マウス: リモートアプリがマウスモードのとき、クリック・スクロール・ドラッグがリモートアプリに届きます。ネイティブな cmux のテキスト選択・コピーには、Shift を押しながらドラッグしてください（マウスモードのアプリを実行している通常のターミナルと同じ挙動です）。",
       "behaviorUnicode": "Unicode に正しい出力: tmux が更新の途中でマルチバイト文字を分割しても文字は保持されるため、罫線素片などの幅広な内容も乱れずに描画されます。",
       "socketTitle": "ソケットコマンド",
-      "socketDesc": "この機能はソケットコマンドからも操作できます（ベータ機能フラグでゲートされます）。host は SSH の宛先または ~/.ssh/config のエイリアス、session は tmux のセッション名です。",
+      "socketDesc": "この機能はソケットコマンドからも操作できます（ベータ機能フラグでゲートされます）。host は SSH の宛先または ~/.ssh/config のエイリアス、session は tmux のセッション名です。mirror は通常の window/workspace/surface/pane ルーティングも受け取ります。",
       "socketMethod": "メソッド",
       "socketParams": "パラメータ",
       "socketMeaning": "説明",
       "methodSessions": "ホスト上の tmux セッションを一覧表示します。",
       "methodAttach": "セッションにコントロールクライアントで接続します（create で「接続または作成」）。",
-      "methodMirror": "ホスト上のすべてのセッションを、それぞれワークスペースとしてミラーリングします（ウィンドウがタブになります）。",
-      "methodWindow": "ホスト上のすべてのセッションをミラーリングする専用ウィンドウを開きます（cmux ssh-tmux のエントリポイント）。ホストが必要とする場合は、対話的認証のために実行すべき ssh コマンドを返します。",
+      "methodMirror": "ホスト上のすべてのセッションを解決されたウィンドウにミラーリングします（各セッションがワークスペース、ウィンドウがタブになります）。ホストが必要とする場合は、対話的認証のために実行すべき ssh コマンドを返します。",
       "methodDetach": "コントロールクライアントをデタッチします。リモートセッションは動作し続けます。",
       "methodState": "コントロールクライアントの観測状態を報告します（診断用）。",
       "socketSafetyDesc": "ダッシュで始まる host や identity ファイルは、SSH オプションインジェクション対策として境界で拒否されます。",
@@ -1422,7 +1527,7 @@
       "managingTitle": "グループの管理",
       "managingIntro": "グループが作成された後は、ヘッダーのコンテキストメニューとヘッダーの + ボタンを使って、グループの管理やワークスペースの追加ができます。どちらも新しいグループは作成しません。",
       "headerMenuTitle": "グループヘッダーのコンテキストメニューから",
-      "headerMenuDesc": "既存のグループヘッダーを右クリックすると、「グループ名を変更…」、「グループをピン留め」／「グループのピン留めを解除」、「グループ設定を編集…」（~/.config/cmux/cmux.json を開きます）、「ワークスペースグループのドキュメントを開く」、「グループ解除（ワークスペースは残す）」、および「グループを削除（ワークスペースを閉じる）」が表示されます。削除は破壊的な操作で確認を求められます。グループ解除はワークスペースを残し、コンテナを取り除くだけです。",
+      "headerMenuDesc": "既存のグループヘッダーを右クリックすると、「グループ名を変更…」、「グループをピン留め」／「グループのピン留めを解除」、「グループ設定を編集…」（~/.config/cmux/cmux.json を開きます）、「ワークスペースグループのドキュメントを開く」、「ワークスペースのグループ解除」、および「グループを削除」が表示されます。「ワークスペースのグループ解除」はワークスペースを残し、グループコンテナだけを取り除きます。「グループを削除」はグループヘッダーのワークスペースとグループ内のすべてのワークスペースを閉じます。子ワークスペースがある場合は、先に確認を求めます。",
       "plusButtonTitle": "グループヘッダーの + ボタンから",
       "plusButtonDesc": "グループヘッダーにカーソルを合わせると、末尾に + ボタンが表示されます。それをクリックすると、アンカーの作業ディレクトリでグループ内に新しいワークスペースを作成します。右クリックすると、「グループに新しいワークスペース」、「グループ設定を編集…」、および「ワークスペースグループのドキュメントを開く」が表示されます。",
       "plusButtonNote": "アクティブなワークスペースがグループのアンカーまたはメンバーのときに {shortcut} を押しても、新しいワークスペースがそのグループ内に作成されます。デフォルトの配置は After current です。通常のグループメンバーからはアクティブなメンバーの直後に、アンカーまたはヘッダーからはグループの先頭に新しいワークスペースが配置されます。",
@@ -1478,6 +1583,28 @@
       "exampleConfig": "設定例",
       "metaTitle": "設定",
       "schemaDescriptions": {
+        "agentChat": {
+          "description": "Agent Chat GUI サーバーの設定です。組み込みの「新しいエージェントチャット」アクションは、この URL をブラウザワークスペースで開き、先に /healthz を確認し、サーバーが停止している場合は設定した起動コマンドを実行できます。",
+          "url": "このマシン上の Agent Chat GUI サーバーのベース URL です。cmux はワークスペースを開く前に <url>/healthz を確認します。",
+          "startCommand": "<url>/healthz に到達できない場合に Agent Chat サーバーを起動する任意のシェルコマンドです。cmux はユーザーの SHELL でデタッチ実行し、短い上限付き時間だけ healthz をポーリングしてから、どちらの場合もワークスペースを開きます。",
+          "keys": {
+            "description": "Agent Chat Web UI のキーボード動作の上書き設定です。",
+            "ctrlJ": "Agent Chat のテキスト欄での Ctrl+J の動作です。newline は改行を挿入し、menu はメニューが開いている間に次のポップアップ項目へ移動します。"
+          },
+          "fonts": {
+            "description": "Agent Chat Web UI のフォント上書き設定です。省略した値は Ghostty と組み込み既定値にフォールバックします。",
+            "sansFamily": "Agent Chat の本文と UI テキストで使う CSS フォントファミリーです。",
+            "bodyFamily": "sansFamily の別名です。",
+            "family": "sansFamily の別名です。",
+            "baseSize": "Agent Chat の基準フォントサイズ（CSS ピクセル）です。",
+            "bodySize": "baseSize の別名です。",
+            "monoFamily": "Agent Chat のコードと等幅テキストで使う CSS フォントファミリーです。",
+            "codeFamily": "monoFamily の別名です。",
+            "codeSize": "Agent Chat のコードフォントサイズ（CSS ピクセル）です。",
+            "monoSize": "codeSize の別名です。",
+            "codeLineHeight": "Agent Chat のコードブロックで使う行高倍率です。"
+          }
+        },
         "automation": {
           "ampIntegration": "Amp の cmux 連携フックを有効にします。無効にすると、バンドルされたプラグインは削除せずに非アクティブのままになります。",
           "suppressSubagentNotifications": "ネストされた Codex または Claude の子エージェントからの表示される完了通知とステータス変更を抑制し、それらのイベントは Feed テレメトリに残します。",
@@ -1601,8 +1728,9 @@
       "actionTypes": "アクションの種類",
       "actionTypeBuiltin": "cmux.newTerminal、cmux.newBrowser、cmux.splitRight、cmux.splitDown などの組み込み cmux アクションに別名を付けます。",
       "actionTypeCommand": "ターミナルでシェルテキストを実行します。target で現在のターミナルまたは現在のペイン内の新しいタブを選びます。",
-      "actionTypeAgent": "対応しているコーディングエージェントを起動します。現在は codex と claude を、任意の引数付きでサポートしています。",
+      "actionTypeAgent": "コーディングエージェントを新しいターミナルタブで起動します。任意の CLI 名(claude、codex、opencode、独自バイナリなど)を指定でき、args も併用できます。",
       "actionTypeWorkspaceCommand": "commands から名前付きのワークスペース定義を実行します。複数ペインのレイアウト、カスタム作業ディレクトリ、起動コマンドに使います。",
+      "actionTypeWorkspace": "アクション内に埋め込んだワークスペース定義から新しいワークスペースを作成します。restart の指定も可能で、新規ワークスペースのプラスボタンメニューに自動的に表示されます。",
       "actionFields": "アクションのフィールド",
       "actionFieldTitle": "Command Palette の行タイトル、サーフェスボタンのラベル、メニュー項目タイトル、信頼確認のタイトルです。項目側で上書きできます。",
       "actionFieldSubtitle": "Command Palette の補助テキストです。description は subtitle の別名として使えます。",
@@ -1611,6 +1739,7 @@
       "actionFieldShortcut": "任意のアクションショートカットです。設定ショートカットと同じ単一キーまたは 2 ステップのコード構文を使います。",
       "actionFieldTarget": "command と agent アクション専用です。currentTerminal または newTabInCurrentPane を使います。",
       "actionFieldConfirm": "アクションを実行する前に確認します。",
+      "actionFieldNewWorkspaceMenu": "true にすると任意のアクションを新規ワークスペースのプラスボタンメニューに表示し、false にするとワークスペースアクションを非表示にします。",
       "commandPaletteBehavior": "Command Palette の動作",
       "commandPaletteBehaviorDesc": "Command Palette は解決済みのアクションレジストリを読みます。<palette>palette</palette> が false でない場合、カスタムアクション ID は行として追加されます。従来の <commands>commands</commands> は、同じ生成 ID のアクションが既にない限り、自動的にカスタム行として追加されます。組み込みコマンドは通常のパレット表示名を保ちますが、<newTerminal>cmux.newTerminal</newTerminal> のような組み込み ID を上書きすると、その共有エントリポイントの動作が変わります。",
       "commandPaletteScreenshotAlt": "cmux.json のカスタム Worktree Agents アクションを表示している cmux Command Palette",
@@ -1620,6 +1749,10 @@
       "newWorkspaceButton": "プラスボタンのカスタムアクション",
       "newWorkspaceButtonDesc": "<action>ui.newWorkspace.action</action> でプラスボタンの動作を上書きします。<contextMenu>ui.newWorkspace.contextMenu</contextMenu> (または別名 <rightClick>rightClick</rightClick>) で、右クリックメニューの順序を定義します。メニュー項目には、アクション ID、アクションオブジェクト、または <separator>{ \"type\": \"separator\" }</separator> を指定できます。",
       "newWorkspaceWorktreeNote": "この例では、通常のプラスクリックで <action>worktree-agents</action> アクションを実行します。<commands>commands</commands> のワークスペースコマンドは、見えるセットアップ用ターミナルを使って最初に Git <worktree>worktree</worktree> を作成します。Codex と Claude は同時に起動し、ワークスペース固有の状態ファイルを待ってから、作成されたディレクトリへ cd して exec します。",
+      "workspaceActions": "ワークスペースレイアウト",
+      "workspaceActionsDesc": "ワークスペースレイアウトは <workspace>workspace</workspace> アクションとして保存され、ワークスペース定義をアクション内に直接埋め込むため、別途 <commands>commands</commands> エントリは不要です。ワークスペースと同じフィールドに加えて、最初のターミナルにそのターミナル自身のコマンドより先に送信されるブートストラップコマンド <setup>setup</setup> をサポートします:",
+      "workspaceActionsMenuDesc": "ワークスペースレイアウトはプラスボタンの右クリックメニューに自動的に表示されます。<newWorkspaceMenu>newWorkspaceMenu</newWorkspaceMenu> を <falseValue>false</falseValue> にすると非表示にでき、他のアクションで <trueValue>true</trueValue> にするとメニューに追加できます。",
+      "workspaceActionsSaveDesc": "JSON を書かずに作成することもできます。プラスボタンを右クリックして <saveLayout>ワークスペースをレイアウトとして保存</saveLayout> を選ぶと、現在のワークスペースの分割、ディレクトリ、実行中のエージェント、ブラウザタブが <configPath>~/.config/cmux/cmux.json</configPath> に保存されます。これは <actions>actions</actions> ブロックのエントリとして保存されます。<customize>ワークスペースレイアウトをカスタマイズ</customize> はそのファイルをエディタで開きます。",
       "simpleCommands": "シンプルコマンド",
       "simpleCommandsDesc": "シンプルコマンドは現在フォーカスされているターミナルでシェルコマンドを実行します：",
       "simpleCommandFields": "フィールド",
@@ -1637,6 +1770,8 @@
       "wsFieldName": "ワークスペースのタブ名（デフォルトはコマンド名）",
       "wsFieldCwd": "ワークスペースの作業ディレクトリ",
       "wsFieldColor": "ワークスペースのタブカラー",
+      "wsFieldEnv": "ワークスペース内のすべてのシェルに引き継がれる環境変数",
+      "wsFieldSetup": "ワークスペースの最初のターミナルに、そのターミナル自身のコマンドより先に送信されるブートストラップコマンド",
       "wsFieldLayout": "分割とペインを定義するレイアウトツリー",
       "restartBehavior": "再起動の動作",
       "restartBehaviorDesc": "同名のワークスペースが既に存在する場合の動作を制御します：",
@@ -1668,7 +1803,9 @@
       "absolutePath": "絶対パス",
       "cwdAbsolute": "そのまま使用",
       "fullExample": "完全な例",
-      "restartNew": "新しいワークスペースを作成する (デフォルト)"
+      "restartNew": "新しいワークスペースを作成する (デフォルト)",
+      "workspaceActionsDefaultTitle": "新規ワークスペースのデフォルト",
+      "workspaceActionsDefaultDesc": "<defaultMenu>新規ワークスペースのデフォルト</defaultMenu> サブメニューで、通常の新規ワークスペース作成時に実行する保存済みワークスペースレイアウトを選べます。「なし」を選ぶと空のターミナルに戻ります。保存ダイアログにも <checkbox>新規ワークスペースのデフォルトとして使用</checkbox> チェックボックスがあります。設定キーは <action>ui.newWorkspace.action</action> です。プロジェクトローカルの <localConfig>.cmux/cmux.json</localConfig> の値は <globalConfig>~/.config/cmux/cmux.json</globalConfig> より優先されます。"
     },
     "keyboardShortcuts": {
       "title": "キーボードショートカット",
@@ -2156,6 +2293,32 @@
       "envTmuxPane": "現在のcmuxペインにマッピングされた偽のtmuxペイン識別子",
       "envSocket": "shimが接続するcmuxコントロールソケットのパス"
     },
+    "ohMyPi": {
+      "title": "oh-my-pi",
+      "metaTitle": "oh-my-pi - cmux",
+      "metaDescription": "oh-my-pi（omp）をcmuxに接続し、フックによるステータス、通知、セッション復元、自動命名、タスクマネージャのプロセス識別を有効にします。",
+      "intro": "oh-my-piは、Piをコーディング用途中心に作り直したフォークです。バイナリ名はompで、cmuxはompフック拡張を通じて連携します。",
+      "setupUsage": "セットアップと使い方",
+      "setupUsageDesc": "ompをインストールしてから、cmuxフック拡張をインストールします。拡張は~/.omp/agent/extensions/cmux-omp-session.tsに書き込まれ、cmuxに含まれる版が変わるとその場でアップグレードされます。",
+      "whatYouGet": "機能",
+      "whatYouGetDesc": "フック拡張により、ompはライフサイクルとセッション情報をcmuxへ報告できます：",
+      "whatYouGet1": "ompのターン境界にもとづくワークスペースの実行中・アイドル状態",
+      "whatYouGet2": "cmux内のターン終了通知",
+      "whatYouGet3": "閉じたペインをセッションインデックスからomp --session SESSION_IDで再開でき、フォーク時は--forkを追加できるセッション追跡",
+      "whatYouGet4": "ompを要約モデルとして使えるワークスペース自動命名",
+      "whatYouGet5": "ompプロセスのタスクマネージャ識別",
+      "directories": "ディレクトリ",
+      "directoriesDesc": "cmuxはエージェントディレクトリからompデータを読み取ります。PI_CODING_AGENT_DIRまたはPI_CONFIG_DIRでそのディレクトリを上書きできます。",
+      "dirPath": "パス",
+      "dirPurpose": "目的",
+      "dirExtension": "cmuxがインストールし、アップグレードするcmuxフック拡張",
+      "dirSessions": "復元とフォークのワークフローのためにcmuxが読み取るompセッションファイル",
+      "envVars": "環境変数",
+      "envVarName": "変数",
+      "envVarPurpose": "目的",
+      "envHooksDisabled": "cmuxのompフック拡張を無効化",
+      "envCmuxBin": "フック拡張が呼び出すcmuxバイナリを上書き"
+    },
     "ohMyClaudeCode": {
       "title": "oh-my-claudecode",
       "metaTitle": "oh-my-claudecode - cmux",
@@ -2207,6 +2370,7 @@
       "claudeCodeTeams": "Claude Code Teams",
       "ohMyOpenCode": "oh-my-opencode",
       "ohMyCodex": "oh-my-codex",
+      "ohMyPi": "oh-my-pi",
       "ohMyClaudeCode": "oh-my-claudecode",
       "changelog": "変更履歴",
       "dock": "Dock",
@@ -2527,9 +2691,32 @@
     "title": "cmux Pro が有効になりました",
     "body": "{email} のアカウントを作成またはアップグレードしました。cmux を開くか、サインイン方法を追加できます。",
     "emailLabel": "購入メールアドレス",
+    "whatUnlockedTitle": "利用できるようになった機能",
     "openCmux": "cmux を開く",
     "manageBilling": "請求を管理",
-    "manageSignInMethods": "サインイン方法を管理"
+    "manageSignInMethods": "サインイン方法を管理",
+    "features": {
+      "cloudAgents": {
+        "title": "Cloud VM 上のクラウドエージェント",
+        "body": "隔離されたリモートサンドボックスでエージェントを実行できます。",
+        "action": "cmux を開く"
+      },
+      "modelGateway": {
+        "title": "モデルゲートウェイ",
+        "body": "使用量とコスト分析を見ながらプロバイダー間でルーティングし、毎月 20 コンピュート時間を利用できます。",
+        "action": "モデルゲートウェイを開く"
+      },
+      "aiAccounts": {
+        "title": "AI アカウントを接続",
+        "body": "プロバイダーアカウントを追加して、cmux が作業をルーティングできるようにします。",
+        "action": "プロバイダーを接続"
+      },
+      "iosApp": {
+        "title": "cmux iOS アプリ",
+        "body": "スマートフォンで cmux を使用できます。",
+        "action": "iOS ベータに参加"
+      }
+    }
   },
   "landing": {
     "bestTerminal": {
@@ -2669,6 +2856,10 @@
       "metaDescription": "cmuxと他のmacOSターミナルの比較、Ghostty上に構築されている仕組み、Claude Code・Codex・OpenCodeをcmuxで実行する方法のガイド。",
       "title": "ガイド",
       "intro": "cmuxの比較・背景・ユースケースのガイドです。製品ドキュメントについてはドキュメントをご覧ください。"
+    },
+    "remoteTmux": {
+      "title": "リモート tmux",
+      "metaDescription": "別のマシンで動く tmux を、cmux からネイティブ macOS フロントエンドとして使えます。"
     },
     "compare": {
       "metaTitle": "cmux と AI コーディング端末およびエージェント ワークスペースを比較する",
@@ -4187,6 +4378,7 @@
       "cursorCli": "Cursor CLI のためのターミナル",
       "keyboardShortcuts": "キーボードショートカット",
       "browserAutomation": "ブラウザ自動化",
+      "remoteTmux": "リモート tmux",
       "compare": "cmuxを比較"
     },
     "agents": {
@@ -4388,6 +4580,34 @@
       "submitting": "送信中...",
       "success": "ありがとうございます。リクエストを受け付けました。founders@manaflow.com から返信します。",
       "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro が有効です",
+    "title": "cmux Pro へようこそ",
+    "body": "プランには、Cloud VM 上のクラウドエージェント、毎月 20 コンピュート時間、モデルゲートウェイ、cmux iOS アプリが含まれます。まずはここから始めましょう。",
+    "done": "ダッシュボードへ",
+    "steps": {
+      "modelGateway": {
+        "title": "モデルゲートウェイ",
+        "body": "使用量とコスト分析を見ながらプロバイダー間でルーティングします。",
+        "action": "モデルゲートウェイを開く"
+      },
+      "aiAccounts": {
+        "title": "AI アカウントを接続",
+        "body": "プロバイダーのアカウントを追加すると、cmux が処理をルーティングできます。",
+        "action": "プロバイダーを接続"
+      },
+      "iosApp": {
+        "title": "cmux iOS アプリ",
+        "body": "スマートフォンで cmux を使えます。",
+        "action": "iOS ベータに参加"
+      },
+      "billing": {
+        "title": "プランを管理",
+        "body": "プラン、請求書、解約を確認できます。",
+        "action": "プランを管理"
+      }
     }
   }
 }

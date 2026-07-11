@@ -116,6 +116,11 @@ extension TerminalController: ControlSidebarContext {
         if AgentHibernationLifecycleStatusKeys.isAllowed(key) {
             return true
         }
+        // The manual namespace is reserved for workspace_loading; a custom
+        // vault agent must not claim it (hibernation ignores manual keys).
+        guard !AgentHibernationLifecycleStatusKeys.isManualKey(key) else {
+            return false
+        }
         guard CmuxVaultAgentRegistration.isValidID(key) else {
             return false
         }
@@ -132,13 +137,12 @@ extension TerminalController: ControlSidebarContext {
         return registry.registration(id: key) != nil
     }
 
-    /// The byte-faithful twin of the deleted file-private
-    /// `agentLifecycleRegistryWorkingDirectory(tab:panelId:)`.
+    /// Mirrors the v2 lifecycle registry cwd resolver while preserving remote cwd trust.
     private func controlSidebarAgentLifecycleRegistryWorkingDirectory(tab: Workspace, panelId: UUID?) -> String? {
         let candidates = [
-            panelId.flatMap { tab.panelDirectories[$0] },
-            tab.focusedPanelId.flatMap { tab.panelDirectories[$0] },
-            tab.currentDirectory,
+            panelId.flatMap { tab.effectivePanelDirectory(panelId: $0) },
+            tab.focusedPanelId.flatMap { tab.effectivePanelDirectory(panelId: $0) },
+            tab.usesRemoteDirectoryProvenance ? tab.presentedCurrentDirectory : tab.currentDirectory,
         ]
         return candidates.compactMap(controlSidebarNormalizedOptionValue).first
     }
@@ -167,6 +171,45 @@ extension TerminalController: ControlSidebarContext {
             }
             tab.setAgentLifecycle(key: key, panelId: panelID, lifecycle: lifecycle)
         }
+    }
+
+    func controlSidebarSetWorkspaceLoading(
+        tabArg: String?,
+        key: String,
+        on: Bool
+    ) -> ControlSidebarWorkspaceLoadingState? {
+        guard let tab = controlSidebarResolveTabForReport(tabArg: tabArg) else { return nil }
+        let before = tab.hasRunningAgentLifecycle(key: key)
+        if on {
+            // Workspace-scoped: exactly one panel holds a manual key at a time,
+            // so reasserting `on` after focus moves never duplicates the loader.
+            _ = tab.clearAgentLifecycle(key: key, panelId: nil)
+            // Bound distinct manual loaders per workspace so socket clients
+            // can't grow lifecycle-key state without limit.
+            let manualLoaderCount = tab.agentLifecycleStatesByPanelId.values.reduce(0) { partial, states in
+                partial + states.keys.reduce(0) { AgentHibernationLifecycleStatusKeys.isManualKey($1) ? $0 + 1 : $0 }
+            }
+            guard manualLoaderCount < 32 else {
+                return ControlSidebarWorkspaceLoadingState(
+                    before: before,
+                    after: tab.hasRunningAgentLifecycle(key: key),
+                    failureReason: "Manual workspace loading limit reached"
+                )
+            }
+            if let panelId = tab.focusedPanelId ?? tab.panels.keys.first {
+                tab.setAgentLifecycle(key: key, panelId: panelId, lifecycle: .running)
+            } else {
+                return ControlSidebarWorkspaceLoadingState(
+                    before: before,
+                    after: false,
+                    failureReason: "Workspace has no panel for manual loading"
+                )
+            }
+        } else {
+            // Workspace-scoped: clear from all panels, not just the caller's.
+            _ = tab.clearAgentLifecycle(key: key, panelId: nil)
+        }
+        return ControlSidebarWorkspaceLoadingState(before: before, after: tab.hasRunningAgentLifecycle(key: key))
     }
 
     /// `nonisolated` with the settings write inside `agent_hibernation`'s

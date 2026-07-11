@@ -23,6 +23,7 @@ final class HostAccountFlow: AccountFlow {
     @ObservationIgnored private var featureFlagsObserver: (any NSObjectProtocol)?
     private(set) var isProUpgradeAvailable: Bool
     private(set) var isProActive = false
+    private(set) var canManageBilling = false
 
     init(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
         self.coordinator = coordinator
@@ -61,7 +62,7 @@ final class HostAccountFlow: AccountFlow {
     }
 
     var isWorkingOnAuth: Bool {
-        coordinator.isLoading || coordinator.isRestoringSession || browserSignIn.isSigningIn
+        coordinator.isLoading || coordinator.isRestoringSession || browserSignIn.isPresentingSignIn
     }
 
     var signInIsSlow: Bool {
@@ -80,6 +81,7 @@ final class HostAccountFlow: AccountFlow {
     func signOut() async {
         await browserSignIn.signOut()
         isProActive = false
+        canManageBilling = false
     }
 
     func refreshCurrentUser() async {
@@ -91,6 +93,7 @@ final class HostAccountFlow: AccountFlow {
     func refreshBillingPlan() async {
         guard coordinator.currentUser != nil else {
             isProActive = false
+            canManageBilling = false
             return
         }
         var request = URLRequest(url: AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan"))
@@ -107,17 +110,24 @@ final class HostAccountFlow: AccountFlow {
             guard let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode) else {
                 isProActive = false
+                canManageBilling = false
                 return
             }
             let decoded = try JSONDecoder().decode(BillingPlanResponse.self, from: data)
             isProActive = decoded.isPro
+            canManageBilling = decoded.billingManagement == .stripe
         } catch {
             isProActive = false
+            canManageBilling = false
         }
     }
 
     func openProUpgrade() {
         ProUpgradePresenter.present()
+    }
+
+    func prefetchProUpgrade() {
+        ProUpgradePresenter.prefetch()
     }
 
     func openBillingPortal() {
@@ -137,4 +147,11 @@ final class HostAccountFlow: AccountFlow {
 
 private struct BillingPlanResponse: Decodable {
     let isPro: Bool
+    let billingManagement: BillingManagement?
+}
+
+private enum BillingManagement: String, Decodable {
+    case stripe
+    case external
+    case none
 }
