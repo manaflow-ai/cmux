@@ -10,6 +10,31 @@ import CMUXAgentLaunch
 
 @Suite("Feed coordinator", .serialized)
 struct FeedCoordinatorTests {
+    @Test func feedJumpResolverReadsConfiguredStateDirectory() throws {
+        let stateDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-feed-hook-state-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: stateDirectory) }
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        let payload: [String: Any] = [
+            "sessions": [
+                "session-1": [
+                    "workspaceId": "workspace-1",
+                    "surfaceId": "surface-1",
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        try data.write(to: stateDirectory.appendingPathComponent("codex-hook-sessions.json"))
+
+        let target = FeedJumpResolver.lookup(
+            agent: "codex",
+            sessionId: "session-1",
+            stateDirectory: stateDirectory
+        )
+
+        #expect(target == FeedJumpResolver.Target(workspaceId: "workspace-1", surfaceId: "surface-1"))
+    }
+
     @Test func codexTeamsResolvesExplicitWorkingDirectoryFlags() {
         let base = "/tmp/cmux-base"
 

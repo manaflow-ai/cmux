@@ -10,6 +10,28 @@ import CMUXAgentLaunch
 #endif
 
 struct AgentChatSessionRegistryHookStoreTests {
+    @Test func hookStoreReadsConfiguredStateDirectory() throws {
+        let stateDirectory = try temporaryHomeDirectory()
+            .appendingPathComponent("bundle-scoped-hooks", isDirectory: true)
+        let sessionID = "bundle-scoped-session"
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        try writeClaudeHookStore(
+            directory: stateDirectory,
+            sessionID: sessionID,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            transcriptPath: "/tmp/bundle-scoped-session.jsonl",
+            pid: 123
+        )
+
+        let entry = AgentChatHookSessionStore(stateDirectory: stateDirectory)
+            .entry(agentSource: "claude", sessionID: sessionID)
+
+        #expect(entry?.workspaceID == workspaceID)
+        #expect(entry?.surfaceID == surfaceID)
+    }
+
     @Test func mobileChatObserverDetectsCmuxLaunchedOpaqueClaudeWrapper() throws {
         let workspaceID = UUID()
         let surfaceID = UUID()
@@ -266,6 +288,24 @@ struct AgentChatSessionRegistryHookStoreTests {
         pid: Int
     ) throws {
         let directory = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try writeClaudeHookStore(
+            directory: directory,
+            sessionID: sessionID,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            transcriptPath: transcriptPath,
+            pid: pid
+        )
+    }
+
+    private func writeClaudeHookStore(
+        directory: URL,
+        sessionID: String,
+        workspaceID: String,
+        surfaceID: String,
+        transcriptPath: String,
+        pid: Int
+    ) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let payload: [String: Any] = [
             "sessions": [
