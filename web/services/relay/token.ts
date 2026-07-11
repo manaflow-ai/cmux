@@ -45,6 +45,15 @@ export function relayUrls(): string[] {
   return DEFAULT_RELAYS;
 }
 
+// Note: this checks the exact encoding shape, not that the 32 bytes decode to a
+// valid Ed25519 curve point (e.g. 64 `f`s pass here but are not on the curve).
+// Full on-curve validation is intentionally left to the relay, which is the
+// authoritative validator at connect time: the endpoint_id is the CALLER'S OWN
+// iroh public key, so a legitimate client always sends a valid point, and a
+// crafted-but-invalid id only yields a token bound to a key nobody holds (the
+// relay requires the token's endpoint_id to equal the handshake-authenticated
+// key), i.e. self-harm with no replay or availability impact. Adding a curve
+// library here to reject a self-defeating input is not worth the dependency.
 export function isValidEndpointId(value: string): boolean {
   const v = value.toLowerCase();
   return HEX_ENDPOINT_ID_RE.test(v) || ZBASE32_ENDPOINT_ID_RE.test(v);

@@ -74,10 +74,20 @@ export async function handleRelayTokenRequest(
       console.error("relay-token.route.rate_limit_not_configured");
       return jsonResponse({ error: "relay_token_unavailable" }, 503);
     }
-    const { error, rateLimited } = await deps.checkRateLimit(rateLimitId, {
-      request,
-      rateLimitKey: user.id,
-    });
+    let result: { rateLimited: boolean; error?: string };
+    try {
+      result = await deps.checkRateLimit(rateLimitId, {
+        request,
+        rateLimitKey: user.id,
+      });
+    } catch (err) {
+      // @vercel/firewall rejects (not `error`) on network failure / unexpected
+      // status. Fail closed so a transient limiter outage returns a controlled
+      // 503 rather than an uncaught 500 that bypasses the issuance bound.
+      console.error("relay-token.route.rate_limit_threw", err);
+      return jsonResponse({ error: "relay_token_unavailable" }, 503);
+    }
+    const { error, rateLimited } = result;
     if (rateLimited || error === "blocked") {
       return jsonResponse({ error: "rate_limited" }, 429);
     }

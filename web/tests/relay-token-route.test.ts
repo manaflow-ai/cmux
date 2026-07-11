@@ -182,6 +182,20 @@ describe("handleRelayTokenRequest", () => {
     }
   });
 
+  test("fails CLOSED (503) on Vercel when the limiter throws (rejects)", async () => {
+    process.env.VERCEL = "1";
+    process.env.CMUX_RELAY_TOKEN_RATE_LIMIT_ID = "relay-token";
+    const res = await handleRelayTokenRequest(
+      postReq(JSON.stringify({ endpointId: HEX_ID })),
+      deps({
+        checkRateLimit: async () => {
+          throw new Error("firewall network failure");
+        },
+      }),
+    );
+    expect(res.status).toBe(503);
+  });
+
   test("local dev (no VERCEL) bypasses the limiter", async () => {
     let called = false;
     const res = await handleRelayTokenRequest(
