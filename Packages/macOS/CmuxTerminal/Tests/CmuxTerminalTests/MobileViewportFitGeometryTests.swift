@@ -72,6 +72,17 @@ struct MobileViewportFitGeometryTests {
         #expect(resolved == 16)
     }
 
+    @Test func surfaceReloadConfigWinsAheadOfStaleAppConfig() {
+        let resolved = MobileViewportResetFontPointSize.resolve(
+            surfaceConfigFontPointSize: 18,
+            runtimeConfigFontPointSize: 12,
+            fallbackBaseFontPointSize: 10,
+            magnificationPercent: 100
+        )
+
+        #expect(resolved == 18)
+    }
+
     @Test func activeRuntimeConfigDefinesResetTargetForInheritedTemplateFont() {
         let configured = MobileViewportResetFontPointSize.resolve(
             runtimeConfigFontPointSize: 12,
