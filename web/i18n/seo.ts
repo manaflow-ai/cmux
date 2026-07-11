@@ -4,6 +4,29 @@ const BASE = "https://cmux.com";
 const DEFAULT_OG_IMAGE_PATH = "/opengraph-image";
 
 const shortDescriptionSuffixes: Record<string, string> = {
+  en: "Built for AI coding agents on macOS.",
+  ja: "macOS の AI コーディングエージェント向けです。",
+  "zh-CN": "面向 macOS 上的 AI 编码代理。",
+  "zh-TW": "面向 macOS 上的 AI 程式碼代理。",
+  ko: "macOS의 AI 코딩 에이전트를 위해 설계되었습니다.",
+  de: "Für KI-Coding-Agenten auf macOS entwickelt.",
+  es: "Creado para agentes de codificación con IA en macOS.",
+  fr: "Conçu pour les agents de codage IA sur macOS.",
+  it: "Creato per agenti di codifica IA su macOS.",
+  da: "Bygget til AI-kodeagenter på macOS.",
+  pl: "Stworzone dla agentów kodowania AI na macOS.",
+  ru: "Создано для AI-агентов программирования на macOS.",
+  bs: "Napravljeno za AI agente za kodiranje na macOS-u.",
+  ar: "مصمم لوكلاء البرمجة بالذكاء الاصطناعي على macOS.",
+  no: "Laget for AI-kodeagenter på macOS.",
+  "pt-BR": "Criado para agentes de código com IA no macOS.",
+  th: "สร้างมาเพื่อเอเจนต์เขียนโค้ด AI บน macOS.",
+  tr: "macOS'taki AI kodlama ajanları için tasarlandı.",
+  km: "បង្កើតសម្រាប់ភ្នាក់ងារ AI សរសេរកូដលើ macOS។",
+  uk: "Створено для AI-агентів програмування на macOS.",
+};
+
+const detailedDescriptionSuffixes: Record<string, string> = {
   en: "Built for AI coding agents on macOS, with vertical tabs, notifications, split panes, and browser automation.",
   ja: "macOS の AI コーディングエージェント向け。縦型タブ、通知、分割ペイン、ブラウザ自動化を備えています。",
   "zh-CN": "面向 macOS 上的 AI 编码代理，提供垂直标签页、通知、分屏窗格和浏览器自动化。",
@@ -26,7 +49,8 @@ const shortDescriptionSuffixes: Record<string, string> = {
   uk: "Створено для AI-агентів програмування на macOS: вертикальні вкладки, сповіщення, розділені панелі й автоматизація браузера.",
 };
 
-const MIN_DESCRIPTION_LENGTH = 110;
+const DEFAULT_MIN_DESCRIPTION_LENGTH = 90;
+const AUDIT_MIN_DESCRIPTION_LENGTH = 110;
 const MAX_DESCRIPTION_LENGTH = 160;
 const MIN_TITLE_LENGTH = 30;
 const MAX_TITLE_LENGTH = 60;
@@ -106,29 +130,30 @@ export const defaultOpenGraphImage = openGraphImage("en");
 export function hasLocalizedSeoCopy(locale: string) {
   return (
     Object.hasOwn(shortDescriptionSuffixes, locale) &&
+    Object.hasOwn(detailedDescriptionSuffixes, locale) &&
     Object.hasOwn(openGraphImageAlts, locale) &&
     Object.hasOwn(openGraphImageTaglines, locale)
   );
 }
 
-export function seoDescription(locale: string, description: string) {
+export function seoDescription(
+  locale: string,
+  description: string,
+  options: { minLength?: number } = {},
+) {
+  const minLength = options.minLength ?? DEFAULT_MIN_DESCRIPTION_LENGTH;
   const trimmed = description.trim();
-  if (metadataLength(trimmed) >= MIN_DESCRIPTION_LENGTH) {
-    return truncateMetadataText(
-      trimmed,
-      MAX_DESCRIPTION_LENGTH,
-      MIN_DESCRIPTION_LENGTH,
-    );
+  if (metadataLength(trimmed) >= minLength) {
+    return truncateMetadataText(trimmed, MAX_DESCRIPTION_LENGTH, minLength);
   }
 
-  const suffix =
-    shortDescriptionSuffixes[locale] ?? shortDescriptionSuffixes.en;
+  const suffixes =
+    minLength >= AUDIT_MIN_DESCRIPTION_LENGTH
+      ? detailedDescriptionSuffixes
+      : shortDescriptionSuffixes;
+  const suffix = suffixes[locale] ?? suffixes.en;
   if (trimmed.includes(suffix)) {
-    return truncateMetadataText(
-      trimmed,
-      MAX_DESCRIPTION_LENGTH,
-      MIN_DESCRIPTION_LENGTH,
-    );
+    return truncateMetadataText(trimmed, MAX_DESCRIPTION_LENGTH, minLength);
   }
 
   const separator =
@@ -136,7 +161,7 @@ export function seoDescription(locale: string, description: string) {
   return truncateMetadataText(
     `${trimmed}${separator}${suffix}`,
     MAX_DESCRIPTION_LENGTH,
-    MIN_DESCRIPTION_LENGTH,
+    minLength,
   );
 }
 

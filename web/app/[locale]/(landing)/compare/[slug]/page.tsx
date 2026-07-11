@@ -44,7 +44,9 @@ export async function generateMetadata({
   const path = comparePath(page.slug);
   const alternates = buildAlternates(locale, path);
   const title = seoTitle(locale, t("metaTitle"));
-  const description = seoDescription(locale, t("metaDescription"));
+  const description = seoDescription(locale, t("metaDescription"), {
+    minLength: 110,
+  });
 
   return {
     title,
@@ -114,7 +116,9 @@ function ComparePageContent({
           locale,
           path,
           headline: t("title"),
-          description: seoDescription(locale, t("metaDescription")),
+          description: seoDescription(locale, t("metaDescription"), {
+            minLength: 110,
+          }),
           datePublished: lastModified,
           dateModified: lastModified,
         })}

@@ -23,22 +23,29 @@ describe("SEO metadata helpers", () => {
   });
 
   test("extends short descriptions with localized product context", () => {
-    expect(seoDescription("en", "CLI reference")).toContain(
+    expect(
+      seoDescription("en", "CLI reference", { minLength: 110 }),
+    ).toContain(
       "vertical tabs, notifications, split panes, and browser automation",
     );
-    expect(seoDescription("ja", "CLI リファレンス。")).toContain(
+    expect(
+      seoDescription("ja", "CLI リファレンス。", { minLength: 110 }),
+    ).toContain(
       "macOS の AI コーディングエージェント向け。",
     );
     expect(
       seoDescription(
         "en",
         "A detailed page about running multiple coding agents in cmux on macOS.",
+        { minLength: 110 },
       ),
     ).toContain("Built for AI coding agents on macOS,");
   });
 
   test("keeps descriptions within search snippet bounds", () => {
-    const short = seoDescription("en", "News from the cmux team");
+    const short = seoDescription("en", "News from the cmux team", {
+      minLength: 110,
+    });
     expect(short.length).toBeGreaterThanOrEqual(110);
     expect(short.length).toBeLessThanOrEqual(160);
 
@@ -55,6 +62,7 @@ describe("SEO metadata helpers", () => {
     const description = seoDescription(
       "en",
       `${"A".repeat(100)}. ${"B".repeat(100)}`,
+      { minLength: 110 },
     );
     expect(Array.from(description).length).toBeGreaterThanOrEqual(110);
     expect(Array.from(description).length).toBeLessThanOrEqual(160);
@@ -90,6 +98,12 @@ describe("SEO metadata helpers", () => {
   test("can preserve a complete localized title below the generic minimum", () => {
     const title = "cmux — 专为多任务打造的终端";
     expect(seoTitle("zh-CN", title, { minLength: 0 })).toBe(title);
+  });
+
+  test("does not add localized copy to an English fallback description", () => {
+    const fallback =
+      "Talk with cmux about Enterprise deployment, SSO, self-hosted Cloud VMs, audit logs, and committed usage.";
+    expect(seoDescription("de", fallback)).toBe(fallback);
   });
 
   test("adds complete shared social metadata", () => {

@@ -37,7 +37,9 @@ export async function generateMetadata({
   const t = await getTranslations({ locale, namespace: "brandAssets" });
   const alternates = buildAlternates(locale, "/assets");
   const title = seoTitle(locale, t("metaTitle"));
-  const description = seoDescription(locale, t("metaDescription"));
+  const description = seoDescription(locale, t("metaDescription"), {
+    minLength: 110,
+  });
   return {
     title,
     description,

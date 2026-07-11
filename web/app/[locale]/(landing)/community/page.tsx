@@ -16,7 +16,9 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   const t = await getTranslations({ locale, namespace: "community" });
   const alternates = buildAlternates(locale, "/community");
   const title = seoTitle(locale, t("metaTitle"));
-  const description = seoDescription(locale, t("metaDescription"));
+  const description = seoDescription(locale, t("metaDescription"), {
+    minLength: 110,
+  });
   return {
     title,
     description,

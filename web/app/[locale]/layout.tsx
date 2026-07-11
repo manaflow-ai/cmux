@@ -66,8 +66,12 @@ export async function generateMetadata({
   const t = await getTranslations({ locale, namespace: "meta" });
   const alternates = buildAlternates(locale, "");
   const title = seoTitle(locale, t("title"), { minLength: 0 });
-  const description = seoDescription(locale, t("description"));
-  const ogDescription = seoDescription(locale, t("ogDescription"));
+  const description = seoDescription(locale, t("description"), {
+    minLength: 110,
+  });
+  const ogDescription = seoDescription(locale, t("ogDescription"), {
+    minLength: 110,
+  });
   return {
     title,
     description,
@@ -104,7 +108,9 @@ export default async function LocaleLayout({
 
   const messages = pruneClientMessages(await getMessages());
   const t = await getTranslations({ locale, namespace: "meta" });
-  const webSiteDescription = seoDescription(locale, t("description"));
+  const webSiteDescription = seoDescription(locale, t("description"), {
+    minLength: 110,
+  });
 
   const organizationJsonLd = {
     "@context": "https://schema.org",

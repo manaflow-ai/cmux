@@ -14,7 +14,9 @@ export async function generateMetadata({
   const t = await getTranslations({ locale, namespace: "blog.cmuxHistory" });
   const alternates = buildAlternates(locale, "/blog/cmux-history");
   const title = seoTitle(locale, t("metaTitle"));
-  const description = seoDescription(locale, t("metaDescription"));
+  const description = seoDescription(locale, t("metaDescription"), {
+    minLength: 110,
+  });
   return {
     title: { absolute: title },
     description,

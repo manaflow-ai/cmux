@@ -14,20 +14,23 @@ import { DocsSchema } from "../../docs-schema";
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "docs.ohMyPi" });
+  const contentLocale = locale === "ja" ? "ja" : "en";
   const alternates = buildAlternates(locale, "/docs/agent-integrations/oh-my-pi");
-  const title = seoTitle(locale, t("metaTitle"));
-  const description = seoDescription(locale, t("metaDescription"));
+  const title = seoTitle(contentLocale, t("metaTitle"));
+  const description = seoDescription(contentLocale, t("metaDescription"), {
+    minLength: 110,
+  });
   return {
     title: { absolute: title },
     description,
     alternates,
     openGraph: {
-      ...openGraphDefaults(locale, "article"),
+      ...openGraphDefaults(contentLocale, "article"),
       title,
       description,
       url: alternates.canonical,
     },
-    twitter: twitterSummary(locale, title, description),
+    twitter: twitterSummary(contentLocale, title, description),
   };
 }
 

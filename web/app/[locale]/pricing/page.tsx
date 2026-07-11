@@ -48,23 +48,25 @@ export async function generateMetadata({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "pricing" });
+  const contentLocale = locale === "ja" ? "ja" : "en";
   const description = seoDescription(
-    locale,
+    contentLocale,
     SHOW_VAULT ? t("metaDescription") : t("metaDescriptionNoVault"),
+    { minLength: 110 },
   );
   const alternates = buildAlternates(locale, "/pricing");
-  const title = seoTitle(locale, t("metaTitle"));
+  const title = seoTitle(contentLocale, t("metaTitle"));
   return {
     title,
     description,
     alternates,
     openGraph: {
-      ...openGraphDefaults(locale, "website"),
+      ...openGraphDefaults(contentLocale, "website"),
       title,
       description,
       url: alternates.canonical,
     },
-    twitter: twitterSummary(locale, title, description),
+    twitter: twitterSummary(contentLocale, title, description),
   };
 }
 
