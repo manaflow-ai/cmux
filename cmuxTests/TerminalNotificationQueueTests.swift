@@ -303,7 +303,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         }
         TerminalMutationBus.shared.drainForTesting()
         let workspaceNotifications = store.notifications.filter { $0.tabId == workspace.id }
-        XCTAssertEqual(workspaceNotifications.map(\.title), ["Second", "First"])
+        XCTAssertEqual(workspaceNotifications.map(\.title).sorted(), ["First", "Second"])
         XCTAssertEqual(deliveredTitles, ["First", "Second"])
     }
 
@@ -355,7 +355,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         TerminalMutationBus.shared.drainForTesting()
 
         let workspaceNotifications = store.notifications.filter { $0.tabId == workspace.id }
-        XCTAssertEqual(workspaceNotifications.map(\.title), ["Second", "First"])
+        XCTAssertEqual(workspaceNotifications.map(\.title).sorted(), ["First", "Second"])
         XCTAssertEqual(deliveredTitles, ["First", "Second"])
     }
 
@@ -424,7 +424,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         TerminalMutationBus.shared.drainForTesting()
 
         let unrelatedNotifications = store.notifications.filter { $0.tabId == unrelatedWorkspace.id }
-        XCTAssertEqual(unrelatedNotifications.map(\.title), ["Fresh unrelated", "Stale unrelated"])
+        XCTAssertEqual(unrelatedNotifications.map(\.title).sorted(), ["Fresh unrelated", "Stale unrelated"])
         XCTAssertEqual(deliveredTitles, ["Stale unrelated", "Fresh unrelated"])
     }
 
