@@ -16,14 +16,6 @@ import CmuxBrowser
 @testable import cmux
 #endif
 
-private func drainBrowserPanelMainQueue() {
-    let expectation = XCTestExpectation(description: "drain main queue")
-    DispatchQueue.main.async {
-        expectation.fulfill()
-    }
-    XCTWaiter().wait(for: [expectation], timeout: 1.0)
-}
-
 private final class BrowserPanelTestNavigationDelegate: NSObject, WKNavigationDelegate {
     let expectation: XCTestExpectation
     var error: Error?
@@ -337,15 +329,6 @@ final class BrowserPanelVisualAutomationRestoreHostTests: XCTestCase {
         XCTAssertNotNil(panel.webView.window)
         XCTAssertFalse(panel.ensureVisualAutomationRestoreHostIfNeeded(reason: "test.visualAutomation.alreadyAttached"))
     }
-}
-
-@MainActor
-private func makeTemporaryBrowserPanelProfile(named prefix: String) throws -> BrowserProfileDefinition {
-    try XCTUnwrap(
-        BrowserProfileStore.shared.createProfile(
-            named: "\(prefix)-\(UUID().uuidString)"
-        )
-    )
 }
 
 final class BrowserPanelChromeBackgroundColorTests: XCTestCase {

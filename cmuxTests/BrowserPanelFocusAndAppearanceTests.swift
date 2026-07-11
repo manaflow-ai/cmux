@@ -16,6 +16,23 @@ import CmuxBrowser
 @testable import cmux
 #endif
 
+private func drainBrowserPanelMainQueue() {
+    let expectation = XCTestExpectation(description: "drain main queue")
+    DispatchQueue.main.async {
+        expectation.fulfill()
+    }
+    XCTWaiter().wait(for: [expectation], timeout: 1.0)
+}
+
+@MainActor
+private func makeTemporaryBrowserPanelProfile(named prefix: String) throws -> BrowserProfileDefinition {
+    try XCTUnwrap(
+        BrowserProfileStore.shared.createProfile(
+            named: "\(prefix)-\(UUID().uuidString)"
+        )
+    )
+}
+
 final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
     func testLightModeSlightlyDarkensThemeBackground() {
         assertResolvedColorMatchesExpectedBlend(for: .light, darkenMix: 0.04)
