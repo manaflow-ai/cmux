@@ -276,6 +276,17 @@ public final class BrowserSurfaceState: Identifiable {
         persistDurableState?(false)
     }
 
+    /// Save a non-empty page title reported outside the navigation lifecycle.
+    ///
+    /// Single-page apps can update their title after `didFinish`, so KVO title
+    /// changes must persist independently of completed navigations.
+    /// - Parameter title: The latest page title reported by WebKit.
+    func pageTitleDidChange(_ title: String?) {
+        guard let title, !title.isEmpty, self.title != title else { return }
+        self.title = title
+        persistDurableState?(false)
+    }
+
     /// Mark a successful navigation finish and save its committed identity.
     ///
     /// - Parameters:

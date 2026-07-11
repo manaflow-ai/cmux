@@ -112,6 +112,7 @@ public struct MobileBrowserView: UIViewRepresentable {
             // through the navigation delegate.
             state.isLoading = webView.isLoading
             state.estimatedProgress = webView.estimatedProgress
+            mirrorNavigationCapabilities(from: webView)
 
             // An explicit pending load (first mount's initial URL, or a load
             // queued while unmounted) wins outright. A command queued before
@@ -129,7 +130,9 @@ public struct MobileBrowserView: UIViewRepresentable {
             // not, so restore the saved WebKit interaction state to preserve
             // the page and back/forward stack. If WebKit rejects that state,
             // fall back to the last committed URL.
-            if !restoreInteractionState(on: webView), let restore = state.currentURL {
+            let restoredInteractionState = restoreInteractionState(on: webView)
+            mirrorNavigationCapabilities(from: webView)
+            if !restoredInteractionState, let restore = state.currentURL {
                 webView.load(URLRequest(url: restore))
             }
 
@@ -198,9 +201,7 @@ public struct MobileBrowserView: UIViewRepresentable {
                 webView.observe(\.title) { [weak self, state] webView, _ in
                     MainActor.assumeIsolated {
                         guard self?.acceptsCallbacks(from: webView) == true else { return }
-                        if let title = webView.title, !title.isEmpty {
-                            state.title = title
-                        }
+                        state.pageTitleDidChange(webView.title)
                     }
                 },
                 webView.observe(\.url) { [weak self, state] webView, _ in
@@ -235,6 +236,11 @@ public struct MobileBrowserView: UIViewRepresentable {
 
         private func acceptsCallbacks(from candidate: WKWebView) -> Bool {
             webView === candidate
+        }
+
+        private func mirrorNavigationCapabilities(from webView: WKWebView) {
+            state.canGoBack = webView.canGoBack
+            state.canGoForward = webView.canGoForward
         }
 
         private func restoreInteractionState(on webView: WKWebView) -> Bool {

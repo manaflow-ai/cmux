@@ -186,6 +186,20 @@ import Testing
         #expect(immediateWrites == [false, true])
     }
 
+    @Test func latePageTitleChangePersistsWithoutACompletedNavigation() {
+        let state = makeState(initialURL: URL(string: "https://example.com")!)
+        var immediateWrites: [Bool] = []
+        state.installPersistence { immediate in
+            immediateWrites.append(immediate)
+        }
+
+        state.pageTitleDidChange("Updated title")
+        state.pageTitleDidChange("Updated title")
+
+        #expect(state.title == "Updated title")
+        #expect(immediateWrites == [false])
+    }
+
     @Test func provisionalFailureRecordsRecoveryWithoutDiscardingCommittedPage() {
         let committedURL = URL(string: "https://example.com/committed")!
         let failedURL = URL(string: "https://example.com/failed")!
