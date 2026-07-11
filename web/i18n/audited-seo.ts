@@ -89,6 +89,13 @@ const docsDescriptionCandidateKeys: Record<
   ],
 };
 
+const docsContextFragmentKeys: Partial<
+  Record<AuditedDocsPageKey, readonly string[]>
+> = {
+  ios: ["accessTitle", "networkingTitle", "notificationsTitle"],
+  ssh: ["usage", "agentsTitle", "browserTitle", "daemonTitle"],
+};
+
 const conciseTitleLocales = new Set(["ja", "zh-CN", "zh-TW", "ko"]);
 
 const shortTitleContexts: Record<string, string> = {
@@ -249,15 +256,15 @@ export function docsPageSeoCopy(
   const authoredDescriptions = docsDescriptionCandidateKeys[pageKey].map(
     (key) => t(key),
   );
+  const contextFragments = (docsContextFragmentKeys[pageKey] ?? []).map(
+    (key) => t(key),
+  );
   return {
     title: selectTitle(locale, t("metaTitle"), siteMeta, [title]),
-    description: selectDescription(locale, t("metaDescription"), [
-      title,
-      ...authoredDescriptions,
-      ...(authoredDescriptions[0]
-        ? [`${title}. ${authoredDescriptions[0]}`]
-        : []),
-    ]),
+    description: selectDescription(locale, t("metaDescription"), {
+      completeCandidates: authoredDescriptions,
+      contextFragments: [title, ...contextFragments],
+    }),
   };
 }
 
