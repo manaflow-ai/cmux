@@ -187,9 +187,6 @@ function selectDocsTitle(
   const shortContext = shortTitleContexts[locale] ?? shortTitleContexts.en;
   const suffix = ` — ${layoutTitle}`;
   const titleCandidates = [
-    pageTitle,
-    `${pageTitle} — macOS`,
-    `${pageTitle} — ${shortContext}`,
     ...(compactTitle
       ? [
           compactTitle,
@@ -197,14 +194,21 @@ function selectDocsTitle(
           `${compactTitle} — ${shortContext}`,
         ]
       : []),
+    pageTitle,
+    `${pageTitle} — macOS`,
+    `${pageTitle} — ${shortContext}`,
   ];
-  const effectiveTitle = seoTitle(locale, `${original}${suffix}`, {
-    minLength: conciseTitleLocales.has(locale) ? 0 : undefined,
-    fallbackCandidates: titleCandidates.map(
-      (candidate) => `${candidate}${suffix}`,
-    ),
-    appendLocalizedContext: false,
-  });
+  const effectiveTitle = seoTitle(
+    locale,
+    `${compactTitle ?? original}${suffix}`,
+    {
+      minLength: conciseTitleLocales.has(locale) ? 0 : undefined,
+      fallbackCandidates: titleCandidates.map(
+        (candidate) => `${candidate}${suffix}`,
+      ),
+      appendLocalizedContext: false,
+    },
+  );
   return effectiveTitle.endsWith(suffix)
     ? effectiveTitle.slice(0, -suffix.length)
     : effectiveTitle;
