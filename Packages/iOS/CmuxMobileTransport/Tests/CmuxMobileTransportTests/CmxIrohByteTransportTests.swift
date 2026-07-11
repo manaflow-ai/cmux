@@ -107,6 +107,38 @@ import Testing
         #expect(ffi.closedConnectionCount() == 1)
     }
 
+    @Test func hangingKeychainLoadIsBoundedByConnectDeadline() async throws {
+        let store = HangingIrohSecretStore()
+        let ffi = FakeIrohFFIClient()
+        let manager = CmxIrohEndpointManager(
+            keyProvider: CmxIrohSecretKeyProvider(
+                store: store,
+                generate: { Data(repeating: 9, count: 32) }
+            ),
+            ffiClient: ffi
+        )
+        let transport = try CmxIrohByteTransport(
+            route: peerRoute(endpointID: "peer-timeout"),
+            endpointManager: manager,
+            ffiClient: ffi,
+            connectTimeoutNanoseconds: 10_000_000
+        )
+        defer { store.unblock() }
+
+        do {
+            try await transport.connect()
+            Issue.record("connect should time out while the keychain load is blocked")
+        } catch let error as CmxIrohByteTransportError {
+            guard case let .endpointBindFailed(_, kind) = error else {
+                Issue.record("expected endpoint bind timeout, got \(error)")
+                return
+            }
+            #expect(kind == .timedOut)
+        } catch {
+            Issue.record("expected CmxIrohByteTransportError, got \(error)")
+        }
+    }
+
     @Test func localIrohLoopbackEchoesBytes() async throws {
         let packageURL = URL(filePath: #filePath)
             .deletingLastPathComponent()
@@ -183,6 +215,21 @@ private final class InMemoryIrohSecretStore: CmxIrohSecretKeyStoring, @unchecked
 
     func saveSecretKey(_ key: Data) throws {
         self.key = key
+    }
+}
+
+private final class HangingIrohSecretStore: CmxIrohSecretKeyStoring, @unchecked Sendable {
+    private let gate = DispatchSemaphore(value: 0)
+
+    func loadSecretKey() throws -> Data? {
+        gate.wait()
+        return Data(repeating: 4, count: 32)
+    }
+
+    func saveSecretKey(_ key: Data) throws {}
+
+    func unblock() {
+        gate.signal()
     }
 }
 

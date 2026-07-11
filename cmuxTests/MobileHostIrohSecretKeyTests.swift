@@ -7,7 +7,8 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("Mobile host iroh secret key")
+@Suite("Mobile host iroh secret key", .serialized)
+@MainActor
 struct MobileHostIrohSecretKeyTests {
     private let keyLength = 32
 
@@ -46,6 +47,119 @@ struct MobileHostIrohSecretKeyTests {
             try provider.secretKey()
         }
     }
+
+    @Test func hostStartPublishesTCPRoutesWhileSecretKeyLoadHangs() async throws {
+        let store = HangingSecretKeyStore()
+        let service = MobileHostService(
+            irohFFIClient: UnusedMobileHostIrohFFIClient(),
+            irohSecretKeyProvider: MobileHostIrohSecretKeyProvider(
+                store: store,
+                generate: { Data(repeating: 7, count: 32) }
+            ),
+            isListeningEnabled: { true }
+        )
+        defer {
+            store.unblock()
+            service.stop()
+        }
+
+        service.start()
+        #expect(store.waitUntilLoadStarts())
+        let status = await service.ensureListeningAndReady()
+
+        #expect(status.isRunning)
+        #expect(status.port != nil)
+        #expect(status.routes.contains { $0.kind != .iroh })
+        #expect(!status.routes.contains { $0.kind == .iroh })
+        #expect(status.irohLaneState == .starting)
+    }
+
+    @Test func hostDegradesToTCPRoutesWhenSecretKeyLoadFails() async {
+        let service = MobileHostService(
+            irohFFIClient: UnusedMobileHostIrohFFIClient(),
+            irohSecretKeyProvider: MobileHostIrohSecretKeyProvider(
+                store: FailingSecretKeyStore(),
+                generate: { Data(repeating: 8, count: 32) }
+            ),
+            isListeningEnabled: { true }
+        )
+        defer { service.stop() }
+
+        service.start()
+        await service.debugWaitForIrohStartupForTesting()
+        let status = await service.ensureListeningAndReady()
+
+        #expect(status.isRunning)
+        #expect(status.routes.contains { $0.kind != .iroh })
+        #expect(!status.routes.contains { $0.kind == .iroh })
+        #expect(status.irohLaneState == .unavailableKeychain)
+        #expect(status.payload["iroh_lane_state"] as? String == "unavailable_keychain")
+    }
+}
+
+private enum ExpectedSecretKeyFailure: Error {
+    case failed
+}
+
+private struct FailingSecretKeyStore: MobileHostIrohSecretKeyStoring {
+    func loadSecretKey() throws -> Data? {
+        throw ExpectedSecretKeyFailure.failed
+    }
+
+    func saveSecretKey(_ key: Data) throws {
+        Issue.record("save should not run after a failed key load")
+    }
+}
+
+private final class HangingSecretKeyStore: MobileHostIrohSecretKeyStoring, @unchecked Sendable {
+    private let started = DispatchSemaphore(value: 0)
+    private let gate = DispatchSemaphore(value: 0)
+
+    func loadSecretKey() throws -> Data? {
+        started.signal()
+        gate.wait()
+        return Data(repeating: 1, count: 32)
+    }
+
+    func saveSecretKey(_ key: Data) throws {
+        Issue.record("save should not run when a stored key exists")
+    }
+
+    func waitUntilLoadStarts() -> Bool {
+        started.wait(timeout: .now() + 2) == .success
+    }
+
+    func unblock() {
+        gate.signal()
+    }
+}
+
+private struct UnusedMobileHostIrohFFIClient: MobileHostIrohFFIClient {
+    func generateSecretKey() throws -> Data { Data(repeating: 2, count: 32) }
+
+    func bindEndpoint(
+        secretKey: Data,
+        enableRelay: Bool,
+        acceptConnections: Bool
+    ) throws -> MobileHostIrohEndpointReference {
+        Issue.record("bind should not run while the key load is blocked or failed")
+        throw ExpectedSecretKeyFailure.failed
+    }
+
+    func endpointID(_ endpoint: MobileHostIrohEndpointReference) -> String? { nil }
+    func routeJSON(_ endpoint: MobileHostIrohEndpointReference) -> String? { nil }
+
+    func accept(
+        endpoint: MobileHostIrohEndpointReference,
+        timeoutMilliseconds: UInt64
+    ) throws -> MobileHostIrohConnectionReference {
+        throw ExpectedSecretKeyFailure.failed
+    }
+
+    func receive(connection: MobileHostIrohConnectionReference, maximumLength: Int) throws -> Data? { nil }
+    func send(connection: MobileHostIrohConnectionReference, data: Data) throws {}
+    func close(connection: MobileHostIrohConnectionReference) {}
+    func close(endpoint: MobileHostIrohEndpointReference) {}
 }
 
 private final class LockedCounter: @unchecked Sendable {
