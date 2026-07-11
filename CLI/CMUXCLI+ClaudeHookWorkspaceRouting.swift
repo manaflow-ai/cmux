@@ -118,6 +118,19 @@ extension CMUXCLI {
         return CallerTerminalBindingResolution(binding: first, isAmbiguous: false)
     }
 
+    func independentlyValidatedMappedTerminalBinding(
+        _ mapped: ClaudeHookSessionRecord?,
+        client: SocketClient
+    ) -> CallerTerminalBinding? {
+        guard let mapped,
+              let binding = resolveAgentProcessTerminalBinding(pid: mapped.pid, client: client),
+              normalizedHandleValue(mapped.workspaceId) == normalizedHandleValue(binding.workspaceId),
+              normalizedHandleValue(mapped.surfaceId) == normalizedHandleValue(binding.surfaceId) else {
+            return nil
+        }
+        return binding
+    }
+
     /// Like `resolveCallerWorkspaceIdForClaudeHook`, but refuses to guess when the
     /// caller's TTY name maps to more than one workspace. macOS reuses `ttysNNN`
     /// device names across panes/sessions, so a first-match on a shared name would

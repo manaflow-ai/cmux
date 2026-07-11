@@ -25455,7 +25455,7 @@ struct CMUXCLI {
         uniqueCallerTerminalBindingByTTY(client: client, includeAmbientTTY: includeAmbientTTY)
     }
 
-    private func resolveAgentProcessTerminalBinding(pid: Int?, client: SocketClient) -> CallerTerminalBinding? {
+    func resolveAgentProcessTerminalBinding(pid: Int?, client: SocketClient) -> CallerTerminalBinding? {
         guard let pid else { return nil }
         guard let payload = try? client.sendV2(
             method: "system.top",
@@ -30461,7 +30461,9 @@ export default CMUXSessionRestore;
                 return target
             }
 
-            let binding = processBinding()
+            let binding = processBinding() ?? (processBindingBlockedByAmbiguousTTY
+                ? independentlyValidatedMappedTerminalBinding(mapped, client: client)
+                : nil)
             if let workspaceId = resolveAccessibleWorkspaceId(binding?.workspaceId),
                let target = resolveTarget(workspaceId: workspaceId, preferredSurfaceId: binding?.surfaceId, mapped: mapped, allowDefaultSurfaceFallback: allowsDefaultSurfaceFallback()) {
 #if DEBUG
@@ -30473,6 +30475,7 @@ export default CMUXSessionRestore;
 #endif
                 return target
             }
+            guard !ambientDirectBindingIsBlocked() else { return nil }
             guard let workspaceId = resolveAccessibleWorkspaceId(mapped?.workspaceId) else {
 #if DEBUG
                 agentHookDebugLog(
