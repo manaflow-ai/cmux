@@ -1350,6 +1350,7 @@ class TerminalController {
             return v2Ok(id: request.id, result: ["pong": true])
         case "system.capabilities":
             return v2Ok(id: request.id, result: v2Capabilities())
+        case "system.resolve_terminal": return v2Result(id: request.id, v2SystemResolveTerminal(params: request.params))
         case "system.top":
             return v2Result(id: request.id, v2SystemTop(params: request.params))
         case "system.memory":
@@ -2335,10 +2336,9 @@ class TerminalController {
             "system.ping",
             "system.capabilities",
             "system.identify",
-            "system.tree",
+            "system.tree", "system.resolve_terminal",
             "sidebar.custom.open",
-            "system.top",
-            "system.memory",
+            "system.top", "system.memory",
             "mobile.host.status",
             "mobile.attach_ticket.create",
             "mobile.terminal.set_font",

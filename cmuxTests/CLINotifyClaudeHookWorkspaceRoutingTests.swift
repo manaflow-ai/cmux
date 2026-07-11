@@ -178,6 +178,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         ["tty": ttyName, "workspace_id": ttyWorkspaceB, "surface_id": "66666666-6666-6666-6666-666666666666"],
                     ]]
                 )
+            case "system.resolve_terminal":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "tty_bindings": [
+                            ["workspace_id": ttyWorkspaceA, "surface_id": "55555555-5555-5555-5555-555555555555"],
+                            ["workspace_id": ttyWorkspaceB, "surface_id": "66666666-6666-6666-6666-666666666666"],
+                        ],
+                        "pid_binding": [
+                            "workspace_id": ttyWorkspaceB,
+                            "surface_id": "66666666-6666-6666-6666-666666666666",
+                        ],
+                    ]
+                )
             case "system.top":
                 return self.v2Response(
                     id: id,

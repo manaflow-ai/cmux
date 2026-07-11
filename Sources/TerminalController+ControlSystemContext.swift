@@ -332,3 +332,158 @@ extension TerminalController: ControlSystemContext {
     }
 #endif
 }
+
+private nonisolated struct TerminalResolverProcessIdentity: Sendable {
+    let ttyDevice: Int64?
+    let workspaceID: UUID?
+    let surfaceID: UUID?
+}
+
+private struct LiveTerminalResolverBinding {
+    let workspaceID: UUID
+    let surfaceID: UUID
+    let ttyName: String
+    let ttyDevice: Int64?
+
+    var payload: [String: Any] {
+        [
+            "workspace_id": workspaceID.uuidString,
+            "surface_id": surfaceID.uuidString,
+        ]
+    }
+}
+
+extension TerminalController {
+    /// Resolves one hook caller without constructing `debug.terminals` or a
+    /// `system.top` process tree. The process sample is cached across hook
+    /// storms, and the main-actor hop only snapshots live terminal identities.
+    nonisolated func v2SystemResolveTerminal(params: [String: Any]) -> V2CallResult {
+        let ttyName = v2NonEmptyString(v2String(params, "tty_name")).map(Self.terminalResolverTTYName)
+        let pid: Int?
+        if params["pid"] != nil {
+            guard let parsedPID = v2Int(params, "pid"), parsedPID > 0 else {
+                return .err(code: "invalid_params", message: "pid must be a positive integer", data: nil)
+            }
+            pid = parsedPID
+        } else {
+            pid = nil
+        }
+        guard ttyName != nil || pid != nil else {
+            return .err(code: "invalid_params", message: "tty_name or pid is required", data: nil)
+        }
+
+        let processIdentity: TerminalResolverProcessIdentity? = pid.map { pid in
+            Self.terminalResolverProcessIdentity(
+                pid: pid,
+                snapshot: CmuxTopProcessSnapshot.captureCached(
+                    includeProcessDetails: false,
+                    maximumAge: 2
+                )
+            )
+        }
+
+        return v2MainSync(commandKey: "system.resolve_terminal") {
+            let bindings = self.liveTerminalResolverBindings()
+            let ttyBindings = ttyName.map { requestedTTY in
+                bindings.filter { $0.ttyName == requestedTTY }
+            } ?? []
+            let pidBinding = Self.pidTerminalResolverBinding(
+                processIdentity,
+                liveBindings: bindings
+            )
+            let pidBindingPayload: Any = if let pidBinding {
+                pidBinding.payload
+            } else {
+                NSNull()
+            }
+            return .ok([
+                "tty_bindings": ttyBindings.map(\.payload),
+                "pid_binding": pidBindingPayload,
+            ])
+        }
+    }
+
+    private nonisolated static func terminalResolverProcessIdentity(
+        pid: Int,
+        snapshot: CmuxTopProcessSnapshot
+    ) -> TerminalResolverProcessIdentity {
+        var currentPID = pid
+        var visited: Set<Int> = []
+        var ttyDevice: Int64?
+        var workspaceID: UUID?
+        var surfaceID: UUID?
+        while currentPID > 0, visited.insert(currentPID).inserted,
+              let process = snapshot.process(pid: currentPID) {
+            ttyDevice = ttyDevice ?? process.ttyDevice
+            if workspaceID == nil, surfaceID == nil,
+               let processWorkspaceID = process.cmuxWorkspaceID,
+               let processSurfaceID = process.cmuxSurfaceID {
+                workspaceID = processWorkspaceID
+                surfaceID = processSurfaceID
+            }
+            currentPID = process.parentPID
+        }
+        return TerminalResolverProcessIdentity(
+            ttyDevice: ttyDevice,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        )
+    }
+
+    @MainActor
+    private func liveTerminalResolverBindings() -> [LiveTerminalResolverBinding] {
+        guard let app = AppDelegate.shared else { return [] }
+        var bindings: [LiveTerminalResolverBinding] = []
+        var seen: Set<String> = []
+        for summary in app.listMainWindowSummaries() {
+            guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+            for workspace in manager.tabs {
+                for (surfaceID, rawTTY) in workspace.surfaceTTYNames
+                    where workspace.panels[surfaceID] != nil {
+                    let key = "\(workspace.id.uuidString):\(surfaceID.uuidString)"
+                    guard seen.insert(key).inserted else { continue }
+                    bindings.append(LiveTerminalResolverBinding(
+                        workspaceID: workspace.id,
+                        surfaceID: surfaceID,
+                        ttyName: Self.terminalResolverTTYName(rawTTY),
+                        ttyDevice: CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: rawTTY)
+                    ))
+                }
+            }
+        }
+        return bindings.sorted {
+            if $0.workspaceID != $1.workspaceID {
+                return $0.workspaceID.uuidString < $1.workspaceID.uuidString
+            }
+            return $0.surfaceID.uuidString < $1.surfaceID.uuidString
+        }
+    }
+
+    private nonisolated static func terminalResolverTTYName(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.split(separator: "/").last.map(String.init) ?? trimmed
+    }
+
+    private nonisolated static func pidTerminalResolverBinding(
+        _ identity: TerminalResolverProcessIdentity?,
+        liveBindings: [LiveTerminalResolverBinding]
+    ) -> LiveTerminalResolverBinding? {
+        guard let identity else { return nil }
+        let ttyMatches = identity.ttyDevice.map { device in
+            liveBindings.filter { $0.ttyDevice == device }
+        } ?? []
+        let scoped = liveBindings.first {
+            $0.workspaceID == identity.workspaceID && $0.surfaceID == identity.surfaceID
+        }
+        if ttyMatches.count == 1 {
+            return ttyMatches[0]
+        }
+        if ttyMatches.count > 1, let scoped,
+           ttyMatches.contains(where: {
+               $0.workspaceID == scoped.workspaceID && $0.surfaceID == scoped.surfaceID
+           }) {
+            return scoped
+        }
+        return ttyMatches.isEmpty ? scoped : nil
+    }
+}

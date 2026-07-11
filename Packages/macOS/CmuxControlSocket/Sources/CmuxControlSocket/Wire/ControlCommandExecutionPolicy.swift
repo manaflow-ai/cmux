@@ -95,6 +95,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // routes it to the main-actor processV2Command switch, which lacks the
         // case, and the control socket returns method_not_found.
         "mobile.terminal.set_font",
+        // Resolves one hook caller from a cached, lightweight process sample
+        // plus the app's in-memory terminal registry. It must not capture the
+        // process table on the main actor.
+        "system.resolve_terminal",
         "system.top",
         "system.memory",
         // `surface.read_text` reads a terminal's visible or full-scrollback

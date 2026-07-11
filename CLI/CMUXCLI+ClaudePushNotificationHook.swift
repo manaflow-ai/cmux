@@ -38,6 +38,7 @@ extension CMUXCLI {
         let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
         guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
             preferred: mappedSession?.workspaceId,
+            preferredSurface: mappedSession?.surfaceId,
             fallback: workspaceArg,
             preferCallerTTYOverFallback: preferCallerTTYRouting,
             callerTerminalBinding: callerTTYBindingProvider,
