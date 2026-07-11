@@ -5,12 +5,12 @@ import Testing
 @testable import CmuxMobileShell
 
 /// `applyTerminalTheme` is the consumer seam: a connect adopts the Mac's
-/// reported theme into the process-wide `TerminalThemeStore` and bumps the
-/// remount generation only when the resolved theme actually changes, so an
+/// reported theme into the shell-owned active theme and its runtime projection,
+/// then bumps the generation only when the resolved theme actually changes, so an
 /// unchanged reconnect does not needlessly recreate the surface (which would
 /// lose scrollback).
 @MainActor
-@Suite struct TerminalThemeApplyTests {
+@Suite(.serialized) struct TerminalThemeApplyTests {
     private func makeTheme(background: String) -> TerminalTheme {
         var theme = TerminalTheme.monokai
         theme.background = background
@@ -33,8 +33,8 @@ import Testing
     @Test func applyingSameThemeDoesNotBumpGeneration() {
         defer { TerminalThemeStore.set(.monokai) }
         let custom = makeTheme(background: "#202020")
-        TerminalThemeStore.set(custom)
         let store = MobileShellComposite()
+        store.applyTerminalTheme(custom)
         let start = store.terminalThemeGeneration
 
         // Re-applying the identical theme (a steady-state reconnect) must not
@@ -48,8 +48,8 @@ import Testing
     @Test func applyingNilThemeResolvesToMonokai() {
         defer { TerminalThemeStore.set(.monokai) }
         let custom = makeTheme(background: "#303030")
-        TerminalThemeStore.set(custom)
         let store = MobileShellComposite()
+        store.applyTerminalTheme(custom)
         let start = store.terminalThemeGeneration
 
         // An older Mac omits the field; the store resolves nil to Monokai, which

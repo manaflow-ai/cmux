@@ -57,6 +57,15 @@ final class MobileTerminalRenderObserver {
                 self?.enqueueTerminalUpdate(surfaceID: nil)
             }
         })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .ghosttyDefaultBackgroundDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.enqueueTerminalUpdate(surfaceID: nil)
+            }
+        })
         refreshNotificationDemand()
     }
 
@@ -180,7 +189,9 @@ final class MobileTerminalRenderObserver {
             return
         }
 
-        guard let emission = try? snapshot.frame.renderGridEmission(
+        var themedFrame = snapshot.frame
+        themedFrame.terminalTheme = TerminalTheme.currentMacTerminalThemeSnapshot()
+        guard let emission = try? themedFrame.renderGridEmission(
             comparedTo: renderGridStatesBySurfaceID[surfaceID]
         ) else { return }
         let frame = emission.frame

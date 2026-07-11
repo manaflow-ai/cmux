@@ -37,6 +37,12 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     public var terminalForeground: String?
     public var terminalBackground: String?
     public var terminalCursorColor: String?
+    /// The Mac terminal's resolved theme when this is a full snapshot.
+    ///
+    /// Mobile chrome uses this value to match the mirrored surface. Delta
+    /// frames omit it because the most recent full snapshot remains
+    /// authoritative until another full snapshot replaces it.
+    public var terminalTheme: TerminalTheme?
     /// Count of scrollback lines carried in ``scrollbackSpans`` (rows above the
     /// visible viewport, oldest first). Only meaningful on a full primary-screen
     /// snapshot; the alternate screen has no scrollback.
@@ -61,6 +67,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         terminalForeground: String? = nil,
         terminalBackground: String? = nil,
         terminalCursorColor: String? = nil,
+        terminalTheme: TerminalTheme? = nil,
         scrollbackRows: Int = 0,
         scrollbackSpans: [RowSpan] = []
     ) throws {
@@ -137,6 +144,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         self.terminalForeground = terminalForeground
         self.terminalBackground = terminalBackground
         self.terminalCursorColor = terminalCursorColor
+        self.terminalTheme = full ? terminalTheme?.validatedOrDefault() : nil
         self.scrollbackRows = full ? resolvedScrollbackRows : 0
         self.scrollbackSpans = full ? scrollbackSpans : []
     }
@@ -158,6 +166,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let terminalForeground = try container.decodeIfPresent(String.self, forKey: .terminalForeground)
         let terminalBackground = try container.decodeIfPresent(String.self, forKey: .terminalBackground)
         let terminalCursorColor = try container.decodeIfPresent(String.self, forKey: .terminalCursorColor)
+        let terminalTheme = try container.decodeIfPresent(TerminalTheme.self, forKey: .terminalTheme)
         let scrollbackRows = try container.decodeIfPresent(Int.self, forKey: .scrollbackRows) ?? 0
         let scrollbackSpans = try container.decodeIfPresent([RowSpan].self, forKey: .scrollbackSpans) ?? []
         try self.init(
@@ -176,6 +185,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             terminalForeground: terminalForeground,
             terminalBackground: terminalBackground,
             terminalCursorColor: terminalCursorColor,
+            terminalTheme: terminalTheme,
             scrollbackRows: scrollbackRows,
             scrollbackSpans: scrollbackSpans
         )
@@ -296,6 +306,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             terminalForeground: full ? terminalForeground : nil,
             terminalBackground: full ? terminalBackground : nil,
             terminalCursorColor: full ? terminalCursorColor : nil,
+            terminalTheme: full ? terminalTheme : nil,
             scrollbackRows: full ? scrollbackRows : 0,
             scrollbackSpans: full ? scrollbackSpans : []
         )
@@ -402,6 +413,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         case terminalForeground = "terminal_foreground"
         case terminalBackground = "terminal_background"
         case terminalCursorColor = "terminal_cursor_color"
+        case terminalTheme = "terminal_theme"
         case scrollbackRows = "scrollback_rows"
         case scrollbackSpans = "scrollback_spans"
     }

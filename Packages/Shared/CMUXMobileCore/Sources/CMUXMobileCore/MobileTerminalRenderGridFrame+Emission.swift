@@ -9,6 +9,7 @@ extension MobileTerminalRenderGridFrame {
             rows: rows,
             stateSeq: stateSeq,
             activeScreen: activeScreen,
+            terminalTheme: terminalTheme,
             rowSignatures: rowSignatures()
         )
     }
@@ -33,6 +34,7 @@ extension MobileTerminalRenderGridFrame {
             rows: rows,
             stateSeq: stateSeq,
             activeScreen: activeScreen,
+            terminalTheme: terminalTheme,
             rowSignatures: nextSignatures
         )
         guard let previous,
@@ -41,6 +43,9 @@ extension MobileTerminalRenderGridFrame {
             return (self, nextState)
         }
         if previous.activeScreen != activeScreen {
+            return (self, nextState)
+        }
+        if previous.terminalTheme != terminalTheme {
             return (self, nextState)
         }
 

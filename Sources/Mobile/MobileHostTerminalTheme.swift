@@ -55,4 +55,40 @@ extension TerminalTheme {
         }
         return object
     }
+
+    /// Captures the theme currently applied by the Mac Ghostty runtime.
+    ///
+    /// Unlike loading the config file again, this reads the same resolved
+    /// appearance state that repaints Mac chrome after a config reload, so the
+    /// frame sent to iOS cannot lag the visible Mac theme.
+    @MainActor
+    static func currentMacTerminalThemeSnapshot() -> TerminalTheme {
+        let app = GhosttyApp.shared
+        let config = GhosttyConfig.load(
+            preferredColorScheme: app.effectiveTerminalColorSchemePreference,
+            useCache: false,
+            globalFontMagnificationPercent: GlobalFontMagnification.storedPercent
+        )
+        return TerminalTheme(
+            background: app.defaultBackgroundColor.hexString(),
+            foreground: app.defaultForegroundColor.hexString(),
+            cursor: app.defaultCursorColor.hexString(),
+            cursorText: nil,
+            selectionBackground: app.defaultSelectionBackground.hexString(),
+            selectionForeground: app.defaultSelectionForeground.hexString(),
+            palette: config.mobileTerminalThemePalette()
+        ).validatedOrDefault()
+    }
+}
+
+extension GhosttyConfig {
+    func mobileTerminalThemePalette() -> [String] {
+        var resolved = TerminalTheme.monokai.palette
+        for index in 0..<TerminalTheme.paletteCount {
+            if let color = palette[index]?.hexString() {
+                resolved[index] = color
+            }
+        }
+        return resolved
+    }
 }

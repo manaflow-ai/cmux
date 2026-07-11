@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import SwiftUI
 
 extension View {
@@ -24,22 +25,23 @@ extension View {
     ///
     /// iOS 18 has no per-element glass, so keep a translucent material bar as the
     /// backing (which also backs the title); `mobileGlassNavigationTitle` is a
-    /// no-op there. Keep the dark color scheme so the title and toolbar buttons
-    /// stay light and legible over the dark panes.
+    /// no-op there. The toolbar color scheme follows the terminal background so
+    /// system title and button glyphs remain legible for light and dark themes.
     @ViewBuilder
-    func mobileTerminalNavigationChrome() -> some View {
+    func mobileTerminalNavigationChrome(theme: TerminalTheme? = nil) -> some View {
         #if os(iOS)
+        let colorScheme = theme.map { TerminalPalette.colorScheme(for: $0) } ?? .dark
         if #available(iOS 26.0, *) {
             self
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(.hidden, for: .navigationBar)
-                .toolbarColorScheme(.dark, for: .navigationBar)
+                .toolbarColorScheme(colorScheme, for: .navigationBar)
         } else {
             self
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
                 .toolbarBackground(.visible, for: .navigationBar)
-                .toolbarColorScheme(.dark, for: .navigationBar)
+                .toolbarColorScheme(colorScheme, for: .navigationBar)
         }
         #else
         self

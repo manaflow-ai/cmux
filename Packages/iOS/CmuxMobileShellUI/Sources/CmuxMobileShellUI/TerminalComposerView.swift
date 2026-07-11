@@ -154,6 +154,7 @@ struct TerminalComposerView: View {
 
     var body: some View {
         composerSurface
+        .environment(\.colorScheme, TerminalPalette.colorScheme(for: store.activeTerminalTheme))
         // The field is pinned edge-to-edge inside the surface's composer band, so its
         // outer size is locked to the band height and cannot report its own growth.
         // The field's height is driven solely by its content, so ask the host to
@@ -285,7 +286,7 @@ struct TerminalComposerView: View {
             HStack(alignment: .bottom, spacing: 8) {
                 MobileComposerIconButton(
                     systemImage: "paperclip",
-                    foregroundStyle: AnyShapeStyle(TerminalPalette.foreground.opacity(0.7)),
+                    foregroundStyle: AnyShapeStyle(TerminalPalette.chromeForeground.opacity(0.78)),
                     size: controlHeight,
                     accessibilityIdentifier: "MobileComposerAttach",
                     accessibilityLabel: L10n.string("mobile.composer.attach", defaultValue: "Attach Photo")
@@ -383,7 +384,7 @@ struct TerminalComposerView: View {
             systemImage: "mic",
             activeSystemImage: "mic.fill",
             isActive: listening,
-            foregroundStyle: listening ? AnyShapeStyle(Color.red) : AnyShapeStyle(TerminalPalette.foreground.opacity(0.7)),
+            foregroundStyle: listening ? AnyShapeStyle(Color.red) : AnyShapeStyle(TerminalPalette.chromeForeground.opacity(0.78)),
             size: controlHeight,
             pulsesWhenActive: true,
             isDisabled: !dictation.isAvailable,

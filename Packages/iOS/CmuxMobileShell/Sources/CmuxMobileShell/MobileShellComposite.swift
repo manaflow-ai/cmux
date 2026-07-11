@@ -325,6 +325,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var supportsWorkspaceGroupCreate: Bool { supportedHostCapabilities.contains(Self.workspaceGroupCreateCapability) && allowsMacScopedWorkspaceMutations }
     /// Whether the Mac supports dogfood feedback submission.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
+    var terminalThemeState = MobileTerminalThemeState()
+    /// The selected terminal surface's theme, which is the source of truth for
+    /// iOS terminal chrome and the embedded renderer configuration.
+    public var activeTerminalTheme: TerminalTheme { terminalThemeState.activeTheme }
     /// Bumped whenever the applied terminal theme actually changes (a connect
     /// that reports a different theme than the one currently in
     /// ``TerminalThemeStore``). The mounted terminal representable observes this
@@ -334,19 +338,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// SwiftUI/UIKit chrome, without remounting the surface, so scrollback is
     /// preserved across a theme change. The counter only advances on a real
     /// value change, so an unchanged theme on reconnect does no work.
-    public private(set) var terminalThemeGeneration: UInt64 = 0
-    /// Applies the Mac's reported terminal theme to the process-wide
-    /// ``TerminalThemeStore`` and, when the resolved value actually changes,
-    /// bumps ``terminalThemeGeneration`` so the mounted terminal surface (and
-    /// the chrome that blends with it) rebuilds with the new colors. Passing a
-    /// `nil`/invalid theme resolves to Monokai via the store.
-    public func applyTerminalTheme(_ theme: TerminalTheme?) {
-        let previous = TerminalThemeStore.current
-        TerminalThemeStore.set(theme)
-        if TerminalThemeStore.current != previous {
-            terminalThemeGeneration &+= 1
-        }
-    }
+    public var terminalThemeGeneration: UInt64 { terminalThemeState.generation }
     /// The composer's live draft for the currently selected terminal.
     ///
     /// Edits are persisted per-terminal through the FIFO draft pipeline on every
@@ -517,6 +509,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             swapDraft(from: draftedOutgoingTerminalID, outgoingText: draftedOutgoingText, to: selectedTerminalID)
             draftedOutgoingTerminalID = nil
             draftedOutgoingText = ""
+            applySelectedTerminalTheme()
             // Switching terminals rebuilds the surface (and the composer view with
             // it). When the user was actively composing — the field held first
             // responder at the moment of the switch — ask the incoming terminal's
@@ -1016,6 +1009,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalLiveFontTokensBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
+        TerminalThemeStore.set(activeTerminalTheme)
     }
 
     isolated deinit {
@@ -5366,6 +5360,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollQueueTokensBySurfaceID = [:]
         terminalScrollQueuesBySurfaceID = [:]
         terminalScrollbackPrefetchStatesBySurfaceID = [:]
+        resetTerminalThemes()
         terminalOutputTransport = .rawBytes
         supportedHostCapabilities = []
         terminalSubscriptionRefreshTask?.cancel()

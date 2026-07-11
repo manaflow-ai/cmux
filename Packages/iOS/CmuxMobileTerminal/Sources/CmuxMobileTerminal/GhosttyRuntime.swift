@@ -84,19 +84,6 @@ public final class GhosttyRuntime {
         backgroundUIColor(for: TerminalThemeStore.current)
     }
 
-    static func backgroundUIColor(for theme: TerminalTheme) -> UIColor {
-        guard let rgb = TerminalTheme.rgbComponents(theme.background)
-            ?? TerminalTheme.rgbComponents(TerminalTheme.monokai.background) else {
-            return UIColor(red: 0x27 / 255.0, green: 0x28 / 255.0, blue: 0x22 / 255.0, alpha: 1)
-        }
-        return UIColor(
-            red: CGFloat(rgb.red) / 255.0,
-            green: CGFloat(rgb.green) / 255.0,
-            blue: CGFloat(rgb.blue) / 255.0,
-            alpha: 1
-        )
-    }
-
     /// Rebuilds the shared config from the current ``TerminalThemeStore`` and
     /// pushes it to the live app and every registered surface, then refreshes the
     /// local view background of each surface. No-op when the runtime has not been

@@ -36,6 +36,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// band and pins first responder so the keyboard hands over in place; when it
     /// flips off, the field is unmounted and the band collapses to zero height.
     var isComposerActive: Bool = false
+    /// Theme for this exact Mac terminal surface.
+    var terminalTheme: TerminalTheme
     /// The store's terminal-theme generation. The shell writes the synced theme
     /// into `TerminalThemeStore` directly (it does not link GhosttyKit), so this
     /// representable — which does — drives the live recolor: when the generation
@@ -48,14 +50,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> UIView {
+        GhosttyRuntime.setTheme(terminalTheme)
         let runtime: GhosttyRuntime
         do {
             runtime = try GhosttyRuntime.shared()
         } catch {
             let fallback = UILabel()
             fallback.numberOfLines = 0
-            fallback.textColor = .white
-            fallback.backgroundColor = UIColor(red: 0x27/255.0, green: 0x28/255.0, blue: 0x22/255.0, alpha: 1)
+            fallback.textColor = GhosttyRuntime.foregroundUIColor(for: terminalTheme)
+            fallback.backgroundColor = GhosttyRuntime.backgroundUIColor(for: terminalTheme)
             fallback.text = L10n.string(
                 "mobile.terminal.rendererFailed",
                 defaultValue: "Terminal renderer failed to start."
@@ -67,6 +70,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             delegate: context.coordinator,
             fontSize: fontSize
         )
+        view.terminalTheme = terminalTheme
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         #if DEBUG
         // Hand the surface the structured diagnostic log so the composer-dock
@@ -107,6 +111,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // state write, so it is safe in `updateUIView`.
         guard let surfaceView = uiView as? GhosttySurfaceView else { return }
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        surfaceView.terminalTheme = terminalTheme
         surfaceView.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
         // Live theme change: the shell bumped the generation after writing the new
@@ -115,6 +120,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // even when the `.id()` remount reused this same view.
         if themeGeneration != context.coordinator.lastAppliedThemeGeneration {
             context.coordinator.lastAppliedThemeGeneration = themeGeneration
+            GhosttyRuntime.setTheme(terminalTheme)
             GhosttyRuntime.applyLiveThemeIfRunning()
         }
         // A width change (rotation) is not a text change, so the field-content trigger

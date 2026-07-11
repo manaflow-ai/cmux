@@ -18,6 +18,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// without holding a reference to the specific surface.
     private static weak var activeInputSurface: GhosttySurfaceView?
     private weak var runtime: GhosttyRuntime?
+    public var terminalTheme: TerminalTheme = .monokai {
+        didSet { if terminalTheme != oldValue { inputProxy.terminalTheme = terminalTheme; refreshThemeColors() } }
+    }
     weak var delegate: GhosttySurfaceViewDelegate?
     private let fontSize: Float32
     /// Surface-owned live font size (points). Zoom mutates this; it is the
@@ -461,6 +464,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private lazy var inputProxy: TerminalInputTextView = {
         let inputProxy = TerminalInputTextView()
+        inputProxy.terminalTheme = terminalTheme
         inputProxy.onText = { [weak self] text in
             guard let self else { return }
             self.handleUserProducedInput()
@@ -576,7 +580,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // refines this from the runtime config once a surface exists, but the
         // config can be stale on the process singleton across a theme change, so
         // the theme store is the authoritative source for this view's background.
-        backgroundColor = GhosttyRuntime.currentBackgroundUIColor
+        backgroundColor = GhosttyRuntime.backgroundUIColor(for: terminalTheme)
         isOpaque = true
         clipsToBounds = true
         #if DEBUG
@@ -1680,8 +1684,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func ensureZoomOverlay() -> MobileTerminalZoomControlOverlay {
-        if let zoomOverlay { return zoomOverlay }
+        if let zoomOverlay {
+            zoomOverlay.applyTheme(terminalTheme)
+            return zoomOverlay
+        }
         let overlay = MobileTerminalZoomControlOverlay()
+        overlay.applyTheme(terminalTheme)
         overlay.alpha = 0
         overlay.isHidden = true
         overlay.layer.zPosition = 1100
@@ -2707,8 +2715,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             height: ceil(cellHeight)
         )
         overlay.backgroundColor = cursorBlinkState.isVisible
-            ? (configCursorColor ?? UIColor(red: 0xc0/255.0, green: 0xc1/255.0, blue: 0xb5/255.0, alpha: 1.0)).cgColor
-            : (configBackgroundColor ?? backgroundColor ?? .black).cgColor
+            ? (configCursorColor ?? GhosttyRuntime.cursorUIColor(for: terminalTheme)).cgColor
+            : (configBackgroundColor ?? GhosttyRuntime.backgroundUIColor(for: terminalTheme)).cgColor
         overlay.isHidden = false
     }
 
@@ -2734,14 +2742,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private(set) var configCursorColor: UIColor?
 
     private func applyBackgroundColorFromConfig(_ config: ghostty_config_t) {
-        // The view background (the area behind/around the cells and the letterbox
-        // fill) follows the synced theme store, not this config read. On the
-        // process-singleton runtime the baked `ghostty_config_t` can be stale
-        // across a theme change, so reading the background from it would leave the
-        // local background on the old theme's color (the reported bug). The theme
-        // store is updated on connect and on a live theme change, so it is the
-        // authoritative source for what color the user should see here.
-        let themeBackground = GhosttyRuntime.currentBackgroundUIColor
+        // Per-surface theme state owns surrounding UIKit colors.
+        let themeBackground = GhosttyRuntime.backgroundUIColor(for: terminalTheme)
         backgroundColor = themeBackground
         snapshotFallbackView.backgroundColor = themeBackground
         configBackgroundColor = themeBackground
@@ -2758,6 +2760,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let fgKey = "foreground"
         if ghostty_config_get(config, &fgColor, fgKey, UInt(fgKey.lengthOfBytes(using: .utf8))) {
             snapshotFallbackView.textColor = UIColor(red: CGFloat(fgColor.r) / 255.0, green: CGFloat(fgColor.g) / 255.0, blue: CGFloat(fgColor.b) / 255.0, alpha: 1.0)
+        } else {
+            snapshotFallbackView.textColor = GhosttyRuntime.foregroundUIColor(for: terminalTheme)
         }
         var cursorColor = ghostty_config_color_s()
         let cursorKey = "cursor-color"
@@ -2771,30 +2775,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    /// Re-applies the current theme's colors to this surface's local view: the
-    /// view/letterbox background and snapshot-fallback colors from the theme
-    /// store, and the cursor-overlay color from the (freshly rebuilt) runtime
-    /// config. Called on a live theme change so an already-mounted surface
-    /// recolors its background in place — libghostty has no API to recolor a live
-    /// surface's *view* background, and the runtime config is only re-read here.
+    /// Recolors the surface, fallback, cursor, and input accessory in place.
     @MainActor
     func refreshThemeColors() {
-        let themeBackground = GhosttyRuntime.currentBackgroundUIColor
+        let themeBackground = GhosttyRuntime.backgroundUIColor(for: terminalTheme)
         backgroundColor = themeBackground
         snapshotFallbackView.backgroundColor = themeBackground
+        snapshotFallbackView.textColor = GhosttyRuntime.foregroundUIColor(for: terminalTheme)
         configBackgroundColor = themeBackground
         if let config = runtime?.config {
             applyBackgroundColorFromConfig(config)
         }
+        inputProxy.terminalTheme = terminalTheme
         inputProxy.refreshThemeColors()
         updateCursorOverlay()
         needsDraw = true
     }
 
-    /// Re-applies the active theme to every registered surface's local view after
-    /// a live theme change. Pairs with ``GhosttyRuntime/rebuildConfigFromStore()``,
-    /// which feeds the new config to the renderer; this updates the surrounding
-    /// UIKit colors the renderer does not own.
+    /// Recolors every registered surface from its own assigned theme.
     @MainActor
     static func refreshAllSurfacesForThemeChange() {
         registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
@@ -3458,7 +3456,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func applySnapshotFallbackTheme(from attributedText: NSAttributedString) {
         guard attributedText.length > 0 else {
-            snapshotFallbackView.backgroundColor = .black
+            snapshotFallbackView.backgroundColor = GhosttyRuntime.backgroundUIColor(for: terminalTheme)
+            snapshotFallbackView.textColor = GhosttyRuntime.foregroundUIColor(for: terminalTheme)
             return
         }
 
@@ -3466,7 +3465,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if let background = attributedText.attribute(.backgroundColor, at: probeIndex, effectiveRange: nil) as? UIColor {
             snapshotFallbackView.backgroundColor = background
         } else {
-            snapshotFallbackView.backgroundColor = .black
+            snapshotFallbackView.backgroundColor = GhosttyRuntime.backgroundUIColor(for: terminalTheme)
         }
     }
 

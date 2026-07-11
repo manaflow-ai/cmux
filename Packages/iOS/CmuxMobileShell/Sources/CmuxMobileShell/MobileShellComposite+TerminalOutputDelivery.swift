@@ -209,6 +209,7 @@ extension MobileShellComposite {
         surfaceID: String,
         bypassReplayBarrier: Bool = false
     ) -> Bool {
+        recordTerminalTheme(frame)
         return deliverTerminalOutput(
             TerminalOutputDelivery(
                 renderGrid: frame,
