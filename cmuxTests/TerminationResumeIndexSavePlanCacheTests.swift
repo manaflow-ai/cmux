@@ -9,7 +9,7 @@ import Testing
 @Suite
 struct TerminationResumeIndexSavePlanCacheTests {
     @Test
-    func coreSaveUsesCompletedCacheWithoutStartingARefresh() {
+    func pendingAuthorityFailsClosedWithoutReadingStaleCache() {
         let cachedIndexes = ProcessDetectedResumeIndexes(
             restorableAgentIndex: .empty,
             surfaceResumeBindingIndex: .empty
@@ -24,6 +24,6 @@ struct TerminationResumeIndexSavePlanCacheTests {
             }
         )
 
-        #expect(!plan.usesCoreSnapshotFallback && cacheReads == 1)
+        #expect(plan.usesCoreSnapshotFallback && cacheReads == 0)
     }
 }

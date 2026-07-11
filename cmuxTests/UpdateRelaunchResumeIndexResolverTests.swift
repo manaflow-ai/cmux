@@ -9,7 +9,7 @@ import Testing
 @Suite
 struct UpdateRelaunchResumeIndexResolverTests {
     @Test
-    func completedAuthorityThenPendingCacheAreResolvedWithoutColdScan() {
+    func completedAuthorityIsUsedWhilePendingAuthorityFailsClosed() {
         let indexes = ProcessDetectedResumeIndexes(
             restorableAgentIndex: .empty,
             surfaceResumeBindingIndex: .empty
@@ -30,21 +30,21 @@ struct UpdateRelaunchResumeIndexResolverTests {
                 return indexes
             }
         )
-        let cached = cachedResolver.resolve(coordinatedBy: .pending)
+        let pendingWithCache = cachedResolver.resolve(coordinatedBy: .pending)
         let coldResolver = UpdateRelaunchResumeIndexResolver(
             cachedIndexes: {
                 events.append("cache-miss")
                 return nil
             }
         )
-        let cold = coldResolver.resolve(coordinatedBy: .pending)
+        let pendingWithoutCache = coldResolver.resolve(coordinatedBy: .pending)
 
         #expect(
             completed.map { _ in true } == true
                 && unavailable.map { _ in true } == nil
-                && cached.map { _ in true } == true
-                && cold.map { _ in true } == nil
-                && events == ["cache-hit", "cache-miss"]
+                && pendingWithCache.map { _ in true } == nil
+                && pendingWithoutCache.map { _ in true } == nil
+                && events.isEmpty
         )
     }
 }
