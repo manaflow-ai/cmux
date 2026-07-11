@@ -1,5 +1,4 @@
 import {
-  boundedMetadataExcerpt,
   completeMetadataSentence,
   openGraphImageAlt,
   openGraphImageTagline,
@@ -222,25 +221,6 @@ function metadataSentenceFragments(value: string) {
   return fragments.length ? fragments : [value.trim()];
 }
 
-function metadataClauseFragments(locale: string, sentence: string) {
-  const fragments: string[] = [];
-  for (const match of sentence.matchAll(/[,;:：៖]\s*/gu)) {
-    const boundary = match.index;
-    const prefix = sentence.slice(0, boundary).trim();
-    const suffix = sentence.slice(boundary + match[0].length).trim();
-    if (prefix.length >= 20) {
-      fragments.push(completeMetadataSentence(locale, prefix));
-    }
-    if (suffix.length >= 20) {
-      const capitalized = suffix.replace(/^\p{L}/u, (letter) =>
-        letter.toLocaleUpperCase(locale),
-      );
-      fragments.push(completeMetadataSentence(locale, capitalized));
-    }
-  }
-  return fragments;
-}
-
 function selectDescription(
   locale: string,
   original: string,
@@ -330,6 +310,7 @@ export function docsPageSeoCopy(
   pageKey: AuditedDocsPageKey,
   t: SeoMessageLookup,
   layoutTitle: string,
+  curatedDescription?: string,
 ) {
   const pageTitle = pageKey === "ohMyOpenCode" ? undefined : t("title");
   const title = pageTitle ?? t("metaTitle");
@@ -341,12 +322,6 @@ export function docsPageSeoCopy(
   const proseFragments = [metaDescription, ...authoredDescriptions].flatMap(
     metadataSentenceFragments,
   );
-  const clauseFragments = proseFragments.flatMap((fragment) =>
-    metadataClauseFragments(locale, fragment),
-  );
-  const boundedExcerpts = [metaDescription, ...authoredDescriptions]
-    .map((candidate) => boundedMetadataExcerpt(locale, candidate))
-    .filter((candidate): candidate is string => Boolean(candidate));
   const compactTitle =
     pageKey === "ohMyOpenCode" ? "oh-my-opencode" : undefined;
   return {
@@ -365,10 +340,9 @@ export function docsPageSeoCopy(
     ),
     description: selectDescription(locale, metaDescription, {
       completeCandidates: [
+        ...(curatedDescription ? [curatedDescription] : []),
         ...authoredDescriptions,
         ...proseFragments,
-        ...clauseFragments,
-        ...boundedExcerpts,
       ],
     }),
   };

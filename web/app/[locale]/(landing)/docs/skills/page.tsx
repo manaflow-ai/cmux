@@ -1,5 +1,4 @@
 import { useTranslations } from "next-intl";
-import { getTranslations } from "next-intl/server";
 import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
 import { Link } from "@/i18n/navigation";
@@ -183,12 +182,10 @@ export async function generateMetadata({
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "docs.skills" });
   return auditedDocsMetadata({
     locale,
     pageKey: "skills",
     path: "/docs/skills",
-    messages: t,
   });
 }
 

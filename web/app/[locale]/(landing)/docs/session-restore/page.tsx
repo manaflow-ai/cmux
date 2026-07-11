@@ -11,12 +11,10 @@ export async function generateMetadata({
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "docs.sessionRestore" });
   return auditedDocsMetadata({
     locale,
     pageKey: "sessionRestore",
     path: "/docs/session-restore",
-    messages: t,
   });
 }
 

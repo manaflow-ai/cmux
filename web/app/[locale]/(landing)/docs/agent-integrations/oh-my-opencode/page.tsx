@@ -1,5 +1,4 @@
 import { useTranslations } from "next-intl";
-import { getTranslations } from "next-intl/server";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 import { auditedDocsMetadata } from "../../audited-docs-metadata";
@@ -7,12 +6,10 @@ import { DocsSchema } from "../../docs-schema";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "docs.ohMyOpenCode" });
   return auditedDocsMetadata({
     locale,
     pageKey: "ohMyOpenCode",
     path: "/docs/agent-integrations/oh-my-opencode",
-    messages: t,
   });
 }
 

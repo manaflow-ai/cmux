@@ -1,5 +1,4 @@
 import { useTranslations } from "next-intl";
-import { getTranslations } from "next-intl/server";
 import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
 import { Callout } from "@/app/[locale]/components/callout";
@@ -11,12 +10,10 @@ export async function generateMetadata({
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "docs.textBox" });
   return auditedDocsMetadata({
     locale,
     pageKey: "textBox",
     path: "/docs/textbox",
-    messages: t,
   });
 }
 

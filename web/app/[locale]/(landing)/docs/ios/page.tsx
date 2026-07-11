@@ -1,5 +1,4 @@
 import { useTranslations } from "next-intl";
-import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
@@ -8,12 +7,10 @@ import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "docs.ios" });
   return auditedDocsMetadata({
     locale,
     pageKey: "ios",
     path: "/docs/ios",
-    messages: t,
   });
 }
 

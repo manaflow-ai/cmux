@@ -6,12 +6,10 @@ import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "docs.ssh" });
   return auditedDocsMetadata({
     locale,
     pageKey: "ssh",
     path: "/docs/ssh",
-    messages: t,
   });
 }
 

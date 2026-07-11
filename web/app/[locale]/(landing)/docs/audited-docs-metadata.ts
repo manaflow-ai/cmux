@@ -1,4 +1,4 @@
-import { getTranslations } from "next-intl/server";
+import { getMessages } from "next-intl/server";
 import type { Locale } from "@/i18n/routing";
 import {
   type AuditedDocsPageKey,
@@ -15,22 +15,36 @@ export async function auditedDocsMetadata({
   locale,
   pageKey,
   path,
-  messages,
   availableLocales,
 }: {
   locale: string;
   pageKey: AuditedDocsPageKey;
   path: string;
-  messages: SeoMessageLookup;
   availableLocales?: readonly Locale[];
 }) {
-  const docs = await getTranslations({ locale, namespace: "docs" });
+  const allMessages = await getMessages({ locale });
+  const docs = allMessages.docs as Record<string, unknown>;
+  const pageMessages = docs[pageKey] as Record<string, unknown>;
+  const messages: SeoMessageLookup = (key) => {
+    const value = pageMessages[key];
+    if (typeof value !== "string") {
+      throw new Error(`Expected docs.${pageKey}.${key} to be a string`);
+    }
+    return value;
+  };
+  const layoutTitle = docs.layoutTitle;
+  if (typeof layoutTitle !== "string") {
+    throw new Error("Expected docs.layoutTitle to be a string");
+  }
   const alternates = buildAlternates(locale, path, availableLocales);
   const { title, socialTitle, description } = docsPageSeoCopy(
     locale,
     pageKey,
     messages,
-    docs("layoutTitle"),
+    layoutTitle,
+    typeof pageMessages.metaDescriptionShort === "string"
+      ? pageMessages.metaDescriptionShort
+      : undefined,
   );
   return {
     title,

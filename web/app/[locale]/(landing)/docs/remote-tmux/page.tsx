@@ -20,12 +20,10 @@ function assertSupportedLocale(locale: string) {
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   assertSupportedLocale(locale);
-  const t = await getTranslations({ locale, namespace: "docs.remoteTmux" });
   return auditedDocsMetadata({
     locale,
     pageKey: "remoteTmux",
     path: "/docs/remote-tmux",
-    messages: t,
     availableLocales: remoteTmuxDocsLocales,
   });
 }

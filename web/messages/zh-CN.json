@@ -1522,6 +1522,7 @@
       "title": "TextBox（测试版）",
       "metaTitle": "TextBox（测试版）",
       "metaDescription": "为新的终端标签页、分屏和工作区配置 cmux 的测试版 TextBox 输入。",
+      "metaDescriptionShort": "TextBox 是 cmux 的富文本终端输入界面，可在发送到终端前编写和编辑提示，并支持多行输入、历史记录、键盘快捷键与可配置的终端集成。",
       "intro": "TextBox 是 cmux 的富文本终端输入界面，可在发送到终端前编写提示。",
       "betaCallout": "TextBox 是测试版功能。在测试期间，默认值和行为可能会变化。",
       "defaultsTitle": "默认值",
