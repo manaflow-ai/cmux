@@ -164,7 +164,8 @@ public struct WorktreeIncludeSyncService: Sendable {
               destinationComponents.starts(with: sourceComponents) else {
             return nil
         }
-        return destination.deletingLastPathComponent().standardizedFileURL
+        let container = destination.deletingLastPathComponent().standardizedFileURL
+        return container == source ? nil : container
     }
 
     private nonisolated func isSafe(

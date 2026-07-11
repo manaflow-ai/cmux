@@ -59,12 +59,12 @@ root and inject it (e.g. `TabManager(gitMetadataService:)`).
 
 ## Testing
 
-`GitMetadataService` reads are pure functions of the directory argument, so its
-tests run against real temp directories with hand-written git metadata (no
-`git` process). The test target builds fixtures with `GitRepositoryFixture`
-(writes `HEAD`, `config`, refs, and working-tree files) and `GitIndexFixture`
-(writes a binary `index` for versions 2 and 4, including path
-prefix-compression). Internal parsing helpers are exercised via
+`GitMetadataService` reads are deterministic for the supplied directory
+contents, so its tests run against real temp directories with hand-written git
+metadata (no `git` process). The test target builds fixtures with
+`GitRepositoryFixture` (writes `HEAD`, `config`, refs, and working-tree files)
+and `GitIndexFixture` (writes a binary `index` for versions 2 and 4, including
+path prefix-compression). Internal parsing helpers are exercised via
 `@testable import CmuxGit`.
 
 ```swift

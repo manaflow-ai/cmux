@@ -111,7 +111,7 @@ enum CmuxExtensionWorktreePrototype {
             )
             for diagnostic in worktreeIncludeDiagnostics {
                 extensionWorktreeLogger.warning(
-                    "worktree include sync warning project=\(projectRoot.path, privacy: .private(mask: .hash)) detail=\(diagnostic, privacy: .private(mask: .hash))"
+                    "worktree include sync warning project=\(projectRoot.path, privacy: .private(mask: .hash)) detail=\(diagnostic, privacy: .private)"
                 )
             }
             try writeSampleDevServerFiles(in: worktree, projectName: projectRoot.lastPathComponent)
