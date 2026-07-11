@@ -3,12 +3,15 @@ import Foundation
 
 /// Fail-closed host-process identity for Android Emulator windows.
 public struct AndroidEmulatorProcessIdentity: Sendable {
+    /// Supplies command-line arguments for a process identifier.
     public typealias ProcessArgumentsProvider = @Sendable (Int32) -> [String]?
+    /// Supplies listening TCP ports for a process identifier.
     public typealias ListeningPortsProvider = @Sendable (Int32) -> Set<Int>?
 
     private let processArguments: ProcessArgumentsProvider
     private let listeningPorts: ListeningPortsProvider
 
+    /// Creates the production process identity reader.
     public init() {
         self.processArguments = Self.commandLineArguments
         self.listeningPorts = Self.listeningTCPPorts

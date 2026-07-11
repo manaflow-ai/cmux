@@ -7,10 +7,12 @@ public import Foundation
 public actor AndroidADBCommandRunner: CommandRunning {
     private let environment: [String: String]
 
+    /// Creates a runner with the environment inherited by ADB processes.
     public init(environment: [String: String]) {
         self.environment = environment
     }
 
+    /// Runs an ADB command and captures its bounded result.
     public func run(
         directory: String,
         executable: String,
