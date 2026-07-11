@@ -14,13 +14,13 @@ private final class AnalyticsConsentRevocationObserver: @unchecked Sendable {
         uploader: any AnalyticsUploading
     ) {
         self.notificationCenter = notificationCenter
+        uploader.setUploadsEnabled(consent.isTelemetryEnabled)
         self.token = notificationCenter.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil,
             queue: nil
         ) { _ in
-            guard !consent.isTelemetryEnabled else { return }
-            uploader.cancelPendingUploads()
+            uploader.setUploadsEnabled(consent.isTelemetryEnabled)
         }
     }
 
