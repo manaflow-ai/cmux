@@ -1306,7 +1306,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
-    func testForegroundSSHAuthReadyReconnectsConfiguredDisconnectedRemoteWorkspace() {
+    func testForegroundSSHAuthReadyReconnectsConfiguredConnectingRemoteWorkspace() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -1323,7 +1323,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         workspace.configureRemoteConnection(config, autoConnect: false)
-        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
 
         workspace.notifyRemoteForegroundAuthenticationReady(token: "token-a")
 
@@ -6712,7 +6712,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK workspace=\(workspaceRef) target=cmux-macmini state=disconnected\n")
+        XCTAssertEqual(result.stdout, "OK workspace=\(workspaceRef) target=cmux-macmini state=connecting\n")
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
 
         let requests = try state.commands.map { line -> [String: Any] in
