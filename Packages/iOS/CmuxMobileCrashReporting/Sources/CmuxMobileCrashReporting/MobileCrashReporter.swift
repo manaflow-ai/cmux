@@ -233,6 +233,8 @@ public struct MobileCrashReporter {
         private var isEnabled: Bool?
         private var onEnable: (() -> Void)?
         private var onRevoke: (() -> Void)?
+        private var pendingActions: [() -> Void] = []
+        private var isDrainingActions = false
 
         func arm(
             consent: any AnalyticsConsentProviding,
@@ -242,7 +244,6 @@ public struct MobileCrashReporter {
             onInitiallyDisabled: @escaping () -> Void
         ) {
             lock.lock()
-            defer { lock.unlock() }
             if let token, let center { center.removeObserver(token) }
             let initialIsEnabled = consent.isTelemetryEnabled
             center = notificationCenter
@@ -261,31 +262,55 @@ public struct MobileCrashReporter {
             // transition as later notifications. This prevents an opt-out
             // notification from closing Sentry and then racing with a delayed
             // initial start after arm() returns.
+            let shouldDrain: Bool
             if initialIsEnabled {
-                onEnable()
+                shouldDrain = enqueueActionLocked(onEnable)
             } else {
                 // A crash captured during an earlier opted-out window must
                 // never upload after a later re-opt-in.
-                onInitiallyDisabled()
+                shouldDrain = enqueueActionLocked(onInitiallyDisabled)
             }
+            lock.unlock()
+            if shouldDrain { drainActions() }
         }
 
         private func handleConsentChange() {
             lock.lock()
-            defer { lock.unlock() }
             guard let consent else {
+                lock.unlock()
                 return
             }
             let nextIsEnabled = consent.isTelemetryEnabled
             guard nextIsEnabled != isEnabled else {
+                lock.unlock()
                 return
             }
             isEnabled = nextIsEnabled
             let action = nextIsEnabled ? onEnable : onRevoke
-            // Keep state mutation and its SDK side effect in one critical
-            // section so callbacks delivered on different threads cannot run
-            // in the opposite order from their consent transitions.
-            action?()
+            let shouldDrain = action.map(enqueueActionLocked) ?? false
+            lock.unlock()
+            if shouldDrain { drainActions() }
+        }
+
+        private func enqueueActionLocked(_ action: @escaping () -> Void) -> Bool {
+            pendingActions.append(action)
+            guard !isDrainingActions else { return false }
+            isDrainingActions = true
+            return true
+        }
+
+        private func drainActions() {
+            while true {
+                lock.lock()
+                guard !pendingActions.isEmpty else {
+                    isDrainingActions = false
+                    lock.unlock()
+                    return
+                }
+                let action = pendingActions.removeFirst()
+                lock.unlock()
+                action()
+            }
         }
     }
 

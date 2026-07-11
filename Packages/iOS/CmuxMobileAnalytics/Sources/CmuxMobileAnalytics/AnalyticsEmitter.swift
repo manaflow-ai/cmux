@@ -11,7 +11,8 @@ private final class AnalyticsConsentRevocationObserver: @unchecked Sendable {
     init(
         notificationCenter: NotificationCenter,
         consent: any AnalyticsConsentProviding,
-        uploader: any AnalyticsUploading
+        uploader: any AnalyticsUploading,
+        onConsentChange: @escaping @Sendable (Bool) -> Void
     ) {
         self.notificationCenter = notificationCenter
         uploader.setUploadsEnabled(consent.isTelemetryEnabled)
@@ -20,7 +21,9 @@ private final class AnalyticsConsentRevocationObserver: @unchecked Sendable {
             object: nil,
             queue: nil
         ) { _ in
-            uploader.setUploadsEnabled(consent.isTelemetryEnabled)
+            let isEnabled = consent.isTelemetryEnabled
+            if !isEnabled { uploader.setUploadsEnabled(false) }
+            onConsentChange(isEnabled)
         }
     }
 
@@ -68,6 +71,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         case event(name: String, properties: [String: AnalyticsValue], timestamp: Date)
         case identify(userID: String?, alias: String?, properties: [String: AnalyticsValue])
         case superProperties([String: AnalyticsValue])
+        case consentChanged(isEnabled: Bool)
         case barrier(UUID)
     }
 
@@ -149,11 +153,16 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         self.flushInterval = flushInterval
         self.maxPendingEvents = max(flushBatchSize, maxPendingEvents)
         self.distinctID = anonymousID
-        (self.stream, self.continuation) = AsyncStream.makeStream(bufferingPolicy: .unbounded)
+        let (stream, continuation) = AsyncStream<Item>.makeStream(bufferingPolicy: .unbounded)
+        self.stream = stream
+        self.continuation = continuation
         self.consentObserver = AnalyticsConsentRevocationObserver(
             notificationCenter: notificationCenter,
             consent: consent,
-            uploader: uploader
+            uploader: uploader,
+            onConsentChange: { isEnabled in
+                continuation.yield(.consentChanged(isEnabled: isEnabled))
+            }
         )
         Task { await self.startConsuming() }
     }
@@ -218,6 +227,13 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
                 await applyIdentify(userID: userID, alias: alias, properties: properties)
             case let .superProperties(properties):
                 for (key, value) in properties { superProperties[key] = value }
+            case let .consentChanged(isEnabled):
+                if isEnabled {
+                    uploader.setUploadsEnabled(true)
+                } else {
+                    pending.removeAll()
+                    uploadOutageOpen = false
+                }
             case let .barrier(id):
                 await drain()
                 barriers.removeValue(forKey: id)?.resume()

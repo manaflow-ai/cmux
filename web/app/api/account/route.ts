@@ -696,11 +696,15 @@ function isCompletePostHogPersonDeletion(summary: unknown): boolean {
   const result = summary as Record<string, unknown>;
   const personsFound = result.persons_found;
   const personsDeleted = result.persons_deleted;
+  const eventsQueuedForDeletion = result.events_queued_for_deletion;
+  const recordingsQueuedForDeletion = result.recordings_queued_for_deletion;
   const deletionErrors = result.deletion_errors;
   return Number.isSafeInteger(personsFound) &&
     Number.isSafeInteger(personsDeleted) &&
     (personsFound as number) >= 0 &&
     personsFound === personsDeleted &&
+    eventsQueuedForDeletion === true &&
+    recordingsQueuedForDeletion === true &&
     Array.isArray(deletionErrors) &&
     deletionErrors.length === 0;
 }
