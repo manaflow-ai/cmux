@@ -30,8 +30,8 @@ import Testing
         }
 
         let recordURL = sandbox.appendingPathComponent("record.txt", isDirectory: false)
-        let sessionIdentityKeys = ClaudeSessionEnvironmentPolicy()
-            .inheritedSessionIdentityKeys
+        let inheritedLaunchKeys = ClaudeSessionEnvironmentPolicy()
+            .inheritedIndependentLaunchKeys
             .sorted()
         try writeExecutable(
             binDir.appendingPathComponent("claude", isDirectory: false),
@@ -39,7 +39,7 @@ import Testing
             #!/usr/bin/env bash
             {
               printf 'argv=%s\\n' "$*"
-              for key in \(sessionIdentityKeys.joined(separator: " ")) CLAUDE_CODE_USE_VERTEX; do
+              for key in \(inheritedLaunchKeys.joined(separator: " ")) CLAUDE_CODE_USE_VERTEX; do
                 if value="$(printenv "$key")"; then
                   printf '%s=%s\\n' "$key" "$value"
                 else
@@ -73,7 +73,7 @@ import Testing
             "CMUX_BUNDLED_CLI_PATH": fakeCmuxURL.path,
             "CLAUDE_CODE_USE_VERTEX": "1",
         ]
-        for key in sessionIdentityKeys {
+        for key in inheritedLaunchKeys {
             environment[key] = "inherited-parent-value"
         }
         process.environment = environment
@@ -85,7 +85,7 @@ import Testing
         let recorded = try String(contentsOf: recordURL, encoding: .utf8)
         #expect(recorded.contains("--settings"), Comment(rawValue: recorded))
         #expect(recorded.contains("--resume claude-session-123"), Comment(rawValue: recorded))
-        for key in sessionIdentityKeys {
+        for key in inheritedLaunchKeys {
             #expect(recorded.contains("\(key)=<unset>"), Comment(rawValue: recorded))
         }
         #expect(recorded.contains("CLAUDE_CODE_USE_VERTEX=1"), Comment(rawValue: recorded))

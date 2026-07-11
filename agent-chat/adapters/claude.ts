@@ -28,6 +28,20 @@ const MINIMUM_CLAUDE_FABLE_5_VERSION = "2.1.169";
 const MINIMUM_CLAUDE_OPUS_4_8_VERSION = "2.1.154";
 const MINIMUM_CLAUDE_OPUS_4_7_VERSION = "2.1.111";
 const VERSION_TTL_MS = 10 * 60_000;
+// Keep synchronized with CMUXAgentLaunch.ClaudeSessionEnvironmentPolicy.
+const INHERITED_CLAUDE_LAUNCH_STATE_KEYS = [
+  "CLAUDECODE",
+  "CLAUDE_CODE",
+  "CLAUDE_CODE_CHILD_SESSION",
+  "CLAUDE_CODE_BRIDGE_SESSION_ID",
+  "CLAUDE_CODE_PARENT_SESSION_ID",
+  "CLAUDE_CODE_SESSION_ID",
+  "CLAUDE_CODE_ENTRYPOINT",
+  "CLAUDE_CODE_EXECPATH",
+  "CLAUDE_CODE_SSE_PORT",
+  "CLAUDE_CODE_SANDBOXED",
+  "CMUX_CLAUDE_TEAMS_SANDBOXED",
+] as const;
 const BUILT_IN_MODELS: Array<{ slug: string; label: string; minVersion?: string; context?: boolean; fast?: boolean }> = [
   { slug: "claude-fable-5", label: "Claude Fable 5", minVersion: MINIMUM_CLAUDE_FABLE_5_VERSION, context: true },
   { slug: "claude-opus-4-8", label: "Claude Opus 4.8", minVersion: MINIMUM_CLAUDE_OPUS_4_8_VERSION, fast: true },
@@ -38,6 +52,14 @@ const BUILT_IN_MODELS: Array<{ slug: string; label: string; minVersion?: string;
   { slug: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", context: true },
   { slug: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
 ];
+
+export function claudeIndependentLaunchEnvironment(
+  environment: Record<string, string | undefined> = process.env,
+): Record<string, string | undefined> {
+  const launchEnvironment = { ...environment };
+  for (const key of INHERITED_CLAUDE_LAUNCH_STATE_KEYS) delete launchEnvironment[key];
+  return launchEnvironment;
+}
 
 function curatedClaudeModels(): Array<{ slug: string; label: string; description?: string; minVersion?: string; context?: boolean; fast?: boolean; deprecated?: boolean }> {
   const remote = agentModelCatalog.provider("claude");
@@ -229,7 +251,7 @@ function ensureProc(sess: SessionCtx): Bun.Subprocess<"pipe", "pipe", "pipe"> {
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, CLAUDECODE: undefined, CLAUDE_CODE_ENTRYPOINT: undefined, CLAUDE_CODE_SSE_PORT: undefined },
+    env: claudeIndependentLaunchEnvironment(),
   });
   st.proc = proc;
 
@@ -623,7 +645,7 @@ async function fetchClaudeModels(cwd: string): Promise<{ choices: OptionChoice[]
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, CLAUDECODE: undefined, CLAUDE_CODE_ENTRYPOINT: undefined, CLAUDE_CODE_SSE_PORT: undefined },
+    env: claudeIndependentLaunchEnvironment(),
   });
   try {
     return await new Promise<{ choices: OptionChoice[]; meta: Map<string, ClaudeModelMeta> }>((resolve, reject) => {

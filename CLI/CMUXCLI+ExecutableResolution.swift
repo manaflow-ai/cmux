@@ -230,8 +230,8 @@ extension CMUXCLI {
         return nudge + base
     }
 
-    func clearInheritedClaudeSessionEnvironment() {
-        for key in ClaudeSessionEnvironmentPolicy().inheritedSessionIdentityKeys {
+    func clearInheritedClaudeLaunchEnvironment() {
+        for key in ClaudeSessionEnvironmentPolicy().inheritedIndependentLaunchKeys {
             unsetenv(key)
         }
     }

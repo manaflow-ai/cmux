@@ -20150,6 +20150,7 @@ struct CMUXCLI {
         explicitPassword: String?,
         focusedContext: TmuxCompatFocusedContext?, commandArgs: [String]
     ) {
+        clearInheritedClaudeLaunchEnvironment()
         configureTmuxCompatEnvironment(
             processEnvironment: processEnvironment,
             shimDirectory: shimDirectory,
@@ -20162,7 +20163,6 @@ struct CMUXCLI {
             termOverrideEnvVar: "CMUX_CLAUDE_TEAMS_TERM",
             extraEnvVars: claudeTeamsExtraEnvVars(commandArgs: commandArgs)
         )
-        clearInheritedClaudeSessionEnvironment(); if !claudeTeamsHasDangerousSkipPermissions(commandArgs: commandArgs) { unsetenv("CMUX_CLAUDE_TEAMS_SANDBOXED"); unsetenv("CLAUDE_CODE_SANDBOXED") }  // clear ambient markers inherited from a parent opted-in session so the trust bypass never leaks across invocations (#6447)
         guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
@@ -22504,7 +22504,6 @@ struct CMUXCLI {
     }
 
     // MARK: - cmux omc (Oh My Claude Code)
-
     private func resolveOMCExecutable(searchPath: String?) -> String? {
         resolveExecutableInSearchPath("omc", searchPath: searchPath)
     }
@@ -22543,7 +22542,7 @@ struct CMUXCLI {
             cmuxBinEnvVar: "CMUX_OMC_CMUX_BIN",
             termOverrideEnvVar: "CMUX_OMC_TERM"
         )
-        clearInheritedClaudeSessionEnvironment()
+        clearInheritedClaudeLaunchEnvironment()
         // omc wraps Claude Code, so it needs the same NODE_OPTIONS restore module
         guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")

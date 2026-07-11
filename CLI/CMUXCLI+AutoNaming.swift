@@ -91,7 +91,7 @@ struct AutoNamingTranscriptMessage: Codable, Equatable, Sendable {
 struct AutoNamingEnvironmentPolicy: Sendable {
     /// Exact variables marking a live agent session or cmux terminal; never pass them to the summarizer.
     private static let scrubbedExactKeys = ClaudeSessionEnvironmentPolicy()
-        .inheritedSessionIdentityKeys
+        .inheritedIndependentLaunchKeys
         .union(["NODE_OPTIONS"])
 
     func summarizerEnvironment(from env: [String: String]) -> [String: String] {
