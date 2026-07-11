@@ -214,6 +214,38 @@ private struct FixedConsent: AnalyticsConsentProviding {
         #expect(recorder.sequence == ["purge", "close", "purge"])
     }
 
+    @Test func midSessionOptInStartsSDKWithoutRelaunch() {
+        final class ToggleConsent: AnalyticsConsentProviding, @unchecked Sendable {
+            var enabled = false
+            var isTelemetryEnabled: Bool { enabled }
+        }
+        final class Counter: @unchecked Sendable { var starts = 0 }
+        let consent = ToggleConsent()
+        let counter = Counter()
+        let center = NotificationCenter()
+
+        MobileCrashReporter.startIfEnabled(
+            consent: consent,
+            arguments: ["cmux"],
+            environment: [:],
+            notificationCenter: center,
+            revocationWatcher: MobileCrashReporter.RevocationWatcher(),
+            start: { _ in counter.starts += 1 },
+            close: {},
+            purgeCache: {},
+            crash: {}
+        )
+
+        #expect(counter.starts == 0)
+        consent.enabled = true
+        center.post(name: UserDefaults.didChangeNotification, object: nil)
+        #expect(counter.starts == 1)
+
+        // Unrelated defaults churn must not reinitialize a running SDK.
+        center.post(name: UserDefaults.didChangeNotification, object: nil)
+        #expect(counter.starts == 1)
+    }
+
     @Test func beforeSendDropsEventsWhenConsentRevokedMidSession() throws {
         final class ToggleConsent: AnalyticsConsentProviding, @unchecked Sendable {
             var enabled = true
