@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxGit
 import Foundation
 
 struct CmuxExtensionWorktreeCreationResult: Sendable {
@@ -98,6 +99,17 @@ enum CmuxExtensionWorktreePrototype {
             try FileManager.default.createDirectory(at: worktreeRoot, withIntermediateDirectories: true)
             let worktree = worktreeRoot.appendingPathComponent(branchName, isDirectory: true)
             try await run("git", ["-C", projectRoot.path, "worktree", "add", "-b", branchName, worktree.path, "HEAD"])
+            let worktreeIncludeDiagnostics = await WorktreeIncludeSyncService().sync(
+                from: projectRoot,
+                to: worktree
+            )
+#if DEBUG
+            for diagnostic in worktreeIncludeDiagnostics {
+                cmuxDebugLog(
+                    "extensionSidebar.worktree.include.warning project=\(projectRoot.path) detail=\(diagnostic)"
+                )
+            }
+#endif
             try writeSampleDevServerFiles(in: worktree, projectName: projectRoot.lastPathComponent)
 
             let port = 4_100 + abs(branchName.hashValue % 800)
