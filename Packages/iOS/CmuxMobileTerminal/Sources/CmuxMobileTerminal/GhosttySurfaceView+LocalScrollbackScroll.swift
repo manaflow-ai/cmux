@@ -29,33 +29,80 @@ extension GhosttySurfaceView {
         drawForWakeup()
     }
 
-    /// Apply the scroll to the phone's local Ghostty mirror immediately. On the
-    /// primary screen this consumes the preloaded local scrollback window, so a
-    /// drag/deceleration feels native while the Mac catches up. On alternate
-    /// screens libghostty turns this into mouse-wheel bytes; the mirror is
-    /// display-only and drops those bytes, so the authoritative Mac response
-    /// remains the visible update for TUIs.
+    /// Apply the scroll to the phone's local Ghostty mirror before forwarding
+    /// the matching batch to the Mac. At most one local operation is queued and
+    /// one newer batch is retained, so a stalled surface cannot accumulate and
+    /// later replay frame-rate scroll work. On alternate screens libghostty
+    /// turns this into mouse-wheel bytes; the mirror is display-only and drops
+    /// those bytes, so the authoritative Mac response remains visible for TUIs.
     func applyLocalScrollbackScroll(lines: Double, col: Int, row: Int) {
-        guard lines != 0,
-              let state = localScrollbackScrollState() else {
+        guard lines != 0 else { return }
+        let request = LocalScrollbackScrollRequest(
+            lines: lines,
+            col: max(0, col),
+            row: max(0, row)
+        )
+        guard let state = localScrollbackScrollState() else {
+            forwardAppliedLocalScrollbackScroll(request)
             return
         }
-        let generation = state.generation
-        let scale = state.scale
-        let clampedCol = max(0, col)
-        let clampedRow = max(0, row)
+        guard let immediate = localScrollbackScrollQueue.enqueue(request) else { return }
+        enqueueLocalScrollbackScroll(immediate, state: state)
+    }
+
+    func discardPendingLocalScrollbackScroll() {
+        localScrollbackScrollQueue.discardPending()
+    }
+
+    func takeOutstandingLocalScrollbackScroll() -> LocalScrollbackScrollRequest? {
+        localScrollbackScrollQueue.takeOutstanding()
+    }
+
+    func resetLocalScrollbackScroll() {
+        localScrollbackScrollQueue.reset()
+    }
+
+    private func enqueueLocalScrollbackScroll(
+        _ request: LocalScrollbackScrollRequest,
+        state: GhosttySurfaceWorkSnapshot
+    ) {
         state.queue.async { [weak self] in
             let size = ghostty_surface_size(state.surface)
-            let cellWidthPt = max(Double(size.cell_width_px) / scale, 1)
-            let cellHeightPt = max(Double(size.cell_height_px) / scale, 1)
-            let posX = (Double(clampedCol) + 0.5) * cellWidthPt
-            let posY = (Double(clampedRow) + 0.5) * cellHeightPt
+            let cellWidthPt = max(Double(size.cell_width_px) / state.scale, 1)
+            let cellHeightPt = max(Double(size.cell_height_px) / state.scale, 1)
+            let posX = (Double(request.col) + 0.5) * cellWidthPt
+            let posY = (Double(request.row) + 0.5) * cellHeightPt
             ghostty_surface_mouse_pos(state.surface, posX, posY, GHOSTTY_MODS_NONE)
-            ghostty_surface_mouse_scroll(state.surface, 0, lines, 0)
+            ghostty_surface_mouse_scroll(state.surface, 0, request.lines, 0)
             Task { @MainActor in
-                self?.requestDrawAfterLocalScrollbackScroll(generation: generation)
+                self?.completeLocalScrollbackScroll(request, generation: state.generation)
             }
         }
+    }
+
+    private func completeLocalScrollbackScroll(
+        _ request: LocalScrollbackScrollRequest,
+        generation: UInt64
+    ) {
+        guard surfaceGeneration == generation else { return }
+        let next = localScrollbackScrollQueue.completeInFlight()
+        guard surface != nil, !isDismantled else {
+            localScrollbackScrollQueue.reset()
+            return
+        }
+        requestDrawAfterLocalScrollbackScroll(generation: generation)
+        forwardAppliedLocalScrollbackScroll(request)
+        guard let next, let state = localScrollbackScrollState() else { return }
+        enqueueLocalScrollbackScroll(next, state: state)
+    }
+
+    private func forwardAppliedLocalScrollbackScroll(_ request: LocalScrollbackScrollRequest) {
+        delegate?.ghosttySurfaceView(
+            self,
+            didScrollLines: request.lines,
+            atCol: request.col,
+            row: request.row
+        )
     }
 }
 #endif

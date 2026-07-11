@@ -1456,6 +1456,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Coalesced native scroll forwarded to the Mac once per display-link frame.
     private var pendingScrollLines: Double = 0
     private var pendingScrollCell: (col: Int, row: Int) = (0, 0)
+    var localScrollbackScrollQueue = LocalScrollbackScrollQueue()
 
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
     /// alt-screen mouse-wheel reports at the cell under the finger.
@@ -1474,7 +1475,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let cell = pendingScrollCell
         pendingScrollLines = 0
         applyLocalScrollbackScroll(lines: lines, col: cell.col, row: cell.row)
-        delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
     }
 
     /// A tap both raises the software keyboard (so the user can type) and
@@ -2332,6 +2332,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func disposeSurface() {
         stopDisplayLink()
         cancelRenderPipelineRecoveryResumeTimer()
+        resetLocalScrollbackScroll()
         guard let surface else { return }
         GhosttySurfaceView.unregister(surface: surface)
         self.surface = nil
@@ -2438,12 +2439,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// in `scrollInitialOutputToBottomIfNeeded`).
     private func handleUserProducedInput() {
         resetCursorBlink()
-        // A flick still decelerating would fight the snap: deltas already in
-        // `pendingScrollLines` flush on the display-link frame AFTER the snap
-        // below, and UIScrollView momentum keeps producing more. Drop the
-        // pending deltas and freeze the scroll mechanics at the current offset
-        // (kill-deceleration idiom) so typed input lands at the bottom.
+        // A decelerating flick would fight the snap. Drop both unflushed and
+        // coalesced deltas, then freeze momentum so typed input stays at bottom.
         pendingScrollLines = 0
+        discardPendingLocalScrollbackScroll()
         scrollMechanicsView.setContentOffset(scrollMechanicsView.contentOffset, animated: false)
         enqueueScrollToBottom()
     }

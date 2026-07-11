@@ -177,6 +177,7 @@ extension GhosttySurfaceView {
             "render.recover reason=\(reason) stalledMs=\(stalledMs) generation=\(surfaceGeneration) pendingFrees=\(pendingSurfaceFreeCount)"
         )
         let completedFailedOperation = completePendingSurfaceOperations(returning: false)
+        let outstandingLocalScroll = takeOutstandingLocalScrollbackScroll()
 
         stopDisplayLink()
         let oldSurface = surface
@@ -223,6 +224,13 @@ extension GhosttySurfaceView {
         bridge.attach(to: self)
 
         initializeSurface()
+        if let outstandingLocalScroll {
+            applyLocalScrollbackScroll(
+                lines: outstandingLocalScroll.lines,
+                col: outstandingLocalScroll.col,
+                row: outstandingLocalScroll.row
+            )
+        }
         if replay == .delegateWhenNoCaller && !completedFailedOperation {
             delegate?.ghosttySurfaceViewDidResetRenderPipeline(self)
         }
