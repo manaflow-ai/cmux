@@ -98,6 +98,22 @@ export default function middleware(request: NextRequest) {
     }
   }
 
+  // Base docs are English-only. Keep the canonical URL unprefixed and bypass
+  // locale detection so browser language preferences cannot select a 404.
+  const baseDocsMatch = pathname.match(
+    /^\/([a-z]{2}(?:-[A-Z]{2})?)\/docs\/base\/?$/,
+  );
+  if (baseDocsMatch && baseDocsMatch[1] !== "en") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/docs/base";
+    return NextResponse.redirect(url, 301);
+  }
+  if (pathname === "/docs/base" || pathname === "/docs/base/") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/en/docs/base";
+    return NextResponse.rewrite(url);
+  }
+
   const remoteTmuxMatch = pathname.match(
     /^\/([a-z]{2}(?:-[A-Z]{2})?)\/docs\/remote-tmux\/?$/,
   );
