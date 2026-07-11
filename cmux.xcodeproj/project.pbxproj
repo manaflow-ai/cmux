@@ -1561,6 +1561,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A7843A000000000000000002 /* TerminalWindowPortalReplacementAuthorityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7843A000000000000000001 /* TerminalWindowPortalReplacementAuthorityTests.swift */; };
 		D7332D020000000000000001 /* TerminationDeadlineBudgetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332D020000000000000002 /* TerminationDeadlineBudgetTests.swift */; };
 		D7332C0A0000000000000001 /* TerminationResumeIndexCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332C0A0000000000000002 /* TerminationResumeIndexCoordinator.swift */; };
+		D7332F100000000000000001 /* TerminationResumeIndexCoordinatorInvalidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332F100000000000000002 /* TerminationResumeIndexCoordinatorInvalidationTests.swift */; };
 		D7332C0C0000000000000001 /* TerminationResumeIndexSavePlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332C0C0000000000000002 /* TerminationResumeIndexSavePlan.swift */; };
 		D7332D040000000000000001 /* TerminationResumeIndexSavePlanCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332D040000000000000002 /* TerminationResumeIndexSavePlanCacheTests.swift */; };
 		B7758A010000000000000001 /* TerminationWatchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7758A010000000000000002 /* TerminationWatchdog.swift */; };
@@ -3306,6 +3307,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A7843A000000000000000001 /* TerminalWindowPortalReplacementAuthorityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindowPortalReplacementAuthorityTests.swift; sourceTree = "<group>"; };
 		D7332D020000000000000002 /* TerminationDeadlineBudgetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationDeadlineBudgetTests.swift; sourceTree = "<group>"; };
 		D7332C0A0000000000000002 /* TerminationResumeIndexCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationResumeIndexCoordinator.swift; sourceTree = "<group>"; };
+		D7332F100000000000000002 /* TerminationResumeIndexCoordinatorInvalidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationResumeIndexCoordinatorInvalidationTests.swift; sourceTree = "<group>"; };
 		D7332C0C0000000000000002 /* TerminationResumeIndexSavePlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationResumeIndexSavePlan.swift; sourceTree = "<group>"; };
 		D7332D040000000000000002 /* TerminationResumeIndexSavePlanCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationResumeIndexSavePlanCacheTests.swift; sourceTree = "<group>"; };
 		B7758A010000000000000002 /* TerminationWatchdog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationWatchdog.swift; sourceTree = "<group>"; };
@@ -5110,6 +5112,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C1A5E2000000000000000002 /* ClosedItemHistoryCoordinatorLifetimeTests.swift */,
 				D7332C030000000000000002 /* SharedLiveAgentIndexScopedRefreshTests.swift */,
 				D7332C0B0000000000000002 /* ProcessDetectedResumeIndexCoordinationTests.swift */,
+				D7332F100000000000000002 /* TerminationResumeIndexCoordinatorInvalidationTests.swift */,
 				D7332D010000000000000002 /* UpdateRelaunchResumeIndexResolverTests.swift */,
 				D7332D040000000000000002 /* TerminationResumeIndexSavePlanCacheTests.swift */,
 				F0ACC0DE0000000000000006 /* WorkspaceForkConversationContextMenuTests.swift */,
@@ -7446,6 +7449,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C95BAC3D37A6111B487582DC /* TerminalWindowPortalLifecycleHiddenRefreshTests.swift in Sources */,
 				A7843A000000000000000002 /* TerminalWindowPortalReplacementAuthorityTests.swift in Sources */,
 				D7332D020000000000000001 /* TerminationDeadlineBudgetTests.swift in Sources */,
+				D7332F100000000000000001 /* TerminationResumeIndexCoordinatorInvalidationTests.swift in Sources */,
 				D7332D040000000000000001 /* TerminationResumeIndexSavePlanCacheTests.swift in Sources */,
 				B7758A020000000000000001 /* TerminationWatchdogTests.swift in Sources */,
 				C0DE7B300000000000000001 /* TextBoxMentionCompletionTests.swift in Sources */,

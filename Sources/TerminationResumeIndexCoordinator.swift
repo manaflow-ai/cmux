@@ -13,8 +13,14 @@ final class TerminationResumeIndexCoordinator {
     private var pendingLoad: PendingLoad?
 
     func loadForNewTerminationAttempt() async -> ProcessDetectedResumeIndexes? {
+        await loadForNewTerminationAttempt(coordinatedBy: .shared)
+    }
+
+    func loadForNewTerminationAttempt(
+        coordinatedBy sharedIndex: SharedLiveAgentIndex
+    ) async -> ProcessDetectedResumeIndexes? {
         invalidate()
-        return await load()
+        return await load(coordinatedBy: sharedIndex)
     }
 
     func invalidate() {

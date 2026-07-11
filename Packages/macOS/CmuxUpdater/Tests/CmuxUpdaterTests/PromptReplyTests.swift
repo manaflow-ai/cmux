@@ -323,12 +323,14 @@ import Testing
             Issue.record("failed termination did not expose retry controls")
             return
         }
+        #expect(delegate.relaunchInvalidationCount == 0)
 
         installing.retryTerminatingApplication()
         guard await events.next() == .preparationBegan else {
             Issue.record("Sparkle retry ran before a fresh host preparation")
             return
         }
+        #expect(delegate.relaunchInvalidationCount == 1)
         delegate.finishPreparation()
         #expect(await events.next() == .terminationRetryInvoked)
     }
@@ -357,6 +359,7 @@ import Testing
             Issue.record("failed termination did not expose dismiss controls")
             return
         }
+        #expect(delegate.relaunchInvalidationCount == 0)
         installing.dismiss()
 
         #expect(delegate.relaunchInvalidationCount == 1)
