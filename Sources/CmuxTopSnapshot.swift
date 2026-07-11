@@ -138,6 +138,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
     private let pidsByTTYDevice: [Int64: [Int]]
     private let pidsByCMUXSurfaceID: [UUID: [Int]]
     private let residentMemorySources: [CmuxTopProcessMemorySource]
+    let codingAgentDefinitionMemo = CmuxTopCodingAgentDefinitionMemo()
 
     static func capture(
         includeProcessDetails: Bool = false,
@@ -354,11 +355,16 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
     }
 
     func programSummaryPayload(for pids: Set<Int>) -> [[String: Any]] {
+        let codingAgentDefinitions = codingAgentDefinitionsByPID(for: pids)
         var aggregates: [String: CmuxProgramProcessAggregate] = [:]
 
         for pid in pids.sorted() {
             guard let process = processesByPID[pid] else { continue }
-            let title = process.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard codingAgentDefinitions[pid] == nil else { continue }
+            let title = cmuxTopCanonicalProcessName(
+                name: process.name,
+                path: process.path
+            ).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !title.isEmpty else { continue }
             let key = title.lowercased()
             if aggregates[key] == nil {
@@ -426,16 +432,11 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
 
     func codingAgentSummaryPayload(for pids: Set<Int>) -> [[String: Any]] {
         var aggregates: [String: CmuxCodingAgentProcessAggregate] = [:]
+        let definitionsByPID = codingAgentDefinitionsByPID(for: pids)
 
         for pid in pids.sorted() {
-            guard let process = processesByPID[pid] else { continue }
-            let processArguments = Self.processArgumentsIfNeeded(for: process)
-            guard let definition = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
-                processName: process.name,
-                processPath: process.path,
-                arguments: processArguments?.arguments ?? [],
-                environment: processArguments?.environment ?? [:]
-            ) else { continue }
+            guard let process = processesByPID[pid],
+                  let definition = definitionsByPID[pid] else { continue }
 
             if aggregates[definition.id] == nil {
                 aggregates[definition.id] = CmuxCodingAgentProcessAggregate(definition: definition)
@@ -447,14 +448,6 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             guard let aggregate = aggregates[definition.id] else { return nil }
             return aggregate.payload()
         }
-    }
-
-    private static func processArgumentsIfNeeded(for process: CmuxTopProcessInfo) -> CmuxTopProcessArguments? {
-        guard CmuxTaskManagerCodingAgentDefinition.shouldReadArguments(
-            processName: process.name,
-            processPath: process.path
-        ) else { return nil }
-        return processArgumentsAndEnvironment(for: process.pid)
     }
 
     private struct CmuxProgramProcessAggregate {
