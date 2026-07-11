@@ -3,18 +3,15 @@ import Bonsplit
 import CmuxControlSocket
 import Foundation
 
-/// The pane-domain witnesses are the byte-faithful bodies of the former
-/// `v2Pane*` dispatchers, minus the per-read `v2MainSync` hop: the coordinator
-/// already runs on the main actor inside the socket-command policy scope, so each
-/// hop would re-apply the identical thread-local focus-allowance stack — a no-op.
-///
-/// App-coupled resolution (`resolveTabManager(routing:)`, `v2LocatePane`,
-/// `v2ResolveWindowId`, the Bonsplit layout, the split-resize candidate
-/// collection) stays here; the seam exposes only Sendable snapshots and
-/// resolution enums.
+/// Pane-domain witnesses keep app-coupled topology resolution in the app while
+/// the main-actor coordinator owns command parsing and response shaping.
 extension TerminalController: ControlPaneContext {
     func controlPaneRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool {
         resolveTabManager(routing: routing) != nil
+    }
+
+    func controlPaneResizeInvalidParametersMessage() -> String {
+        String(localized: "socket.pane.resize.invalidParameters", defaultValue: "Invalid pane resize parameters")
     }
 
     // MARK: - Routing helpers
@@ -102,11 +99,14 @@ extension TerminalController: ControlPaneContext {
                let ghosttySurface = panel.surface.surface {
                 let size = ghostty_surface_size(ghosttySurface)
                 if size.columns > 0 && size.rows > 0 {
+                    let cellPoints = panel.surface.cellSizePoints()
                     gridSize = ControlPaneGridSize(
                         columns: Int(size.columns),
                         rows: Int(size.rows),
                         cellWidthPx: Int(size.cell_width_px),
-                        cellHeightPx: Int(size.cell_height_px)
+                        cellHeightPx: Int(size.cell_height_px),
+                        cellWidthPoints: cellPoints.map { Double($0.width) },
+                        cellHeightPoints: cellPoints.map { Double($0.height) }
                     )
                 }
             }
@@ -429,8 +429,8 @@ extension TerminalController: ControlPaneContext {
         guard let paneUUID else {
             return .noFocusedPane
         }
-        guard ws.remoteTmuxControlPane(paneID: paneUUID) == nil else {
-            return .paneNotFound(paneUUID)
+        if let remote = controlRemoteTmuxPaneResize(workspace: ws, tabManager: tabManager, inputs: inputs) {
+            return remote
         }
         guard ws.bonsplitController.allPaneIds.contains(where: { $0.id == paneUUID }) else {
             return .paneNotFound(paneUUID)
@@ -446,6 +446,14 @@ extension TerminalController: ControlPaneContext {
         guard trace.containsTarget else {
             return .paneNotFoundInTree(paneUUID)
         }
+
+        let localFallbackUnavailable = ControlPaneResizeResolution.localResizeUnavailable(
+            paneID: paneUUID,
+            message: String(
+                localized: "socket.pane.resize.localMetricsUnavailable",
+                defaultValue: "Pane resize metrics are not ready; wait for the pane to finish loading and retry."
+            )
+        )
 
         if let absoluteAxis = inputs.absoluteAxis,
            let targetPixels = inputs.targetPixels,
@@ -466,6 +474,8 @@ extension TerminalController: ControlPaneContext {
                 oldDividerPosition: Double(absoluteResize.oldPosition),
                 newDividerPosition: Double(absoluteResize.newPosition)
             )
+        } else if inputs.absoluteAxis != nil, inputs.targetPixels == nil {
+            return localFallbackUnavailable
         } else if inputs.absoluteAxis != nil || inputs.targetPixels != nil {
             return .noAbsoluteSplitAncestor(paneID: paneUUID, absoluteAxis: inputs.absoluteAxis)
         }
@@ -490,7 +500,10 @@ extension TerminalController: ControlPaneContext {
             return .noAdjacentBorder(paneID: paneUUID, direction: direction.rawValue)
         }
 
-        let delta = CGFloat(inputs.amount) / candidate.axisPixels
+        guard let amount = inputs.amount else {
+            return localFallbackUnavailable
+        }
+        let delta = CGFloat(amount) / candidate.axisPixels
         let requested = candidate.dividerPosition + (direction.dividerDeltaSign * delta)
         let clamped = min(max(requested, 0.1), 0.9)
         guard ws.bonsplitController.setDividerPosition(clamped, forSplit: candidate.splitId, fromExternal: true) else {
@@ -504,7 +517,7 @@ extension TerminalController: ControlPaneContext {
             paneID: paneUUID,
             splitID: candidate.splitId,
             direction: direction.rawValue,
-            amount: inputs.amount,
+            amount: amount,
             oldDividerPosition: Double(candidate.dividerPosition),
             newDividerPosition: Double(clamped)
         )

@@ -152,6 +152,12 @@ extension ControlCommandCoordinator {
                 dict["rows"] = .int(Int64(grid.rows))
                 dict["cell_width_px"] = .int(Int64(grid.cellWidthPx))
                 dict["cell_height_px"] = .int(Int64(grid.cellHeightPx))
+                if let width = grid.cellWidthPoints {
+                    dict["cell_width_points"] = .double(width)
+                }
+                if let height = grid.cellHeightPoints {
+                    dict["cell_height_points"] = .double(height)
+                }
             }
             return .object(dict)
         }

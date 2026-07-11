@@ -413,6 +413,10 @@ import Testing
         #expect(RemoteTmuxRawLayoutParser.parse("abcd,60x40,0,0{60x40,0,0,4}") == nil)
     }
 
+    @Test func rejectsDuplicatePaneIDs() {
+        #expect(RemoteTmuxRawLayoutParser.parse("abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,4}") == nil)
+    }
+
     @Test func rejectsGarbageLayout() {
         #expect(RemoteTmuxRawLayoutParser.parse("not-a-layout") == nil)
         #expect(RemoteTmuxRawLayoutParser.parse("") == nil)
