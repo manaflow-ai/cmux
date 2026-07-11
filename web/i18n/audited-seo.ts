@@ -37,6 +37,19 @@ const shortTitleContexts: Record<string, string> = {
   uk: "AI-кодування на macOS",
 };
 
+const historyShortDescriptions: Partial<Record<string, string>> = {
+  th: "cmux history ช่วยเปิดเทอร์มินัล เบราว์เซอร์ และเซสชัน AI ที่ปิดไป พร้อมเลื่อนโฟกัสบน macOS.",
+};
+
+const khmerComparePageFallbacks = new Set([
+  "cmuxVsDevin",
+  "cmuxVsIterm2",
+  "cmuxVsKitty",
+  "cmuxVsTmux",
+  "cmuxVsVscode",
+  "cmuxVsWezterm",
+]);
+
 function selectTitle(
   locale: string,
   original: string,
@@ -186,6 +199,7 @@ export function cmuxHistorySeoCopy(
   siteMeta: SeoMessageLookup,
 ) {
   const metaTitle = metadata("metaTitle");
+  const shortDescription = historyShortDescriptions[locale];
   return {
     title: selectTitle(locale, metaTitle, siteMeta, [
       post("title"),
@@ -195,6 +209,7 @@ export function cmuxHistorySeoCopy(
     ]),
     description: selectDescription(locale, metadata("metaDescription"), {
       completeCandidates: [
+        ...(shortDescription ? [shortDescription] : []),
         post("summary"),
         post("p1"),
         post("agentP2"),
@@ -239,6 +254,11 @@ export function comparePageSeoCopy(
 ) {
   const titleCandidates = [t("title")];
   const completeDescriptionCandidates = [t("summaryBody"), t("intro")];
+  if (locale === "km" && khmerComparePageFallbacks.has(pageKey)) {
+    completeDescriptionCandidates.push(
+      `${t("title")} ប្រៀបធៀបភ្នាក់ងារសរសេរកូដ AI ការជូនដំណឹង កន្លែងធ្វើការ និងស្វ័យប្រវត្តិកម្មលើ macOS។`,
+    );
+  }
   const descriptionFragments = [t("title")];
   if (pageKey === "bestTerminalForAgents") {
     titleCandidates.push(landingLinks("bestTerminal"));
@@ -258,21 +278,6 @@ export function comparePageSeoCopy(
         joinMetadataQuestionAndAnswer(locale, t("faqQ1"), t("faqA1")),
         joinMetadataQuestionAndAnswer(locale, t("faqQ2"), t("faqA2")),
         joinMetadataQuestionAndAnswer(locale, t("faqQ3"), t("faqA3")),
-        joinMetadataQuestionAndAnswer(
-          locale,
-          t("faqQ1"),
-          shortSeoDescriptionCandidate(locale),
-        ),
-        joinMetadataQuestionAndAnswer(
-          locale,
-          t("faqQ2"),
-          shortSeoDescriptionCandidate(locale),
-        ),
-        joinMetadataQuestionAndAnswer(
-          locale,
-          t("faqQ3"),
-          shortSeoDescriptionCandidate(locale),
-        ),
       ],
       contextFragments: descriptionFragments,
     }),

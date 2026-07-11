@@ -4,7 +4,7 @@ const BASE = "https://cmux.com";
 const DEFAULT_OG_IMAGE_PATH = "/opengraph-image";
 
 const shortDescriptionSuffixes: Record<string, string> = {
-  en: "Built for AI coding agents on macOS.",
+  en: "Built for AI coding agents and multitasking on macOS.",
   ja: "macOS の AI コーディングエージェント向けです。",
   "zh-CN": "面向 macOS 上的 AI 编码代理。",
   "zh-TW": "面向 macOS 上的 AI 程式碼代理。",
@@ -208,7 +208,10 @@ export function seoDescription(
   const trimmed = description.trim();
   const candidates = [...(options.fallbackCandidates ?? [])];
 
-  if (metadataSearchLength(trimmed) < minLength) {
+  if (
+    isSafeMetadataText(trimmed) &&
+    metadataSearchLength(trimmed) < minLength
+  ) {
     const suffixes =
       minLength >= AUDIT_MIN_DESCRIPTION_LENGTH
         ? detailedDescriptionSuffixes
@@ -287,7 +290,8 @@ function isSafeMetadataText(value: string) {
   return (
     !/<\/?[a-z][^>]*>/iu.test(value) &&
     !/[{}]/u.test(value) &&
-    !/__CMUXPH/iu.test(value)
+    !/__CMUXPH/iu.test(value) &&
+    !/[:：]\s*$/u.test(value)
   );
 }
 
