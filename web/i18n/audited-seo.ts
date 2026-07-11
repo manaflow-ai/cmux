@@ -1,4 +1,5 @@
 import {
+  completeMetadataSentence,
   openGraphImageAlt,
   openGraphImageTagline,
   detailedSeoDescriptionCandidate,
@@ -61,18 +62,44 @@ function selectTitle(
 function selectDescription(
   locale: string,
   original: string,
-  authoredCandidates: readonly string[] = [],
+  options: {
+    completeCandidates?: readonly string[];
+    contextFragments?: readonly string[];
+  } = {},
 ) {
   const short = shortSeoDescriptionCandidate(locale);
   const detailed = detailedSeoDescriptionCandidate(locale);
-  const tagline = openGraphImageTagline(locale);
-  const contextualCandidates = authoredCandidates.flatMap((candidate) => [
-    candidate,
-    joinMetadataSentences(candidate, short),
-    joinMetadataSentences(candidate, detailed),
-    joinMetadataSentences(joinMetadataSentences(candidate, short), tagline),
-  ]);
-  return seoDescription(locale, original, {
+  const tagline = completeMetadataSentence(
+    locale,
+    openGraphImageTagline(locale),
+  );
+  const completeCandidates = (options.completeCandidates ?? []).map(
+    (candidate) => completeMetadataSentence(locale, candidate),
+  );
+  const contextFragments = options.contextFragments ?? [];
+  const contextualCandidates = [
+    ...completeCandidates,
+    ...completeCandidates.map((candidate) =>
+      joinMetadataSentences(locale, candidate, short),
+    ),
+    ...completeCandidates.map((candidate) =>
+      joinMetadataSentences(locale, candidate, detailed),
+    ),
+    ...contextFragments.map((candidate) =>
+      joinMetadataSentences(locale, candidate, short),
+    ),
+    ...contextFragments.map((candidate) =>
+      joinMetadataSentences(locale, candidate, detailed),
+    ),
+    ...contextFragments.map((candidate) =>
+      joinMetadataSentences(
+        locale,
+        joinMetadataSentences(locale, candidate, short),
+        tagline,
+      ),
+    ),
+  ];
+  return seoDescription(locale, completeMetadataSentence(locale, original), {
     minLength: 110,
     fallbackCandidates: contextualCandidates,
   });
@@ -83,11 +110,14 @@ export function homeSeoCopy(locale: string, meta: SeoMessageLookup) {
     openGraphImageAlt(locale),
     openGraphImageTagline(locale),
   ]);
-  const description = selectDescription(locale, meta("description"), [
-    "cmux",
-    meta("ogDescription"),
-    openGraphImageAlt(locale),
-  ]);
+  const description = selectDescription(locale, meta("description"), {
+    completeCandidates: [meta("ogDescription")],
+    contextFragments: [
+      `cmux — ${shortTitleContexts[locale] ?? shortTitleContexts.en}`,
+      "cmux",
+      openGraphImageAlt(locale),
+    ],
+  });
   return { title, description };
 }
 
@@ -98,11 +128,10 @@ export function assetsSeoCopy(
 ) {
   return {
     title: selectTitle(locale, t("metaTitle"), siteMeta, [t("title")]),
-    description: selectDescription(locale, t("metaDescription"), [
-      t("title"),
-      joinMetadataSentences(t("title"), t("metaDescription")),
-      t("description"),
-    ]),
+    description: selectDescription(locale, t("metaDescription"), {
+      completeCandidates: [t("description")],
+      contextFragments: [t("title")],
+    }),
   };
 }
 
@@ -113,10 +142,10 @@ export function blogIndexSeoCopy(
 ) {
   return {
     title: selectTitle(locale, t("metaTitle"), siteMeta, [t("title")]),
-    description: selectDescription(locale, t("metaDescription"), [
-      t("title"),
-      joinMetadataSentences(t("title"), t("metaDescription")),
-    ]),
+    description: selectDescription(locale, t("metaDescription"), {
+      completeCandidates: [t("description")],
+      contextFragments: [t("title")],
+    }),
   };
 }
 
@@ -130,11 +159,14 @@ export function communitySeoCopy(
       t("title"),
       t("section"),
     ]),
-    description: selectDescription(locale, t("metaDescription"), [
-      t("title"),
-      joinMetadataSentences(t("title"), t("metaDescription")),
-      t("description"),
-    ]),
+    description: selectDescription(locale, t("metaDescription"), {
+      completeCandidates: [t("description")],
+      contextFragments: [
+        `${t("title")} — ${t("sourceAction")}`,
+        t("title"),
+        t("section"),
+      ],
+    }),
   };
 }
 
@@ -145,11 +177,10 @@ export function bestTerminalSeoCopy(
 ) {
   return {
     title: selectTitle(locale, t("metaTitle"), siteMeta, [t("title")]),
-    description: selectDescription(locale, t("metaDescription"), [
-      t("title"),
-      t("cmuxBuiltFor"),
-      joinMetadataSentences(t("title"), t("cmuxBuiltFor")),
-    ]),
+    description: selectDescription(locale, t("metaDescription"), {
+      completeCandidates: [t("intro")],
+      contextFragments: [t("title"), t("cmuxBuiltFor")],
+    }),
   };
 }
 
@@ -167,15 +198,23 @@ export function cmuxHistorySeoCopy(
       post("agentTitle"),
       post("focusTitle"),
     ]),
-    description: selectDescription(locale, metadata("metaDescription"), [
-      post("summary"),
-      post("p1"),
-      post("agentP2"),
-      post("focusP"),
-      post("fullHistoryP"),
-      post("docsCta"),
-      `${metaTitle} — ${post("agentTitle")}`,
-    ]),
+    description: selectDescription(locale, metadata("metaDescription"), {
+      completeCandidates: [
+        post("summary"),
+        post("p1"),
+        post("agentP2"),
+        post("focusP"),
+        post("fullHistoryP"),
+        post("docsCta"),
+      ],
+      contextFragments: [
+        post("title"),
+        post("reopenTitle"),
+        post("agentTitle"),
+        post("focusTitle"),
+        `${metaTitle} — ${post("agentTitle")}`,
+      ],
+    }),
   };
 }
 
@@ -186,11 +225,10 @@ export function compareIndexSeoCopy(
 ) {
   return {
     title: selectTitle(locale, t("metaTitle"), siteMeta, [t("title")]),
-    description: selectDescription(locale, t("metaDescription"), [
-      t("title"),
-      joinMetadataSentences(t("title"), openGraphImageAlt(locale)),
-      t("intro"),
-    ]),
+    description: selectDescription(locale, t("metaDescription"), {
+      completeCandidates: [t("intro")],
+      contextFragments: [t("title")],
+    }),
   };
 }
 
@@ -202,24 +240,29 @@ export function comparePageSeoCopy(
   siteMeta: SeoMessageLookup,
 ) {
   const titleCandidates = [t("title")];
-  const descriptionCandidates = [t("title"), t("summaryBody"), t("intro")];
+  const completeDescriptionCandidates = [t("summaryBody"), t("intro")];
+  const descriptionFragments = [t("title")];
   if (pageKey === "bestTerminalForAgents") {
     titleCandidates.push(landingLinks("bestTerminal"));
-    descriptionCandidates.push(landingLinks("agents"));
+    descriptionFragments.push(landingLinks("agents"));
   } else if (pageKey === "multipleClaudeAgents") {
     titleCandidates.push(landingLinks("claudeTeams"));
+    descriptionFragments.push(landingLinks("claudeTeams"));
     titleCandidates.push(t("faqQ1"), t("faqQ2"), t("faqQ3"));
   } else {
     titleCandidates.push(t("faqQ1"), t("faqQ2"), t("faqQ3"));
   }
   return {
     title: selectTitle(locale, t("metaTitle"), siteMeta, titleCandidates),
-    description: selectDescription(locale, t("metaDescription"), [
-      ...descriptionCandidates,
-      joinMetadataSentences(t("faqQ1"), t("faqA1")),
-      joinMetadataSentences(t("faqQ2"), t("faqA2")),
-      joinMetadataSentences(t("faqQ3"), t("faqA3")),
-    ]),
+    description: selectDescription(locale, t("metaDescription"), {
+      completeCandidates: [
+        ...completeDescriptionCandidates,
+        joinMetadataSentences(locale, t("faqQ1"), t("faqA1")),
+        joinMetadataSentences(locale, t("faqQ2"), t("faqA2")),
+        joinMetadataSentences(locale, t("faqQ3"), t("faqA3")),
+      ],
+      contextFragments: descriptionFragments,
+    }),
   };
 }
 
@@ -231,7 +274,16 @@ export function pricingSeoCopy(
 ) {
   return {
     title: selectTitle(locale, t("metaTitle"), siteMeta, [t("title")]),
-    description: selectDescription(locale, t(descriptionKey), [t("title")]),
+    description: selectDescription(locale, t(descriptionKey), {
+      completeCandidates: [
+        t(
+          descriptionKey === "metaDescription"
+            ? "metaDescriptionShort"
+            : "metaDescriptionNoVaultShort",
+        ),
+      ],
+      contextFragments: [t("title")],
+    }),
   };
 }
 
@@ -242,9 +294,9 @@ export function ohMyPiSeoCopy(
 ) {
   return {
     title: selectTitle(locale, t("metaTitle"), siteMeta, [t("title")]),
-    description: selectDescription(locale, t("metaDescription"), [
-      t("title"),
-      t("intro"),
-    ]),
+    description: selectDescription(locale, t("metaDescription"), {
+      completeCandidates: [t("intro")],
+      contextFragments: [t("title")],
+    }),
   };
 }

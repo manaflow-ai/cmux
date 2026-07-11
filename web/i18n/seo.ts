@@ -20,7 +20,7 @@ const shortDescriptionSuffixes: Record<string, string> = {
   ar: "مصمم لوكلاء البرمجة بالذكاء الاصطناعي على macOS.",
   no: "Laget for AI-kodeagenter på macOS.",
   "pt-BR": "Criado para agentes de código com IA no macOS.",
-  th: "สร้างมาเพื่อเอเจนต์เขียนโค้ด AI บน macOS.",
+  th: "สร้างมาเพื่อเอเจนต์เขียนโค้ด AI และการทำงานหลายอย่างบน macOS.",
   tr: "macOS'taki AI kodlama ajanları için tasarlandı.",
   km: "បង្កើតសម្រាប់ភ្នាក់ងារ AI សរសេរកូដលើ macOS។",
   uk: "Створено для AI-агентів програмування на macOS.",
@@ -43,7 +43,7 @@ const detailedDescriptionSuffixes: Record<string, string> = {
   ar: "مصمم لوكلاء البرمجة بالذكاء الاصطناعي على macOS، مع علامات تبويب عمودية وإشعارات وأجزاء مقسمة وأتمتة للمتصفح.",
   no: "Laget for AI-kodeagenter på macOS med vertikale faner, varsler, delte paneler og nettleserautomatisering.",
   "pt-BR": "Criado para agentes de código com IA no macOS, com abas verticais, notificações, painéis divididos e automação do navegador.",
-  th: "สร้างมาสำหรับเอเจนต์เขียนโค้ด AI บน macOS พร้อมแท็บแนวตั้ง การแจ้งเตือน แผงแยก และระบบเบราว์เซอร์อัตโนมัติ",
+  th: "สร้างมาสำหรับเอเจนต์เขียนโค้ด AI บน macOS พร้อมแท็บแนวตั้ง การแจ้งเตือน แผงแยก และระบบเบราว์เซอร์อัตโนมัติ.",
   tr: "macOS'taki AI kodlama ajanları için dikey sekmeler, bildirimler, bölünmüş paneller ve tarayıcı otomasyonuyla tasarlandı.",
   km: "បង្កើតសម្រាប់ភ្នាក់ងារ AI សរសេរកូដលើ macOS ជាមួយផ្ទាំងបញ្ឈរ ការជូនដំណឹង ផ្ទាំងបំបែក និងស្វ័យប្រវត្តិកម្មកម្មវិធីរុករក។",
   uk: "Створено для AI-агентів програмування на macOS: вертикальні вкладки, сповіщення, розділені панелі й автоматизація браузера.",
@@ -145,11 +145,36 @@ export function shortSeoDescriptionCandidate(locale: string) {
   return shortDescriptionSuffixes[locale] ?? shortDescriptionSuffixes.en;
 }
 
-export function joinMetadataSentences(first: string, second: string) {
+export function joinMetadataSentences(
+  locale: string,
+  first: string,
+  second: string,
+) {
   const leading = first.trim();
   const trailing = second.trim();
-  const separator = /[.!?。！？؟។៕]$/u.test(leading) ? " " : ". ";
+  const compact = usesCompactSentenceSpacing(locale);
+  const terminator = localizedSentenceTerminator(locale);
+  const spacing = compact ? "" : " ";
+  const separator = /[.!?。！？؟។៕]$/u.test(leading)
+    ? spacing
+    : `${terminator}${spacing}`;
   return `${leading}${separator}${trailing}`;
+}
+
+export function completeMetadataSentence(locale: string, value: string) {
+  const trimmed = value.trim();
+  return /[.!?。！？؟។៕]$/u.test(trimmed)
+    ? trimmed
+    : `${trimmed}${localizedSentenceTerminator(locale)}`;
+}
+
+function localizedSentenceTerminator(locale: string) {
+  if (usesCompactSentenceSpacing(locale)) return "。";
+  return locale === "km" ? "។" : ".";
+}
+
+function usesCompactSentenceSpacing(locale: string) {
+  return locale === "ja" || locale === "zh-CN" || locale === "zh-TW";
 }
 
 export function seoDescription(
@@ -171,7 +196,7 @@ export function seoDescription(
         : shortDescriptionSuffixes;
     const suffix = suffixes[locale] ?? suffixes.en;
     if (!trimmed.includes(suffix)) {
-      candidates.push(joinMetadataSentences(trimmed, suffix));
+      candidates.push(joinMetadataSentences(locale, trimmed, suffix));
     }
   }
 

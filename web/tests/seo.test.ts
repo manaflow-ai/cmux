@@ -7,6 +7,7 @@ import middleware from "../proxy";
 import {
   buildAlternates,
   canonicalUrl,
+  completeMetadataSentence,
   hasLocalizedSeoCopy,
   joinMetadataSentences,
   openGraphDefaults,
@@ -68,9 +69,15 @@ describe("SEO metadata helpers", () => {
   });
 
   test("joins metadata sentences without duplicating localized punctuation", () => {
-    expect(joinMetadataSentences("សាកល្បង។", "បន្ទាប់")).toBe(
+    expect(joinMetadataSentences("km", "សាកល្បង។", "បន្ទាប់")).toBe(
       "សាកល្បង។ បន្ទាប់",
     );
+    expect(joinMetadataSentences("ja", "ブランドアセット", "次の文です。")).toBe(
+      "ブランドアセット。次の文です。",
+    );
+    expect(
+      completeMetadataSentence("en", "The terminal built for multitasking"),
+    ).toBe("The terminal built for multitasking.");
   });
 
   test("preserves overbound authored copy when no complete candidate fits", () => {
@@ -272,6 +279,9 @@ describe("SEO metadata helpers", () => {
             ...(page.key === "bestTerminalForAgents"
               ? [messages.landing.links.agents]
               : []),
+            ...(page.key === "multipleClaudeAgents"
+              ? [messages.landing.links.claudeTeams]
+              : []),
           ],
           page.key === "bestTerminalForAgents"
             ? [
@@ -297,7 +307,11 @@ describe("SEO metadata helpers", () => {
           auditedRow(
             "/pricing",
             pricingSeoCopy(locale, pricing, siteMeta, "metaDescription"),
-            [messages.pricing.title, messages.pricing.metaDescription],
+            [
+              messages.pricing.title,
+              messages.pricing.metaDescription,
+              messages.pricing.metaDescriptionShort,
+            ],
           ),
           auditedRow(
             "/pricing?without-vault",
@@ -307,7 +321,11 @@ describe("SEO metadata helpers", () => {
               siteMeta,
               "metaDescriptionNoVault",
             ),
-            [messages.pricing.title, messages.pricing.metaDescriptionNoVault],
+            [
+              messages.pricing.title,
+              messages.pricing.metaDescriptionNoVault,
+              messages.pricing.metaDescriptionNoVaultShort,
+            ],
           ),
           auditedRow(
             "/docs/agent-integrations/oh-my-pi",
@@ -341,6 +359,7 @@ describe("SEO metadata helpers", () => {
           /…|<\/?(?:link|code)>/u,
         );
         expect(row.copy.description).not.toMatch(/[!?។៕。！？؟]\./u);
+        expect(row.copy.description).toMatch(/[.!?。！？؟។៕]$/u);
         const hasRouteContext = row.contexts.some(
           (context) =>
             context.length > 0 && row.copy.description.includes(context),
@@ -377,7 +396,8 @@ describe("SEO metadata helpers", () => {
 
     expect(searchSnippetLength("ក\u17D2ម")).toBe(4);
     expect(copy.description).not.toBe(page.metaDescription);
-    expect(copy.description).toContain(page.title);
+    expect(copy.description).toContain(page.faqQ2);
+    expect(copy.description).toContain(page.faqA2);
     expect(searchSnippetLength(copy.description)).toBeGreaterThanOrEqual(110);
     expect(searchSnippetLength(copy.description)).toBeLessThanOrEqual(160);
   });
@@ -403,7 +423,8 @@ describe("SEO metadata helpers", () => {
       siteMeta,
     );
 
-    expect(bestTerminalCopy.description).toContain(messages.landing.links.agents);
+    expect(bestTerminalCopy.description).toContain(bestTerminal.faqQ2);
+    expect(bestTerminalCopy.description).toContain(bestTerminal.faqA2);
     expect(bestTerminalCopy.description).not.toBe(bestTerminal.faqA1);
     expect(multipleAgentsCopy.title).toContain(
       messages.landing.links.claudeTeams,
@@ -421,6 +442,33 @@ describe("SEO metadata helpers", () => {
       messageLookup(khmerMessages.meta),
     );
     expect(khmerCopy.description).not.toContain("។.");
+  });
+
+  test("prefers complete route prose over generic metadata context", async () => {
+    const messages = await messagesFor("en");
+    const siteMeta = messageLookup(messages.meta);
+    const communityCopy = communitySeoCopy(
+      "en",
+      messageLookup(messages.community),
+      siteMeta,
+    );
+    const pricingCopy = pricingSeoCopy(
+      "en",
+      messageLookup(messages.pricing),
+      siteMeta,
+      "metaDescription",
+    );
+
+    expect(communityCopy.description).toContain(messages.community.description);
+    expect(pricingCopy.description).toContain("Pro");
+    expect(pricingCopy.description).toContain("Enterprise");
+    expect(pricingCopy.description).not.toBe(
+      joinMetadataSentences(
+        "en",
+        messages.pricing.title,
+        "Built for AI coding agents on macOS.",
+      ),
+    );
   });
 });
 
