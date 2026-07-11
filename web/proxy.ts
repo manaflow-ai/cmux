@@ -184,6 +184,9 @@ function preferredFallbackContentLocale(request: NextRequest): "en" | "ja" {
   if (cookieLocale && hasFallbackContent(cookieLocale)) {
     return cookieLocale;
   }
+  if (cookieLocale && routing.locales.some((locale) => locale === cookieLocale)) {
+    return "en";
+  }
 
   const preferences = (request.headers.get("accept-language") ?? "")
     .split(",")

@@ -625,6 +625,19 @@ describe("SEO middleware", () => {
       "https://cmux.com/en/pricing",
     );
 
+    const unavailableCookieLocale = middleware(
+      requestFor("/pricing", {
+        cookie: "NEXT_LOCALE=de",
+        "accept-language": "ja,en;q=0.9",
+      }),
+    );
+    expect(unavailableCookieLocale.status).toBe(200);
+    expect(unavailableCookieLocale.headers.get("location")).toBeNull();
+    expect(unavailableCookieLocale.headers.get("x-middleware-rewrite")).toBe(
+      "https://cmux.com/en/pricing",
+    );
+    expect(unavailableCookieLocale.headers.get("set-cookie")).toBeNull();
+
     const japanese = middleware(
       requestFor("/ja/pricing", { "accept-language": "ja" }),
     );
