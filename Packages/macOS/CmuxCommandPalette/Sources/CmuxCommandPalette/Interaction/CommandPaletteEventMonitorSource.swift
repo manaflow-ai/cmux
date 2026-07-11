@@ -3,7 +3,7 @@ protocol CommandPaletteEventMonitorSource: AnyObject {
     func addLocalMouseDownMonitor(
         for window: AnyObject,
         handler: @escaping (CommandPalettePointerEvent) -> Void
-    ) -> Any
+    ) -> Any?
 
     @MainActor
     func removeLocalMonitor(_ monitor: Any)

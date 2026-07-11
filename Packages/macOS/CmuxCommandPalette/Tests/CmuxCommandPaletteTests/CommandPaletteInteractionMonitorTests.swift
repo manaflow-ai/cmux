@@ -81,6 +81,20 @@ struct CommandPaletteInteractionMonitorTests {
         #expect(underlyingView.mouseDownCount == 1)
     }
 
+    private func mouseDownEvent(at location: NSPoint, in window: NSWindow) throws -> NSEvent {
+        try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: location,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ))
+    }
+
     @Test("outside mouse-down dismisses and lifecycle cleanup removes every observer")
     func outsideMouseDownDismissesAndCleansUp() {
         let notificationCenter = RecordingCommandPaletteNotificationCenter()
@@ -196,21 +210,6 @@ private extension NSRect {
 }
 
 @MainActor
-private func mouseDownEvent(at location: NSPoint, in window: NSWindow) throws -> NSEvent {
-    try #require(NSEvent.mouseEvent(
-        with: .leftMouseDown,
-        location: location,
-        modifierFlags: [],
-        timestamp: ProcessInfo.processInfo.systemUptime,
-        windowNumber: window.windowNumber,
-        context: nil,
-        eventNumber: 1,
-        clickCount: 1,
-        pressure: 1
-    ))
-}
-
-@MainActor
 private final class RecordingMouseDownView: NSView {
     private(set) var mouseDownCount = 0
 
@@ -228,7 +227,7 @@ private final class RecordingCommandPaletteEventMonitorSource: CommandPaletteEve
     func addLocalMouseDownMonitor(
         for window: AnyObject,
         handler: @escaping (CommandPalettePointerEvent) -> Void
-    ) -> Any {
+    ) -> Any? {
         addCount += 1
         self.handler = handler
         return NSObject()

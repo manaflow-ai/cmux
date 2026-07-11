@@ -2925,6 +2925,8 @@ struct ContentView: View {
             let overlayController = commandPaletteWindowOverlayController(for: window)
             overlayController.update(
                 isVisible: isCommandPalettePresented,
+                // The monitored mouse-down is returned after synchronous teardown;
+                // that event, not the palette's saved responder, owns focus next.
                 onDismiss: { dismissCommandPalette(restoreFocus: false) }
             ) { AnyView(commandPaletteOverlay) }
         }))
@@ -3153,6 +3155,7 @@ struct ContentView: View {
             commandPaletteWindowOverlayController(for: window)
                 .update(
                     isVisible: isCommandPalettePresented,
+                    // Preserve focus chosen by the returned event or newly key window.
                     onDismiss: { dismissCommandPalette(restoreFocus: false) }
                 ) { commandPaletteOverlayView }
             TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
