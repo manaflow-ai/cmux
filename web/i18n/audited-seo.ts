@@ -68,10 +68,12 @@ function selectDescription(
 ) {
   const short = shortSeoDescriptionCandidate(locale);
   const detailed = detailedSeoDescriptionCandidate(locale);
+  const tagline = openGraphImageTagline(locale);
   const contextualCandidates = authoredCandidates.flatMap((candidate) => [
     candidate,
     `${candidate}. ${short}`,
     `${candidate}. ${detailed}`,
+    `${candidate}. ${short} ${tagline}`,
   ]);
   return seoDescription(locale, original, {
     minLength: 110,

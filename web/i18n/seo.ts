@@ -54,11 +54,10 @@ const AUDIT_MIN_DESCRIPTION_LENGTH = 110;
 const MAX_DESCRIPTION_LENGTH = 160;
 const MIN_TITLE_LENGTH = 30;
 const MAX_TITLE_LENGTH = 60;
-const metadataSegmenter = new Intl.Segmenter("en", {
-  granularity: "grapheme",
-});
-const wideMetadataGrapheme =
+const wideMetadataBaseCodePoint =
   /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Khmer}\p{Extended_Pictographic}]/u;
+const zeroWidthMetadataCodePoint =
+  /[\p{Mark}\u200D\uFE0E\uFE0F\u{E0100}-\u{E01EF}\u{1F3FB}-\u{1F3FF}]/u;
 
 const openGraphImageAlts: Record<string, string> = {
   en: "cmux - The terminal built for multitasking",
@@ -229,19 +228,16 @@ function selectCompleteMetadataCandidate(
   return original;
 }
 
-function metadataCharacters(value: string) {
-  return Array.from(metadataSegmenter.segment(value), ({ segment }) => segment);
-}
-
 function metadataSearchLength(value: string) {
-  return metadataCharacters(value).reduce(
-    (length, grapheme) => length + metadataGraphemeWidth(grapheme),
+  return Array.from(value).reduce(
+    (length, codePoint) => length + metadataCodePointWidth(codePoint),
     0,
   );
 }
 
-function metadataGraphemeWidth(grapheme: string) {
-  return wideMetadataGrapheme.test(grapheme) ? 2 : 1;
+function metadataCodePointWidth(codePoint: string) {
+  if (zeroWidthMetadataCodePoint.test(codePoint)) return 0;
+  return wideMetadataBaseCodePoint.test(codePoint) ? 2 : 1;
 }
 
 export function openGraphDefaults(

@@ -319,12 +319,15 @@ describe("SEO metadata helpers", () => {
       for (const row of rows) {
         const titleLength = searchSnippetLength(row.copy.title);
         const descriptionLength = searchSnippetLength(row.copy.description);
+        if (descriptionLength < 110 || descriptionLength > 160) {
+          throw new Error(
+            `${locale}${row.route} description length ${descriptionLength}: ${row.copy.description}`,
+          );
+        }
         if (!conciseTitleLocales.has(locale)) {
           expect(titleLength).toBeGreaterThanOrEqual(30);
         }
         expect(titleLength).toBeLessThanOrEqual(60);
-        expect(descriptionLength).toBeGreaterThanOrEqual(110);
-        expect(descriptionLength).toBeLessThanOrEqual(160);
         expect(`${row.copy.title}${row.copy.description}`).not.toMatch(
           /…|<\/?(?:link|code)>/u,
         );
@@ -349,6 +352,24 @@ describe("SEO metadata helpers", () => {
         }
       }
     }
+  });
+
+  test("uses deterministic code-point widths for Khmer metadata", async () => {
+    const messages = await messagesFor("km");
+    const page = messages.landing.compare.pages.cmuxVsZed;
+    const copy = comparePageSeoCopy(
+      "km",
+      "cmuxVsZed",
+      messageLookup(page),
+      messageLookup(messages.landing.links),
+      messageLookup(messages.meta),
+    );
+
+    expect(searchSnippetLength("ក\u17D2ម")).toBe(4);
+    expect(copy.description).not.toBe(page.metaDescription);
+    expect(copy.description).toContain(page.title);
+    expect(searchSnippetLength(copy.description)).toBeGreaterThanOrEqual(110);
+    expect(searchSnippetLength(copy.description)).toBeLessThanOrEqual(160);
   });
 });
 
@@ -445,19 +466,19 @@ describe("SEO middleware", () => {
   });
 });
 
-const searchWidthSegmenter = new Intl.Segmenter("en", {
-  granularity: "grapheme",
-});
-const wideSearchGrapheme =
+const wideSearchBaseCodePoint =
   /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Khmer}\p{Extended_Pictographic}]/u;
+const zeroWidthSearchCodePoint =
+  /[\p{Mark}\u200D\uFE0E\uFE0F\u{E0100}-\u{E01EF}\u{1F3FB}-\u{1F3FF}]/u;
 const conciseTitleLocales = new Set(["ja", "zh-CN", "zh-TW", "ko"]);
 type Messages = typeof import("../messages/en.json");
 type SeoCopy = { title: string; description: string };
 
 function searchSnippetLength(value: string) {
-  return Array.from(searchWidthSegmenter.segment(value), ({ segment }) =>
-    wideSearchGrapheme.test(segment) ? 2 : 1,
-  ).reduce((sum, length) => sum + length, 0);
+  return Array.from(value).reduce((sum, codePoint) => {
+    if (zeroWidthSearchCodePoint.test(codePoint)) return sum;
+    return sum + (wideSearchBaseCodePoint.test(codePoint) ? 2 : 1);
+  }, 0);
 }
 
 function messageLookup(messages: object) {
