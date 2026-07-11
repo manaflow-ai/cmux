@@ -149,12 +149,28 @@ struct AgentHookStateLocationTests {
                 "duplicate": ["workspaceId": "legacy"],
                 "legacy-only": ["workspaceId": "legacy-only"],
             ],
+            "activeSessionsByWorkspace": [
+                "duplicate-workspace": ["sessionId": "legacy"],
+                "legacy-workspace": ["sessionId": "legacy-only"],
+            ],
+            "activeSessionsBySurface": [
+                "duplicate-surface": ["sessionId": "legacy"],
+                "legacy-surface": ["sessionId": "legacy-only"],
+            ],
         ]
         let scopedPayload: [String: Any] = [
             "version": 1,
             "sessions": [
                 "duplicate": ["workspaceId": "scoped"],
                 "scoped-only": ["workspaceId": "scoped-only"],
+            ],
+            "activeSessionsByWorkspace": [
+                "duplicate-workspace": ["sessionId": "scoped"],
+                "scoped-workspace": ["sessionId": "scoped-only"],
+            ],
+            "activeSessionsBySurface": [
+                "duplicate-surface": ["sessionId": "scoped"],
+                "scoped-surface": ["sessionId": "scoped-only"],
             ],
         ]
         try JSONSerialization.data(withJSONObject: legacyPayload).write(
@@ -178,6 +194,14 @@ struct AgentHookStateLocationTests {
         #expect((sessions["duplicate"] as? [String: Any])?["workspaceId"] as? String == "scoped")
         #expect((sessions["legacy-only"] as? [String: Any])?["workspaceId"] as? String == "legacy-only")
         #expect((sessions["scoped-only"] as? [String: Any])?["workspaceId"] as? String == "scoped-only")
+        let activeWorkspaces = try #require(rootObject["activeSessionsByWorkspace"] as? [String: Any])
+        #expect((activeWorkspaces["duplicate-workspace"] as? [String: Any])?["sessionId"] as? String == "scoped")
+        #expect((activeWorkspaces["legacy-workspace"] as? [String: Any])?["sessionId"] as? String == "legacy-only")
+        #expect((activeWorkspaces["scoped-workspace"] as? [String: Any])?["sessionId"] as? String == "scoped-only")
+        let activeSurfaces = try #require(rootObject["activeSessionsBySurface"] as? [String: Any])
+        #expect((activeSurfaces["duplicate-surface"] as? [String: Any])?["sessionId"] as? String == "scoped")
+        #expect((activeSurfaces["legacy-surface"] as? [String: Any])?["sessionId"] as? String == "legacy-only")
+        #expect((activeSurfaces["scoped-surface"] as? [String: Any])?["sessionId"] as? String == "scoped-only")
     }
 
     @Test("Does not import shared legacy state into tagged debug builds")
