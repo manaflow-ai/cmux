@@ -1,5 +1,9 @@
 /// Parses unified-diff text into hunk and line value models.
 public struct UnifiedDiffParser: Sendable {
+    private static let maximumHunkCount = 2_000
+    private static let maximumLineCountPerHunk = 2_000
+    private static let maximumTotalLineCount = 20_000
+
     /// Creates a unified-diff parser.
     public init() {}
 
@@ -17,18 +21,17 @@ public struct UnifiedDiffParser: Sendable {
         guard !Task.isCancelled else {
             return DiffParseResult(hunks: [], isTruncated: isTruncated)
         }
-        var rawLines = unifiedDiff.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        if unifiedDiff.hasSuffix("\n") {
-            rawLines.removeLast()
-        }
         var hunks: [DiffHunk] = []
         var current: HunkBuilder?
         var oldLine = 0
         var newLine = 0
         var lineID = 0
         var iteration = 0
+        var currentHunkLineCount = 0
+        var totalLineCount = 0
+        var parserTruncated = false
 
-        for rawLine in rawLines {
+        for rawLineSlice in UnifiedDiffLineSequence(unifiedDiff) {
             // Cooperative cancellation: callers discard the result of a
             // cancelled load, so bail out of a stale multi-MB parse early
             // instead of allocating the rest of its lines.
@@ -36,12 +39,19 @@ public struct UnifiedDiffParser: Sendable {
             if iteration % 4096 == 0, Task.isCancelled {
                 break
             }
+            let rawLine = String(rawLineSlice)
             if let header = HunkHeader(rawLine: rawLine) {
                 if let current {
                     hunks.append(current.build())
                 }
+                guard hunks.count < Self.maximumHunkCount else {
+                    parserTruncated = true
+                    current = nil
+                    break
+                }
                 oldLine = header.oldStart
                 newLine = header.newStart
+                currentHunkLineCount = 0
                 current = HunkBuilder(
                     id: hunks.count,
                     header: rawLine,
@@ -56,11 +66,23 @@ public struct UnifiedDiffParser: Sendable {
             guard var builder = current else {
                 continue
             }
+            guard totalLineCount < Self.maximumTotalLineCount else {
+                parserTruncated = true
+                current = builder
+                break
+            }
+            if currentHunkLineCount >= Self.maximumLineCountPerHunk {
+                parserTruncated = true
+                current = builder
+                continue
+            }
             guard let marker = rawLine.first else {
                 builder.append(
                     DiffLine(id: lineID, kind: .context, text: "", oldLine: oldLine, newLine: newLine)
                 )
                 lineID += 1
+                currentHunkLineCount += 1
+                totalLineCount += 1
                 oldLine += 1
                 newLine += 1
                 current = builder
@@ -92,13 +114,38 @@ public struct UnifiedDiffParser: Sendable {
                 oldLine += 1
                 newLine += 1
             }
+            if marker != "\\" {
+                currentHunkLineCount += 1
+                totalLineCount += 1
+            }
             current = builder
         }
 
         if let current {
             hunks.append(current.build())
         }
-        return DiffParseResult(hunks: hunks, isTruncated: isTruncated)
+        return DiffParseResult(hunks: hunks, isTruncated: isTruncated || parserTruncated)
+    }
+}
+
+/// Iterates slices without first allocating an array proportional to the
+/// source line count. The parser independently bounds retained rows and hunks.
+private struct UnifiedDiffLineSequence: Sequence, IteratorProtocol {
+    private var remaining: Substring
+
+    init(_ source: String) {
+        remaining = source[...]
+    }
+
+    mutating func next() -> Substring? {
+        guard !remaining.isEmpty else { return nil }
+        guard let newline = remaining.firstIndex(of: "\n") else {
+            defer { remaining = remaining[remaining.endIndex...] }
+            return remaining
+        }
+        let line = remaining[..<newline]
+        remaining = remaining[remaining.index(after: newline)...]
+        return line
     }
 }
 

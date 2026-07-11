@@ -53,14 +53,17 @@ public struct GitDiffService: Sendable {
     ///     unbounded memory.
     /// - Returns: Changed-file summaries in path order, with a truncation marker.
     public func changedFiles(repoRoot: String, maxOutputBytes: Int? = nil) -> GitChangedFiles {
+        guard let baseline = diffBaseline(in: repoRoot) else {
+            return GitChangedFiles(files: [], truncated: false)
+        }
         let numstat = runGit(
             in: repoRoot,
-            arguments: ["diff", "HEAD", "--numstat", "-z", "--no-color", "--find-renames"],
+            arguments: ["diff", baseline, "--numstat", "-z", "--no-color", "--find-renames"],
             maxOutputBytes: maxOutputBytes
         )
         let nameStatus = runGit(
             in: repoRoot,
-            arguments: ["diff", "HEAD", "--name-status", "-z", "--no-color", "--find-renames"],
+            arguments: ["diff", baseline, "--name-status", "-z", "--no-color", "--find-renames"],
             maxOutputBytes: maxOutputBytes
         )
         let untracked = runGit(
@@ -134,9 +137,10 @@ public struct GitDiffService: Sendable {
             guard let output = result.successOutput else { return nil }
             return GitFileDiff(path: path, unifiedDiff: output)
         }
+        guard let baseline = diffBaseline(in: repoRoot) else { return nil }
         let result = runGit(
             in: repoRoot,
-            arguments: ["diff", "HEAD", "--no-ext-diff", "--no-textconv", "--no-color", "--find-renames", "--", Self.literalPathspec(path)],
+            arguments: ["diff", baseline, "--no-ext-diff", "--no-textconv", "--no-color", "--find-renames", "--", Self.literalPathspec(path)],
             maxOutputBytes: maxOutputBytes
         )
         guard let output = result.successOutput else { return nil }
@@ -212,6 +216,17 @@ public struct GitDiffService: Sendable {
         return output?.split(separator: "\0", omittingEmptySubsequences: true).contains(Substring(path)) == true
     }
 
+    /// `git diff HEAD` fails before the first commit. In that state Git's
+    /// hash-format-aware empty tree is the correct baseline for index and
+    /// working-tree changes, including files already staged in the index.
+    private func diffBaseline(in repoRoot: String) -> String? {
+        if runGit(in: repoRoot, arguments: ["rev-parse", "--verify", "--quiet", "HEAD"]).successOutput != nil {
+            return "HEAD"
+        }
+        return runGit(in: repoRoot, arguments: ["hash-object", "-t", "tree", "/dev/null"]).successOutput?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func runGit(
         in directory: String,
         arguments: [String],
@@ -239,7 +254,10 @@ public struct GitDiffService: Sendable {
             // cancellable timer source is the sanctioned bounded-delay shape
             // here (no async context exists for a Clock sleep, and the read
             // below blocks this thread).
-            let watchdog = GitProcessWatchdog(process: process)
+            let watchdog = GitProcessWatchdog(
+                process: process,
+                outputHandle: pipe.fileHandleForReading
+            )
             let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
             timer.schedule(deadline: .now() + processDeadlineSeconds)
             timer.setEventHandler { watchdog.fire() }
@@ -248,7 +266,7 @@ public struct GitDiffService: Sendable {
             let read = Self.readOutput(
                 pipe.fileHandleForReading,
                 maxOutputBytes: maxOutputBytes,
-                process: process
+                watchdog: watchdog
             )
             process.waitUntilExit()
             if read.capped || watchdog.didFire {
@@ -275,7 +293,7 @@ public struct GitDiffService: Sendable {
     private static func readOutput(
         _ handle: FileHandle,
         maxOutputBytes: Int?,
-        process: Process
+        watchdog: GitProcessWatchdog
     ) -> (data: Data, capped: Bool) {
         guard let maxOutputBytes else {
             return (handle.readDataToEndOfFileOrEmpty(), false)
@@ -287,8 +305,7 @@ public struct GitDiffService: Sendable {
             }
             data.append(chunk)
             if data.count >= maxOutputBytes {
-                process.terminate()
-                try? handle.close()
+                watchdog.fire()
                 return (Data(data.prefix(maxOutputBytes)), true)
             }
         }
@@ -334,32 +351,6 @@ public struct GitDiffService: Sendable {
         }
         environment[Self.nonLockingGitEnvironmentKey] = Self.nonLockingGitEnvironmentValue
         return environment
-    }
-}
-
-/// Deadline watchdog for one running git process. `@unchecked Sendable`:
-/// the flag is lock-guarded and `Process.terminate()` is a thread-safe
-/// `kill(2)` wrapper once the process has launched.
-private final class GitProcessWatchdog: @unchecked Sendable {
-    private let lock = NSLock()
-    private var fired = false
-    private let process: Process
-
-    init(process: Process) {
-        self.process = process
-    }
-
-    func fire() {
-        lock.lock()
-        fired = true
-        lock.unlock()
-        process.terminate()
-    }
-
-    var didFire: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return fired
     }
 }
 

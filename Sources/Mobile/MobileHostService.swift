@@ -1947,7 +1947,6 @@ actor MobileHostConnection {
     private static let maximumReceiveBufferByteCount = MobileSyncFrameCodec.defaultMaximumFrameByteCount + MobileSyncFrameCodec.headerByteCount
     private static let defaultFirstFrameTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
     private static let defaultIdleTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
-
     private let id: UUID
     private let connection: NWConnection
     private let callbackQueue: DispatchQueue
@@ -1956,6 +1955,7 @@ actor MobileHostConnection {
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
     private let onAuthorizedRequest: @Sendable (MobileHostRPCRequest) async -> Void
     private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
+    private let workspaceDiffCoordinator: MobileWorkspaceDiffRequestCoordinator
     private let onClose: @Sendable (UUID) async -> Void
     private var receiveBuffer = Data()
     private var firstFrameTimeoutTask: Task<Void, Never>?
@@ -1963,10 +1963,7 @@ actor MobileHostConnection {
     private var responseTasks: [UUID: Task<Void, Never>] = [:]
     private var didDecodeFirstFrame = false
     private var isClosed = false
-    /// stream_id → set of topics this connection is subscribed to.
-    /// Populated by `mobile.events.subscribe`; cleared on close.
     private var subscriptions: [String: Set<String>] = [:]
-
     init(
         id: UUID,
         connection: NWConnection,
@@ -1975,6 +1972,7 @@ actor MobileHostConnection {
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
+        workspaceDiffCoordinator: MobileWorkspaceDiffRequestCoordinator = MobileWorkspaceDiffRequestCoordinator(),
         onClose: @escaping @Sendable (UUID) async -> Void
     ) {
         self.id = id
@@ -1985,9 +1983,9 @@ actor MobileHostConnection {
         self.authorizeRequest = authorizeRequest
         self.onAuthorizedRequest = onAuthorizedRequest
         self.handleRequest = handleRequest
+        self.workspaceDiffCoordinator = workspaceDiffCoordinator
         self.onClose = onClose
     }
-
     func start() {
         connection.stateUpdateHandler = { [weak self, id] state in
             guard let self else { return }
@@ -1997,7 +1995,6 @@ actor MobileHostConnection {
         startFirstFrameTimeout()
         receiveNext()
     }
-
     func close(reason: String) {
         guard !isClosed else {
             return
@@ -2206,7 +2203,15 @@ actor MobileHostConnection {
             guard !isClosed, !Task.isCancelled else {
                 return
             }
-            let result = await handleRequest(request)
+            let result: MobileHostRPCResult
+            if request.method == "mobile.workspace.diff_status"
+                || request.method == "mobile.workspace.diff_file" {
+                result = await workspaceDiffCoordinator.perform {
+                    await self.handleRequest(request)
+                }
+            } else {
+                result = await handleRequest(request)
+            }
             guard !isClosed, !Task.isCancelled else {
                 return
             }
@@ -2229,12 +2234,7 @@ actor MobileHostConnection {
             guard !topics.isEmpty else {
                 return .failure(MobileHostRPCError(code: "invalid_params", message: "topics is required"))
             }
-            // Report whether this stream id was already registered BEFORE the
-            // idempotent replace. The phone's render-grid liveness probe
-            // re-asserts its subscription on prolonged silence; `false` tells
-            // it the registration had been lost (events emitted in the gap
-            // were never delivered), so it requests a catch-up replay instead
-            // of trusting delta continuity.
+            // `false` tells a liveness re-subscribe that delta continuity was lost.
             let alreadySubscribed = subscriptions[streamID] != nil
             subscribe(streamID: streamID, topics: topics)
             #if DEBUG

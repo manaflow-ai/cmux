@@ -75,16 +75,25 @@ extension MobileShellComposite {
             let request = try MobileCoreRPCClient.requestData(method: method, params: params)
             return try await client.sendRequest(
                 request,
-                timeoutNanoseconds: runtime?.pairingRequestTimeoutNanoseconds
+                timeoutNanoseconds: runtime?.rpcRequestTimeoutNanoseconds
             )
         } catch {
             guard !disconnectForAuthorizationFailureIfNeeded(error) else {
                 throw error
             }
-            if target.isForeground {
+            if target.isForeground, !Self.isWorkspaceDiffOperationTimeout(error) {
                 markMacConnectionUnavailableIfNeeded(after: error)
             }
             throw error
         }
+    }
+
+    /// A diff can exhaust its operation deadline while the Mac and transport
+    /// remain healthy. Connection-closed and network failures still flow into
+    /// the normal foreground availability classifier.
+    private static func isWorkspaceDiffOperationTimeout(_ error: any Error) -> Bool {
+        guard let shellError = error as? MobileShellConnectionError else { return false }
+        if case .requestTimedOut = shellError { return true }
+        return false
     }
 }
