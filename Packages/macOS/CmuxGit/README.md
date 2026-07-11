@@ -27,7 +27,8 @@ dependencies, fully testable against temp directories.
 - `WorktreeIncludeSyncService.sync(from:to:)` — asks Git to resolve a source
   checkout's `.worktreeinclude` patterns against its standard ignore rules,
   then copies matching ignored, untracked files and collapsed directory trees
-  into a fresh worktree without making copy failures fatal.
+  into a fresh worktree without making copy failures fatal. Matching and copy
+  traversal have aggregate count/byte limits, cancellation checks, and a free-space guard.
 
 Dirty detection mirrors git's stat-based check (size/mode/mtime per tracked
 entry, plus submodule-commit comparison for gitlinks), and excludes

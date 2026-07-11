@@ -18,6 +18,7 @@ public struct WorktreeIncludeSyncService: Sendable {
 
     private let commandRunner: any OutputLimitedCommandRunning
     private let gitTimeout: TimeInterval
+    private let copyService: WorktreeIncludeCopyService
     // FileManager operations used here are documented thread-safe, and this
     // immutable injected instance has no delegate or mutable caller-owned state.
     private nonisolated(unsafe) let fileManager: FileManager
@@ -36,6 +37,7 @@ public struct WorktreeIncludeSyncService: Sendable {
         self.commandRunner = commandRunner
         self.fileManager = fileManager
         self.gitTimeout = gitTimeout
+        copyService = WorktreeIncludeCopyService(fileManager: fileManager)
     }
 
     /// Copies untracked paths selected by the source repository's `.worktreeinclude` file.
@@ -83,7 +85,7 @@ public struct WorktreeIncludeSyncService: Sendable {
             source: source,
             arguments: includeArguments + ["--directory", "--no-empty-directory", "-z", "--"]
         )
-        if includeCollapsed.limitExceeded {
+        if includeCollapsed.shouldAbort {
             return [includeCollapsed.diagnostic].compactMap { $0 }
         }
         let includeDirectories = includeCollapsed.paths.filter { $0.hasSuffix("/") }
@@ -91,7 +93,7 @@ public struct WorktreeIncludeSyncService: Sendable {
             source: source,
             candidates: includeDirectories
         )
-        if standardCollapsed.limitExceeded {
+        if standardCollapsed.shouldAbort {
             return [includeCollapsed.diagnostic].compactMap { $0 } + standardCollapsed.diagnostics
         }
         let hasNewlineCollapsedPath = standardCollapsed.paths.contains {
@@ -108,7 +110,7 @@ public struct WorktreeIncludeSyncService: Sendable {
                 try? fileManager.removeItem(at: url)
             }
         }
-        let includeFiles: (paths: [String], diagnostic: String?, limitExceeded: Bool)
+        let includeFiles: (paths: [String], diagnostic: String?, shouldAbort: Bool)
         if let exclusionDiagnostic = exclusionFile.diagnostic {
             includeFiles = ([], exclusionDiagnostic, false)
         } else {
@@ -118,7 +120,7 @@ public struct WorktreeIncludeSyncService: Sendable {
                 arguments: includeArguments + exclusionArguments + ["-z", "--"]
             )
         }
-        if includeFiles.limitExceeded {
+        if includeFiles.shouldAbort {
             return [includeCollapsed.diagnostic, includeFiles.diagnostic].compactMap { $0 }
                 + standardCollapsed.diagnostics
         }
@@ -126,7 +128,7 @@ public struct WorktreeIncludeSyncService: Sendable {
             source: source,
             candidates: includeFiles.paths
         )
-        if standardFiles.limitExceeded {
+        if standardFiles.shouldAbort {
             return [includeCollapsed.diagnostic, includeFiles.diagnostic].compactMap { $0 }
                 + standardCollapsed.diagnostics
                 + standardFiles.diagnostics
@@ -136,18 +138,18 @@ public struct WorktreeIncludeSyncService: Sendable {
             includeCollapsed.diagnostic,
             includeFiles.diagnostic,
         ].compactMap { $0 } + standardCollapsed.diagnostics + standardFiles.diagnostics
-        let matchedPaths = standardCollapsed.paths + standardFiles.paths
-        guard matchedPaths.count <= Self.maximumMatchedPathCount,
-              matchedPathBytes(matchedPaths) <= Self.maximumMatchedPathBytes else {
+        let candidates = Set(standardCollapsed.paths + standardFiles.paths).sorted()
+        guard candidates.count <= Self.maximumMatchedPathCount,
+              matchedPathBytes(candidates) <= Self.maximumMatchedPathBytes else {
             diagnostics.append(matchLimitDiagnostic)
             return diagnostics
         }
-        let candidates = Set(matchedPaths).sorted()
         let protectedSourceSubtree = destinationContainer(
             destination: destination,
             inside: source
         )
 
+        var safeCandidates: [String] = []
         for relativePath in candidates {
             guard isSafe(
                 relativePath: relativePath,
@@ -158,27 +160,19 @@ public struct WorktreeIncludeSyncService: Sendable {
                 diagnostics.append("Skipped unsafe .worktreeinclude path: \(relativePath)")
                 continue
             }
-
-            let sourceItem = source.appendingPathComponent(relativePath).standardizedFileURL
-            let destinationItem = destination.appendingPathComponent(relativePath).standardizedFileURL
-            do {
-                try fileManager.createDirectory(
-                    at: destinationItem.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
-                try fileManager.copyItem(at: sourceItem, to: destinationItem)
-            } catch {
-                diagnostics.append("Could not copy .worktreeinclude path \(relativePath): \(error.localizedDescription)")
-            }
+            safeCandidates.append(relativePath)
         }
-
-        return diagnostics
+        return diagnostics + copyService.copy(
+            relativePaths: safeCandidates,
+            from: source,
+            to: destination
+        )
     }
 
     private nonisolated func gitPaths(
         source: URL,
         arguments: [String]
-    ) async -> (paths: [String], diagnostic: String?, limitExceeded: Bool) {
+    ) async -> (paths: [String], diagnostic: String?, shouldAbort: Bool) {
         let result = await commandRunner.run(
             directory: source.path,
             executable: "git",
@@ -192,7 +186,7 @@ public struct WorktreeIncludeSyncService: Sendable {
         guard result.executionError == nil,
               !result.timedOut,
               result.exitStatus == 0 else {
-            return ([], "Could not evaluate .worktreeinclude: \(gitFailureDetail(result))", false)
+            return ([], "Could not evaluate .worktreeinclude: \(gitFailureDetail(result))", true)
         }
         guard let paths = parseNulPaths(result.stdout) else {
             return ([], matchLimitDiagnostic, true)
@@ -226,7 +220,7 @@ public struct WorktreeIncludeSyncService: Sendable {
     private nonisolated func standardCollapsedDirectories(
         source: URL,
         candidates: [String]
-    ) async -> (paths: [String], diagnostics: [String], limitExceeded: Bool) {
+    ) async -> (paths: [String], diagnostics: [String], shouldAbort: Bool) {
         // Every candidate originated in `git ls-files --others`, so tracked
         // descendants cannot enter a directory copied from this result.
         var paths: [String] = []
@@ -248,10 +242,7 @@ public struct WorktreeIncludeSyncService: Sendable {
             )
             if let diagnostic = collapsedResult.diagnostic {
                 diagnostics.append(diagnostic)
-                if collapsedResult.limitExceeded {
-                    return ([], diagnostics, true)
-                }
-                continue
+                return ([], diagnostics, collapsedResult.shouldAbort)
             }
             let newPathBytes = matchedPathBytes(collapsedResult.paths)
             guard paths.count + collapsedResult.paths.count <= Self.maximumMatchedPathCount,
@@ -268,7 +259,7 @@ public struct WorktreeIncludeSyncService: Sendable {
     private nonisolated func standardIgnoredFiles(
         source: URL,
         candidates: [String]
-    ) async -> (paths: [String], diagnostics: [String], limitExceeded: Bool) {
+    ) async -> (paths: [String], diagnostics: [String], shouldAbort: Bool) {
         // `--no-index` asks check-ignore to evaluate each supplied path without
         // changing scope: every candidate already came from `ls-files --others`.
         // NUL-delimited stdin preserves arbitrary Git path bytes representable
@@ -299,7 +290,7 @@ public struct WorktreeIncludeSyncService: Sendable {
                   !result.timedOut,
                   result.exitStatus == 0 || result.exitStatus == 1 else {
                 diagnostics.append("Could not evaluate .worktreeinclude: \(gitFailureDetail(result))")
-                continue
+                return ([], diagnostics, true)
             }
             guard let matched = parseNulPaths(result.stdout) else {
                 diagnostics.append(matchLimitDiagnostic)
