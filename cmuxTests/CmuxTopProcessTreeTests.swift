@@ -17,7 +17,10 @@ struct CmuxTopProcessTreeTests {
             Self.process(
                 pid: pid,
                 parentPID: pid == 1 ? 0 : pid - 1,
-                name: "process"
+                name: "process",
+                cpuPercent: 1,
+                memoryBytes: 1,
+                residentBytes: 1
             )
         }
         let snapshot = CmuxTopProcessSnapshot(
@@ -33,13 +36,22 @@ struct CmuxTopProcessTreeTests {
             var current = roots.first
             var childrenTruncated = false
             var truncatedDescendantCount = 0
+            var summarizedPIDs: [Int] = []
+            var summarizedProcessCount = 0
+            var visibleCPUPercent = 0.0
+            var visibleProcessCount = 0
 
             while let node = current {
                 guard let pid = node["pid"] as? Int else { break }
                 emittedPIDs.append(pid)
+                let resources = node["resources"] as? [String: Any] ?? [:]
+                visibleCPUPercent += resources["cpu_percent"] as? Double ?? 0
+                visibleProcessCount += resources["process_count"] as? Int ?? 0
                 if node["children_truncated"] as? Bool == true {
                     childrenTruncated = true
                     truncatedDescendantCount = node["truncated_descendant_count"] as? Int ?? 0
+                    summarizedPIDs = resources["pids"] as? [Int] ?? []
+                    summarizedProcessCount = resources["process_count"] as? Int ?? 0
                 }
                 current = (node["children"] as? [[String: Any]])?.first
             }
@@ -67,6 +79,10 @@ struct CmuxTopProcessTreeTests {
                 emittedPIDs: emittedPIDs,
                 childrenTruncated: childrenTruncated,
                 truncatedDescendantCount: truncatedDescendantCount,
+                summarizedPIDs: summarizedPIDs,
+                summarizedProcessCount: summarizedProcessCount,
+                visibleCPUPercent: visibleCPUPercent,
+                visibleProcessCount: visibleProcessCount,
                 wireEncoded: wireEncoded
             )
         }
@@ -74,6 +90,10 @@ struct CmuxTopProcessTreeTests {
         #expect(result.emittedPIDs == Array(1...128))
         #expect(result.childrenTruncated)
         #expect(result.truncatedDescendantCount == processCount - result.emittedPIDs.count)
+        #expect(result.summarizedPIDs == Array(128...processCount))
+        #expect(result.summarizedProcessCount == processCount - 127)
+        #expect(result.visibleCPUPercent == Double(processCount))
+        #expect(result.visibleProcessCount == processCount)
         #expect(result.wireEncoded)
     }
 
@@ -201,6 +221,10 @@ struct CmuxTopProcessTreeTests {
         let emittedPIDs: [Int]
         let childrenTruncated: Bool
         let truncatedDescendantCount: Int
+        let summarizedPIDs: [Int]
+        let summarizedProcessCount: Int
+        let visibleCPUPercent: Double
+        let visibleProcessCount: Int
         let wireEncoded: Bool
     }
 

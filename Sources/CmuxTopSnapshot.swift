@@ -130,6 +130,9 @@ struct CmuxTopProcessScope: Sendable, Equatable {
 }
 
 final class CmuxTopProcessSnapshot: @unchecked Sendable {
+    // Leaves headroom for the recursive JSON bridge, Foundation encoder, and clients.
+    private static let maximumProcessTreeDepth = 128
+
     let sampledAt: Date
     private let includesProcessDetails: Bool
     private let includesCMUXScope: Bool
@@ -559,6 +562,15 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         }
     }
 
+    private struct ProcessTreeFrame {
+        let process: CmuxTopProcessInfo
+        let childPIDs: [Int]
+        let depth: Int
+        var nextChildIndex = 0
+        var childNodes: [[String: Any]] = []
+        var truncatedDescendantPIDs: [Int] = []
+    }
+
     private func processTreeNode(
         pid: Int,
         allowedPIDs: Set<Int>,
@@ -570,18 +582,101 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             return nil
         }
 
-        let childNodes = (childrenByParentPID[pid] ?? [])
-            .filter { allowedPIDs.contains($0) }
-            .sorted { processSortKey($0) < processSortKey($1) }
-            .compactMap {
-                processTreeNode(
-                    pid: $0,
+        var stack = [
+            ProcessTreeFrame(
+                process: process,
+                childPIDs: processTreeChildPIDs(for: pid, allowedPIDs: allowedPIDs),
+                depth: 1
+            )
+        ]
+
+        while !stack.isEmpty {
+            let frameIndex = stack.index(before: stack.endIndex)
+
+            if stack[frameIndex].depth >= Self.maximumProcessTreeDepth,
+               stack[frameIndex].nextChildIndex < stack[frameIndex].childPIDs.count {
+                let childPIDs = stack[frameIndex].childPIDs
+                stack[frameIndex].truncatedDescendantPIDs = visitTruncatedProcessTreeDescendants(
+                    startingWith: childPIDs,
                     allowedPIDs: allowedPIDs,
-                    rootPIDs: rootPIDs,
                     visited: &visited
                 )
+                stack[frameIndex].nextChildIndex = childPIDs.count
+                continue
             }
 
+            if stack[frameIndex].nextChildIndex < stack[frameIndex].childPIDs.count {
+                let childPID = stack[frameIndex].childPIDs[stack[frameIndex].nextChildIndex]
+                stack[frameIndex].nextChildIndex += 1
+                guard visited.insert(childPID).inserted,
+                      let childProcess = processesByPID[childPID] else {
+                    continue
+                }
+                let childDepth = stack[frameIndex].depth + 1
+                stack.append(
+                    ProcessTreeFrame(
+                        process: childProcess,
+                        childPIDs: processTreeChildPIDs(for: childPID, allowedPIDs: allowedPIDs),
+                        depth: childDepth
+                    )
+                )
+                continue
+            }
+
+            let completed = stack.removeLast()
+            let payload = processTreeNodePayload(
+                for: completed.process,
+                allowedPIDs: allowedPIDs,
+                rootPIDs: rootPIDs,
+                childNodes: completed.childNodes,
+                truncatedDescendantPIDs: completed.truncatedDescendantPIDs
+            )
+            guard !stack.isEmpty else { return payload }
+            let parentIndex = stack.index(before: stack.endIndex)
+            stack[parentIndex].childNodes.append(payload)
+        }
+
+        return nil
+    }
+
+    private func processTreeChildPIDs(for pid: Int, allowedPIDs: Set<Int>) -> [Int] {
+        (childrenByParentPID[pid] ?? [])
+            .filter { allowedPIDs.contains($0) }
+            .sorted { processSortKey($0) < processSortKey($1) }
+    }
+
+    private func visitTruncatedProcessTreeDescendants(
+        startingWith childPIDs: [Int],
+        allowedPIDs: Set<Int>,
+        visited: inout Set<Int>
+    ) -> [Int] {
+        var truncatedPIDs: [Int] = []
+        var pending = Array(childPIDs.reversed())
+
+        while let pid = pending.popLast() {
+            guard visited.insert(pid).inserted,
+                  processesByPID[pid] != nil else {
+                continue
+            }
+            truncatedPIDs.append(pid)
+            pending.append(
+                contentsOf: processTreeChildPIDs(for: pid, allowedPIDs: allowedPIDs).reversed()
+            )
+        }
+
+        return truncatedPIDs
+    }
+
+    private func processTreeNodePayload(
+        for process: CmuxTopProcessInfo,
+        allowedPIDs: Set<Int>,
+        rootPIDs: Set<Int>,
+        childNodes: [[String: Any]],
+        truncatedDescendantPIDs: [Int]
+    ) -> [String: Any] {
+        // Keep resource accounting and PID lookup complete even when the nested
+        // representation stops here. Only per-descendant node metadata is omitted.
+        let summarizedPIDs = Set(truncatedDescendantPIDs).union([process.pid])
         var payload: [String: Any] = [
             "kind": "process",
             "pid": process.pid,
@@ -592,9 +687,13 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             "thread_count": process.threadCount,
             "memory_source": process.memorySource.rawValue,
             "resident_memory_source": process.residentMemorySource.rawValue,
-            "resources": summary(for: [pid]).payload(),
+            "resources": summary(for: summarizedPIDs).payload(),
             "children": childNodes
         ]
+        if !truncatedDescendantPIDs.isEmpty {
+            payload["children_truncated"] = true
+            payload["truncated_descendant_count"] = truncatedDescendantPIDs.count
+        }
         if let ttyDevice = process.ttyDevice {
             payload["tty_device"] = ttyDevice
         } else {
