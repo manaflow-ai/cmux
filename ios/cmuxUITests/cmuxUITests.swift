@@ -164,6 +164,84 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(1, label: "Mobile Core: connected", in: app)
     }
 
+    /// Exercises the production UIKit -> mounted scroll session -> loopback
+    /// RPC -> authoritative render-grid path. The mock Mac deliberately sends
+    /// stale same-state-sequence viewport events after newer scroll responses,
+    /// matching the ordering that previously duplicated or misplaced rows.
+    @MainActor
+    func testFastTerminalScrollReversalsKeepTenThousandRowsOrdered() async throws {
+        let lines = (1...10_000).map { String(format: "scroll-row %05d", $0) }
+        let server = try MobileSyncMockHostServer(
+            defaultTerminalLines: lines,
+            adversarialScrollFrames: true
+        )
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port, assertStatusRows: false)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        for _ in 0..<8 {
+            surface.swipeDown(velocity: .fast)
+        }
+        for reversal in 0..<24 {
+            if reversal.isMultiple(of: 2) {
+                surface.swipeUp(velocity: .fast)
+            } else {
+                surface.swipeDown(velocity: .fast)
+            }
+        }
+
+        let orderedRows = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                let ids = self.scrollRowIDs(in: app)
+                return ids.count >= 8 && zip(ids, ids.dropFirst()).allSatisfy { $1 == $0 + 1 }
+            },
+            object: app
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [orderedRows], timeout: 12),
+            .completed,
+            "Fast reversals must settle on unique consecutive rows. Rows: \(terminalRowLabels(in: app))"
+        )
+        XCTAssertEqual(app.state, .runningForeground)
+
+        let scrollSettled = await server.waitForScrollQuiescence()
+        XCTAssertTrue(
+            scrollSettled,
+            "The bounded remote lane must settle after rapid reversals."
+        )
+        let reversalStats = await server.scrollStats()
+        let settledIDs = scrollRowIDs(in: app)
+        XCTAssertEqual(
+            settledIDs.first,
+            reversalStats.viewportTop.map { $0 + 1 },
+            "The rendered first row must match the Mac's authoritative viewport. Rows: \(settledIDs)"
+        )
+
+        for _ in 0..<16 {
+            surface.swipeUp(velocity: .fast)
+        }
+        let returnedToEnd = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in self.scrollRowIDs(in: app).contains(10_000) },
+            object: app
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [returnedToEnd], timeout: 12),
+            .completed,
+            "Scrolling back to the end must recover the newest row without duplicates."
+        )
+
+        let stats = await server.scrollStats()
+        XCTAssertGreaterThanOrEqual(stats.requestCount, 20)
+        XCTAssertEqual(stats.maxRowsBeforeViewport, 600)
+        XCTAssertEqual(stats.maxRowsAfterViewport, 600)
+        XCTAssertGreaterThan(stats.staleRenderGridEventCount, 0)
+        XCTAssertGreaterThan(stats.directionalRunCount, 0)
+        XCTAssertEqual(stats.noFrameResponseCount, 1)
+    }
+
     /// Freeze fuzzing for the keyboard + layout interactions, modeled on
     /// `testFastPinchZoomDoesNotHangOrCorrupt`. The user report: "Sometimes the
     /// terminal on iOS freezes; we should do some fuzzing around here." The
@@ -320,28 +398,6 @@ final class cmuxUITests: XCTestCase {
             dock["staleViewportObserved"],
             "0",
             "Bottom-scrolled terminal render used a stale taller viewport during composer/keyboard shrink. dock=\(dock)"
-        )
-    }
-
-    @MainActor
-    func testFastScrollbackReversalKeepsRenderedRowsOrdered() throws {
-        let app = launchApp(mockData: false, environment: [
-            "CMUX_SCROLLBACK_REVERSAL_STRESS": "1",
-        ])
-        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
-
-        let dock = waitForDock(in: app, timeout: 12, describe: "scrollback reversal stress completed") {
-            $0["scrollbackReversalPhase"] == "done" || $0["scrollbackReversalPhase"] == "failed"
-        }
-        XCTAssertEqual(
-            dock["scrollbackReversalPhase"],
-            "done",
-            "Fast scrollback reversal harness failed. dock=\(dock)"
-        )
-        XCTAssertEqual(
-            dock["scrollbackReversalFailure"],
-            "none",
-            "Rendered numbered rows became duplicated, skipped, or misordered during fast scrollback reversal. dock=\(dock)"
         )
     }
 
@@ -2396,6 +2452,15 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    private func scrollRowIDs(in app: XCUIApplication) -> [Int] {
+        let prefix = "scroll-row "
+        return terminalRows(in: app).compactMap { row in
+            guard row.hasPrefix(prefix) else { return nil }
+            return Int(row.dropFirst(prefix.count))
+        }
+    }
+
+    @MainActor
     private func typeText(_ text: String, into element: XCUIElement, in app: XCUIApplication) throws {
         XCTAssertTrue(element.waitForExistence(timeout: 4))
         XCTAssertTrue(focusTextInput(element, in: app), "Expected text input to accept keyboard focus: \(element.debugDescription)")
@@ -4107,17 +4172,38 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         var currentDirectory: String
         var lines: [String]
         var activeScreen: String = "primary"
+        var viewportTop: Int? = nil
+    }
+
+    struct ScrollStats: Sendable {
+        let requestCount: Int
+        let maxRowsBeforeViewport: Int
+        let maxRowsAfterViewport: Int
+        let staleRenderGridEventCount: Int
+        let directionalRunCount: Int
+        let noFrameResponseCount: Int
+        let viewportTop: Int?
     }
 
     private let listener: NWListener
     private let queue = DispatchQueue(label: "dev.cmux.ios-ui-tests.mobile-sync-server")
     private let createdWorkspaceTerminalDelay: TimeInterval?
+    private let adversarialScrollFrames: Bool
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
     private var connections: [NWConnection] = []
     private var selectedWorkspaceID = "workspace-main"
     private var selectedTerminalID = "terminal-build"
     private var replayCounts: [String: Int] = [:]
     private var streamOffset: UInt64 = 1
+    private var renderRevision: UInt64 = 1
+    private var interactionEpochs: [String: UInt64] = [:]
+    private var scrollRequestCount = 0
+    private var maxScrollRowsBeforeViewport = 0
+    private var maxScrollRowsAfterViewport = 0
+    private var staleRenderGridEventCount = 0
+    private var scrollDirectionalRunCount = 0
+    private var noFrameScrollResponseCount = 0
+    private var didOmitScrollPrefetchFrame = false
     private var workspaces: [Workspace] = [
         Workspace(
             id: "workspace-main",
@@ -4170,10 +4256,12 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     init(
         defaultTerminalLines: [String]? = nil,
         additionalMainTerminalCount: Int = 0,
-        createdWorkspaceTerminalDelay: TimeInterval? = nil
+        createdWorkspaceTerminalDelay: TimeInterval? = nil,
+        adversarialScrollFrames: Bool = false
     ) throws {
         listener = try NWListener(using: .tcp, on: .any)
         self.createdWorkspaceTerminalDelay = createdWorkspaceTerminalDelay
+        self.adversarialScrollFrames = adversarialScrollFrames
         appendMainTerminals(count: additionalMainTerminalCount)
         // Optionally replace the selected terminal's content (used by the
         // color-band render test so the bands stream on attach without a flaky
@@ -4288,6 +4376,43 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         }
     }
 
+    func scrollStats() async -> ScrollStats {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                let viewportTop = self.terminalLocation(terminalID: self.selectedTerminalID).flatMap {
+                    self.workspaces[$0.workspace].terminals[$0.terminal].viewportTop
+                }
+                continuation.resume(returning: ScrollStats(
+                    requestCount: self.scrollRequestCount,
+                    maxRowsBeforeViewport: self.maxScrollRowsBeforeViewport,
+                    maxRowsAfterViewport: self.maxScrollRowsAfterViewport,
+                    staleRenderGridEventCount: self.staleRenderGridEventCount,
+                    directionalRunCount: self.scrollDirectionalRunCount,
+                    noFrameResponseCount: self.noFrameScrollResponseCount,
+                    viewportTop: viewportTop
+                ))
+            }
+        }
+    }
+
+    func waitForScrollQuiescence(timeout: TimeInterval = 5) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        var previousCount = -1
+        var stableSamples = 0
+        while Date() < deadline {
+            let count = await scrollStats().requestCount
+            if count == previousCount {
+                stableSamples += 1
+                if stableSamples >= 3 { return true }
+            } else {
+                previousCount = count
+                stableSamples = 0
+            }
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+        return false
+    }
+
     private func replayCount(for terminalID: String) async -> Int {
         await withCheckedContinuation { continuation in
             queue.async {
@@ -4354,27 +4479,43 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
 
     private func respond(to payload: Data, on connection: NWConnection, remainingBuffer: Data) {
         do {
-            let responseFrame = try makeResponseFrame(for: payload)
-            connection.send(
-                content: responseFrame,
-                contentContext: .defaultMessage,
-                isComplete: false,
-                completion: .contentProcessed { [weak self, weak connection] error in
-                    guard error == nil,
-                          let self,
-                          let connection else {
-                        connection?.cancel()
-                        return
+            let responseFrame = try makeResponseFrame(for: payload, on: connection)
+            let sendResponse = { [weak self, weak connection] in
+                guard let self, let connection else { return }
+                connection.send(
+                    content: responseFrame,
+                    contentContext: .defaultMessage,
+                    isComplete: false,
+                    completion: .contentProcessed { [weak self, weak connection] error in
+                        guard error == nil,
+                              let self,
+                              let connection else {
+                            connection?.cancel()
+                            return
+                        }
+                        self.receiveRequest(on: connection, buffer: remainingBuffer)
                     }
-                    self.receiveRequest(on: connection, buffer: remainingBuffer)
-                }
-            )
+                )
+            }
+            if adversarialScrollFrames, Self.isTerminalScrollRequest(payload) {
+                queue.asyncAfter(deadline: .now() + 0.25, execute: sendResponse)
+            } else {
+                sendResponse()
+            }
         } catch {
             connection.cancel()
         }
     }
 
-    private func makeResponseFrame(for payload: Data) throws -> Data {
+    private static func isTerminalScrollRequest(_ payload: Data) -> Bool {
+        guard let request = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+              let method = request["method"] as? String else {
+            return false
+        }
+        return method == "mobile.terminal.scroll" || method == "terminal.scroll"
+    }
+
+    private func makeResponseFrame(for payload: Data, on connection: NWConnection) throws -> Data {
         guard let request = try JSONSerialization.jsonObject(with: payload) as? [String: Any],
               let method = request["method"] as? String else {
             throw serverError("Invalid request.")
@@ -4402,6 +4543,13 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             ]
         case "mobile.terminal.replay", "terminal.replay":
             result = terminalReplayResult(params: params)
+        case "mobile.terminal.scroll", "terminal.scroll":
+            result = terminalScrollResult(params: params, on: connection)
+        case "mobile.terminal.input", "terminal.input",
+             "mobile.terminal.paste", "terminal.paste",
+             "mobile.terminal.paste_image", "terminal.paste_image":
+            recordInteractionEpoch(params: params)
+            result = [:]
         default:
             result = [:]
         }
@@ -4512,8 +4660,219 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         return result
     }
 
+    private func terminalScrollResult(
+        params: [String: Any],
+        on connection: NWConnection
+    ) -> [String: Any] {
+        let terminalID = params["surface_id"] as? String ?? selectedTerminalID
+        let workspaceID = params["workspace_id"] as? String ?? selectedWorkspaceID
+        let interactionEpoch = (params["interaction_epoch"] as? NSNumber)?.uint64Value ?? 0
+        let clientRevision = (params["client_scroll_revision"] as? NSNumber)?.uint64Value ?? 0
+        let interactionKey = interactionKey(params: params, terminalID: terminalID)
+        let currentEpoch = interactionEpochs[interactionKey] ?? 0
+        guard interactionEpoch >= currentEpoch else {
+            return [
+                "workspace_id": workspaceID,
+                "surface_id": terminalID,
+                "accepted": false,
+                "interaction_epoch": interactionEpoch,
+                "client_scroll_revision": clientRevision,
+            ]
+        }
+        interactionEpochs[interactionKey] = interactionEpoch
+
+        guard let location = terminalLocation(terminalID: terminalID) else {
+            return [
+                "workspace_id": workspaceID,
+                "surface_id": terminalID,
+                "accepted": true,
+                "interaction_epoch": interactionEpoch,
+                "client_scroll_revision": clientRevision,
+            ]
+        }
+
+        var terminal = workspaces[location.workspace].terminals[location.terminal]
+        let viewportRows = 24
+        let bottomTop = max(0, terminal.lines.count - viewportRows)
+        terminal.viewportTop = min(max(0, terminal.viewportTop ?? bottomTop), bottomTop)
+
+        let staleFrame: [String: Any]?
+        if adversarialScrollFrames {
+            staleFrame = renderGridObject(
+                terminal: terminal,
+                rowsBeforeViewport: 0,
+                rowsAfterViewport: 0,
+                renderRevision: nextRenderRevision()
+            )
+        } else {
+            staleFrame = nil
+        }
+
+        let directionalLines: [Double]
+        if let runs = params["delta_runs"] as? [[String: Any]] {
+            directionalLines = runs.compactMap { ($0["lines"] as? NSNumber)?.doubleValue }
+        } else {
+            directionalLines = [(params["delta_lines"] as? NSNumber)?.doubleValue ?? 0]
+        }
+        scrollDirectionalRunCount += directionalLines.count
+        for delta in directionalLines {
+            let wholeLines = Int(delta.rounded(.towardZero))
+            terminal.viewportTop = min(
+                max(0, (terminal.viewportTop ?? bottomTop) - wholeLines),
+                bottomTop
+            )
+        }
+        workspaces[location.workspace].terminals[location.terminal] = terminal
+        selectedWorkspaceID = workspaces[location.workspace].id
+        selectedTerminalID = terminalID
+
+        let beforeRows = min(
+            max(0, (params["prefetch_before_rows"] as? NSNumber)?.intValue ?? 0),
+            600
+        )
+        let afterRows = min(
+            max(0, (params["prefetch_after_rows"] as? NSNumber)?.intValue ?? 0),
+            600
+        )
+        scrollRequestCount += 1
+        maxScrollRowsBeforeViewport = max(maxScrollRowsBeforeViewport, beforeRows)
+        maxScrollRowsAfterViewport = max(maxScrollRowsAfterViewport, afterRows)
+
+        var result: [String: Any] = [
+            "workspace_id": workspaces[location.workspace].id,
+            "surface_id": terminalID,
+            "accepted": true,
+            "interaction_epoch": interactionEpoch,
+            "client_scroll_revision": clientRevision,
+        ]
+        let omitPrefetchFrame = adversarialScrollFrames
+            && !didOmitScrollPrefetchFrame
+            && scrollRequestCount >= 3
+            && (beforeRows > 0 || afterRows > 0)
+        if beforeRows > 0 || afterRows > 0, !omitPrefetchFrame {
+            let frame = renderGridObject(
+                terminal: terminal,
+                rowsBeforeViewport: beforeRows,
+                rowsAfterViewport: afterRows,
+                renderRevision: nextRenderRevision()
+            )
+            result["render_grid"] = frame
+            result["render_revision"] = frame["render_revision"]
+            result["seq"] = streamOffset
+        } else {
+            result["render_revision"] = nextRenderRevision()
+            if omitPrefetchFrame {
+                didOmitScrollPrefetchFrame = true
+                noFrameScrollResponseCount += 1
+            }
+        }
+
+        if let staleFrame {
+            staleRenderGridEventCount += 1
+            queue.asyncAfter(deadline: .now() + 0.30) { [weak self, weak connection] in
+                guard let self, let connection else { return }
+                self.sendRenderGridEvent(staleFrame, on: connection)
+            }
+        }
+        return result
+    }
+
+    private func recordInteractionEpoch(params: [String: Any]) {
+        guard let terminalID = params["surface_id"] as? String,
+              let epoch = (params["interaction_epoch"] as? NSNumber)?.uint64Value else {
+            return
+        }
+        let key = interactionKey(params: params, terminalID: terminalID)
+        interactionEpochs[key] = max(interactionEpochs[key] ?? 0, epoch)
+    }
+
+    private func interactionKey(params: [String: Any], terminalID: String) -> String {
+        let clientID = params["client_id"] as? String ?? "legacy"
+        return "\(clientID)/\(terminalID)"
+    }
+
+    private func terminalLocation(terminalID: String) -> (workspace: Int, terminal: Int)? {
+        for workspaceIndex in workspaces.indices {
+            if let terminalIndex = workspaces[workspaceIndex].terminals.firstIndex(where: { $0.id == terminalID }) {
+                return (workspaceIndex, terminalIndex)
+            }
+        }
+        return nil
+    }
+
+    private func nextRenderRevision() -> UInt64 {
+        renderRevision += 1
+        return renderRevision
+    }
+
+    private func renderGridObject(
+        terminal: Terminal,
+        rowsBeforeViewport: Int,
+        rowsAfterViewport: Int,
+        renderRevision: UInt64
+    ) -> [String: Any] {
+        let columns = 80
+        let viewportRows = 24
+        let bottomTop = max(0, terminal.lines.count - viewportRows)
+        let top = min(max(0, terminal.viewportTop ?? bottomTop), bottomTop)
+        let visibleEnd = min(terminal.lines.count, top + viewportRows)
+        let visible = Array(terminal.lines[top..<visibleEnd])
+            + Array(repeating: "", count: max(0, viewportRows - (visibleEnd - top)))
+        let beforeStart = max(0, top - rowsBeforeViewport)
+        let before = Array(terminal.lines[beforeStart..<top])
+        let afterStart = visibleEnd
+        let afterEnd = min(terminal.lines.count, afterStart + rowsAfterViewport)
+        let after = Array(terminal.lines[afterStart..<afterEnd])
+
+        func spans(_ lines: [String]) -> [[String: Any]] {
+            lines.enumerated().compactMap { row, text in
+                let clipped = String(text.prefix(columns))
+                guard !clipped.isEmpty else { return nil }
+                return [
+                    "row": row,
+                    "column": 0,
+                    "style_id": 0,
+                    "cell_width": clipped.count,
+                    "text": clipped,
+                ]
+            }
+        }
+
+        return [
+            "format": "cmux.render-grid.v1",
+            "surface_id": terminal.id,
+            "state_seq": streamOffset,
+            "render_revision": renderRevision,
+            "columns": columns,
+            "rows": viewportRows,
+            "full": true,
+            "row_spans": spans(visible),
+            "active_screen": terminal.activeScreen,
+            "scrollback_rows": before.count,
+            "scrollback_spans": spans(before),
+            "scrollforward_rows": after.count,
+            "scrollforward_spans": spans(after),
+        ]
+    }
+
+    private func sendRenderGridEvent(_ frame: [String: Any], on connection: NWConnection) {
+        let envelope: [String: Any] = [
+            "kind": "event",
+            "topic": "terminal.render_grid",
+            "payload": frame,
+        ]
+        guard let payload = try? JSONSerialization.data(withJSONObject: envelope) else { return }
+        connection.send(
+            content: Self.frame(payload),
+            contentContext: .defaultMessage,
+            isComplete: false,
+            completion: .idempotent
+        )
+    }
+
     private func terminalReplayResult(params: [String: Any]) -> [String: Any] {
         let terminalID = params["surface_id"] as? String ?? selectedTerminalID
+        recordInteractionEpoch(params: params)
         selectedTerminalID = terminalID
         replayCounts[terminalID, default: 0] += 1
         if let workspace = workspaces.first(where: { workspace in
@@ -4521,11 +4880,18 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         }) {
             selectedWorkspaceID = workspace.id
         }
-        let (terminal, workspaceID) = workspaces
-            .lazy
-            .flatMap { ws in ws.terminals.map { ($0, ws.id) } }
-            .first { $0.0.id == terminalID }
-            ?? (workspaces[0].terminals[0], workspaces[0].id)
+        let terminal: Terminal
+        let workspaceID: String
+        if let location = terminalLocation(terminalID: terminalID) {
+            var selected = workspaces[location.workspace].terminals[location.terminal]
+            selected.viewportTop = max(0, selected.lines.count - 24)
+            workspaces[location.workspace].terminals[location.terminal] = selected
+            terminal = selected
+            workspaceID = workspaces[location.workspace].id
+        } else {
+            terminal = workspaces[0].terminals[0]
+            workspaceID = workspaces[0].id
+        }
         streamOffset += 1
         let bytes = terminalReplayBytes(for: terminal)
         return [

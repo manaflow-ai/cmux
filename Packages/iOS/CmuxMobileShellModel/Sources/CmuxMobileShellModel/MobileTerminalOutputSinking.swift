@@ -23,16 +23,28 @@ public enum MobileTerminalOutputViewportPolicy: Equatable, Sendable {
 public struct MobileTerminalOutputChunk: Sendable {
     public let data: Data
     public let streamToken: UUID
+    /// Identifies this exact yielded delivery inside the stream generation.
+    /// The consumer claims it before touching Ghostty so a newer scroll can
+    /// discard a yielded-but-not-started viewport repaint.
+    public let deliveryID: UUID
     public let viewportPolicy: MobileTerminalOutputViewportPolicy?
+    /// Rows newer than the authoritative viewport that were replayed behind
+    /// it. After applying `data`, the local Ghostty surface scrolls up by this
+    /// bounded count to restore the captured viewport.
+    public let scrollbackOffsetFromBottomRows: Int
 
     public init(
         data: Data,
         streamToken: UUID,
-        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil
+        deliveryID: UUID = UUID(),
+        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
+        scrollbackOffsetFromBottomRows: Int = 0
     ) {
         self.data = data
         self.streamToken = streamToken
+        self.deliveryID = deliveryID
         self.viewportPolicy = viewportPolicy
+        self.scrollbackOffsetFromBottomRows = max(0, scrollbackOffsetFromBottomRows)
     }
 }
 

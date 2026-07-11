@@ -180,7 +180,12 @@ final class MobileTerminalRenderObserver {
             return
         }
 
-        guard let emission = try? snapshot.frame.renderGridEmission(
+        let stampedFrame = TerminalController.shared.stampMobileRenderGridFrame(
+            snapshot.frame,
+            surfaceID: surfaceID
+        )
+
+        guard let emission = try? stampedFrame.renderGridEmission(
             comparedTo: renderGridStatesBySurfaceID[surfaceID]
         ) else { return }
         let frame = emission.frame

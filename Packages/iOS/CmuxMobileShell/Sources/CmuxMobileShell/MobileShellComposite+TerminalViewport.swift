@@ -173,16 +173,21 @@ extension MobileShellComposite {
         }
         let id = clientID
         let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
+        let interactionEpoch = currentTerminalInteractionEpoch(surfaceID: surfaceID)
         Task { @MainActor in
+            var params: [String: Any] = [
+                "workspace_id": remoteWorkspaceID.rawValue,
+                "surface_id": surfaceID,
+                "client_id": id,
+                "clear": true,
+                "viewport_generation": Int(clamping: clearGeneration),
+            ]
+            if let interactionEpoch {
+                params["interaction_epoch"] = Int(clamping: interactionEpoch)
+            }
             let request = try? MobileCoreRPCClient.requestData(
                 method: "mobile.terminal.viewport",
-                params: [
-                    "workspace_id": remoteWorkspaceID.rawValue,
-                    "surface_id": surfaceID,
-                    "client_id": id,
-                    "clear": true,
-                    "viewport_generation": Int(clamping: clearGeneration),
-                ]
+                params: params
             )
             guard let request else { return }
             _ = try? await client.sendRequest(request)

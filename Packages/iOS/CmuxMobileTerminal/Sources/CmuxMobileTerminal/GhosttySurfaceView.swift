@@ -154,18 +154,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var nextSurfaceOperationID: UInt64 = 0
     var pendingOutputApply: PendingSurfaceOperation?
     var pendingGeometryApply: PendingSurfaceOperation?
-    var localScrollbackScrollStartedAt: CFTimeInterval?
+    var pendingLocalScrollApply: PendingSurfaceOperation?
     var pendingVisibleSnapshot: PendingVisibleSnapshot?
     var pendingCopyableTextRead: PendingCopyableTextRead?
     private var hasPendingSurfaceOperationDeadline: Bool {
-        pendingOutputApply != nil || pendingGeometryApply != nil || localScrollbackScrollStartedAt != nil
+        pendingOutputApply != nil || pendingGeometryApply != nil || pendingLocalScrollApply != nil
             || pendingVisibleSnapshot != nil || pendingCopyableTextRead != nil
     }
     private static let scrollMechanicsContentHeight: CGFloat = 1_000_000
     private var scrollMechanicsIsRecentering = false
     private var lastScrollMechanicsOffsetY: CGFloat?
     private var lastScrollMechanicsTouchPoint: CGPoint = .zero
-    private lazy var scrollMechanicsView: UIScrollView = {
+    lazy var scrollMechanicsView: UIScrollView = {
         let view = UIScrollView()
         view.backgroundColor = .clear
         view.isOpaque = false
@@ -238,8 +238,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var debugLastScrollbar: (total: Int, offset: Int, len: Int)?
     var debugBottomScrollStressPhase = "idle"
     var debugBottomViewportMismatchObserved = false
-    var debugScrollbackReversalStressPhase = "idle"
-    var debugScrollbackReversalStressFailure = "none"
 
     /// The live `key=value;…` description of the bottom dock, read by
     /// ``ComposerDockProbeView`` on every accessibility query. `fieldFocused` is the
@@ -285,10 +283,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "renderHeight=\(Int(lastRenderRect.height))",
             "boundsHeight=\(Int(bounds.height))",
             "scrollTotal=\(debugLastScrollbar?.total ?? -1)", "scrollOffset=\(debugLastScrollbar?.offset ?? -1)",
-            "scrollLen=\(debugLastScrollbar?.len ?? -1)", "scrollAtBottom=\(debugScrollbarAtBottomForTesting ? 1 : 0)",
+            "scrollLen=\(debugLastScrollbar?.len ?? -1)", "scrollAtBottom=\(bottomScrollDebugScrollbarAtBottom ? 1 : 0)",
             "staleViewportObserved=\(debugBottomViewportMismatchObserved ? 1 : 0)",
-            "scrollbackReversalPhase=\(debugScrollbackReversalStressPhase)",
-            "scrollbackReversalFailure=\(debugScrollbackReversalStressFailure)",
             inputProxy.accessoryLayoutDiagnostics,
         ].joined(separator: ";")
     }
@@ -1455,9 +1451,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     /// Coalesced native scroll forwarded to the Mac once per display-link frame.
-    private var pendingScrollLines: Double = 0
+    var pendingScrollLines: Double = 0
     private var pendingScrollCell: (col: Int, row: Int) = (0, 0)
-    var localScrollbackScrollQueue = LocalScrollbackScrollQueue()
 
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
     /// alt-screen mouse-wheel reports at the cell under the finger.
@@ -1475,7 +1470,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let lines = pendingScrollLines
         let cell = pendingScrollCell
         pendingScrollLines = 0
-        applyLocalScrollbackScroll(lines: lines, col: cell.col, row: cell.row)
+        delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
     }
 
     /// A tap both raises the software keyboard (so the user can type) and
@@ -1727,7 +1722,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func recordBottomViewportMismatchIfNeeded() {
-        guard debugScrollbarAtBottomForTesting else { return }
+        guard bottomScrollDebugScrollbarAtBottom else { return }
         let targetHeight = targetTerminalViewportHeight
         let liveHeight = terminalViewportHeight
         guard liveHeight > targetHeight + 1, lastRenderRect.height <= targetHeight + 1,
@@ -1822,19 +1817,25 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// - Returns: `true` when the bytes reached the current surface generation,
     ///   or `false` when the caller should reset its delivery queue and replay.
     @discardableResult
-    public func processOutputAndWait(_ data: Data) async -> Bool {
+    public func processOutputAndWait(
+        _ data: Data,
+        scrollbackOffsetFromBottomRows: Int = 0
+    ) async -> Bool {
         return await withCheckedContinuation { continuation in
             let operationID = registerPendingOutputApply(
                 byteCount: data.count,
                 continuation: continuation
             )
-            processOutput(data) { [weak self] applied in
+            processOutput(
+                data,
+                scrollbackOffsetFromBottomRows: scrollbackOffsetFromBottomRows
+            ) { [weak self] applied in
                 self?.completePendingOutputApply(id: operationID, returning: applied)
             }
         }
     }
 
-    private func makeSurfaceOperationID() -> UInt64 {
+    func makeSurfaceOperationID() -> UInt64 {
         nextSurfaceOperationID &+= 1
         return nextSurfaceOperationID
     }
@@ -1914,6 +1915,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             pending.continuation.resume(returning: result)
             completed = true
         }
+        if let pending = pendingLocalScrollApply {
+            pendingLocalScrollApply = nil
+            pending.continuation.resume(returning: result)
+            completed = true
+        }
         skipPendingVisibleSnapshot()
         skipPendingCopyableTextRead()
         return completed
@@ -1951,6 +1957,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func processOutput(
         _ data: Data,
+        scrollbackOffsetFromBottomRows: Int = 0,
         completion: (@MainActor @Sendable (Bool) -> Void)?
     ) {
         guard !renderPipelineRecoveryPaused else {
@@ -1996,6 +2003,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 guard let baseAddress = buffer.baseAddress else { return }
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
                 ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
+            }
+            let offsetRows = min(max(0, scrollbackOffsetFromBottomRows), Int(Int16.max))
+            if offsetRows > 0 {
+                let action = "scroll_page_lines:-\(offsetRows)"
+                action.withCString { pointer in
+                    _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
+                }
             }
             #if DEBUG
             // `ghostty_surface_read_text` takes the same internal surface lock as
@@ -2152,7 +2166,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// and resume; only ``prepareForDismantle()`` marks the surface dead.
     private func prepareForReuseAfterDetach() {
         completePendingSurfaceOperations(returning: false)
-        resetLocalScrollbackScroll()
         cancelRenderPipelineRecoveryResumeTimer()
         renderPipelineRecoveryPaused = false
         renderPipelineRecoveryPausedAt = nil
@@ -2334,7 +2347,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func disposeSurface() {
         stopDisplayLink()
         cancelRenderPipelineRecoveryResumeTimer()
-        resetLocalScrollbackScroll()
         guard let surface else { return }
         GhosttySurfaceView.unregister(surface: surface)
         self.surface = nil
@@ -2441,11 +2453,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// in `scrollInitialOutputToBottomIfNeeded`).
     private func handleUserProducedInput() {
         resetCursorBlink()
-        // Drop stale flick work and freeze momentum so typed input stays at bottom.
-        pendingScrollLines = 0
-        suppressOutstandingLocalScrollbackScrollForwarding()
-        scrollMechanicsView.setContentOffset(scrollMechanicsView.contentOffset, animated: false)
-        enqueueScrollToBottom()
+        cancelScrollInteractionAndSnapToBottom()
     }
 
     /// Reset cursor to visible and restart blink cycle (call on user input).
@@ -2854,6 +2862,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return true
     }
 
+    /// Enqueues any required geometry immediately before a nonempty output
+    /// chunk. The caller queues `processOutputAndWait` in the same main-actor
+    /// turn, so no optimistic local scroll can enter the surface FIFO between
+    /// the resize and the authoritative repaint.
+    public func prepareViewSizeForOrderedOutput(cols: Int, rows: Int) {
+        let changed = updateEffectiveGrid(cols: cols, rows: rows, confirmedViewportEcho: false)
+        enqueueGeometryForOrderedOutputIfNeeded(changed: changed)
+    }
+
     /// Apply the daemon's effective-grid ECHO for the natural-grid report
     /// stamped `reportID` (see `GhosttySurfaceViewDelegate`'s `didResize`).
     ///
@@ -2916,6 +2933,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             return await syncSurfaceGeometryAndWait(shouldReassertNaturalSize: false)
         }
         return true
+    }
+
+    /// Natural-grid counterpart to ``prepareViewSizeForOrderedOutput(cols:rows:)``.
+    public func prepareNaturalViewSizeForOrderedOutput() {
+        enqueueGeometryForOrderedOutputIfNeeded(changed: clearEffectiveGrid())
+    }
+
+    private func enqueueGeometryForOrderedOutputIfNeeded(changed: Bool) {
+        guard changed || needsGeometrySync else { return }
+        needsGeometrySync = false
+        pendingGeometryReassert = false
+        syncSurfaceGeometry(shouldReassertNaturalSize: false)
     }
 
     private func clearEffectiveGrid() -> Bool {
@@ -3702,6 +3731,11 @@ extension GhosttySurfaceView: UIGestureRecognizerDelegate {
 }
 
 extension GhosttySurfaceView: UIScrollViewDelegate {
+    public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        guard scrollView === scrollMechanicsView else { return }
+        delegate?.ghosttySurfaceViewDidBeginScrollInteraction(self)
+    }
+
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === scrollMechanicsView,
               !scrollMechanicsIsRecentering else {
@@ -3725,6 +3759,24 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
             : fallbackPoint
         enqueueScrollMechanicsDelta(deltaY, touchPoint: touchPoint)
         recenterScrollMechanicsViewIfNeeded()
+    }
+
+    public func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        guard scrollView === scrollMechanicsView, !decelerate else { return }
+        flushPendingScrollIfNeeded()
+        delegate?.ghosttySurfaceViewDidEndScrollInteraction(self)
+    }
+
+    public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        guard scrollView === scrollMechanicsView else { return }
+        flushPendingScrollIfNeeded()
+        delegate?.ghosttySurfaceViewDidEndScrollInteraction(self)
+    }
+
+    public func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        guard scrollView === scrollMechanicsView else { return }
+        flushPendingScrollIfNeeded()
+        delegate?.ghosttySurfaceViewDidEndScrollInteraction(self)
     }
 }
 

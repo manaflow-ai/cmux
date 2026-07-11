@@ -173,8 +173,10 @@ public struct MobileTerminalRenderGridReplay: Sendable {
                 terminateLast: false
             )
         } else {
-            // Primary: scrollback then the viewport as one continuous flow so
-            // the scrollback naturally lands in the client's history.
+            // Primary: older history, the viewport, then prefetched newer
+            // history as one continuous flow. The surface host scrolls back up
+            // by `scrollForwardRows` after applying these bytes, restoring the
+            // captured viewport while retaining a bounded cache on both sides.
             let offsetViewportSpans = frame.rowSpans.map { span in
                 MobileTerminalRenderGridFrame.RowSpan(
                     row: span.row + frame.scrollbackRows,
@@ -184,10 +186,20 @@ public struct MobileTerminalRenderGridReplay: Sendable {
                     cellWidth: span.cellWidth
                 )
             }
+            let scrollForwardOffset = frame.scrollbackRows + frame.rows
+            let offsetScrollForwardSpans = frame.scrollForwardSpans.map { span in
+                MobileTerminalRenderGridFrame.RowSpan(
+                    row: span.row + scrollForwardOffset,
+                    column: span.column,
+                    styleID: span.styleID,
+                    text: span.text,
+                    cellWidth: span.cellWidth
+                )
+            }
             appendFlowLines(
                 &bytes,
-                spans: frame.scrollbackSpans + offsetViewportSpans,
-                lineCount: frame.scrollbackRows + frame.rows,
+                spans: frame.scrollbackSpans + offsetViewportSpans + offsetScrollForwardSpans,
+                lineCount: frame.scrollbackRows + frame.rows + frame.scrollForwardRows,
                 stylesByID: stylesByID,
                 defaultStyle: defaultStyle,
                 terminateLast: false

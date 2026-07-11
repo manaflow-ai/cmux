@@ -42,6 +42,36 @@ import Testing
 }
 
 @MainActor
+@Test func staleStreamTerminationDoesNotUnmountReplacementSink() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+    let oldConsumer = Task { @MainActor in
+        for await _ in store.terminalOutputStream(surfaceID: surfaceID) {}
+    }
+    let oldRegistered = try await pollUntil {
+        store.terminalOutputStreamTokensBySurfaceID[surfaceID] != nil
+    }
+    #expect(oldRegistered)
+    let oldToken = try #require(store.terminalOutputStreamTokensBySurfaceID[surfaceID])
+
+    var currentIterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    let currentToken = try #require(store.terminalOutputStreamTokensBySurfaceID[surfaceID])
+    #expect(currentToken != oldToken)
+
+    oldConsumer.cancel()
+    await oldConsumer.value
+    for _ in 0..<4 { await Task.yield() }
+
+    #expect(store.terminalOutputStreamTokensBySurfaceID[surfaceID] == currentToken)
+    let accepted = store.deliverTerminalBytes(Data("replacement-live".utf8), surfaceID: surfaceID)
+    #expect(accepted)
+    if accepted {
+        let chunk = try #require(await currentIterator.next())
+        #expect(String(data: chunk.data, encoding: .utf8) == "replacement-live")
+    }
+}
+
+@MainActor
 @Test func terminalReplayBarrierDropsStalledBacklogAndInvalidatesOldAcks() async throws {
     let store = MobileShellComposite.preview()
     let surfaceID = "terminal"
@@ -802,6 +832,57 @@ private func waitForReplayRequestCount(
     }
     #expect(queue.completeInFlight() == nil)
     #expect(queue.isIdle)
+}
+
+@Test func optimisticScrollDiscardsOnlyUnclaimedRenderGridDeliveries() throws {
+    var queue = TerminalOutputDeliveryQueue()
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal",
+        stateSeq: 1,
+        columns: 12,
+        rows: 2,
+        text: "old\nviewport"
+    )
+    let yieldedGrid = TerminalOutputDelivery(renderGrid: frame, replaceable: true)
+    let rawBytes = TerminalOutputDelivery(bytes: Data("raw".utf8), replaceable: false)
+    let pendingGrid = TerminalOutputDelivery(renderGrid: frame, replaceable: true)
+
+    #expect(queue.enqueue(yieldedGrid) == yieldedGrid)
+    #expect(queue.enqueue(rawBytes) == nil)
+    #expect(queue.enqueue(pendingGrid) == nil)
+
+    #expect(queue.discardUnclaimedViewportDeliveries() == rawBytes)
+    let staleClaim = queue.claimInFlight(deliveryID: yieldedGrid.deliveryID)
+    let rawClaim = queue.claimInFlight(deliveryID: rawBytes.deliveryID)
+    #expect(!staleClaim)
+    #expect(rawClaim)
+    #expect(queue.pendingCount == 0)
+    #expect(queue.completeInFlight() == nil)
+}
+
+@Test func optimisticScrollPreservesClaimedRenderGridAheadOfLocalWork() throws {
+    var queue = TerminalOutputDeliveryQueue()
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal",
+        stateSeq: 1,
+        columns: 12,
+        rows: 2,
+        text: "claimed\nviewport"
+    )
+    let claimedGrid = TerminalOutputDelivery(renderGrid: frame, replaceable: true)
+    let rawBytes = TerminalOutputDelivery(bytes: Data("raw".utf8), replaceable: false)
+    let pendingGrid = TerminalOutputDelivery(renderGrid: frame, replaceable: true)
+
+    #expect(queue.enqueue(claimedGrid) == claimedGrid)
+    let claimed = queue.claimInFlight(deliveryID: claimedGrid.deliveryID)
+    #expect(claimed)
+    #expect(queue.enqueue(rawBytes) == nil)
+    #expect(queue.enqueue(pendingGrid) == nil)
+
+    #expect(queue.discardUnclaimedViewportDeliveries() == nil)
+    #expect(queue.currentInFlight == claimedGrid)
+    #expect(queue.completeInFlight() == rawBytes)
+    #expect(queue.completeInFlight() == nil)
 }
 
 @Test func renderGridViewportPatchIsReplaceableOnlyWhenEveryRowIsCleared() throws {

@@ -135,6 +135,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         weak var surfaceView: GhosttySurfaceView?
         private var outputTask: Task<Void, Never>?
         private var liveFontTask: Task<Void, Never>?
+        private var terminalScrollSessionToken: UUID?
         /// Hosts the SwiftUI ``TerminalComposerView`` so it can be installed into the
         /// surface's composer band. Built lazily on first open and torn down on
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.
@@ -168,6 +169,16 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.surfaceView = surfaceView
             guard let store else { return }
             let surfaceID = surfaceID
+            terminalScrollSessionToken = store.mountTerminalScrollSession(
+                surfaceID: surfaceID,
+                applyLocal: { [weak surfaceView] runs in
+                    guard let surfaceView else { return false }
+                    return await surfaceView.applyLocalScrollbackScrollAndWait(runs)
+                },
+                cancelLocal: { [weak surfaceView] in
+                    surfaceView?.cancelScrollInteractionAndSnapToBottom()
+                }
+            )
             viewportReportScheduler = TerminalViewportReportScheduler(
                 send: { [weak self] report in
                     guard let self, let store = self.store else { return nil }
@@ -211,40 +222,36 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     guard !Task.isCancelled else { return }
                     guard let self else { return }
                     guard let surfaceView else { return }
+                    guard store.terminalOutputWillProcess(
+                        surfaceID: surfaceID,
+                        streamToken: chunk.streamToken,
+                        deliveryID: chunk.deliveryID
+                    ) else {
+                        continue
+                    }
                     switch chunk.viewportPolicy {
                     case .natural:
                         self.activeViewportPolicy = .natural
                         if chunk.data.isEmpty {
                             surfaceView.useNaturalViewSize()
                         } else {
-                            let applied = await surfaceView.useNaturalViewSizeAndWait()
-                            guard applied else {
-                                store.terminalOutputDidReset(
-                                    surfaceID: surfaceID,
-                                    streamToken: chunk.streamToken
-                                )
-                                continue
-                            }
+                            surfaceView.prepareNaturalViewSizeForOrderedOutput()
                         }
                     case .remoteGrid(let columns, let rows):
                         self.activeViewportPolicy = .remoteGrid(columns: columns, rows: rows)
                         if chunk.data.isEmpty {
                             surfaceView.applyViewSize(cols: columns, rows: rows)
                         } else {
-                            let applied = await surfaceView.applyViewSizeAndWait(cols: columns, rows: rows)
-                            guard applied else {
-                                store.terminalOutputDidReset(
-                                    surfaceID: surfaceID,
-                                    streamToken: chunk.streamToken
-                                )
-                                continue
-                            }
+                            surfaceView.prepareViewSizeForOrderedOutput(cols: columns, rows: rows)
                         }
                     case nil:
                         break
                     }
                     if !chunk.data.isEmpty {
-                        let applied = await surfaceView.processOutputAndWait(chunk.data)
+                        let applied = await surfaceView.processOutputAndWait(
+                            chunk.data,
+                            scrollbackOffsetFromBottomRows: chunk.scrollbackOffsetFromBottomRows
+                        )
                         guard applied else {
                             store.terminalOutputDidReset(
                                 surfaceID: surfaceID,
@@ -273,6 +280,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         }
 
         func detach() {
+            if let terminalScrollSessionToken, let store {
+                store.unmountTerminalScrollSession(
+                    surfaceID: surfaceID,
+                    token: terminalScrollSessionToken
+                )
+            }
+            terminalScrollSessionToken = nil
             outputTask?.cancel()
             outputTask = nil
             liveFontTask?.cancel()
@@ -431,10 +445,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {
             // Forward to the Mac's real surface; libghostty scrolls scrollback
             // (normal screen) or sends mouse-wheel to the program (alt screen).
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                await self.store?.scrollTerminal(surfaceID: self.surfaceID, lines: lines, col: col, row: row)
-            }
+            store?.scrollTerminal(surfaceID: surfaceID, lines: lines, col: col, row: row)
+        }
+
+        func ghosttySurfaceViewDidBeginScrollInteraction(_ surfaceView: GhosttySurfaceView) {
+            store?.terminalScrollInteractionDidBegin(surfaceID: surfaceID)
+        }
+
+        func ghosttySurfaceViewDidEndScrollInteraction(_ surfaceView: GhosttySurfaceView) {
+            store?.terminalScrollInteractionDidEnd(surfaceID: surfaceID)
         }
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {

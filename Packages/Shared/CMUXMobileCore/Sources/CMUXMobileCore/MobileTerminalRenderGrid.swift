@@ -16,6 +16,11 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     public var format: String
     public var surfaceID: String
     public var stateSeq: UInt64
+    /// Monotonic Mac-side capture order for viewport state. Unlike
+    /// ``stateSeq``, this advances for viewport-only changes such as scrolling.
+    /// Older hosts omit it, in which case clients retain the byte-sequence
+    /// compatibility path.
+    public var renderRevision: UInt64?
     public var columns: Int
     public var rows: Int
     public var cursor: Cursor?
@@ -44,11 +49,19 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     /// Styled spans for the scrollback lines, row index `0..<scrollbackRows`
     /// (oldest first). Reuses ``styles`` by `styleID`.
     public var scrollbackSpans: [RowSpan]
+    /// Count of newer history rows after the captured viewport. A client
+    /// replays these rows behind the viewport, then positions its local
+    /// scrollback by this amount so both older and newer rows are prefetched.
+    public var scrollForwardRows: Int
+    /// Styled spans for the newer rows after the viewport, indexed
+    /// `0..<scrollForwardRows` from nearest to farthest.
+    public var scrollForwardSpans: [RowSpan]
 
     public init(
         format: String = Self.currentFormat,
         surfaceID: String,
         stateSeq: UInt64,
+        renderRevision: UInt64? = nil,
         columns: Int,
         rows: Int,
         cursor: Cursor? = nil,
@@ -62,7 +75,9 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         terminalBackground: String? = nil,
         terminalCursorColor: String? = nil,
         scrollbackRows: Int = 0,
-        scrollbackSpans: [RowSpan] = []
+        scrollbackSpans: [RowSpan] = [],
+        scrollForwardRows: Int = 0,
+        scrollForwardSpans: [RowSpan] = []
     ) throws {
         guard format == Self.currentFormat else {
             throw MobileTerminalRenderGridError.invalidFormat(format)
@@ -122,9 +137,31 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
                 )
             }
         }
+        let resolvedScrollForwardRows = max(0, scrollForwardRows)
+        for span in scrollForwardSpans {
+            guard (0..<resolvedScrollForwardRows).contains(span.row) else {
+                throw MobileTerminalRenderGridError.invalidRow(span.row)
+            }
+            guard (0..<columns).contains(span.column) else {
+                throw MobileTerminalRenderGridError.invalidColumn(span.column)
+            }
+            guard styleIDs.contains(span.styleID) else {
+                throw MobileTerminalRenderGridError.invalidStyleID(span.styleID)
+            }
+            let width = span.gridCellWidth
+            guard width > 0, span.column + width <= columns else {
+                throw MobileTerminalRenderGridError.invalidSpanWidth(
+                    row: span.row,
+                    column: span.column,
+                    width: width,
+                    columns: columns
+                )
+            }
+        }
         self.format = format
         self.surfaceID = surfaceID
         self.stateSeq = stateSeq
+        self.renderRevision = renderRevision
         self.columns = columns
         self.rows = rows
         self.cursor = cursor
@@ -139,6 +176,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         self.terminalCursorColor = terminalCursorColor
         self.scrollbackRows = full ? resolvedScrollbackRows : 0
         self.scrollbackSpans = full ? scrollbackSpans : []
+        self.scrollForwardRows = full ? resolvedScrollForwardRows : 0
+        self.scrollForwardSpans = full ? scrollForwardSpans : []
     }
 
     public init(from decoder: Decoder) throws {
@@ -146,6 +185,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let format = try container.decode(String.self, forKey: .format)
         let surfaceID = try container.decode(String.self, forKey: .surfaceID)
         let stateSeq = try container.decode(UInt64.self, forKey: .stateSeq)
+        let renderRevision = try container.decodeIfPresent(UInt64.self, forKey: .renderRevision)
         let columns = try container.decode(Int.self, forKey: .columns)
         let rows = try container.decode(Int.self, forKey: .rows)
         let cursor = try container.decodeIfPresent(Cursor.self, forKey: .cursor)
@@ -160,10 +200,13 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let terminalCursorColor = try container.decodeIfPresent(String.self, forKey: .terminalCursorColor)
         let scrollbackRows = try container.decodeIfPresent(Int.self, forKey: .scrollbackRows) ?? 0
         let scrollbackSpans = try container.decodeIfPresent([RowSpan].self, forKey: .scrollbackSpans) ?? []
+        let scrollForwardRows = try container.decodeIfPresent(Int.self, forKey: .scrollForwardRows) ?? 0
+        let scrollForwardSpans = try container.decodeIfPresent([RowSpan].self, forKey: .scrollForwardSpans) ?? []
         try self.init(
             format: format,
             surfaceID: surfaceID,
             stateSeq: stateSeq,
+            renderRevision: renderRevision,
             columns: columns,
             rows: rows,
             cursor: cursor,
@@ -177,13 +220,16 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             terminalBackground: terminalBackground,
             terminalCursorColor: terminalCursorColor,
             scrollbackRows: scrollbackRows,
-            scrollbackSpans: scrollbackSpans
+            scrollbackSpans: scrollbackSpans,
+            scrollForwardRows: scrollForwardRows,
+            scrollForwardSpans: scrollForwardSpans
         )
     }
 
     public static func fromPlainRows(
         surfaceID: String,
         stateSeq: UInt64,
+        renderRevision: UInt64? = nil,
         columns: Int,
         rows: Int,
         text: String,
@@ -209,6 +255,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         return try MobileTerminalRenderGridFrame(
             surfaceID: surfaceID,
             stateSeq: stateSeq,
+            renderRevision: renderRevision,
             columns: columns,
             rows: rows,
             cursor: cursor,
@@ -282,6 +329,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         try MobileTerminalRenderGridFrame(
             surfaceID: surfaceID,
             stateSeq: stateSeq,
+            renderRevision: renderRevision,
             columns: columns,
             rows: rows,
             cursor: cursor,
@@ -297,7 +345,9 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             terminalBackground: full ? terminalBackground : nil,
             terminalCursorColor: full ? terminalCursorColor : nil,
             scrollbackRows: full ? scrollbackRows : 0,
-            scrollbackSpans: full ? scrollbackSpans : []
+            scrollbackSpans: full ? scrollbackSpans : [],
+            scrollForwardRows: full ? scrollForwardRows : 0,
+            scrollForwardSpans: full ? scrollForwardSpans : []
         )
     }
 
@@ -390,6 +440,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         case format
         case surfaceID = "surface_id"
         case stateSeq = "state_seq"
+        case renderRevision = "render_revision"
         case columns
         case rows
         case cursor
@@ -404,6 +455,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         case terminalCursorColor = "terminal_cursor_color"
         case scrollbackRows = "scrollback_rows"
         case scrollbackSpans = "scrollback_spans"
+        case scrollForwardRows = "scrollforward_rows"
+        case scrollForwardSpans = "scrollforward_spans"
     }
 
     /// Which terminal screen a full snapshot represents.

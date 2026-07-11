@@ -24,6 +24,32 @@ https://github.com/manaflow-ai/ghostty/pull/104 and
 https://github.com/manaflow-ai/ghostty/pull/105 and
 https://github.com/manaflow-ai/ghostty/pull/106.
 
+### Pending bidirectional mobile render-grid export
+
+- Commit: `267824293` (`render-grid: export bounded rows after viewport`)
+- PR: https://github.com/manaflow-ai/ghostty/pull/107
+- Files:
+  - `include/ghostty.h`
+  - `src/apprt/embedded.zig`
+- Summary:
+  - Extends `ghostty_surface_render_grid_json` with independent bounded row
+    counts before and after the current viewport.
+  - Adds `scrollforward_rows` and `scrollforward_spans`; row zero is the first
+    row after the viewport and indexes increase toward the screen bottom.
+  - Traverses one bounded range and keeps at most one preserved page decode,
+    so compressed scrollback remains compressed and export memory stays
+    proportional to the requested 600/120 mobile prefetch window.
+  - Keeps existing `scrollback_rows` and `scrollback_spans` semantics intact.
+- Conflict note: the API signature and JSON object live beside the existing
+  render-grid scrollback encoder. Rebase both bounds and the shared traversal
+  together so a future upstream encoder refactor cannot restore two scans or
+  reverse the after-viewport row order.
+- Verification:
+  - `zig build test -Dtest-filter='render grid' -Demit-macos-app=false`
+  - `zig build -Demit-macos-app=false`
+  - universal ReleaseFast GhosttyKit build with the exported symbol present in
+    the macOS, iOS device, and iOS simulator slices
+
 ### Upstream TLDR (`d560c645..7e02af879`)
 
 - Terminal memory: idle renderer work now compresses cold scrollback pages,
