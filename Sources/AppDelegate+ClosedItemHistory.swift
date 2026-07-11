@@ -142,8 +142,7 @@ extension AppDelegate {
                 }
             )
             let hasLivePanels = restoredTabManager?.tabs.contains { !$0.panels.isEmpty } == true
-            guard ClosedWindowRestoreValidation.hasUsableRestoredContent(
-                snapshot: windowEntry.snapshot,
+            guard windowEntry.snapshot.hasUsableRestoredContent(
                 restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex,
                 hasLivePanels: hasLivePanels
             ) else {

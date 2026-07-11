@@ -1,13 +1,12 @@
 import Foundation
 
-enum ClosedWindowRestoreValidation {
-    static func hasUsableRestoredContent(
-        snapshot: SessionWindowSnapshot,
+extension SessionWindowSnapshot {
+    func hasUsableRestoredContent(
         restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]],
         hasLivePanels: Bool
     ) -> Bool {
         guard hasLivePanels else { return false }
-        guard snapshot.hasRestorablePanels else { return true }
+        guard hasRestorablePanels else { return true }
         return restoredPanelIdsByWorkspaceIndex.contains { !$0.isEmpty }
     }
 }
