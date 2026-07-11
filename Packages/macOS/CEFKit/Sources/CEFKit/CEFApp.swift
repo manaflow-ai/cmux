@@ -173,15 +173,11 @@ public final class CEFApp {
         if liveBrowserCount == 0, let completion = terminationCompletion {
             terminationCompletion = nil
             // browserDidStop runs inside the last browser's on_before_close,
-            // which fires BEFORE destruction finishes; cef_shutdown on this
-            // stack is a fatal DCHECK (browser_platform_delegate.cc
-            // !web_contents_). Defer a turn, release profile contexts, and
-            // drain the deferred UI-thread destruction tasks (browser
-            // contexts are destroyed via DeleteSoon; shutting down while one
-            // is still registered is a fatal DCHECK, browser_context.cc
-            // all_.empty()).
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
+            // which fires BEFORE destruction finishes. Defer a turn and
+            // drain the deferred UI-thread destruction tasks so the browser
+            // finishes tearing down before the host re-initiates
+            // termination.
+            DispatchQueue.main.async {
                 for _ in 0..<20 {
                     CEFRuntime.doMessageLoopWork()
                     RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
