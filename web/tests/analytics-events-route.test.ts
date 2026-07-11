@@ -28,8 +28,16 @@ const selectRows = mock(() => ({
     where: async () => tombstoneRows,
   }),
 }));
+const transaction = mock(async (...args: unknown[]) => {
+  const operation = args[0] as (tx: unknown) => Promise<unknown>;
+  return await operation({
+    execute: async () => undefined,
+    select: selectRows,
+  });
+});
 const db = {
   select: selectRows,
+  transaction,
 } as unknown as ReturnType<typeof cloudDb>;
 const POST = makeAnalyticsEventsHandler({
   verifyRequest,
@@ -44,6 +52,7 @@ beforeEach(() => {
   tombstoneRows = [];
   verifyRequest.mockClear();
   selectRows.mockClear();
+  transaction.mockClear();
   rateLimitCalls = 0;
   rateLimitResult = { rateLimited: false };
   postHogFetch.mockClear();
@@ -113,7 +122,6 @@ describe("iOS analytics events route", () => {
   });
 
   test("serializes an in-flight forward before account deletion can tombstone and delete analytics", async () => {
-    let releaseTransaction: (() => void) | undefined;
     let transactionTail = Promise.resolve();
     let deletionStarted = false;
     let releaseForward: (() => void) | undefined;
@@ -128,6 +136,7 @@ describe("iOS analytics events route", () => {
       select: selectRows,
       transaction: async (operation: (tx: unknown) => Promise<unknown>) => {
         const previousTransaction = transactionTail;
+        let releaseTransaction: (() => void) | undefined;
         transactionTail = new Promise<void>((resolve) => {
           releaseTransaction = resolve;
         });

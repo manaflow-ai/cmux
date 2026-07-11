@@ -699,14 +699,15 @@ function isCompletePostHogPersonDeletion(summary: unknown): boolean {
   const eventsQueuedForDeletion = result.events_queued_for_deletion;
   const recordingsQueuedForDeletion = result.recordings_queued_for_deletion;
   const deletionErrors = result.deletion_errors;
+  const hasNoDeletionErrors = deletionErrors === undefined ||
+    (Array.isArray(deletionErrors) && deletionErrors.length === 0);
   return Number.isSafeInteger(personsFound) &&
     Number.isSafeInteger(personsDeleted) &&
     (personsFound as number) >= 0 &&
     personsFound === personsDeleted &&
     eventsQueuedForDeletion === true &&
     recordingsQueuedForDeletion === true &&
-    Array.isArray(deletionErrors) &&
-    deletionErrors.length === 0;
+    hasNoDeletionErrors;
 }
 
 function postHogPersonDeletionConfig(): PostHogPersonDeletionConfig | null {

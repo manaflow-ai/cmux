@@ -4,6 +4,11 @@ import type { cloudDb } from "../../db/client";
 import { accountDeletionTombstones } from "../../db/schema";
 
 type CloudDbTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
+type AccountDeletionQueryExecutor = Pick<CloudDbTransaction, "select">;
+
+export type AccountDeletionIdentityOperationResult<T> =
+  | { readonly kind: "blocked" }
+  | { readonly kind: "completed"; readonly value: T };
 
 export class AccountDeletionMutationBlockedError extends Error {
   constructor(readonly userId: string) {
@@ -49,14 +54,61 @@ export async function hasBlockingAccountDeletionIdentity(
   db: ReturnType<typeof cloudDb>,
   userIds: readonly string[],
 ): Promise<boolean> {
-  const userIdHashes = [
+  const userIdHashes = uniqueAccountDeletionIdentityHashes(userIds);
+  if (userIdHashes.length === 0) return false;
+
+  return await hasBlockingAccountDeletionIdentityHashes(db, userIdHashes);
+}
+
+function uniqueAccountDeletionIdentityHashes(userIds: readonly string[]): string[] {
+  return [
     ...new Set(
       userIds
         .filter((userId) => userId.length > 0)
         .map(accountDeletionUserHash),
     ),
   ];
-  if (userIdHashes.length === 0) return false;
+}
+
+export async function withAccountDeletionIdentityLocks<T>(
+  db: ReturnType<typeof cloudDb>,
+  userIds: readonly string[],
+  operation: () => Promise<T>,
+): Promise<AccountDeletionIdentityOperationResult<T>> {
+  const identitiesByHash = new Map<string, string>();
+  for (const userId of userIds) {
+    if (userId.length === 0) continue;
+    identitiesByHash.set(accountDeletionUserHash(userId), userId);
+  }
+  const identities = [...identitiesByHash.entries()].sort(([leftHash], [rightHash]) =>
+    leftHash.localeCompare(rightHash)
+  );
+  if (identities.length === 0) {
+    return { kind: "completed", value: await operation() };
+  }
+
+  return await db.transaction(async (tx) => {
+    // Every account mutation and deletion start uses this same lock namespace.
+    // Sorted acquisition avoids deadlocks for anonymous batches containing more
+    // than one client identity. Holding the transaction through the external
+    // forward closes the check/forward race: deletion either waits and removes
+    // the forwarded data, or wins first and leaves a tombstone this check sees.
+    for (const [, userId] of identities) {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`,
+      );
+    }
+    if (await hasBlockingAccountDeletionIdentityHashes(tx, identities.map(([hash]) => hash))) {
+      return { kind: "blocked" };
+    }
+    return { kind: "completed", value: await operation() };
+  });
+}
+
+async function hasBlockingAccountDeletionIdentityHashes(
+  db: AccountDeletionQueryExecutor,
+  userIdHashes: readonly string[],
+): Promise<boolean> {
 
   const tombstones = await db
     .select({

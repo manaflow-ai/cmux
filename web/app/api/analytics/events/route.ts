@@ -14,7 +14,7 @@ import { checkRateLimit as checkVercelRateLimit } from "@vercel/firewall";
 import { verifyRequest } from "../../../../services/vms/auth";
 import { readBoundedJsonObject } from "../../../../services/apns/routePolicy";
 import { cloudDb } from "../../../../db/client";
-import { hasBlockingAccountDeletionIdentity } from "../../../../services/account/deletionLock";
+import { withAccountDeletionIdentityLocks } from "../../../../services/account/deletionLock";
 import {
   MAX_ANALYTICS_BATCH_EVENTS,
   MAX_ANALYTICS_EVENT_PROPERTIES,
@@ -117,11 +117,16 @@ export function makeAnalyticsEventsHandler(dependencies: AnalyticsEventsDependen
     const identityCandidates = user
       ? [user.id]
       : accepted.flatMap((event) => (event.distinctID ? [event.distinctID] : []));
-    if (await hasBlockingAccountDeletionIdentity(dependencies.db(), identityCandidates)) {
+    const forwardResult = await withAccountDeletionIdentityLocks(
+      dependencies.db(),
+      identityCandidates,
+      () => forwardToPostHog(accepted, user?.id ?? null, dependencies.postHogFetch),
+    );
+    if (forwardResult.kind === "blocked") {
       return jsonResponse({ error: "account_deleted" }, 410);
     }
 
-    const forwarded = await forwardToPostHog(accepted, user?.id ?? null, dependencies.postHogFetch);
+    const forwarded = forwardResult.value;
     if (!forwarded.ok) {
       return jsonResponse({ error: "forward_failed" }, forwarded.status);
     }
