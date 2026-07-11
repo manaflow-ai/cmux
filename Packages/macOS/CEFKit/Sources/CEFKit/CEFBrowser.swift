@@ -76,6 +76,10 @@ public final class CEFBrowser {
             )
         }
         if started != 1 {
+            // No reference balancing here: cef_browser_host_create_browser
+            // wraps its ref-counted arguments (client, request context) into
+            // CefRefPtr on entry, so the transferred references are consumed
+            // and released by libcef even when it returns 0.
             completion(nil)
         }
     }

@@ -94,6 +94,14 @@ public final class CEFApp {
 
         var settings = cef_settings_t()
         settings.size = numericCast(MemoryLayout<cef_settings_t>.size)
+        // Chromium's macOS sandbox requires every helper executable to link
+        // the distribution's static cef_sandbox library and initialize it
+        // before main; the CEFKit helper is a plain SwiftPM executable that
+        // dlopens the framework instead, so the sandbox is off. Acceptable
+        // only while CEF ships exclusively in local dev builds (the runtime
+        // is bundled by scripts/copy-cef-runtime-dev.sh for Debug builds
+        // after an explicit fetch-cef.sh, never in release artifacts).
+        // Sandboxed helpers are a prerequisite for shipping CEF to users.
         settings.no_sandbox = 1
         settings.external_message_pump = 1
         // The host app owns process signals; Chromium must not intercept
