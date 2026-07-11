@@ -7,11 +7,13 @@ import Testing
     @Test func submitTaskComposerSendsWorkspaceCreateSpec() async throws {
         let router = RoutingHostRouter()
         let store = try await makeRoutingConnectedStore(router: router)
+        let operationID = UUID()
         let spec = MobileWorkspaceCreateSpec(
             title: "Fix login",
             workingDirectory: "~/dev/cmux",
             initialCommand: "codex 'Fix login'",
-            initialEnv: ["CMUX_TASK_PROMPT": "Fix login"]
+            initialEnv: ["CMUX_TASK_PROMPT": "Fix login"],
+            operationID: operationID
         )
 
         let result = await store.submitTaskComposer(macDeviceID: "test-mac", spec: spec)
@@ -26,7 +28,8 @@ import Testing
                 title: "Fix login",
                 workingDirectory: "~/dev/cmux",
                 initialCommand: "codex 'Fix login'",
-                initialEnv: ["CMUX_TASK_PROMPT": "Fix login"]
+                initialEnv: ["CMUX_TASK_PROMPT": "Fix login"],
+                operationID: operationID.uuidString
             )
         ])
     }

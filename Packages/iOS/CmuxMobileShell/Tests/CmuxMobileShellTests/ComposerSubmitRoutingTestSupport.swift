@@ -46,6 +46,7 @@ actor RoutingHostRouter {
         var workingDirectory: String?
         var initialCommand: String?
         var initialEnv: [String: String]?
+        var operationID: String? = nil
     }
     private(set) var pasteImages: [PasteImageRecord] = []
     private(set) var pastes: [PasteRecord] = []
@@ -143,6 +144,7 @@ actor RoutingHostRouter {
         var workingDirectory: String?
         var initialCommand: String?
         var initialEnv: [String: String]?
+        var operationID: String?
     }
 
     func response(_ info: RequestInfo) async -> Data? {
@@ -199,7 +201,8 @@ actor RoutingHostRouter {
                 title: info.title,
                 workingDirectory: info.workingDirectory,
                 initialCommand: info.initialCommand,
-                initialEnv: info.initialEnv
+                initialEnv: info.initialEnv,
+                operationID: info.operationID
             ))
             if workspaceCreateCount == 1 && holdFirstWorkspaceCreate {
                 firstWorkspaceCreateHeld = true
@@ -344,7 +347,8 @@ private actor RoutingTransport: CmxByteTransport {
                 title: params?["title"] as? String,
                 workingDirectory: params?["working_directory"] as? String,
                 initialCommand: params?["initial_command"] as? String,
-                initialEnv: params?["initial_env"] as? [String: String]
+                initialEnv: params?["initial_env"] as? [String: String],
+                operationID: params?["operation_id"] as? String
             )
             Task { [router, weak self] in
                 guard let response = await router.response(info) else {
@@ -373,4 +377,3 @@ private actor RoutingTransport: CmxByteTransport {
         waiter.resume(returning: frame)
     }
 }
-

@@ -13,7 +13,7 @@ import Testing
 
         #expect(seeds.map(\.name) == ["Claude", "Codex", "OpenCode", "Shell"])
         #expect(seeds.map(\.icon) == ["agent:claude", "agent:codex", "agent:opencode", "terminal"])
-        #expect(seeds.map(\.command) == ["claude", "codex", "opencode", ""])
+        #expect(seeds.map(\.command) == ["claude", "codex", "opencode --prompt {prompt}", ""])
         #expect(seeds.allSatisfy { $0.defaultDirectory == nil })
     }
 

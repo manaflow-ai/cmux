@@ -70,6 +70,39 @@ import Testing
         #expect(result.title == nil)
     }
 
+    @Test func documentedPromptEnvironmentConsumerDoesNotReceiveDuplicateArgument() {
+        let unbracedTemplate = MobileTaskTemplate(
+            name: "Custom",
+            icon: "terminal",
+            command: "agent \"$CMUX_TASK_PROMPT\""
+        )
+        let bracedTemplate = MobileTaskTemplate(
+            name: "Custom",
+            icon: "terminal",
+            command: "agent \"${CMUX_TASK_PROMPT}\""
+        )
+
+        let unbracedResult = composer.compose(template: unbracedTemplate, prompt: "ship it")
+        let bracedResult = composer.compose(template: bracedTemplate, prompt: "ship it")
+
+        #expect(unbracedResult.initialCommand == "agent \"$CMUX_TASK_PROMPT\"")
+        #expect(bracedResult.initialCommand == "agent \"${CMUX_TASK_PROMPT}\"")
+        #expect(unbracedResult.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
+        #expect(bracedResult.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
+    }
+
+    @Test func submissionIdentityStaysStableUntilRotated() {
+        let restoredID = UUID()
+        var identity = MobileTaskSubmissionIdentity(id: restoredID)
+
+        #expect(identity.id == restoredID)
+        #expect(identity.id == restoredID)
+
+        identity.rotate()
+
+        #expect(identity.id != restoredID)
+    }
+
     @Test func titleUsesFirstTrimmedLineAndTruncatesToSixtyCharacters() {
         let template = MobileTaskTemplate(name: "Codex", icon: "sparkles", command: "codex")
         let prompt = "  123456789012345678901234567890123456789012345678901234567890abcdef\nsecond line  "
