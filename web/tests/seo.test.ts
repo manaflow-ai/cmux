@@ -39,6 +39,7 @@ describe("SEO metadata helpers", () => {
   test("omits English-only posts from localized blog navigation", () => {
     const englishSlugs = blogPostsForLocale("en").map((post) => post.slug);
     const japaneseSlugs = blogPostsForLocale("ja").map((post) => post.slug);
+    const germanSlugs = blogPostsForLocale("de").map((post) => post.slug);
 
     expect(englishSlugs).toContain("cmux-omo");
     expect(englishSlugs).toContain("gpl");
@@ -46,6 +47,8 @@ describe("SEO metadata helpers", () => {
     expect(japaneseSlugs).not.toContain("cmux-omo");
     expect(japaneseSlugs).not.toContain("gpl");
     expect(japaneseSlugs).not.toContain("cmux-claude-teams");
+    expect(japaneseSlugs).toContain("cmux-ssh");
+    expect(germanSlugs).not.toContain("cmux-ssh");
   });
 
   test("keeps canonical URLs locale-aware", () => {
@@ -794,11 +797,14 @@ describe("SEO middleware", () => {
       .filter(
         (url) =>
           url.endsWith("/pricing") ||
+          url.endsWith("/blog/cmux-ssh") ||
           url.endsWith("/docs/agent-integrations/oh-my-pi"),
       );
     expect(urls).toEqual([
       "https://cmux.com/pricing",
       "https://cmux.com/ja/pricing",
+      "https://cmux.com/blog/cmux-ssh",
+      "https://cmux.com/ja/blog/cmux-ssh",
       "https://cmux.com/docs/agent-integrations/oh-my-pi",
       "https://cmux.com/ja/docs/agent-integrations/oh-my-pi",
     ]);
@@ -842,6 +848,25 @@ describe("SEO middleware", () => {
       "https://cmux.com/blog/cmux-omo",
       "https://cmux.com/blog/gpl",
     ]);
+  });
+
+  test("limits partially translated blog posts to authored locales", () => {
+    const german = middleware(
+      requestFor("/de/blog/cmux-ssh", { "accept-language": "de" }),
+    );
+    expect(german.status).toBe(301);
+    expect(german.headers.get("location")).toBe(
+      "https://cmux.com/blog/cmux-ssh",
+    );
+
+    const japanese = middleware(
+      requestFor("/ja/blog/cmux-ssh", { "accept-language": "ja" }),
+    );
+    expect(japanese.status).toBe(200);
+    expect(japanese.headers.get("location")).toBeNull();
+    expect(japanese.headers.get("Link")).toContain('hreflang="en"');
+    expect(japanese.headers.get("Link")).toContain('hreflang="ja"');
+    expect(japanese.headers.get("Link")).not.toContain('hreflang="de"');
   });
 });
 

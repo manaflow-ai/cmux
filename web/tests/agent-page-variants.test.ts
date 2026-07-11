@@ -405,6 +405,13 @@ describe("agent page variants", () => {
     }
   });
 
+  test("limits partially translated blog variants to authored locales", () => {
+    const path = "/blog/cmux-ssh";
+    expect(resolveAgentPageVariant(`${path}.md`)).not.toBeNull();
+    expect(resolveAgentPageVariant(`/ja${path}.md`)).not.toBeNull();
+    expect(resolveAgentPageVariant(`/de${path}.txt`)).toBeNull();
+  });
+
   test("limits en-ja docs alternate links to live localized routes", () => {
     const path = featureWorkflowDocPathForRequest("/de/docs/vault");
     expect(path).toBe("/docs/vault");
