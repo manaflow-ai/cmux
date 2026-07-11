@@ -218,14 +218,19 @@ enum BrowserWebExtensionAutomation {
             }
             webView = popupWebView
         case "background":
-            // Debug-only escape hatch: WebKit exposes no public background web
-            // view. Use Safari's Web Inspector for the full console.
+#if DEBUG
+            // WebKit exposes no public background web view; this private
+            // accessor is a DEBUG-build convenience. Safari's Web Inspector is
+            // the supported console (extension web views are inspectable).
             let selector = NSSelectorFromString("_backgroundWebView")
             guard record.context.responds(to: selector),
                   let backgroundWebView = record.context.value(forKey: "_backgroundWebView") as? WKWebView else {
-                throw automationError("unsupported", "Background page eval is unavailable on this WebKit; attach Safari Web Inspector instead (extension web views are inspectable).")
+                throw automationError("unsupported", "Background page eval is unavailable on this WebKit; attach Safari Web Inspector instead.")
             }
             webView = backgroundWebView
+#else
+            throw automationError("unsupported", "Background page eval is DEBUG-only; attach Safari Web Inspector instead.")
+#endif
         default:
             throw automationError("invalid_params", "Unknown target '\(target)'; expected popup or background.")
         }
