@@ -143,11 +143,11 @@ final class AndroidEmulatorCaptureNSView: NSView {
             bridge?.sendTouch(x: activeTouchPoint.x, y: activeTouchPoint.y, phase: "up")
             self.activeTouchPoint = nil
         }
-        bridge?.stop()
-        bridge = nil
         retainedSlots.removeAll()
         latestImage = nil
         displayLayer.contents = nil
+        bridge?.stop()
+        bridge = nil
     }
 
     func saveScreenshot() {
@@ -564,12 +564,19 @@ private final class AndroidMappedFrameBuffer: @unchecked Sendable {
             return nil
         }
         let bytes = baseAddress.advanced(by: slot * slotSize)
+        let retainedMapping = Unmanaged.passRetained(self)
         guard let provider = CGDataProvider(
-            dataInfo: nil,
+            dataInfo: retainedMapping.toOpaque(),
             data: bytes,
             size: frameBytes,
-            releaseData: { _, _, _ in }
-        ) else { return nil }
+            releaseData: { info, _, _ in
+                guard let info else { return }
+                Unmanaged<AndroidMappedFrameBuffer>.fromOpaque(info).release()
+            }
+        ) else {
+            retainedMapping.release()
+            return nil
+        }
         return CGImage(
             width: width,
             height: height,
