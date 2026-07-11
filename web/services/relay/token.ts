@@ -56,6 +56,10 @@ export function relaySigningKey(): KeyObject | null {
   if (cached && cached.pem === pem) return cached.key;
   try {
     const key = createPrivateKey(pem);
+    // The fleet's baked public key is Ed25519; a misconfigured RSA/EC/Ed448 key
+    // would sign a token no relay can verify. Treat it as unconfigured (-> 503)
+    // rather than minting an unusable token or throwing at sign time.
+    if (key.asymmetricKeyType !== "ed25519") return null;
     cached = { pem, key };
     return key;
   } catch {

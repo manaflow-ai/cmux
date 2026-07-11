@@ -6,11 +6,20 @@
 // signing key is not provisioned this returns 503, so it is safe to ship before
 // the secret is set. Token-minting logic lives in services/relay/token.ts.
 //
-// Auth: Stack Bearer + X-Stack-Refresh-Token (same native-client path as
-// /api/devices). Any signed-in user may mint a token for their own endpoints.
+// Auth: native-only (Stack Bearer + X-Stack-Refresh-Token, no browser cookie),
+// since the minted token is exported to the native client — same posture as
+// /api/devices. The request handler takes its auth/key/clock dependencies as a
+// parameter so route behavior is unit-testable without leaking module mocks.
 
-import { unauthorized, verifyRequest } from "../../../../services/vms/auth";
+import type { KeyObject } from "node:crypto";
+
+import {
+  unauthorized,
+  verifyRequest,
+  type AuthedUser,
+} from "../../../../services/vms/auth";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
+import { readBoundedJsonObject } from "../../../../services/apns/routePolicy";
 import {
   RELAY_TOKEN_TTL_SECONDS,
   isValidEndpointId,
@@ -24,51 +33,57 @@ export const dynamic = "force-dynamic";
 
 const MAX_BODY_BYTES = 4 * 1024;
 
-export async function POST(request: Request): Promise<Response> {
-  const user = await verifyRequest(request);
+export interface RelayTokenDeps {
+  verifyRequest: (request: Request) => Promise<AuthedUser | null>;
+  signingKey: () => KeyObject | null;
+  nowSeconds: () => number;
+}
+
+const productionDeps: RelayTokenDeps = {
+  verifyRequest: (request) => verifyRequest(request, { allowCookie: false }),
+  signingKey: relaySigningKey,
+  nowSeconds: () => Math.floor(Date.now() / 1000),
+};
+
+export async function handleRelayTokenRequest(
+  request: Request,
+  deps: RelayTokenDeps,
+): Promise<Response> {
+  const user = await deps.verifyRequest(request);
   if (!user) return unauthorized();
 
-  const key = relaySigningKey();
+  const key = deps.signingKey();
   if (!key) {
     // The private signing key is not provisioned in this environment.
     return jsonResponse({ error: "relay_token_not_configured" }, 503);
   }
 
-  const contentLength = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
-    return jsonResponse({ error: "payload_too_large" }, 413);
+  // Streams and cancels at MAX_BODY_BYTES, treats an empty body as {}, and
+  // rejects non-object JSON (null / arrays / primitives).
+  const body = await readBoundedJsonObject(request, MAX_BODY_BYTES);
+  if (!body.ok) {
+    const status = body.error === "request_too_large" ? 413 : 400;
+    return jsonResponse({ error: body.error }, status);
   }
 
   // Optional: bind the token to a specific iroh endpoint id (anti-replay).
   let endpointId: string | undefined;
-  const raw = await request.text();
-  if (raw.length > MAX_BODY_BYTES) {
-    return jsonResponse({ error: "payload_too_large" }, 413);
-  }
-  if (raw.trim().length > 0) {
-    let body: { endpointId?: unknown };
-    try {
-      body = JSON.parse(raw) as { endpointId?: unknown };
-    } catch {
-      return jsonResponse({ error: "invalid_json" }, 400);
+  const rawEndpointId = body.value.endpointId;
+  if (rawEndpointId !== undefined && rawEndpointId !== null) {
+    if (
+      typeof rawEndpointId !== "string" ||
+      !isValidEndpointId(rawEndpointId)
+    ) {
+      return jsonResponse({ error: "invalid_endpoint_id" }, 400);
     }
-    if (body.endpointId !== undefined && body.endpointId !== null) {
-      if (
-        typeof body.endpointId !== "string" ||
-        !isValidEndpointId(body.endpointId)
-      ) {
-        return jsonResponse({ error: "invalid_endpoint_id" }, 400);
-      }
-      endpointId = body.endpointId;
-    }
+    endpointId = rawEndpointId;
   }
 
-  const nowSeconds = Math.floor(Date.now() / 1000);
   const { token, expiresAt } = mintRelayToken({
     sub: user.id,
     endpointId,
     key,
-    nowSeconds,
+    nowSeconds: deps.nowSeconds(),
   });
   return jsonResponse({
     token,
@@ -76,4 +91,8 @@ export async function POST(request: Request): Promise<Response> {
     ttlSeconds: RELAY_TOKEN_TTL_SECONDS,
     relays: relayUrls(),
   });
+}
+
+export function POST(request: Request): Promise<Response> {
+  return handleRelayTokenRequest(request, productionDeps);
 }
