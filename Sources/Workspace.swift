@@ -6298,6 +6298,43 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
+    @discardableResult
+    func transitionRemoteTerminalToDisconnectedPlaceholder(surfaceId: UUID) -> Bool {
+        guard pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId),
+              let pendingRemoteDisconnectReplacement,
+              let panel = terminalPanel(for: surfaceId) else {
+            return false
+        }
+        let capturedScrollback = TerminalController.shared.readTerminalTextForSnapshot(
+            terminalPanel: panel,
+            includeScrollback: true,
+            lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal
+        )
+        let rawScrollback = if capturedScrollback?.contains(where: { !$0.isWhitespace }) == true {
+            capturedScrollback
+        } else {
+            restoredTerminalScrollbackByPanelId[surfaceId]
+        }
+        let scrollback = SessionPersistencePolicy.truncatedScrollback(rawScrollback)
+        let placeholderCommand = Self.remoteDisconnectPlaceholderScript(
+            target: pendingRemoteDisconnectReplacement.target,
+            reconnectCommand: pendingRemoteDisconnectReplacement.reconnectCommand
+        )
+        guard respawnTerminalSurface(
+            panelId: surfaceId,
+            command: placeholderCommand,
+            waitAfterCommand: true,
+            replayScrollback: scrollback
+        ) != nil else {
+            return false
+        }
+        self.pendingRemoteDisconnectReplacement = nil
+        pendingRemoteTerminalChildExitSurfaceIds.remove(surfaceId)
+        remoteDisconnectPlaceholderPanelIds.insert(surfaceId)
+        restoredTerminalScrollbackByPanelId[surfaceId] = scrollback
+        return true
+    }
+
     func markRemoteTerminalSessionEnded(surfaceId: UUID, relayPort: Int?, allowUntracked: Bool = false) {
         if cleanupTransferredRemoteConnectionIfNeeded(surfaceId: surfaceId, relayPort: relayPort) {
             return
@@ -7706,6 +7743,7 @@ final class Workspace: Identifiable, ObservableObject {
         tmuxStartCommand: String? = nil,
         focus: Bool? = nil,
         waitAfterCommand: Bool? = nil,
+        replayScrollback: String? = nil,
         allowTextBoxFocusDefault: Bool = true
     ) -> TerminalPanel? {
         guard let oldPanel = terminalPanel(for: panelId),
@@ -7746,9 +7784,12 @@ final class Workspace: Identifiable, ObservableObject {
         let oldSeededWorkspaceEnvironment = oldPanel.seededWorkspaceEnvironment
         let initialEnvironmentOverrides = oldPanel.surface.respawnInitialEnvironmentOverrides
             .filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value }
-        let additionalEnvironment = startupEnvironmentMergingWorkspaceEnvironment(
+        var additionalEnvironment = startupEnvironmentMergingWorkspaceEnvironment(
             oldPanel.surface.respawnAdditionalEnvironment.filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value }
         )
+        for (key, value) in SessionScrollbackReplayStore.replayEnvironment(for: replayScrollback) {
+            additionalEnvironment[key] = value
+        }
 
         oldPanel.unfocus()
         oldPanel.hostedView.setVisibleInUI(false)
@@ -9870,6 +9911,13 @@ final class Workspace: Identifiable, ObservableObject {
         cmux_disconnect_reconnect_line="$(cmux_disconnect_decode '\(encodedReconnectLine)')"
         cmux_disconnect_reconnect_unavailable_line="$(cmux_disconnect_decode '\(encodedReconnectUnavailableLine)')"
         cmux_disconnect_reconnect_command="$(cmux_disconnect_decode '\(encodedReconnectCommand)')"
+        cmux_disconnect_scrollback_file="${CMUX_RESTORE_SCROLLBACK_FILE:-}"
+        if [ -n "$cmux_disconnect_scrollback_file" ] && [ -f "$cmux_disconnect_scrollback_file" ]; then
+          cat -- "$cmux_disconnect_scrollback_file" 2>/dev/null || true
+          printf '\\n'
+          rm -f -- "$cmux_disconnect_scrollback_file" 2>/dev/null || true
+          unset CMUX_RESTORE_SCROLLBACK_FILE
+        fi
         # Append newline + color codes ourselves rather than trusting the translator to
         # preserve them in every locale.
         printf '\\033[1;33m'

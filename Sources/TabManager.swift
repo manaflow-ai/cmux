@@ -2813,7 +2813,7 @@ class TabManager: ObservableObject {
             )
         }
         let handlesRemoteExitThroughWorkspace =
-            tab.panels.count <= 1 && tab.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId)
+            tab.pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId)
 
 #if DEBUG
         cmuxDebugLog(
@@ -2832,9 +2832,12 @@ class TabManager: ObservableObject {
             return
         }
 
-        // Route the last remote child exit through Workspace close handling so remote teardown
-        // and replacement-panel logic run before TabManager considers removing the workspace.
+        // Workspace owns the remote terminal's active -> disconnected transition so the
+        // logical pane and its rendered history survive the runtime replacement.
         if handlesRemoteExitThroughWorkspace {
+            if tab.transitionRemoteTerminalToDisconnectedPlaceholder(surfaceId: surfaceId) {
+                return
+            }
             closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
             return
         }
