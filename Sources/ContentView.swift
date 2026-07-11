@@ -736,7 +736,7 @@ func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) -> Bool
 }
 
 @MainActor
-private func installFileDropOverlayWhenReady(
+func installFileDropOverlayWhenReady(
     on window: NSWindow,
     tabManager: TabManager,
     remainingAttempts: Int = 16

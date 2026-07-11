@@ -156,6 +156,34 @@ final class FileDropOverlayViewTests: XCTestCase {
         )
     }
 
+    func testScheduledOverlayInstallationDoesNotMutateThemeFrameSynchronously() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        let tabManager = TabManager()
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        installFileDropOverlayWhenReady(on: window, tabManager: tabManager)
+
+        XCTAssertNil(
+            objc_getAssociatedObject(window, &fileDropOverlayKey) as? FileDropOverlayView,
+            "Scheduling from window creation must not mutate NSThemeFrame synchronously"
+        )
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertNotNil(
+            objc_getAssociatedObject(window, &fileDropOverlayKey) as? FileDropOverlayView,
+            "The overlay should be installed on a later main-loop turn"
+        )
+    }
+
     func testOverlayResolvesPortalHostedBrowserWebViewForFileDrops() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 280),
