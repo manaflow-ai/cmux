@@ -299,8 +299,8 @@ final class MobileHostService {
     /// `TerminalController`'s no-private-metadata branch), so the fields
     /// cannot drift. Identity-free: routes, fidelity, and capabilities are a
     /// reachability probe any peer may ask for, but the Mac's stable identity
-    /// (`mac_device_id`, `mac_display_name`) is never on this unauthenticated
-    /// surface — see ``networkStatusResult(for:)`` for the verified-caller
+    /// (`mac_device_id`, `mac_display_name`, `mac_instance_tag`) is never on
+    /// this unauthenticated surface. See ``networkStatusResult(for:)`` for the verified-caller
     /// reply that carries it.
     nonisolated static func publicStatusPayload(routesPayload: [[String: Any]]) -> [String: Any] {
         // The Mac's resolved terminal theme is caller-independent, so it rides
@@ -321,11 +321,12 @@ final class MobileHostService {
     /// `publicStatusPayload` plus the Mac's identity, for a caller that has
     /// proven same-account Stack ownership. The pairing QR no longer carries
     /// the display name or the device id, so this reply is where a freshly
-    /// paired phone learns what to call this Mac and which paired-Mac record
-    /// the connection belongs to.
+    /// paired phone learns what to call this Mac, which paired-Mac record owns
+    /// the connection, and which app instance owns its routes.
     nonisolated static func identityStatusPayload(routesPayload: [[String: Any]]) -> [String: Any] {
         var payload = publicStatusPayload(routesPayload: routesPayload)
         payload["mac_device_id"] = MobileHostIdentity.deviceID()
+        payload["mac_instance_tag"] = MobileHostIdentity.instanceTag()
         if let displayName = MobileHostIdentity.instanceDisplayName() {
             payload["mac_display_name"] = displayName
         }
