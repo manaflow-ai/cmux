@@ -2,6 +2,7 @@ import { locales } from "../../i18n/routing";
 import { comparePages, comparePath } from "./compare-pages";
 import type { ComparePageKey } from "./compare-pages";
 import {
+  englishFallbackContentLocales,
   fallbackContentLocales,
   featureWorkflowContentLocales,
   remoteTmuxDocsLocales,
@@ -134,8 +135,13 @@ export const agentReadablePages = [
   {
     path: "/blog/cmux-omo",
     title: "oh-my-openagent subagents as native cmux panes",
+    locales: englishFallbackContentLocales,
   },
-  { path: "/blog/gpl", title: "cmux is now GPL" },
+  {
+    path: "/blog/gpl",
+    title: "cmux is now GPL",
+    locales: englishFallbackContentLocales,
+  },
   { path: "/blog/cmd-shift-u", title: "Cmd+Shift+U" },
   { path: "/blog/zen-of-cmux", title: "The Zen of cmux" },
   { path: "/blog/show-hn-launch", title: "Launching cmux on Show HN" },

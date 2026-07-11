@@ -1,3 +1,14 @@
+import { englishFallbackContentLocales } from "@/i18n/locale-availability";
+
+type BlogPost = {
+  slug: string;
+  key: string;
+  title: string;
+  date: string;
+  summary: string;
+  locales?: readonly string[];
+};
+
 export const blogPosts = [
   {
     slug: "claude-code-best-worktree-manager",
@@ -102,6 +113,7 @@ export const blogPosts = [
     date: "2026-03-30",
     summary:
       "oh-my-openagent (formerly oh-my-opencode) orchestrates parallel specialist agents across Claude, GPT, and Gemini. cmux omo turns their tmux panes into native splits.",
+    locales: englishFallbackContentLocales,
   },
   {
     slug: "gpl",
@@ -110,6 +122,7 @@ export const blogPosts = [
     date: "2026-03-30",
     summary:
       "cmux relicensed from AGPL-3.0 to GPL-3.0.",
+    locales: englishFallbackContentLocales,
   },
   {
     slug: "cmd-shift-u",
@@ -143,4 +156,10 @@ export const blogPosts = [
     summary:
       "A native macOS terminal built on Ghostty, designed for running multiple AI coding agents side by side.",
   },
-];
+] satisfies readonly BlogPost[];
+
+export function blogPostsForLocale(locale: string) {
+  return blogPosts.filter(
+    (post) => !post.locales || post.locales.some((candidate) => candidate === locale),
+  );
+}
