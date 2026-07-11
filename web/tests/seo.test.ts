@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { NextRequest } from "next/server";
 import sitemap from "../app/sitemap";
+import { legalMetadata } from "../app/[locale]/(legal)/legal-metadata";
 import middleware from "../proxy";
 import {
   buildAlternates,
@@ -105,6 +106,13 @@ describe("SEO metadata helpers", () => {
     const fallback =
       "Talk with cmux about Enterprise deployment, SSO, self-hosted Cloud VMs, audit logs, and committed usage.";
     expect(seoDescription("de", fallback)).toBe(fallback);
+  });
+
+  test("keeps legal descriptions limited to their legal summary", () => {
+    const summary = "The terms that govern use of cmux.";
+    expect(legalMetadata("/terms-of-service", "Terms", summary).description).toBe(
+      summary,
+    );
   });
 
   test("adds complete shared social metadata", () => {

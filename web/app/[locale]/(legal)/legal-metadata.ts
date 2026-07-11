@@ -11,7 +11,7 @@ export function legalMetadata(
   title: string,
   summary: string,
 ): Metadata {
-  const description = seoDescription("en", summary);
+  const description = seoDescription("en", summary, { minLength: 0 });
   const alternates = buildAlternates("en", path, ["en"]);
 
   return {
