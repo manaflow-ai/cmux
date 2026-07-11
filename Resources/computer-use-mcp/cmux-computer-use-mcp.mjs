@@ -208,6 +208,7 @@ const MESSAGE_CATALOG = {
       `no computer_state snapshot for "${app}" in the current session; run computer_state first — element indices are snapshot-specific`,
     targetDescription: "Describe the current computer-use target.",
     toolCallCancelled: "tool call was cancelled",
+    toolCallDuplicate: "a tool call with this request id is already pending",
     toolCallQueueFull: (limit) =>
       `too many computer-use requests are already pending (limit ${limit}); wait for the current request to finish and retry`,
     toolCallTooLarge: (limit) =>
@@ -344,6 +345,7 @@ const MESSAGE_CATALOG = {
       `このセッションには「${app}」の computer_state スナップショットがありません。要素 index はスナップショット固有です。先に computer_state を実行してください`,
     targetDescription: "現在の computer-use 対象を説明します。",
     toolCallCancelled: "ツール呼び出しはキャンセルされました",
+    toolCallDuplicate: "このリクエスト ID のツール呼び出しはすでに保留中です",
     toolCallQueueFull: (limit) =>
       `保留中の computer-use リクエストが多すぎます（上限 ${limit} 件）。現在のリクエストが完了してから再試行してください`,
     toolCallTooLarge: (limit) =>
@@ -2098,13 +2100,16 @@ function drainToolCallQueue() {
 }
 
 function enqueueToolCall(id, args, run) {
+  const key = requestKey(id);
+  if (activeToolCalls.has(key)) {
+    return Promise.resolve(err(localizedMessage("toolCallDuplicate")));
+  }
   if (activeToolCalls.size >= MAX_PENDING_TOOL_CALLS) {
     return Promise.resolve(err(localizedMessage("toolCallQueueFull", MAX_PENDING_TOOL_CALLS)));
   }
   if (toolCallArgumentsBytes(args) > MAX_TOOL_CALL_ARGUMENT_BYTES) {
     return Promise.resolve(err(localizedMessage("toolCallTooLarge", MAX_TOOL_CALL_ARGUMENT_BYTES)));
   }
-  const key = requestKey(id);
   const token = {
     id: key,
     canceled: false,

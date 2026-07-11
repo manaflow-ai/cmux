@@ -269,7 +269,9 @@ cmux_codex_emit_computer_use_args() {
             "-c" \
             "mcp_servers.cmux-computer-use.env.NODE_OPTIONS=\"\"" \
             "-c" \
-            "mcp_servers.cmux-computer-use.env.BUN_OPTIONS=\"\""
+            "mcp_servers.cmux-computer-use.env.BUN_OPTIONS=\"\"" \
+            "-c" \
+            "mcp_servers.cmux-computer-use.env.CMUX_CU_AUTO_APPROVE=\"\""
         return 0
     fi
 
@@ -287,7 +289,9 @@ cmux_codex_emit_computer_use_args() {
                 "-c" \
                 "mcp_servers.cmux-computer-use.env.NODE_OPTIONS=\"\"" \
                 "-c" \
-                "mcp_servers.cmux-computer-use.env.BUN_OPTIONS=\"\""
+                "mcp_servers.cmux-computer-use.env.BUN_OPTIONS=\"\"" \
+                "-c" \
+                "mcp_servers.cmux-computer-use.env.CMUX_CU_AUTO_APPROVE=\"\""
             return 0
         fi
     done
