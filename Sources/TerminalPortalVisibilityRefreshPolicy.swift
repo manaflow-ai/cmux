@@ -54,14 +54,15 @@ extension GhosttyTerminalView {
                 reason: reason
             )
         }
-        Task { @MainActor [weak hostedView] in
-            await drain.value
-            guard let candidateRegistrationToken else { return }
-            hostedView?.unregisterTransientPortalHostCandidate(
-                hostId: hostId,
-                ownershipGeneration: snapshot.ownershipGeneration,
-                registrationToken: candidateRegistrationToken
-            )
+        if let candidateRegistrationToken {
+            Task { @MainActor [weak hostedView] in
+                await drain.value
+                hostedView?.unregisterTransientPortalHostCandidate(
+                    hostId: hostId,
+                    ownershipGeneration: snapshot.ownershipGeneration,
+                    registrationToken: candidateRegistrationToken
+                )
+            }
         }
         return drain
     }
@@ -165,6 +166,7 @@ enum TerminalPortalVisibilityRefreshPolicy {
 
 extension GhosttySurfaceScrollView {
     func setDirectHostHandlers(
+        ownerHostId: ObjectIdentifier,
         focusHandler: (() -> Void)?,
         triggerFlashHandler: (() -> Void)?
     ) {
@@ -172,6 +174,20 @@ extension GhosttySurfaceScrollView {
         // portal-owned closures before publishing the direct host's callbacks.
         setFocusHandler(focusHandler)
         setTriggerFlashHandler(triggerFlashHandler)
+        callbackOwnerHostId = ownerHostId
+    }
+
+    func isHostHandlerOwner(ownerHostId: ObjectIdentifier) -> Bool {
+        callbackOwnerHostId == ownerHostId
+    }
+
+    @discardableResult
+    func clearDirectHostHandlersIfOwned(ownerHostId: ObjectIdentifier) -> Bool {
+        guard isHostHandlerOwner(ownerHostId: ownerHostId) else { return false }
+        callbackOwnerHostId = nil
+        setFocusHandler(nil)
+        setTriggerFlashHandler(nil)
+        return true
     }
 
     func prepareOwnedPortalHostForTransientReattach(hostId: ObjectIdentifier, reason: String) {
@@ -238,12 +254,12 @@ extension GhosttySurfaceScrollView {
     ) {
         setFocusHandler(focusHandler)
         setTriggerFlashHandler(triggerFlashHandler)
-        portalCallbackOwnerHostId = ownerHostId
+        callbackOwnerHostId = ownerHostId
     }
 
     func clearPortalHostHandlersIfOwned(ownerHostId: ObjectIdentifier) {
-        guard portalCallbackOwnerHostId == ownerHostId else { return }
-        portalCallbackOwnerHostId = nil
+        guard callbackOwnerHostId == ownerHostId else { return }
+        callbackOwnerHostId = nil
         setFocusHandler(nil)
         setTriggerFlashHandler(nil)
         setDropZoneOverlay(zone: nil)
