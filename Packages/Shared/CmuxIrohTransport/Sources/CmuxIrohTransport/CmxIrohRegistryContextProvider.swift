@@ -141,7 +141,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             throw CmxIrohRegistryContextError.targetBindingUnavailable
         }
         guard let expectedPeerDeviceID = request.expectedPeerDeviceID,
-              targetBinding.deviceID == expectedPeerDeviceID else {
+              Self.canonicalDeviceID(expectedPeerDeviceID) == targetBinding.deviceID else {
             throw CmxIrohRegistryContextError.targetDeviceMismatch
         }
         guard targetBinding.pairingEnabled else {
@@ -486,6 +486,13 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         } catch {
             return nil
         }
+    }
+
+    private static func canonicalDeviceID(_ value: String) -> String? {
+        guard let uuid = UUID(uuidString: value) else { return nil }
+        let canonical = uuid.uuidString.lowercased()
+        guard value.lowercased() == canonical else { return nil }
+        return canonical
     }
 
     private static func mergeHints(
