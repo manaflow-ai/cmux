@@ -1521,6 +1521,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func restoreSessionNotifications(_ restoredNotifications: [TerminalNotification], forTabId tabId: UUID) {
+        clearFocusedReadIndicator(forTabId: tabId)
         var knownIds = indexes.ids
         let unseenRestored = restoredNotifications
             .filter { $0.tabId == tabId }

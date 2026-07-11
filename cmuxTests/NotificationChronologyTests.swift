@@ -161,6 +161,29 @@ struct NotificationChronologyTests {
     }
 
     @Test
+    func restoreClearsStaleFocusedReadIndicatorEvenForReplayOnlySnapshot() {
+        let store = TerminalNotificationStore.shared
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let existing = notification(
+            id: UUID(),
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: "Existing",
+            createdAt: Date(timeIntervalSince1970: 1)
+        )
+
+        store.replaceNotificationsForTesting([existing])
+        store.setFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
+        defer { store.replaceNotificationsForTesting([]) }
+
+        store.restoreSessionNotifications([existing], forTabId: tabId)
+
+        #expect(store.focusedReadIndicatorSurfaceId(forTabId: tabId) == nil)
+        #expect(store.notifications.map(\.id) == [existing.id])
+    }
+
+    @Test
     func readMutationsAndEveryProjectionPreserveChronologicalOrder() {
         let store = TerminalNotificationStore.shared
         let tabId = UUID()
