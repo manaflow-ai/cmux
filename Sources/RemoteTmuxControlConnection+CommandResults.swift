@@ -9,6 +9,11 @@ extension RemoteTmuxControlConnection {
         // misalign the positional correlation.
         guard !pendingCommands.isEmpty else { return }
         let kind = pendingCommands.removeFirst()
+        defer {
+            if case .listWindows = kind {
+                completeWindowListRequest()
+            }
+        }
         guard !isError else {
             // An errored activity query must still complete (with nil) — a close
             // decision is waiting on it and falls back to the cached state.

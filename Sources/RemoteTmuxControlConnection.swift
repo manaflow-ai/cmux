@@ -102,6 +102,8 @@ final class RemoteTmuxControlConnection {
     private var ingestTask: Task<Void, Never>?
     private var processGeneration: UInt64 = 0
     var pendingCommands: [CommandKind] = []
+    var windowListRequestInFlight = false
+    var windowListRequestDirty = false
     var windowReorderBatchFailed = false
     var windowReorderGeneration: UInt64 = 0
     var windowReorderRecoveryGeneration: UInt64?
@@ -311,6 +313,7 @@ final class RemoteTmuxControlConnection {
         // A fresh control stream cannot retain the prior parser or command FIFO.
         parser = RemoteTmuxControlStreamParser()
         pendingCommands.removeAll()
+        resetWindowListRequestCoalescing()
         windowReorderBatchFailed = false
         windowReorderRecoveryGeneration = nil
         pendingLayouts.removeAll()
@@ -453,6 +456,7 @@ final class RemoteTmuxControlConnection {
         failPendingWindowReorderVerifications()
         reconnectTask?.cancel()
         reconnectTask = nil
+        resetWindowListRequestCoalescing()
         cancelSizingFollowUps()
         pendingPostAttachAction = nil
     }
@@ -612,6 +616,7 @@ final class RemoteTmuxControlConnection {
         failPendingActivityQueries()
         failPendingNewWindowRequests()
         failPendingWindowReorderVerifications()
+        resetWindowListRequestCoalescing()
         cancelSizingFollowUps()
         pendingPostAttachAction = nil
         teardownProcessHandles()

@@ -227,15 +227,15 @@ import Testing
         connection.handleMessageForTesting(.windowClose(windowId: 2))
         #expect(connection.pendingCommandKindsForTesting == [
             .listWindows(reorderGeneration: 0, retainedPaneIDs: [10]),
-            .listWindows(reorderGeneration: 0, retainedPaneIDs: [10, 20]),
         ])
 
-        // The first close's snapshot must not release pane 20, whose own close
-        // and authoritative refresh overlapped the earlier request.
+        // Burst closes share one in-flight snapshot. Its completion releases only
+        // pane 10 and queues one follow-up containing the later close's pane 20.
         reply(connection, lines: windowLines([2, 3]))
         #expect(connection.paneIDsRetainedUntilWindowList == [20])
-        #expect(connection.pendingCommandKindsForTesting.first ==
-            .listWindows(reorderGeneration: 0, retainedPaneIDs: [10, 20]))
+        #expect(connection.pendingCommandKindsForTesting == [
+            .listWindows(reorderGeneration: 0, retainedPaneIDs: [20]),
+        ])
 
         reply(connection, lines: windowLines([3]))
         #expect(connection.paneIDsRetainedUntilWindowList.isEmpty)
