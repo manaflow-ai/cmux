@@ -2,6 +2,7 @@ import {
   openGraphImageAlt,
   openGraphImageTagline,
   detailedSeoDescriptionCandidate,
+  joinMetadataSentences,
   seoDescription,
   seoTitle,
   shortSeoDescriptionCandidate,
@@ -67,21 +68,14 @@ function selectDescription(
   const tagline = openGraphImageTagline(locale);
   const contextualCandidates = authoredCandidates.flatMap((candidate) => [
     candidate,
-    joinSentences(candidate, short),
-    joinSentences(candidate, detailed),
-    joinSentences(joinSentences(candidate, short), tagline),
+    joinMetadataSentences(candidate, short),
+    joinMetadataSentences(candidate, detailed),
+    joinMetadataSentences(joinMetadataSentences(candidate, short), tagline),
   ]);
   return seoDescription(locale, original, {
     minLength: 110,
     fallbackCandidates: contextualCandidates,
   });
-}
-
-function joinSentences(first: string, second: string) {
-  const leading = first.trim();
-  const trailing = second.trim();
-  const separator = /[.!?。！？؟។៕]$/u.test(leading) ? " " : ". ";
-  return `${leading}${separator}${trailing}`;
 }
 
 export function homeSeoCopy(locale: string, meta: SeoMessageLookup) {
@@ -106,7 +100,7 @@ export function assetsSeoCopy(
     title: selectTitle(locale, t("metaTitle"), siteMeta, [t("title")]),
     description: selectDescription(locale, t("metaDescription"), [
       t("title"),
-      joinSentences(t("title"), t("metaDescription")),
+      joinMetadataSentences(t("title"), t("metaDescription")),
       t("description"),
     ]),
   };
@@ -121,7 +115,7 @@ export function blogIndexSeoCopy(
     title: selectTitle(locale, t("metaTitle"), siteMeta, [t("title")]),
     description: selectDescription(locale, t("metaDescription"), [
       t("title"),
-      joinSentences(t("title"), t("metaDescription")),
+      joinMetadataSentences(t("title"), t("metaDescription")),
     ]),
   };
 }
@@ -138,7 +132,7 @@ export function communitySeoCopy(
     ]),
     description: selectDescription(locale, t("metaDescription"), [
       t("title"),
-      joinSentences(t("title"), t("metaDescription")),
+      joinMetadataSentences(t("title"), t("metaDescription")),
       t("description"),
     ]),
   };
@@ -154,7 +148,7 @@ export function bestTerminalSeoCopy(
     description: selectDescription(locale, t("metaDescription"), [
       t("title"),
       t("cmuxBuiltFor"),
-      joinSentences(t("title"), t("cmuxBuiltFor")),
+      joinMetadataSentences(t("title"), t("cmuxBuiltFor")),
     ]),
   };
 }
@@ -194,7 +188,7 @@ export function compareIndexSeoCopy(
     title: selectTitle(locale, t("metaTitle"), siteMeta, [t("title")]),
     description: selectDescription(locale, t("metaDescription"), [
       t("title"),
-      joinSentences(t("title"), openGraphImageAlt(locale)),
+      joinMetadataSentences(t("title"), openGraphImageAlt(locale)),
       t("intro"),
     ]),
   };
@@ -222,9 +216,9 @@ export function comparePageSeoCopy(
     title: selectTitle(locale, t("metaTitle"), siteMeta, titleCandidates),
     description: selectDescription(locale, t("metaDescription"), [
       ...descriptionCandidates,
-      joinSentences(t("faqQ1"), t("faqA1")),
-      joinSentences(t("faqQ2"), t("faqA2")),
-      joinSentences(t("faqQ3"), t("faqA3")),
+      joinMetadataSentences(t("faqQ1"), t("faqA1")),
+      joinMetadataSentences(t("faqQ2"), t("faqA2")),
+      joinMetadataSentences(t("faqQ3"), t("faqA3")),
     ]),
   };
 }

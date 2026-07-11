@@ -145,6 +145,13 @@ export function shortSeoDescriptionCandidate(locale: string) {
   return shortDescriptionSuffixes[locale] ?? shortDescriptionSuffixes.en;
 }
 
+export function joinMetadataSentences(first: string, second: string) {
+  const leading = first.trim();
+  const trailing = second.trim();
+  const separator = /[.!?。！？؟។៕]$/u.test(leading) ? " " : ". ";
+  return `${leading}${separator}${trailing}`;
+}
+
 export function seoDescription(
   locale: string,
   description: string,
@@ -164,9 +171,7 @@ export function seoDescription(
         : shortDescriptionSuffixes;
     const suffix = suffixes[locale] ?? suffixes.en;
     if (!trimmed.includes(suffix)) {
-      const separator =
-        /[。！？.!?]$/.test(trimmed) || trimmed.endsWith("؟") ? " " : ". ";
-      candidates.push(`${trimmed}${separator}${suffix}`);
+      candidates.push(joinMetadataSentences(trimmed, suffix));
     }
   }
 

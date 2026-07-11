@@ -8,6 +8,7 @@ import {
   buildAlternates,
   canonicalUrl,
   hasLocalizedSeoCopy,
+  joinMetadataSentences,
   openGraphDefaults,
   openGraphImageTagline,
   seoDescription,
@@ -64,6 +65,12 @@ describe("SEO metadata helpers", () => {
 
     const original = "A very long metadata description ".repeat(12).trim();
     expect(seoDescription("en", original)).toBe(original);
+  });
+
+  test("joins metadata sentences without duplicating localized punctuation", () => {
+    expect(joinMetadataSentences("សាកល្បង។", "បន្ទាប់")).toBe(
+      "សាកល្បង។ បន្ទាប់",
+    );
   });
 
   test("preserves overbound authored copy when no complete candidate fits", () => {
