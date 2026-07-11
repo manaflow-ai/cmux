@@ -14,19 +14,42 @@ run side-by-side with the released Cmux.
 
 - **Drop action:** each dropped folder opens one new workspace tab, cd'd into
   that folder.
+- **Tab title:** the workspace's big sidebar title is the folder's name (last
+  path component), not the full path. Passed as `title:` to `addWorkspace`,
+  which pins it via `setCustomTitle`. (v2, 2026-07-11)
+- **Auto-run Claude Code:** the new tab's terminal runs `claude` on open, via
+  `initialTerminalInput: "claude\n"` (typed into the login shell, so the shell
+  survives when claude exits). (v2, 2026-07-11)
 - **Drop zone:** the sidebar / vertical-tab area only. Not the terminal or
   browser panes (those already have their own file-drop behavior).
 - **Accepted items:** folders only. Dropped files are rejected (no accept
   highlight, drop does nothing). No "open at parent folder" behavior.
-- **Multiple folders in one drop:** each valid folder opens its own tab.
+- **Multiple folders in one drop:** each valid folder opens its own tab, each
+  titled with its folder name and each auto-running claude.
 
 ## Non-goals
 
 - No files (folders only).
-- No launching an agent on drop, no path-insertion into a terminal.
+- No path-insertion into a terminal for sidebar drops (that stays terminal-pane
+  behavior).
 - No settings toggle for the feature. It is always on.
 - No change to the sidebar's existing internal drag (workspace/tab reordering).
 - No new workspace/tab data model. Reuse the existing one.
+
+## Build / install reality (2026-07-11)
+
+- **New `.swift` files must be hand-wired into `cmux.xcodeproj/project.pbxproj`**
+  (4 entries each; validated by `scripts/lint-pbxproj-test-wiring.sh`), or Xcode
+  silently ignores them.
+- **The bundled `ghostty` CLI helper cannot be compiled on macOS 26:** the pinned
+  Zig 0.15.2 fails to link the macOS 26.5 SDK (undefined libSystem symbols). The
+  real helper is taken prebuilt from upstream release `v0.64.17` (universal,
+  Ghostty 1.3.2) and installed via `scripts/install-prebuilt-ghostty-cli-helper.sh`.
+  The terminal itself renders via the prebuilt `GhosttyKit.xcframework`, unaffected.
+- **Production build:** Release config (`PRODUCT_NAME = cmux`, not "cmux DEV").
+  Built ad-hoc with entitlements cleared (no dev cert / team locally), real helper
+  installed, re-signed inside-out (no `--deep`), installed to `/Applications/cmux.app`.
+  Full procedure in `docs/superpowers/plans/2026-07-11-sidebar-folder-drop-v2.md`.
 
 ## Approach (A: native drop into the internal workspace API)
 
