@@ -27,11 +27,20 @@ extension GhosttySurfaceScrollView {
         guard let position else { return false }
         guard let scrollbar = surfaceView.scrollbar else { return false }
         let currentTotalRows = Int(clamping: scrollbar.total)
-        let capturedTotalRows = position.totalRows ?? currentTotalRows
-        let rowFromBottom = max(0, position.row + currentTotalRows - capturedTotalRows)
+        let currentVisibleRows = min(currentTotalRows, Int(clamping: scrollbar.len))
+        let currentLastTopRow = currentTotalRows - currentVisibleRows
+        let capturedTotalRows = max(0, position.totalRows ?? currentTotalRows)
+        let capturedRowsBelowViewport = min(capturedTotalRows, max(0, position.row))
+        let capturedViewportBottomRow = capturedTotalRows - capturedRowsBelowViewport
+
+        // Notifications retain the viewport's bottom edge so new output does not
+        // move the captured content. Ghostty's scroll_to_row action instead takes
+        // the absolute first visible row, with zero at the top of history.
+        let unclampedTopRow = max(0, capturedViewportBottomRow - currentVisibleRows)
+        let targetTopRow = min(currentLastTopRow, unclampedTopRow)
         allowExplicitScrollbarSync = true
-        userScrolledAwayFromBottom = rowFromBottom > 0
-        let didRestore = performBindingAction("scroll_to_row:\(rowFromBottom)")
+        userScrolledAwayFromBottom = targetTopRow < currentLastTopRow
+        let didRestore = performBindingAction("scroll_to_row:\(targetTopRow)")
         if !didRestore {
             allowExplicitScrollbarSync = false
         }
