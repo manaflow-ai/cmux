@@ -56,9 +56,8 @@ public struct CMUXMobileAppView: View {
             .onChange(of: store.connectionState) { _, _ in
                 reconcileBrowserSurfacesIfAuthoritative()
             }
-            .onChange(of: browserWorkspaceIDs) { _, workspaceIDs in
-                guard store.connectionState == .connected else { return }
-                browserStore.reconcileWorkspaces(workspaceIDs)
+            .onChange(of: browserWorkspaceIdentities) { _, _ in
+                reconcileBrowserSurfacesIfAuthoritative()
             }
         #else
         CMUXMobileRootView(store: store)
@@ -67,22 +66,22 @@ public struct CMUXMobileAppView: View {
             .onChange(of: store.connectionState) { _, _ in
                 reconcileBrowserSurfacesIfAuthoritative()
             }
-            .onChange(of: browserWorkspaceIDs) { _, workspaceIDs in
-                guard store.connectionState == .connected else { return }
-                browserStore.reconcileWorkspaces(workspaceIDs)
+            .onChange(of: browserWorkspaceIdentities) { _, _ in
+                reconcileBrowserSurfacesIfAuthoritative()
             }
         #endif
     }
 
-    private var browserWorkspaceIDs: Set<String> {
-        Set(store.workspaces.map(\.id.rawValue))
+    private var browserWorkspaceIdentities: [BrowserWorkspaceIdentity] {
+        store.workspaces.map(\.browserSurfaceIdentity)
     }
 
     private func reconcileBrowserSurfacesIfAuthoritative() {
         // A connected store has already applied its initial workspace list.
         // Before that point an empty list is transitional and must not erase
         // restorable browser sessions from the prior launch.
-        guard store.connectionState == .connected else { return }
-        browserStore.reconcileWorkspaces(browserWorkspaceIDs)
+        guard store.connectionState == .connected,
+              store.workspaces.allSatisfy(\.hasStableBrowserSurfaceIdentity) else { return }
+        browserStore.reconcileWorkspaces(browserWorkspaceIdentities)
     }
 }

@@ -125,6 +125,19 @@ import Testing
         #expect(store.activeBrowser(for: stableIdentity) === browser)
     }
 
+    @Test func identicalRemoteWorkspaceIDsRemainScopedToTheirOwningMacs() {
+        let store = makeStore()
+        let firstIdentity = BrowserWorkspaceIdentity(rawValue: "5:mac-a:shared")
+        let secondIdentity = BrowserWorkspaceIdentity(rawValue: "5:mac-b:shared")
+
+        let first = store.openBrowser(for: firstIdentity)
+        let second = store.openBrowser(for: secondIdentity)
+
+        #expect(first !== second)
+        #expect(store.browser(for: firstIdentity) === first)
+        #expect(store.browser(for: secondIdentity) === second)
+    }
+
     @Test func reopenAfterCloseMakesFreshSurface() {
         let store = makeStore()
         let first = store.openBrowser(for: "ws-1")

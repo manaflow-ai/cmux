@@ -2,6 +2,7 @@ import Foundation
 import CmuxMobileBrowser
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import CmuxMobileWorkspace
 import SwiftUI
 #if os(iOS)
@@ -28,6 +29,7 @@ struct WorkspaceShellView: View {
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var showingCompactSettings = false
     @State private var showingCompactDeviceTree = false
+    @State private var showingCompactWorkspaceManager = false
     @State private var macSelection: WorkspaceMacSelection = .all
     @State private var isCreatingTerminalFromSurfaceGrid = false
     @State var workspaceActionToast: WorkspaceActionToastContent?
@@ -124,8 +126,10 @@ struct WorkspaceShellView: View {
                 closeBrowser: closeBrowserFromSurfaceGrid,
                 createWorkspace: createWorkspaceInCompactStack,
                 createTerminal: createTerminalFromSurfaceGrid,
+                refresh: refreshWorkspacesClosure,
                 showSettings: { showingCompactSettings = true },
                 showDevices: { showingCompactDeviceTree = true },
+                showWorkspaceManager: { showingCompactWorkspaceManager = true },
                 reconnect: reconnectClosure,
                 isInitialConnectionLoading: isInitialConnectionLoading,
                 initialConnectionTimedOut: initialConnectionTimedOut,
@@ -162,6 +166,19 @@ struct WorkspaceShellView: View {
         }
         .sheet(isPresented: $showingCompactDeviceTree) {
             DeviceTreeView(store: store, selectWorkspace: openWorkspaceFromDeviceTree, showAddDevice: showAddDevice)
+        }
+        .sheet(isPresented: $showingCompactWorkspaceManager) {
+            NavigationStack {
+                compactWorkspaceManager
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button(L10n.string("mobile.common.done", defaultValue: "Done")) {
+                                showingCompactWorkspaceManager = false
+                            }
+                            .accessibilityIdentifier("MobileWorkspaceManagerDoneButton")
+                        }
+                    }
+            }
         }
         .onChange(of: store.selectedWorkspaceID) { _, selectedWorkspaceID in
             if let createdPath = compactNavigationPolicy.pathForCreatedWorkspaceSelection(
@@ -202,6 +219,49 @@ struct WorkspaceShellView: View {
         .onAppear {
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
+    }
+
+    private var compactWorkspaceManager: some View {
+        WorkspaceListView(
+            workspaces: store.workspaces,
+            groups: store.workspaceGroups,
+            selectedWorkspaceID: store.selectedWorkspaceID,
+            host: store.connectedHostName,
+            connectionStatus: listConnectionStatus,
+            navigationStyle: .sidebar,
+            showsNavigationToolbar: false,
+            wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
+            previewLineLimit: displaySettings.workspacePreviewLineCount,
+            unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
+            profilePictureLeftShift: displaySettings.profilePictureLeftShift,
+            profilePictureSize: displaySettings.profilePictureSize,
+            selectWorkspace: selectWorkspaceFromSurfaceGrid,
+            createWorkspace: createWorkspaceInCompactStack,
+            createWorkspaceInGroup: createWorkspaceInGroupInCompactStackClosure,
+            canCreateWorkspace: canCreateWorkspaceForMacSelection,
+            macSelection: $macSelection,
+            switchMac: { macDeviceID in
+                await switchMacFromWorkspacePicker(macDeviceID: macDeviceID)
+            },
+            cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
+            refresh: refreshWorkspacesClosure,
+            reconnect: reconnectClosure,
+            showAddDevice: showAddDevice,
+            store: store,
+            renameWorkspace: renameWorkspaceClosure,
+            setPinned: setWorkspacePinnedClosure,
+            setUnread: setWorkspaceUnreadClosure,
+            closeWorkspace: closeWorkspaceClosure,
+            moveWorkspace: moveWorkspaceClosure,
+            renameWorkspaceGroup: renameWorkspaceGroupClosure,
+            setGroupPinned: setWorkspaceGroupPinnedClosure,
+            ungroupWorkspaceGroup: ungroupWorkspaceGroupClosure,
+            deleteWorkspaceGroup: deleteWorkspaceGroupClosure,
+            toggleGroupCollapsed: toggleGroupCollapsedClosure,
+            isInitialConnectionLoading: isInitialConnectionLoading,
+            initialConnectionTimedOut: initialConnectionTimedOut,
+            retryInitialConnection: retryInitialConnection
+        )
     }
 
     private var splitLayout: some View {
@@ -296,7 +356,9 @@ struct WorkspaceShellView: View {
 
     private func openTerminalFromSurfaceGrid(_ workspaceID: MobileWorkspacePreview.ID, terminalID: MobileTerminalPreview.ID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
-        browserStore.showNonBrowserSurface(for: workspaceID.rawValue)
+        if let workspace = store.workspaces.first(where: { $0.id == workspaceID }) {
+            browserStore.showNonBrowserSurface(for: workspace.browserSurfaceIdentity)
+        }
         store.selectedWorkspaceID = workspaceID
         store.selectTerminalFromChrome(terminalID)
         compactNavigationPath = [workspaceID]
@@ -305,12 +367,14 @@ struct WorkspaceShellView: View {
     private func openBrowserFromSurfaceGrid(_ workspaceID: MobileWorkspacePreview.ID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
         store.selectedWorkspaceID = workspaceID
-        browserStore.openBrowser(for: workspaceID.rawValue)
+        guard let workspace = store.workspaces.first(where: { $0.id == workspaceID }) else { return }
+        browserStore.openBrowser(for: workspace.browserSurfaceIdentity)
         compactNavigationPath = [workspaceID]
     }
 
     private func closeBrowserFromSurfaceGrid(_ workspaceID: MobileWorkspacePreview.ID) {
-        browserStore.closeBrowser(for: workspaceID.rawValue)
+        guard let workspace = store.workspaces.first(where: { $0.id == workspaceID }) else { return }
+        browserStore.closeBrowser(for: workspace.browserSurfaceIdentity)
     }
 
     private func createTerminalFromSurfaceGrid(_ workspaceID: MobileWorkspacePreview.ID) {
@@ -329,7 +393,8 @@ struct WorkspaceShellView: View {
             else {
                 return
             }
-            browserStore.showNonBrowserSurface(for: resolvedWorkspaceID.rawValue)
+            guard let workspace = store.workspaces.first(where: { $0.id == resolvedWorkspaceID }) else { return }
+            browserStore.showNonBrowserSurface(for: workspace.browserSurfaceIdentity)
             compactNavigationPath = [resolvedWorkspaceID]
         }
     }

@@ -73,7 +73,7 @@ struct WorkspaceDetailView: View {
     #endif
     /// The active browser surface for this workspace, when a browser pane is open.
     var activeBrowser: BrowserSurfaceState? {
-        browserStore.activeBrowser(for: workspace.id.rawValue)
+        browserStore.activeBrowser(for: workspace.browserSurfaceIdentity)
     }
     #if os(iOS)
     var activeSurface: WorkspaceActiveSurface {
@@ -651,7 +651,7 @@ struct WorkspaceDetailView: View {
         // Creating a terminal from the (shared) chrome must surface it. If a
         // browser pane is up, hide it so `body` shows the new terminal while
         // retaining the phone-local browser for the Safari grid.
-        browserStore.showNonBrowserSurface(for: workspace.id.rawValue)
+        browserStore.showNonBrowserSurface(for: workspace.browserSurfaceIdentity)
         createTerminal()
     }
 
@@ -660,14 +660,14 @@ struct WorkspaceDetailView: View {
         // Opens (or reveals the existing) browser pane for this workspace. The
         // detail view flips to the browser because `activeBrowser` becomes
         // non-nil; the picker shows a check next to "New Browser" while it is up.
-        browserStore.openBrowser(for: workspace.id.rawValue)
+        browserStore.openBrowser(for: workspace.browserSurfaceIdentity)
     }
 
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
         dismissTerminalKeyboardForChrome()
         // Choosing a terminal returns from the browser pane while retaining the
         // local browser session for a later grid selection.
-        browserStore.showNonBrowserSurface(for: workspace.id.rawValue)
+        browserStore.showNonBrowserSurface(for: workspace.browserSurfaceIdentity)
         // Switching from the picker is chrome, not a typing intent, so the
         // newly-selected surface must not grab the keyboard on attach. The
         // store suppresses the target's autofocus (and is a no-op when it is

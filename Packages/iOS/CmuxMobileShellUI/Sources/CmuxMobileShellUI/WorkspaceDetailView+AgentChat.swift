@@ -92,6 +92,7 @@ extension WorkspaceDetailView {
                 session: session,
                 conversation: conversation,
                 store: store,
+                browserWorkspaceIdentity: workspace.browserSurfaceIdentity,
                 draft: Binding(
                     get: { chatDrafts[session.id] ?? "" },
                     set: { chatDrafts[session.id] = $0 }

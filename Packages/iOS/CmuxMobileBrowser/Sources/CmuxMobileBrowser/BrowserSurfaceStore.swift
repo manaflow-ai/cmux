@@ -75,36 +75,60 @@ public final class BrowserSurfaceStore {
 
     /// The active browser surface for a workspace, if one is open.
     ///
-    /// - Parameter workspaceID: The workspace's raw identifier string.
+    /// - Parameter workspace: The workspace's stable identity and any legacy aliases.
     /// - Returns: The active surface, or `nil` when the workspace shows its
     ///   terminal.
+    public func activeBrowser(for workspace: BrowserWorkspaceIdentity) -> BrowserSurfaceState? {
+        guard let key = existingKey(for: workspace), selectedBrowserWorkspaceIDs.contains(key) else { return nil }
+        return surfacesByWorkspace[key]
+    }
+
+    /// Compatibility overload for callers whose workspace identity is already a
+    /// durable string.
     public func activeBrowser(for workspaceID: String) -> BrowserSurfaceState? {
-        guard selectedBrowserWorkspaceIDs.contains(workspaceID) else { return nil }
-        return surfacesByWorkspace[workspaceID]
+        activeBrowser(for: BrowserWorkspaceIdentity(rawValue: workspaceID))
     }
 
     /// The workspace's browser whether it is selected or currently hidden by a
     /// terminal surface.
     ///
-    /// - Parameter workspaceID: The workspace's raw identifier string.
+    /// - Parameter workspace: The workspace's stable identity and any legacy aliases.
     /// - Returns: The retained local browser, or `nil` when none has been opened.
+    public func browser(for workspace: BrowserWorkspaceIdentity) -> BrowserSurfaceState? {
+        existingKey(for: workspace).flatMap { surfacesByWorkspace[$0] }
+    }
+
+    /// Compatibility overload for callers whose workspace identity is already a
+    /// durable string.
     public func browser(for workspaceID: String) -> BrowserSurfaceState? {
-        surfacesByWorkspace[workspaceID]
+        browser(for: BrowserWorkspaceIdentity(rawValue: workspaceID))
     }
 
     /// Whether a workspace currently has a browser pane open.
     ///
-    /// - Parameter workspaceID: The workspace's raw identifier string.
+    /// - Parameter workspace: The workspace's stable identity and any legacy aliases.
     /// - Returns: `true` if a browser surface is active for the workspace.
+    public func hasBrowser(for workspace: BrowserWorkspaceIdentity) -> Bool {
+        existingKey(for: workspace) != nil
+    }
+
+    /// Compatibility overload for callers whose workspace identity is already a
+    /// durable string.
     public func hasBrowser(for workspaceID: String) -> Bool {
-        surfacesByWorkspace[workspaceID] != nil
+        hasBrowser(for: BrowserWorkspaceIdentity(rawValue: workspaceID))
     }
 
     /// Whether the workspace's retained browser is the selected surface.
     ///
-    /// - Parameter workspaceID: The workspace's raw identifier string.
+    /// - Parameter workspace: The workspace's stable identity and any legacy aliases.
+    public func isBrowserSelected(for workspace: BrowserWorkspaceIdentity) -> Bool {
+        activeBrowser(for: workspace) != nil
+    }
+
+    /// Compatibility overload for callers whose workspace identity is already a
+    /// durable string.
     public func isBrowserSelected(for workspaceID: String) -> Bool {
-        activeBrowser(for: workspaceID) != nil
+        isBrowserSelected(for: BrowserWorkspaceIdentity(rawValue: workspaceID))
     }
 
     /// Open (or reveal the existing) browser pane for a workspace.
@@ -115,52 +139,109 @@ public final class BrowserSurfaceStore {
     /// back/forward stack, is restored into a fresh web view on re-attach, with
     /// `currentURL` as the fallback). A new surface loads ``defaultURL``.
     ///
-    /// - Parameter workspaceID: The workspace's raw identifier string.
+    /// - Parameter workspace: The workspace's stable identity and any legacy aliases.
     /// - Returns: The active browser surface for the workspace.
     @discardableResult
-    public func openBrowser(for workspaceID: String) -> BrowserSurfaceState {
-        if let existing = surfacesByWorkspace[workspaceID] {
-            selectedBrowserWorkspaceIDs.insert(workspaceID)
+    public func openBrowser(for workspace: BrowserWorkspaceIdentity) -> BrowserSurfaceState {
+        if let existingKey = existingKey(for: workspace),
+           let existing = surfacesByWorkspace[existingKey] {
+            migrateBrowserIfNeeded(from: existingKey, to: workspace.rawValue)
+            selectedBrowserWorkspaceIDs.insert(workspace.rawValue)
             persistImmediately()
             return existing
         }
         let surface = BrowserSurfaceState(id: makeSurfaceID(), initialURL: defaultURL)
-        surfacesByWorkspace[workspaceID] = surface
-        selectedBrowserWorkspaceIDs.insert(workspaceID)
+        surfacesByWorkspace[workspace.rawValue] = surface
+        selectedBrowserWorkspaceIDs.insert(workspace.rawValue)
         installPersistenceCallback(on: surface)
         persistImmediately()
         return surface
     }
 
+    /// Compatibility overload for callers whose workspace identity is already a
+    /// durable string.
+    @discardableResult
+    public func openBrowser(for workspaceID: String) -> BrowserSurfaceState {
+        openBrowser(for: BrowserWorkspaceIdentity(rawValue: workspaceID))
+    }
+
     /// Select a terminal or chat surface without destroying the workspace's
     /// retained local browser.
     ///
-    /// - Parameter workspaceID: The workspace's raw identifier string.
-    public func showNonBrowserSurface(for workspaceID: String) {
-        guard selectedBrowserWorkspaceIDs.remove(workspaceID) != nil else { return }
+    /// - Parameter workspace: The workspace's stable identity and any legacy aliases.
+    public func showNonBrowserSurface(for workspace: BrowserWorkspaceIdentity) {
+        guard let key = existingKey(for: workspace),
+              selectedBrowserWorkspaceIDs.remove(key) != nil else { return }
         persistImmediately()
+    }
+
+    /// Compatibility overload for callers whose workspace identity is already a
+    /// durable string.
+    public func showNonBrowserSurface(for workspaceID: String) {
+        showNonBrowserSurface(for: BrowserWorkspaceIdentity(rawValue: workspaceID))
     }
 
     /// Close the browser pane for a workspace, returning the UI to its terminal.
     ///
-    /// - Parameter workspaceID: The workspace's raw identifier string.
-    public func closeBrowser(for workspaceID: String) {
-        surfacesByWorkspace.removeValue(forKey: workspaceID)
-        selectedBrowserWorkspaceIDs.remove(workspaceID)
+    /// - Parameter workspace: The workspace's stable identity and any legacy aliases.
+    public func closeBrowser(for workspace: BrowserWorkspaceIdentity) {
+        guard let key = existingKey(for: workspace) else { return }
+        surfacesByWorkspace.removeValue(forKey: key)
+        selectedBrowserWorkspaceIDs.remove(key)
         persistImmediately()
+    }
+
+    /// Compatibility overload for callers whose workspace identity is already a
+    /// durable string.
+    public func closeBrowser(for workspaceID: String) {
+        closeBrowser(for: BrowserWorkspaceIdentity(rawValue: workspaceID))
     }
 
     /// Remove browser surfaces whose authoritative workspace no longer exists.
     ///
-    /// - Parameter workspaceIDs: The complete current workspace identifier set.
-    public func reconcileWorkspaces(_ workspaceIDs: Set<String>) {
-        let removedWorkspaceIDs = surfacesByWorkspace.keys.filter { !workspaceIDs.contains($0) }
+    /// - Parameter workspaces: The complete authoritative stable workspace identity set.
+    public func reconcileWorkspaces(_ workspaces: [BrowserWorkspaceIdentity]) {
+        var validWorkspaceIDs = Set<String>()
+        for workspace in workspaces.sorted(by: { $0.rawValue < $1.rawValue }) {
+            if surfacesByWorkspace[workspace.rawValue] == nil,
+               let alias = existingAlias(for: workspace) {
+                migrateBrowserIfNeeded(from: alias, to: workspace.rawValue)
+            }
+            validWorkspaceIDs.insert(workspace.rawValue)
+        }
+        let removedWorkspaceIDs = surfacesByWorkspace.keys.filter { !validWorkspaceIDs.contains($0) }
         guard !removedWorkspaceIDs.isEmpty else { return }
         for workspaceID in removedWorkspaceIDs {
             surfacesByWorkspace.removeValue(forKey: workspaceID)
             selectedBrowserWorkspaceIDs.remove(workspaceID)
         }
         persistImmediately()
+    }
+
+    /// Compatibility overload for callers that already hold durable string keys.
+    public func reconcileWorkspaces<WorkspaceIDs: Sequence>(_ workspaceIDs: WorkspaceIDs)
+    where WorkspaceIDs.Element == String {
+        reconcileWorkspaces(workspaceIDs.map { BrowserWorkspaceIdentity(rawValue: $0) })
+    }
+
+    private func existingKey(for workspace: BrowserWorkspaceIdentity) -> String? {
+        if surfacesByWorkspace[workspace.rawValue] != nil {
+            return workspace.rawValue
+        }
+        return existingAlias(for: workspace)
+    }
+
+    private func existingAlias(for workspace: BrowserWorkspaceIdentity) -> String? {
+        workspace.aliases.sorted().first { surfacesByWorkspace[$0] != nil }
+    }
+
+    private func migrateBrowserIfNeeded(from oldKey: String, to newKey: String) {
+        guard oldKey != newKey, surfacesByWorkspace[newKey] == nil,
+              let surface = surfacesByWorkspace.removeValue(forKey: oldKey) else { return }
+        surfacesByWorkspace[newKey] = surface
+        if selectedBrowserWorkspaceIDs.remove(oldKey) != nil {
+            selectedBrowserWorkspaceIDs.insert(newKey)
+        }
     }
 
     /// Remove every retained browser when the signed-in workspace scope ends.

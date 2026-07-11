@@ -16,6 +16,7 @@ struct WorkspaceChatPane: View {
     let session: ChatSessionDescriptor
     let conversation: ChatConversationStore
     let store: CMUXMobileShellStore
+    let browserWorkspaceIdentity: BrowserWorkspaceIdentity
     /// Composer draft, owned by the parent so it survives toggling back to
     /// the terminal and returning mid-thought.
     @Binding var draft: String
@@ -56,9 +57,7 @@ struct WorkspaceChatPane: View {
         }
         // Hide any selected browser first. Its phone-local session remains
         // retained so the Safari grid can reveal the same browser later.
-        if let workspaceID = session.workspaceID {
-            browserStore.showNonBrowserSurface(for: workspaceID)
-        }
+        browserStore.showNonBrowserSurface(for: browserWorkspaceIdentity)
         onExitChat()
     }
 

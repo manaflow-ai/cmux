@@ -72,19 +72,27 @@ public struct WorkspaceListLayoutPreviewView: View {
                         openTerminal: { workspaceID, terminalID in
                             selectedWorkspaceID = workspaceID
                             selectedTerminalID = terminalID
-                            browserStore.showNonBrowserSurface(for: workspaceID.rawValue)
+                            if let workspace = workspaces.first(where: { $0.id == workspaceID }) {
+                                browserStore.showNonBrowserSurface(for: workspace.browserSurfaceIdentity)
+                            }
                         },
                         openBrowser: { workspaceID in
                             selectedWorkspaceID = workspaceID
-                            browserStore.openBrowser(for: workspaceID.rawValue)
+                            if let workspace = workspaces.first(where: { $0.id == workspaceID }) {
+                                browserStore.openBrowser(for: workspace.browserSurfaceIdentity)
+                            }
                         },
                         closeBrowser: { workspaceID in
-                            browserStore.closeBrowser(for: workspaceID.rawValue)
+                            if let workspace = workspaces.first(where: { $0.id == workspaceID }) {
+                                browserStore.closeBrowser(for: workspace.browserSurfaceIdentity)
+                            }
                         },
                         createWorkspace: createWorkspace,
                         createTerminal: createTerminal,
+                        refresh: {},
                         showSettings: {},
                         showDevices: {},
+                        showWorkspaceManager: nil,
                         reconnect: nil,
                         isInitialConnectionLoading: false,
                         initialConnectionTimedOut: false,
@@ -96,7 +104,9 @@ public struct WorkspaceListLayoutPreviewView: View {
         }
         .environment(browserStore)
         .onAppear {
-            browserStore.openBrowser(for: "workspace-main")
+            if let workspace = workspaces.first(where: { $0.id == "workspace-main" }) {
+                browserStore.openBrowser(for: workspace.browserSurfaceIdentity)
+            }
         }
     }
 
@@ -132,7 +142,7 @@ public struct WorkspaceListLayoutPreviewView: View {
         workspaces[index].terminals.append(terminal)
         selectedWorkspaceID = workspaceID
         selectedTerminalID = terminal.id
-        browserStore.showNonBrowserSurface(for: workspaceID.rawValue)
+        browserStore.showNonBrowserSurface(for: workspaces[index].browserSurfaceIdentity)
     }
 }
 #endif

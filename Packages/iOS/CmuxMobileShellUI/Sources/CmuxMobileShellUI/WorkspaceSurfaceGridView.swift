@@ -20,8 +20,10 @@ struct WorkspaceSurfaceGridView: View {
     let closeBrowser: (MobileWorkspacePreview.ID) -> Void
     let createWorkspace: () -> Void
     let createTerminal: (MobileWorkspacePreview.ID) -> Void
+    let refresh: @Sendable () async -> Void
     let showSettings: () -> Void
     let showDevices: (() -> Void)?
+    let showWorkspaceManager: (() -> Void)?
     let reconnect: (() -> Void)?
     let isInitialConnectionLoading: Bool
     let initialConnectionTimedOut: Bool
@@ -56,13 +58,13 @@ struct WorkspaceSurfaceGridView: View {
                     : L10n.string("mobile.surfaceGrid.terminalStarting", defaultValue: "Starting"),
                 detail: workspace.previewLine,
                 systemImage: terminal.isFocused ? "terminal.fill" : "terminal",
-                isSelected: terminal.id == selectedTerminalID && browserStore.activeBrowser(for: workspace.id.rawValue) == nil,
+                isSelected: terminal.id == selectedTerminalID && browserStore.activeBrowser(for: workspace.browserSurfaceIdentity) == nil,
                 isDimmed: connectionStatus != .connected || !terminal.isReady,
                 canClose: false
             )
         }
 
-        if let browser = browserStore.browser(for: workspace.id.rawValue) {
+        if let browser = browserStore.browser(for: workspace.browserSurfaceIdentity) {
             items.insert(
                 WorkspaceSurfaceGridItem(
                     id: "browser-\(browser.id.rawValue)",
@@ -73,7 +75,7 @@ struct WorkspaceSurfaceGridView: View {
                     detail: browser.currentURL?.absoluteString
                         ?? L10n.string("mobile.surfaceGrid.browserAddressEmpty", defaultValue: "No page loaded"),
                     systemImage: "globe",
-                    isSelected: browserStore.isBrowserSelected(for: workspace.id.rawValue),
+                    isSelected: browserStore.isBrowserSelected(for: workspace.browserSurfaceIdentity),
                     isDimmed: false,
                     canClose: true
                 ),
@@ -122,6 +124,7 @@ struct WorkspaceSurfaceGridView: View {
                 .padding(.bottom, 72)
             }
             .scrollIndicators(.hidden)
+            .refreshable(action: refresh)
             .safeAreaInset(edge: .bottom) {
                 Color.clear.frame(height: 76)
             }
@@ -141,6 +144,14 @@ struct WorkspaceSurfaceGridView: View {
                     }
                     .accessibilityLabel(L10n.string("mobile.computers.title", defaultValue: "Computers"))
                     .accessibilityIdentifier("MobileSurfaceGridDevicesButton")
+                }
+
+                if let showWorkspaceManager {
+                    Button(action: showWorkspaceManager) {
+                        Image(systemName: "rectangle.3.group")
+                    }
+                    .accessibilityLabel(L10n.string("mobile.workspaces.title", defaultValue: "Workspaces"))
+                    .accessibilityIdentifier("MobileSurfaceGridWorkspaceManagerButton")
                 }
             }
 
@@ -432,7 +443,7 @@ struct WorkspaceSurfaceGridView: View {
 
     private func canOpenSelectedSurface(in workspace: MobileWorkspacePreview?) -> Bool {
         guard let workspace else { return false }
-        if browserStore.isBrowserSelected(for: workspace.id.rawValue) {
+        if browserStore.isBrowserSelected(for: workspace.browserSurfaceIdentity) {
             return true
         }
         return WorkspaceSurfaceGridSelection(
@@ -443,7 +454,7 @@ struct WorkspaceSurfaceGridView: View {
 
     private func openSelectedSurface(in workspace: MobileWorkspacePreview?) {
         guard let workspace else { return }
-        if browserStore.isBrowserSelected(for: workspace.id.rawValue) {
+        if browserStore.isBrowserSelected(for: workspace.browserSurfaceIdentity) {
             openBrowser(workspace.id)
             return
         }
