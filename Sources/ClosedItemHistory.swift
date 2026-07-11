@@ -260,7 +260,7 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     func menuSnapshot(maxItemCount: Int? = nil) -> ClosedItemHistoryMenuSnapshot {
         let eligibleItemCount = records.count - pendingEnrichmentRecordIDs.count
-        let projection = ClosedItemHistoryMenuProjector.project(
+        let projection: ClosedItemHistoryMenuProjection<ClosedItemHistoryMenuItem> = .project(
             newestFirst: records.reversed(),
             eligibleItemCount: eligibleItemCount,
             maxItemCount: maxItemCount,

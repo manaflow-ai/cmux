@@ -29,6 +29,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private var checkTimeoutTask: Task<Void, Never>?
     private(set) var lastFeedURLString: String?
     private var pendingPromptDismissCallbacks: [UUID] = []
+    private var relaunchPreparationGeneration: UInt64 = 0
+    private var activeRelaunchPreparationGeneration: UInt64?
 
     init(
         model: UpdateStateModel,
@@ -102,6 +104,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
                           acknowledgement: @escaping () -> Void) {
         let details = formatErrorForLog(error)
         log.append("show updater error: \(details)")
+        abandonHostRelaunchPreparationIfNeeded()
         setState(.error(.init(
             error: error,
             retry: { [weak self] in
@@ -162,11 +165,34 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         setState(.extracting(.init(progress: progress)))
     }
 
+    private func prepareHostForRelaunch() async -> Bool {
+        abandonHostRelaunchPreparationIfNeeded()
+        guard let actionDelegate else { return true }
+
+        relaunchPreparationGeneration &+= 1
+        let generation = relaunchPreparationGeneration
+        activeRelaunchPreparationGeneration = generation
+        await actionDelegate.updaterPreparesToRelaunchApplication()
+        return activeRelaunchPreparationGeneration == generation
+    }
+
+    private func abandonHostRelaunchPreparationIfNeeded() {
+        guard activeRelaunchPreparationGeneration != nil else { return }
+        activeRelaunchPreparationGeneration = nil
+        actionDelegate?.updaterAbandonsRelaunchPreparation()
+    }
+
     func showReady(toInstallAndRelaunch reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         log.append("show ready to install")
-        let actionDelegate = actionDelegate
-        Task { @MainActor in
-            await actionDelegate?.updaterPreparesToRelaunchApplication()
+        Task { @MainActor [weak self] in
+            guard let self else {
+                reply(.dismiss)
+                return
+            }
+            guard await self.prepareHostForRelaunch() else {
+                reply(.dismiss)
+                return
+            }
             reply(.install)
         }
     }
@@ -174,8 +200,18 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool, retryTerminatingApplication: @escaping () -> Void) {
         log.append("show installing update")
         setState(.installing(.init(
-            retryTerminatingApplication: retryTerminatingApplication,
+            retryTerminatingApplication: { [weak self] in
+                Task { @MainActor in
+                    guard let self else {
+                        retryTerminatingApplication()
+                        return
+                    }
+                    guard await self.prepareHostForRelaunch() else { return }
+                    retryTerminatingApplication()
+                }
+            },
             dismiss: { [weak self] in
+                self?.abandonHostRelaunchPreparationIfNeeded()
                 self?.model.setState(.idle)
             }
         )))
@@ -183,6 +219,11 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func showUpdateInstalledAndRelaunched(_ relaunched: Bool, acknowledgement: @escaping () -> Void) {
         log.append("show update installed (relaunched=\(relaunched))")
+        if relaunched {
+            activeRelaunchPreparationGeneration = nil
+        } else {
+            abandonHostRelaunchPreparationIfNeeded()
+        }
         setState(.idle)
         acknowledgement()
     }
@@ -222,6 +263,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
                 break
             }
         }
+        abandonHostRelaunchPreparationIfNeeded()
         setState(.idle)
     }
 

@@ -1,11 +1,5 @@
 import AppKit
 
-struct TransientPortalHostCandidate: Equatable {
-    let ownershipGeneration: UInt64
-    let registrationToken: UInt64
-    let isUsable: Bool
-}
-
 struct TerminalPortalPresentationRefreshTracker {
     private var generation: UInt64 = 0
     private var pendingByHostedId: [ObjectIdentifier: UInt64] = [:]

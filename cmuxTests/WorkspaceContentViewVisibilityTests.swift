@@ -4,6 +4,7 @@ import CmuxUpdater
 import CoreGraphics
 import SwiftUI
 import Bonsplit
+import CmuxCanvasUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -353,16 +354,39 @@ struct CanvasPortalLifecycleTests {
             window.close()
         }
 
-        await Self.drainMainRunLoop(for: window)
+        let initialPortalBecameVisible = await Self.waitForPortalCondition(in: window) {
+            tabManager.selectedWorkspace?.portalPresentationVisible == true
+        }
+        #expect(
+            initialPortalBecameVisible,
+            "The selected workspace portal must become visible before the Canvas transition"
+        )
         let workspace = try #require(tabManager.selectedWorkspace)
+        let hostedView = try #require(workspace.focusedTerminalPanel?.hostedView)
+        let initialTerminalBecamePortalBound = await Self.waitForPortalCondition(in: window) {
+            guard let portal = TerminalWindowPortalRegistry.mappedPortal(for: hostedView),
+                  let entry = portal.entriesByHostedId[ObjectIdentifier(hostedView)],
+                  let anchor = entry.anchorView else {
+                return false
+            }
+            return TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: anchor)
+        }
+        #expect(
+            initialTerminalBecamePortalBound,
+            "The terminal must start in the split layout's window portal"
+        )
         #expect(workspace.portalPresentationVisible)
 
         workspace.setLayoutMode(.canvas)
-        await Self.drainMainRunLoop(for: window)
+        let canvasPortalStayedVisible = await Self.waitForPortalCondition(in: window) {
+            workspace.layoutMode == .canvas &&
+                workspace.portalPresentationVisible &&
+                Self.hasCanvasRootAncestor(hostedView)
+        }
 
         #expect(workspace.layoutMode == .canvas)
         #expect(
-            workspace.portalPresentationVisible,
+            canvasPortalStayedVisible && workspace.portalPresentationVisible,
             "Replacing the Bonsplit subtree with Canvas must not report that the visible workspace disappeared"
         )
     }
@@ -435,11 +459,30 @@ struct CanvasPortalLifecycleTests {
     }
 
     @MainActor
-    private static func drainMainRunLoop(for window: NSWindow, iterations: Int = 20) async {
-        for _ in 0..<iterations {
+    private static func waitForPortalCondition(
+        in window: NSWindow,
+        timeout: Duration = .seconds(2),
+        _ condition: @MainActor () -> Bool
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
             window.contentView?.layoutSubtreeIfNeeded()
+            if condition() { return true }
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
             await Task.yield()
         }
+        window.contentView?.layoutSubtreeIfNeeded()
+        return condition()
+    }
+
+    @MainActor
+    private static func hasCanvasRootAncestor(_ view: NSView) -> Bool {
+        var ancestor = view.superview
+        while let current = ancestor {
+            if current is CanvasRootView { return true }
+            ancestor = current.superview
+        }
+        return false
     }
 }

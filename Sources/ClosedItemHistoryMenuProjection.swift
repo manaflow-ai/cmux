@@ -3,16 +3,14 @@ import Foundation
 struct ClosedItemHistoryMenuProjection<Item> {
     let items: [Item]
     let isLimited: Bool
-}
 
-enum ClosedItemHistoryMenuProjector {
-    static func project<Records: Sequence, Item>(
+    static func project<Records: Sequence>(
         newestFirst records: Records,
         eligibleItemCount: Int,
         maxItemCount: Int?,
         isEligible: (Records.Element) -> Bool,
         transform: (Records.Element) -> Item
-    ) -> ClosedItemHistoryMenuProjection<Item> {
+    ) -> Self {
         if let maxItemCount, maxItemCount >= 0 {
             let projectedItemCount = min(maxItemCount, eligibleItemCount)
             var items: [Item] = []
@@ -25,12 +23,12 @@ enum ClosedItemHistoryMenuProjector {
                     }
                 }
             }
-            return ClosedItemHistoryMenuProjection(
+            return Self(
                 items: items,
                 isLimited: eligibleItemCount > maxItemCount
             )
         }
-        return ClosedItemHistoryMenuProjection(
+        return Self(
             items: records.filter(isEligible).map(transform),
             isLimited: false
         )

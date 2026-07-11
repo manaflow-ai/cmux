@@ -126,6 +126,11 @@ extension TerminalSurface {
         pendingPortalHostRetries.removeValue(forKey: hostId)
     }
 
+    /// Drops every deferred candidate when the runtime is torn down, quarantined, or suspended.
+    func cancelAllPendingPortalHostRetries() {
+        pendingPortalHostRetries.removeAll(keepingCapacity: false)
+    }
+
     /// Re-arms the lease when SwiftUI is about to rebuild the owning host.
     @discardableResult
     public func preparePortalHostReplacementIfOwned(hostId: ObjectIdentifier, reason: String) -> UInt64? {

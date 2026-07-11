@@ -15,7 +15,7 @@ struct ClosedItemHistoryMenuProjectionTests {
             onElement: { visitedRecordCount += 1 }
         )
 
-        let projection = ClosedItemHistoryMenuProjector.project(
+        let projection: ClosedItemHistoryMenuProjection<Int> = .project(
             newestFirst: newestFirstRecords,
             eligibleItemCount: 3,
             maxItemCount: 2,

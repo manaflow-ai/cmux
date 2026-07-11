@@ -8197,7 +8197,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var isActive = true
     private var lastFocusRefreshAt: CFTimeInterval = 0
     private var lastRequestedPortalOcclusionVisible: Bool?
-    var portalCallbackOwnerHostId: ObjectIdentifier?
+    var callbackOwnerHostId: ObjectIdentifier?
     private var activeDropZone: DropZone?
     private var pendingDropZone: DropZone?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
@@ -9189,7 +9189,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func setFocusHandler(_ handler: (() -> Void)?) {
-        portalCallbackOwnerHostId = nil
+        callbackOwnerHostId = nil
         guard let handler else {
             surfaceView.onFocus = nil
             return
@@ -9209,7 +9209,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func setTriggerFlashHandler(_ handler: (() -> Void)?) {
-        portalCallbackOwnerHostId = nil
+        callbackOwnerHostId = nil
         surfaceView.onTriggerFlash = handler
     }
 
