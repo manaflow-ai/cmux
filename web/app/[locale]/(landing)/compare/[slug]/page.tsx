@@ -1,7 +1,12 @@
 import { useLocale, useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
-import { buildAlternates } from "@/i18n/seo";
+import {
+  buildAlternates,
+  openGraphDefaults,
+  seoDescription,
+  twitterSummary,
+} from "@/i18n/seo";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import {
   comparePageForSlug,
@@ -38,24 +43,19 @@ export async function generateMetadata({
   const path = comparePath(page.slug);
   const alternates = buildAlternates(locale, path);
   const title = t("metaTitle");
-  const description = t("metaDescription");
+  const description = seoDescription(locale, t("metaDescription"));
 
   return {
     title,
     description,
     alternates,
     openGraph: {
+      ...openGraphDefaults(locale, "article"),
       title,
       description,
       url: alternates.canonical,
-      siteName: "cmux",
-      type: "article",
     },
-    twitter: {
-      card: "summary_large_image",
-      title,
-      description,
-    },
+    twitter: twitterSummary(locale, title, description),
   };
 }
 
@@ -113,7 +113,7 @@ function ComparePageContent({
           locale,
           path,
           headline: t("title"),
-          description: t("metaDescription"),
+          description: seoDescription(locale, t("metaDescription")),
           datePublished: lastModified,
           dateModified: lastModified,
         })}
