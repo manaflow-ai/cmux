@@ -98,6 +98,9 @@ jobs:
       - name: Validate Python test harness syntax
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
+      - name: Validate Claude launch environment policy generation
+        run: python3 scripts/generate-claude-launch-environment-policy.py --check
+
       - name: Set up Python 3.9 for nightly prune compatibility
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:

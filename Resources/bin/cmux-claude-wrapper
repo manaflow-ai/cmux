@@ -561,8 +561,9 @@ clear_inherited_claude_auth_selection_env() {
 }
 
 clear_inherited_claude_launch_env() {
-    # Keep this behavior synchronized with ClaudeSessionEnvironmentPolicy;
+    # Generated from scripts/claude-launch-environment-policy.json.
     # ClaudeWrapperResumeEnvironmentTests exercises every canonical key here.
+    # BEGIN GENERATED CLAUDE LAUNCH ENVIRONMENT POLICY
     unset CLAUDECODE
     unset CLAUDE_CODE
     unset CLAUDE_CODE_CHILD_SESSION
@@ -574,6 +575,7 @@ clear_inherited_claude_launch_env() {
     unset CLAUDE_CODE_SSE_PORT
     unset CLAUDE_CODE_SANDBOXED
     unset CMUX_CLAUDE_TEAMS_SANDBOXED
+    # END GENERATED CLAUDE LAUNCH ENVIRONMENT POLICY
 }
 
 # Pass through if not in a cmux terminal, hooks are disabled, or the cmux

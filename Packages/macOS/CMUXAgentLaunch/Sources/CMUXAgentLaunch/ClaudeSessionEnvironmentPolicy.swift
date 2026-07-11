@@ -10,23 +10,4 @@ public struct ClaudeSessionEnvironmentPolicy: Sendable {
     public var inheritedIndependentLaunchKeys: Set<String> {
         inheritedSessionIdentityKeys.union(inheritedTrustBypassKeys)
     }
-
-    /// Creates the canonical Claude session-environment policy.
-    public init() {
-        inheritedSessionIdentityKeys = [
-            "CLAUDECODE",
-            "CLAUDE_CODE",
-            "CLAUDE_CODE_CHILD_SESSION",
-            "CLAUDE_CODE_BRIDGE_SESSION_ID",
-            "CLAUDE_CODE_PARENT_SESSION_ID",
-            "CLAUDE_CODE_SESSION_ID",
-            "CLAUDE_CODE_ENTRYPOINT",
-            "CLAUDE_CODE_EXECPATH",
-            "CLAUDE_CODE_SSE_PORT",
-        ]
-        inheritedTrustBypassKeys = [
-            "CLAUDE_CODE_SANDBOXED",
-            "CMUX_CLAUDE_TEAMS_SANDBOXED",
-        ]
-    }
 }
