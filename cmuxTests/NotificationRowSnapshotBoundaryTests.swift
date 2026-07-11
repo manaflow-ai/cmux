@@ -303,6 +303,23 @@ struct NotificationRowSnapshotBoundaryTests {
         #expect(surfaceView.performedBindingActions == ["scroll_to_row:356"])
     }
 
+    /// Verifies that legacy positions without a captured row count preserve
+    /// their distance from the current live bottom.
+    @Test func openingLegacyNotificationPreservesBottomRelativeViewport() {
+        let surfaceView = NotificationScrollRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = GhosttyScrollbar(
+            c: ghostty_action_scrollbar_s(total: 400, offset: 356, len: 44)
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+
+        let didRestore = hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 12, totalRows: nil)
+        )
+
+        #expect(didRestore)
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:344"])
+    }
+
     // MARK: - Fixtures
 
     private static func makeNotification(

@@ -15,8 +15,8 @@ extension GhosttySurfaceScrollView {
     @discardableResult
     func restoreNotificationScrollPosition(_ position: TerminalNotificationScrollPosition?) -> Bool {
         guard let position else { return false }
-        guard let capturedTotalRows = position.totalRows else { return false }
         guard let scrollbar = surfaceView.scrollbar else { return false }
+        let capturedTotalRows = position.totalRows ?? Int(clamping: scrollbar.total)
         let anchor = TerminalScrollbackViewportAnchor(
             rowsBelowViewport: position.row,
             capturedTotalRows: capturedTotalRows
