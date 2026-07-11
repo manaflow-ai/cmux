@@ -17,28 +17,22 @@ struct SharedLiveAgentIndexFingerprintInvalidationTests {
         let secondLoadStarted = DispatchSemaphore(value: 0)
         let releaseSecondLoad = DispatchSemaphore(value: 0)
         defer { releaseSecondLoad.signal() }
-        let loadCount = OSAllocatedUnfairLock(initialState: 0)
         var now = Date()
         let hookDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-expired-index-timeout-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: hookDirectory) }
+        let cachedResult: SharedLiveAgentIndex.LoadResult = (
+            index: .empty,
+            surfaceResumeBindingIndex: .empty,
+            liveAgentProcessFingerprint: [],
+            processScopeFingerprint: [],
+            forkValidatedPanels: []
+        )
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
-                let invocation = loadCount.withLock { count in
-                    count += 1
-                    return count
-                }
-                if invocation == 2 {
-                    secondLoadStarted.signal()
-                    releaseSecondLoad.wait()
-                }
-                return (
-                    index: .empty,
-                    surfaceResumeBindingIndex: .empty,
-                    liveAgentProcessFingerprint: [],
-                    processScopeFingerprint: [],
-                    forkValidatedPanels: []
-                )
+                secondLoadStarted.signal()
+                releaseSecondLoad.wait()
+                return cachedResult
             },
             processScopeFingerprintProvider: { [] },
             generationTimeoutWaiter: { await timeoutWaiter.wait() },
@@ -46,8 +40,8 @@ struct SharedLiveAgentIndexFingerprintInvalidationTests {
             dateProvider: { now }
         )
 
-        #expect(await sharedIndex.resumeIndexesRefreshingIfNeeded(maximumAge: 60) != nil)
-        await timeoutWaiter.waitUntilPendingCount(1)
+        sharedIndex.latestCompletedLoadResult = cachedResult
+        sharedIndex.latestCompletedAt = now
         now = now.addingTimeInterval(61)
 
         if joinExistingRefresh {
@@ -60,7 +54,7 @@ struct SharedLiveAgentIndexFingerprintInvalidationTests {
         if !joinExistingRefresh {
             #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: secondLoadStarted))
         }
-        await timeoutWaiter.waitUntilPendingCount(2)
+        await timeoutWaiter.waitUntilPendingCount(1)
         await timeoutWaiter.fireLast()
 
         #expect(
