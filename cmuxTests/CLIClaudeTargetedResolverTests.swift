@@ -30,9 +30,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testClaudeTargetedResolverMalformedBindingFailsClosed() throws {
+        let outcome = try runClaudeTargetedResolverScenario(response: .malformedSuccess)
+        XCTAssertFalse(outcome.result.timedOut, outcome.result.stderr)
+        XCTAssertEqual(outcome.result.status, 0, outcome.result.stderr)
+        XCTAssertFalse(
+            outcome.commands.contains { command in
+                command.hasPrefix("set_status ")
+                    || command.hasPrefix("notify_target")
+                    || self.jsonObject(command)?["method"] as? String == "feed.push"
+            },
+            "A malformed identity result must not collapse into a valid empty response: \(outcome.commands)"
+        )
+    }
+
     private enum TargetedResolverResponse: Sendable {
         case failure
         case emptySuccess
+        case malformedSuccess
     }
 
     private func runClaudeTargetedResolverScenario(
@@ -80,6 +95,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         id: id,
                         ok: true,
                         result: ["tty_bindings": [], "pid_binding": NSNull()]
+                    )
+                case .malformedSuccess:
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "tty_bindings": [["workspace_id": workspaceId]],
+                            "pid_binding": NSNull(),
+                        ]
                     )
                 }
             case "surface.list":
