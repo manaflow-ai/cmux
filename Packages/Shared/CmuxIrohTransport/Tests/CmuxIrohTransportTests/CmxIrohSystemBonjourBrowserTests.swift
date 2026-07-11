@@ -174,6 +174,19 @@ struct CmxIrohSystemBonjourBrowserTests {
         #expect(await clock.pendingSleepCount() == 0)
     }
 
+    @Test
+    func cancellingClockWaitReleasesItsContinuation() async {
+        let clock = TestBonjourClock(now: Date(timeIntervalSince1970: 1_800_000_000))
+        let waiter = Task {
+            await clock.waitForPendingSleepCount(1)
+        }
+
+        waiter.cancel()
+        await waiter.value
+
+        #expect(await clock.pendingSleepCount() == 0)
+    }
+
     private func canonicalAliases(count: Int) -> [String] {
         (0 ..< count).map { index in
             String(repeating: "0", count: 24) + String(format: "%08x", index)
@@ -360,11 +373,14 @@ private actor TestBonjourClockState {
         let continuation: CheckedContinuation<Void, any Error>
     }
 
+    private struct CountWaiter {
+        let expectedCount: Int
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
     private var sleepers: [UUID: Sleeper] = [:]
-    private var countWaiters: [
-        (expectedCount: Int, continuation: CheckedContinuation<Void, Never>)
-    ] = []
-    private var idleWaiters: [CheckedContinuation<Void, Never>] = []
+    private var countWaiters: [UUID: CountWaiter] = [:]
+    private var idleWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
     func sleep(until deadline: Date) async throws {
         let id = UUID()
@@ -389,14 +405,37 @@ private actor TestBonjourClockState {
 
     func waitForPendingSleepCount(_ expectedCount: Int) async {
         guard sleepers.count < expectedCount else { return }
-        await withCheckedContinuation { continuation in
-            countWaiters.append((expectedCount, continuation))
+        let id = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled || sleepers.count >= expectedCount {
+                    continuation.resume()
+                } else {
+                    countWaiters[id] = CountWaiter(
+                        expectedCount: expectedCount,
+                        continuation: continuation
+                    )
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelCountWaiter(id) }
         }
     }
 
     func waitUntilIdle() async {
         guard !sleepers.isEmpty else { return }
-        await withCheckedContinuation { idleWaiters.append($0) }
+        let id = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled || sleepers.isEmpty {
+                    continuation.resume()
+                } else {
+                    idleWaiters[id] = continuation
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelIdleWaiter(id) }
+        }
     }
 
     private func cancel(id: UUID) {
@@ -407,14 +446,24 @@ private actor TestBonjourClockState {
 
     private func resumeIdleWaitersIfNeeded() {
         guard sleepers.isEmpty else { return }
-        let waiters = idleWaiters
+        let waiters = idleWaiters.values
         idleWaiters.removeAll(keepingCapacity: false)
         for waiter in waiters { waiter.resume() }
     }
 
     private func resumeCountWaitersIfNeeded() {
-        let ready = countWaiters.filter { sleepers.count >= $0.expectedCount }
-        countWaiters.removeAll { sleepers.count >= $0.expectedCount }
+        let readyIDs = countWaiters.compactMap { id, waiter in
+            sleepers.count >= waiter.expectedCount ? id : nil
+        }
+        let ready = readyIDs.compactMap { countWaiters.removeValue(forKey: $0) }
         for waiter in ready { waiter.continuation.resume() }
+    }
+
+    private func cancelCountWaiter(_ id: UUID) {
+        countWaiters.removeValue(forKey: id)?.continuation.resume()
+    }
+
+    private func cancelIdleWaiter(_ id: UUID) {
+        idleWaiters.removeValue(forKey: id)?.resume()
     }
 }

@@ -83,6 +83,8 @@ public actor CmxIrohHostRuntime {
     private var offlineSessions: CmxIrohOfflinePairingSessions?
     private var supervisorEventTask: Task<Void, Never>?
     private var registrationRefreshTask: Task<Void, Never>?
+    private var registrationRefreshPending = false
+    private var registrationRefreshEnabled = false
     private var localBinding: CmxIrohBrokerBindingMetadata?
     private var endpointAttestation: CmxIrohEndpointAttestationResponse?
     private var lanRendezvous: CmxIrohLANRendezvous?
@@ -152,6 +154,8 @@ public actor CmxIrohHostRuntime {
         lifecyclePhase = .starting
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
+        registrationRefreshPending = false
+        registrationRefreshEnabled = false
         currentSnapshot = CmxIrohHostRuntimeSnapshot(
             state: .starting,
             endpointID: nil,
@@ -172,6 +176,10 @@ public actor CmxIrohHostRuntime {
                 configuration: endpointConfiguration
             )
             self.supervisor = supervisor
+            await startSupervisorObservation(
+                supervisor: supervisor,
+                revision: revision
+            )
             let endpointSnapshot = try await supervisor.activate()
             try requireCurrent(revision)
             guard let endpointID = endpointSnapshot.identity else {
@@ -244,7 +252,6 @@ public actor CmxIrohHostRuntime {
                 // remain available and the binding stays authoritative.
             }
 
-            startSupervisorObservation(supervisor: supervisor, revision: revision)
             lifecyclePhase = .active
             currentSnapshot = CmxIrohHostRuntimeSnapshot(
                 state: .active,
@@ -260,6 +267,11 @@ public actor CmxIrohHostRuntime {
             if let registration = policy.registration,
                let discovery = policy.discovery {
                 await handleBinding(registration, discovery, policy.attestation)
+            }
+            registrationRefreshEnabled = true
+            if registrationRefreshPending {
+                registrationRefreshPending = false
+                scheduleRegistrationRefresh(revision: revision)
             }
         } catch {
             guard lifecyclePhase == .starting,
@@ -565,21 +577,33 @@ public actor CmxIrohHostRuntime {
     private func startSupervisorObservation(
         supervisor: CmxIrohEndpointSupervisor,
         revision: UInt64
-    ) {
+    ) async {
         supervisorEventTask?.cancel()
+        let events = await supervisor.events()
         supervisorEventTask = Task { [weak self] in
-            let events = await supervisor.events()
             for await event in events {
                 guard !Task.isCancelled else { return }
                 switch event {
                 case .networkChanged, .recovered:
-                    await self?.handleLANRefresh()
-                    await self?.scheduleRegistrationRefresh(revision: revision)
+                    await self?.handleSupervisorNetworkChange(revision: revision)
                 case .snapshot:
                     break
                 }
             }
         }
+    }
+
+    private func handleSupervisorNetworkChange(revision: UInt64) async {
+        guard lifecycleRevision == revision,
+              lifecyclePhase.ownsNetworkOperation else { return }
+        await handleLANRefresh()
+        guard lifecycleRevision == revision,
+              lifecyclePhase.ownsNetworkOperation else { return }
+        guard registrationRefreshEnabled else {
+            registrationRefreshPending = true
+            return
+        }
+        scheduleRegistrationRefresh(revision: revision)
     }
 
     private func scheduleRegistrationRefresh(revision: UInt64) {
@@ -859,6 +883,8 @@ public actor CmxIrohHostRuntime {
         supervisorEventTask = nil
         registrationRefreshTask?.cancel()
         registrationRefreshTask = nil
+        registrationRefreshPending = false
+        registrationRefreshEnabled = false
         await endpointServer?.stop()
         endpointServer = nil
         await relayCoordinator?.deactivate()
