@@ -4,6 +4,7 @@ import {
   buildAlternates,
   openGraphDefaults,
   seoDescription,
+  seoTitle,
   twitterSummary,
 } from "@/i18n/seo";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
@@ -18,7 +19,7 @@ export async function generateMetadata({
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "landing.compare" });
   const alternates = buildAlternates(locale, "/compare");
-  const title = t("metaTitle");
+  const title = seoTitle(locale, t("metaTitle"));
   const description = seoDescription(locale, t("metaDescription"));
   return {
     title,

@@ -1,7 +1,7 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import Image from "next/image";
-import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, seoDescription, seoTitle, twitterSummary } from "@/i18n/seo";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 
 const brandAssets = [
@@ -36,7 +36,7 @@ export async function generateMetadata({
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "brandAssets" });
   const alternates = buildAlternates(locale, "/assets");
-  const title = t("metaTitle");
+  const title = seoTitle(locale, t("metaTitle"));
   const description = seoDescription(locale, t("metaDescription"));
   return {
     title,

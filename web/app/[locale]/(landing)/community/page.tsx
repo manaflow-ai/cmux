@@ -1,6 +1,6 @@
 import { useLocale, useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, seoDescription, seoTitle, twitterSummary } from "@/i18n/seo";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { OfficialLinks } from "@/app/[locale]/components/official-links";
 import {
@@ -15,7 +15,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "community" });
   const alternates = buildAlternates(locale, "/community");
-  const title = t("metaTitle");
+  const title = seoTitle(locale, t("metaTitle"));
   const description = seoDescription(locale, t("metaDescription"));
   return {
     title,

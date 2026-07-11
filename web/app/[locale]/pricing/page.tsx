@@ -7,7 +7,13 @@ import { PRO_CHECKOUT_URL, TEAM_CHECKOUT_URL } from "../../lib/billing";
 import { DOWNLOAD_CONFIRMATION_HREF } from "../../lib/download";
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import { resolveProPlanStatus } from "../../../services/billing/pro";
-import { buildAlternates, seoDescription } from "../../../i18n/seo";
+import {
+  buildAlternates,
+  openGraphDefaults,
+  seoDescription,
+  seoTitle,
+  twitterSummary,
+} from "../../../i18n/seo";
 import {
   CurrentPlanBadge,
   DisabledButton,
@@ -46,10 +52,19 @@ export async function generateMetadata({
     locale,
     SHOW_VAULT ? t("metaDescription") : t("metaDescriptionNoVault"),
   );
+  const alternates = buildAlternates(locale, "/pricing");
+  const title = seoTitle(locale, t("metaTitle"));
   return {
-    title: t("metaTitle"),
+    title,
     description,
-    alternates: buildAlternates(locale, "/pricing"),
+    alternates,
+    openGraph: {
+      ...openGraphDefaults(locale, "website"),
+      title,
+      description,
+      url: alternates.canonical,
+    },
+    twitter: twitterSummary(locale, title, description),
   };
 }
 

@@ -12,6 +12,7 @@ import {
   defaultOpenGraphImage,
   openGraphDefaults,
   seoDescription,
+  seoTitle,
   twitterSummary,
 } from "../../i18n/seo";
 import { Providers } from "./providers";
@@ -64,7 +65,7 @@ export async function generateMetadata({
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "meta" });
   const alternates = buildAlternates(locale, "");
-  const title = t("title");
+  const title = seoTitle(locale, t("title"));
   const description = seoDescription(locale, t("description"));
   const ogDescription = seoDescription(locale, t("ogDescription"));
   return {

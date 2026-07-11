@@ -8,6 +8,7 @@ import {
   openGraphDefaults,
   openGraphImageTagline,
   seoDescription,
+  seoTitle,
   twitterSummary,
 } from "../i18n/seo";
 import { locales } from "../i18n/routing";
@@ -22,18 +23,44 @@ describe("SEO metadata helpers", () => {
   });
 
   test("extends short descriptions with localized product context", () => {
-    expect(seoDescription("en", "CLI reference")).toBe(
-      "CLI reference. Built for AI coding agents on macOS.",
+    expect(seoDescription("en", "CLI reference")).toContain(
+      "vertical tabs, notifications, split panes, and browser automation",
     );
     expect(seoDescription("ja", "CLI リファレンス。")).toContain(
-      "macOS の AI コーディングエージェント向けです。",
+      "macOS の AI コーディングエージェント向け。",
     );
     expect(
       seoDescription(
         "en",
         "A detailed page about running multiple coding agents in cmux on macOS.",
       ),
-    ).toContain("Built for AI coding agents on macOS.");
+    ).toContain("Built for AI coding agents on macOS,");
+  });
+
+  test("keeps descriptions within search snippet bounds", () => {
+    const short = seoDescription("en", "News from the cmux team");
+    expect(short.length).toBeGreaterThanOrEqual(110);
+    expect(short.length).toBeLessThanOrEqual(160);
+
+    const long = seoDescription(
+      "en",
+      "A very long metadata description ".repeat(12),
+    );
+    expect(long.length).toBeLessThanOrEqual(160);
+    expect(long.endsWith("…")).toBe(true);
+    expect(long).not.toMatch(/\s…$/);
+  });
+
+  test("adds useful context to short titles and trims long titles", () => {
+    expect(seoTitle("en", "Blog")).toBe(
+      "Blog — The terminal built for multitasking",
+    );
+    const long = seoTitle(
+      "en",
+      "The best terminal and agent workspace for every AI coding workflow in 2026",
+    );
+    expect(long.length).toBeLessThanOrEqual(60);
+    expect(long.endsWith("…")).toBe(true);
   });
 
   test("adds complete shared social metadata", () => {
@@ -68,6 +95,9 @@ describe("SEO metadata helpers", () => {
       );
       expect(openGraphDefaults(locale, "website").images[0].alt).not.toBe("");
       expect(openGraphImageTagline(locale)).not.toBe("");
+      expect(seoDescription(locale, "CLI reference").length).toBeLessThanOrEqual(
+        160,
+      );
     }
   });
 });

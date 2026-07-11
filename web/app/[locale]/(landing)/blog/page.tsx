@@ -1,6 +1,6 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, seoDescription, seoTitle, twitterSummary } from "@/i18n/seo";
 import { Link } from "@/i18n/navigation";
 import { blogPosts } from "@/app/[locale]/components/blog-posts";
 
@@ -12,7 +12,7 @@ export async function generateMetadata({
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "blog" });
   const alternates = buildAlternates(locale, "/blog");
-  const title = t("metaTitle");
+  const title = seoTitle(locale, t("metaTitle"));
   const description = seoDescription(locale, t("metaDescription"));
   return {
     title,

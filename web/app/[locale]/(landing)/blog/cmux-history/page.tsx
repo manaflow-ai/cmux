@@ -1,6 +1,6 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, seoDescription, seoTitle, twitterSummary } from "@/i18n/seo";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "@/i18n/navigation";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
@@ -13,7 +13,8 @@ export async function generateMetadata({
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "blog.cmuxHistory" });
   const alternates = buildAlternates(locale, "/blog/cmux-history");
-  const title = t("metaTitle");
+  // Leave room for the blog layout's localized title suffix.
+  const title = seoTitle(locale, t("metaTitle"), { maxLength: 48 });
   const description = seoDescription(locale, t("metaDescription"));
   return {
     title,

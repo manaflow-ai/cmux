@@ -4,27 +4,32 @@ const BASE = "https://cmux.com";
 const DEFAULT_OG_IMAGE_PATH = "/opengraph-image";
 
 const shortDescriptionSuffixes: Record<string, string> = {
-  en: "Built for AI coding agents on macOS.",
-  ja: "macOS の AI コーディングエージェント向けです。",
-  "zh-CN": "面向 macOS 上的 AI 编码代理。",
-  "zh-TW": "面向 macOS 上的 AI 程式碼代理。",
-  ko: "macOS의 AI 코딩 에이전트를 위해 설계되었습니다.",
-  de: "Für KI-Coding-Agenten auf macOS entwickelt.",
-  es: "Creado para agentes de codificación con IA en macOS.",
-  fr: "Conçu pour les agents de codage IA sur macOS.",
-  it: "Creato per agenti di codifica IA su macOS.",
-  da: "Bygget til AI-kodeagenter på macOS.",
-  pl: "Stworzone dla agentów kodowania AI na macOS.",
-  ru: "Создано для AI-агентов программирования на macOS.",
-  bs: "Napravljeno za AI agente za kodiranje na macOS-u.",
-  ar: "مصمم لوكلاء البرمجة بالذكاء الاصطناعي على macOS.",
-  no: "Laget for AI-kodeagenter på macOS.",
-  "pt-BR": "Criado para agentes de código com IA no macOS.",
-  th: "สร้างมาเพื่อเอเจนต์เขียนโค้ด AI บน macOS.",
-  tr: "macOS'taki AI kodlama ajanları için tasarlandı.",
-  km: "បង្កើតសម្រាប់ភ្នាក់ងារ AI សរសេរកូដលើ macOS។",
-  uk: "Створено для AI-агентів програмування на macOS.",
+  en: "Built for AI coding agents on macOS, with vertical tabs, notifications, split panes, and browser automation.",
+  ja: "macOS の AI コーディングエージェント向け。縦型タブ、通知、分割ペイン、ブラウザ自動化を備えています。",
+  "zh-CN": "面向 macOS 上的 AI 编码代理，提供垂直标签页、通知、分屏窗格和浏览器自动化。",
+  "zh-TW": "面向 macOS 上的 AI 程式碼代理，提供垂直分頁、通知、分割窗格與瀏覽器自動化。",
+  ko: "macOS의 AI 코딩 에이전트를 위해 수직 탭, 알림, 분할 패널, 브라우저 자동화를 제공합니다.",
+  de: "Für KI-Coding-Agenten auf macOS, mit vertikalen Tabs, Benachrichtigungen, geteilten Bereichen und Browser-Automatisierung.",
+  es: "Creado para agentes de código con IA en macOS, con pestañas verticales, notificaciones, paneles divididos y automatización del navegador.",
+  fr: "Conçu pour les agents de codage IA sur macOS, avec onglets verticaux, notifications, panneaux divisés et automatisation du navigateur.",
+  it: "Creato per agenti di codifica IA su macOS, con schede verticali, notifiche, pannelli divisi e automazione del browser.",
+  da: "Bygget til AI-kodeagenter på macOS med lodrette faner, notifikationer, opdelte ruder og browserautomatisering.",
+  pl: "Stworzone dla agentów kodowania AI na macOS, z pionowymi kartami, powiadomieniami, dzielonymi panelami i automatyzacją przeglądarki.",
+  ru: "Создано для AI-агентов программирования на macOS: вертикальные вкладки, уведомления, разделённые панели и автоматизация браузера.",
+  bs: "Napravljeno za AI agente za kodiranje na macOS-u, s vertikalnim tabovima, obavijestima, podijeljenim panelima i automatizacijom preglednika.",
+  ar: "مصمم لوكلاء البرمجة بالذكاء الاصطناعي على macOS، مع علامات تبويب عمودية وإشعارات وأجزاء مقسمة وأتمتة للمتصفح.",
+  no: "Laget for AI-kodeagenter på macOS med vertikale faner, varsler, delte paneler og nettleserautomatisering.",
+  "pt-BR": "Criado para agentes de código com IA no macOS, com abas verticais, notificações, painéis divididos e automação do navegador.",
+  th: "สร้างมาสำหรับเอเจนต์เขียนโค้ด AI บน macOS พร้อมแท็บแนวตั้ง การแจ้งเตือน แผงแยก และระบบเบราว์เซอร์อัตโนมัติ",
+  tr: "macOS'taki AI kodlama ajanları için dikey sekmeler, bildirimler, bölünmüş paneller ve tarayıcı otomasyonuyla tasarlandı.",
+  km: "បង្កើតសម្រាប់ភ្នាក់ងារ AI សរសេរកូដលើ macOS ជាមួយផ្ទាំងបញ្ឈរ ការជូនដំណឹង ផ្ទាំងបំបែក និងស្វ័យប្រវត្តិកម្មកម្មវិធីរុករក។",
+  uk: "Створено для AI-агентів програмування на macOS: вертикальні вкладки, сповіщення, розділені панелі й автоматизація браузера.",
 };
+
+const MIN_DESCRIPTION_LENGTH = 110;
+const MAX_DESCRIPTION_LENGTH = 160;
+const MIN_TITLE_LENGTH = 30;
+const MAX_TITLE_LENGTH = 60;
 
 const openGraphImageAlts: Record<string, string> = {
   en: "cmux - The terminal built for multitasking",
@@ -105,15 +110,68 @@ export function hasLocalizedSeoCopy(locale: string) {
 
 export function seoDescription(locale: string, description: string) {
   const trimmed = description.trim();
-  if (trimmed.length >= 90) return trimmed;
+  if (trimmed.length >= MIN_DESCRIPTION_LENGTH) {
+    return truncateMetadataText(trimmed, MAX_DESCRIPTION_LENGTH);
+  }
 
   const suffix =
     shortDescriptionSuffixes[locale] ?? shortDescriptionSuffixes.en;
-  if (trimmed.includes(suffix)) return trimmed;
+  if (trimmed.includes(suffix)) {
+    return truncateMetadataText(trimmed, MAX_DESCRIPTION_LENGTH);
+  }
 
   const separator =
     /[。！？.!?]$/.test(trimmed) || trimmed.endsWith("؟") ? " " : ". ";
-  return `${trimmed}${separator}${suffix}`;
+  return truncateMetadataText(
+    `${trimmed}${separator}${suffix}`,
+    MAX_DESCRIPTION_LENGTH,
+  );
+}
+
+export function seoTitle(
+  locale: string,
+  title: string,
+  options: { minLength?: number; maxLength?: number } = {},
+) {
+  const minLength = options.minLength ?? MIN_TITLE_LENGTH;
+  const maxLength = options.maxLength ?? MAX_TITLE_LENGTH;
+  let normalized = title.trim();
+
+  if (normalized.length < minLength) {
+    const context = openGraphImageTagline(locale);
+    if (!normalized.includes(context)) {
+      normalized = `${normalized} — ${context}`;
+    }
+  }
+
+  return truncateMetadataText(normalized, maxLength);
+}
+
+function truncateMetadataText(value: string, maxLength: number) {
+  if (value.length <= maxLength) return value;
+
+  const candidate = value.slice(0, maxLength - 1).trimEnd();
+  const minimumBoundary = Math.floor(maxLength * 0.6);
+  const sentenceBoundary = Math.max(
+    candidate.lastIndexOf("."),
+    candidate.lastIndexOf("!"),
+    candidate.lastIndexOf("?"),
+    candidate.lastIndexOf("。"),
+    candidate.lastIndexOf("！"),
+    candidate.lastIndexOf("？"),
+  );
+  const wordBoundary = candidate.lastIndexOf(" ");
+  const boundary =
+    sentenceBoundary >= minimumBoundary
+      ? sentenceBoundary + 1
+      : wordBoundary >= minimumBoundary
+        ? wordBoundary
+        : candidate.length;
+  const truncated = candidate
+    .slice(0, boundary)
+    .replace(/[-,:;–—]+$/u, "")
+    .trimEnd();
+  return `${truncated}…`;
 }
 
 export function openGraphDefaults(
