@@ -379,11 +379,18 @@ describe("SEO metadata helpers", () => {
               pageKey,
               messageLookup(page),
               messages.docs.layoutTitle,
-              typeof (page as Record<string, unknown>).metaDescriptionShort ===
-                "string"
-                ? ((page as Record<string, unknown>)
-                    .metaDescriptionShort as string)
-                : undefined,
+              {
+                curatedDescription:
+                  typeof (page as Record<string, unknown>)
+                    .metaDescriptionShort === "string"
+                    ? ((page as Record<string, unknown>)
+                        .metaDescriptionShort as string)
+                    : undefined,
+                intro:
+                  typeof (page as Record<string, unknown>).intro === "string"
+                    ? ((page as Record<string, unknown>).intro as string)
+                    : undefined,
+              },
             ),
             Object.values(page)
               .filter(
@@ -563,7 +570,7 @@ describe("SEO metadata helpers", () => {
   test("keeps docs descriptions grounded in route-specific prose", async () => {
     const cases = [
       ["en", "configuration", "Ghostty config"],
-      ["de", "ios", "Telefon"],
+      ["de", "ios", "cmux-App"],
       ["de", "workspaceGroups", "Workspace-Gruppen"],
       ["it", "customCommands", "cmux.json"],
     ] as const;
@@ -576,10 +583,56 @@ describe("SEO metadata helpers", () => {
         pageKey,
         messageLookup(page),
         messages.docs.layoutTitle,
+        {
+          curatedDescription:
+            typeof (page as Record<string, unknown>).metaDescriptionShort ===
+            "string"
+              ? ((page as Record<string, unknown>)
+                  .metaDescriptionShort as string)
+              : undefined,
+          intro:
+            typeof (page as Record<string, unknown>).intro === "string"
+              ? ((page as Record<string, unknown>).intro as string)
+              : undefined,
+        },
       );
       expect(copy.description).toContain(expectedRouteText);
       expect(searchSnippetLength(copy.description)).toBeGreaterThanOrEqual(110);
       expect(searchSnippetLength(copy.description)).toBeLessThanOrEqual(160);
+    }
+  });
+
+  test("keeps dependent docs prose attached to its page subject", async () => {
+    const cases = [
+      ["bs", "api", "cmux CLI i Unix socket API referenca."],
+      ["ar", "api", "مرجع واجهة أوامر cmux وواجهة مقابس Unix."],
+      ["ko", "dock", "Dock JSON으로"],
+      ["th", "api", "ใช้ cmux CLI และ Unix socket"],
+    ] as const;
+
+    for (const [locale, pageKey, expectedStart] of cases) {
+      const messages = await messagesFor(locale);
+      const page = messages.docs[pageKey];
+      const copy = docsPageSeoCopy(
+        locale,
+        pageKey,
+        messageLookup(page),
+        messages.docs.layoutTitle,
+        {
+          curatedDescription:
+            typeof (page as Record<string, unknown>).metaDescriptionShort ===
+            "string"
+              ? ((page as Record<string, unknown>)
+                  .metaDescriptionShort as string)
+              : undefined,
+          intro:
+            typeof (page as Record<string, unknown>).intro === "string"
+              ? ((page as Record<string, unknown>).intro as string)
+              : undefined,
+        },
+      );
+
+      expect(copy.description.startsWith(expectedStart)).toBe(true);
     }
   });
 
