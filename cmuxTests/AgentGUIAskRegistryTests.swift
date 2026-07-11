@@ -71,6 +71,30 @@ struct AgentGUIAskRegistryTests {
         #expect(published.last?.state == .superseded)
     }
 
+    @Test func journalResetSupersedesActiveAskFromReplacedJournal() throws {
+        let injector = FakeAskRegistryInjector()
+        var published: [PendingAsk] = []
+        let registry = AgentGUIAskRegistry(clock: { 1_000 }, injector: injector, publish: { published.append($0) })
+        registry.handleSessionSnapshot(Self.snapshot(phase: .needsInput))
+        registry.handleJournalEvent(
+            .appended(journalID: Self.journalID, entries: [Self.questionEntry(seq: 1)]),
+            sessionID: Self.sessionID
+        )
+        let askID = AgentGUIAskRegistry.askID(journalID: Self.journalID, seq: EntrySeq(rawValue: 1))
+
+        registry.handleJournalEvent(
+            .reset(journalID: JournalID(rawValue: "journal-2"), tailSeq: EntrySeq(rawValue: 0)),
+            sessionID: Self.sessionID
+        )
+
+        #expect(published.map(\.state) == [.active, .superseded])
+        let answer = try registry.answer(
+            params: GuiAnswerParams(sessionID: Self.sessionID, askID: askID, choiceIndex: 0)
+        )
+        #expect(answer == GuiAnswerResult(answered: false))
+        #expect(injector.inputs.isEmpty)
+    }
+
     @Test func activeAskExpiresAfterTimeout() {
         var now = 1_000
         let injector = FakeAskRegistryInjector()

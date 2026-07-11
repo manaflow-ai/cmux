@@ -92,6 +92,25 @@ import Testing
         driver.stop()
     }
 
+    @Test func sessionPhaseMutationRebuildsInput() async {
+        let engine = AgentSyncEngine(transport: FixtureSyncTransport())
+        engine.directory.apply(.sessionUpserted(Self.session(phase: .idle, version: 1)), origin: .live)
+        var inputs: [TranscriptProjectionInput] = []
+        let driver = TranscriptProjectionDriver(engine: engine, sessionID: Self.sessionID) { input in
+            inputs.append(input)
+        }
+        driver.start()
+        #expect(inputs.last?.sessionPhase == .idle)
+
+        engine.directory.apply(.sessionUpserted(Self.session(phase: .working, version: 2)), origin: .live)
+
+        let observed = await Self.waitUntil {
+            inputs.last?.sessionPhase == .working
+        }
+        #expect(observed)
+        driver.stop()
+    }
+
     private static let sessionID = AgentSessionID(rawValue: "session-1")
     private static let journalID = JournalID(rawValue: "journal-1")
 
@@ -105,6 +124,22 @@ import Testing
                 payload: .agentProse(AgentProsePayload(markdown: "entry \(seq)"))
             ),
             version: EntityVersion(rawValue: UInt64(seq))
+        )
+    }
+
+    private static func session(phase: SessionPhase, version: UInt64) -> AgentSessionSnapshot {
+        AgentSessionSnapshot(
+            id: sessionID,
+            macDeviceID: MacDeviceID(rawValue: "mac-1"),
+            kind: .codex,
+            phase: phase,
+            tier: .wrapped,
+            surfaceID: "surface-1",
+            cwd: "/repo",
+            title: "Session",
+            workspaceName: "Workspace",
+            version: EntityVersion(rawValue: version),
+            lastActivityHint: Int(version)
         )
     }
 
