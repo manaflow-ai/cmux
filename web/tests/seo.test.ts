@@ -379,6 +379,11 @@ describe("SEO metadata helpers", () => {
               pageKey,
               messageLookup(page),
               messages.docs.layoutTitle,
+              typeof (page as Record<string, unknown>).metaDescriptionShort ===
+                "string"
+                ? ((page as Record<string, unknown>)
+                    .metaDescriptionShort as string)
+                : undefined,
             ),
             Object.values(page)
               .filter(
@@ -387,13 +392,7 @@ describe("SEO metadata helpers", () => {
               )
               .flatMap((value) => {
                 const sentences = metadataSentenceFragments(value);
-                return [
-                  ...sentences,
-                  ...sentences.flatMap((sentence) =>
-                    metadataClauseFragments(locale, sentence),
-                  ),
-                  boundedMetadataPrefix(value),
-                ];
+                return sentences;
               }),
             [
               page.metaTitle,
@@ -883,37 +882,6 @@ function metadataSentenceFragments(value: string) {
     .split(/(?<=[。！？])|(?<=[.!?؟។៕])\s+/u)
     .map((fragment) => fragment.trim())
     .filter(Boolean);
-}
-
-function metadataClauseFragments(locale: string, sentence: string) {
-  const fragments: string[] = [];
-  for (const match of sentence.matchAll(/[,;:：៖]\s*/gu)) {
-    const prefix = sentence.slice(0, match.index).trim();
-    const suffix = sentence.slice(match.index + match[0].length).trim();
-    if (prefix.length >= 20) fragments.push(prefix);
-    if (suffix.length >= 20) {
-      fragments.push(
-        suffix.replace(/^\p{L}/u, (letter) =>
-          letter.toLocaleUpperCase(locale),
-        ),
-      );
-    }
-  }
-  return fragments;
-}
-
-function boundedMetadataPrefix(value: string) {
-  const words = value.trim().split(/\s+/u);
-  let best = "";
-  for (let count = 1; count <= words.length; count += 1) {
-    const candidate = words
-      .slice(0, count)
-      .join(" ")
-      .replace(/[,;:：៖]+$/u, "");
-    if (searchSnippetLength(candidate) > 160) break;
-    best = candidate;
-  }
-  return best;
 }
 
 function messageLookup(messages: object) {
