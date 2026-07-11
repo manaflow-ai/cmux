@@ -26,7 +26,7 @@ public struct MobileTaskCommandComposer: Sendable {
         } else if Self.referencesPromptEnvironment(in: command) {
             initialCommand = command
         } else if !prompt.isEmpty {
-            initialCommand = command + " \"${CMUX_TASK_PROMPT}\""
+            initialCommand = command + " -- \"${CMUX_TASK_PROMPT}\""
         } else {
             initialCommand = command
         }

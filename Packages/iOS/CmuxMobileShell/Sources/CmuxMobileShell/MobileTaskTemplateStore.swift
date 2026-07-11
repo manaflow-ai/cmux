@@ -12,13 +12,14 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
-    // v2: seeds gained OpenCode and brand icons. The feature has never
-    // shipped, so v1 data (dogfood-only) is dropped rather than migrated.
-    private static let templatesKey = "cmux.mobile.taskTemplates.v2"
-    private static let seededKey = "cmux.mobile.taskTemplates.seeded.v2"
+    // v3 resets the unshipped agent seed commands onto safe implicit append.
+    private static let templatesKey = "cmux.mobile.taskTemplates.v3"
+    private static let seededKey = "cmux.mobile.taskTemplates.seeded.v3"
     private static let legacyKeys = [
         "cmux.mobile.taskTemplates.v1",
         "cmux.mobile.taskTemplates.seeded.v1",
+        "cmux.mobile.taskTemplates.v2",
+        "cmux.mobile.taskTemplates.seeded.v2",
     ]
     private static let lastTemplateIDKey = "cmux.mobile.taskComposer.lastTemplateID"
     private static let lastMacDeviceIDKey = "cmux.mobile.taskComposer.lastMacDeviceID"
@@ -107,6 +108,23 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
         }
         guard let data = try? encoder.encode(draft) else { return }
         defaults.set(data, forKey: Self.composerDraftKey)
+    }
+
+    /// Removes every account-derived template, selection, directory, and draft.
+    public func clearAllUserData() {
+        let keys = [
+            Self.templatesKey,
+            Self.seededKey,
+            Self.lastTemplateIDKey,
+            Self.lastMacDeviceIDKey,
+            Self.composerDraftKey,
+        ] + Self.legacyKeys
+        for key in keys {
+            defaults.removeObject(forKey: key)
+        }
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(Self.lastDirectoryPrefix) {
+            defaults.removeObject(forKey: key)
+        }
     }
 
     private func seedIfNeeded() {

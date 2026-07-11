@@ -2,6 +2,16 @@ import CmuxSettings
 import Foundation
 
 extension TerminalController {
+    struct TaskCreateWorkspaceCandidate {
+        let tabManager: TabManager
+        let windowID: UUID?
+    }
+
+    struct TaskCreateWorkspaceResolution {
+        let workspace: Workspace
+        let candidate: TaskCreateWorkspaceCandidate
+    }
+
     final class WorkspaceCreateIdempotencyCache {
         private let capacity: Int
         private var workspaceIDs: [UUID: UUID] = [:]
@@ -46,7 +56,8 @@ extension TerminalController {
     // this body for the mobile data-plane create path.
     func v2WorkspaceCreate(
         params: [String: Any],
-        tabManager resolvedTabManager: TabManager? = nil
+        tabManager resolvedTabManager: TabManager? = nil,
+        taskCreateCandidates: [TaskCreateWorkspaceCandidate]? = nil
     ) -> V2CallResult {
         let operationID: UUID?
         if v2HasNonNullParam(params, "operation_id") {
@@ -60,22 +71,30 @@ extension TerminalController {
         return v2PerformWorkspaceCreate(
             params: params,
             tabManager: resolvedTabManager,
-            operationID: operationID
+            operationID: operationID,
+            taskCreateCandidates: taskCreateCandidates
         )
     }
 
     private func v2PerformWorkspaceCreate(
         params: [String: Any],
         tabManager resolvedTabManager: TabManager?,
-        operationID: UUID?
+        operationID: UUID?,
+        taskCreateCandidates: [TaskCreateWorkspaceCandidate]?
     ) -> V2CallResult {
         guard let tabManager = resolvedTabManager ?? v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
         if let operationID,
-           let workspace = existingTaskCreateWorkspace(operationID: operationID, tabManager: tabManager) {
-            return workspaceCreateResult(workspace: workspace, tabManager: tabManager)
+           let resolution = existingTaskCreateWorkspace(
+               operationID: operationID,
+               candidates: taskCreateCandidates ?? taskCreateWorkspaceCandidates(requested: tabManager)
+           ) {
+            return workspaceCreateResult(
+                workspace: resolution.workspace,
+                windowID: resolution.candidate.windowID
+            )
         }
 
         let workingDirectory = Self.v2ExpandedWorkingDirectory(v2RawString(params, "working_directory"))
@@ -237,30 +256,74 @@ extension TerminalController {
         if let operationID {
             workspaceCreateIdempotencyCache.record(operationID: operationID, workspaceID: newWorkspace.id)
         }
-        return workspaceCreateResult(workspace: newWorkspace, tabManager: tabManager)
+        return workspaceCreateResult(
+            workspace: newWorkspace,
+            windowID: v2ResolveWindowId(tabManager: tabManager)
+        )
     }
 
-    private func existingTaskCreateWorkspace(operationID: UUID, tabManager: TabManager) -> Workspace? {
-        if let workspaceID = workspaceCreateIdempotencyCache.workspaceID(for: operationID),
-           let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }),
-           workspace.taskCreateOperationID == operationID {
-            return workspace
-        }
-        guard let workspace = tabManager.tabs.first(where: { $0.taskCreateOperationID == operationID }) else {
-            return nil
-        }
-        workspaceCreateIdempotencyCache.record(operationID: operationID, workspaceID: workspace.id)
-        return workspace
+    private func taskCreateWorkspaceCandidates(requested tabManager: TabManager) -> [TaskCreateWorkspaceCandidate] {
+        var candidates = [TaskCreateWorkspaceCandidate(
+            tabManager: tabManager,
+            windowID: v2ResolveWindowId(tabManager: tabManager)
+        )]
+        candidates.append(contentsOf: AppDelegate.shared?.scriptableMainWindows().map {
+            TaskCreateWorkspaceCandidate(tabManager: $0.tabManager, windowID: $0.windowId)
+        } ?? [])
+        return candidates
     }
 
-    private func workspaceCreateResult(workspace: Workspace, tabManager: TabManager) -> V2CallResult {
+    private func existingTaskCreateWorkspace(
+        operationID: UUID,
+        candidates: [TaskCreateWorkspaceCandidate]
+    ) -> TaskCreateWorkspaceResolution? {
+        let resolution = Self.resolveTaskCreateWorkspace(
+            operationID: operationID,
+            cachedWorkspaceID: workspaceCreateIdempotencyCache.workspaceID(for: operationID),
+            candidates: candidates
+        )
+        if let resolution {
+            workspaceCreateIdempotencyCache.record(
+                operationID: operationID,
+                workspaceID: resolution.workspace.id
+            )
+        }
+        return resolution
+    }
+
+    static func resolveTaskCreateWorkspace(
+        operationID: UUID,
+        cachedWorkspaceID: UUID?,
+        candidates: [TaskCreateWorkspaceCandidate]
+    ) -> TaskCreateWorkspaceResolution? {
+        var seen: Set<ObjectIdentifier> = []
+        let uniqueCandidates = candidates.filter { seen.insert(ObjectIdentifier($0.tabManager)).inserted }
+        if let cachedWorkspaceID {
+            for candidate in uniqueCandidates {
+                if let workspace = candidate.tabManager.tabs.first(where: { $0.id == cachedWorkspaceID }),
+                   workspace.taskCreateOperationID == operationID {
+                    return TaskCreateWorkspaceResolution(workspace: workspace, candidate: candidate)
+                }
+            }
+        }
+        for candidate in uniqueCandidates {
+            if let workspace = candidate.tabManager.tabs.first(where: { $0.taskCreateOperationID == operationID }) {
+                return TaskCreateWorkspaceResolution(workspace: workspace, candidate: candidate)
+            }
+        }
+        return nil
+    }
+
+    private func workspaceCreateResult(
+        workspace: Workspace,
+        windowID: UUID?
+    ) -> V2CallResult {
         let workspaceID = workspace.id
         let groupID = workspace.groupId
         let surfaceID = workspace.focusedPanelId
-        let windowId = v2ResolveWindowId(tabManager: tabManager)
         return .ok([
-            "window_id": v2OrNull(windowId?.uuidString),
-            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "window_id": v2OrNull(windowID?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: windowID),
             "workspace_id": workspaceID.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceID),
             "group_id": v2OrNull(groupID?.uuidString),

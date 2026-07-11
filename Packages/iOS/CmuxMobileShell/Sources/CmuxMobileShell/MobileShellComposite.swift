@@ -1100,7 +1100,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let draftStore {
             enqueueDraftOperation { await draftStore.clearAllDrafts() }
         }
-        taskTemplateStore?.setComposerDraft(nil)
+        taskTemplateStore?.clearAllUserData()
         // Drop unflushed keystroke snapshots too: an armed flush that runs
         // before the wipe would only write text the wipe then deletes, but the
         // buffer itself must not carry one account's text into the next.

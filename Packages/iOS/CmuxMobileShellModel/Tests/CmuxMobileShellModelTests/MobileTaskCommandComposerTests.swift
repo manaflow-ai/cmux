@@ -66,7 +66,7 @@ import Testing
         #expect(composer.compose(template: try #require(byName["Codex"]), prompt: "--resume").initialCommand
             == "codex -- \"${CMUX_TASK_PROMPT}\"")
         #expect(composer.compose(template: try #require(byName["OpenCode"]), prompt: "--resume").initialCommand
-            == "opencode --prompt=\"${CMUX_TASK_PROMPT}\"")
+            == "opencode --prompt \"${CMUX_TASK_PROMPT}\"")
     }
 
     @Test func placeholdersInsideShellQuotesCannotReparsePromptText() {

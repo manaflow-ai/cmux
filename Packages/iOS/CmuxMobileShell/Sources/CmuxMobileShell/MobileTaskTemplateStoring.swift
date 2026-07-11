@@ -28,4 +28,6 @@ public protocol MobileTaskTemplateStoring: AnyObject {
     func composerDraft() -> MobileTaskComposerDraft?
     /// Stores or clears the unsent task-composer draft.
     func setComposerDraft(_ draft: MobileTaskComposerDraft?)
+    /// Removes all templates and composer state owned by the signed-out user.
+    func clearAllUserData()
 }
