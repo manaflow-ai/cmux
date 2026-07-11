@@ -1072,6 +1072,9 @@ final class MobileHostService {
         target: MobileAttachTarget = .ticketOnly
     ) async throws -> [String: Any] {
         let routes = listenerPort.map { routeResolver.routes(port: $0).routes } ?? []
+        guard !routes.isEmpty else {
+            throw MobileAttachTicketStoreError.noRoutes
+        }
         let selectedRoutes = try target.selectRoutes(from: Self.filteredRoutes(
             routes,
             routeID: routeID,
