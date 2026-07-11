@@ -1279,7 +1279,7 @@
     "browserAutomation": {
       "title": "Automatyzacja przeglądarki",
       "metaDescription": "Dokumentacja poleceń przeglądarki cmux: nawigacja, interakcja z DOM, oczekiwanie, inspekcja, ewaluacja JavaScript, karty, dialogi, ramki, pobieranie i stan przeglądarki.",
-      "metaDescriptionShort": "Dokumentacja cmux browser: nawigacja, DOM, oczekiwanie, inspekcja, JavaScript, karty, okna dialogowe, ramki, pobieranie i stan przeglądarki.",
+      "metaDescriptionShort": "Steruj przeglądarką cmux: nawiguj, sprawdzaj DOM, czekaj na zmiany oraz zarządzaj kartami, oknami i pobieraniem przez API Unix socket i CLI.",
       "intro": "Grupa poleceń cmux browser zapewnia automatyzację przeglądarki wobec surface'ów przeglądarki cmux. Używaj jej do nawigacji, interakcji z elementami DOM, inspekcji stanu strony, ewaluacji JavaScript i zarządzania danymi sesji przeglądarki.",
       "commandIndex": "Indeks poleceń",
       "categoryHeader": "Kategoria",

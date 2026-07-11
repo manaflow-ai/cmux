@@ -261,10 +261,12 @@ export function docsPageSeoCopy(
   const title = pageTitle ?? t("metaTitle");
   const metaTitle = t("metaTitle");
   const metaDescription = t("metaDescription");
-  const standaloneDescriptions = [metaDescription, options.intro]
-    .filter((candidate): candidate is string => Boolean(candidate))
-    .map(firstMetadataSentence)
-    .filter((candidate): candidate is string => Boolean(candidate));
+  const auditedDescriptions = [
+    options.curatedDescription,
+    firstMetadataSentence(metaDescription),
+    options.intro ? firstMetadataSentence(options.intro) : undefined,
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  const auditedDescription = auditedDescriptions[0] ?? metaDescription;
   const compactTitle =
     pageKey === "ohMyOpenCode" ? "oh-my-opencode" : undefined;
   return {
@@ -281,11 +283,8 @@ export function docsPageSeoCopy(
       pageTitle,
       compactTitle,
     ),
-    description: selectDescription(locale, metaDescription, {
-      completeCandidates: [
-        ...(options.curatedDescription ? [options.curatedDescription] : []),
-        ...standaloneDescriptions,
-      ],
+    description: selectDescription(locale, auditedDescription, {
+      completeCandidates: auditedDescriptions,
     }),
   };
 }

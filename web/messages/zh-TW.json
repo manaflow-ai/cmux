@@ -1536,7 +1536,8 @@
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode：在 cmux 中執行 OpenCode 多代理",
-      "metaDescription": "oh-my-opencode（cmux omo）在 cmux 中執行帶 oh-my-openagent 外掛的 OpenCode CLI。將 Claude、GPT、Gemini 和 Grok 作為並行代理編排，每個都在獨立的原生 cmux 分割中。"
+      "metaDescription": "oh-my-opencode（cmux omo）在 cmux 中執行帶 oh-my-openagent 外掛的 OpenCode CLI。將 Claude、GPT、Gemini 和 Grok 作為並行代理編排，每個都在獨立的原生 cmux 分割中。",
+      "metaDescriptionShort": "oh-my-opencode（cmux omo）在 cmux 中執行帶 oh-my-openagent 外掛的 OpenCode CLI。將 Claude、GPT、Gemini 和 Grok 作為並行代理編排，每個都在獨立的原生 cmux 分割中。"
     },
     "ios": {
       "metaTitle": "iOS 應用程式",

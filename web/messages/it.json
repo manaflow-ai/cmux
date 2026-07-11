@@ -1536,7 +1536,8 @@
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode multi-agente in cmux",
-      "metaDescription": "cmux omo avvia OpenCode con il plugin oh-my-openagent. Claude, GPT, Gemini e Grok lavorano in parallelo come agenti, ciascuno in una divisione cmux nativa."
+      "metaDescription": "cmux omo avvia OpenCode con il plugin oh-my-openagent. Claude, GPT, Gemini e Grok lavorano in parallelo come agenti, ciascuno in una divisione cmux nativa.",
+      "metaDescriptionShort": "cmux omo avvia OpenCode con il plugin oh-my-openagent. Claude, GPT, Gemini e Grok lavorano in parallelo come agenti, ciascuno in una divisione cmux nativa."
     },
     "ios": {
       "metaTitle": "App per iOS",

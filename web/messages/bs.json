@@ -1278,7 +1278,7 @@
     "browserAutomation": {
       "title": "Automatizacija preglednika",
       "metaDescription": "Referenca cmux browser komandi za navigaciju, DOM interakciju, čekanje, inspekciju, JavaScript evaluaciju, tabove, dijaloge, okvire, preuzimanja i stanje preglednika.",
-      "metaDescriptionShort": "Referenca cmux browser komandi za navigaciju, DOM, čekanje, inspekciju, JavaScript, tabove, dijaloge, okvire, preuzimanja i stanje preglednika.",
+      "metaDescriptionShort": "Koristite cmux browser komande za navigaciju, DOM inspekciju, čekanje i upravljanje tabovima, dijalozima i preuzimanjima putem Unix socket API-ja i CLI-ja.",
       "intro": "Grupa cmux browser komandi pruža automatizaciju preglednika nad cmux browser površinama. Koristite je za navigaciju, interakciju sa DOM elementima, inspekciju stanja stranice, evaluaciju JavaScript-a i upravljanje podacima sesije preglednika.",
       "commandIndex": "Indeks komandi",
       "categoryHeader": "Kategorija",

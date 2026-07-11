@@ -1536,7 +1536,8 @@
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: мультиагентный OpenCode в cmux",
-      "metaDescription": "cmux omo запускает OpenCode с плагином oh-my-openagent. Claude, GPT, Gemini и Grok работают параллельно как агенты в нативных разделениях cmux."
+      "metaDescription": "cmux omo запускает OpenCode с плагином oh-my-openagent. Claude, GPT, Gemini и Grok работают параллельно как агенты в нативных разделениях cmux.",
+      "metaDescriptionShort": "cmux omo запускает OpenCode с плагином oh-my-openagent. Claude, GPT, Gemini и Grok работают параллельно как агенты в нативных разделениях cmux."
     },
     "ios": {
       "metaTitle": "Приложение для iOS",
