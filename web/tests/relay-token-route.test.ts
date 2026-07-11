@@ -48,12 +48,16 @@ function postReq(body?: string): Request {
   });
 }
 
+const savedVercel = process.env.VERCEL;
 beforeEach(() => {
   delete process.env.CMUX_RELAY_URLS;
   delete process.env.CMUX_RELAY_TOKEN_RATE_LIMIT_ID;
+  delete process.env.VERCEL; // default: local-dev bypass
 });
 afterEach(() => {
   delete process.env.CMUX_RELAY_TOKEN_RATE_LIMIT_ID;
+  if (savedVercel === undefined) delete process.env.VERCEL;
+  else process.env.VERCEL = savedVercel;
 });
 
 describe("handleRelayTokenRequest", () => {
@@ -132,7 +136,8 @@ describe("handleRelayTokenRequest", () => {
     expect(res.status).toBe(413);
   });
 
-  test("429 when the per-account rate limit is exhausted", async () => {
+  test("429 when the per-account rate limit is exhausted (on Vercel)", async () => {
+    process.env.VERCEL = "1";
     process.env.CMUX_RELAY_TOKEN_RATE_LIMIT_ID = "relay-token";
     let keyedBy: string | undefined;
     const res = await handleRelayTokenRequest(
@@ -149,7 +154,35 @@ describe("handleRelayTokenRequest", () => {
     expect(keyedBy).toBe("user_abc");
   });
 
-  test("no rate-limit call when the rule id is unset", async () => {
+  test("fails CLOSED (503) on Vercel when the rule id is missing", async () => {
+    process.env.VERCEL = "1";
+    let called = false;
+    const res = await handleRelayTokenRequest(
+      postReq(JSON.stringify({ endpointId: HEX_ID })),
+      deps({
+        checkRateLimit: async () => {
+          called = true;
+          return { rateLimited: false };
+        },
+      }),
+    );
+    expect(res.status).toBe(503);
+    expect(called).toBe(false); // never reached the limiter
+  });
+
+  test("fails CLOSED (503) on Vercel when the limiter errors/not-found", async () => {
+    process.env.VERCEL = "1";
+    process.env.CMUX_RELAY_TOKEN_RATE_LIMIT_ID = "relay-token";
+    for (const err of ["not-found", "some-other-error"]) {
+      const res = await handleRelayTokenRequest(
+        postReq(JSON.stringify({ endpointId: HEX_ID })),
+        deps({ checkRateLimit: async () => ({ rateLimited: false, error: err }) }),
+      );
+      expect(res.status).toBe(503);
+    }
+  });
+
+  test("local dev (no VERCEL) bypasses the limiter", async () => {
     let called = false;
     const res = await handleRelayTokenRequest(
       postReq(JSON.stringify({ endpointId: HEX_ID })),

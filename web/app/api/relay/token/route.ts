@@ -62,17 +62,31 @@ export async function handleRelayTokenRequest(
   if (!user) return unauthorized();
 
   // Per-account issuance rate limit (Vercel firewall rule keyed by user id).
-  // Bounds how fast one account can mint tokens / register endpoint keys. The
-  // complementary per-relay connection cap lives in the relay itself (separate
-  // repo). Disabled when the rule id is unset, matching /api/client-config.
-  const rateLimitId = process.env.CMUX_RELAY_TOKEN_RATE_LIMIT_ID?.trim();
-  if (rateLimitId) {
+  // Bounds how fast one account can mint tokens / register endpoint keys. On
+  // Vercel this is MANDATORY and FAILS CLOSED: a missing/not-found/errored rule
+  // returns 503 rather than silently dropping the only abuse control on a
+  // security-sensitive minting endpoint (mirrors /api/client-config). Local dev
+  // (no VERCEL env) bypasses it. The complementary per-relay connection cap
+  // lives in the relay itself (separate repo).
+  if (process.env.VERCEL === "1") {
+    const rateLimitId = process.env.CMUX_RELAY_TOKEN_RATE_LIMIT_ID?.trim();
+    if (!rateLimitId) {
+      console.error("relay-token.route.rate_limit_not_configured");
+      return jsonResponse({ error: "relay_token_unavailable" }, 503);
+    }
     const { error, rateLimited } = await deps.checkRateLimit(rateLimitId, {
       request,
       rateLimitKey: user.id,
     });
     if (rateLimited || error === "blocked") {
       return jsonResponse({ error: "rate_limited" }, 429);
+    }
+    if (error === "not-found") {
+      console.error("relay-token.route.rate_limit_not_found", rateLimitId);
+      return jsonResponse({ error: "relay_token_unavailable" }, 503);
+    } else if (error) {
+      console.error("relay-token.route.rate_limit_error", error);
+      return jsonResponse({ error: "relay_token_unavailable" }, 503);
     }
   }
 
