@@ -12,6 +12,83 @@ import {
 
 export type SeoMessageLookup = (key: string) => string;
 
+export type AuditedDocsPageKey =
+  | "ohMyOpenCode"
+  | "api"
+  | "configuration"
+  | "browserAutomation"
+  | "ios"
+  | "ssh"
+  | "workspaceGroups"
+  | "textBox"
+  | "concepts"
+  | "customCommands"
+  | "notifications"
+  | "sessionRestore"
+  | "skills"
+  | "dock"
+  | "keyboardShortcuts"
+  | "gettingStarted"
+  | "remoteTmux";
+
+const docsDescriptionCandidateKeys: Record<
+  AuditedDocsPageKey,
+  readonly string[]
+> = {
+  ohMyOpenCode: [],
+  api: ["intro", "capabilitiesDesc", "socketCallout", "idFormat"],
+  configuration: ["intro", "configLocationsDesc", "appSettingsDesc"],
+  browserAutomation: [
+    "intro",
+    "inspectionDesc",
+    "targetingDesc",
+    "waitingDesc",
+    "stateDesc",
+    "tabsDesc",
+  ],
+  ios: ["intro", "accessDesc", "networkingDesc", "notificationsDesc"],
+  ssh: ["intro", "usageDesc", "agentsDesc", "browserDesc", "daemonDesc"],
+  workspaceGroups: [
+    "intro",
+    "identityDesc",
+    "layoutIntro",
+    "persistenceDesc",
+    "pinningDesc",
+  ],
+  textBox: ["intro", "defaultsDesc", "configDesc"],
+  concepts: ["intro", "summary", "workspaceDesc", "paneDesc", "surfaceDesc"],
+  customCommands: [
+    "intro",
+    "simpleCommandsDesc",
+    "customActionsDesc",
+    "workspaceCommandsDesc",
+  ],
+  notifications: [
+    "intro",
+    "notificationPanelDesc",
+    "suppressionDesc",
+    "osc777Desc",
+    "osc99Desc",
+  ],
+  sessionRestore: [
+    "intro",
+    "agentResumeDesc",
+    "restoredDesc",
+    "surfaceBindingsDesc",
+  ],
+  skills: ["intro", "includedIntro", "installIntro", "helpMenuIntro"],
+  dock: ["intro", "configIntro", "exampleIntro", "sharingIntro"],
+  keyboardShortcuts: ["description"],
+  gettingStarted: ["intro", "dmgDesc", "cliDesc", "verifyDesc"],
+  remoteTmux: [
+    "intro",
+    "howDesc",
+    "requirementsDesc",
+    "behaviorCwd",
+    "limitationsTitle",
+  ],
+};
+
 const conciseTitleLocales = new Set(["ja", "zh-CN", "zh-TW", "ko"]);
 
 const shortTitleContexts: Record<string, string> = {
@@ -159,6 +236,28 @@ export function blogIndexSeoCopy(
       completeCandidates: [t("description")],
       contextFragments: [t("title")],
     }),
+  };
+}
+
+export function docsPageSeoCopy(
+  locale: string,
+  pageKey: AuditedDocsPageKey,
+  t: SeoMessageLookup,
+  siteMeta: SeoMessageLookup,
+) {
+  const title = pageKey === "ohMyOpenCode" ? t("metaTitle") : t("title");
+  const authoredDescriptions = docsDescriptionCandidateKeys[pageKey].map(
+    (key) => t(key),
+  );
+  return {
+    title: selectTitle(locale, t("metaTitle"), siteMeta, [title]),
+    description: selectDescription(locale, t("metaDescription"), [
+      title,
+      ...authoredDescriptions,
+      ...(authoredDescriptions[0]
+        ? [`${title}. ${authoredDescriptions[0]}`]
+        : []),
+    ]),
   };
 }
 

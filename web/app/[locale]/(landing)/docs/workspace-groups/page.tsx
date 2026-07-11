@@ -1,6 +1,6 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
+import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
 import { Link } from "@/i18n/navigation";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
@@ -10,21 +10,12 @@ import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "docs.workspaceGroups" });
-  const alternates = buildAlternates(locale, "/docs/workspace-groups");
-  const title = t("metaTitle");
-  const description = seoDescription(locale, t("metaDescription"));
-  return {
-    title,
-    description,
-    alternates,
-    openGraph: {
-      ...openGraphDefaults(locale, "article"),
-      title,
-      description,
-      url: alternates.canonical,
-    },
-    twitter: twitterSummary(locale, title, description),
-  };
+  return auditedDocsMetadata({
+    locale,
+    pageKey: "workspaceGroups",
+    path: "/docs/workspace-groups",
+    messages: t,
+  });
 }
 
 const GROUP_SHORTCUT = "⌘⇧G";

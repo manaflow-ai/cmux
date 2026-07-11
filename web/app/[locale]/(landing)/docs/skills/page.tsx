@@ -1,6 +1,6 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
+import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
 import { Link } from "@/i18n/navigation";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
@@ -184,21 +184,12 @@ export async function generateMetadata({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "docs.skills" });
-  const alternates = buildAlternates(locale, "/docs/skills");
-  const title = t("metaTitle");
-  const description = seoDescription(locale, t("metaDescription"));
-  return {
-    title,
-    description,
-    alternates,
-    openGraph: {
-      ...openGraphDefaults(locale, "article"),
-      title,
-      description,
-      url: alternates.canonical,
-    },
-    twitter: twitterSummary(locale, title, description),
-  };
+  return auditedDocsMetadata({
+    locale,
+    pageKey: "skills",
+    path: "/docs/skills",
+    messages: t,
+  });
 }
 
 export default function SkillsPage() {
