@@ -31,6 +31,19 @@ describe("privacy policy localization", () => {
     }
   });
 
+  test("contains no generated placeholder tokens", () => {
+    for (const locale of locales) {
+      expect(allStrings(privacyPolicyContent[locale]).join("\n")).not.toMatch(/CMUXOKEN\d+X/);
+    }
+  });
+
+  test("uses Traditional Chinese rather than Simplified-only policy fragments", () => {
+    const traditionalPolicy = allStrings(privacyPolicyContent["zh-TW"]).join("\n");
+    for (const fragment of ["应用程序", "发送到我们的服务器", "诊断可靠性", "如果您通过", "我们会收集", "当您登录时", "电子邮件代码"]) {
+      expect(traditionalPolicy).not.toContain(fragment);
+    }
+  });
+
   test("emits a current localized sitemap entry for every policy route", () => {
     const policyEntries = sitemap().filter((entry) =>
       entry.url.endsWith("/privacy-policy"),

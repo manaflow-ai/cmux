@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import os
 
 @testable import CmuxMobileAnalytics
 
@@ -135,6 +136,60 @@ private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendab
         #expect(calls.first?.anonymousID == "anon-42")
     }
 
+    @Test func optedOutSignOutUpdatesLocalIdentityWithoutUploadingIdentify() async {
+        let uploader = RecordingAnalyticsUploader()
+        let consent = MutableConsent(enabled: true)
+        let center = NotificationCenter()
+        let emitter = makeEmitter(
+            uploader: uploader,
+            consent: consent,
+            anonymousID: "anon-42",
+            notificationCenter: center
+        )
+
+        emitter.identify(userId: "user-7", alias: nil, properties: [:])
+        await emitter.flush()
+        consent.set(false)
+        center.post(name: UserDefaults.didChangeNotification, object: nil)
+        emitter.identify(userId: nil, alias: nil, properties: [:])
+        await emitter.flush()
+        consent.set(true)
+        center.post(name: UserDefaults.didChangeNotification, object: nil)
+        emitter.capture("ios_app_foregrounded", [:])
+        await emitter.flush()
+
+        let event = await uploader.uploadedEvents.last
+        #expect(event?.distinctID == "anon-42")
+        #expect(event?.properties["user_id"] == nil)
+        #expect(await uploader.identifyCalls.count == 1)
+    }
+
+    @Test func firstCaptureAfterOptInEnablesUploaderBeforeSubmission() async {
+        let consent = MutableConsent(enabled: false)
+        let uploader = ConsentAwareRecordingUploader()
+        let emitter = makeEmitter(uploader: uploader, consent: consent)
+
+        // Model capture racing ahead of UserDefaults notification delivery: the
+        // source of truth is already enabled, but the observer has not fired.
+        consent.set(true)
+        emitter.capture("ios_app_foregrounded", [:])
+        await emitter.flush()
+
+        #expect(uploader.uploadedEvents.map(\.name) == ["ios_app_foregrounded"])
+    }
+
+    @Test func consentGenerationRejectsSubmissionFromBeforeRevokeAndReenable() {
+        let gate = AnalyticsConsentGenerationGate(isEnabled: true)
+        let original = gate.snapshot()
+        let revoked = gate.synchronize(observedEnabled: false, basedOn: original) { _ in }
+        let reenabled = gate.synchronize(observedEnabled: true, basedOn: revoked) { _ in }
+
+        #expect(!gate.allows(original))
+        #expect(!gate.allows(revoked))
+        #expect(gate.allows(reenabled))
+        #expect(reenabled.generation == original.generation + 2)
+    }
+
     @Test func anonymousEventsCarryAnonymousIDAndNoUserDistinctID() async {
         let uploader = RecordingAnalyticsUploader()
         let emitter = makeEmitter(uploader: uploader, anonymousID: "anon-9")
@@ -259,5 +314,38 @@ private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendab
         #expect(survivors.count <= 4)
         // Drop-oldest: the surviving seqs are the highest (newest) ones.
         #expect(survivors.allSatisfy { $0 >= 16 })
+    }
+}
+
+private final class ConsentAwareRecordingUploader: AnalyticsUploading, Sendable {
+    private struct State: Sendable {
+        var isEnabled = true
+        var uploadedEvents: [AnalyticsEvent] = []
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    var uploadedEvents: [AnalyticsEvent] {
+        state.withLock { $0.uploadedEvents }
+    }
+
+    func setUploadsEnabled(_ isEnabled: Bool) {
+        state.withLock { $0.isEnabled = isEnabled }
+    }
+
+    func upload(_ events: [AnalyticsEvent]) async -> AnalyticsUploadResult {
+        state.withLock { state in
+            guard state.isEnabled else { return .drop }
+            state.uploadedEvents.append(contentsOf: events)
+            return .accepted
+        }
+    }
+
+    func identify(
+        userID _: String?,
+        anonymousID _: String?,
+        properties _: [String: any Sendable]
+    ) async -> AnalyticsUploadResult {
+        state.withLock { $0.isEnabled ? .accepted : .drop }
     }
 }
