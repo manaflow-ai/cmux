@@ -38,6 +38,7 @@ struct RemoteOrphanedProcessReaperTests {
         )
 
         #expect(await signals.pids.isEmpty)
+        #expect(await capturer.captureCount == 0)
     }
 
     @Test("Persistent slot never crosses into unslotted transports")
@@ -90,12 +91,12 @@ struct RemoteOrphanedProcessReaperTests {
                 RemoteOrphanProcessSnapshot(
                     pid: 41,
                     parentPID: 1,
-                    command: "/usr/bin/ssh user@alpha.test cmuxd-remote serve --stdio"
+                    command: "/usr/bin/ssh user@alpha.test cmuxd-remote serve --stdio --persistent --slot alpha-slot"
                 ),
                 RemoteOrphanProcessSnapshot(
                     pid: 42,
                     parentPID: 1,
-                    command: "/usr/bin/ssh user@beta.test cmuxd-remote serve --stdio"
+                    command: "/usr/bin/ssh user@beta.test cmuxd-remote serve --stdio --persistent --slot beta-slot"
                 ),
             ]
         )
@@ -117,7 +118,9 @@ struct RemoteOrphanedProcessReaperTests {
                             ? "user@alpha.test"
                             : "user@beta.test",
                         relayPort: nil,
-                        persistentDaemonSlot: nil
+                        persistentDaemonSlot: index.isMultiple(of: 2)
+                            ? "alpha-slot"
+                            : "beta-slot"
                     )
                 }
             }
@@ -147,12 +150,12 @@ struct RemoteOrphanedProcessReaperTests {
         await reaper.reap(
             destination: "user@example.test",
             relayPort: nil,
-            persistentDaemonSlot: nil
+            persistentDaemonSlot: "cmux-slot"
         )
         await reaper.reap(
             destination: "user@example.test",
             relayPort: nil,
-            persistentDaemonSlot: nil
+            persistentDaemonSlot: "cmux-slot"
         )
 
         #expect(await capturer.captureCount == 2)
@@ -226,7 +229,7 @@ struct RemoteOrphanedProcessReaperTests {
             await reaper.reap(
                 destination: "user@example.test",
                 relayPort: nil,
-                persistentDaemonSlot: nil
+                persistentDaemonSlot: "cmux-slot"
             )
         }
         await capturer.waitForCaptureCount(1)
@@ -237,7 +240,7 @@ struct RemoteOrphanedProcessReaperTests {
             await reaper.reap(
                 destination: "user@example.test",
                 relayPort: nil,
-                persistentDaemonSlot: nil
+                persistentDaemonSlot: "cmux-slot"
             )
         }
         await waitForReapRequestCount(1, from: reaper)
@@ -255,7 +258,7 @@ struct RemoteOrphanedProcessReaperTests {
         await reaper.reap(
             destination: "user@example.test",
             relayPort: nil,
-            persistentDaemonSlot: nil
+            persistentDaemonSlot: "cmux-slot"
         )
 
         let completedMetrics = reaper.metricsSnapshot()
@@ -272,7 +275,7 @@ struct RemoteOrphanedProcessReaperTests {
         let snapshot = RemoteOrphanProcessSnapshot(
             pid: 41,
             parentPID: 1,
-            command: "/usr/bin/ssh user@example.test cmuxd-remote serve --stdio",
+            command: "/usr/bin/ssh user@example.test cmuxd-remote serve --stdio --persistent --slot cmux-slot",
             identity: .init(startSeconds: 12, startMicroseconds: 34)
         )
         let capturer = CountingOrphanProcessSnapshotCapturer(snapshots: [snapshot])
@@ -288,7 +291,7 @@ struct RemoteOrphanedProcessReaperTests {
         await reaper.reap(
             destination: "user@example.test",
             relayPort: nil,
-            persistentDaemonSlot: nil
+            persistentDaemonSlot: "cmux-slot"
         )
 
         let metrics = reaper.metricsSnapshot()
@@ -306,7 +309,7 @@ struct RemoteOrphanedProcessReaperTests {
         await reaper.reap(
             destination: "cmux-native-capture-validation.invalid",
             relayPort: nil,
-            persistentDaemonSlot: nil
+            persistentDaemonSlot: "cmux-native-capture-validation"
         )
 
         let metrics = reaper.metricsSnapshot()

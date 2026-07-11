@@ -4,7 +4,8 @@ public protocol RemoteOrphanedProcessReaping: Sendable {
     ///
     /// - Parameters:
     ///   - destination: SSH destination used by the remote workspace.
-    ///   - relayPort: Optional reverse-relay port used to narrow matches.
-    ///   - persistentDaemonSlot: Optional daemon slot used to narrow matches.
+    ///   - relayPort: Exact reverse-relay port proving transport ownership.
+    ///   - persistentDaemonSlot: Exact persistent-daemon slot proving ownership.
+    /// - Note: Cleanup is skipped when neither ownership key is available.
     func reap(destination: String, relayPort: Int?, persistentDaemonSlot: String?) async
 }

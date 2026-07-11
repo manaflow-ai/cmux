@@ -54,13 +54,24 @@ public actor RemoteOrphanedProcessReaper: RemoteOrphanedProcessReaping {
     public func reap(destination: String, relayPort: Int?, persistentDaemonSlot: String?) async {
         guard !Task.isCancelled else { return }
         let requestMetricsToken = metrics.reapStarted()
+        let trimmedPersistentDaemonSlot = persistentDaemonSlot?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard relayPort != nil || trimmedPersistentDaemonSlot?.isEmpty == false else {
+            metrics.reapCompleted(
+                requestMetricsToken,
+                candidatePIDs: 0,
+                signalsSent: 0,
+                rejectedReusedPIDs: 0
+            )
+            return
+        }
         let snapshots = await snapshots()
         guard !Task.isCancelled else { return }
         let candidates = RemoteSessionCoordinator.orphanedCMUXRemoteSSHSnapshots(
             snapshots,
             destination: destination,
             relayPort: relayPort,
-            persistentDaemonSlot: persistentDaemonSlot
+            persistentDaemonSlot: trimmedPersistentDaemonSlot
         )
         var signalsSent = 0
         var rejectedReusedPIDs = 0
