@@ -296,9 +296,9 @@ extension CmuxEventBus {
 #if DEBUG
             if oldById[notification.id] != nil {
                 cmuxDebugLog(
-                        "notification.changes.duplicateOldId function=publishNotificationChanges " +
+                    "notification.changes.duplicateOldId function=publishNotificationChanges " +
                         "id=\(notification.id.uuidString) source=oldById " +
-                        "expectedUniqueBy=TerminalNotificationStore.recordAndRestoreDeduplication"
+                        "expectedUniqueBy=notification.id"
                 )
             }
 #endif

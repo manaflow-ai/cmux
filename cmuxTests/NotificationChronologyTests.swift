@@ -183,6 +183,38 @@ struct NotificationChronologyTests {
     }
 
     @Test
+    func oldestUnreadNavigationDefersWithoutReorderingFeed() {
+        let store = TerminalNotificationStore.shared
+        let newestTabId = UUID()
+        let nextTabId = UUID()
+        let newest = notification(
+            id: UUID(),
+            tabId: newestTabId,
+            surfaceId: nil,
+            title: "Newest",
+            createdAt: Date(timeIntervalSince1970: 2)
+        )
+        let next = notification(
+            id: UUID(),
+            tabId: nextTabId,
+            surfaceId: nil,
+            title: "Next",
+            createdAt: Date(timeIntervalSince1970: 1)
+        )
+
+        store.replaceNotificationsForTesting([newest, next])
+        defer { store.replaceNotificationsForTesting([]) }
+
+        #expect(store.markLatestNotificationAsOldestUnread(forTabId: newestTabId, surfaceId: nil) == newest.id)
+        #expect(store.notifications.map(\.id) == [newest.id, next.id])
+        #expect(store.notificationsForUnreadNavigation.map(\.id) == [next.id, newest.id])
+
+        store.markRead(id: newest.id)
+        store.markUnread(id: newest.id)
+        #expect(store.notificationsForUnreadNavigation.map(\.id) == [newest.id, next.id])
+    }
+
+    @Test
     func sessionSnapshotRoundTripPreservesIdentityAndTimestamp() throws {
         let source = notification(
             id: UUID(),
@@ -197,6 +229,62 @@ struct NotificationChronologyTests {
 
         #expect(restored.id == source.id)
         #expect(restored.createdAt == source.createdAt)
+    }
+
+    @Test
+    func reversedCooldownCompletionKeepsNewestReservationMonotonic() throws {
+        var reservations = NotificationCooldownReservations()
+        var dates: [String: Date] = [:]
+        let key = "agent-finished"
+        let earlierDate = Date(timeIntervalSince1970: 10)
+        let laterDate = Date(timeIntervalSince1970: 20)
+
+        let earlier = try #require(reservations.reserve(
+            key: key,
+            interval: 5,
+            acceptedAt: earlierDate,
+            dates: &dates
+        ))
+        let later = try #require(reservations.reserve(
+            key: key,
+            interval: 5,
+            acceptedAt: laterDate,
+            dates: &dates
+        ))
+
+        reservations.commit(earlier, at: earlierDate, dates: &dates)
+        #expect(dates[key] == laterDate)
+
+        reservations.commit(later, at: laterDate, dates: &dates)
+        #expect(dates[key] == laterDate)
+
+        reservations.restore(earlier, dates: &dates)
+        #expect(dates[key] == laterDate)
+    }
+
+    @Test
+    func reversedCooldownFailuresRemoveEveryProvisionalReservation() throws {
+        var reservations = NotificationCooldownReservations()
+        var dates: [String: Date] = [:]
+        let key = "agent-finished"
+        let earlier = try #require(reservations.reserve(
+            key: key,
+            interval: 5,
+            acceptedAt: Date(timeIntervalSince1970: 10),
+            dates: &dates
+        ))
+        let later = try #require(reservations.reserve(
+            key: key,
+            interval: 5,
+            acceptedAt: Date(timeIntervalSince1970: 20),
+            dates: &dates
+        ))
+
+        reservations.restore(later, dates: &dates)
+        #expect(dates[key] == Date(timeIntervalSince1970: 10))
+
+        reservations.restore(earlier, dates: &dates)
+        #expect(dates[key] == nil)
     }
 
     private func notification(

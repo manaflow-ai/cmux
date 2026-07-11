@@ -1179,7 +1179,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertEqual(unreadWorkspace.tmuxWorkspaceFlashReason, .unreadIndicatorDismiss)
     }
 
-    func testMarkLatestNotificationAsOldestUnreadAppendsWhenNoOtherUnreadNotificationsRemain() {
+    func testMarkLatestNotificationAsOldestUnreadPreservesOrderWhenNoOtherUnreadNotificationsRemain() {
         let store = TerminalNotificationStore.shared
         let currentWorkspaceId = UUID()
         let currentNotificationId = UUID()
@@ -1214,8 +1214,8 @@ final class WorkspaceManualUnreadTests: XCTestCase {
             store.markLatestNotificationAsOldestUnread(forTabId: currentWorkspaceId, surfaceId: nil),
             currentNotificationId
         )
-        XCTAssertEqual(store.notifications.map(\.id), [readNotificationId, currentNotificationId])
-        XCTAssertFalse(store.notifications.last?.isRead ?? true)
+        XCTAssertEqual(store.notifications.map(\.id), [currentNotificationId, readNotificationId])
+        XCTAssertFalse(store.notifications.first?.isRead ?? true)
     }
 
     func testManualPanelUnreadClearsOnDirectTerminalInteraction() {

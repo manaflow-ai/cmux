@@ -1,6 +1,5 @@
 import CmuxRemoteSession
 import Foundation
-
 fileprivate struct QueuedTerminalNotificationKey: Hashable, Sendable {
     let tabId: UUID
     let surfaceId: UUID?
@@ -49,6 +48,7 @@ final class TerminalMutationBus: @unchecked Sendable {
 
     private let lock = NSLock()
     private var pending: [TerminalSocketMutationEntry] = []
+    private var pendingHead = 0
     private var drainScheduled = false
     private var nextSequence: UInt64 = 0
     private var currentNotificationGeneration: UInt64 = 0
@@ -77,7 +77,6 @@ final class TerminalMutationBus: @unchecked Sendable {
     nonisolated func enqueueClearAllNotifications() {
         enqueueClear(.clearAllNotifications) { _ in true }
     }
-
     nonisolated func enqueueClearNotifications(forTabId tabId: UUID) {
         enqueueClear(.clearNotificationsForTab(tabId)) { notification in
             notification.key.tabId == tabId
@@ -151,15 +150,13 @@ final class TerminalMutationBus: @unchecked Sendable {
         if shouldScheduleDrain {
             drainScheduled = true
         }
-        pendingCount = pending.count
+        pendingCount = pending.count - pendingHead
         lock.unlock()
-
 #if DEBUG
         cmuxDebugLog(
             "notification.queue.enqueue seq=\(sequence) workspace=\(notification.key.tabId.uuidString.prefix(8)) surface=\(notification.key.surfaceId?.uuidString.prefix(8) ?? "nil") pending=\(pendingCount) generation=\(generation) titleLen=\(notification.title.count) subtitleLen=\(notification.subtitle.count) bodyLen=\(notification.body.count)"
         )
 #endif
-
         guard shouldScheduleDrain else { return }
         scheduleDrain()
     }
@@ -170,6 +167,7 @@ final class TerminalMutationBus: @unchecked Sendable {
     ) {
         let shouldScheduleDrain: Bool
         lock.lock()
+        compactPendingForMutation()
         pending.removeAll { entry in
             if case .deliverNotification(let notification) = entry.mutation {
                 return shouldDrop(notification)
@@ -188,7 +186,6 @@ final class TerminalMutationBus: @unchecked Sendable {
             drainScheduled = true
         }
         lock.unlock()
-
         guard shouldScheduleDrain else { return }
         scheduleDrain()
     }
@@ -196,6 +193,7 @@ final class TerminalMutationBus: @unchecked Sendable {
     private func enqueueBarrierMutation(_ mutation: TerminalSocketMutation) {
         let shouldScheduleDrain: Bool
         lock.lock()
+        compactPendingForMutation()
         nextSequence &+= 1
         pending.append(TerminalSocketMutationEntry(
             sequence: nextSequence,
@@ -208,7 +206,6 @@ final class TerminalMutationBus: @unchecked Sendable {
             drainScheduled = true
         }
         lock.unlock()
-
         guard shouldScheduleDrain else { return }
         scheduleDrain()
     }
@@ -222,6 +219,7 @@ final class TerminalMutationBus: @unchecked Sendable {
     ) {
         let shouldScheduleDrain: Bool
         lock.lock()
+        compactPendingForMutation()
         pending.removeAll { $0.performReplaceKey == replaceKey }
         nextSequence &+= 1
         pending.append(TerminalSocketMutationEntry(
@@ -235,7 +233,6 @@ final class TerminalMutationBus: @unchecked Sendable {
             drainScheduled = true
         }
         lock.unlock()
-
         guard shouldScheduleDrain else { return }
         scheduleDrain()
     }
@@ -245,6 +242,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         where shouldDiscard: (QueuedTerminalNotification, UInt64) -> Bool
     ) {
         lock.lock()
+        compactPendingForMutation()
         pending.removeAll { entry in
             guard case .deliverNotification(let notification) = entry.mutation,
                   let generation = entry.notificationGeneration else {
@@ -275,7 +273,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         let shouldScheduleDrain: Bool
         lock.lock()
         drainsSuspendedForTesting = suspended
-        shouldScheduleDrain = !suspended && drainScheduled && !pending.isEmpty
+        shouldScheduleDrain = !suspended && drainScheduled && pendingHead < pending.count
         lock.unlock()
 
         if shouldScheduleDrain {
@@ -307,7 +305,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         perform(batch)
 
         lock.lock()
-        let hasMore = !pending.isEmpty
+        let hasMore = pendingHead < pending.count
         if !hasMore {
             drainScheduled = false
         }
@@ -320,12 +318,17 @@ final class TerminalMutationBus: @unchecked Sendable {
 
     private func takeNextBatch() -> [TerminalSocketMutationEntry] {
         lock.lock()
-        let count = min(maxMutationsPerDrain, pending.count)
-        let batch = Array(pending.prefix(count))
-        if !batch.isEmpty {
-            pending.removeFirst(count)
+        let count = min(maxMutationsPerDrain, pending.count - pendingHead)
+        let batch: [TerminalSocketMutationEntry]
+        if count > 0 {
+            let end = pendingHead + count
+            batch = Array(pending[pendingHead..<end])
+            pendingHead = end
+            compactPendingAfterDrain()
+        } else {
+            batch = []
         }
-        let remaining = pending.count
+        let remaining = pending.count - pendingHead
         lock.unlock()
 #if DEBUG
         if !batch.isEmpty {
@@ -339,14 +342,31 @@ final class TerminalMutationBus: @unchecked Sendable {
 
     private func markDrainCompleteIfEmpty() {
         lock.lock()
-        if pending.isEmpty {
+        if pendingHead == pending.count {
             drainScheduled = false
             lock.unlock()
             return
         }
         lock.unlock()
-
         scheduleDrain()
+    }
+
+    /// Occasionally compacts consumed storage, keeping FIFO drains amortized O(1).
+    private func compactPendingAfterDrain() {
+        if pendingHead == pending.count {
+            pending.removeAll(keepingCapacity: true)
+            pendingHead = 0
+        } else if pendingHead >= 4_096, pendingHead * 2 >= pending.count {
+            pending.removeFirst(pendingHead)
+            pendingHead = 0
+        }
+    }
+
+    /// Discards the consumed prefix before mutations scan live work.
+    private func compactPendingForMutation() {
+        guard pendingHead > 0 else { return }
+        pending.removeFirst(pendingHead)
+        pendingHead = 0
     }
 
     @MainActor
