@@ -155,7 +155,7 @@ export function joinMetadataSentences(
   const compact = usesCompactSentenceSpacing(locale);
   const terminator = localizedSentenceTerminator(locale);
   const spacing = compact ? "" : " ";
-  const separator = /[.!?。！？؟។៕]$/u.test(leading)
+  const separator = /[.!?。！？؟។៕:：]$/u.test(leading)
     ? spacing
     : `${terminator}${spacing}`;
   return `${leading}${separator}${trailing}`;
@@ -163,7 +163,7 @@ export function joinMetadataSentences(
 
 export function completeMetadataSentence(locale: string, value: string) {
   const trimmed = value.trim();
-  return /[.!?。！？؟។៕]$/u.test(trimmed)
+  return /[.!?。！？؟។៕:：]$/u.test(trimmed)
     ? trimmed
     : `${trimmed}${localizedSentenceTerminator(locale)}`;
 }

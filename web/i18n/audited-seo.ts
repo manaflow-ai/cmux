@@ -73,10 +73,12 @@ function selectDescription(
     locale,
     openGraphImageTagline(locale),
   );
-  const completeCandidates = (options.completeCandidates ?? []).map(
-    (candidate) => completeMetadataSentence(locale, candidate),
+  const completeCandidates = (options.completeCandidates ?? [])
+    .filter((candidate) => !/[:：]\s*$/u.test(candidate))
+    .map((candidate) => completeMetadataSentence(locale, candidate));
+  const contextFragments = (options.contextFragments ?? []).filter(
+    (candidate) => !/[:：]\s*$/u.test(candidate),
   );
-  const contextFragments = options.contextFragments ?? [];
   const contextualCandidates = [
     ...completeCandidates,
     ...completeCandidates.map((candidate) =>

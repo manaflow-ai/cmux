@@ -78,6 +78,7 @@ describe("SEO metadata helpers", () => {
     expect(
       completeMetadataSentence("en", "The terminal built for multitasking"),
     ).toBe("The terminal built for multitasking.");
+    expect(completeMetadataSentence("en", "Examples:")).toBe("Examples:");
   });
 
   test("preserves overbound authored copy when no complete candidate fits", () => {
@@ -359,6 +360,7 @@ describe("SEO metadata helpers", () => {
           /…|<\/?(?:link|code)>/u,
         );
         expect(row.copy.description).not.toMatch(/[!?។៕。！？؟]\./u);
+        expect(row.copy.description).not.toMatch(/[:：][.。]/u);
         expect(row.copy.description).toMatch(/[.!?。！？؟។៕]$/u);
         const hasRouteContext = row.contexts.some(
           (context) =>
