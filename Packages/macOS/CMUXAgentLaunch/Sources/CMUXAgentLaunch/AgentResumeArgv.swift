@@ -198,13 +198,15 @@ public struct AgentResumeArgv: Sendable, Equatable {
         "/bin/sh -c " + posixSingleQuoted(posixCommand)
     }
 
-    /// Renders codex command `parts` through ``renderingCodexWrapperExecutable(parts:quote:)``
-    /// and joins them, wrapping via ``portableCodexResumeShellCommand(posixCommand:)`` only
-    /// when the wrapper token was actually substituted.
+    /// Renders a codex resume/fork command through
+    /// ``renderingCodexWrapperExecutable(parts:quote:)`` and joins it, wrapping via
+    /// ``portableCodexResumeShellCommand(posixCommand:)`` only when the wrapper token was
+    /// actually substituted.
     ///
     /// The `/bin/sh -c` layer exists solely to make the POSIX-only token parse in
-    /// non-POSIX shells, so it is applied exactly when the token is present; a
-    /// codex resume that emitted no bare `codex` executable stays unwrapped.
+    /// non-POSIX shells, so it is applied exactly when the token is present. Direct
+    /// resume/fork commands with captured executable paths are routed through the wrapper
+    /// with `CMUX_CUSTOM_CODEX_PATH` so hook injection and executable identity both survive.
     public static func renderedPortableCodexResumeShellCommand(
         parts: [String],
         quote: (String) -> String
@@ -215,25 +217,90 @@ public struct AgentResumeArgv: Sendable, Equatable {
         return portableCodexResumeShellCommand(posixCommand: joined)
     }
 
-    /// Renders shell command `parts` to quoted tokens, substituting
-    /// ``codexWrapperShellExecutableToken`` for the first bare `codex` executable token.
+    /// Renders shell command `parts` to quoted tokens, routing a direct codex resume/fork
+    /// command through ``codexWrapperShellExecutableToken``.
     ///
-    /// Mirror of ``renderingClaudeWrapperExecutable(parts:quote:)`` for codex: only
-    /// the first element equal to `codex` — a logical wrapper executable emitted
-    /// by the codex resume builder — is replaced; every other token is quoted normally.
-    /// Call only for the codex kind. https://github.com/manaflow-ai/cmux/issues/5639
+    /// A bare `codex` executable is replaced directly. A captured absolute/custom executable
+    /// is preserved as `CMUX_CUSTOM_CODEX_PATH` while the command itself re-enters the wrapper;
+    /// this prevents a resumed session's generated fork from bypassing hook injection. Existing
+    /// `env KEY=value …` prefixes are retained, and cmux launchers such as `codex-teams` stay
+    /// unchanged. Call only for the codex kind.
+    /// https://github.com/manaflow-ai/cmux/issues/5639
     public static func renderingCodexWrapperExecutable(
         parts: [String],
         quote: (String) -> String
     ) -> [String] {
-        var replaced = false
-        return parts.map { part in
-            if !replaced, part == "codex" {
-                replaced = true
-                return codexWrapperShellExecutableToken
+        if let command = directCodexCommand(in: parts),
+           command.executableIndex + 1 < parts.count,
+           parts[command.executableIndex + 1] == "resume" || parts[command.executableIndex + 1] == "fork" {
+            let executableIndex = command.executableIndex
+            let executable = parts[executableIndex]
+            var rendered = parts.map(quote)
+            if let environmentCommandIndex = command.environmentCommandIndex,
+               environmentCommandIndex > 0 {
+                let environmentCommand = rendered.remove(at: environmentCommandIndex)
+                rendered.insert(environmentCommand, at: 0)
             }
-            return quote(part)
+            let hasEnvironmentCommand = command.environmentCommandIndex != nil
+            if executable == "codex" {
+                rendered[executableIndex] = codexWrapperShellExecutableToken
+                if executableIndex > 0, !hasEnvironmentCommand {
+                    rendered.insert(quote("env"), at: 0)
+                }
+                return rendered
+            }
+
+            let customExecutable = quote("CMUX_CUSTOM_CODEX_PATH=\(executable)")
+            if hasEnvironmentCommand {
+                rendered.insert(customExecutable, at: executableIndex)
+                rendered[executableIndex + 1] = codexWrapperShellExecutableToken
+            } else {
+                rendered[executableIndex] = codexWrapperShellExecutableToken
+                rendered.insert(customExecutable, at: executableIndex)
+                rendered.insert(quote("env"), at: 0)
+            }
+            return rendered
         }
+
+        return parts.map(quote)
+    }
+
+    private static func directCodexCommand(
+        in parts: [String]
+    ) -> (executableIndex: Int, environmentCommandIndex: Int?)? {
+        guard !parts.isEmpty else { return nil }
+
+        var index = 0
+        while index < parts.count, isEnvironmentAssignment(parts[index]) {
+            index += 1
+        }
+        var environmentCommandIndex: Int?
+        if index < parts.count, isEnvironmentCommand(parts[index]) {
+            environmentCommandIndex = index
+            index += 1
+            while index < parts.count, isEnvironmentAssignment(parts[index]) {
+                index += 1
+            }
+        }
+        guard index < parts.count else { return nil }
+        return (index, environmentCommandIndex)
+    }
+
+    private static func isEnvironmentCommand(_ value: String) -> Bool {
+        value == "env" || value.hasSuffix("/env")
+    }
+
+    private static func isEnvironmentAssignment(_ value: String) -> Bool {
+        guard let equalsIndex = value.firstIndex(of: "="), equalsIndex != value.startIndex else {
+            return false
+        }
+        let name = value[..<equalsIndex]
+        guard let first = name.unicodeScalars.first,
+              CharacterSet.letters.union(CharacterSet(charactersIn: "_")).contains(first) else {
+            return false
+        }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_"))
+        return name.unicodeScalars.dropFirst().allSatisfy { allowed.contains($0) }
     }
 
     /// The result of resolving a cmux wrapper launcher (the `claude-teams` / `codex-teams` / `omo`
