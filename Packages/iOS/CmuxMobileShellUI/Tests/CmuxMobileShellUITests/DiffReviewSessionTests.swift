@@ -207,6 +207,25 @@ import Testing
         #expect(!session.hasJumpBackTarget)
     }
 
+    @Test func zeroHunkReloadClearsPhantomBookmarkIndex() {
+        let session = DiffReviewSession(files: [file("A.swift"), file("B.swift")])
+        session.recordHunkCount(4, for: "A.swift")
+        session.moveForward()
+        session.moveForward()
+        session.moveForward()
+        session.markBookmark()
+        session.moveForward()
+        session.jumpToBookmark()
+
+        session.recordHunkCount(0, for: "A.swift")
+
+        #expect(session.currentFile?.path == "A.swift")
+        #expect(session.currentHunkIndex == 0)
+        #expect(session.bookmark == .init(filePath: "A.swift", hunkIndex: 0))
+        #expect(!session.canMoveBackward)
+        #expect(!session.hasJumpBackTarget)
+    }
+
     private func file(_ path: String) -> MobileWorkspaceDiffStatusResponse.File {
         let data = Data(#"{"path":"\#(path)","status":"M","additions":1,"deletions":0}"#.utf8)
         return try! JSONDecoder().decode(MobileWorkspaceDiffStatusResponse.File.self, from: data)
