@@ -1,7 +1,56 @@
 import AppKit
 import ApplicationServices
 import CoreGraphics
+import Darwin
 import Foundation
+import Security
+
+#if CMUX_REQUIRE_MCP_PARENT
+let providerExecutableURL = URL(
+    fileURLWithPath: CommandLine.arguments[0],
+    relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+).standardizedFileURL.resolvingSymlinksInPath()
+let providerDirectoryURL = providerExecutableURL.deletingLastPathComponent()
+let resourcesDirectoryURL = providerDirectoryURL.deletingLastPathComponent()
+let contentsDirectoryURL = resourcesDirectoryURL.deletingLastPathComponent()
+let appBundleURL = contentsDirectoryURL.deletingLastPathComponent()
+let expectedParentURL = resourcesDirectoryURL
+    .appendingPathComponent("bin", isDirectory: true)
+    .appendingPathComponent("cmux-computer-use-mcp", isDirectory: false)
+    .standardizedFileURL
+    .resolvingSymlinksInPath()
+var parentPathBuffer = [CChar](repeating: 0, count: 4096)
+let parentPathLength = proc_pidpath(getppid(), &parentPathBuffer, UInt32(parentPathBuffer.count))
+let parentExecutableURL = parentPathLength > 0
+    ? URL(fileURLWithPath: String(cString: parentPathBuffer)).standardizedFileURL.resolvingSymlinksInPath()
+    : nil
+var parentCode: SecCode?
+let parentAttributes = [kSecGuestAttributePid as String: NSNumber(value: getppid())] as CFDictionary
+let parentCodeStatus = SecCodeCopyGuestWithAttributes(nil, parentAttributes, [], &parentCode)
+let parentSignatureIsValid = parentCodeStatus == errSecSuccess && parentCode.map {
+    SecCodeCheckValidity($0, [], nil) == errSecSuccess
+} == true
+var appStaticCode: SecStaticCode?
+let appCodeStatus = SecStaticCodeCreateWithPath(appBundleURL as CFURL, [], &appStaticCode)
+let appValidationFlags = SecCSFlags(
+    rawValue: kSecCSCheckAllArchitectures | kSecCSCheckNestedCode | kSecCSStrictValidate
+)
+let appSignatureIsValid = appCodeStatus == errSecSuccess && appStaticCode.map {
+    SecStaticCodeCheckValidity($0, appValidationFlags, nil) == errSecSuccess
+} == true
+guard providerDirectoryURL.lastPathComponent == "libexec",
+      resourcesDirectoryURL.lastPathComponent == "Resources",
+      contentsDirectoryURL.lastPathComponent == "Contents",
+      appBundleURL.pathExtension == "app",
+      parentExecutableURL == expectedParentURL,
+      parentSignatureIsValid,
+      appSignatureIsValid else {
+    fail(
+        "provider.authorizationRequired",
+        "The bundled computer-use provider only accepts requests from the bundled MCP server."
+    )
+}
+#endif
 
 let inputData: Data
 let payloadArgument = CommandLine.arguments.dropFirst().last { $0 != "--" }

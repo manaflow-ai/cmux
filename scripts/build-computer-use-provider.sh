@@ -6,6 +6,7 @@ SOURCE_INPUTS=()
 OUTPUT=""
 ARCHS_RAW=""
 DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
+REQUIRE_MCP_PARENT=0
 
 usage() {
   cat <<'USAGE' >&2
@@ -15,6 +16,7 @@ Options:
   --source <path>              Swift provider source file or directory; repeatable
   --archs "<archs>"            architectures to build (default: host arch)
   --deployment-target <value>  macOS deployment target (default: env or 13.0)
+  --require-mcp-parent         require the bundled MCP server as the provider parent
 USAGE
 }
 
@@ -39,6 +41,10 @@ while (($#)); do
       [[ $# -ge 2 ]] || { usage; exit 2; }
       DEPLOYMENT_TARGET="$2"
       shift 2
+      ;;
+    --require-mcp-parent)
+      REQUIRE_MCP_PARENT=1
+      shift
       ;;
     -h|--help)
       usage
@@ -108,6 +114,10 @@ fi
 
 SDK_PATH="$(/usr/bin/xcrun --sdk macosx --show-sdk-path)"
 BUILT=()
+SWIFT_FLAGS=()
+if [[ "$REQUIRE_MCP_PARENT" -eq 1 ]]; then
+  SWIFT_FLAGS+=("-D" "CMUX_REQUIRE_MCP_PARENT")
+fi
 for arch in "${ARCHS[@]}"; do
   case "$arch" in
     arm64|aarch64)
@@ -129,6 +139,7 @@ for arch in "${ARCHS[@]}"; do
     -warnings-as-errors \
     -sdk "$SDK_PATH" \
     -target "$target" \
+    "${SWIFT_FLAGS[@]}" \
     "${SOURCE_FILES[@]}" \
     -o "$arch_output"
   BUILT+=("$arch_output")

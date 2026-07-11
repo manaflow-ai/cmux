@@ -1656,7 +1656,7 @@ jobs:
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
-          CU_PROVIDER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-computer-use-provider"
+          CU_PROVIDER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/libexec/cmux-computer-use-provider"
           CU_MCP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-computer-use-mcp"
           test -x "$APP_BINARY"
           test -x "$CLI_BINARY"

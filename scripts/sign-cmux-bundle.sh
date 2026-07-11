@@ -15,7 +15,7 @@
 #   CMUX_TIMESTAMP             set to "none" for un-timestamped local sigs
 #
 # Signs in the Apple-documented inside-out order:
-#   1. CLI helpers under Contents/Resources/bin/* with minimal
+#   1. Helpers under Contents/Resources/bin/* and libexec/* with minimal
 #      hardened-runtime entitlements (no application-identifier).
 #   2. Each nested plugin under Contents/PlugIns/* with --deep.
 #   3. Each nested framework under Contents/Frameworks/* with --deep
@@ -59,11 +59,13 @@ fi
 
 COMMON=(--force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY")
 
-# 1. CLI helpers
-for helper in "$APP_PATH/Contents/Resources/bin"/*; do
-  [[ -f "$helper" && -x "$helper" ]] || continue
-  echo "==> signing helper $(basename "$helper")"
-  /usr/bin/codesign "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper"
+# 1. CLI and private helpers
+for helper_dir in bin libexec; do
+  for helper in "$APP_PATH/Contents/Resources/$helper_dir"/*; do
+    [[ -f "$helper" && -x "$helper" ]] || continue
+    echo "==> signing helper $(basename "$helper")"
+    /usr/bin/codesign "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper"
+  done
 done
 
 # 2. Plugins
@@ -107,13 +109,15 @@ fi
   }
 
 # Helpers must NOT carry the main app's application-identifier.
-for helper in "$APP_PATH/Contents/Resources/bin"/*; do
-  [[ -f "$helper" && -x "$helper" ]] || continue
-  if /usr/bin/codesign -d --entitlements :- "$helper" 2>&1 \
-       | grep -q "application-identifier"; then
-    echo "error: helper $(basename "$helper") unexpectedly carries application-identifier" >&2
-    exit 1
-  fi
+for helper_dir in bin libexec; do
+  for helper in "$APP_PATH/Contents/Resources/$helper_dir"/*; do
+    [[ -f "$helper" && -x "$helper" ]] || continue
+    if /usr/bin/codesign -d --entitlements :- "$helper" 2>&1 \
+         | grep -q "application-identifier"; then
+      echo "error: helper $(basename "$helper") unexpectedly carries application-identifier" >&2
+      exit 1
+    fi
+  done
 done
 
 echo "==> signing OK: $APP_PATH"

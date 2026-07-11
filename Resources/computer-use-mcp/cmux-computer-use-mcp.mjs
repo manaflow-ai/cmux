@@ -80,6 +80,8 @@ const MAX_TOOL_CALL_ARGUMENT_BYTES = 256 * 1024;
 const MAX_TYPE_TEXT_CHARS = positiveIntegerEnv("CMUX_CU_MAX_TYPE_TEXT_CHARS", 8000);
 const MAX_RETAINED_SNAPSHOTS = 4;
 const MAX_SCROLL_PAGES = 20;
+const OPEN_RESOLVE_TIMEOUT_MS = 2000;
+const OPEN_RESOLVE_POLL_MS = 50;
 const INCLUDE_SCREENSHOT_CURSOR = process.env.CMUX_CU_SCREENSHOT_CURSOR !== "0";
 // Explicit opt-in for headless automation: pre-approve the engine's per-app
 // control elicitations instead of forwarding them to the MCP client. Headless
@@ -861,7 +863,14 @@ class MacComputerUseProvider {
         timeout: TIMEOUT_MS,
         env: childEnv(),
       });
-      return await this.resolveApp(target?.bundleIdentifier || target?.name || app);
+      try {
+        return await this.resolveApp(target?.bundleIdentifier || target?.name || app, {
+          allowPartialMatch: true,
+        });
+      } catch (error) {
+        if (error?.providerCode === "provider.appNotFound") return null;
+        throw error;
+      }
     } catch (error) {
       if (error instanceof ProviderOperationError) throw error;
       throw new ProviderOperationError("provider.processFailed", shortErrorMessage(error));
@@ -998,6 +1007,26 @@ class ComputerUseSession {
   revoke(app, target = null) {
     const key = this.key(app, target);
     if (key) this.remove(key);
+  }
+
+  async resolveOpenedTarget(app) {
+    const deadline = Date.now() + OPEN_RESOLVE_TIMEOUT_MS;
+    let lastNotFound = null;
+    do {
+      throwIfActiveToolCancelled();
+      try {
+        const target = retainableTarget(await this.provider.resolveApp(app, { allowPartialMatch: true }));
+        if (target) return target;
+      } catch (error) {
+        if (error?.providerCode !== "provider.appNotFound") throw error;
+        lastNotFound = error;
+      }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await delay(Math.min(OPEN_RESOLVE_POLL_MS, remaining));
+    } while (Date.now() < deadline);
+    if (lastNotFound) throw lastNotFound;
+    return null;
   }
 
   dispose() {
@@ -1481,14 +1510,11 @@ function executablePath(path) {
 
 function bundledProviderPath() {
   const candidates = [
-    join(MODULE_DIR, "../bin/cmux-computer-use-provider"),
-    join(MODULE_DIR, "bin/cmux-computer-use-provider"),
+    join(MODULE_DIR, "../libexec/cmux-computer-use-provider"),
+    join(MODULE_DIR, "libexec/cmux-computer-use-provider"),
   ];
   if (IS_BUNDLED_MCP_EXECUTABLE) {
-    candidates.push(
-      join(EXECUTABLE_DIR, "cmux-computer-use-provider"),
-      join(EXECUTABLE_DIR, "../bin/cmux-computer-use-provider")
-    );
+    candidates.push(join(EXECUTABLE_DIR, "../libexec/cmux-computer-use-provider"));
   }
   for (const candidate of candidates) {
     const path = executablePath(candidate);
@@ -1616,9 +1642,10 @@ const TOOLS = [
       // agent-visible state so the next input must refresh its snapshot.
       s.revoke(normalizedApp, target);
       try {
-        const openedTarget = retainableTarget(
+        let openedTarget = retainableTarget(
           await s.provider.openApp(target?.bundleIdentifier || target?.name || normalizedApp)
         );
+        if (!openedTarget) openedTarget = await s.resolveOpenedTarget(normalizedApp);
         if (!openedTarget) {
           throw new ProviderOperationError("provider.appNotFound", `app not found: ${app}`, { app });
         }

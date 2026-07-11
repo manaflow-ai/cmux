@@ -1002,12 +1002,13 @@ if [[ -d "$PWD/ghostty" ]]; then
   fi
 fi
 BIN_DIR="$APP_PATH/Contents/Resources/bin"
-CU_PROVIDER_DEST="$BIN_DIR/cmux-computer-use-provider"
+LIBEXEC_DIR="$APP_PATH/Contents/Resources/libexec"
+CU_PROVIDER_DEST="$LIBEXEC_DIR/cmux-computer-use-provider"
 if [[ -x "$CU_PROVIDER_DEST" ]]; then
   echo "Preserving Xcode-built cmux computer-use provider at $CU_PROVIDER_DEST"
 else
-  mkdir -p "$BIN_DIR"
-  "$PWD/scripts/build-computer-use-provider.sh" --output "$CU_PROVIDER_DEST"
+  mkdir -p "$LIBEXEC_DIR"
+  "$PWD/scripts/build-computer-use-provider.sh" --require-mcp-parent --output "$CU_PROVIDER_DEST"
 fi
 CU_MCP_SERVER_DEST="$BIN_DIR/cmux-computer-use-mcp"
 if [[ -x "$CU_MCP_SERVER_DEST" ]]; then
