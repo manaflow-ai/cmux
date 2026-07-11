@@ -13,13 +13,16 @@ export const RELAY_TOKEN_ISS = "cmux";
 export const RELAY_TOKEN_AUD = "cmux-relay";
 export const RELAY_TOKEN_TTL_SECONDS = 300; // short-lived; the client refreshes
 
-// iroh EndpointId is a 32-byte Ed25519 public key, which the relay parses as
-// EXACTLY 64 hex chars or its 52-char z-base-32 form. Anything else is rejected
-// by the relay at connect time, so a token minted for it would be a signed-but-
-// useless 200. Validate the exact encodings here so callers fail fast with 400.
+// iroh EndpointId is a 32-byte Ed25519 public key. The cmux relay parses the
+// JWT claim with `EndpointId::from_str`, which (in iroh-base 1.0.0-rc.1) accepts
+// EXACTLY 64-char lowercase hex OR 52-char RFC 4648 base32 (A-Z2-7,
+// case-insensitive; `to_string()` emits hex). z-base-32 is a SEPARATE from_z32
+// API the relay does not use, so it must NOT be accepted here. Anything the
+// parser rejects would be a signed-but-useless 200, so fail fast with 400.
+// (We lowercase before matching; hex is minted lowercase to satisfy HEXLOWER,
+// and the relay uppercases base32 internally.)
 const HEX_ENDPOINT_ID_RE = /^[0-9a-f]{64}$/;
-// z-base-32 alphabet (ybndrfg8ejkmcpqxot1uwisza345h769); 256 bits -> 52 chars.
-const ZBASE32_ENDPOINT_ID_RE = /^[ybndrfg8ejkmcpqxot1uwisza345h769]{52}$/;
+const BASE32_ENDPOINT_ID_RE = /^[a-z2-7]{52}$/;
 
 // The relay fleet the client should probe (nearest wins). Overridable via env
 // (comma-separated) so the RelayMap can change without a code deploy.
@@ -56,7 +59,7 @@ export function relayUrls(): string[] {
 // library here to reject a self-defeating input is not worth the dependency.
 export function isValidEndpointId(value: string): boolean {
   const v = value.toLowerCase();
-  return HEX_ENDPOINT_ID_RE.test(v) || ZBASE32_ENDPOINT_ID_RE.test(v);
+  return HEX_ENDPOINT_ID_RE.test(v) || BASE32_ENDPOINT_ID_RE.test(v);
 }
 
 // Parse the signing key once and cache it keyed on the PEM value, so

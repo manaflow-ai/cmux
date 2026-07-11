@@ -15,9 +15,10 @@ import {
 const { publicKey, privateKey } = generateKeyPairSync("ed25519");
 const privatePem = privateKey.export({ type: "pkcs8", format: "pem" }) as string;
 
-// A valid 64-hex iroh EndpointId and a valid 52-char z-base-32 one.
+// A valid 64-hex iroh EndpointId and a valid 52-char RFC 4648 base32 one
+// (A-Z2-7; "a" == 0 decodes to a 32-byte value).
 const HEX_ID = "0123456789abcdef".repeat(4);
-const ZBASE32_ID = "ybndrfg8ejkmcpqxot1uwisza345h769ybndrfg8ejkmcpqxot1u";
+const BASE32_ID = "a".repeat(52);
 
 function verifyJwt(token: string): {
   header: Record<string, unknown>;
@@ -85,7 +86,7 @@ describe("mintRelayToken", () => {
     const key = relaySigningKey()!;
     const { token } = mintRelayToken({
       sub: "user_1",
-      endpointId: ZBASE32_ID,
+      endpointId: BASE32_ID,
       key,
       nowSeconds: 1_700_000_000,
     });
@@ -120,17 +121,20 @@ describe("relaySigningKey", () => {
 });
 
 describe("isValidEndpointId", () => {
-  test("accepts exact 64-hex and 52-char z-base-32 ids (any case)", () => {
+  test("accepts exact 64-hex and 52-char RFC 4648 base32 (any case)", () => {
     expect(isValidEndpointId(HEX_ID)).toBe(true);
     expect(isValidEndpointId(HEX_ID.toUpperCase())).toBe(true);
-    expect(isValidEndpointId(ZBASE32_ID)).toBe(true);
+    expect(isValidEndpointId(BASE32_ID)).toBe(true);
+    expect(isValidEndpointId(BASE32_ID.toUpperCase())).toBe(true);
   });
   test("rejects wrong-length or out-of-alphabet ids", () => {
     expect(isValidEndpointId("a".repeat(48))).toBe(false); // wrong length
     expect(isValidEndpointId("a".repeat(63))).toBe(false); // 63 != 64
     expect(isValidEndpointId(`${HEX_ID}00`)).toBe(false); // 66 hex
     expect(isValidEndpointId("g".repeat(64))).toBe(false); // 'g' not hex
-    expect(isValidEndpointId("l".repeat(52))).toBe(false); // 'l' not z-base-32
+    // '1'/'8' are z-base-32 but NOT RFC 4648 base32, so must be rejected.
+    expect(isValidEndpointId("1".repeat(52))).toBe(false);
+    expect(isValidEndpointId("8".repeat(52))).toBe(false);
     expect(isValidEndpointId("has spaces!!")).toBe(false);
   });
 });

@@ -40,11 +40,14 @@ type RateLimitCheck = (
   options: { request: Request; rateLimitKey?: string },
 ) => Promise<{ rateLimited: boolean; error?: string }>;
 
+const RATE_LIMIT_TIMEOUT_MS = 3000;
+
 export interface RelayTokenDeps {
   verifyRequest: (request: Request) => Promise<AuthedUser | null>;
   signingKey: () => KeyObject | null;
   nowSeconds: () => number;
   checkRateLimit: RateLimitCheck;
+  rateLimitTimeoutMs?: number;
 }
 
 const productionDeps: RelayTokenDeps = {
@@ -75,17 +78,30 @@ export async function handleRelayTokenRequest(
       return jsonResponse({ error: "relay_token_unavailable" }, 503);
     }
     let result: { rateLimited: boolean; error?: string };
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      result = await deps.checkRateLimit(rateLimitId, {
-        request,
-        rateLimitKey: user.id,
+      // @vercel/firewall does a network fetch with no timeout, so a stalled
+      // request would hang issuance until the platform deadline and block an
+      // attach/reconnect. Bound it and fail closed on timeout.
+      const deadline = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("rate_limit_timeout")),
+          deps.rateLimitTimeoutMs ?? RATE_LIMIT_TIMEOUT_MS,
+        );
       });
+      result = await Promise.race([
+        deps.checkRateLimit(rateLimitId, { request, rateLimitKey: user.id }),
+        deadline,
+      ]);
     } catch (err) {
       // @vercel/firewall rejects (not `error`) on network failure / unexpected
-      // status. Fail closed so a transient limiter outage returns a controlled
-      // 503 rather than an uncaught 500 that bypasses the issuance bound.
+      // status, and the deadline rejects on a stall. Fail closed so either
+      // returns a controlled 503 rather than an uncaught 500 or a hang that
+      // bypasses the issuance bound.
       console.error("relay-token.route.rate_limit_threw", err);
       return jsonResponse({ error: "relay_token_unavailable" }, 503);
+    } finally {
+      if (timer) clearTimeout(timer);
     }
     const { error, rateLimited } = result;
     if (rateLimited || error === "blocked") {
