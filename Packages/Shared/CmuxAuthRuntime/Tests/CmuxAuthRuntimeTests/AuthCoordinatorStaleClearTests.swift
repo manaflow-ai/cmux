@@ -335,4 +335,44 @@ import Testing
         #expect(await client.accessToken() != nil)
         #expect(await client.refreshToken() != nil)
     }
+
+    @Test func tokenReadsDuringManualSignInDoNotCancelTheSessionTransition() async throws {
+        // Interactive sign-in owns the same store boundary as launch auto-login.
+        // Both normal and forced access-token readers must stay retryable until
+        // that owner either publishes the session or fails it.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let store = FakeKeyValueStore()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: .plain()
+        )
+
+        await client.armCredentialGate()
+        let signIn = Task {
+            try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        }
+        await client.credentialDidPark()
+
+        await #expect(throws: AuthError.networkError) {
+            _ = try await coordinator.accessToken()
+        }
+        await #expect(throws: AuthError.networkError) {
+            _ = try await coordinator.forceRefreshAccessToken()
+        }
+
+        await client.releaseParkedCredential()
+        try await signIn.value
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == user)
+        #expect(store.bool(forKey: "has_tokens"))
+        #expect(await client.accessToken() != nil)
+        #expect(await client.refreshToken() != nil)
+    }
 }
