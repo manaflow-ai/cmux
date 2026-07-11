@@ -108,8 +108,7 @@ struct ProcessDetectedResumeIndexCoordinationTests {
             "A memoized unavailable termination capture must override an older shared cache."
         )
         let savePlan = TerminationResumeIndexSavePlan.resolve(
-            coordinator.resolution(),
-            cachedResumeIndexes: { sharedIndex.cachedResumeIndexes() }
+            coordinator.resolution()
         )
         #expect(
             savePlan.usesCoreSnapshotFallback,

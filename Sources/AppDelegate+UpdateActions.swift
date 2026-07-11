@@ -34,16 +34,10 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
 
     private func persistSessionForUpdateRelaunch() {
         isTerminatingApp = true
-        let resumeIndexResolver = UpdateRelaunchResumeIndexResolver(
-            cachedIndexes: { SharedLiveAgentIndex.shared.cachedResumeIndexes() }
-        )
-        let resumeIndexes = resumeIndexResolver.resolve(
-            coordinatedBy: terminationResumeIndexCoordinator.resolution()
-        )
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(
             includeScrollback: true,
             removeWhenEmpty: false,
-            resolvedResumeIndexAuthority: .completed(resumeIndexes)
+            resolvedResumeIndexAuthority: terminationResumeIndexCoordinator.resolution()
         )
         ClosedItemHistoryStore.shared.flushPendingSaves()
     }

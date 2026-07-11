@@ -4233,8 +4233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         resolvedResumeIndexAuthority: TerminationResumeIndexAuthority? = nil
     ) -> Bool {
         let plan = TerminationResumeIndexSavePlan.resolve(
-            resolvedResumeIndexAuthority ?? terminationResumeIndexCoordinator.resolution(),
-            cachedResumeIndexes: { SharedLiveAgentIndex.shared.cachedResumeIndexes() }
+            resolvedResumeIndexAuthority ?? terminationResumeIndexCoordinator.resolution()
         )
         if plan.usesCoreSnapshotFallback {
             StartupBreadcrumbLog.append("session.save.degraded", fields: [

@@ -3,6 +3,11 @@ import Foundation
 nonisolated enum TerminationResumeIndexAuthority: Sendable {
     case pending
     case completed(ProcessDetectedResumeIndexes?)
+
+    var completedIndexes: ProcessDetectedResumeIndexes? {
+        guard case .completed(let indexes) = self else { return nil }
+        return indexes
+    }
 }
 
 nonisolated struct TerminationResumeIndexSavePlan {
@@ -11,16 +16,9 @@ nonisolated struct TerminationResumeIndexSavePlan {
     let usesCoreSnapshotFallback: Bool
 
     static func resolve(
-        _ authority: TerminationResumeIndexAuthority,
-        cachedResumeIndexes: () -> ProcessDetectedResumeIndexes? = { nil }
+        _ authority: TerminationResumeIndexAuthority
     ) -> TerminationResumeIndexSavePlan {
-        let resumeIndexes: ProcessDetectedResumeIndexes?
-        switch authority {
-        case .pending:
-            resumeIndexes = cachedResumeIndexes()
-        case .completed(let completedIndexes):
-            resumeIndexes = completedIndexes
-        }
+        let resumeIndexes = authority.completedIndexes
         if let resumeIndexes {
             return TerminationResumeIndexSavePlan(
                 restorableAgentIndex: resumeIndexes.restorableAgentIndex,
@@ -35,26 +33,5 @@ nonisolated struct TerminationResumeIndexSavePlan {
             surfaceResumeBindingIndex: nil,
             usesCoreSnapshotFallback: true
         )
-    }
-}
-
-nonisolated struct UpdateRelaunchResumeIndexResolver {
-    private let cachedIndexes: () -> ProcessDetectedResumeIndexes?
-
-    init(
-        cachedIndexes: @escaping () -> ProcessDetectedResumeIndexes?
-    ) {
-        self.cachedIndexes = cachedIndexes
-    }
-
-    func resolve(
-        coordinatedBy authority: TerminationResumeIndexAuthority
-    ) -> ProcessDetectedResumeIndexes? {
-        switch authority {
-        case .pending:
-            return cachedIndexes()
-        case .completed(let completedIndexes):
-            return completedIndexes
-        }
     }
 }
