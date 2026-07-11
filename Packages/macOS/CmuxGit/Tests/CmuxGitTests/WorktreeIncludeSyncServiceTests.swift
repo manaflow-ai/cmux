@@ -34,6 +34,11 @@ struct WorktreeIncludeSyncServiceTests {
             at: destination.appendingPathComponent("config", isDirectory: true),
             withIntermediateDirectories: true
         )
+        try ".env\nconfig/app.local\nconfig/skip.local\n".write(
+            to: source.appendingPathComponent(".gitignore"),
+            atomically: true,
+            encoding: .utf8
+        )
         try "# local worktree state\n.env\nconfig/*.local\n!config/skip.local\n".write(
             to: source.appendingPathComponent(".worktreeinclude"),
             atomically: true,
@@ -88,6 +93,11 @@ struct WorktreeIncludeSyncServiceTests {
             withIntermediateDirectories: true
         )
         try "node_modules/\n".write(
+            to: source.appendingPathComponent(".gitignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "node_modules/\n".write(
             to: source.appendingPathComponent(".worktreeinclude"),
             atomically: true,
             encoding: .utf8
@@ -125,6 +135,11 @@ struct WorktreeIncludeSyncServiceTests {
         try FileManager.default.createDirectory(
             at: source.appendingPathComponent(".cmux/settings", isDirectory: true),
             withIntermediateDirectories: true
+        )
+        try ".cmux/settings/\n.cmux/worktrees/old/\nlocal/\n".write(
+            to: source.appendingPathComponent(".gitignore"),
+            atomically: true,
+            encoding: .utf8
         )
         try ".cmux/settings/\n.cmux/worktrees/old/\nlocal/\n".write(
             to: source.appendingPathComponent(".worktreeinclude"),
@@ -170,6 +185,11 @@ struct WorktreeIncludeSyncServiceTests {
         try initializeGitRepository(at: source)
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
         try ".env\nnew-worktree/\n".write(
+            to: source.appendingPathComponent(".gitignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try ".env\nnew-worktree/\n".write(
             to: source.appendingPathComponent(".worktreeinclude"),
             atomically: true,
             encoding: .utf8
@@ -193,6 +213,42 @@ struct WorktreeIncludeSyncServiceTests {
         #expect(!FileManager.default.fileExists(atPath: destination.appendingPathComponent("new-worktree").path))
     }
 
+    @Test("matching paths must also be ignored by the repository")
+    func unignoredMatchIsSkipped() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source", isDirectory: true)
+        let destination = root.appendingPathComponent("destination", isDirectory: true)
+        try initializeGitRepository(at: source)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        try "ignored.env\n".write(
+            to: source.appendingPathComponent(".gitignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "ignored.env\nunignored.env\n".write(
+            to: source.appendingPathComponent(".worktreeinclude"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "ignored\n".write(
+            to: source.appendingPathComponent("ignored.env"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "unignored\n".write(
+            to: source.appendingPathComponent("unignored.env"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let diagnostics = await WorktreeIncludeSyncService().sync(from: source, to: destination)
+
+        #expect(diagnostics.isEmpty)
+        #expect(try contents(at: destination.appendingPathComponent("ignored.env")) == "ignored\n")
+        #expect(!FileManager.default.fileExists(atPath: destination.appendingPathComponent("unignored.env").path))
+    }
+
     @Test("copy failures are diagnostics and do not stop later copies")
     func copyFailuresAreNonFatal() async throws {
         let root = try makeRoot()
@@ -201,6 +257,11 @@ struct WorktreeIncludeSyncServiceTests {
         let destination = root.appendingPathComponent("destination", isDirectory: true)
         try initializeGitRepository(at: source)
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        try ".env\nsettings.local\n".write(
+            to: source.appendingPathComponent(".gitignore"),
+            atomically: true,
+            encoding: .utf8
+        )
         try ".env\nsettings.local\n".write(
             to: source.appendingPathComponent(".worktreeinclude"),
             atomically: true,
