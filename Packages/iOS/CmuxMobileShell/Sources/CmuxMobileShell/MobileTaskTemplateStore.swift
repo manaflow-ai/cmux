@@ -23,6 +23,7 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     private static let lastTemplateIDKey = "cmux.mobile.taskComposer.lastTemplateID"
     private static let lastMacDeviceIDKey = "cmux.mobile.taskComposer.lastMacDeviceID"
     private static let lastDirectoryPrefix = "cmux.mobile.taskComposer.lastDirectory."
+    private static let composerDraftKey = "cmux.mobile.taskComposer.draft.v1"
 
     /// Creates a task template store backed by `defaults`.
     /// - Parameter defaults: The `UserDefaults` instance to persist into.
@@ -90,6 +91,22 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     /// Stores the last successful directory for one Mac.
     public func setLastDirectory(_ directory: String?, macDeviceID: String) {
         setOptional(directory, forKey: Self.lastDirectoryPrefix + macDeviceID)
+    }
+
+    /// Returns the unsent task-composer draft, if one was saved.
+    public func composerDraft() -> MobileTaskComposerDraft? {
+        guard let data = defaults.data(forKey: Self.composerDraftKey) else { return nil }
+        return try? decoder.decode(MobileTaskComposerDraft.self, from: data)
+    }
+
+    /// Stores or clears the unsent task-composer draft.
+    public func setComposerDraft(_ draft: MobileTaskComposerDraft?) {
+        guard let draft else {
+            defaults.removeObject(forKey: Self.composerDraftKey)
+            return
+        }
+        guard let data = try? encoder.encode(draft) else { return }
+        defaults.set(data, forKey: Self.composerDraftKey)
     }
 
     private func seedIfNeeded() {

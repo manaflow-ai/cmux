@@ -4,11 +4,18 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
+import UIKit
 
 struct TaskComposerSheet: View {
+    private enum Field: Hashable {
+        case prompt
+        case directory
+    }
+
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @Bindable var store: CMUXMobileShellStore
-    @FocusState private var isPromptFocused: Bool
+    @FocusState private var focusedField: Field?
 
     @State private var prompt = ""
     @State private var templates: [MobileTaskTemplate]
@@ -20,6 +27,7 @@ struct TaskComposerSheet: View {
     @State private var submitTask: Task<Void, Never>?
     @State private var failureText: String?
     @State private var isEditorPresented = false
+    @State private var shouldPersistDraftOnDisappear = true
 
     private let composer = MobileTaskCommandComposer()
 
@@ -27,30 +35,45 @@ struct TaskComposerSheet: View {
         self.store = store
         let loadedTemplates = store.taskTemplateStore?.listTemplates() ?? []
         let templates = loadedTemplates
+        let draft = store.taskTemplateStore?.composerDraft()
         let foregroundMacID = store.connectedMacDeviceID
         // A persisted last-used Mac may have been forgotten since; only restore
         // it while it is still paired, mirroring the template-id validation below.
         let pairedMacIDs = store.displayPairedMacs.map(\.macDeviceID)
         let restoredMacID = store.taskTemplateStore?.lastMacDeviceID()
             .flatMap { id in pairedMacIDs.contains(id) ? id : nil }
-        let fallbackMacID = restoredMacID
+        let draftMacID = draft?.macDeviceID
+            .flatMap { id in pairedMacIDs.contains(id) ? id : nil }
+        let selectedMacID = draftMacID
+            ?? restoredMacID
+            ?? foregroundMacID.flatMap { id in pairedMacIDs.contains(id) ? id : nil }
             ?? pairedMacIDs.first
             ?? foregroundMacID
             ?? ""
-        let selectedMacID = foregroundMacID ?? fallbackMacID
-        let selectedTemplateID = store.taskTemplateStore?.lastTemplateID()
+        let draftTemplateID = draft?.templateID
+            .flatMap { id in templates.contains(where: { $0.id == id }) ? id : nil }
+        let selectedTemplateID = draftTemplateID
+            ?? store.taskTemplateStore?.lastTemplateID()
             .flatMap { id in templates.contains(where: { $0.id == id }) ? id : nil }
             ?? templates.first?.id
         let selectedTemplate = selectedTemplateID.flatMap { id in templates.first { $0.id == id } }
-        let initialDirectory = Self.suggestedDirectory(
-            template: selectedTemplate,
-            macDeviceID: selectedMacID,
-            templateStore: store.taskTemplateStore
+        let canRestoreDraftDirectory = draft != nil && (
+            draft?.didEditDirectory == true
+                || (draft?.templateID == selectedTemplateID && draft?.macDeviceID == selectedMacID)
         )
+        let initialDirectory = canRestoreDraftDirectory
+            ? draft?.directory ?? "~"
+            : Self.suggestedDirectory(
+                template: selectedTemplate,
+                macDeviceID: selectedMacID,
+                templateStore: store.taskTemplateStore
+            )
+        _prompt = State(initialValue: draft?.prompt ?? "")
         _templates = State(initialValue: templates)
         _selectedTemplateID = State(initialValue: selectedTemplateID)
         _selectedMacDeviceID = State(initialValue: selectedMacID)
         _directory = State(initialValue: initialDirectory)
+        _didEditDirectory = State(initialValue: canRestoreDraftDirectory && draft?.didEditDirectory == true)
     }
 
     var body: some View {
@@ -59,20 +82,36 @@ struct TaskComposerSheet: View {
                 Section(L10n.string("mobile.taskComposer.prompt", defaultValue: "Prompt")) {
                     TextField(
                         L10n.string("mobile.taskComposer.promptPlaceholder", defaultValue: "Describe the task"),
-                        text: $prompt,
+                        text: promptBinding,
                         axis: .vertical
                     )
                     .lineLimit(3...8)
-                    .focused($isPromptFocused)
+                    .focused($focusedField, equals: .prompt)
                     .accessibilityIdentifier("MobileTaskComposerPrompt")
                 }
 
                 Section(L10n.string("mobile.taskComposer.template", defaultValue: "Template")) {
                     templatePicker
+                    if templates.isEmpty {
+                        validationText(
+                            L10n.string(
+                                "mobile.taskComposer.validation.template",
+                                defaultValue: "Add a template before creating a task."
+                            )
+                        )
+                    }
                 }
 
                 Section(L10n.string("mobile.taskComposer.machine", defaultValue: "Machine")) {
                     machineMenu
+                    if machines.isEmpty {
+                        validationText(
+                            L10n.string(
+                                "mobile.taskComposer.validation.machine",
+                                defaultValue: "Pair a Mac before creating a task."
+                            )
+                        )
+                    }
                 }
 
                 Section(L10n.string("mobile.taskComposer.directory", defaultValue: "Directory")) {
@@ -80,6 +119,10 @@ struct TaskComposerSheet: View {
                         .font(.system(.body, design: .monospaced))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                        .submitLabel(.done)
+                        .onSubmit { focusedField = nil }
+                        .focused($focusedField, equals: .directory)
+                        .accessibilityLabel(L10n.string("mobile.taskComposer.directory", defaultValue: "Directory"))
                         .accessibilityIdentifier("MobileTaskComposerDirectory")
                 }
 
@@ -102,7 +145,13 @@ struct TaskComposerSheet: View {
                             Spacer()
                         }
                     }
-                    .disabled(isSubmitting || selectedTemplate == nil || selectedMacDeviceID.isEmpty)
+                    .disabled(isSubmitting || selectedTemplate == nil || selectedMachine == nil)
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .accessibilityLabel(
+                        isSubmitting
+                            ? L10n.string("mobile.taskComposer.creating", defaultValue: "Creating Task")
+                            : L10n.string("mobile.taskComposer.create", defaultValue: "Create")
+                    )
                     .accessibilityIdentifier("MobileTaskComposerCreateButton")
 
                     if let failureText {
@@ -119,12 +168,20 @@ struct TaskComposerSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel")) {
                         submitTask?.cancel()
+                        shouldPersistDraftOnDisappear = false
+                        store.taskTemplateStore?.setComposerDraft(nil)
                         dismiss()
                     }
                     // A sent workspace.create cannot be recalled; keep the
                     // sheet up until the bounded RPC reports success/failure
                     // rather than dismissing and hiding the outcome.
                     .disabled(isSubmitting)
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button(L10n.string("mobile.common.done", defaultValue: "Done")) {
+                        focusedField = nil
+                    }
                 }
             }
             .sheet(isPresented: $isEditorPresented) {
@@ -137,13 +194,23 @@ struct TaskComposerSheet: View {
                 )
             }
             .onAppear {
-                isPromptFocused = true
+                focusedField = .prompt
             }
             .onDisappear {
                 // Safety net for parent-driven dismissal: a submit whose sheet
                 // is gone must not apply its result or persist last-used
                 // defaults. User-driven dismissal is blocked while submitting.
                 submitTask?.cancel()
+                if shouldPersistDraftOnDisappear {
+                    persistDraft()
+                }
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                guard newPhase != .active else { return }
+                persistDraft()
+            }
+            .onChange(of: machines.map(\.macDeviceID)) { _, _ in
+                validateMacSelection()
             }
         }
         .presentationDetents([.medium, .large])
@@ -160,8 +227,12 @@ struct TaskComposerSheet: View {
     }
 
     private var selectedMachineName: String {
-        machines.first { $0.macDeviceID == selectedMacDeviceID }?.resolvedName
+        selectedMachine?.resolvedName
             ?? selectedMacDeviceID
+    }
+
+    private var selectedMachine: MobilePairedMac? {
+        machines.first { $0.macDeviceID == selectedMacDeviceID }
     }
 
     private var directoryBinding: Binding<String> {
@@ -170,6 +241,17 @@ struct TaskComposerSheet: View {
             set: { newValue in
                 directory = newValue
                 didEditDirectory = true
+                failureText = nil
+            }
+        )
+    }
+
+    private var promptBinding: Binding<String> {
+        Binding(
+            get: { prompt },
+            set: { newValue in
+                prompt = newValue
+                failureText = nil
             }
         )
     }
@@ -181,43 +263,54 @@ struct TaskComposerSheet: View {
                     templateChip(template)
                 }
                 Button {
+                    persistDraft()
                     isEditorPresented = true
                 } label: {
                     Label(L10n.string("mobile.common.edit", defaultValue: "Edit"), systemImage: "pencil")
                         .labelStyle(.titleAndIcon)
                 }
                 .buttonStyle(.bordered)
+                .frame(minHeight: 44)
             }
             .padding(.vertical, 2)
         }
     }
 
+    @ViewBuilder
     private var machineMenu: some View {
-        Menu {
-            ForEach(machines) { mac in
-                Button {
-                    selectedMacDeviceID = mac.macDeviceID
-                    syncSuggestedDirectory()
-                } label: {
-                    HStack {
-                        machineIcon(mac)
-                        Text(mac.resolvedName)
+        if machines.isEmpty {
+            Text(L10n.string("mobile.taskComposer.machine.none", defaultValue: "No paired Macs"))
+                .foregroundStyle(.secondary)
+        } else {
+            Menu {
+                ForEach(machines) { mac in
+                    Button {
+                        selectedMacDeviceID = mac.macDeviceID
+                        failureText = nil
+                        syncSuggestedDirectory()
+                    } label: {
+                        HStack {
+                            machineIcon(mac)
+                            Text(mac.resolvedName)
+                        }
                     }
                 }
-            }
-        } label: {
-            HStack(spacing: 10) {
-                if let mac = machines.first(where: { $0.macDeviceID == selectedMacDeviceID }) {
-                    machineIcon(mac)
+            } label: {
+                HStack(spacing: 10) {
+                    if let mac = machines.first(where: { $0.macDeviceID == selectedMacDeviceID }) {
+                        machineIcon(mac)
+                    }
+                    Text(selectedMachineName)
+                    Spacer()
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                Text(selectedMachineName)
-                Spacer()
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
+            .accessibilityLabel(L10n.string("mobile.taskComposer.machine", defaultValue: "Machine"))
+            .accessibilityValue(selectedMachineName)
+            .accessibilityIdentifier("MobileTaskComposerMachineMenu")
         }
-        .accessibilityIdentifier("MobileTaskComposerMachineMenu")
     }
 
     private func templateChip(_ template: MobileTaskTemplate) -> some View {
@@ -236,6 +329,8 @@ struct TaskComposerSheet: View {
         }
         .buttonStyle(.bordered)
         .tint(isSelected ? .accentColor : .secondary)
+        .frame(minHeight: 44)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     @ViewBuilder
@@ -272,9 +367,13 @@ struct TaskComposerSheet: View {
             store.taskTemplateStore?.setLastTemplateID(selectedTemplate.id)
             store.taskTemplateStore?.setLastMacDeviceID(selectedMacDeviceID)
             store.taskTemplateStore?.setLastDirectory(trimmedDirectory.isEmpty ? nil : trimmedDirectory, macDeviceID: selectedMacDeviceID)
+            shouldPersistDraftOnDisappear = false
+            store.taskTemplateStore?.setComposerDraft(nil)
             dismiss()
         case .failure(let failure):
-            failureText = failureMessage(failure)
+            let message = failureMessage(failure)
+            failureText = message
+            announceFailure(message)
         }
     }
 
@@ -296,6 +395,7 @@ struct TaskComposerSheet: View {
 
     private func refreshTemplates() {
         templates = store.taskTemplateStore?.listTemplates() ?? []
+        failureText = nil
         if let selectedTemplateID, !templates.contains(where: { $0.id == selectedTemplateID }) {
             self.selectedTemplateID = templates.first?.id
         }
@@ -303,6 +403,36 @@ struct TaskComposerSheet: View {
         // changed (add/edit/delete in the editor); keep the field in sync
         // unless the user typed a directory themselves.
         syncSuggestedDirectory()
+    }
+
+    private func validateMacSelection() {
+        guard selectedMachine == nil else { return }
+        selectedMacDeviceID = machines.first?.macDeviceID ?? ""
+        didEditDirectory = false
+        failureText = nil
+        syncSuggestedDirectory()
+    }
+
+    private func persistDraft() {
+        guard shouldPersistDraftOnDisappear else { return }
+        store.taskTemplateStore?.setComposerDraft(MobileTaskComposerDraft(
+            prompt: prompt,
+            templateID: selectedTemplateID,
+            macDeviceID: selectedMacDeviceID.isEmpty ? nil : selectedMacDeviceID,
+            directory: directory,
+            didEditDirectory: didEditDirectory
+        ))
+    }
+
+    private func announceFailure(_ message: String) {
+        guard UIAccessibility.isVoiceOverRunning else { return }
+        AccessibilityNotification.Announcement(message).post()
+    }
+
+    private func validationText(_ text: String) -> some View {
+        Text(text)
+            .font(.footnote)
+            .foregroundStyle(.secondary)
     }
 
     /// Recompute the suggested directory for the current template/Mac unless

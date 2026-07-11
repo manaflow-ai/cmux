@@ -82,6 +82,26 @@ import CmuxMobileShellModel
         #expect(reloaded.lastDirectory(macDeviceID: "mac-a") == nil)
     }
 
+    @Test func composerDraftRoundTripsAcrossStoreInstancesAndClears() {
+        let defaults = Self.defaults()
+        let store = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        let draft = MobileTaskComposerDraft(
+            prompt: "Fix the reconnect flow\nthen test it",
+            templateID: UUID(),
+            macDeviceID: "mac-a",
+            directory: "~/Dev/cmux",
+            didEditDirectory: true
+        )
+
+        store.setComposerDraft(draft)
+
+        let reloaded = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        #expect(reloaded.composerDraft() == draft)
+
+        reloaded.setComposerDraft(nil)
+        #expect(UserDefaultsMobileTaskTemplateStore(defaults: defaults).composerDraft() == nil)
+    }
+
     private static func defaults() -> UserDefaults {
         let suiteName = "MobileTaskTemplateStoreTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

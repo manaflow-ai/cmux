@@ -72,15 +72,41 @@ struct TaskTemplateIconPicker: View {
                 .overlay(Circle().strokeBorder(isSelected ? Color.accentColor : .clear, lineWidth: 2))
         }
         .buttonStyle(.plain)
+        .frame(minWidth: 44, minHeight: 44)
         .accessibilityLabel(Self.accessibilityName(for: value))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private static func accessibilityName(for value: String) -> String {
         switch value {
-        case "agent:claude": return "Claude"
-        case "agent:codex": return "Codex"
-        case "agent:opencode": return "OpenCode"
-        default: return value
+        case "agent:claude":
+            return L10n.string("mobile.taskComposer.template.seed.claude", defaultValue: "Claude")
+        case "agent:codex":
+            return L10n.string("mobile.taskComposer.template.seed.codex", defaultValue: "Codex")
+        case "agent:opencode":
+            return L10n.string("mobile.taskComposer.template.seed.opencode", defaultValue: "OpenCode")
+        case "terminal":
+            return L10n.string("mobile.taskComposer.template.icon.terminal", defaultValue: "Terminal")
+        case "hammer":
+            return L10n.string("mobile.taskComposer.template.icon.hammer", defaultValue: "Hammer")
+        case "wrench.and.screwdriver":
+            return L10n.string("mobile.taskComposer.template.icon.tools", defaultValue: "Tools")
+        case "globe":
+            return L10n.string("mobile.taskComposer.template.icon.globe", defaultValue: "Globe")
+        case "folder":
+            return L10n.string("mobile.taskComposer.template.icon.folder", defaultValue: "Folder")
+        case "bolt":
+            return L10n.string("mobile.taskComposer.template.icon.bolt", defaultValue: "Bolt")
+        case "testtube.2":
+            return L10n.string("mobile.taskComposer.template.icon.test", defaultValue: "Test")
+        case "ladybug":
+            return L10n.string("mobile.taskComposer.template.icon.bug", defaultValue: "Bug")
+        case "doc.text":
+            return L10n.string("mobile.taskComposer.template.icon.document", defaultValue: "Document")
+        case "shippingbox":
+            return L10n.string("mobile.taskComposer.template.icon.package", defaultValue: "Package")
+        default:
+            return value
         }
     }
 }

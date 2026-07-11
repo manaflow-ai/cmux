@@ -24,4 +24,8 @@ public protocol MobileTaskTemplateStoring: AnyObject {
     func lastDirectory(macDeviceID: String) -> String?
     /// Stores the last successful directory for one Mac.
     func setLastDirectory(_ directory: String?, macDeviceID: String)
+    /// Returns the unsent task-composer draft, if one was saved.
+    func composerDraft() -> MobileTaskComposerDraft?
+    /// Stores or clears the unsent task-composer draft.
+    func setComposerDraft(_ draft: MobileTaskComposerDraft?)
 }

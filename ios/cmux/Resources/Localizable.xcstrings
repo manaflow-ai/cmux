@@ -6376,6 +6376,13 @@
         }
       }
     },
+    "mobile.taskComposer.creating": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Creating Task" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タスクを作成中" } }
+      }
+    },
     "mobile.taskComposer.directory": {
       "extractionState": "manual",
       "localizations": {
@@ -6510,6 +6517,13 @@
             "value": "マシン"
           }
         }
+      }
+    },
+    "mobile.taskComposer.machine.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No paired Macs" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペアリング済みのMacがありません" } }
       }
     },
     "mobile.taskComposer.prompt": {
@@ -6699,6 +6713,76 @@
         }
       }
     },
+    "mobile.taskComposer.template.icon.bolt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Bolt" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "稲妻" } }
+      }
+    },
+    "mobile.taskComposer.template.icon.bug": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Bug" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "バグ" } }
+      }
+    },
+    "mobile.taskComposer.template.icon.document": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Document" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "書類" } }
+      }
+    },
+    "mobile.taskComposer.template.icon.folder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Folder" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォルダ" } }
+      }
+    },
+    "mobile.taskComposer.template.icon.globe": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Globe" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "地球" } }
+      }
+    },
+    "mobile.taskComposer.template.icon.hammer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hammer" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ハンマー" } }
+      }
+    },
+    "mobile.taskComposer.template.icon.package": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Package" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "パッケージ" } }
+      }
+    },
+    "mobile.taskComposer.template.icon.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナル" } }
+      }
+    },
+    "mobile.taskComposer.template.icon.test": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Test" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "テスト" } }
+      }
+    },
+    "mobile.taskComposer.template.icon.tools": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tools" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ツール" } }
+      }
+    },
     "mobile.taskComposer.template.name": {
       "extractionState": "manual",
       "localizations": {
@@ -6833,6 +6917,20 @@
             "value": "新規タスク"
           }
         }
+      }
+    },
+    "mobile.taskComposer.validation.machine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pair a Mac before creating a task." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タスクを作成する前にMacをペアリングしてください。" } }
+      }
+    },
+    "mobile.taskComposer.validation.template": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add a template before creating a task." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タスクを作成する前にテンプレートを追加してください。" } }
       }
     },
     "mobile.toolbar.editor.addTitle": {
