@@ -14,7 +14,7 @@ public struct WorktreeIncludeSyncService: Sendable {
     private static let maximumPathspecBatchCount = 256
     private static let maximumPathspecBatchBytes = 64 * 1024
 
-    private let commandRunner: any CommandRunning
+    private let commandRunner: any StandardInputCommandRunning
     private let gitTimeout: TimeInterval
     // FileManager operations used here are documented thread-safe, and this
     // immutable injected instance has no delegate or mutable caller-owned state.
@@ -27,7 +27,7 @@ public struct WorktreeIncludeSyncService: Sendable {
     ///   - fileManager: Performs filesystem inspection and copies. Tests may inject an isolated manager.
     ///   - gitTimeout: Maximum duration of each Git matching command.
     public init(
-        commandRunner: any CommandRunning = CommandRunner(),
+        commandRunner: any StandardInputCommandRunning = CommandRunner(),
         fileManager: FileManager = .default,
         gitTimeout: TimeInterval = 30
     ) {
@@ -82,17 +82,26 @@ public struct WorktreeIncludeSyncService: Sendable {
             arguments: includeArguments + ["--directory", "--no-empty-directory", "-z", "--"]
         )
         let includeDirectories = includeCollapsed.paths.filter { $0.hasSuffix("/") }
-        let standardDirectoryContents = await standardIgnoredDirectoryContents(
+        let standardCollapsed = await standardCollapsedDirectories(
             source: source,
             candidates: includeDirectories
         )
-        let collapsedDirectoryExclusions = includeDirectories.map {
-            "--exclude=!/\(gitignoreEscapedLiteralPath($0))"
+        let exclusionFile = writeCollapsedDirectoryExclusions(standardCollapsed.paths)
+        defer {
+            if let url = exclusionFile.url {
+                try? fileManager.removeItem(at: url)
+            }
         }
-        let includeFiles = await gitPaths(
-            source: source,
-            arguments: includeArguments + collapsedDirectoryExclusions + ["-z", "--"]
-        )
+        let includeFiles: (paths: [String], diagnostic: String?)
+        if let exclusionDiagnostic = exclusionFile.diagnostic {
+            includeFiles = ([], exclusionDiagnostic)
+        } else {
+            let exclusionArguments = exclusionFile.url.map { ["--exclude-from=\($0.path)"] } ?? []
+            includeFiles = await gitPaths(
+                source: source,
+                arguments: includeArguments + exclusionArguments + ["-z", "--"]
+            )
+        }
         let standardFiles = await standardIgnoredFiles(
             source: source,
             candidates: includeFiles.paths
@@ -101,8 +110,8 @@ public struct WorktreeIncludeSyncService: Sendable {
         var diagnostics = [
             includeCollapsed.diagnostic,
             includeFiles.diagnostic,
-        ].compactMap { $0 } + standardDirectoryContents.diagnostics + standardFiles.diagnostics
-        let candidates = Set(standardDirectoryContents.paths + standardFiles.paths).sorted()
+        ].compactMap { $0 } + standardCollapsed.diagnostics + standardFiles.diagnostics
+        let candidates = Set(standardCollapsed.paths + standardFiles.paths).sorted()
         let protectedSourceSubtree = destinationContainer(
             destination: destination,
             inside: source
@@ -148,26 +157,32 @@ public struct WorktreeIncludeSyncService: Sendable {
         guard result.executionError == nil,
               !result.timedOut,
               result.exitStatus == 0 else {
-            let detail: String
-            if result.timedOut {
-                detail = "git timed out after \(gitTimeout) seconds"
-            } else {
-                detail = result.executionError
-                    ?? result.stderr?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    ?? "git exited with status \(result.exitStatus.map(String.init) ?? "unknown")"
-            }
-            return ([], "Could not evaluate .worktreeinclude: \(detail)")
+            return ([], "Could not evaluate .worktreeinclude: \(gitFailureDetail(result))")
         }
-        let paths = (result.stdout ?? "")
-            .split(separator: "\0", omittingEmptySubsequences: true)
-            .map(String.init)
-        return (paths, nil)
+        return (parseNulPaths(result.stdout), nil)
     }
 
-    private nonisolated func standardIgnoredDirectoryContents(
+    private nonisolated func parseNulPaths(_ output: String?) -> [String] {
+        (output ?? "")
+            .split(separator: "\0", omittingEmptySubsequences: true)
+            .map(String.init)
+    }
+
+    private nonisolated func gitFailureDetail(_ result: CommandResult) -> String {
+        if result.timedOut {
+            return "git timed out after \(gitTimeout) seconds"
+        }
+        return result.executionError
+            ?? result.stderr?.trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? "git exited with status \(result.exitStatus.map(String.init) ?? "unknown")"
+    }
+
+    private nonisolated func standardCollapsedDirectories(
         source: URL,
         candidates: [String]
     ) async -> (paths: [String], diagnostics: [String]) {
+        // Every candidate originated in `git ls-files --others`, so tracked
+        // descendants cannot enter a directory copied from this result.
         var paths: [String] = []
         var diagnostics: [String] = []
         for pathspecs in literalPathspecBatches(candidates) {
@@ -189,25 +204,6 @@ public struct WorktreeIncludeSyncService: Sendable {
                 continue
             }
             paths += collapsedResult.paths
-
-            let collapsedExclusions = collapsedResult.paths
-                .filter { $0.hasSuffix("/") }
-                .map { ":(top,exclude,literal)\($0)" }
-            let fileResult = await gitPaths(
-                source: source,
-                arguments: [
-                    "ls-files",
-                    "--others",
-                    "--ignored",
-                    "--exclude-standard",
-                    "-z",
-                    "--",
-                ] + pathspecs + collapsedExclusions
-            )
-            paths += fileResult.paths
-            if let diagnostic = fileResult.diagnostic {
-                diagnostics.append(diagnostic)
-            }
         }
         return (paths, diagnostics)
     }
@@ -216,23 +212,61 @@ public struct WorktreeIncludeSyncService: Sendable {
         source: URL,
         candidates: [String]
     ) async -> (paths: [String], diagnostics: [String]) {
+        // `--no-index` asks check-ignore to evaluate each supplied path without
+        // changing scope: every candidate already came from `ls-files --others`.
+        // NUL-delimited stdin preserves arbitrary Git path bytes representable
+        // by CommandRunner's UTF-8 output contract.
         var paths: [String] = []
         var diagnostics: [String] = []
-        for pathspecs in literalPathspecBatches(candidates) {
-            var arguments = [
-                "ls-files",
-                "--others",
-                "--ignored",
-                "--exclude-standard",
-            ]
-            arguments += ["-z", "--"] + pathspecs
-            let result = await gitPaths(source: source, arguments: arguments)
-            paths += result.paths
-            if let diagnostic = result.diagnostic {
-                diagnostics.append(diagnostic)
+        for batch in nulPathBatches(candidates) {
+            var input = Data()
+            input.reserveCapacity(batch.reduce(0) { $0 + $1.utf8.count + 1 })
+            for path in batch {
+                input.append(contentsOf: path.utf8)
+                input.append(0)
             }
+            let result = await commandRunner.run(
+                directory: source.path,
+                executable: "git",
+                arguments: ["check-ignore", "--no-index", "--stdin", "-z"],
+                standardInput: input,
+                timeout: gitTimeout
+            )
+            guard result.executionError == nil,
+                  !result.timedOut,
+                  result.exitStatus == 0 || result.exitStatus == 1 else {
+                diagnostics.append("Could not evaluate .worktreeinclude: \(gitFailureDetail(result))")
+                continue
+            }
+            paths += parseNulPaths(result.stdout)
         }
         return (paths, diagnostics)
+    }
+
+    private nonisolated func writeCollapsedDirectoryExclusions(
+        _ paths: [String]
+    ) -> (url: URL?, diagnostic: String?) {
+        guard !paths.isEmpty else { return (nil, nil) }
+        let url = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-worktreeinclude-\(UUID().uuidString)",
+            isDirectory: false
+        )
+        guard fileManager.createFile(atPath: url.path, contents: nil) else {
+            return (nil, "Could not create temporary .worktreeinclude exclusion file.")
+        }
+
+        do {
+            let handle = try FileHandle(forWritingTo: url)
+            defer { try? handle.close() }
+            for path in paths where path.hasSuffix("/") {
+                let pattern = "!/\(gitignoreEscapedLiteralPath(path))\n"
+                try handle.write(contentsOf: Data(pattern.utf8))
+            }
+            return (url, nil)
+        } catch {
+            try? fileManager.removeItem(at: url)
+            return (nil, "Could not write temporary .worktreeinclude exclusion file: \(error.localizedDescription)")
+        }
     }
 
     private nonisolated func literalPathspecBatches(_ paths: [String]) -> [[String]] {
@@ -252,6 +286,29 @@ public struct WorktreeIncludeSyncService: Sendable {
             }
             batch.append(pathspec)
             batchBytes += pathspecBytes
+        }
+        if !batch.isEmpty {
+            batches.append(batch)
+        }
+        return batches
+    }
+
+    private nonisolated func nulPathBatches(_ paths: [String]) -> [[String]] {
+        var batches: [[String]] = []
+        var batch: [String] = []
+        var batchBytes = 0
+
+        for path in paths {
+            let pathBytes = path.utf8.count + 1
+            if !batch.isEmpty,
+               batch.count >= Self.maximumPathspecBatchCount
+                || batchBytes + pathBytes > Self.maximumPathspecBatchBytes {
+                batches.append(batch)
+                batch = []
+                batchBytes = 0
+            }
+            batch.append(path)
+            batchBytes += pathBytes
         }
         if !batch.isEmpty {
             batches.append(batch)

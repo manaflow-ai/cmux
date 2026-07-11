@@ -17,7 +17,7 @@ import os
 ///     directory: ".", executable: "gh", arguments: ["auth", "token"], timeout: 5
 /// )
 /// ```
-public struct CommandRunner: CommandRunning, Sendable {
+public struct CommandRunner: StandardInputCommandRunning, Sendable {
     /// The default fallback `PATH` directories searched when a command is not on `PATH`.
     public static let defaultFallbackSearchDirectories: [String] = [
         "/opt/homebrew/bin",
@@ -75,7 +75,51 @@ public struct CommandRunner: CommandRunning, Sendable {
         arguments: [String],
         timeout: TimeInterval?
     ) async -> CommandResult {
+        await runCommand(
+            directory: directory,
+            executable: executable,
+            arguments: arguments,
+            standardInput: nil,
+            timeout: timeout
+        )
+    }
+
+    /// Runs `executable` with a byte payload connected to its standard input.
+    ///
+    /// Implements ``StandardInputCommandRunning/run(directory:executable:arguments:standardInput:timeout:)``.
+    ///
+    /// - Parameters:
+    ///   - directory: The working directory for the process.
+    ///   - executable: A command name or absolute path.
+    ///   - arguments: The arguments passed to the command.
+    ///   - standardInput: Bytes written to stdin before closing the pipe.
+    ///   - timeout: A deadline in seconds, or `nil` to wait indefinitely.
+    /// - Returns: The ``CommandResult`` describing how the command finished.
+    public func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        standardInput: Data,
+        timeout: TimeInterval?
+    ) async -> CommandResult {
+        await runCommand(
+            directory: directory,
+            executable: executable,
+            arguments: arguments,
+            standardInput: standardInput,
+            timeout: timeout
+        )
+    }
+
+    private func runCommand(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        standardInput: Data?,
+        timeout: TimeInterval?
+    ) async -> CommandResult {
         let process = Process()
+        let stdinPipe = standardInput.map { _ in Pipe() }
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
         if let resolved = resolvedCommandPath(executable: executable) {
@@ -86,7 +130,11 @@ public struct CommandRunner: CommandRunning, Sendable {
             process.arguments = [executable] + arguments
         }
         process.currentDirectoryURL = URL(fileURLWithPath: directory)
-        process.standardInput = FileHandle.nullDevice
+        if let stdinPipe {
+            process.standardInput = stdinPipe
+        } else {
+            process.standardInput = FileHandle.nullDevice
+        }
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
@@ -173,12 +221,23 @@ public struct CommandRunner: CommandRunning, Sendable {
                 try process.run()
             } catch {
                 let message = String(describing: error)
+                try? stdinPipe?.fileHandleForReading.close()
+                try? stdinPipe?.fileHandleForWriting.close()
                 try? stdoutPipe.fileHandleForWriting.close()
                 try? stderrPipe.fileHandleForWriting.close()
                 _ = claimImmediate(CommandResult(
                     stdout: nil, stderr: nil, exitStatus: nil, timedOut: false, executionError: message
                 ))
                 return
+            }
+
+            if let stdinPipe, let standardInput {
+                try? stdinPipe.fileHandleForReading.close()
+                let inputHandle = InputWriteHandle(fileHandle: stdinPipe.fileHandleForWriting)
+                Task.detached(priority: .utility) {
+                    defer { try? inputHandle.fileHandle.close() }
+                    try? inputHandle.fileHandle.writeProcessPipeInput(standardInput)
+                }
             }
 
             // Close the parent's write ends so the readers see EOF once the child (and any
@@ -232,6 +291,12 @@ public struct CommandRunner: CommandRunning, Sendable {
         var resumed = false
         // The command deadline timer, cancelled when the continuation resumes (any path).
         var deadlineTimer: (any DispatchSourceTimer)?
+    }
+
+    // FileHandle has no Sendable conformance. This immutable wrapper transfers
+    // exclusive ownership of the stdin write end to one detached writer task.
+    private struct InputWriteHandle: @unchecked Sendable {
+        let fileHandle: FileHandle
     }
 
     private static func scheduleSigkill(_ process: Process) {

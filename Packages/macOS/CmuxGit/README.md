@@ -79,5 +79,5 @@ let meta = await GitMetadataService().workspaceMetadata(for: fixture.root.path)
 
 Worktree include tests use temporary real Git repositories to exercise Git's
 gitignore parser. Tests that need to isolate process or filesystem failures can
-inject a `CommandRunning` implementation and `FileManager` through
+inject a `StandardInputCommandRunning` implementation and `FileManager` through
 `WorktreeIncludeSyncService.init(commandRunner:fileManager:gitTimeout:)`.

@@ -369,15 +369,17 @@ struct WorktreeIncludeSyncServiceTests {
         #expect(try contents(at: destination.appendingPathComponent(".env")) == "secret=value\n")
         #expect(try contents(at: destination.appendingPathComponent("node_modules/pkg/index.js")) == "module\n")
         #expect(invocations.allSatisfy { $0.timeout != nil })
-        let standardIgnoreInvocations = invocations.filter { $0.arguments.contains("--exclude-standard") }
-        #expect(!standardIgnoreInvocations.isEmpty)
-        #expect(standardIgnoreInvocations.allSatisfy { invocation in
+        let collapsedIgnoreInvocations = invocations.filter { $0.arguments.contains("--exclude-standard") }
+        #expect(!collapsedIgnoreInvocations.isEmpty)
+        #expect(collapsedIgnoreInvocations.allSatisfy { invocation in
             guard let separator = invocation.arguments.firstIndex(of: "--") else { return false }
             let pathspecs = invocation.arguments.suffix(from: invocation.arguments.index(after: separator))
-            return pathspecs.contains { $0.hasPrefix(":(top,literal)") }
-                && pathspecs.allSatisfy {
-                    $0.hasPrefix(":(top,literal)") || $0.hasPrefix(":(top,exclude,literal)")
-                }
+            return !pathspecs.isEmpty && pathspecs.allSatisfy { $0.hasPrefix(":(top,literal)") }
+        })
+        let stdinInvocations = invocations.filter { $0.arguments.contains("check-ignore") }
+        #expect(!stdinInvocations.isEmpty)
+        #expect(stdinInvocations.allSatisfy {
+            ($0.standardInputByteCount ?? 0) > 0 && ($0.standardInputByteCount ?? 0) <= 64 * 1024
         })
     }
 
