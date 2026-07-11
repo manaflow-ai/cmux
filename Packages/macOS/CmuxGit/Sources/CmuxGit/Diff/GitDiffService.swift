@@ -1,3 +1,4 @@
+internal import Darwin
 public import Foundation
 
 /// Runs git commands needed by the mobile diff-review flow.
@@ -49,18 +50,25 @@ public struct GitDiffService: Sendable {
     ///     unbounded memory.
     /// - Returns: Changed-file summaries in path order with a truncation marker,
     ///   or `nil` when any required git command fails or times out.
-    public func changedFiles(repoRoot: String, maxOutputBytes: Int? = nil) -> GitChangedFiles? {
+    public func changedFiles(repoRoot: String, maxOutputBytes: Int = 4 * 1024 * 1024) -> GitChangedFiles? {
+        guard maxOutputBytes > 0 else { return nil }
         guard let baseline = diffBaseline(in: repoRoot) else {
             return nil
         }
         let numstat = runGit(
             in: repoRoot,
-            arguments: ["diff", baseline, "--numstat", "-z", "--no-color", "--find-renames"],
+            arguments: [
+                "diff", baseline, "--numstat", "-z", "--no-color", "--find-renames",
+                "--no-ext-diff", "--no-textconv",
+            ],
             maxOutputBytes: maxOutputBytes
         )
         let nameStatus = runGit(
             in: repoRoot,
-            arguments: ["diff", baseline, "--name-status", "-z", "--no-color", "--find-renames"],
+            arguments: [
+                "diff", baseline, "--name-status", "-z", "--no-color", "--find-renames",
+                "--no-ext-diff", "--no-textconv",
+            ],
             maxOutputBytes: maxOutputBytes
         )
         let untracked = runGit(
@@ -111,8 +119,9 @@ public struct GitDiffService: Sendable {
         repoRoot: String,
         path: String,
         oldPath: String? = nil,
-        maxOutputBytes: Int? = nil
+        maxOutputBytes: Int = 4 * 1024 * 1024
     ) -> GitFileDiff? {
+        guard maxOutputBytes > 0 else { return nil }
         // Validate on a trimmed copy only; the pathspec passed to git must stay
         // byte-exact because repository paths may legitimately start or end
         // with whitespace (`changedFiles` reports them verbatim).
@@ -126,8 +135,10 @@ public struct GitDiffService: Sendable {
         let absolutePath = URL(fileURLWithPath: repoRoot, isDirectory: true)
             .appendingPathComponent(path).path
         let pathExists = FileManager.default.fileExists(atPath: absolutePath, isDirectory: &isDirectory)
+        let isSymbolicLink = Self.isSymbolicLink(atPath: absolutePath)
+        let isActualDirectory = isDirectory.boolValue && !isSymbolicLink
         if pathExists,
-           isDirectory.boolValue,
+           isActualDirectory,
            !isExactTrackedGitlink(repoRoot: repoRoot, path: path, maxOutputBytes: maxOutputBytes) {
             return nil
         }
@@ -151,7 +162,7 @@ public struct GitDiffService: Sendable {
         guard let baseline = diffBaseline(in: repoRoot) else { return nil }
         let requestedBaselineEntry = baselineEntryKind(repoRoot: repoRoot, baseline: baseline, path: path)
         guard requestedBaselineEntry != .failed else { return nil }
-        if pathExists, !isDirectory.boolValue {
+        if pathExists, !isActualDirectory {
             // A baseline tree and a current file can share the same spelling;
             // Git would expand the pathspec to both the file and every deleted
             // descendant instead of returning one file diff.
@@ -245,13 +256,19 @@ public struct GitDiffService: Sendable {
     /// untracked tree, and the byte bound caps the listing a directory-shaped
     /// request can still emit (a directory can never equal itself in the
     /// output, so a capped listing only ever fails closed to "tracked").
-    private func isUntracked(repoRoot: String, path: String, maxOutputBytes: Int? = nil) -> Bool {
+    private func isUntracked(repoRoot: String, path: String, maxOutputBytes: Int) -> Bool {
         let output = runGit(
             in: repoRoot,
             arguments: ["ls-files", "--others", "--exclude-standard", "-z", "--", Self.literalPathspec(path)],
             maxOutputBytes: maxOutputBytes
         ).successOutput
         return output?.split(separator: "\0", omittingEmptySubsequences: true).contains(Substring(path)) == true
+    }
+
+    private static func isSymbolicLink(atPath path: String) -> Bool {
+        var fileStatus = stat()
+        guard lstat(path, &fileStatus) == 0 else { return false }
+        return fileStatus.st_mode & S_IFMT == S_IFLNK
     }
 
     /// A gitlink is the only index entry whose working-tree representation is
@@ -261,9 +278,9 @@ public struct GitDiffService: Sendable {
     private func isExactTrackedGitlink(
         repoRoot: String,
         path: String,
-        maxOutputBytes: Int?
+        maxOutputBytes: Int
     ) -> Bool {
-        let validationOutputLimit = min(maxOutputBytes ?? 64 * 1024, 64 * 1024)
+        let validationOutputLimit = min(maxOutputBytes, 64 * 1024)
         let result = runGit(
             in: repoRoot,
             arguments: ["ls-files", "--stage", "-z", "--", Self.literalPathspec(path)],

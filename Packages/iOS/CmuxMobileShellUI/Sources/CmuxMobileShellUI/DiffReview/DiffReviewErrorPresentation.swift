@@ -1,8 +1,14 @@
 import CmuxMobileRPC
 import CmuxMobileSupport
 
-enum DiffReviewErrorPresentation {
-    static func message(for error: any Error) -> String {
+struct DiffReviewErrorPresentation {
+    let message: String
+
+    init(error: any Error) {
+        message = Self.makeMessage(for: error)
+    }
+
+    private static func makeMessage(for error: any Error) -> String {
         guard let connectionError = error as? MobileShellConnectionError else {
             return unavailableMessage
         }

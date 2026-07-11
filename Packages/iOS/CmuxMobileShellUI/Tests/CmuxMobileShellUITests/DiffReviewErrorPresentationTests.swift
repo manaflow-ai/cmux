@@ -6,9 +6,9 @@ import Testing
 @Suite struct DiffReviewErrorPresentationTests {
     @Test func knownRPCErrorsDoNotExposeServerEnglish() {
         for code in ["not_found", "git_failed", "stale_repository"] {
-            let message = DiffReviewErrorPresentation.message(
-                for: MobileShellConnectionError.rpcError(code, "UNLOCALIZED SERVER MESSAGE")
-            )
+            let message = DiffReviewErrorPresentation(
+                error: MobileShellConnectionError.rpcError(code, "UNLOCALIZED SERVER MESSAGE")
+            ).message
 
             #expect(!message.isEmpty)
             #expect(!message.contains("UNLOCALIZED SERVER MESSAGE"))
@@ -16,9 +16,9 @@ import Testing
     }
 
     @Test func unknownErrorsUseLocalizedFallback() {
-        let message = DiffReviewErrorPresentation.message(
-            for: MobileShellConnectionError.rpcError("future_code", "UNLOCALIZED SERVER MESSAGE")
-        )
+        let message = DiffReviewErrorPresentation(
+            error: MobileShellConnectionError.rpcError("future_code", "UNLOCALIZED SERVER MESSAGE")
+        ).message
 
         #expect(!message.isEmpty)
         #expect(!message.contains("UNLOCALIZED SERVER MESSAGE"))

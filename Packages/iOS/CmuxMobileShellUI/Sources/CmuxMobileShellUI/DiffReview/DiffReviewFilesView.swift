@@ -90,7 +90,7 @@ struct DiffReviewFilesView: View {
             return
         } catch {
             guard statusLoadGeneration == generation, !Task.isCancelled else { return }
-            errorMessage = DiffReviewErrorPresentation.message(for: error)
+            errorMessage = DiffReviewErrorPresentation(error: error).message
         }
     }
 }

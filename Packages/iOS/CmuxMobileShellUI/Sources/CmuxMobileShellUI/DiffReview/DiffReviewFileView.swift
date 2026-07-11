@@ -275,7 +275,7 @@ struct DiffReviewFileView: View {
             guard activeRequest == request, !Task.isCancelled else { return }
             loadState = .failed(
                 path: path,
-                message: DiffReviewErrorPresentation.message(for: error)
+                message: DiffReviewErrorPresentation(error: error).message
             )
             session.recordHunkCount(0, for: path)
         }
