@@ -2,6 +2,11 @@ import AppKit
 import CCEF
 import Foundation
 
+/// Read by the atexit handler below (atexit takes a C function pointer, so
+/// no state can be captured). Set on the main thread when an AppKit
+/// termination has been committed; read once inside exit().
+private var cefkitTerminationExitBypassArmed = false
+
 /// Options for CEFApp.initialize; only rootCachePath is required.
 public struct CEFConfiguration {
     /// Parent directory for all browser storage. Profile caches are created
@@ -202,15 +207,20 @@ public final class CEFApp {
     /// i.e. after every willTerminateNotification observer has finished, so
     /// no other component's final persistence is starved. Browser process
     /// only (helper processes must propagate their real exit codes).
-    /// Tradeoff, documented: after CEF has initialized, any exit(status)
-    /// in this process reports status 0; AppKit termination always exits 0
-    /// anyway.
+    ///
+    /// The bypass is ARMED only when an AppKit termination has been
+    /// committed (prepareForTermination reported ready), so a library user
+    /// calling exit(status) outside app termination keeps its real exit
+    /// status — Chromium's handlers may still crash that path, exactly as
+    /// they would have before CEFKit registered anything.
     private static var processExitHandlerRegistered = false
 
     private static func registerProcessExitHandlerOnce() {
         guard !processExitHandlerRegistered else { return }
         processExitHandlerRegistered = true
-        atexit { _exit(0) }
+        atexit {
+            if cefkitTerminationExitBypassArmed { _exit(0) }
+        }
     }
 
     /// Number of live CEF browsers (created and not yet destroyed).
@@ -296,6 +306,11 @@ public final class CEFApp {
     public func prepareForTermination(onReady: @escaping () -> Void) -> Bool {
         guard isInitialized else { return true }
         if liveBrowserCount == 0, !isDrainingAfterClose {
+            // Termination will proceed: arm the atexit _exit bypass so
+            // AppKit's exit() skips Chromium's crashing teardown. Armed
+            // only here, on the committed termination path, so other
+            // exit(status) calls keep their real status.
+            cefkitTerminationExitBypassArmed = true
             return true
         }
         if terminationCompletion == nil {

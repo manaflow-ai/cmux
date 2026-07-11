@@ -5,7 +5,10 @@
 # (navigation, typing, clicks, scrolls, drags). Fails if the app crashes or
 # any page stops answering.
 #
-# Usage: run-stress.sh [seconds]   (env: CEFDEMO_DEBUG_PORT, CEFDEMO_STRESS_MODE)
+# Usage: run-stress.sh [seconds]
+# Env: CEFDEMO_DEBUG_PORT, CEFDEMO_STRESS_MODE, CEFDEMO_STRESS_WIPE=1 to also
+#      delete the persistent CEFDemo Application Support state (profiles,
+#      cookies, extension state) for a clean-slate run.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -19,9 +22,15 @@ if [[ ! -x "$APP" ]]; then
   exit 1
 fi
 
-pkill -9 -f 'CEFDemo.app/Contents/MacOS' 2>/dev/null || true
+# Kill only leftovers of THIS checkout's build (they hold the CDP port);
+# never other CEFDemo builds or manual sessions from other checkouts.
+pkill -9 -f "$APP" 2>/dev/null || true
 sleep 1
-rm -rf "$HOME/Library/Application Support/CEFDemo"
+# Deleting profiles/cookies/extension state is destructive; opt in.
+if [[ "${CEFDEMO_STRESS_WIPE:-0}" == "1" ]]; then
+  echo "CEFDEMO_STRESS_WIPE=1: removing $HOME/Library/Application Support/CEFDemo"
+  rm -rf "$HOME/Library/Application Support/CEFDemo"
+fi
 
 LOG="$(mktemp /tmp/cefdemo-stress.XXXXXX)"
 CEFDEMO_DEBUG_PORT="$PORT" CEFDEMO_AUTOTEST=1 CEFDEMO_STRESS=1 CEFDEMO_STRESS_MODE="$MODE" \
@@ -58,6 +67,7 @@ else
   grep -m3 -E 'FATAL' "$LOG" >&2
   STATUS=1
 fi
-pkill -9 -f 'CEFDemo.app/Contents/MacOS' 2>/dev/null || true
+# Tear down only the instance this run launched.
+kill -9 "$APP_PID" 2>/dev/null || true
 echo "log: $LOG"
 exit $STATUS
