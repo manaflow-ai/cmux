@@ -30,9 +30,9 @@ extension CEFApp {
             completion(nil)
             return
         }
-        let task = URLSession.shared.dataTask(with: listURL) { data, _, _ in
+        Task { @MainActor in
             var result: String?
-            if let data,
+            if let (data, _) = try? await URLSession.shared.data(from: listURL),
                let targets = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
                 let match = targets.first { $0["id"] as? String == targetId }
                 if let frontendPath = match?["devtoolsFrontendUrl"] as? String {
@@ -41,9 +41,8 @@ extension CEFApp {
                         : "http://127.0.0.1:\(port)\(frontendPath)"
                 }
             }
-            DispatchQueue.main.async { completion(result) }
+            completion(result)
         }
-        task.resume()
     }
 }
 

@@ -6,6 +6,8 @@ import Foundation
 /// `<rootCachePath>/Profile-<name>`. Pass nil (the default profile) to share
 /// the global context.
 public final class CEFProfile {
+    /// The caller-supplied profile identity (not sanitized; the cache
+    /// directory name is derived from it).
     public let name: String
     let contextPtr: UnsafeMutablePointer<cef_request_context_t>
 

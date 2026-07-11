@@ -10,14 +10,19 @@ import CCEF
 open class CEFKitApplication: NSApplication, CefAppProtocol {
     private var handlingSendEvent = false
 
+    /// CefAppProtocol: whether the app is currently inside sendEvent;
+    /// Chromium reads this to coordinate nested run loops.
     public func isHandlingSendEvent() -> Bool {
         handlingSendEvent
     }
 
+    /// CefAppProtocol: set by Chromium around its own event dispatch.
     public func setHandlingSendEvent(_ value: Bool) {
         handlingSendEvent = value
     }
 
+    /// Marks the handling-send-event window around AppKit event dispatch,
+    /// as CefAppProtocol requires.
     open override func sendEvent(_ event: NSEvent) {
         let previous = handlingSendEvent
         handlingSendEvent = true

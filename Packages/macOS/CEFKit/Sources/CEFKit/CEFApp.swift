@@ -2,6 +2,7 @@ import AppKit
 import CCEF
 import Foundation
 
+/// Options for CEFApp.initialize; only rootCachePath is required.
 public struct CEFConfiguration {
     /// Parent directory for all browser storage. Profile caches are created
     /// beneath it.
@@ -12,6 +13,7 @@ public struct CEFConfiguration {
     public var extensionDirectories: [URL] = []
     /// 0 disables the Chrome DevTools protocol endpoint.
     public var remoteDebuggingPort: Int = 0
+    /// Chromium log destination; CEF's default location when nil.
     public var logFile: URL?
     /// Extra browser-process command line switches (value nil for flags).
     public var extraSwitches: [(name: String, value: String?)] = []
@@ -19,25 +21,38 @@ public struct CEFConfiguration {
     /// when nil.
     public var browserSubprocessPath: URL?
 
+    /// Creates a configuration storing all browser data under
+    /// `rootCachePath`.
     public init(rootCachePath: URL) {
         self.rootCachePath = rootCachePath
     }
 }
 
+/// Failures from CEFApp.initialize.
 public enum CEFAppError: Error {
+    /// The Chromium Embedded Framework binary could not be loaded.
     case frameworkLoadFailed
+    /// CEF was already initialized in this process (it cannot re-initialize).
     case alreadyInitialized
+    /// cef_initialize returned failure; see the configured log file.
     case initializeFailed
 }
 
 /// Process-wide CEF lifecycle: initialize, message pump integration, shutdown,
 /// and the helper-process entry point.
 public final class CEFApp {
+    /// CEF is process-global and single-init; all lifecycle goes through
+    /// this instance.
     public static let shared = CEFApp()
 
+    /// True between successful initialize and shutdown.
     public private(set) var isInitialized = false
+    /// True once CEF's browser context is ready (browsers may be created).
     public private(set) var isContextInitialized = false
+    /// True if initialize ever succeeded this process; CEF cannot
+    /// re-initialize after shutdown.
     public private(set) var wasEverInitialized = false
+    /// The active CDP endpoint port; 0 when disabled.
     public private(set) var remoteDebuggingPort = 0
     var rootCachePath: URL?
 
