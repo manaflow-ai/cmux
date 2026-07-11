@@ -10,14 +10,27 @@ struct MobileViewportScaleProjection: Equatable {
         destinationXScale: Double,
         destinationYScale: Double
     ) {
-        xRatio = 1
-        yRatio = 1
+        xRatio = Self.ratio(from: currentXScale, to: destinationXScale)
+        yRatio = Self.ratio(from: currentYScale, to: destinationYScale)
     }
 
     func cellWidth(_ value: Double) -> Double { value * xRatio }
     func cellHeight(_ value: Double) -> Double { value * yRatio }
     func horizontalNonGridPixels(_ value: Int) -> Int { Int((Double(value) * xRatio).rounded()) }
     func verticalNonGridPixels(_ value: Int) -> Int { Int((Double(value) * yRatio).rounded()) }
+
+    static let identity = MobileViewportScaleProjection(
+        currentXScale: 1,
+        currentYScale: 1,
+        destinationXScale: 1,
+        destinationYScale: 1
+    )
+
+    private static func ratio(from current: Double, to destination: Double) -> Double {
+        guard current.isFinite, current > 0,
+              destination.isFinite, destination > 0 else { return 1 }
+        return destination / current
+    }
 }
 
 /// Pure pixel and font-fit math for Mac panes mirroring a mobile terminal viewport.

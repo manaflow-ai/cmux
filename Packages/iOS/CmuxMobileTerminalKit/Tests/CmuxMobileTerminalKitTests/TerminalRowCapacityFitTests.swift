@@ -53,6 +53,20 @@ struct TerminalRowCapacityFitTests {
         #expect(fit.capacityColumns(atBaseFontSize: 12) == 134)
     }
 
+    @Test("destination-font capacity is available before the live font changes")
+    func destinationFontCapacityPrecedesFontChange() throws {
+        let fit = try #require(TerminalRowCapacityFit(
+            containerPixelHeight: 1_200,
+            cellPixelHeight: 18,
+            containerPixelWidth: 1_206,
+            cellPixelWidth: 9,
+            liveFontSize: 12
+        ))
+
+        #expect(fit.capacityColumns(atFontSize: 24) == 67)
+        #expect(fit.capacityColumns(atFontSize: 0) == nil)
+    }
+
     @Test("column capacity is the measured grid when live font equals base font")
     func columnCapacityIdentityAtBaseFont() throws {
         let fit = try #require(TerminalRowCapacityFit(

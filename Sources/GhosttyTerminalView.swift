@@ -1793,7 +1793,7 @@ class GhosttyApp {
         if soft, let config {
             let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
             synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
-            ghostty_app_update_config(app, config)
+            updateAppConfigurationSurrenderingMobileViewportFontFits(config, source: source)
             lastAppearanceColorScheme = reloadColorScheme
             GhosttyConfig.invalidateLoadCache()
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
@@ -1829,7 +1829,7 @@ class GhosttyApp {
         )
         let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
         synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
-        ghostty_app_update_config(app, newConfig)
+        updateAppConfigurationSurrenderingMobileViewportFontFits(newConfig, source: source)
         DispatchQueue.main.async {
             self.applyBackgroundToKeyWindow()
         }
@@ -3014,8 +3014,8 @@ class GhosttyApp {
                 surfaceView.terminalSurface?.hostedView.reapplySurfaceColorSchemeAfterGhosttyConfigReload(
                     preferredColorScheme: preferredColorScheme
                 )
-                self.reloadSurfaceConfiguration(
-                    target.target.surface,
+                self.reloadSurfaceConfigurationSurrenderingMobileViewportFontFit(
+                    target.target.surface, terminalSurface: surfaceView.terminalSurface,
                     soft: soft,
                     source: source,
                     preferredColorScheme: preferredColorScheme

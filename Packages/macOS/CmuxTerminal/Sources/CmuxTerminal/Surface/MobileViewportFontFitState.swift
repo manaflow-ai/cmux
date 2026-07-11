@@ -2,7 +2,6 @@ import Foundation
 
 enum MobileViewportFontRestorePlan: Equatable {
     case none
-    case setAbsolute(Float)
     case resetToConfigured
     case resetThenSet(Float)
 }
@@ -15,20 +14,56 @@ struct MobileViewportFontFitState: Equatable {
     mutating func begin(baseFontPointSize: Float, configuredFontPointSize: Float) {
         guard self.baseFontPointSize == nil else { return }
         self.baseFontPointSize = baseFontPointSize
+        baseWasUserAdjusted = !Self.approximatelyEqual(
+            baseFontPointSize,
+            configuredFontPointSize
+        )
     }
 
     mutating func recordFittedFontPointSize(_ points: Float) {
         fittedFontPointSize = points
     }
 
-    mutating func reconcile(liveFontPointSize: Float, configuredFontPointSize: Float) {}
+    mutating func reconcile(liveFontPointSize: Float, configuredFontPointSize: Float) {
+        guard liveFontPointSize.isFinite, liveFontPointSize > 0,
+              configuredFontPointSize.isFinite, configuredFontPointSize > 0 else { return }
+
+        if let fittedFontPointSize,
+           !Self.approximatelyEqual(liveFontPointSize, fittedFontPointSize) {
+            baseFontPointSize = liveFontPointSize
+            self.fittedFontPointSize = nil
+            baseWasUserAdjusted = !Self.approximatelyEqual(
+                liveFontPointSize,
+                configuredFontPointSize
+            )
+            return
+        }
+
+        if fittedFontPointSize != nil,
+           baseWasUserAdjusted == false,
+           !Self.approximatelyEqual(baseFontPointSize, configuredFontPointSize) {
+            baseFontPointSize = configuredFontPointSize
+        }
+    }
 
     func resolvedCurrentFontPointSize(liveFontPointSize: Float) -> Float {
-        fittedFontPointSize ?? liveFontPointSize
+        liveFontPointSize
     }
 
     func restorePlan(configuredFontPointSize: Float) -> MobileViewportFontRestorePlan {
         guard fittedFontPointSize != nil, let baseFontPointSize else { return .none }
-        return .setAbsolute(baseFontPointSize)
+        if baseWasUserAdjusted == true {
+            return .resetThenSet(baseFontPointSize)
+        }
+        return .resetToConfigured
+    }
+
+    mutating func clear() {
+        self = .init()
+    }
+
+    private static func approximatelyEqual(_ lhs: Float?, _ rhs: Float) -> Bool {
+        guard let lhs else { return false }
+        return abs(lhs - rhs) <= 0.05
     }
 }

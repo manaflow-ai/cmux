@@ -211,10 +211,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var lastXScale: CGFloat = 0
     var lastYScale: CGFloat = 0
     var mobileViewportCellLimit: (columns: Int, rows: Int)?
-    /// Runtime font size to restore when mobile viewport fitting clears.
-    var mobileFitBaseFontPointSize: Float?
-    /// Last runtime font size applied by mobile viewport fitting.
-    var mobileFittedFontPointSize: Float?
+    /// Owns the temporary mobile-fit font lease and its user/configured origin.
+    var mobileViewportFontFitState = MobileViewportFontFitState()
     // Debug metadata is read from debug/CLI paths off the main thread; the
     // lock is the sanctioned carve-out for tiny values shared with
     // synchronous off-isolation readers.

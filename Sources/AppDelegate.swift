@@ -5668,7 +5668,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
-    private func forEachTerminalPanel(_ body: (TerminalPanel) -> Void) {
+    func forEachTerminalPanel(_ body: (TerminalPanel) -> Void) {
         var seenManagers: Set<ObjectIdentifier> = []
 
         func visitManager(_ manager: TabManager?) {

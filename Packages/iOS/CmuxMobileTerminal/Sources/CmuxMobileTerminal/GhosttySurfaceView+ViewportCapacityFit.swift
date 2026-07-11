@@ -40,8 +40,19 @@ extension GhosttySurfaceView {
             containerPixelWidth: containerPixelWidth,
             cellPixelWidth: cellPixelWidth,
             liveFontSize: liveFontSize
-        ), let rows = fit.capacityRows(atBaseFontSize: userBaseFontSize),
-              let columns = fit.capacityColumns(atBaseFontSize: userBaseFontSize) else { return natural }
+        ), let rows = fit.capacityRows(atBaseFontSize: userBaseFontSize) else { return natural }
+        let reportFontSize: Float32
+        if let effectiveGrid,
+           effectiveGrid.rows < rows,
+           let fitted = fit.fitFontSize(forEffectiveRows: effectiveGrid.rows) {
+            reportFontSize = min(
+                max(fitted, userBaseFontSize),
+                MobileTerminalFontPreference.maximumSize
+            )
+        } else {
+            reportFontSize = userBaseFontSize
+        }
+        guard let columns = fit.capacityColumns(atFontSize: reportFontSize) else { return natural }
         return TerminalGridSize(
             columns: columns,
             rows: rows,
@@ -50,9 +61,9 @@ extension GhosttySurfaceView {
         )
     }
 
-    /// Re-derive the rendered font from the effective grid. The supplied width
-    /// is the same stable width used for the column report, so a transient
-    /// overlay sample cannot make a valid full-width grant look oversized.
+    /// Re-derive the rendered font from the effective grid. The column report
+    /// first requests the capacity at this destination font. The horizontal
+    /// limit keeps the live font unchanged until that non-clipping grant lands.
     func autoFitFontToEffectiveRows(
         renderedRows: Int,
         containerPixelWidth: CGFloat,

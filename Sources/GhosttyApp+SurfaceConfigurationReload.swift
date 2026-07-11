@@ -1,6 +1,52 @@
 import Foundation
 
 extension GhosttyApp {
+    func updateAppConfigurationSurrenderingMobileViewportFontFits(
+        _ updatedConfig: ghostty_config_t,
+        source: String
+    ) {
+        let reason = "app.reloadConfig.\(source)"
+        let prepared = AppDelegate.shared?
+            .prepareTerminalSurfaceFontFitsForGhosttyAppConfigurationReload(
+                reason: reason
+            ) ?? []
+        ghostty_app_update_config(app, updatedConfig)
+        AppDelegate.shared?.finishTerminalSurfaceFontFitsAfterGhosttyAppConfigurationReload(
+            prepared,
+            reason: reason
+        )
+        // The scheduled per-surface refresh preserves this fitted state. Only
+        // an independent surface-action reload acquires another lease.
+    }
+
+    func reloadSurfaceConfigurationSurrenderingMobileViewportFontFit(
+        _ surface: ghostty_surface_t,
+        terminalSurface: TerminalSurface?,
+        soft: Bool,
+        source: String,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference
+    ) {
+        guard let terminalSurface else {
+            reloadSurfaceConfiguration(
+                surface,
+                soft: soft,
+                source: source,
+                preferredColorScheme: preferredColorScheme
+            )
+            return
+        }
+        terminalSurface.withMobileViewportFontFitSurrenderedForConfigurationReload(
+            reason: "surface.reloadConfig"
+        ) {
+            reloadSurfaceConfiguration(
+                surface,
+                soft: soft,
+                source: source,
+                preferredColorScheme: preferredColorScheme
+            )
+        }
+    }
+
     func appearanceBackedColorSchemePreference() -> GhosttyConfig.ColorSchemePreference {
         if Thread.isMainThread {
             return GhosttyConfig.appearanceSyncColorSchemePreference(passedAppearance: nil).preference
@@ -43,5 +89,35 @@ extension GhosttyApp {
         // Do not post .ghosttyConfigDidReload here. Its observers read the
         // app-scoped GhosttyApp.config, which this surface-only path leaves
         // unchanged to avoid desyncing the app and other surfaces.
+    }
+}
+
+extension AppDelegate {
+    func prepareTerminalSurfaceFontFitsForGhosttyAppConfigurationReload(
+        reason: String
+    ) -> [(surface: TerminalSurface, lease: MobileViewportFontFitReloadLease)] {
+        var prepared: [(surface: TerminalSurface, lease: MobileViewportFontFitReloadLease)] = []
+        var seenSurfaceIDs = Set<UUID>()
+        forEachTerminalPanel { terminalPanel in
+            let surface = terminalPanel.surface
+            guard seenSurfaceIDs.insert(surface.id).inserted,
+                  let lease = surface.prepareMobileViewportFontFitForConfigurationReload(
+                      reason: reason
+                  ) else { return }
+            prepared.append((surface: surface, lease: lease))
+        }
+        return prepared
+    }
+
+    func finishTerminalSurfaceFontFitsAfterGhosttyAppConfigurationReload(
+        _ prepared: [(surface: TerminalSurface, lease: MobileViewportFontFitReloadLease)],
+        reason: String
+    ) {
+        for entry in prepared {
+            entry.surface.finishMobileViewportFontFitConfigurationReload(
+                entry.lease,
+                reason: reason
+            )
+        }
     }
 }
