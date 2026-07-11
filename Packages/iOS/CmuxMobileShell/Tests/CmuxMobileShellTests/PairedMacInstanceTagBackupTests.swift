@@ -83,6 +83,45 @@ import Testing
         #expect(try await inner.loadAll(stackUserID: "user-1").first?.instanceTag == "feature-a")
     }
 
+    @Test func legacyBackupCannotReplaceAuthenticatedHostTuple() async throws {
+        let (inner, directory) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let liveRoute = try route()
+        let backupRoute = try CmxAttachRoute(
+            id: "backup", kind: .tailscale,
+            endpoint: .hostPort(host: "10.0.0.2", port: 22)
+        )
+        try await inner.upsert(
+            macDeviceID: "mac-a", displayName: "Live", routes: [liveRoute],
+            instanceTag: "feature-a", markActive: true,
+            stackUserID: "user-1", teamID: nil,
+            now: Date(timeIntervalSince1970: 1)
+        )
+        let encoded = try JSONEncoder().encode(PairedMacBackupRecord(
+            macDeviceID: "mac-a", displayName: "Legacy Backup", routes: [backupRoute],
+            createdAt: 1_000, lastSeenAt: 2_000, isActive: true
+        ))
+        var object = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        object.removeValue(forKey: "instanceTag")
+        let legacy = try JSONDecoder().decode(
+            PairedMacBackupRecord.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
+
+        let outcome = await PairedMacRestore(
+            store: inner, backup: FakeBackup(records: [legacy])
+        ).run(accountID: "user-1")
+
+        #expect(outcome.restored == 0)
+        let current = try #require(await inner.activeMac(stackUserID: "user-1"))
+        #expect(current.instanceTag == "feature-a")
+        #expect(current.routes == [liveRoute])
+        #expect(current.displayName == "Live")
+        #expect(current.lastSeenAt == Date(timeIntervalSince1970: 1))
+    }
+
     @Test func recordWireEncodesInstanceTagAndDecodesLegacyPayload() throws {
         let untagged = PairedMacBackupRecord(
             macDeviceID: "mac-a",

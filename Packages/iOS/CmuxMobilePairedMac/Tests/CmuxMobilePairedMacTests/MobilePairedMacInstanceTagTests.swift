@@ -56,34 +56,6 @@ import Testing
         #expect(current.lastSeenAt == Date(timeIntervalSince1970: 20))
     }
 
-    @Test func legacyConditionalRestorePreservesAuthenticatedInstanceTag() async throws {
-        let (store, directory) = try makeStore()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let liveRoute = try route(id: "live", port: 51_001)
-        let restoredRoute = try route(id: "backup", port: 51_002)
-        try await store.upsert(
-            macDeviceID: "mac-a", displayName: "Live", routes: [liveRoute],
-            instanceTag: "feature-a", markActive: true,
-            stackUserID: "user-1", teamID: "team-a",
-            now: Date(timeIntervalSince1970: 1)
-        )
-
-        let restored = try await store.upsertIfNewer(
-            macDeviceID: "mac-a", displayName: "Legacy Backup", routes: [restoredRoute],
-            instanceTag: nil, customName: nil, customColor: nil, customIcon: nil,
-            markActive: true, stackUserID: "user-1", teamID: "team-a",
-            now: Date(timeIntervalSince1970: 2)
-        )
-
-        #expect(restored)
-        let current = try #require(await store.activeMac(
-            stackUserID: "user-1", teamID: "team-a"
-        ))
-        #expect(current.instanceTag == "feature-a")
-        #expect(current.routes == [restoredRoute])
-        #expect(current.displayName == "Legacy Backup")
-    }
-
     @Test func conditionalRestoreCannotStealAConcurrentActiveSelection() async throws {
         let (store, directory) = try makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }
