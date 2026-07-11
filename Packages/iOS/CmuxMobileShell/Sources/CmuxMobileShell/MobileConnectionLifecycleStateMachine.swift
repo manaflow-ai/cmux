@@ -2,18 +2,12 @@ import Foundation
 
 /// Reduces every app, network, presence, and transport recovery trigger into one owned episode.
 struct MobileConnectionLifecycleStateMachine {
-    private struct PendingRequest {
-        var id: UInt64?
-        var trigger: MobileConnectionLifecycleTrigger
-        var reconnectStackUserID: String?
-    }
-
     private(set) var isForegroundActive = true
     private(set) var inactiveSince: Date?
     private(set) var activeEpisode: MobileConnectionLifecycleEpisode?
     private(set) var generation: UInt64 = 0
     private var requestGeneration: UInt64 = 0
-    private var pendingRequests: [PendingRequest] = []
+    private var pendingRequests: [MobileConnectionLifecyclePendingRequest] = []
     private var completedRequestIDs: Set<UInt64> = []
 
     mutating func becameInactive(at date: Date) {
@@ -52,7 +46,7 @@ struct MobileConnectionLifecycleStateMachine {
         reconnectStackUserID: String? = nil
     ) -> MobileConnectionLifecycleEffect? {
         enqueue(
-            PendingRequest(
+            MobileConnectionLifecyclePendingRequest(
                 id: nil,
                 trigger: trigger,
                 reconnectStackUserID: reconnectStackUserID
@@ -68,7 +62,7 @@ struct MobileConnectionLifecycleStateMachine {
         requestGeneration &+= 1
         let requestID = requestGeneration
         let effect = enqueue(
-            PendingRequest(
+            MobileConnectionLifecyclePendingRequest(
                 id: requestID,
                 trigger: .storedMacReconnect,
                 reconnectStackUserID: stackUserID
@@ -79,7 +73,7 @@ struct MobileConnectionLifecycleStateMachine {
     }
 
     private mutating func enqueue(
-        _ request: PendingRequest,
+        _ request: MobileConnectionLifecyclePendingRequest,
         health: MobileConnectionLifecycleHealthSnapshot
     ) -> MobileConnectionLifecycleEffect? {
         guard isForegroundActive else {
@@ -135,7 +129,7 @@ struct MobileConnectionLifecycleStateMachine {
         activeEpisode?.id == id
     }
 
-    private mutating func appendPending(_ request: PendingRequest) {
+    private mutating func appendPending(_ request: MobileConnectionLifecyclePendingRequest) {
         if request.id == nil,
            pendingRequests.contains(where: { $0.id == nil && $0.trigger == request.trigger }) {
             return
@@ -158,7 +152,7 @@ struct MobileConnectionLifecycleStateMachine {
             ? selected.reconnectStackUserID
             : nil
 
-        var absorbed: [PendingRequest] = []
+        var absorbed: [MobileConnectionLifecyclePendingRequest] = []
         let requests = pendingRequests
         pendingRequests.removeAll()
         for request in requests {
