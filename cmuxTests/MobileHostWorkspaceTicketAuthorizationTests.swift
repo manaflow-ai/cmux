@@ -54,6 +54,12 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         #expect(try MobileAttachTarget.ticketOnly.selectRoutes(from: routes) == routes)
     }
 
+    @Test func emptyHostRoutesPreserveNoRoutesBeforeTargetFiltering() {
+        #expect(throws: MobileAttachTicketStoreError.noRoutes) {
+            try MobileAttachTarget.physicalDevice.selectRoutes(from: [])
+        }
+    }
+
     @Test func simulatorInjectionPayloadIsLosslessV1WithLoopbackToken() throws {
         let store = MobileAttachTicketStore()
         let ticket = try store.createTicket(
