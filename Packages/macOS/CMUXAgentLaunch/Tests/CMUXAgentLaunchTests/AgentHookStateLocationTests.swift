@@ -63,6 +63,25 @@ struct AgentHookStateLocationTests {
         )
     }
 
+    @Test("Hook writers inherit the bundle scope from existing terminal environments")
+    func preUpgradeHookWriterUsesInheritedBundleScope() {
+        let applicationSupport = URL(fileURLWithPath: "/tmp/app-support", isDirectory: true)
+        let location = AgentHookStateWriterLocation(
+            environment: ["CMUX_BUNDLE_ID": "com.cmuxterm.app.nightly"],
+            applicationSupportDirectory: applicationSupport,
+            containingBundleIdentifier: nil,
+            legacyHomeDirectory: URL(fileURLWithPath: "/tmp/home", isDirectory: true)
+        )
+
+        #expect(
+            location.directoryURL
+                == applicationSupport
+                    .appendingPathComponent("cmux", isDirectory: true)
+                    .appendingPathComponent("agent-hooks", isDirectory: true)
+                    .appendingPathComponent("com.cmuxterm.app.nightly", isDirectory: true)
+        )
+    }
+
     @Test("Falls back to the legacy directory without a bundle scope")
     func resolvesLegacyFallback() {
         let home = URL(fileURLWithPath: "/tmp/home", isDirectory: true)

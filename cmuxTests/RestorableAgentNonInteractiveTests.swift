@@ -1,3 +1,4 @@
+import Testing
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -268,5 +269,42 @@ final class RestorableAgentNonInteractiveTests: XCTestCase {
         XCTAssertNil(codeBuddyPrint.resumeCommand)
         XCTAssertNil(factoryExec.resumeCommand)
         XCTAssertNil(qoderPrint.resumeCommand)
+    }
+}
+
+@Suite("Agent hook state writer location")
+struct AgentHookStateWriterLocationIntegrationTests {
+    @Test("A pre-upgrade terminal writes through its inherited bundle scope")
+    func preUpgradeTerminalWritesToBundleScope() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hook-writer-location-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let applicationSupport = root.appendingPathComponent("app-support", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let store = ClaudeHookSessionStore(
+            processEnv: [
+                "CMUX_BUNDLE_ID": "com.cmuxterm.app.nightly",
+                "HOME": home.path,
+            ],
+            fileManager: .default,
+            applicationSupportDirectory: applicationSupport
+        )
+
+        try store.recordPromptSubmit(
+            sessionId: "pre-upgrade-session",
+            workspaceId: "workspace",
+            surfaceId: "surface",
+            cwd: nil,
+            pid: nil,
+            launchCommand: nil
+        )
+
+        let scopedStore = applicationSupport
+            .appendingPathComponent("cmux/agent-hooks/com.cmuxterm.app.nightly", isDirectory: true)
+            .appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
+        #expect(FileManager.default.fileExists(atPath: scopedStore.path))
+        #expect(!FileManager.default.fileExists(
+            atPath: home.appendingPathComponent(".cmuxterm/claude-hook-sessions.json").path
+        ))
     }
 }
