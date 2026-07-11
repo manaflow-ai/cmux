@@ -1206,7 +1206,7 @@ struct BrowserPanelView: View {
         .onChange(of: panel.pendingAddressBarFocusRequestId) { _ in
             applyPendingAddressBarFocusRequestIfNeeded()
         }
-        .onChange(of: panel.currentAddressBarViewPresentationOwner) { _ in
+        .onChange(of: panel.currentAddressBarViewPresentationOwner) { _, _ in
             applyPendingAddressBarFocusRequestIfNeeded()
         }
         .onChange(of: panel.isOmnibarVisible) { _, isVisible in
