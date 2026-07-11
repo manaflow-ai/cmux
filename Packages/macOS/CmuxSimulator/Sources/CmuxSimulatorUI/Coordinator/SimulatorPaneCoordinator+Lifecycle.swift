@@ -147,6 +147,11 @@ extension SimulatorPaneCoordinator {
             do {
                 try await client.activateDevice(id: id, geometry: self.geometry)
                 guard !Task.isCancelled, self.selectionGeneration == generation else { return }
+                // A Simulator survives its pane and host process. Establish a known
+                // orientation instead of trusting stale SimulatorKit metadata left by
+                // the previous attachment. Worker-only recovery subsequently replays
+                // the latest display orientation tracked by SimulatorWorkerClient.
+                await client.send(.rotate(.portrait))
                 self.failure = nil
                 self.status = .streaming
             } catch is CancellationError {
