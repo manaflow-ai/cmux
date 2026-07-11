@@ -17,7 +17,9 @@ nonisolated struct TerminationResumeIndexSavePlan {
         let resumeIndexes: ProcessDetectedResumeIndexes?
         switch authority {
         case .pending:
-            resumeIndexes = cachedResumeIndexes()
+            // A pending capture cannot prove that cached process bindings still
+            // describe the current termination attempt, so preserve core state only.
+            resumeIndexes = nil
         case .completed(let completedIndexes):
             resumeIndexes = completedIndexes
         }
@@ -52,7 +54,8 @@ nonisolated struct UpdateRelaunchResumeIndexResolver {
     ) -> ProcessDetectedResumeIndexes? {
         switch authority {
         case .pending:
-            return cachedIndexes()
+            // Relaunch preparation must not reuse bindings captured before this attempt.
+            return nil
         case .completed(let completedIndexes):
             return completedIndexes
         }
