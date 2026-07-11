@@ -1540,6 +1540,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D25860060000000000000001 /* TerminalPortalPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D25860060000000000000002 /* TerminalPortalPresentation.swift */; };
 		D25860010000000000000001 /* TerminalPortalPresentationRefreshTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D25860010000000000000002 /* TerminalPortalPresentationRefreshTracker.swift */; };
 		A7843D000000000000000002 /* TerminalPortalRetryTeardownTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7843D000000000000000001 /* TerminalPortalRetryTeardownTests.swift */; };
+		A7843F000000000000000002 /* TerminalPortalUnusableHostAuthorityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7843F000000000000000001 /* TerminalPortalUnusableHostAuthorityTests.swift */; };
 		D25860040000000000000001 /* TerminalPortalVisibilityRefreshPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D25860040000000000000002 /* TerminalPortalVisibilityRefreshPolicy.swift */; };
 		D5671001D5671001D5671001 /* TerminalScrollSpeedSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5671002D5671002D5671002 /* TerminalScrollSpeedSettings.swift */; };
 		D5671101D5671101D5671101 /* TerminalScrollSpeedSettingsFileStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5671102D5671102D5671102 /* TerminalScrollSpeedSettingsFileStoreTests.swift */; };
@@ -3289,6 +3290,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D25860060000000000000002 /* TerminalPortalPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPortalPresentation.swift; sourceTree = "<group>"; };
 		D25860010000000000000002 /* TerminalPortalPresentationRefreshTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPortalPresentationRefreshTracker.swift; sourceTree = "<group>"; };
 		A7843D000000000000000001 /* TerminalPortalRetryTeardownTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPortalRetryTeardownTests.swift; sourceTree = "<group>"; };
+		A7843F000000000000000001 /* TerminalPortalUnusableHostAuthorityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPortalUnusableHostAuthorityTests.swift; sourceTree = "<group>"; };
 		D25860040000000000000002 /* TerminalPortalVisibilityRefreshPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPortalVisibilityRefreshPolicy.swift; sourceTree = "<group>"; };
 		D5671002D5671002D5671002 /* TerminalScrollSpeedSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalScrollSpeedSettings.swift; sourceTree = "<group>"; };
 		D5671102D5671102D5671102 /* TerminalScrollSpeedSettingsFileStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalScrollSpeedSettingsFileStoreTests.swift; sourceTree = "<group>"; };
@@ -5103,6 +5105,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B7843B000000000000000001 /* TerminalPortalHostAuthorityTests.swift */,
 				A7843C000000000000000001 /* CanvasPortalHostOwnershipTests.swift */,
 				A7843D000000000000000001 /* TerminalPortalRetryTeardownTests.swift */,
+				A7843F000000000000000001 /* TerminalPortalUnusableHostAuthorityTests.swift */,
 				D7AB00000000000000000012 /* WorkspaceAdjacentPaneMoveTests.swift */,
 				D7AB3605C10DEF0000000002 /* WorkspaceCloseTabsContextMenuTests.swift */,
 				4335E241A33344C48361AD51 /* PortalHitTestingPerformanceTests.swift */,
@@ -7448,6 +7451,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7261F020000000000000001 /* TerminalPointerFocusActivationPolicyTests.swift in Sources */,
 				B7843B000000000000000002 /* TerminalPortalHostAuthorityTests.swift in Sources */,
 				A7843D000000000000000002 /* TerminalPortalRetryTeardownTests.swift in Sources */,
+				A7843F000000000000000002 /* TerminalPortalUnusableHostAuthorityTests.swift in Sources */,
 				D5671101D5671101D5671101 /* TerminalScrollSpeedSettingsFileStoreTests.swift in Sources */,
 				C0DE53360000000000000001 /* TerminalSearchOverlayMouseReleaseTests.swift in Sources */,
 				A11E5E1E0000000000000011 /* TerminalSelectionAccessibilityIngressGateTests.swift in Sources */,

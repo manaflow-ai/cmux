@@ -19,6 +19,7 @@ extension Workspace {
               bonsplitController.paneId(containing: tabId) == paneId else {
             return .detached
         }
+        guard portalPresentationVisible else { return .hidden }
 
         let manager = owningTabManager
         guard manager?.selectedTabId == id else {

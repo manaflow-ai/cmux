@@ -69,17 +69,65 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
 
     @MainActor
     @Test
+    func portalMutationSchedulerCoalescesLatestDrainCompletionThroughFollowUp() async {
+        let scheduler = TerminalPortalMutationScheduler()
+        var committedValues: [Int] = []
+        var completedValues: [Int] = []
+
+        let drain = scheduler.schedule(afterDrain: { completedValues.append(0) }) {
+            committedValues.append(0)
+        }
+        for value in 1...64 {
+            scheduler.schedule(afterDrain: { completedValues.append(value) }) {
+                committedValues.append(value)
+            }
+        }
+        scheduler.schedule(afterDrain: { completedValues.append(100) }) {
+            committedValues.append(100)
+            scheduler.schedule(afterDrain: { completedValues.append(101) }) {
+                committedValues.append(101)
+            }
+        }
+
+        await drain.value
+        #expect(committedValues == [100, 101])
+        #expect(completedValues == [101])
+    }
+
+    @MainActor
+    @Test
+    func portalMutationSchedulerPreservesCandidateCompletionAcrossOwnerRefresh() async {
+        let scheduler = TerminalPortalMutationScheduler()
+        var committedValues: [Int] = []
+        var completionCount = 0
+
+        let drain = scheduler.schedule(afterDrain: { completionCount += 1 }) {
+            committedValues.append(1)
+        }
+        scheduler.schedule {
+            committedValues.append(2)
+        }
+
+        await drain.value
+        #expect(committedValues == [2])
+        #expect(completionCount == 1)
+    }
+
+    @MainActor
+    @Test
     func portalMutationSchedulerCancelInvalidatesPendingCommit() async {
         let scheduler = TerminalPortalMutationScheduler()
         var didCommit = false
+        var didComplete = false
 
-        let commit = scheduler.schedule {
+        let commit = scheduler.schedule(afterDrain: { didComplete = true }) {
             didCommit = true
         }
         scheduler.cancel()
 
         await commit.value
         #expect(!didCommit)
+        #expect(!didComplete)
     }
 
     @MainActor
@@ -103,6 +151,29 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             )
         }
         workspace.focusPanel(replacementPanel.id)
+
+        await commit.value
+        #expect(committedPresentation == .hidden)
+    }
+
+    @MainActor
+    @Test
+    func portalMutationSchedulerReadsLiveWorkspacePresentationVisibility() async throws {
+        let manager = TabManager()
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(manager.selectedWorkspace)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let scheduler = TerminalPortalMutationScheduler()
+        var committedPresentation: TerminalPortalPresentation?
+
+        let commit = scheduler.schedule {
+            committedPresentation = workspace.terminalPortalPresentation(
+                panelId: panel.id,
+                paneId: pane
+            )
+        }
+        workspace.setPortalPresentationVisible(false)
 
         await commit.value
         #expect(committedPresentation == .hidden)
@@ -141,13 +212,13 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             fileExplorerState.rightSidebarOwnsInputFocus = false
             #expect(
                 dock.terminalPortalPresentation(panelId: panelId, tabId: tabId, paneId: pane) ==
-                    .visible(isActive: false, zPriority: 1)
+                    .visible(isActive: true, zPriority: 1)
             )
 
             fileExplorerState.rightSidebarOwnsInputFocus = true
             #expect(
                 dock.terminalPortalPresentation(panelId: panelId, tabId: tabId, paneId: pane) ==
-                    .visible(isActive: true, zPriority: 1)
+                    .visible(isActive: false, zPriority: 1)
             )
         }
     }
