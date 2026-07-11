@@ -7,6 +7,82 @@ import Testing
 
 @Suite("Remote orphan process snapshot sharing")
 struct RemoteOrphanedProcessReaperTests {
+    @Test("Missing ownership identity never signals ambiguous transports")
+    func missingOwnershipIdentityDoesNotSignal() async {
+        let capturer = CountingOrphanProcessSnapshotCapturer(
+            snapshots: [
+                RemoteOrphanProcessSnapshot(
+                    pid: 41,
+                    parentPID: 1,
+                    command: "/usr/bin/ssh -N -R 127.0.0.1:41000:127.0.0.1:42000 user@example.test"
+                ),
+                RemoteOrphanProcessSnapshot(
+                    pid: 42,
+                    parentPID: 1,
+                    command: "/usr/bin/ssh user@example.test cmuxd-remote serve --stdio"
+                ),
+            ]
+        )
+        let signals = RecordedSignals()
+        let reaper = RemoteOrphanedProcessReaper(
+            capturer: capturer,
+            maximumAgeNanoseconds: 1_000_000_000,
+            nowNanoseconds: { 100 },
+            signal: { pid, signal in await signals.record(pid, signal) }
+        )
+
+        await reaper.reap(
+            destination: "user@example.test",
+            relayPort: nil,
+            persistentDaemonSlot: nil
+        )
+
+        #expect(await signals.pids.isEmpty)
+    }
+
+    @Test("Persistent slot never crosses into unslotted transports")
+    func persistentSlotDoesNotSignalUnslottedTransports() async {
+        let capturer = CountingOrphanProcessSnapshotCapturer(
+            snapshots: [
+                RemoteOrphanProcessSnapshot(
+                    pid: 41,
+                    parentPID: 1,
+                    command: "/usr/bin/ssh user@example.test cmuxd-remote serve --stdio --persistent --slot cmux-slot"
+                ),
+                RemoteOrphanProcessSnapshot(
+                    pid: 42,
+                    parentPID: 1,
+                    command: "/usr/bin/ssh user@example.test cmuxd-remote serve --stdio"
+                ),
+                RemoteOrphanProcessSnapshot(
+                    pid: 43,
+                    parentPID: 1,
+                    command: "/usr/bin/ssh -N -R 127.0.0.1:41000:127.0.0.1:42000 user@example.test"
+                ),
+                RemoteOrphanProcessSnapshot(
+                    pid: 44,
+                    parentPID: 1,
+                    command: "/usr/bin/ssh user@example.test cmuxd-remote serve --stdio --persistent --slot other-slot"
+                ),
+            ]
+        )
+        let signals = RecordedSignals()
+        let reaper = RemoteOrphanedProcessReaper(
+            capturer: capturer,
+            maximumAgeNanoseconds: 1_000_000_000,
+            nowNanoseconds: { 100 },
+            signal: { pid, signal in await signals.record(pid, signal) }
+        )
+
+        await reaper.reap(
+            destination: "user@example.test",
+            relayPort: nil,
+            persistentDaemonSlot: "cmux-slot"
+        )
+
+        #expect(await signals.pids == [41])
+    }
+
     @Test("Concurrent reconnect owners share one native capture without subprocesses")
     func concurrentReconnectOwnersShareOneCapture() async {
         let capturer = CountingOrphanProcessSnapshotCapturer(
