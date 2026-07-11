@@ -214,11 +214,13 @@ export function seoDescription(
   ) {
     const suffixes =
       minLength >= AUDIT_MIN_DESCRIPTION_LENGTH
-        ? detailedDescriptionSuffixes
-        : shortDescriptionSuffixes;
-    const suffix = suffixes[locale] ?? suffixes.en;
-    if (!trimmed.includes(suffix)) {
-      candidates.push(joinMetadataSentences(locale, trimmed, suffix));
+        ? [detailedDescriptionSuffixes]
+        : [shortDescriptionSuffixes, detailedDescriptionSuffixes];
+    for (const localizedSuffixes of suffixes) {
+      const suffix = localizedSuffixes[locale] ?? localizedSuffixes.en;
+      if (!trimmed.includes(suffix)) {
+        candidates.push(joinMetadataSentences(locale, trimmed, suffix));
+      }
     }
   }
 
@@ -272,6 +274,13 @@ function selectCompleteMetadataCandidate(
     const length = metadataSearchLength(candidate);
     return length >= minLength && length <= maxLength;
   });
+  const bestUnderMaximum = normalizedCandidates
+    .map((candidate) => ({
+      candidate,
+      length: metadataSearchLength(candidate),
+    }))
+    .filter(({ length }) => length <= maxLength)
+    .sort((left, right) => right.length - left.length)[0];
   const originalLength = metadataSearchLength(original);
   const originalIsSafe = isSafeMetadataText(original);
   if (
@@ -282,8 +291,16 @@ function selectCompleteMetadataCandidate(
     return original;
   }
   if (withinAllBounds) return withinAllBounds;
+  if (
+    originalIsSafe &&
+    originalLength < minLength &&
+    bestUnderMaximum &&
+    bestUnderMaximum.length > originalLength
+  ) {
+    return bestUnderMaximum.candidate;
+  }
   if (originalIsSafe) return original;
-  return normalizedCandidates[0] ?? "";
+  return bestUnderMaximum?.candidate ?? normalizedCandidates[0] ?? "";
 }
 
 function isSafeMetadataText(value: string) {

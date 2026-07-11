@@ -51,6 +51,8 @@ describe("SEO metadata helpers", () => {
     ).toContain(
       "macOS の AI コーディングエージェント向け。",
     );
+    expect(seoDescription("ja", "Hacker Newsでcmuxをローンチした話。"))
+      .toContain("縦型タブ、通知、分割ペイン、ブラウザ自動化、セッション復元");
     const overboundWithSuffix =
       "A detailed page about running multiple coding agents in cmux on macOS.";
     expect(
