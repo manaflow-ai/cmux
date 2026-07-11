@@ -1,14 +1,53 @@
 import Foundation
 
 extension RemoteTmuxControlConnection {
+    /// Drops tmux `#[...]` style tokens from an expanded format (tmux marks
+    /// the active pane by reversing its index; the dot carries that signal
+    /// here).
+    static func strippingStyleTokens(_ value: String) -> String {
+        value.replacingOccurrences(
+            of: "#\\[[^\\]]*\\]", with: "", options: .regularExpression
+        )
+    }
+
+    /// Applies tmux's authoritative window name to every topology phase that
+    /// can later publish the window. Returns whether already-published state changed.
+    @discardableResult
+    func applyWindowName(windowId: Int, name: String) -> Bool {
+        var publishedChanged = false
+        if let window = windowsByID[windowId], window.name != name {
+            windowsByID[windowId] = window.replacingName(with: name)
+            publishedChanged = true
+        }
+        if var pending = pendingLayouts[windowId], pending.name != name {
+            pending.name = name
+            pendingLayouts[windowId] = pending
+        }
+        if let staged = initialBatchStaged[windowId], staged.name != name {
+            initialBatchStaged[windowId] = staged.replacingName(with: name)
+        }
+        return publishedChanged
+    }
 
 
+    /// Window ids from a topology population that started with NO published
+    /// windows (first attach, reconnect reseed into an empty table), still
+    /// awaiting their rects reply. While non-nil, verified windows accumulate
+    /// in `initialBatchStaged` and flush to `windowsByID` in ONE atomic
+    /// publish when the set drains. Without the barrier, each window would
+    /// publish in rects-reply arrival order, and the mirror layer's tab
+    /// creation order — and with it which tab ends up selected and which
+    /// mirrors take their one-time size claim from a hidden, collapsed
+    /// container — would be a race between round trips.
     func applyLayout(
         windowId: Int, layout: String, visibleLayout: String? = nil, zoomed: Bool = false
     ) {
         guard let node = RemoteTmuxRawLayoutParser.parse(layout) else { return }
         // Preserve any name tmux already reported (a %layout-change carries no name).
-        let existingName = windowsByID[windowId]?.name ?? pendingLayouts[windowId]?.name ?? ""
+        let existingName = windowsByID[windowId]?.name
+            ?? pendingLayouts[windowId]?.name
+            ?? initialBatchStaged[windowId]?.name
+            ?? ""
         let visibleNode = visibleLayout.flatMap { RemoteTmuxRawLayoutParser.parse($0) }
         stagePendingLayout(
             windowId: windowId,
@@ -30,7 +69,7 @@ extension RemoteTmuxControlConnection {
         zoomed: Bool,
         name: String
     ) {
-        var pending = pendingLayouts[windowId] ?? PendingLayout(
+        var pending = pendingLayouts[windowId] ?? RemoteTmuxPendingLayout(
             node: node, visibleNode: visibleNode, zoomed: zoomed, name: name, generation: 0
         )
         pending.node = node
@@ -70,6 +109,7 @@ extension RemoteTmuxControlConnection {
     func flushInitialBatchIfDrained() {
         guard let awaiting = initialBatchAwaiting, awaiting.isEmpty else { return }
         for (id, window) in initialBatchStaged { windowsByID[id] = window }
+        rebuildPublishedPaneOwnership()
         initialBatchStaged = [:]
         initialBatchAwaiting = nil
         prunePaneState(keeping: Set(windowsByID.values.flatMap { $0.paneIDsInOrder }))
@@ -196,6 +236,10 @@ extension RemoteTmuxControlConnection {
             return
         }
         windowsByID[windowId] = published
+        recordPublishedPaneOwnership(
+            windowId: windowId,
+            paneIds: published.paneIDsInOrder
+        )
         if !windowOrder.contains(windowId) { windowOrder.append(windowId) }
         prunePaneState(keeping: Set(windowsByID.values.flatMap { $0.paneIDsInOrder }))
         observers.notifyTopologyChanged()
@@ -208,6 +252,32 @@ extension RemoteTmuxControlConnection {
         // the true pre-apply size. One-shot guarded — no-op when already
         // consumed (or when reseedAfterReconnect ran it).
         scheduleAttachRedrawKickIfNeeded()
+    }
+
+    func recordPublishedPaneOwnership(windowId: Int, paneIds: [Int]) {
+        let livePaneIds = Set(paneIds)
+        publishedWindowIdByPane = publishedWindowIdByPane.filter {
+            $0.value != windowId || livePaneIds.contains($0.key)
+        }
+        for paneId in paneIds { publishedWindowIdByPane[paneId] = windowId }
+    }
+
+    func removePublishedPaneOwnership(windowId: Int) {
+        publishedWindowIdByPane = publishedWindowIdByPane.filter { $0.value != windowId }
+    }
+
+    func prunePublishedPaneOwnership(liveWindowIds: Set<Int>) {
+        publishedWindowIdByPane = publishedWindowIdByPane.filter {
+            liveWindowIds.contains($0.value)
+        }
+    }
+
+    func rebuildPublishedPaneOwnership() {
+        publishedWindowIdByPane.removeAll(keepingCapacity: true)
+        for windowId in windowOrder {
+            guard let window = windowsByID[windowId] else { continue }
+            for paneId in window.paneIDsInOrder { publishedWindowIdByPane[paneId] = windowId }
+        }
     }
 
 

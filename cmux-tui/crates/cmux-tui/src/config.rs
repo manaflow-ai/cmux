@@ -6,6 +6,7 @@
 //! ```json
 //! {
 //!   "theme": {
+//!     "chrome": "auto",
 //!     "selection_background": "#3a3a3a",
 //!     "selection_foreground": null,
 //!     "sidebar_rail": "#87afd7",
@@ -26,6 +27,7 @@
 //!     "agents": ["claude", "codex", "opencode", "pi"]
 //!   },
 //!   "sidebar": {
+//!     "view": "files",
 //!     "width": 22,
 //!     "max_width": 0,
 //!     "plugin": {
@@ -45,6 +47,10 @@
 //!   },
 //!   "scrollbar": {
 //!     "position": "column"
+//!   },
+//!   "server": {
+//!     "ws": "127.0.0.1:7681",
+//!     "ws_token": "replace-with-a-secret"
 //!   },
 //!   "keys": {
 //!     "prefix": "ctrl+b",
@@ -73,7 +79,7 @@
 //! `close-pane`, `rename-tab` (alias: `rename-pane`), `rename-screen`,
 //! `rename-workspace`, `close-screen`, `prev-screen`, `next-screen`,
 //! `select-screen-0` through `select-screen-9`, `new-screen`,
-//! `next-workspace`, `new-workspace`, `toggle-sidebar`, `focus-sidebar`,
+//! `next-workspace`, `new-workspace`, `toggle-sidebar`, `toggle-sidebar-view`, `focus-sidebar`,
 //! `focus-left`, `focus-right`, `focus-up`, `focus-down`, `focus-next-pane`,
 //! `swap-pane-prev`, `swap-pane-next`, `zoom-pane`, `resize-grow`,
 //! `resize-shrink`, `scroll-up`, `scroll-down`, `browser-back`,
@@ -97,6 +103,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use cmux_tui_core::SidebarPluginOptions;
 use cmux_tui_core::SurfaceOptions;
 use cmux_tui_core::platform;
+use cmux_tui_core::{DefaultColors, Rgb};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
@@ -126,6 +133,8 @@ struct RawConfig {
     browser: RawBrowser,
     #[serde(default)]
     scrollbar: RawScrollbar,
+    #[serde(default)]
+    server: RawServer,
     /// Key bindings: `"prefix"` plus one entry per action. Values may be
     /// a chord string, an array of chord strings, `"none"`, or
     /// `"alt_shortcuts": false`.
@@ -135,7 +144,15 @@ struct RawConfig {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawServer {
+    ws: Option<String>,
+    ws_token: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawTheme {
+    chrome: Option<ChromeMode>,
     selection_background: Option<ColorValue>,
     /// Distinguishes an absent key (keep the Ghostty-seeded value) from an
     /// explicit `null` (clear it back to "no override"), which `Option`
@@ -154,6 +171,188 @@ struct RawTheme {
     notification_error: Option<ColorValue>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ChromeMode {
+    #[default]
+    Auto,
+    Light,
+    Dark,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChromeTheme {
+    pub selection_bg: Color,
+    pub selection_fg: Option<Color>,
+    pub menu_bg: Color,
+    pub menu_fg: Color,
+    pub menu_border: Color,
+    pub menu_selected_bg: Color,
+    pub menu_selected_fg: Color,
+    pub prompt_bg: Color,
+    pub prompt_fg: Color,
+    pub prompt_border: Color,
+    pub prompt_title_fg: Color,
+    pub prompt_input_bg: Color,
+    pub prompt_input_fg: Color,
+    pub prompt_button_accent_fg: Color,
+    pub prompt_button_hover_bg: Color,
+    pub toast_bg: Color,
+    pub toast_fg: Color,
+    pub status_bg: Color,
+    pub status_fg: Color,
+    pub status_dim_fg: Color,
+    pub status_active_bg: Color,
+    pub status_active_fg: Color,
+    pub tab_bar_bg: Color,
+    pub tab_fg: Color,
+    pub tab_active_bg: Color,
+    pub tab_active_fg: Color,
+    pub tab_active_unfocused_bg: Color,
+    pub tab_active_unfocused_fg: Color,
+    pub tab_plain_fg: Color,
+    pub tab_plain_active_fg: Color,
+    pub tab_plain_unfocused_fg: Color,
+    pub tab_control_hover_fg: Color,
+    pub sidebar_dim_fg: Color,
+    pub sidebar_selected_bg: Color,
+    pub sidebar_selected_fg: Color,
+    pub sidebar_border: Color,
+    pub omnibar_fg: Color,
+    pub omnibar_sep_fg: Color,
+    pub omnibar_dim_fg: Color,
+    pub omnibar_edit_bg: Color,
+    pub omnibar_edit_fg: Color,
+    pub omnibar_hover_fg: Color,
+    pub border_active_fg: Color,
+    pub border_fg: Color,
+    pub browser_message_fg: Color,
+    pub scrollbar_thumb_fg: Color,
+    pub scrollbar_thumb_active_fg: Color,
+}
+
+impl ChromeTheme {
+    pub fn dark() -> Self {
+        Self {
+            selection_bg: Color::Rgb(0x3a, 0x3a, 0x3a),
+            selection_fg: None,
+            menu_bg: Color::Indexed(237),
+            menu_fg: Color::Indexed(252),
+            menu_border: Color::Indexed(244),
+            menu_selected_bg: Color::Indexed(242),
+            menu_selected_fg: Color::Indexed(255),
+            prompt_bg: Color::Indexed(236),
+            prompt_fg: Color::Indexed(252),
+            prompt_border: Color::Indexed(244),
+            prompt_title_fg: Color::Indexed(255),
+            prompt_input_bg: Color::Indexed(233),
+            prompt_input_fg: Color::Indexed(255),
+            prompt_button_accent_fg: Color::Indexed(114),
+            prompt_button_hover_bg: Color::Indexed(240),
+            toast_bg: Color::Indexed(240),
+            toast_fg: Color::Indexed(255),
+            status_bg: Color::Indexed(236),
+            status_fg: Color::Indexed(250),
+            status_dim_fg: Color::Indexed(244),
+            status_active_bg: Color::Indexed(240),
+            status_active_fg: Color::Indexed(255),
+            tab_bar_bg: Color::Indexed(236),
+            tab_fg: Color::Indexed(248),
+            tab_active_bg: Color::Indexed(240),
+            tab_active_fg: Color::Indexed(255),
+            tab_active_unfocused_bg: Color::Indexed(238),
+            tab_active_unfocused_fg: Color::Indexed(252),
+            tab_plain_fg: Color::Indexed(246),
+            tab_plain_active_fg: Color::Indexed(255),
+            tab_plain_unfocused_fg: Color::Indexed(250),
+            tab_control_hover_fg: Color::Indexed(255),
+            sidebar_dim_fg: Color::Indexed(242),
+            sidebar_selected_bg: Color::Indexed(236),
+            sidebar_selected_fg: Color::Indexed(255),
+            sidebar_border: Color::Indexed(237),
+            omnibar_fg: Color::Indexed(244),
+            omnibar_sep_fg: Color::Indexed(238),
+            omnibar_dim_fg: Color::Indexed(241),
+            omnibar_edit_bg: Color::Indexed(236),
+            omnibar_edit_fg: Color::Indexed(252),
+            omnibar_hover_fg: Color::Indexed(255),
+            border_active_fg: Color::Indexed(110),
+            border_fg: Color::Indexed(238),
+            browser_message_fg: Color::Indexed(244),
+            scrollbar_thumb_fg: Color::Indexed(246),
+            scrollbar_thumb_active_fg: Color::Indexed(252),
+        }
+    }
+
+    pub fn light() -> Self {
+        Self {
+            selection_bg: Color::Rgb(0xcc, 0xdd, 0xf5),
+            selection_fg: None,
+            menu_bg: Color::Indexed(254),
+            menu_fg: Color::Indexed(236),
+            menu_border: Color::Indexed(246),
+            menu_selected_bg: Color::Indexed(252),
+            menu_selected_fg: Color::Indexed(234),
+            prompt_bg: Color::Indexed(254),
+            prompt_fg: Color::Indexed(236),
+            prompt_border: Color::Indexed(246),
+            prompt_title_fg: Color::Indexed(234),
+            prompt_input_bg: Color::Indexed(255),
+            prompt_input_fg: Color::Indexed(234),
+            prompt_button_accent_fg: Color::Indexed(28),
+            prompt_button_hover_bg: Color::Indexed(252),
+            toast_bg: Color::Indexed(252),
+            toast_fg: Color::Indexed(234),
+            status_bg: Color::Indexed(254),
+            status_fg: Color::Indexed(238),
+            status_dim_fg: Color::Indexed(242),
+            status_active_bg: Color::Indexed(252),
+            status_active_fg: Color::Indexed(234),
+            tab_bar_bg: Color::Indexed(254),
+            tab_fg: Color::Indexed(240),
+            tab_active_bg: Color::Indexed(252),
+            tab_active_fg: Color::Indexed(234),
+            tab_active_unfocused_bg: Color::Indexed(253),
+            tab_active_unfocused_fg: Color::Indexed(236),
+            tab_plain_fg: Color::Indexed(242),
+            tab_plain_active_fg: Color::Indexed(234),
+            tab_plain_unfocused_fg: Color::Indexed(238),
+            tab_control_hover_fg: Color::Indexed(234),
+            sidebar_dim_fg: Color::Indexed(242),
+            sidebar_selected_bg: Color::Indexed(253),
+            sidebar_selected_fg: Color::Indexed(234),
+            sidebar_border: Color::Indexed(246),
+            omnibar_fg: Color::Indexed(240),
+            omnibar_sep_fg: Color::Indexed(246),
+            omnibar_dim_fg: Color::Indexed(242),
+            omnibar_edit_bg: Color::Indexed(255),
+            omnibar_edit_fg: Color::Indexed(234),
+            omnibar_hover_fg: Color::Indexed(234),
+            border_active_fg: Color::Indexed(31),
+            border_fg: Color::Indexed(246),
+            browser_message_fg: Color::Indexed(242),
+            scrollbar_thumb_fg: Color::Indexed(246),
+            scrollbar_thumb_active_fg: Color::Indexed(240),
+        }
+    }
+
+    pub fn for_defaults(mode: ChromeMode, colors: DefaultColors) -> Self {
+        match mode {
+            ChromeMode::Light => Self::light(),
+            ChromeMode::Dark => Self::dark(),
+            ChromeMode::Auto => match colors.bg {
+                Some(bg) if is_light_background(bg) => Self::light(),
+                _ => Self::dark(),
+            },
+        }
+    }
+}
+
+pub fn is_light_background(bg: Rgb) -> bool {
+    let luminance = 0.2126 * f64::from(bg.r) + 0.7152 * f64::from(bg.g) + 0.0722 * f64::from(bg.b);
+    luminance > 128.0
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawTabs {
@@ -166,6 +365,7 @@ struct RawTabs {
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawSidebar {
+    view: Option<String>,
     width: Option<u16>,
     max_width: Option<u16>,
     plugin: Option<RawSidebarPlugin>,
@@ -300,6 +500,8 @@ impl Default for Tabs {
 /// Sidebar behavior.
 #[derive(Debug, Clone)]
 pub struct Sidebar {
+    /// Built-in view used when `plugin` is unset. The default is the file browser.
+    pub view: SidebarView,
     pub width: u16,
     pub max_width: u16,
     pub plugin: Option<SidebarPluginOptions>,
@@ -307,7 +509,33 @@ pub struct Sidebar {
 
 impl Default for Sidebar {
     fn default() -> Self {
-        Sidebar { width: 22, max_width: 0, plugin: None }
+        Sidebar { view: SidebarView::Files, width: 22, max_width: 0, plugin: None }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SidebarView {
+    #[default]
+    Files,
+    Workspaces,
+}
+
+impl SidebarView {
+    pub fn toggled(self) -> Self {
+        match self {
+            Self::Files => Self::Workspaces,
+            Self::Workspaces => Self::Files,
+        }
+    }
+}
+
+fn parse_sidebar_view(value: &str) -> Result<SidebarView, String> {
+    match value {
+        "files" => Ok(SidebarView::Files),
+        "workspaces" => Ok(SidebarView::Workspaces),
+        _ => Err(format!(
+            "cmux-tui: ignoring unknown sidebar.view {value:?}; expected \"files\" or \"workspaces\""
+        )),
     }
 }
 
@@ -362,6 +590,7 @@ pub enum Action {
     NextWorkspace,
     NewWorkspace,
     ToggleSidebar,
+    ToggleSidebarView,
     FocusSidebar,
     FocusLeft,
     FocusRight,
@@ -406,6 +635,7 @@ impl Action {
             Action::NextWorkspace => "next-workspace".to_string(),
             Action::NewWorkspace => "new-workspace".to_string(),
             Action::ToggleSidebar => "toggle-sidebar".to_string(),
+            Action::ToggleSidebarView => "toggle-sidebar-view".to_string(),
             Action::FocusSidebar => "focus-sidebar".to_string(),
             Action::FocusLeft => "focus-left".to_string(),
             Action::FocusRight => "focus-right".to_string(),
@@ -510,6 +740,7 @@ impl Default for Keys {
                 bind(KeyCode::Char('w'), Action::NextWorkspace),
                 bind(KeyCode::Char('W'), Action::NewWorkspace),
                 bind(KeyCode::Char('s'), Action::ToggleSidebar),
+                bind(KeyCode::Char('e'), Action::ToggleSidebarView),
                 bind(KeyCode::Char('S'), Action::FocusSidebar),
                 bind(KeyCode::Char('o'), Action::FocusNextPane),
                 bind(KeyCode::Char('h'), Action::FocusLeft),
@@ -666,6 +897,7 @@ fn all_actions() -> &'static [Action] {
         Action::NextWorkspace,
         Action::NewWorkspace,
         Action::ToggleSidebar,
+        Action::ToggleSidebarView,
         Action::FocusSidebar,
         Action::FocusLeft,
         Action::FocusRight,
@@ -733,11 +965,38 @@ fn parse_chord(s: &str) -> Option<Chord> {
 #[derive(Debug, Clone, Default)]
 pub struct Config {
     pub theme: Theme,
+    pub theme_overrides: ThemeOverrides,
+    pub chrome: ChromeMode,
     pub tabs: Tabs,
     pub sidebar: Sidebar,
     pub browser: Browser,
     pub scrollbar: Scrollbar,
+    pub server: Server,
     pub keys: Keys,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Server {
+    pub ws: Option<String>,
+    pub ws_token: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ThemeOverrides {
+    pub selection: bool,
+    pub sidebar_active_bg: bool,
+    pub tab_bg: bool,
+    pub border_active: bool,
+    pub border_inactive: bool,
+}
+
+impl Config {
+    pub fn apply_chrome_defaults(&mut self, chrome: ChromeTheme) {
+        if !self.theme_overrides.selection {
+            self.theme.selection_bg = chrome.selection_bg;
+            self.theme.selection_fg = chrome.selection_fg;
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -754,21 +1013,33 @@ pub fn load() -> Config {
     if let Some((bg, fg)) = ghostty_selection_colors() {
         if let Some(bg) = bg {
             config.theme.selection_bg = bg;
+            config.theme_overrides.selection = true;
+        }
+        if fg.is_some() {
+            config.theme_overrides.selection = true;
         }
         config.theme.selection_fg = fg;
     }
 
     let raw = load_raw_config();
     let t = &raw.theme;
+    if let Some(chrome) = t.chrome {
+        config.chrome = chrome;
+    }
     if let Some(c) = t.selection_background.as_ref().and_then(ColorValue::to_color) {
         config.theme.selection_bg = c;
+        config.theme_overrides.selection = true;
     }
     match t.selection_foreground.as_ref() {
         None => {}
-        Some(None) => config.theme.selection_fg = None,
+        Some(None) => {
+            config.theme.selection_fg = None;
+            config.theme_overrides.selection = true;
+        }
         Some(Some(c)) => {
             if let Some(color) = c.to_color() {
                 config.theme.selection_fg = Some(color);
+                config.theme_overrides.selection = true;
             }
         }
     }
@@ -777,21 +1048,25 @@ pub fn load() -> Config {
     }
     if let Some(c) = t.sidebar_active_bg.as_ref().and_then(ColorValue::to_color) {
         config.theme.sidebar_active_bg = c;
+        config.theme_overrides.sidebar_active_bg = true;
     }
     if let Some(c) = t.tab_rail.as_ref().and_then(ColorValue::to_color) {
         config.theme.tab_rail = c;
     }
     if let Some(c) = t.tab_bg.as_ref().and_then(ColorValue::to_color) {
         config.theme.tab_bg = c;
+        config.theme_overrides.tab_bg = true;
     }
     if let Some(c) = t.tab_active_bg.as_ref().and_then(ColorValue::to_color) {
         config.theme.tab_active_bg = Some(c);
     }
     if let Some(c) = t.border_active.as_ref().and_then(ColorValue::to_color) {
         config.theme.border_active = c;
+        config.theme_overrides.border_active = true;
     }
     if let Some(c) = t.border_inactive.as_ref().and_then(ColorValue::to_color) {
         config.theme.border_inactive = c;
+        config.theme_overrides.border_inactive = true;
     }
     if let Some(c) = t.notification_info.as_ref().and_then(ColorValue::to_color) {
         config.theme.notification_info = c;
@@ -816,6 +1091,12 @@ pub fn load() -> Config {
     }
     if let Some(w) = raw.sidebar.width {
         config.sidebar.width = w.clamp(10, 60);
+    }
+    if let Some(view) = raw.sidebar.view {
+        match parse_sidebar_view(&view) {
+            Ok(view) => config.sidebar.view = view,
+            Err(warning) => eprintln!("{warning}"),
+        }
     }
     if let Some(w) = raw.sidebar.max_width {
         config.sidebar.max_width = w;
@@ -869,6 +1150,8 @@ pub fn load() -> Config {
     if let Some(position) = raw.scrollbar.position {
         config.scrollbar.position = position;
     }
+    config.server.ws = raw.server.ws.filter(|value| !value.trim().is_empty());
+    config.server.ws_token = raw.server.ws_token.filter(|value| !value.trim().is_empty());
     config.keys.apply(&raw.keys);
     config
 }
@@ -1045,11 +1328,20 @@ fn ghostty_selection_colors() -> Option<(Option<Color>, Option<Color>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
     use std::sync::Mutex;
 
     /// Config env vars are process-global state; tests that set them must not
     /// run concurrently with each other.
     static CONFIG_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn restore_env_var(key: &str, value: Option<OsString>) {
+        match value {
+            // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+            Some(value) => unsafe { std::env::set_var(key, value) },
+            None => unsafe { std::env::remove_var(key) },
+        }
+    }
 
     #[test]
     fn parses_hex_and_indexed_colors() {
@@ -1058,6 +1350,160 @@ mod tests {
         assert_eq!(parse_color("110"), Some(Color::Indexed(110)));
         assert_eq!(parse_color("not-a-color"), None);
         assert_eq!(parse_color("#12345"), None);
+    }
+
+    #[test]
+    fn detects_light_background_from_luminance() {
+        assert!(is_light_background(Rgb { r: 255, g: 255, b: 255 }));
+        assert!(!is_light_background(Rgb { r: 0, g: 0, b: 0 }));
+        assert!(!is_light_background(Rgb { r: 128, g: 128, b: 128 }));
+        assert!(is_light_background(Rgb { r: 129, g: 129, b: 129 }));
+    }
+
+    #[test]
+    fn dark_chrome_matches_legacy_indices() {
+        let chrome = ChromeTheme::dark();
+        assert_eq!(chrome.selection_bg, Color::Rgb(0x3a, 0x3a, 0x3a));
+        assert_eq!(chrome.selection_fg, None);
+        assert_eq!(chrome.menu_bg, Color::Indexed(237));
+        assert_eq!(chrome.menu_selected_bg, Color::Indexed(242));
+        assert_eq!(chrome.prompt_bg, Color::Indexed(236));
+        assert_eq!(chrome.status_bg, Color::Indexed(236));
+        assert_eq!(chrome.status_active_bg, Color::Indexed(240));
+        assert_eq!(chrome.tab_bar_bg, Color::Indexed(236));
+        assert_eq!(chrome.tab_active_bg, Color::Indexed(240));
+        assert_eq!(chrome.tab_active_unfocused_bg, Color::Indexed(238));
+        assert_eq!(chrome.sidebar_selected_bg, Color::Indexed(236));
+        assert_eq!(chrome.omnibar_edit_bg, Color::Indexed(236));
+        assert_eq!(chrome.border_fg, Color::Indexed(238));
+        assert_eq!(chrome.scrollbar_thumb_active_fg, Color::Indexed(252));
+    }
+
+    #[test]
+    fn light_chrome_replaces_default_selection() {
+        let mut config = Config::default();
+        config.apply_chrome_defaults(ChromeTheme::light());
+        assert_eq!(config.theme.selection_bg, Color::Rgb(0xcc, 0xdd, 0xf5));
+        assert_eq!(config.theme.selection_fg, None);
+    }
+
+    #[test]
+    fn mux_json_selection_survives_light_chrome_defaults() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir =
+            std::env::temp_dir().join(format!("mux-config-test-selection-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mux.json");
+        std::fs::write(
+            &path,
+            r##"{"theme": {"selection_background": "#112233", "selection_foreground": "#ddeeff"}}"##,
+        )
+        .unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
+        let mut config = load();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
+        let _ = std::fs::remove_file(&path);
+        config.apply_chrome_defaults(ChromeTheme::light());
+        assert_eq!(config.theme.selection_bg, Color::Rgb(0x11, 0x22, 0x33));
+        assert_eq!(config.theme.selection_fg, Some(Color::Rgb(0xdd, 0xee, 0xff)));
+    }
+
+    #[test]
+    fn ghostty_selection_survives_light_chrome_defaults() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let old_xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
+        let dir =
+            std::env::temp_dir().join(format!("mux-ghostty-selection-{}", std::process::id()));
+        let ghostty_dir = dir.join("ghostty");
+        std::fs::create_dir_all(&ghostty_dir).unwrap();
+        std::fs::write(
+            ghostty_dir.join("config"),
+            "selection-background = #445566\nselection-foreground = #abcdef\n",
+        )
+        .unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("XDG_CONFIG_HOME", &dir) };
+
+        let mut config = load();
+
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        restore_env_var("XDG_CONFIG_HOME", old_xdg_config_home);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        config.apply_chrome_defaults(ChromeTheme::light());
+        assert_eq!(config.theme.selection_bg, Color::Rgb(0x44, 0x55, 0x66));
+        assert_eq!(config.theme.selection_fg, Some(Color::Rgb(0xab, 0xcd, 0xef)));
+    }
+
+    #[test]
+    fn chrome_theme_selection_honors_auto_and_overrides() {
+        let light_defaults = DefaultColors { fg: None, bg: Some(Rgb { r: 240, g: 240, b: 240 }) };
+        let dark_defaults = DefaultColors { fg: None, bg: Some(Rgb { r: 20, g: 20, b: 20 }) };
+        assert_eq!(
+            ChromeTheme::for_defaults(ChromeMode::Auto, light_defaults),
+            ChromeTheme::light()
+        );
+        assert_eq!(ChromeTheme::for_defaults(ChromeMode::Auto, dark_defaults), ChromeTheme::dark());
+        assert_eq!(
+            ChromeTheme::for_defaults(ChromeMode::Auto, DefaultColors::default()),
+            ChromeTheme::dark()
+        );
+        assert_eq!(
+            ChromeTheme::for_defaults(ChromeMode::Dark, light_defaults),
+            ChromeTheme::dark()
+        );
+        assert_eq!(
+            ChromeTheme::for_defaults(ChromeMode::Light, dark_defaults),
+            ChromeTheme::light()
+        );
+    }
+
+    #[test]
+    fn parses_chrome_config_and_rejects_unknown_values() {
+        let raw: RawConfig = serde_json::from_str(r##"{"theme": {"chrome": "light"}}"##).unwrap();
+        assert_eq!(raw.theme.chrome, Some(ChromeMode::Light));
+
+        let err = serde_json::from_str::<RawConfig>(r##"{"theme": {"chrome": "solarized"}}"##)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("unknown variant"), "{err}");
+        assert!(err.contains("light"), "{err}");
+        assert!(err.contains("dark"), "{err}");
+        assert!(err.contains("auto"), "{err}");
+    }
+
+    #[test]
+    fn parses_websocket_server_config() {
+        let raw: RawConfig =
+            serde_json::from_str(r#"{"server":{"ws":"127.0.0.1:7681","ws_token":"secret"}}"#)
+                .unwrap();
+        assert_eq!(raw.server.ws.as_deref(), Some("127.0.0.1:7681"));
+        assert_eq!(raw.server.ws_token.as_deref(), Some("secret"));
+    }
+
+    #[test]
+    fn ignores_empty_websocket_server_config_values() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let dir = std::env::temp_dir()
+            .join(format!("mux-config-test-empty-websocket-values-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mux.json");
+        std::fs::write(&path, r#"{"server":{"ws":"","ws_token":"   "}}"#).unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
+
+        let config = load();
+
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(config.server.ws, None);
+        assert_eq!(config.server.ws_token, None);
     }
 
     #[test]
@@ -1089,6 +1535,7 @@ mod tests {
             &path,
             r##"{
                 "theme": {
+                    "chrome": "dark",
                     "selection_background": "#101010",
                     "sidebar_rail": 42,
                     "sidebar_active_bg": "#202020",
@@ -1096,6 +1543,7 @@ mod tests {
                 },
                 "tabs": {"min_width": 9, "solid_background": false},
                 "sidebar": {
+                    "view": "workspaces",
                     "width": 30,
                     "max_width": 38,
                     "plugin": {
@@ -1121,13 +1569,18 @@ mod tests {
         unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
         let _ = std::fs::remove_file(&path);
         assert_eq!(config.theme.selection_bg, Color::Rgb(0x10, 0x10, 0x10));
+        assert_eq!(config.chrome, ChromeMode::Dark);
+        assert!(config.theme_overrides.selection);
         assert_eq!(config.theme.sidebar_rail, Color::Indexed(42));
         assert_eq!(config.theme.sidebar_active_bg, Color::Rgb(0x20, 0x20, 0x20));
         assert_eq!(config.theme.tab_bg, Color::Indexed(44));
+        assert!(config.theme_overrides.sidebar_active_bg);
+        assert!(config.theme_overrides.tab_bg);
         assert_eq!(config.tabs.min_width, 9);
         assert!(!config.tabs.solid_background);
         assert_eq!(config.sidebar.width, 30);
         assert_eq!(config.sidebar.max_width, 38);
+        assert_eq!(config.sidebar.view, SidebarView::Workspaces);
         let plugin = config.sidebar.plugin.as_ref().expect("sidebar plugin config");
         assert_eq!(plugin.command, vec!["/tmp/sidebar-plugin", "--mode", "test"]);
         assert_eq!(plugin.cwd.as_deref(), Some("/tmp"));
@@ -1229,6 +1682,21 @@ mod tests {
     }
 
     #[test]
+    fn sidebar_view_defaults_parses_and_unknown_values_fall_back_with_warning() {
+        assert_eq!(Sidebar::default().view, SidebarView::Files);
+        assert_eq!(parse_sidebar_view("files"), Ok(SidebarView::Files));
+        assert_eq!(parse_sidebar_view("workspaces"), Ok(SidebarView::Workspaces));
+
+        let warning = parse_sidebar_view("tree").unwrap_err();
+        assert!(warning.contains("unknown sidebar.view \"tree\""));
+        let mut sidebar = Sidebar::default();
+        if let Ok(view) = parse_sidebar_view("tree") {
+            sidebar.view = view;
+        }
+        assert_eq!(sidebar.view, SidebarView::Files);
+    }
+
+    #[test]
     fn tmux_close_pane_flip_is_default() {
         let keys = Keys::default();
         assert_eq!(
@@ -1249,6 +1717,7 @@ mod tests {
             ("swap-pane-prev", Action::SwapPanePrev),
             ("swap-pane-next", Action::SwapPaneNext),
             ("scroll-up", Action::ScrollUp),
+            ("toggle-sidebar-view", Action::ToggleSidebarView),
         ];
         for (name, action) in cases {
             let mut keys = Keys::default();

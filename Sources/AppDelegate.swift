@@ -512,8 +512,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
+    private let systemAppearanceObserver = SystemAppearanceObserver()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
-
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
     private var isRunningUnderXCTestCached: Bool {
         Self.cachedIsRunningUnderXCTest
@@ -1207,7 +1207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             for url in authCallbacks {
                 Task { @MainActor in
                     let signedIn = await browserSignIn.handleCallbackURL(url)
-                    if !signedIn {
+                    if signedIn { await NativePricingPlanRefresh.refreshForProWelcomeChecklist() } else {
                         AuthDebugLog().log("auth.callback did not complete sign-in")
                     }
                 }
@@ -1274,6 +1274,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         AppIconLaunchState.markDidFinishLaunching()
         AppearanceSettingsUserDefaultsObserver.shared.startObserving()
+        systemAppearanceObserver.startObserving()
         BrowserSystemProxyWatcher.shared.startObserving()
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
@@ -1282,7 +1283,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             syncActivationPolicy()
         }
         StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
-
         // Prewarm the shared restorable-agent index off the main thread so the first
         // tab/workspace/window close after launch reads a warm cache instead of paying a
         // synchronous RestorableAgentSessionIndex.load() on the main thread. See
@@ -1549,6 +1549,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
     }
+
 
 #if DEBUG
     private func writeUITestDiagnosticsIfNeeded(stage: String) {
@@ -4417,13 +4418,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 restorableAgentIndex: restorableAgentIndex,
                 surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
             )
-            // A dedicated remote-tmux mirror window needs a live SSH control
-            // connection and should not restore as an empty shell. If the user
-            // dragged local workspaces into that window, keep those local
-            // workspaces: TabManager already prunes remote mirror workspaces
-            // from its snapshot.
-            if remoteTmuxController.isDedicatedRemoteWindow(context.windowId),
-               windowSnapshot.tabManager.workspaces.isEmpty {
+            // A window whose live workspaces are only remote-tmux mirrors needs
+            // live SSH control connections and should not restore as an empty
+            // shell. If local workspaces were dragged in, keep those snapshots.
+            if windowSnapshot.tabManager.workspaces.isEmpty,
+               !context.tabManager.tabs.isEmpty,
+               context.tabManager.tabs.allSatisfy(\.isRemoteTmuxMirror) {
                 continue
             }
 
@@ -5703,14 +5703,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !recordHistory {
             closedWindowHistorySuppressedWindowIds.insert(windowId)
         }
-        window.performClose(nil)
+        closeMainWindowWithoutInteractiveVeto(window)
         return true
     }
 
     func discardMainWindowWithoutClosedHistory(windowId: UUID) {
         guard let window = windowForMainWindowId(windowId) else { return }
         closedWindowHistorySuppressedWindowIds.insert(windowId)
-        window.close()
+        closeMainWindowWithoutInteractiveVeto(window)
     }
 
     private func confirmCloseMainWindow(_ window: NSWindow) -> Bool {
@@ -7392,15 +7392,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let context = livePreferredContext
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
 
-        // In a dedicated remote-tmux window, a new workspace means "create a new
-        // tmux session on that host" — route it to the remote and mirror it into
-        // this window instead of creating a local workspace.
-        if initialBrowserURL == nil,
-           let context,
-           remoteTmuxController.handleRemoteWindowNewWorkspaceRequested(windowId: context.windowId) {
-            return true
-        }
-
         let workspaceGroupTarget = context.flatMap { workspaceGroupNewWorkspaceTarget(in: $0) }
         // The configured new-workspace action is the user's override for the
         // plain New Workspace behavior; the browser variant keeps its own
@@ -8816,13 +8807,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     self.remoteTmuxController.handleWorkspaceClosed(workspaceId: workspace.id)
                 }
             }
-            // If this was a dedicated remote-tmux window, detach its host's control
-            // connections (no-op when the kill path above already tore them down).
-            // A window/quit close only detaches — the remote tmux server stays alive.
-            self.remoteTmuxController.handleRemoteWindowClosed(windowId: windowId)
-            // Also detach any per-workspace mirrors in this window (covers the
-            // socket `remote.tmux.mirror` path into a non-dedicated window), so
-            // their pane surfaces / ssh connections don't leak on window close.
             if let manager {
                 self.remoteTmuxController.handleWindowWorkspacesClosed(
                     workspaceIds: manager.tabs.map { $0.id }
@@ -9202,37 +9186,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    @MainActor
-    static func presentPreferencesWindow(
-        navigationTarget: SettingsNavigationTarget? = nil,
-        showFallbackSettingsWindow: @MainActor (SettingsNavigationTarget?) -> Void = { target in
-            SettingsWindowPresenter.show(navigationTarget: target)
-        },
-        activateApplication: @MainActor () -> Void = {
-            NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
-        }
-    ) {
-#if DEBUG
-        cmuxDebugLog("settings.open.present path=swiftuiWindow")
-#endif
-        showFallbackSettingsWindow(navigationTarget)
-        activateApplication()
-#if DEBUG
-        cmuxDebugLog("settings.open.present activate=1")
-#endif
-    }
-
-    @MainActor
-    func openPreferencesWindow(debugSource: String, navigationTarget: SettingsNavigationTarget? = nil) {
-#if DEBUG
-        cmuxDebugLog("settings.open.request source=\(debugSource)")
-#endif
-        Self.presentPreferencesWindow(navigationTarget: navigationTarget)
-    }
-
-    @objc func openPreferencesWindow() {
-        openPreferencesWindow(debugSource: "appDelegate")
-    }
+    // presentPreferencesWindow / openPreferencesWindow live in
+    // Sources/App/AppDelegateSettingsPresentation.swift.
 
     func refreshMenuBarExtraForDebug() {
         menuBarExtraController?.refreshForDebugControls()
@@ -11984,17 +11939,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     // so opening a notification must switch it back to the terminal UI.
                     window2.sidebarSelectionState.selection = .notifications
 
-                    // Create notifications for both windows. Ensure W2 isn't suppressed just because it's focused.
-                    let prevOverride = AppFocusState.overrideIsFocused
-                    AppFocusState.overrideIsFocused = false
-                    store.addNotification(tabId: tabId2, surfaceId: nil, title: "W2", subtitle: "multiwindow", body: "")
-                    AppFocusState.overrideIsFocused = prevOverride
-
-                    // Insert after W2 so it becomes "latest unread" (first in list).
-                    store.addNotification(tabId: tabId1, surfaceId: nil, title: "W1", subtitle: "multiwindow", body: "")
-
-                    let notif1 = store.notifications.first(where: { $0.tabId == tabId1 && $0.title == "W1" })
-                    let notif2 = store.notifications.first(where: { $0.tabId == tabId2 && $0.title == "W2" })
+                    let fixture = self.makeMultiWindowNotificationUITestFixture(
+                        first: (window1.tabManager, tabId1),
+                        second: (window2.tabManager, tabId2),
+                        store: store
+                    )
 
                     self.writeMultiWindowNotificationTestData([
                         "window1Id": window1.windowId.uuidString,
@@ -12004,8 +11953,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         "tabId2": tabId2.uuidString,
                         "surfaceId1": surfaceId1.uuidString,
                         "surfaceId2": surfaceId2.uuidString,
-                        "notifId1": notif1?.id.uuidString ?? "",
-                        "notifId2": notif2?.id.uuidString ?? "",
+                        "notifId1": fixture.notification1?.id.uuidString ?? "",
+                        "notifId2": fixture.notification2?.id.uuidString ?? "",
+                        "workspaceTitle1": fixture.workspaceTitle1,
+                        "workspaceTitle2": fixture.workspaceTitle2,
                         "expectedLatestWindowId": window1.windowId.uuidString,
                         "expectedLatestTabId": tabId1.uuidString,
                     ], at: path)
@@ -13735,18 +13686,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
 #endif
             return requestEditWorkspaceDescriptionViaCommandPalette(
-                preferredWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
-            )
-        }
-
-        if matchConfiguredShortcut(event: event, action: .markWorkspaceDone) {
-            return handleMarkWorkspaceDoneShortcut(
-                preferredWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
-            )
-        }
-
-        if matchConfiguredShortcut(event: event, action: .cycleWorkspaceStatus) {
-            return handleCycleWorkspaceStatusShortcut(
                 preferredWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
             )
         }

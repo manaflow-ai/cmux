@@ -36,7 +36,7 @@ struct NotificationRowSnapshotBoundaryTests {
         let notification = Self.makeNotification()
         let left = NotificationPopoverRow(
             notification: notification,
-            tabTitle: "main",
+            workspaceTitle: "main",
             onOpen: {},
             onClear: {},
             onToggleRead: {}
@@ -45,7 +45,7 @@ struct NotificationRowSnapshotBoundaryTests {
         // every store publish. Closure identity must be excluded from `==`.
         let right = NotificationPopoverRow(
             notification: notification,
-            tabTitle: "main",
+            workspaceTitle: "main",
             onOpen: { _ = 1 },
             onClear: { _ = 2 },
             onToggleRead: { _ = 3 }
@@ -62,9 +62,9 @@ struct NotificationRowSnapshotBoundaryTests {
         let read = Self.makeNotification(id: unread.id, isRead: true)
 
         let left = NotificationPopoverRow(
-            notification: unread, tabTitle: "main", onOpen: {}, onClear: {}, onToggleRead: {})
+            notification: unread, workspaceTitle: "main", onOpen: {}, onClear: {}, onToggleRead: {})
         let right = NotificationPopoverRow(
-            notification: read, tabTitle: "main", onOpen: {}, onClear: {}, onToggleRead: {})
+            notification: read, workspaceTitle: "main", onOpen: {}, onClear: {}, onToggleRead: {})
 
         #expect(
             left != right,
@@ -72,17 +72,38 @@ struct NotificationRowSnapshotBoundaryTests {
         )
     }
 
-    @Test func popoverRowEqualityDetectsTabTitleChange() {
+    @Test func popoverRowEqualityDetectsWorkspaceTitleChange() {
         let notification = Self.makeNotification()
         let left = NotificationPopoverRow(
-            notification: notification, tabTitle: "main", onOpen: {}, onClear: {}, onToggleRead: {})
+            notification: notification, workspaceTitle: "main", onOpen: {}, onClear: {}, onToggleRead: {})
         let right = NotificationPopoverRow(
-            notification: notification, tabTitle: "feature", onOpen: {}, onClear: {}, onToggleRead: {})
+            notification: notification, workspaceTitle: "feature", onOpen: {}, onClear: {}, onToggleRead: {})
 
         #expect(
             left != right,
-            "A changed tab title must change equality so the row repaints its subtitle."
+            "A changed workspace title must change equality so the row repaints its headline."
         )
+    }
+
+    @Test func workspaceTitleIndexUsesRenamedGroupName() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let childId = try #require(manager.tabs.first?.id)
+        let groupId = try #require(
+            manager.createWorkspaceGroup(name: "Original Group", childWorkspaceIds: [childId])
+        )
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let anchor = try #require(manager.tabs.first { $0.id == group.anchorWorkspaceId })
+        let staleAnchorTitle = anchor.title
+
+        let appDelegate = AppDelegate()
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        manager.renameWorkspaceGroup(groupId: groupId, name: "Renamed Group")
+
+        #expect(anchor.title == staleAnchorTitle)
+        #expect(appDelegate.tabTitlesByTabId()[anchor.id] == "Renamed Group")
     }
 
     // MARK: - Notifications page row

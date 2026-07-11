@@ -17,6 +17,7 @@ import Testing
         #expect(!oldMac.store.supportsWorkspaceReadStateActions && !oldMac.store.supportsWorkspaceCloseActions)
         #expect(!oldMac.store.supportsWorkspaceMoveActions && !oldMac.store.supportsWorkspaceGroupActions)
         #expect(!oldMac.store.supportsWorkspaceCreateInGroup)
+        #expect(!oldMac.store.supportsWorkspaceGroupCreate)
 
         let currentCapabilities = [
             "events.v1",
@@ -28,11 +29,13 @@ import Testing
             "workspace.move.v1",
             "workspace.group_actions.v1",
             "workspace.create_in_group.v1",
+            "workspace.group_create.v1",
         ]
         let scoped = try await connectedStore(capabilities: currentCapabilities)
         #expect(scoped.store.supportsWorkspaceReadStateActions && scoped.store.supportsWorkspaceCloseActions)
         #expect(!scoped.store.supportsWorkspaceMoveActions && !scoped.store.supportsWorkspaceGroupActions)
         #expect(!scoped.store.supportsWorkspaceCreateInGroup)
+        #expect(!scoped.store.supportsWorkspaceGroupCreate)
 
         let macWide = try await connectedStore(
             capabilities: currentCapabilities,
@@ -41,6 +44,7 @@ import Testing
         )
         #expect(macWide.store.supportsWorkspaceMoveActions && macWide.store.supportsWorkspaceGroupActions)
         #expect(macWide.store.supportsWorkspaceCreateInGroup)
+        #expect(macWide.store.supportsWorkspaceGroupCreate)
     }
 
     @Test func staleMacScopedMutationCapabilitiesFailClosedAfterTicketExpires() async throws {
@@ -52,6 +56,7 @@ import Testing
                 "workspace.move.v1",
                 "workspace.group_actions.v1",
                 "workspace.create_in_group.v1",
+                "workspace.group_create.v1",
             ],
             ticketWorkspaceID: "",
             ticketTerminalID: nil,
@@ -81,9 +86,13 @@ import Testing
         guard case .failure(.authorizationFailed) = await store.createWorkspaceRequest(inGroup: "group-a") else {
             return #expect(Bool(false), "expired ticket should fail create-in-group before sending")
         }
+        guard case .failure(.authorizationFailed) = await store.createWorkspaceGroup() else {
+            return #expect(Bool(false), "expired ticket should fail group create before sending")
+        }
         #expect(await router.count(of: "workspace.move") == 0)
         #expect(await router.count(of: "workspace.group.action") == 0)
         #expect(await router.count(of: "workspace.create") == 0)
+        #expect(await router.count(of: "workspace.group.create") == 0)
     }
 
     private func connectedStore(

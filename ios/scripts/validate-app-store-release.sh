@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-APP="${ASC_APP_ID:-${IOS_APPSTORE_APP_ID:-${IOS_APPSTORE_BUNDLE_ID:-com.cmuxterm.app}}}"
+APP="${ASC_APP_ID:-${IOS_APPSTORE_APP_ID:-}}"
 VERSION=""
 BUILD_NUMBER=""
 BUILD_ID=""
@@ -26,7 +26,7 @@ VALIDATE_DIGITAL_GOODS="${CMUX_APP_STORE_VALIDATE_DIGITAL_GOODS:-0}"
 usage() {
   cat <<'EOF'
 Usage:
-  ios/scripts/validate-app-store-release.sh [--app <app-id-or-bundle>]
+  ios/scripts/validate-app-store-release.sh [--app <app-store-connect-app-id>]
     [--version <X.Y.Z>] [--build-number <CFBundleVersion> | --build-id <id>]
     [--strict] [--wait-build] [--metadata-dir <dir>] [--screenshots-dir <dir>]
     [--screenshot-device-type <ASC_DEVICE_TYPE>] [--copy-metadata-from <version>]
@@ -45,6 +45,12 @@ EOF
 
 die() { printf 'validate-app-store-release: %s\n' "$*" >&2; exit 1; }
 note() { printf 'validate-app-store-release: %s\n' "$*" >&2; }
+
+read_xcconfig_setting() {
+  local key="$1"
+  local file="$2"
+  sed -nE "s/^[[:space:]]*$key[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\\1/p" "$file" 2>/dev/null | tail -n 1
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -75,12 +81,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "$APP" ]] || die "App Store app id is required; pass --app or configure the App Store app id"
+[[ -n "$APP" ]] || die "configured app id is required; pass --app or configure the release app id"
+[[ "$APP" =~ ^[0-9]+$ ]] || die "configured app id must be numeric; do not pass a bundle id"
 if [[ -z "$VERSION" ]]; then
-  VERSION="$(
-    sed -nE 's/^[[:space:]]*MARKETING_VERSION[[:space:]]*=[[:space:]]*([0-9]+(\.[0-9]+){1,2}).*/\1/p' \
-      "$IOS_DIR/Config/Shared.xcconfig" 2>/dev/null | head -n 1
-  )"
+  VERSION="$(read_xcconfig_setting CMUX_IOS_APPSTORE_MARKETING_VERSION "$IOS_DIR/Config/Shared.xcconfig")"
 fi
 [[ "$VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]] || die "--version must be X.Y or X.Y.Z (got '${VERSION:-}')"
 if [[ -n "$BUILD_NUMBER" && -n "$BUILD_ID" ]]; then
