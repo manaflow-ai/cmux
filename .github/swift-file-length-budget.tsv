@@ -4,7 +4,7 @@
 35384	CLI/cmux.swift
 17793	Sources/AppDelegate.swift
 16141	Sources/ContentView.swift
-15093	Sources/TerminalController.swift
+15088	Sources/TerminalController.swift
 12931	Sources/Workspace.swift
 12501	Sources/GhosttyTerminalView.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
@@ -28,7 +28,7 @@
 3981	Sources/BrowserWindowPortal.swift
 3953	cmuxTests/WindowAndDragTests.swift
 3934	Sources/Feed/FeedPanelView.swift
-3827	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
+3783	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3673	cmuxTests/TabManagerSessionSnapshotTests.swift
 3668	cmuxTests/CLIGenericHookPersistenceTests.swift
 3314	Sources/CmuxConfig.swift
@@ -253,5 +253,3 @@
 503	Sources/TerminalNotificationQueue.swift
 502	Sources/CmuxEventPublishing.swift
 500	Sources/KeyboardShortcutRecorder.swift
-633	Packages/Shared/CmuxAgentSync/Sources/CmuxAgentSync/Engine/AgentSyncEngine.swift
-740	Packages/Shared/CmuxAgentSync/Tests/CmuxAgentSyncTests/AgentSyncEngineTests.swift

@@ -2,6 +2,12 @@ import CmuxAgentReplica
 import CmuxAgentWire
 import Foundation
 
+extension AgentGUIService {
+    func handleRPC(_ request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
+        await AgentGUIRPCHandler(service: self).handle(request)
+    }
+}
+
 @MainActor
 struct AgentGUIRPCHandler {
     private let service: AgentGUIService
