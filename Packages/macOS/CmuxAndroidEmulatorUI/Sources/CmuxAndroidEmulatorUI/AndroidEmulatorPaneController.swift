@@ -23,6 +23,9 @@ public final class AndroidEmulatorPaneController {
     @ObservationIgnored private var failedOperation: FailedOperation?
     @ObservationIgnored private var stopConfirmedHandler: (() -> Void)?
     @ObservationIgnored private var stopInFlight = false
+    @ObservationIgnored private var stopQueued = false
+    @ObservationIgnored private var pendingOperations: [PendingOperation] = []
+    @ObservationIgnored private var operationTask: Task<Void, Never>?
 
     public init(
         avdName: String,
@@ -61,9 +64,7 @@ public final class AndroidEmulatorPaneController {
     }
 
     public func perform(_ action: AndroidEmulatorControlAction) {
-        Task {
-            await performControl(action)
-        }
+        enqueue(.control(action))
     }
 
     private func performControl(_ action: AndroidEmulatorControlAction) async {
@@ -85,9 +86,9 @@ public final class AndroidEmulatorPaneController {
     }
 
     public func stop() {
-        Task {
-            await performStop()
-        }
+        guard !stopQueued else { return }
+        stopQueued = true
+        enqueue(.stop)
     }
 
     private func performStop() async {
@@ -145,6 +146,10 @@ public final class AndroidEmulatorPaneController {
     }
 
     public func closePane() {
+        operationTask?.cancel()
+        operationTask = nil
+        pendingOperations.removeAll()
+        stopQueued = false
         captureView?.stopCapture()
     }
 
@@ -167,7 +172,34 @@ public final class AndroidEmulatorPaneController {
         captureError = nil
     }
 
+    private func enqueue(_ operation: PendingOperation) {
+        pendingOperations.append(operation)
+        guard operationTask == nil else { return }
+        operationTask = Task { @MainActor [weak self] in
+            await self?.drainOperations()
+        }
+    }
+
+    private func drainOperations() async {
+        while !Task.isCancelled, !pendingOperations.isEmpty {
+            let operation = pendingOperations.removeFirst()
+            switch operation {
+            case .control(let action):
+                await performControl(action)
+            case .stop:
+                await performStop()
+                stopQueued = false
+            }
+        }
+        operationTask = nil
+    }
+
     private enum FailedOperation {
+        case control(AndroidEmulatorControlAction)
+        case stop
+    }
+
+    private enum PendingOperation {
         case control(AndroidEmulatorControlAction)
         case stop
     }
