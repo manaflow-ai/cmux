@@ -12199,10 +12199,10 @@ struct CMUXCLI {
               !sessionID.isEmpty else {
             throw CLIError(message: "ssh-session-attach requires --session-id <id>")
         }
+        if workspaceOpt?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true { throw CLIError(message: String(localized: "cli.error.sshSessionAttachWorkspaceRequiresValue", defaultValue: "ssh-session-attach: --workspace requires a value")) }
         if paneOpt != nil, splitOpt != nil {
             throw CLIError(message: "ssh-session-attach: --pane cannot be combined with --split")
         }
-
         let workspaceRaw = workspaceOpt ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
         let workspaceID = try normalizeWorkspaceHandle(workspaceRaw, client: client)
         let initialCommand = sshSessionAttachStartupCommand(sessionID: sessionID)
@@ -15911,7 +15911,7 @@ struct CMUXCLI {
               --session-id <id>           Persisted SSH PTY session ID
               --pane <id|ref|index>       Target pane for a new surface
               --split <left|right|up|down> Create a new split instead of a surface
-              --surface <id|ref|index>    Split anchor (default: $CMUX_SURFACE_ID; with --workspace, its focused surface)
+              --surface <id|ref|index>    Source surface for --split
               --focus <true|false>        Focus the attached surface (default: true)
 
             Example:

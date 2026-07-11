@@ -74,6 +74,22 @@ struct CLISSHSessionAttachAnchorTests {
         #expect(params["surface_id"] as? String == Self.callerSurfaceId)
     }
 
+    @Test func splitWithBlankExplicitWorkspaceFailsClosed() throws {
+        let (requests, result) = try runSSHSessionAttach(
+            arguments: [
+                "ssh-session-attach",
+                "--session-id", "ssh-test",
+                "--workspace", "",
+                "--split", "right",
+                "--focus", "false",
+            ],
+            responseWorkspaceId: Self.targetWorkspaceId
+        )
+        #expect(result.status != 0)
+        #expect(requests.isEmpty)
+        #expect(result.stderr.contains("--workspace"), Comment(rawValue: result.stderr))
+    }
+
     private func runSSHSessionAttach(
         arguments: [String],
         responseWorkspaceId: String
