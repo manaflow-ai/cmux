@@ -1071,15 +1071,10 @@ final class MobileHostService {
         routeKind: String? = nil,
         target: MobileAttachTarget = .ticketOnly
     ) async throws -> [String: Any] {
-        let routes = listenerPort.map { routeResolver.routes(port: $0).routes } ?? []
-        guard !routes.isEmpty else {
-            throw MobileAttachTicketStoreError.noRoutes
-        }
-        let selectedRoutes = try target.selectRoutes(from: Self.filteredRoutes(
-            routes,
-            routeID: routeID,
-            routeKind: routeKind
-        ))
+        guard let listenerPort else { throw MobileAttachTicketStoreError.noRoutes }
+        let routes = routeResolver.routes(port: listenerPort).routes
+        let filteredRoutes = try Self.filteredRoutes(routes, routeID: routeID, routeKind: routeKind)
+        let selectedRoutes = try target.selectRoutes(from: filteredRoutes)
         let ticket = try ticketStore.createTicket(
             workspaceID: workspaceID,
             terminalID: terminalID,

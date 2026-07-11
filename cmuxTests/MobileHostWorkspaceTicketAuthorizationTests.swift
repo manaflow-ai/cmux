@@ -142,6 +142,26 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         }
     }
 
+    #if DEBUG
+    @Test func attachTicketWithoutListenerPreservesNoRoutesError() async {
+        let service = MobileHostService.shared
+        service.debugSetListenerStateForTesting(
+            generation: UUID(),
+            usesEphemeralFallback: false,
+            port: nil
+        )
+
+        await #expect(throws: MobileAttachTicketStoreError.noRoutes) {
+            try await service.createAttachTicket(
+                workspaceID: "workspace-main",
+                terminalID: nil,
+                ttl: 3600,
+                target: .physicalDevice
+            )
+        }
+    }
+    #endif
+
     @Test func testWorkspaceScopedTicketAuthorizesWorkspaceActionsOnlyForTicketWorkspace() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace")
         let cases: [(method: String, params: [String: String], expectedCode: String?)] = [
