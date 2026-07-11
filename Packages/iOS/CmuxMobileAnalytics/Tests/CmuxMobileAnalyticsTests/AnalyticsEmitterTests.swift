@@ -25,6 +25,44 @@ private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendab
     }
 }
 
+private actor TestGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        if isOpen { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        let currentWaiters = waiters
+        waiters.removeAll()
+        for waiter in currentWaiters { waiter.resume() }
+    }
+}
+
+private actor BlockingAnalyticsUploader: AnalyticsUploading {
+    nonisolated let uploadStarted = TestGate()
+    nonisolated let allowUploadToFinish = TestGate()
+    private(set) var identifyCalls = 0
+
+    func upload(_: [AnalyticsEvent]) async -> AnalyticsUploadResult {
+        await uploadStarted.open()
+        await allowUploadToFinish.wait()
+        return .accepted
+    }
+
+    func identify(
+        userID _: String?,
+        anonymousID _: String?,
+        properties _: [String: any Sendable]
+    ) async -> AnalyticsUploadResult {
+        identifyCalls += 1
+        return .accepted
+    }
+}
+
 @Suite struct AnalyticsEmitterTests {
     @Test func userDefaultsConsentDefaultsOffUntilEnabled() {
         let suiteName = "cmux.analytics-consent.\(UUID().uuidString)"
@@ -42,7 +80,7 @@ private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendab
     }
 
     private func makeEmitter(
-        uploader: RecordingAnalyticsUploader,
+        uploader: any AnalyticsUploading,
         consent: (any AnalyticsConsentProviding)? = nil,
         consentEnabled: Bool = true,
         anonymousID: String = "anon-1",
@@ -190,6 +228,25 @@ private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendab
         consent.set(true)
         await emitter.flush()
         #expect(await uploader.uploadedBatches.count == batchesBeforeWithdrawal)
+    }
+
+    @Test func withdrawnConsentDropsIdentifyQueuedBehindAnUpload() async {
+        let consent = MutableConsent(enabled: true)
+        let uploader = BlockingAnalyticsUploader()
+        let emitter = makeEmitter(
+            uploader: uploader,
+            consent: consent,
+            flushBatchSize: 1
+        )
+
+        emitter.capture("ios_app_launched", [:])
+        await uploader.uploadStarted.wait()
+        emitter.identify(userId: "user-7", alias: nil, properties: [:])
+        consent.set(false)
+        await uploader.allowUploadToFinish.open()
+        await emitter.flush()
+
+        #expect(await uploader.identifyCalls == 0)
     }
 
     @Test func sustainedRetryBoundsBacklogByDroppingOldest() async {
