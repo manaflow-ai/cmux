@@ -29,3 +29,32 @@ import Testing
     #expect(created.paneID == "pane-live")
     #expect(updated.panes[0].terminalIDs.last == created.id)
 }
+
+@MainActor
+@Test func createTerminalDoesNotDuplicateAnExistingIDAfterDeletion() throws {
+    let store = MobileShellComposite.preview()
+    let workspace = MobileWorkspacePreview(
+        id: "workspace-pane",
+        name: "Pane project",
+        terminals: [
+            MobileTerminalPreview(id: "workspace-pane-terminal-2", name: "shell", paneID: "pane-live"),
+        ],
+        panes: [
+            MobilePanePreview(
+                id: "pane-live",
+                spatialIndex: 0,
+                isFocused: true,
+                terminalIDs: ["workspace-pane-terminal-2"]
+            ),
+        ],
+        focusedPaneID: "pane-live",
+        selectedTerminalID: "workspace-pane-terminal-2"
+    )
+    store.replaceForegroundWorkspaceState([workspace])
+
+    store.createLocalTerminal(in: workspace.id, paneID: "pane-live")
+
+    let updated = try #require(store.workspaces.first)
+    #expect(Set(updated.terminals.map(\.id)).count == updated.terminals.count)
+    #expect(updated.terminals.last?.id == "workspace-pane-terminal-3")
+}
