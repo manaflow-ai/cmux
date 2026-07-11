@@ -135,6 +135,7 @@ extension TerminalSurface {
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
             activePortalHostLease = nil
+            cancelAllPendingPortalHostRetries()
             recordTeardownRequest(reason: reason)
             markPortalLifecycleClosed(reason: reason)
 #if DEBUG
@@ -226,6 +227,7 @@ extension TerminalSurface {
     public func teardownSurface() {
         recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
+        cancelAllPendingPortalHostRetries()
         backgroundSurfaceStartSource = .normal
         cancelClaudeCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
@@ -293,6 +295,7 @@ extension TerminalSurface {
     /// agent-hibernation resume.
     @MainActor
     public func suspendRuntimeSurfaceForAgentHibernation(reason: String) {
+        cancelAllPendingPortalHostRetries()
         runtimeSurfaceSuspendedForAgentHibernation = true
         backgroundSurfaceStartQueued = false
         backgroundSurfaceStartSource = .normal
