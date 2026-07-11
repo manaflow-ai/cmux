@@ -156,8 +156,16 @@ extension TerminalController {
 
     private nonisolated static func mobileWorkspaceDiffStatusResultSync(directory: String) -> MobileWorkspaceDiffStatusResult {
         let service = GitDiffService()
-        guard let repoRoot = service.repositoryRoot(for: directory) else {
+        let repoRoot: String
+        switch service.repositoryRootResult(for: directory) {
+        case .success(let root):
+            repoRoot = root
+        case .notFound:
             return .repositoryNotFound
+        case .failed:
+            return .gitFailed
+        case .timedOut:
+            return .gitTimedOut
         }
         guard let changed = service.changedFiles(
             repoRoot: repoRoot,
@@ -178,20 +186,36 @@ extension TerminalController {
         expectedRepoRoot: String
     ) -> MobileWorkspaceDiffFileResult {
         let service = GitDiffService()
-        guard let repoRoot = service.repositoryRoot(for: directory) else {
+        let repoRoot: String
+        switch service.repositoryRootResult(for: directory) {
+        case .success(let root):
+            repoRoot = root
+        case .notFound:
             return .repositoryNotFound
+        case .failed:
+            return .gitFailed
+        case .timedOut:
+            return .gitTimedOut
         }
         guard URL(fileURLWithPath: repoRoot).resolvingSymlinksInPath().standardizedFileURL
             == URL(fileURLWithPath: expectedRepoRoot).resolvingSymlinksInPath().standardizedFileURL else {
             return .repositoryChanged
         }
-        guard let diff = service.fileDiff(
+        let diff: GitFileDiff
+        switch service.fileDiffResult(
             repoRoot: repoRoot,
             path: path,
             oldPath: oldPath,
             maxOutputBytes: mobileWorkspaceDiffReadCap
-        ) else {
+        ) {
+        case .success(let value):
+            diff = value
+        case .notFound:
             return .fileNotFound(path: path)
+        case .failed:
+            return .gitFailed
+        case .timedOut:
+            return .gitTimedOut
         }
         let capped = utf8BoundaryCapped(diff.unifiedDiff, byteLimit: mobileWorkspaceDiffFileByteCap)
         return .ok(
@@ -223,6 +247,8 @@ extension TerminalController {
             return .err(code: "not_found", message: "Git repository not found", data: nil)
         case .gitFailed:
             return .err(code: "git_failed", message: "Could not read repository changes", data: nil)
+        case .gitTimedOut:
+            return .err(code: "git_timeout", message: "Git took too long to read repository changes", data: nil)
         case .ok(let repoRoot, let summaries, let truncated):
             let files = summaries.map { summary in
                 [
@@ -249,6 +275,10 @@ extension TerminalController {
             return .err(code: "not_found", message: "File diff not found", data: ["path": path])
         case .repositoryChanged:
             return .err(code: "stale_repository", message: "Workspace repository changed", data: nil)
+        case .gitFailed:
+            return .err(code: "git_failed", message: "Could not read repository changes", data: nil)
+        case .gitTimedOut:
+            return .err(code: "git_timeout", message: "Git took too long to read repository changes", data: nil)
         case .ok(let path, let unifiedDiff, let truncated):
             return .ok([
                 "path": path,
@@ -275,6 +305,7 @@ private enum MobileWorkspaceDiffSnapshotResult {
 private enum MobileWorkspaceDiffStatusResult: Sendable {
     case repositoryNotFound
     case gitFailed
+    case gitTimedOut
     case ok(repoRoot: String, files: [GitDiffSummary], truncated: Bool)
 }
 
@@ -282,5 +313,7 @@ private enum MobileWorkspaceDiffFileResult: Sendable {
     case repositoryNotFound
     case repositoryChanged
     case fileNotFound(path: String)
+    case gitFailed
+    case gitTimedOut
     case ok(path: String, unifiedDiff: String, truncated: Bool)
 }

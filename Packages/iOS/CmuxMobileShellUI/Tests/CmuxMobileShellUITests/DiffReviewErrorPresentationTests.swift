@@ -5,7 +5,7 @@ import Testing
 
 @Suite struct DiffReviewErrorPresentationTests {
     @Test func knownRPCErrorsDoNotExposeServerEnglish() {
-        for code in ["not_found", "git_failed", "stale_repository"] {
+        for code in ["not_found", "git_failed", "git_timeout", "stale_repository"] {
             let message = DiffReviewErrorPresentation(
                 error: MobileShellConnectionError.rpcError(code, "UNLOCALIZED SERVER MESSAGE")
             ).message

@@ -32,7 +32,7 @@ struct GitProcessRunner: Sendable {
         // cancellation is forwarded into the detached git work) must not
         // spawn further subprocesses; outside any task this reads false.
         guard !Task.isCancelled else {
-            return GitProcessResult(output: nil)
+            return GitProcessResult(output: nil, failure: .cancelled)
         }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -55,7 +55,7 @@ struct GitProcessRunner: Sendable {
             ) else {
                 process.terminate()
                 process.waitUntilExit()
-                return GitProcessResult(output: nil)
+                return GitProcessResult(output: nil, failure: .launchFailed)
             }
             // Wall-clock watchdog: terminate git at the deadline so a stalled
             // subprocess never outlives the request that spawned it. The
@@ -89,14 +89,14 @@ struct GitProcessRunner: Sendable {
                 )
             }
             if watchdog.didFire {
-                return GitProcessResult(output: nil, timedOut: true)
+                return GitProcessResult(output: nil, failure: .timedOut)
             }
             guard acceptedTerminationStatuses.contains(process.terminationStatus) else {
-                return GitProcessResult(output: nil)
+                return GitProcessResult(output: nil, failure: .unsuccessfulExit)
             }
             return GitProcessResult(output: Self.decodeUTF8Lossy(read.data, maxOutputBytes: nil))
         } catch {
-            return GitProcessResult(output: nil)
+            return GitProcessResult(output: nil, failure: .launchFailed)
         }
     }
 
@@ -189,15 +189,24 @@ struct GitProcessResult {
     let output: String?
     /// Whether the output was cut off at the caller's byte bound.
     let capped: Bool
-    let timedOut: Bool
+    let failure: GitProcessFailure?
 
-    init(output: String?, capped: Bool = false, timedOut: Bool = false) {
+    init(output: String?, capped: Bool = false, failure: GitProcessFailure? = nil) {
         self.output = output
         self.capped = capped
-        self.timedOut = timedOut
+        self.failure = failure
     }
+
+    var timedOut: Bool { failure == .timedOut }
 
     var successOutput: String? {
         output
     }
+}
+
+enum GitProcessFailure: Sendable {
+    case cancelled
+    case timedOut
+    case launchFailed
+    case unsuccessfulExit
 }

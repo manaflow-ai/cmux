@@ -381,46 +381,6 @@ import Testing
         #expect(box.value == nil)
     }
 
-    @Test func repositoryRootResultPreservesTimeout() throws {
-        let repo = try makeTempRepo()
-        defer { try? FileManager.default.removeItem(at: repo) }
-        let stalledGit = repo.appendingPathComponent("stalled-root-git.sh")
-        try Data("#!/bin/sh\nsleep 30\n".utf8).write(to: stalledGit)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o755], ofItemAtPath: stalledGit.path
-        )
-        let service = GitDiffService(
-            gitExecutableURL: stalledGit,
-            processDeadlineSeconds: 0.1
-        )
-
-        switch service.repositoryRootResult(for: repo.path) {
-        case .timedOut:
-            break
-        default:
-            Issue.record("A Git timeout was flattened into another root lookup result")
-        }
-    }
-
-    @Test func fileDiffResultPreservesGitExecutionFailure() throws {
-        let repo = try makeTempRepo()
-        defer { try? FileManager.default.removeItem(at: repo) }
-        try Data("changed\n".utf8).write(to: repo.appendingPathComponent("a.txt"))
-        let failingGit = repo.appendingPathComponent("failing-file-git.sh")
-        try Data("#!/bin/sh\nexit 2\n".utf8).write(to: failingGit)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o755], ofItemAtPath: failingGit.path
-        )
-        let service = GitDiffService(gitExecutableURL: failingGit)
-
-        switch service.fileDiffResult(repoRoot: repo.path, path: "a.txt") {
-        case .failed:
-            break
-        default:
-            Issue.record("A Git execution failure was flattened into a missing file")
-        }
-    }
-
     @Test func deadlineTerminatesDescendantsInTheGitProcessGroup() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }

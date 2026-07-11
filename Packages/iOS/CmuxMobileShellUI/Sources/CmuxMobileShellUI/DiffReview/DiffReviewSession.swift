@@ -106,15 +106,14 @@ final class DiffReviewSession {
         hunkCountsByPath[path] = count
         if let bookmark,
            bookmark.filePath == path,
-           count > 0,
            bookmark.hunkIndex >= count {
-            self.bookmark = Bookmark(filePath: path, hunkIndex: count - 1)
+            self.bookmark = Bookmark(filePath: path, hunkIndex: max(0, count - 1))
         }
         guard currentFile?.path == path else { return }
         if pendingSeekToLastHunk {
             pendingSeekToLastHunk = false
             currentHunkIndex = max(0, count - 1)
-        } else if count > 0, currentHunkIndex >= count {
+        } else if currentHunkIndex >= count {
             currentHunkIndex = max(0, count - 1)
         }
     }
