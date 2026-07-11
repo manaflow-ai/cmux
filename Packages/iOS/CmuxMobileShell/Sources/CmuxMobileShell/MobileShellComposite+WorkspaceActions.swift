@@ -373,11 +373,13 @@ extension MobileShellComposite {
                 markMacConnectionUnavailableIfNeeded(after: error)
             }
             mobileShellLog.error("workspace mutation failed action=\(actionName, privacy: .public) id=\(logID, privacy: .public) error=\(String(describing: error), privacy: .public)")
-            await refreshAfterWorkspaceMutation(target)
+            _ = await refreshAfterWorkspaceMutation(target)
             return .failure(workspaceMutationFailure(error, hostDisplayName: hostDisplayName))
         }
         // Re-sync the authoritative list for the Mac we actually mutated.
-        await refreshAfterWorkspaceMutation(target)
+        guard await refreshAfterWorkspaceMutation(target) else {
+            return .failure(.notConnected(hostDisplayName: hostDisplayName))
+        }
         return .success(())
     }
 

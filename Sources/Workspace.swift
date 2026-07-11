@@ -11695,6 +11695,10 @@ extension Workspace: BonsplitDelegate {
             )
         )
         publishCmuxFocusedSelection(paneId: focusedPane, surfaceId: panelId, origin: "bonsplit_selection")
+        // Pane focus and selected tabs are part of the mobile hierarchy payload.
+        // Reuse the scoped pane-layout publisher as an invalidation signal without
+        // widening one workspace's focus event into an app-wide observation.
+        paneLayoutVersionPublisher.send(paneLayoutVersion)
 #if DEBUG
         let prevPanelShort = previousFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
         cmuxDebugLog(

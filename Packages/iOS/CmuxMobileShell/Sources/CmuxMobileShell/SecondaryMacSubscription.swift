@@ -22,6 +22,7 @@ final class SecondaryMacSubscription {
     var refreshTask: Task<Void, Never>?
     var refreshPending = false
     var refreshStartedGeneration: UInt64 = 0
+    var refreshFinishedGeneration: UInt64 = 0
     var refreshCompletedGeneration: UInt64 = 0
 
     init(

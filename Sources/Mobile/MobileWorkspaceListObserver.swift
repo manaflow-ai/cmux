@@ -227,10 +227,9 @@ final class MobileWorkspaceListObserver {
     }
 
     /// Stable hash of the iOS-facing shape: workspace ids + titles + their
-    /// panels in spatial order + each panel's displayed (custom-aware) title and
-    /// directory. Mutations that don't show up on the mobile list (pane geometry,
-    /// scrollback content, focus only) don't trip the event, so we don't fan out
-    /// on every keystroke.
+    /// panels grouped by pane + focused pane/terminal + each panel's displayed
+    /// (custom-aware) title and directory. Mutations that don't show up on the
+    /// mobile list (pane geometry and scrollback content) don't trip the event.
     ///
     /// The panel ids are hashed in `orderedPanelIds` order (not the sorted set),
     /// so a pure drag-reorder, which changes the spatial order but not the id set,
@@ -279,6 +278,25 @@ final class MobileWorkspaceListObserver {
             // reorder of the same panel set changes the hash.
             let panelIDs = workspace.orderedPanelIds
             hasher.combine(panelIDs)
+            let paneIDs = workspace.bonsplitController.allPaneIds
+            hasher.combine(paneIDs.count)
+            hasher.combine(workspace.bonsplitController.focusedPaneId?.id)
+            hasher.combine(workspace.focusedTerminalPanel?.id)
+            for paneID in paneIDs {
+                hasher.combine(paneID.id)
+                let terminalIDs: [UUID] = workspace.bonsplitController.tabs(inPane: paneID).compactMap { tab -> UUID? in
+                    guard let panelID = workspace.panelIdFromSurfaceId(tab.id),
+                          workspace.terminalPanel(for: panelID) != nil else {
+                        return nil
+                    }
+                    return panelID
+                }
+                hasher.combine(terminalIDs)
+                let selectedTerminalID: UUID? = workspace.bonsplitController.selectedTab(inPane: paneID)
+                    .flatMap { workspace.panelIdFromSurfaceId($0.id) }
+                    .flatMap { workspace.terminalPanel(for: $0)?.id }
+                hasher.combine(selectedTerminalID)
+            }
             for id in panelIDs {
                 hasher.combine(workspace.panelTitle(panelId: id))
                 hasher.combine(workspace.reportedPanelDirectory(panelId: id))

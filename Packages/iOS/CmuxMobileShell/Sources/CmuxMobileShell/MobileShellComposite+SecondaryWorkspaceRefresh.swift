@@ -27,8 +27,9 @@ extension MobileShellComposite {
                     macDeviceID: macID
                 )
                 guard self.secondaryMacSubscriptions[macID] === subscription else { return }
-                subscription.refreshCompletedGeneration = generation
+                subscription.refreshFinishedGeneration = generation
                 if let previews {
+                    subscription.refreshCompletedGeneration = generation
                     self.workspacesByMac[macID] = MacWorkspaceState(
                         macDeviceID: macID,
                         displayName: displayName,

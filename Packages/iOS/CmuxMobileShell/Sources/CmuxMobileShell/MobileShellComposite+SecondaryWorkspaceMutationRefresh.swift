@@ -2,13 +2,13 @@ internal import CmuxMobileShellModel
 
 extension MobileShellComposite {
     /// Re-syncs one mutation target before the caller clears optimistic state.
-    func refreshAfterWorkspaceMutation(_ target: WorkspaceMutationTarget) async {
+    func refreshAfterWorkspaceMutation(_ target: WorkspaceMutationTarget) async -> Bool {
         if target.isForeground {
             await refreshWorkspaces()
-            return
+            return true
         }
         guard let macID = target.macDeviceID,
-              let subscription = secondaryMacSubscriptions[macID] else { return }
+              let subscription = secondaryMacSubscriptions[macID] else { return false }
         let displayName = workspacesByMac[macID]?.displayName
         let targetGeneration = subscription.refreshStartedGeneration &+ 1
         subscription.refreshPending = true
@@ -18,7 +18,7 @@ extension MobileShellComposite {
             displayName: displayName
         )
         while secondaryMacSubscriptions[macID] === subscription,
-              subscription.refreshCompletedGeneration < targetGeneration {
+              subscription.refreshFinishedGeneration < targetGeneration {
             guard let refreshTask = subscription.refreshTask else {
                 scheduleSecondaryRefresh(
                     macID: macID,
@@ -29,5 +29,7 @@ extension MobileShellComposite {
             }
             await refreshTask.value
         }
+        return secondaryMacSubscriptions[macID] === subscription
+            && subscription.refreshCompletedGeneration >= targetGeneration
     }
 }
