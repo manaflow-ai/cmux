@@ -181,4 +181,40 @@ import Testing
         _ = await firstCreate.value
         #expect(await router.recordedWorkspaceCreateCount() == 1)
     }
+
+    @Test func invalidWorkingDirectoryMapsToSpecificComposerFailure() async throws {
+        let router = RoutingHostRouter()
+        await router.setWorkspaceCreateError(
+            code: "invalid_params",
+            message: "working_directory must be an absolute existing directory"
+        )
+        let store = try await makeRoutingConnectedStore(router: router)
+
+        let result = await store.createWorkspaceRequest(
+            spec: MobileWorkspaceCreateSpec(workingDirectory: "/missing")
+        )
+
+        guard case let .failure(.invalidWorkingDirectory(hostDisplayName)) = result else {
+            return #expect(Bool(false), "working-directory rejection should map specifically")
+        }
+        #expect(hostDisplayName == store.connectedHostName)
+    }
+
+    @Test func unrelatedInvalidParamsRemainsGenericRejection() async throws {
+        let router = RoutingHostRouter()
+        await router.setWorkspaceCreateError(
+            code: "invalid_params",
+            message: "group_id is required for group placement"
+        )
+        let store = try await makeRoutingConnectedStore(router: router)
+
+        let result = await store.createWorkspaceRequest(
+            spec: MobileWorkspaceCreateSpec(title: "Rejected")
+        )
+
+        guard case let .failure(.rejected(hostDisplayName)) = result else {
+            return #expect(Bool(false), "unrelated invalid_params should remain generic")
+        }
+        #expect(hostDisplayName == store.connectedHostName)
+    }
 }

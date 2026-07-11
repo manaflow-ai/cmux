@@ -121,41 +121,107 @@ import Testing
         #expect(Self.windowID(from: result) == ownerWindowID)
     }
 
-    @Test func composerWorkingDirectoryRequiresAbsoluteExistingDirectory() throws {
+    @Test func synchronousCreateRejectsComposerWorkingDirectoryWithoutFilesystemValidation() throws {
         let manager = TabManager()
         let baselineCount = manager.tabs.count
-        let missing = FileManager.default.temporaryDirectory
-            .appendingPathComponent("missing-task-dir-\(UUID().uuidString)").path
-        let regularFile = FileManager.default.temporaryDirectory
-            .appendingPathComponent("task-file-\(UUID().uuidString)")
-        try Data().write(to: regularFile)
-        defer { try? FileManager.default.removeItem(at: regularFile) }
+        let existingDirectory = FileManager.default.temporaryDirectory.path
 
-        for invalidPath in ["relative/path", missing, regularFile.path] {
-            let result = TerminalController.shared.v2WorkspaceCreate(params: [
-                "working_directory": invalidPath,
-            ], tabManager: manager)
-            #expect(Self.errorCode(from: result) == "invalid_params")
-        }
+        let result = TerminalController.shared.v2WorkspaceCreate(params: [
+            "working_directory": existingDirectory,
+        ], tabManager: manager)
+
+        #expect(Self.errorCode(from: result) == "invalid_params")
         #expect(manager.tabs.count == baselineCount)
     }
 
-    @Test func composerWorkingDirectoryAcceptsExistingDirectoryAndLegacyCwdRemainsCompatible() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("task-dir-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+    @Test func legacyCwdRemainsCompatible() {
         let manager = TabManager()
 
-        let composerResult = TerminalController.shared.v2WorkspaceCreate(params: [
-            "working_directory": directory.path,
-        ], tabManager: manager)
         let legacyResult = TerminalController.shared.v2WorkspaceCreate(params: [
             "cwd": "relative/legacy-path",
         ], tabManager: manager)
 
-        #expect(Self.workspaceID(from: composerResult) != nil)
         #expect(Self.workspaceID(from: legacyResult) != nil)
+    }
+
+    @Test func mobileHandlerAcceptsExistingWorkingDirectory() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer { TerminalController.shared.setActiveTabManager(previousManager) }
+        let baselineIDs = Set(manager.tabs.map(\.id))
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mobile-task-dir-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let result = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "mobile-task-valid-directory",
+                method: "workspace.create",
+                params: ["working_directory": directory.path],
+                auth: nil
+            )
+        )
+
+        guard case .ok = result else {
+            return #expect(Bool(false), "existing absolute directory should be accepted")
+        }
+        #expect(Set(manager.tabs.map(\.id)).subtracting(baselineIDs).count == 1)
+    }
+
+    @Test func mobileHandlerRejectsRelativeFileAndMissingWorkingDirectories() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer { TerminalController.shared.setActiveTabManager(previousManager) }
+        let baselineIDs = Set(manager.tabs.map(\.id))
+        let missing = FileManager.default.temporaryDirectory
+            .appendingPathComponent("missing-mobile-task-dir-\(UUID().uuidString)").path
+        let regularFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mobile-task-file-\(UUID().uuidString)")
+        try Data().write(to: regularFile)
+        defer { try? FileManager.default.removeItem(at: regularFile) }
+
+        for invalidPath in ["relative/path", regularFile.path, missing] {
+            let result = await TerminalController.shared.mobileHostHandleRPC(
+                MobileHostRPCRequest(
+                    id: "mobile-task-invalid-directory",
+                    method: "workspace.create",
+                    params: ["working_directory": invalidPath],
+                    auth: nil
+                )
+            )
+            guard case let .failure(error) = result else {
+                return #expect(Bool(false), "invalid directory should be rejected")
+            }
+            #expect(error.code == "invalid_params")
+            #expect(error.message == "working_directory must be an absolute existing directory")
+            #expect((error.data as? [String: String])?["field"] == "working_directory")
+        }
+        #expect(Set(manager.tabs.map(\.id)) == baselineIDs)
+    }
+
+    @Test func cancelledMobileValidationCreatesNoWorkspace() async {
+        let manager = TabManager()
+        let baselineIDs = Set(manager.tabs.map(\.id))
+        let gate = WorkspaceCreateValidationGate()
+        let create = Task { @MainActor in
+            await TerminalController.shared.v2MobileWorkspaceCreate(
+                params: ["working_directory": "/tmp"],
+                workingDirectoryValidator: { rawValue, isProvided in
+                    await gate.validate(rawValue: rawValue, isProvided: isProvided)
+                },
+                tabManager: manager
+            )
+        }
+        await gate.waitUntilValidationStarts()
+
+        create.cancel()
+        await gate.release()
+        _ = await create.value
+
+        #expect(Set(manager.tabs.map(\.id)) == baselineIDs)
     }
 
     @Test func idempotencyCacheEvictsSuccessfulResultsInFIFOOrder() {
@@ -198,5 +264,33 @@ import Testing
             return nil
         }
         return UUID(uuidString: rawID)
+    }
+}
+
+private actor WorkspaceCreateValidationGate {
+    private var started = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func validate(
+        rawValue: String?,
+        isProvided: Bool
+    ) async -> TerminalController.WorkspaceCreateWorkingDirectoryValidation {
+        started = true
+        let waiters = startWaiters
+        startWaiters = []
+        for waiter in waiters { waiter.resume() }
+        await withCheckedContinuation { releaseContinuation = $0 }
+        return .valid(rawValue ?? "/tmp")
+    }
+
+    func waitUntilValidationStarts() async {
+        if started { return }
+        await withCheckedContinuation { startWaiters.append($0) }
+    }
+
+    func release() {
+        releaseContinuation?.resume()
+        releaseContinuation = nil
     }
 }

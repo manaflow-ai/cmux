@@ -61,6 +61,7 @@ actor RoutingHostRouter {
     private var workspaceCreateCount = 0
     private var hostCapabilities = ["workspace.task_create.v1"]
     private var rejectWorkspaceCreate = false
+    private var workspaceCreateError: (code: String?, message: String)?
     private var holdFirstWorkspaceCreate = false
     private var firstWorkspaceCreateHeld = false
     private var firstWorkspaceCreateContinuation: CheckedContinuation<Void, Never>?
@@ -105,6 +106,10 @@ actor RoutingHostRouter {
 
     func setRejectWorkspaceCreate(_ reject: Bool) {
         rejectWorkspaceCreate = reject
+    }
+
+    func setWorkspaceCreateError(code: String?, message: String) {
+        workspaceCreateError = (code, message)
     }
 
     func setHostCapabilities(_ capabilities: [String]) {
@@ -214,6 +219,13 @@ actor RoutingHostRouter {
             if rejectWorkspaceCreate {
                 return try? Self.errorFrame(id: id, message: "workspace.create rejected")
             }
+            if let workspaceCreateError {
+                return try? Self.errorFrame(
+                    id: id,
+                    code: workspaceCreateError.code,
+                    message: workspaceCreateError.message
+                )
+            }
             return try? Self.resultFrame(id: id, result: [
                 "workspaces": [
                     [
@@ -285,11 +297,15 @@ actor RoutingHostRouter {
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }
 
-    private static func errorFrame(id: String?, message: String) throws -> Data {
+    private static func errorFrame(id: String?, code: String? = nil, message: String) throws -> Data {
+        var error: [String: Any] = ["message": message]
+        if let code {
+            error["code"] = code
+        }
         let envelope: [String: Any] = [
             "id": id ?? UUID().uuidString,
             "ok": false,
-            "error": ["message": message],
+            "error": error,
         ]
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }
