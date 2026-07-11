@@ -40,14 +40,11 @@ type RateLimitCheck = (
   options: { request: Request; rateLimitKey?: string },
 ) => Promise<{ rateLimited: boolean; error?: string }>;
 
-const RATE_LIMIT_TIMEOUT_MS = 3000;
-
 export interface RelayTokenDeps {
   verifyRequest: (request: Request) => Promise<AuthedUser | null>;
   signingKey: () => KeyObject | null;
   nowSeconds: () => number;
   checkRateLimit: RateLimitCheck;
-  rateLimitTimeoutMs?: number;
 }
 
 const productionDeps: RelayTokenDeps = {
@@ -78,30 +75,22 @@ export async function handleRelayTokenRequest(
       return jsonResponse({ error: "relay_token_unavailable" }, 503);
     }
     let result: { rateLimited: boolean; error?: string };
-    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      // @vercel/firewall does a network fetch with no timeout, so a stalled
-      // request would hang issuance until the platform deadline and block an
-      // attach/reconnect. Bound it and fail closed on timeout.
-      const deadline = new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error("rate_limit_timeout")),
-          deps.rateLimitTimeoutMs ?? RATE_LIMIT_TIMEOUT_MS,
-        );
+      // @vercel/firewall exposes no abort signal, so a wrapper cannot cancel the
+      // underlying fetch; adding one only abandons an in-flight request. Follow
+      // the repo convention (client-config / waitlist / feedback) of a plain
+      // awaited call — the serverless platform bounds request duration. We DO
+      // fail closed on a rejection (network failure / unexpected status), which
+      // @vercel/firewall surfaces by rejecting rather than via `error`, so a
+      // limiter outage returns a controlled 503 instead of an uncaught 500 that
+      // would bypass the issuance bound.
+      result = await deps.checkRateLimit(rateLimitId, {
+        request,
+        rateLimitKey: user.id,
       });
-      result = await Promise.race([
-        deps.checkRateLimit(rateLimitId, { request, rateLimitKey: user.id }),
-        deadline,
-      ]);
     } catch (err) {
-      // @vercel/firewall rejects (not `error`) on network failure / unexpected
-      // status, and the deadline rejects on a stall. Fail closed so either
-      // returns a controlled 503 rather than an uncaught 500 or a hang that
-      // bypasses the issuance bound.
       console.error("relay-token.route.rate_limit_threw", err);
       return jsonResponse({ error: "relay_token_unavailable" }, 503);
-    } finally {
-      if (timer) clearTimeout(timer);
     }
     const { error, rateLimited } = result;
     if (rateLimited || error === "blocked") {

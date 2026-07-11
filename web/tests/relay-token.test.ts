@@ -135,6 +135,10 @@ describe("isValidEndpointId", () => {
     // '1'/'8' are z-base-32 but NOT RFC 4648 base32, so must be rejected.
     expect(isValidEndpointId("1".repeat(52))).toBe(false);
     expect(isValidEndpointId("8".repeat(52))).toBe(false);
+    // Non-canonical final symbol (non-zero trailing bits) — iroh's decoder
+    // rejects it, so we must too (final char must be 'a' or 'q').
+    expect(isValidEndpointId("a".repeat(51) + "b")).toBe(false);
+    expect(isValidEndpointId("a".repeat(51) + "q")).toBe(true);
     expect(isValidEndpointId("has spaces!!")).toBe(false);
   });
 });

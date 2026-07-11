@@ -22,7 +22,11 @@ export const RELAY_TOKEN_TTL_SECONDS = 300; // short-lived; the client refreshes
 // (We lowercase before matching; hex is minted lowercase to satisfy HEXLOWER,
 // and the relay uppercases base32 internally.)
 const HEX_ENDPOINT_ID_RE = /^[0-9a-f]{64}$/;
-const BASE32_ENDPOINT_ID_RE = /^[a-z2-7]{52}$/;
+// A 52-char RFC 4648 base32 encoding of exactly 32 bytes has 4 trailing zero
+// bits, so the final symbol carries 1 data bit + 4 zero bits and can only be
+// `a` (0) or `q` (16). Other final symbols have non-zero trailing bits, which
+// iroh's BASE32_NOPAD decoder rejects — so require the canonical final symbol.
+const BASE32_ENDPOINT_ID_RE = /^[a-z2-7]{51}[aq]$/;
 
 // The relay fleet the client should probe (nearest wins). Overridable via env
 // (comma-separated) so the RelayMap can change without a code deploy.
