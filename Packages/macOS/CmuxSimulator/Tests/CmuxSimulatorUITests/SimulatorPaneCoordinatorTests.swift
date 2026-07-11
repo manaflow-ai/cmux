@@ -67,6 +67,22 @@ struct SimulatorPaneCoordinatorTests {
         #expect(activations.last?.geometry == SimulatorSurfaceGeometry(width: 640, height: 800, scale: 2))
     }
 
+    @Test("A new pane establishes portrait orientation after attachment")
+    func newPaneEstablishesPortraitOrientation() async {
+        let client = SimulatorPaneClientSpy(devices: [
+            Self.device(id: "phone", family: .iPhone, state: .booted),
+        ])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+
+        await coordinator.start()
+        await eventually {
+            await client.messages().contains(.rotate(.portrait))
+        }
+
+        let messages = await client.messages()
+        #expect(messages.filter { $0 == .rotate(.portrait) }.count == 1)
+    }
+
     @Test("Explicit recovery returns only after the selected device streams")
     func explicitRecoveryWaitsForActivation() async throws {
         let client = SimulatorPaneClientSpy(devices: [
