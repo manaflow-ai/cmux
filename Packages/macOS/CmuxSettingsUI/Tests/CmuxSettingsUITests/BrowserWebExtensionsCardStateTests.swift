@@ -67,6 +67,41 @@ struct BrowserWebExtensionsCardStateTests {
         #expect(state.pendingWriteID == nil)
     }
 
+    @Test
+    func successfulWriteReleasesPendingStateWhenObservationIsAlreadyCurrent() {
+        let entries = [entry(id: "existing")]
+        var state = BrowserWebExtensionsCardState()
+        state.beginWrite(entries: entries, writeID: 1)
+
+        state.reconcileWriteResult(
+            completedWriteID: 1,
+            failed: false,
+            observedEntries: entries
+        )
+
+        #expect(state.pendingEntries == nil)
+        #expect(state.pendingWriteID == nil)
+    }
+
+    @Test
+    func successfulWriteKeepsPendingStateUntilDelayedObservationArrives() {
+        let observed = [entry(id: "existing")]
+        let pending = observed + [entry(id: "new")]
+        var state = BrowserWebExtensionsCardState()
+        state.beginWrite(entries: pending, writeID: 1)
+
+        state.reconcileWriteResult(
+            completedWriteID: 1,
+            failed: false,
+            observedEntries: observed
+        )
+        #expect(state.effectiveEntries(observed: observed) == pending)
+
+        state.reconcileObservedEntries(pending)
+        #expect(state.pendingEntries == nil)
+        #expect(state.pendingWriteID == nil)
+    }
+
     private func entry(id: String) -> BrowserWebExtensionEntry {
         BrowserWebExtensionEntry(
             id: id,
