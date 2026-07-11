@@ -34,10 +34,11 @@ extension View {
                 fetchStatus: {
                     try await store.fetchDiffStatus(workspaceID: workspace.id)
                 },
-                fetchFile: { path, repoRoot in
+                fetchFile: { path, oldPath, repoRoot in
                     try await store.fetchFileDiff(
                         workspaceID: workspace.id,
                         path: path,
+                        oldPath: oldPath,
                         repoRoot: repoRoot
                     )
                 }

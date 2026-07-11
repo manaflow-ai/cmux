@@ -5,7 +5,7 @@ import SwiftUI
 struct DiffReviewFilesView: View {
     let workspaceName: String
     let fetchStatus: () async throws -> MobileWorkspaceDiffStatusResponse
-    let fetchFile: (String, String) async throws -> MobileWorkspaceDiffFileResponse
+    let fetchFile: (String, String?, String) async throws -> MobileWorkspaceDiffFileResponse
 
     @State private var session = DiffReviewSession()
     @State private var isLoading = false
@@ -60,7 +60,7 @@ struct DiffReviewFilesView: View {
         .navigationDestination(isPresented: $isFilePresented) {
             DiffReviewFileView(
                 session: session,
-                fetchFile: { path in try await fetchFile(path, repoRoot) }
+                fetchFile: { path, oldPath in try await fetchFile(path, oldPath, repoRoot) }
             )
         }
     }

@@ -59,6 +59,16 @@ extension TerminalController {
               !expectedRepoRoot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .err(code: "invalid_params", message: "Missing or invalid path", data: nil)
         }
+        let oldPath: String?
+        if v2HasNonNullParam(params, "old_path") {
+            guard let rawOldPath = params["old_path"] as? String,
+                  !rawOldPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return .err(code: "invalid_params", message: "Missing or invalid old_path", data: nil)
+            }
+            oldPath = rawOldPath
+        } else {
+            oldPath = nil
+        }
         switch mobileWorkspaceDiffSnapshot(params: params) {
         case .failure(let error):
             return error
@@ -66,6 +76,7 @@ extension TerminalController {
             let result = await Self.mobileWorkspaceDiffFileResult(
                 directory: snapshot.directory,
                 path: rawPath,
+                oldPath: oldPath,
                 expectedRepoRoot: expectedRepoRoot
             )
             return Self.v2MobileWorkspaceDiffResult(result)
@@ -108,12 +119,14 @@ extension TerminalController {
     private nonisolated static func mobileWorkspaceDiffFileResult(
         directory: String,
         path: String,
+        oldPath: String?,
         expectedRepoRoot: String
     ) async -> MobileWorkspaceDiffFileResult {
         await detachedCancellable {
             mobileWorkspaceDiffFileResultSync(
                 directory: directory,
                 path: path,
+                oldPath: oldPath,
                 expectedRepoRoot: expectedRepoRoot
             )
         }
@@ -161,6 +174,7 @@ extension TerminalController {
     private nonisolated static func mobileWorkspaceDiffFileResultSync(
         directory: String,
         path: String,
+        oldPath: String?,
         expectedRepoRoot: String
     ) -> MobileWorkspaceDiffFileResult {
         let service = GitDiffService()
@@ -171,7 +185,12 @@ extension TerminalController {
             == URL(fileURLWithPath: expectedRepoRoot).resolvingSymlinksInPath().standardizedFileURL else {
             return .repositoryChanged
         }
-        guard let diff = service.fileDiff(repoRoot: repoRoot, path: path, maxOutputBytes: mobileWorkspaceDiffReadCap) else {
+        guard let diff = service.fileDiff(
+            repoRoot: repoRoot,
+            path: path,
+            oldPath: oldPath,
+            maxOutputBytes: mobileWorkspaceDiffReadCap
+        ) else {
             return .fileNotFound(path: path)
         }
         let capped = utf8BoundaryCapped(diff.unifiedDiff, byteLimit: mobileWorkspaceDiffFileByteCap)

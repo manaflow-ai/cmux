@@ -99,6 +99,7 @@ public struct GitDiffService: Sendable {
     /// - Parameters:
     ///   - repoRoot: Repository root.
     ///   - path: Repository-relative path.
+    ///   - oldPath: Previous repository-relative path for a rename.
     ///   - maxOutputBytes: Upper bound on diff bytes read from git. When the
     ///     output reaches this bound the git process is terminated and the
     ///     bounded prefix (trimmed to a UTF-8 boundary) is returned, so a huge
@@ -106,7 +107,12 @@ public struct GitDiffService: Sendable {
     ///     should pass their cap plus a small margin so the returned text still
     ///     exceeds the cap and their truncation detection fires.
     /// - Returns: Raw one-file unified diff, or `nil` when git fails.
-    public func fileDiff(repoRoot: String, path: String, maxOutputBytes: Int? = nil) -> GitFileDiff? {
+    public func fileDiff(
+        repoRoot: String,
+        path: String,
+        oldPath: String? = nil,
+        maxOutputBytes: Int? = nil
+    ) -> GitFileDiff? {
         // Validate on a trimmed copy only; the pathspec passed to git must stay
         // byte-exact because repository paths may legitimately start or end
         // with whitespace (`changedFiles` reports them verbatim).
@@ -142,9 +148,23 @@ public struct GitDiffService: Sendable {
             return GitFileDiff(path: path, unifiedDiff: output, truncated: result.capped)
         }
         guard let baseline = diffBaseline(in: repoRoot) else { return nil }
+        if let oldPath {
+            guard !oldPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  isExactBaselineFileEntry(repoRoot: repoRoot, baseline: baseline, path: oldPath) else {
+                return nil
+            }
+        }
+        let diffPaths = [oldPath, path]
+            .compactMap { $0 }
+            .reduce(into: [String]()) { paths, candidate in
+                if !paths.contains(candidate) {
+                    paths.append(candidate)
+                }
+            }
         let result = runGit(
             in: repoRoot,
-            arguments: ["diff", baseline, "--no-ext-diff", "--no-textconv", "--no-color", "--find-renames", "--", Self.literalPathspec(path)],
+            arguments: ["diff", baseline, "--no-ext-diff", "--no-textconv", "--no-color", "--find-renames", "--"]
+                + diffPaths.map(Self.literalPathspec),
             maxOutputBytes: maxOutputBytes
         )
         guard let output = result.successOutput, !result.timedOut else { return nil }
@@ -243,6 +263,27 @@ public struct GitDiffService: Sendable {
             let metadata = record[..<tab].split(separator: " ", omittingEmptySubsequences: true)
             let recordedPath = record[record.index(after: tab)...]
             return metadata.first == "160000" && recordedPath == path
+        }
+    }
+
+    /// Verifies a rename source is one exact file in the selected baseline.
+    /// This prevents an untrusted old path such as `.` from widening the
+    /// single-file request into a repository-wide diff.
+    private func isExactBaselineFileEntry(repoRoot: String, baseline: String, path: String) -> Bool {
+        let result = runGit(
+            in: repoRoot,
+            arguments: ["ls-tree", "--full-tree", "-z", baseline, "--", Self.literalPathspec(path)],
+            maxOutputBytes: 64 * 1024
+        )
+        guard let output = result.successOutput,
+              !result.capped,
+              !result.timedOut else { return false }
+        return output.split(separator: "\0", omittingEmptySubsequences: true).contains { record in
+            guard let tab = record.firstIndex(of: "\t") else { return false }
+            let metadata = record[..<tab].split(separator: " ", omittingEmptySubsequences: true)
+            let recordedPath = record[record.index(after: tab)...]
+            guard metadata.count >= 2 else { return false }
+            return (metadata[1] == "blob" || metadata[1] == "commit") && recordedPath == path
         }
     }
 

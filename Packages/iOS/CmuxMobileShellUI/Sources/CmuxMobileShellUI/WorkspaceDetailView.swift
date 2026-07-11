@@ -417,11 +417,11 @@ struct WorkspaceDetailView: View {
 
         #if canImport(UIKit)
         Section {
+            diffReviewMenuButton
+
             // Only while the terminal pane is showing: browser and chat modes
             // do not mount a terminal surface for text capture.
             if activeBrowser == nil && !isChatMode {
-                diffReviewMenuButton
-
                 Button(action: openTextSheetFromMenu) {
                     Label(
                         L10n.string("mobile.terminal.viewAsText", defaultValue: "View as Text"),
