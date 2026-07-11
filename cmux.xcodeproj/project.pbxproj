@@ -337,6 +337,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C7A533000000000000000002 /* ClaudeSessionCanonicalizationContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A533000000000000000001 /* ClaudeSessionCanonicalizationContext.swift */; };
 		A9F200000000000000000015 /* ClaudeStreamJSONAccumulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000015 /* ClaudeStreamJSONAccumulator.swift */; };
 		CE7000000000000000000001 /* ClaudeWrapperResumeEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE7000000000000000000002 /* ClaudeWrapperResumeEnvironmentTests.swift */; };
+		A78670000000000000000002 /* CLIAgentHookStateLocationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670000000000000000001 /* CLIAgentHookStateLocationTests.swift */; };
 		A5D4120DA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120EA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift */; };
 		CA11E4D0FA017DE500000B101 /* CLICallerWorkspaceDefaultTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA11E4D0FA017DE500000F102 /* CLICallerWorkspaceDefaultTests.swift */; };
 		C0D3F1F00000000000000103 /* CLICodexHookTimeoutRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D3F1F00000000000000104 /* CLICodexHookTimeoutRegressionTests.swift */; };
@@ -2106,6 +2107,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C7A533000000000000000001 /* ClaudeSessionCanonicalizationContext.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "ClaudeSessionCanonicalizationContext.swift"; sourceTree = "<group>"; };
 		A9F100000000000000000015 /* ClaudeStreamJSONAccumulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ClaudeStreamJSONAccumulator.swift; sourceTree = "<group>"; };
 		CE7000000000000000000002 /* ClaudeWrapperResumeEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeWrapperResumeEnvironmentTests.swift; sourceTree = "<group>"; };
+		A78670000000000000000001 /* CLIAgentHookStateLocationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIAgentHookStateLocationTests.swift; sourceTree = "<group>"; };
 		A5D4120EA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIAuthAliasTests.swift; sourceTree = "<group>"; };
 		CA11E4D0FA017DE500000F102 /* CLICallerWorkspaceDefaultTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICallerWorkspaceDefaultTests.swift; sourceTree = "<group>"; };
 		C0D3F1F00000000000000104 /* CLICodexHookTimeoutRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICodexHookTimeoutRegressionTests.swift; sourceTree = "<group>"; };
@@ -5169,6 +5171,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5D41231A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift */,
 				A76110020000000000000002 /* AgentHookNotificationPolicyTests.swift */,
 				A5D41233A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift */,
+				A78670000000000000000001 /* CLIAgentHookStateLocationTests.swift */,
 				F0F0CF0E0000000000000002 /* CLINotifyClaudeForkOfForkRegressionTests.swift */,
 				C72280000000000000000003 /* CLINotifyClaudeHookWorkspaceRoutingTests.swift */,
 				A5D41204A1B2C3D4E5F60718 /* CLINotifyProcessIntegrationRegressionTests.swift */,
@@ -6936,6 +6939,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5D41220A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift in Sources */,
 				A5D41222A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift in Sources */,
 				CE7000000000000000000001 /* ClaudeWrapperResumeEnvironmentTests.swift in Sources */,
+				A78670000000000000000002 /* CLIAgentHookStateLocationTests.swift in Sources */,
 				A5D4120DA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift in Sources */,
 					CA11E4D0FA017DE500000B101 /* CLICallerWorkspaceDefaultTests.swift in Sources */,
 				C0D3F1F00000000000000103 /* CLICodexHookTimeoutRegressionTests.swift in Sources */,

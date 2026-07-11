@@ -7,35 +7,6 @@ import Darwin
 #endif
 
 final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
-    func testPreUpgradeClaudeHookWritesThroughInheritedBundleScope() throws {
-        let context = try makeClaudeHookContext(name: "claude-inherited-scope")
-        defer { context.cleanup() }
-
-        let bundleIdentifier = "com.cmuxterm.app.nightly"
-        let result = runClaudeHook(
-            context: context,
-            arguments: ["hooks", "claude", "session-start"],
-            standardInput: #"{"session_id":"pre-upgrade-session","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
-            extraEnvironment: [
-                "CFFIXED_USER_HOME": context.root.path,
-                "CMUX_BUNDLE_ID": bundleIdentifier,
-                "CMUX_CLAUDE_HOOK_STATE_PATH": "",
-            ]
-        )
-
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        let scopedStore = context.root
-            .appendingPathComponent("Library/Application Support", isDirectory: true)
-            .appendingPathComponent("cmux/agent-hooks", isDirectory: true)
-            .appendingPathComponent(bundleIdentifier, isDirectory: true)
-            .appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: scopedStore.path), scopedStore.path)
-        XCTAssertFalse(FileManager.default.fileExists(
-            atPath: context.root.appendingPathComponent(".cmuxterm/claude-hook-sessions.json").path
-        ))
-    }
-
     func testClaudeClearSessionStartMarksWorkspaceRunning() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-running")
         defer { context.cleanup() }
