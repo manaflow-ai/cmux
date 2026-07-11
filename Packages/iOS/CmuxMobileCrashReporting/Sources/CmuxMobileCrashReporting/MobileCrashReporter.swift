@@ -161,20 +161,13 @@ public struct MobileCrashReporter {
         // This starts Sentry immediately after a mid-session opt-in and closes
         // it after opt-out, while transition tracking prevents defaults churn
         // from initializing or closing the SDK more than once.
-        let isInitiallyEnabled = revocationWatcher.arm(
+        revocationWatcher.arm(
             consent: consent,
             notificationCenter: notificationCenter,
             onEnable: startReporting,
-            onRevoke: stopReporting
+            onRevoke: stopReporting,
+            onInitiallyDisabled: purgeCache
         )
-        if isInitiallyEnabled {
-            startReporting()
-        } else {
-            // A crash captured during an earlier opted-out window must never
-            // upload after a later re-opt-in: with consent off, any envelopes
-            // Sentry persisted before the opt-out landed are deleted.
-            purgeCache()
-        }
     }
 
     /// Builds the mobile Sentry options without starting the SDK.
@@ -233,7 +226,7 @@ public struct MobileCrashReporter {
         // lint:allow lock — sanctioned carve-out: guards a token swap across
         // the notification-delivery thread and arm callers; an actor would
         // force async hops into the synchronous notification callback.
-        private let lock = NSLock()
+        private let lock = NSRecursiveLock()
         private var token: (any NSObjectProtocol)?
         private var center: NotificationCenter?
         private var consent: (any AnalyticsConsentProviding)?
@@ -241,13 +234,13 @@ public struct MobileCrashReporter {
         private var onEnable: (() -> Void)?
         private var onRevoke: (() -> Void)?
 
-        @discardableResult
         func arm(
             consent: any AnalyticsConsentProviding,
             notificationCenter: NotificationCenter,
             onEnable: @escaping () -> Void,
-            onRevoke: @escaping () -> Void
-        ) -> Bool {
+            onRevoke: @escaping () -> Void,
+            onInitiallyDisabled: @escaping () -> Void
+        ) {
             lock.lock()
             defer { lock.unlock() }
             if let token, let center { center.removeObserver(token) }
@@ -264,23 +257,34 @@ public struct MobileCrashReporter {
             ) { _ in
                 self.handleConsentChange()
             }
-            return initialIsEnabled
+            // The initial lifecycle action is part of the same serialized
+            // transition as later notifications. This prevents an opt-out
+            // notification from closing Sentry and then racing with a delayed
+            // initial start after arm() returns.
+            if initialIsEnabled {
+                onEnable()
+            } else {
+                // A crash captured during an earlier opted-out window must
+                // never upload after a later re-opt-in.
+                onInitiallyDisabled()
+            }
         }
 
         private func handleConsentChange() {
             lock.lock()
+            defer { lock.unlock() }
             guard let consent else {
-                lock.unlock()
                 return
             }
             let nextIsEnabled = consent.isTelemetryEnabled
             guard nextIsEnabled != isEnabled else {
-                lock.unlock()
                 return
             }
             isEnabled = nextIsEnabled
             let action = nextIsEnabled ? onEnable : onRevoke
-            lock.unlock()
+            // Keep state mutation and its SDK side effect in one critical
+            // section so callbacks delivered on different threads cannot run
+            // in the opposite order from their consent transitions.
             action?()
         }
     }

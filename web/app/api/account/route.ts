@@ -90,6 +90,12 @@ type RetainedTeamBillingOwner = {
   readonly stackUserId: string;
 };
 
+type PostHogPersonDeletionConfig = {
+  readonly apiHost: string;
+  readonly environmentId: string;
+  readonly personalApiKey: string;
+};
+
 type StackPaginationOptions = {
   readonly cursor?: string;
   readonly limit?: number;
@@ -138,6 +144,11 @@ export async function DELETE(request: Request): Promise<Response> {
       await markAccountDeletionTombstoneCompleted(userId);
       return jsonResponse({ ok: true, destroyedVms: 0 }, 200);
     }
+    // Validate required production configuration before metadata, billing,
+    // access, VM, vault, or tenant cleanup can mutate the account. Pass the
+    // validated snapshot to the later request so environment changes cannot
+    // introduce a second validation failure after destructive work begins.
+    const postHogDeletionConfig = postHogPersonDeletionConfig();
     const accountScope = await accountDeletionScopeForUser(stackUser);
     await markAccountDeletingAndClearBillingEntitlements(stackUser);
     stackMetadataMarked = true;
@@ -203,6 +214,7 @@ export async function DELETE(request: Request): Promise<Response> {
     }, accountScope.teamIds);
     await refreshAccountDeletionTombstoneLease(userId);
     await deletePostHogPersonForAccountDeletion(userId, {
+      config: postHogDeletionConfig,
       beforeExternalRequest: () => {
         destructiveCleanupStarted = true;
       },
@@ -633,11 +645,14 @@ async function finishPostStackAccountCleanup(
 async function deletePostHogPersonForAccountDeletion(
   userId: string,
   options: {
+    readonly config?: PostHogPersonDeletionConfig | null;
     readonly beforeExternalRequest?: () => void;
     readonly afterExternalMutation?: () => Promise<void>;
   } = {},
 ): Promise<void> {
-  const config = postHogPersonDeletionConfig();
+  const config = options.config === undefined
+    ? postHogPersonDeletionConfig()
+    : options.config;
   if (!config) return;
 
   options.beforeExternalRequest?.();
@@ -661,14 +676,28 @@ async function deletePostHogPersonForAccountDeletion(
   if (!response.ok) {
     throw new Error(`PostHog account deletion failed with status ${response.status}`);
   }
+  const summary: unknown = await response.json().catch(() => null);
+  if (!isCompletePostHogPersonDeletion(summary)) {
+    throw new Error("PostHog account deletion returned an incomplete result");
+  }
   await options.afterExternalMutation?.();
 }
 
-function postHogPersonDeletionConfig(): {
-  readonly apiHost: string;
-  readonly environmentId: string;
-  readonly personalApiKey: string;
-} | null {
+function isCompletePostHogPersonDeletion(summary: unknown): boolean {
+  if (!summary || typeof summary !== "object" || Array.isArray(summary)) return false;
+  const result = summary as Record<string, unknown>;
+  const personsFound = result.persons_found;
+  const personsDeleted = result.persons_deleted;
+  const deletionErrors = result.deletion_errors;
+  return Number.isSafeInteger(personsFound) &&
+    Number.isSafeInteger(personsDeleted) &&
+    (personsFound as number) >= 0 &&
+    personsFound === personsDeleted &&
+    Array.isArray(deletionErrors) &&
+    deletionErrors.length === 0;
+}
+
+function postHogPersonDeletionConfig(): PostHogPersonDeletionConfig | null {
   const personalApiKey = process.env.POSTHOG_PERSONAL_API_KEY?.trim();
   if (!personalApiKey) {
     if (
