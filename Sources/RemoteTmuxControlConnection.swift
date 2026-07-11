@@ -753,6 +753,10 @@ final class RemoteTmuxControlConnection {
             // against the destination's pending tree instead of pruning the
             // surviving pane during that event gap.
             requestWindows()
+            // Remove the closed window's tab immediately. The retained-pane
+            // ledger above keeps any moved pane's control identity alive until
+            // the authoritative window snapshot publishes its destination.
+            observers.notifyTopologyChanged()
         case let .windowRenamed(id, name):
             record("window-renamed @\(id)")
             // Update published AND quarantined topology. A rename racing a
