@@ -81,7 +81,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
     }
 
     var isViewportRepaint: Bool {
-        isRenderGrid || replacementScope == .byteViewport
+        replacementScope == .renderGridViewport || replacementScope == .byteViewport
     }
 
     var bytes: Data {
@@ -93,6 +93,33 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         }
     }
 
+}
+
+/// Bounded live render-grid state retained while optimistic scrolling waits for
+/// authoritative reconciliation. One self-contained frame may replace earlier
+/// deltas; otherwise a replay sentinel avoids both data loss and queue growth.
+struct DeferredTerminalRenderGridEvent: Equatable, Sendable {
+    private(set) var frame: MobileTerminalRenderGridFrame?
+    private(set) var requiresReplay = false
+
+    init(frame: MobileTerminalRenderGridFrame) {
+        self.frame = frame
+    }
+
+    mutating func append(_ newer: MobileTerminalRenderGridFrame) {
+        guard !requiresReplay, let current = frame else { return }
+        if let currentRevision = current.renderRevision,
+           let newerRevision = newer.renderRevision,
+           currentRevision > newerRevision {
+            return
+        }
+        if newer.full || newer.isReplaceableViewportPatchForMobileDelivery {
+            frame = newer
+            return
+        }
+        frame = nil
+        requiresReplay = true
+    }
 }
 
 /// Backpressure queue for one mounted mobile terminal output stream.

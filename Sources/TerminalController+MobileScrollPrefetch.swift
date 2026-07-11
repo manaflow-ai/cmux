@@ -139,4 +139,108 @@ extension TerminalController {
         }
         return runs
     }
+
+    /// Forward a phone scroll gesture to the real surface so libghostty handles
+    /// it per-mode (scrollback in the normal screen, mouse-wheel to the program
+    /// in the alt screen). The producer already exports the live `vp_top`, so
+    /// the resulting viewport mirrors back to the phone; nudge an emit since a
+    /// pure scroll with no PTY output may not fire a render/tick on its own.
+    func v2MobileTerminalScroll(params: [String: Any]) -> V2CallResult {
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
+        if let error = mobileTerminalAliasValidationError(params: params) {
+            return error
+        }
+        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
+              let surfaceId = resolved.surfaceId,
+              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
+        }
+        guard recordMobileInteractionEpoch(
+            params: params,
+            surfaceID: surfaceId,
+            rejectOlder: true
+        ) else {
+            var payload: [String: Any] = [
+                "workspace_id": resolved.workspace.id.uuidString,
+                "surface_id": surfaceId.uuidString,
+                "accepted": false,
+            ]
+            if let epoch = v2Int(params, "interaction_epoch") {
+                payload["interaction_epoch"] = epoch
+            }
+            if let revision = v2Int(params, "client_scroll_revision") {
+                payload["client_scroll_revision"] = revision
+            }
+            return .ok(payload)
+        }
+        guard let directionalRuns = mobileScrollDirectionalRuns(params: params) else {
+            return .err(code: "invalid_params", message: "Invalid terminal scroll runs", data: nil)
+        }
+        if !directionalRuns.isEmpty {
+            for run in directionalRuns {
+                terminalPanel.surface.mobileScroll(
+                    deltaLines: run.lines,
+                    col: run.col,
+                    row: run.row
+                )
+            }
+            MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: terminalPanel.id)
+        }
+        return .ok(mobileTerminalScrollResponsePayload(
+            workspaceID: resolved.workspace.id,
+            terminalPanel: terminalPanel,
+            surfaceID: surfaceId,
+            params: params
+        ))
+    }
+
+    func v2MobileTerminalMouse(params: [String: Any]) -> V2CallResult {
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
+        if let error = mobileTerminalAliasValidationError(params: params) {
+            return error
+        }
+        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
+              let surfaceId = resolved.surfaceId,
+              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
+        }
+        let col = (params["col"] as? NSNumber)?.intValue ?? 0
+        let row = (params["row"] as? NSNumber)?.intValue ?? 0
+        terminalPanel.surface.mobileClick(col: max(0, col), row: max(0, row))
+        MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: terminalPanel.id)
+        return .ok([
+            "workspace_id": resolved.workspace.id.uuidString,
+            "surface_id": surfaceId.uuidString,
+        ])
+    }
+
+    /// Records the newest interaction epoch for one client/surface. Input and
+    /// lifecycle requests advance the fence but are never dropped. Scroll is
+    /// rejected when it arrives behind that fence, preventing an old async
+    /// gesture RPC from moving the Mac viewport after newer input or recovery.
+    func recordMobileInteractionEpoch(
+        params: [String: Any],
+        surfaceID: UUID,
+        rejectOlder: Bool
+    ) -> Bool {
+        guard let clientID = v2String(params, "client_id"),
+              let rawEpoch = v2Int(params, "interaction_epoch"),
+              rawEpoch >= 0 else {
+            return true
+        }
+        let epoch = UInt64(rawEpoch)
+        let current = mobileInteractionEpochsBySurfaceID[surfaceID]?[clientID] ?? 0
+        if rejectOlder, epoch < current {
+            return false
+        }
+        if epoch > current {
+            mobileInteractionEpochsBySurfaceID[surfaceID, default: [:]][clientID] = epoch
+        }
+        return true
+    }
+
 }

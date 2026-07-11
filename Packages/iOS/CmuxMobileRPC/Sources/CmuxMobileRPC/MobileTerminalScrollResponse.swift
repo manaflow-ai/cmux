@@ -25,7 +25,7 @@ public struct MobileTerminalScrollResponse: Decodable, Sendable {
         interactionEpoch = try container.decodeIfPresent(UInt64.self, forKey: .interactionEpoch)
         clientScrollRevision = try container.decodeIfPresent(UInt64.self, forKey: .clientScrollRevision)
         renderRevision = try container.decodeIfPresent(UInt64.self, forKey: .renderRevision)
-        renderGrid = try? container.decodeIfPresent(MobileTerminalRenderGridFrame.self, forKey: .renderGrid)
+        renderGrid = try container.decodeIfPresent(MobileTerminalRenderGridFrame.self, forKey: .renderGrid)
     }
 
     public static func decode(_ data: Data) throws -> Self {

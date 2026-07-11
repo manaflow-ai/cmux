@@ -49,6 +49,8 @@ https://github.com/manaflow-ai/ghostty/pull/106.
   - `zig build -Demit-macos-app=false`
   - universal ReleaseFast GhosttyKit build with the exported symbol present in
     the macOS, iOS device, and iOS simulator slices
+- Prebuilt archive:
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-267824293722b63a13513a923031ac1090b7de88-crashsubdir-cmux-crash-v1
 
 ### Upstream TLDR (`d560c645..7e02af879`)
 
