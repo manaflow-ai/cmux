@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import Testing
 @testable import CmuxCommandPalette
@@ -7,20 +6,14 @@ import Testing
 @Suite("CommandPaletteInteractionMonitor")
 struct CommandPaletteInteractionMonitorTests {
     @Test("outside mouse-down dismisses and lifecycle cleanup removes every observer")
-    func outsideMouseDownDismissesAndCleansUp() throws {
+    func outsideMouseDownDismissesAndCleansUp() {
         let notificationCenter = RecordingCommandPaletteNotificationCenter()
         let eventSource = RecordingCommandPaletteEventMonitorSource()
         let monitor = CommandPaletteInteractionMonitor(
             notificationCenter: notificationCenter,
             eventSource: eventSource
         )
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.close() }
+        let window = NSObject()
 
         var dismissCount = 0
         var windowStateChangeCount = 0
@@ -33,27 +26,25 @@ struct CommandPaletteInteractionMonitorTests {
 
         #expect(eventSource.addCount == 1)
         #expect(notificationCenter.addedObservers.map(\.name) == [
-            NSWindow.didBecomeKeyNotification,
-            NSWindow.didResignKeyNotification,
+            CommandPaletteInteractionMonitor.windowDidBecomeKeyNotification,
+            CommandPaletteInteractionMonitor.windowDidResignKeyNotification,
         ])
 
-        let event = try #require(NSEvent.mouseEvent(
-            with: .leftMouseDown,
-            location: NSPoint(x: 20, y: 20),
-            modifierFlags: [],
-            timestamp: 0,
-            windowNumber: window.windowNumber,
-            context: nil,
-            eventNumber: 1,
-            clickCount: 1,
-            pressure: 1
+        eventSource.send(CommandPalettePointerEvent(
+            isInObservedWindow: true,
+            locationInWindow: CGPoint(x: 20, y: 20)
         ))
-        #expect(eventSource.send(event) === event)
         #expect(dismissCount == 1)
 
-        notificationCenter.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        notificationCenter.send(
+            name: CommandPaletteInteractionMonitor.windowDidBecomeKeyNotification,
+            object: window
+        )
         #expect(windowStateChangeCount == 1)
-        notificationCenter.post(name: NSWindow.didResignKeyNotification, object: window)
+        notificationCenter.send(
+            name: CommandPaletteInteractionMonitor.windowDidResignKeyNotification,
+            object: window
+        )
         #expect(windowStateChangeCount == 2)
         #expect(dismissCount == 2)
 
@@ -65,19 +56,13 @@ struct CommandPaletteInteractionMonitorTests {
     }
 
     @Test("re-activation refreshes callbacks without duplicating monitors")
-    func reactivationRefreshesCallbacks() throws {
+    func reactivationRefreshesCallbacks() {
         let eventSource = RecordingCommandPaletteEventMonitorSource()
         let monitor = CommandPaletteInteractionMonitor(
             notificationCenter: RecordingCommandPaletteNotificationCenter(),
             eventSource: eventSource
         )
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.close() }
+        let window = NSObject()
 
         var firstDismissCount = 0
         var secondDismissCount = 0
@@ -94,33 +79,49 @@ struct CommandPaletteInteractionMonitorTests {
             onDismiss: { secondDismissCount += 1 }
         )
 
-        let event = try #require(NSEvent.mouseEvent(
-            with: .leftMouseDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: 0,
-            windowNumber: window.windowNumber,
-            context: nil,
-            eventNumber: 2,
-            clickCount: 1,
-            pressure: 1
-        ))
-        _ = eventSource.send(event)
+        eventSource.send(CommandPalettePointerEvent(isInObservedWindow: true, locationInWindow: .zero))
 
         #expect(eventSource.addCount == 1)
         #expect(firstDismissCount == 0)
         #expect(secondDismissCount == 1)
     }
+
+    @Test("deinit removes pointer and key-window observation")
+    func deinitRemovesObservation() {
+        let notificationCenter = RecordingCommandPaletteNotificationCenter()
+        let eventSource = RecordingCommandPaletteEventMonitorSource()
+        var monitor: CommandPaletteInteractionMonitor? = CommandPaletteInteractionMonitor(
+            notificationCenter: notificationCenter,
+            eventSource: eventSource
+        )
+        let window = NSObject()
+        monitor?.activate(
+            for: window,
+            shouldDismiss: { _ in false },
+            onWindowStateChange: {},
+            onDismiss: {}
+        )
+
+        weak let weakMonitor = monitor
+        monitor = nil
+
+        #expect(weakMonitor == nil)
+        #expect(eventSource.removeCount == 1)
+        #expect(
+            notificationCenter.removedObserverIDs == notificationCenter.addedObservers.map(\.token.id)
+        )
+    }
 }
 
 @MainActor
 private final class RecordingCommandPaletteEventMonitorSource: CommandPaletteEventMonitorSource {
-    private var handler: ((NSEvent) -> NSEvent?)?
+    private var handler: ((CommandPalettePointerEvent) -> Void)?
     private(set) var addCount = 0
     private(set) var removeCount = 0
 
     func addLocalMouseDownMonitor(
-        handler: @escaping (NSEvent) -> NSEvent?
+        for window: AnyObject,
+        handler: @escaping (CommandPalettePointerEvent) -> Void
     ) -> Any {
         addCount += 1
         self.handler = handler
@@ -132,7 +133,7 @@ private final class RecordingCommandPaletteEventMonitorSource: CommandPaletteEve
         handler = nil
     }
 
-    func send(_ event: NSEvent) -> NSEvent? {
+    func send(_ event: CommandPalettePointerEvent) {
         handler?(event)
     }
 }
@@ -146,11 +147,13 @@ private final class RecordingCommandPaletteObserverToken: NSObject {
     }
 }
 
+// Test callbacks are invoked synchronously on MainActor; no state crosses concurrency domains.
 private final class RecordingCommandPaletteNotificationCenter: NotificationCenter, @unchecked Sendable {
     struct AddedObserver {
         let name: Notification.Name?
         weak var object: AnyObject?
         let token: RecordingCommandPaletteObserverToken
+        let block: @Sendable (Notification) -> Void
     }
 
     private(set) var addedObservers: [AddedObserver] = []
@@ -163,12 +166,23 @@ private final class RecordingCommandPaletteNotificationCenter: NotificationCente
         using block: @escaping @Sendable (Notification) -> Void
     ) -> any NSObjectProtocol {
         let token = RecordingCommandPaletteObserverToken(id: addedObservers.count + 1)
-        addedObservers.append(AddedObserver(name: name, object: obj as AnyObject?, token: token))
+        addedObservers.append(AddedObserver(
+            name: name,
+            object: obj as AnyObject?,
+            token: token,
+            block: block
+        ))
         return token
     }
 
     override func removeObserver(_ observer: Any) {
         guard let token = observer as? RecordingCommandPaletteObserverToken else { return }
         removedObserverIDs.append(token.id)
+    }
+
+    func send(name: Notification.Name, object: AnyObject) {
+        for observer in addedObservers where observer.name == name && observer.object === object {
+            observer.block(Notification(name: name, object: object))
+        }
     }
 }
