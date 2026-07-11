@@ -147,6 +147,66 @@ async function runQueueBoundSmoke() {
   return results;
 }
 
+async function runDuplicateRequestIdSmoke() {
+  const child = spawn(process.execPath, [serverPath], {
+    stdio: ["pipe", "pipe", "pipe"],
+    env: fakeEnv({ CMUX_CU_AUTO_APPROVE: "1" }),
+  });
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => process.stderr.write(chunk));
+  const lines = createInterface({ input: child.stdout });
+  const send = (message) => child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);
+  try {
+    const initialized = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("duplicate-id initialize timed out")), 1000);
+      const onLine = (line) => {
+        const message = JSON.parse(line);
+        if (message.id !== "duplicate-id-init") return;
+        clearTimeout(timer);
+        lines.off("line", onLine);
+        resolve();
+      };
+      lines.on("line", onLine);
+      send({
+        id: "duplicate-id-init",
+        method: "initialize",
+        params: { protocolVersion: "2025-06-18", capabilities: {} },
+      });
+    });
+    await initialized;
+
+    const responses = new Promise((resolve, reject) => {
+      const received = [];
+      const timer = setTimeout(() => reject(new Error("duplicate-id calls timed out")), 2000);
+      const onLine = (line) => {
+        const message = JSON.parse(line);
+        if (message.id !== "duplicate-id") return;
+        received.push(summarizeResult(message.result));
+        if (received.length !== 11) return;
+        clearTimeout(timer);
+        lines.off("line", onLine);
+        resolve(received);
+      };
+      lines.on("line", onLine);
+    });
+    send({
+      id: "duplicate-id",
+      method: "tools/call",
+      params: { name: "computer_state", arguments: { app: "QueueHoldApp" } },
+    });
+    for (let index = 0; index < 10; index += 1) {
+      send({
+        id: "duplicate-id",
+        method: "tools/call",
+        params: { name: "computer_target", arguments: {} },
+      });
+    }
+    return await responses;
+  } finally {
+    child.kill();
+  }
+}
+
 async function runQueuedCancellationCapacitySmoke() {
   const child = spawn(process.execPath, [serverPath], {
     stdio: ["pipe", "pipe", "pipe"],
@@ -904,6 +964,14 @@ const queueRejected = queueBounded.filter((result) => result.isError && result.t
 console.log(`queue bound -> first=${queueBounded[0].isError} rejected=${queueRejected}`);
 if (queueBounded[0].isError || queueRejected === 0) {
   console.error("FAIL: concurrent tool calls should be bounded with a clear error");
+  process.exit(1);
+}
+
+const duplicateRequestIds = await runDuplicateRequestIdSmoke();
+const duplicateRequestIdRejected = duplicateRequestIds.filter((result) => result.isError).length;
+console.log(`duplicate request ids -> rejected=${duplicateRequestIdRejected}`);
+if (duplicateRequestIdRejected !== 10) {
+  console.error("FAIL: duplicate pending request ids should be rejected before queueing");
   process.exit(1);
 }
 

@@ -922,6 +922,7 @@ def computer_use_sandbox(
 ):
     def setup(tmp: Path, env: dict) -> None:
         env["BUN_OPTIONS"] = "--preload=/tmp/cmux-mcp-preload-should-not-load.js"
+        env["CMUX_CU_AUTO_APPROVE"] = "1"
         if bundled_server:
             make_executable(
                 tmp / "wrapper-bin" / "cmux-computer-use-mcp",
@@ -1049,7 +1050,7 @@ def extract_injected_mcp_config(argv: list[str]) -> dict | None:
 def expect_computer_use_env_scrubbed(server: dict, failures: list[str], context: str) -> None:
     env = server.get("env")
     expect(
-        env == {"NODE_OPTIONS": "", "BUN_OPTIONS": ""},
+        env == {"NODE_OPTIONS": "", "BUN_OPTIONS": "", "CMUX_CU_AUTO_APPROVE": ""},
         f"{context}: expected runtime preload env scrub, got {server}",
         failures,
     )

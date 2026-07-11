@@ -42,12 +42,20 @@ def arg_value(args: list[str], prefix: str) -> str | None:
 def expect_scrubbed_mcp_env(args: list[str], failures: list[str], context: str) -> None:
     node_options = arg_value(args, "mcp_servers.cmux-computer-use.env.NODE_OPTIONS=")
     bun_options = arg_value(args, "mcp_servers.cmux-computer-use.env.BUN_OPTIONS=")
+    auto_approve = arg_value(args, "mcp_servers.cmux-computer-use.env.CMUX_CU_AUTO_APPROVE=")
     expect(node_options is not None, f"{context}: missing NODE_OPTIONS scrub config in {args}", failures)
     expect(bun_options is not None, f"{context}: missing BUN_OPTIONS scrub config in {args}", failures)
+    expect(auto_approve is not None, f"{context}: missing CMUX_CU_AUTO_APPROVE scrub config in {args}", failures)
     if node_options is not None:
         expect(json.loads(node_options) == "", f"{context}: expected empty NODE_OPTIONS, got {node_options}", failures)
     if bun_options is not None:
         expect(json.loads(bun_options) == "", f"{context}: expected empty BUN_OPTIONS, got {bun_options}", failures)
+    if auto_approve is not None:
+        expect(
+            json.loads(auto_approve) == "",
+            f"{context}: expected empty CMUX_CU_AUTO_APPROVE, got {auto_approve}",
+            failures,
+        )
 
 
 def run_wrapper(
@@ -122,6 +130,7 @@ exit 1
             env["FAKE_CODEX_ARGS_LOG"] = str(args_log)
             env["NODE_OPTIONS"] = "--require=/tmp/cmux-mcp-preload-should-not-load.js"
             env["BUN_OPTIONS"] = "--preload=/tmp/cmux-mcp-preload-should-not-load.js"
+            env["CMUX_CU_AUTO_APPROVE"] = "1"
             env.pop("CMUX_CODEX_HOOKS_DISABLED", None)
             env.pop("CMUX_COMPUTER_USE_MCP_DISABLED", None)
 
