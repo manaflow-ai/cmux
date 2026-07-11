@@ -55,8 +55,9 @@ complete in App Store Connect or in the submitted binary.
 - [ ] Permissions are requested only when the user starts the relevant feature.
 - [ ] Push notifications are opt-in and can be disabled after enabling.
 - [x] iPhone and iPad analytics collection is disabled until the user consents, and Settings exposes a control that withdraws consent for the same telemetry gate used by analytics and crash reporting.
-- [x] In-app Delete Account queues deletion of account-linked PostHog analytics before deleting the Stack user.
-- [ ] Production web env has `POSTHOG_PERSONAL_API_KEY` with `person:write` scope, and `POSTHOG_ENVIRONMENT_ID` if the default PostHog environment `244066` changes.
+- [x] In-app Delete Account deletes the account-linked PostHog person and requests deletion of its events and recordings before deleting the Stack user.
+- [ ] Production web env has `POSTHOG_PERSONAL_API_KEY` with `person:write` scope and an explicit `POSTHOG_ENVIRONMENT_ID` (or `POSTHOG_PROJECT_ID`) for that key. Destructive deletion has no default project fallback.
+- [ ] Every `reviewer-setup.md` placeholder is replaced only in ASC with working demo credentials, concrete Tailscale access, concrete host, port, and monitored contact. These live values stay out of git.
 
 ## ASC Validation Commands
 

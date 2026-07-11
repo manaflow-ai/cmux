@@ -31,6 +31,7 @@ const ACCOUNT_USER_ID = "account-user-1";
 const originalPostHogPersonalApiKey = process.env.POSTHOG_PERSONAL_API_KEY;
 const originalPostHogApiHost = process.env.POSTHOG_API_HOST;
 const originalPostHogEnvironmentId = process.env.POSTHOG_ENVIRONMENT_ID;
+const originalPostHogProjectId = process.env.POSTHOG_PROJECT_ID;
 const stackModule = await import("../app/lib/stack");
 const realGetStackServerApp = stackModule.getStackServerApp;
 const realIsStackConfigured = stackModule.isStackConfigured;
@@ -421,6 +422,7 @@ function expectPostHogAccountDeleteRequest(): void {
     delete_recordings: true,
     keep_person: false,
   });
+  expect(init?.signal).toBeInstanceOf(AbortSignal);
 }
 
 const mockDb = {
@@ -645,6 +647,7 @@ afterEach(() => {
   restoreEnv("POSTHOG_PERSONAL_API_KEY", originalPostHogPersonalApiKey);
   restoreEnv("POSTHOG_API_HOST", originalPostHogApiHost);
   restoreEnv("POSTHOG_ENVIRONMENT_ID", originalPostHogEnvironmentId);
+  restoreEnv("POSTHOG_PROJECT_ID", originalPostHogProjectId);
 });
 
 describe("account deletion route", () => {
@@ -789,6 +792,26 @@ describe("account deletion route", () => {
       (values as { readonly status?: unknown; readonly errorMessage?: unknown }).status === "failed" &&
       (values as { readonly errorMessage?: unknown }).errorMessage === "Error: PostHog account deletion failed with status 500"
     )).toBe(true);
+  });
+
+  test("fails closed before PostHog deletion when no explicit environment is configured", async () => {
+    delete process.env.POSTHOG_ENVIRONMENT_ID;
+    delete process.env.POSTHOG_PROJECT_ID;
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 2,
+    });
+    expect(postHogDeleteFetch).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(
+      "account.delete.partial_after_destructive_cleanup",
+      "Error: POSTHOG_ENVIRONMENT_ID is required for account deletion",
+    );
   });
 
   test("destroys personal VMs with the same provider id on different providers", async () => {
@@ -954,6 +977,7 @@ describe("account deletion route", () => {
     expect(cancelSubscription).not.toHaveBeenCalled();
     expect(listUserVms).not.toHaveBeenCalled();
     expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(postHogDeleteFetch).not.toHaveBeenCalled();
     expect(tombstoneUpdates.some((values) =>
       (values as { readonly status?: unknown }).status === "completed"
     )).toBe(true);

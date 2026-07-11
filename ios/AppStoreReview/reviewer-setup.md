@@ -35,8 +35,9 @@ that resolves only to a private local-network address. The reviewer must receive
 exact Tailscale field values for the iOS Add Computer form:
 
 - Name: `App Review Mac`
-- Host: a Tailscale MagicDNS `*.ts.net` hostname or `100.64.0.0/10` address
-  after the reviewer signs in to the supplied tailnet
+- Host: the prepared Mac's concrete Tailscale MagicDNS `*.ts.net` hostname or
+  concrete `100.64.x.x` Tailscale address after the reviewer signs in to the
+  supplied tailnet
 - Port: the prepared Mac's cmux mobile host port
 
 Before submission, verify those exact values from a clean network outside
@@ -124,3 +125,6 @@ Before submitting:
    Review.
 6. Confirm the Privacy Policy URL in App Store Connect is
    `https://cmux.com/privacy-policy`.
+7. Replace every angle-bracket placeholder in the notes with the exact live
+   review value. Exact demo credentials, Tailscale access, host, port, and
+   monitored contact are submission blockers and must never be committed here.

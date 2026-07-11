@@ -70,8 +70,7 @@ export const dynamic = "force-dynamic";
 const VAULT_OBJECT_DELETE_BATCH_SIZE = 100;
 const DELETED_ACCOUNT_ACTOR_ID = "deleted-account";
 const POSTHOG_DEFAULT_API_HOST = "https://us.posthog.com";
-// The shipped PostHog project key belongs to project/environment 244066.
-const POSTHOG_DEFAULT_ENVIRONMENT_ID = "244066";
+const POSTHOG_PERSON_DELETE_TIMEOUT_MS = 10_000;
 
 type DeletableStackUser = {
   readonly id: string;
@@ -129,7 +128,13 @@ export async function DELETE(request: Request): Promise<Response> {
     }
     if (tombstoneStart.kind === "cleanupIncomplete") {
       const accountScope = await accountDeletionScopeForUser(stackUser);
-      await finishPostStackAccountCleanup(userId, accountScope.teamIds);
+      // PostHog deletion completed before the Stack user was removed. A
+      // cleanup-incomplete tombstone represents only the idempotent cmux-owned
+      // cleanup that follows Stack deletion, so retrying PostHog here can block
+      // tombstone completion after the account itself is already gone.
+      await finishPostStackAccountCleanup(userId, accountScope.teamIds, {
+        deletePostHogPerson: false,
+      });
       await markAccountDeletionTombstoneCompleted(userId);
       return jsonResponse({ ok: true, destroyedVms: 0 }, 200);
     }
@@ -650,6 +655,7 @@ async function deletePostHogPersonForAccountDeletion(
         delete_recordings: true,
         keep_person: false,
       }),
+      signal: AbortSignal.timeout(POSTHOG_PERSON_DELETE_TIMEOUT_MS),
     },
   );
   if (!response.ok) {
@@ -681,7 +687,7 @@ function postHogPersonDeletionConfig(): {
   const environmentId = (
     process.env.POSTHOG_ENVIRONMENT_ID ??
     process.env.POSTHOG_PROJECT_ID ??
-    POSTHOG_DEFAULT_ENVIRONMENT_ID
+    ""
   ).trim();
   if (!environmentId) {
     throw new Error("POSTHOG_ENVIRONMENT_ID is required for account deletion");

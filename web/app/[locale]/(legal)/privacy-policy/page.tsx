@@ -1,286 +1,109 @@
 import type { Metadata } from "next";
-import { Link } from "../../../../i18n/navigation";
+import type { ReactNode } from "react";
 
-export const metadata: Metadata = {
-  title: "Privacy Policy — cmux",
-  description: "Privacy policy for cmux",
-  alternates: { canonical: "https://cmux.com/privacy-policy" },
+import { buildAlternates } from "../../../../i18n/seo";
+import {
+  type PrivacyPolicySection,
+  type PrivacyPolicySubsection,
+  privacyPolicyForLocale,
+} from "./content";
+
+type PageProps = {
+  readonly params: Promise<{ readonly locale: string }>;
 };
 
-export default function PrivacyPolicyPage() {
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { locale } = await params;
+  const content = privacyPolicyForLocale(locale);
+  return {
+    title: content.metadataTitle,
+    description: content.metadataDescription,
+    alternates: buildAlternates(locale, "/privacy-policy"),
+  };
+}
+
+export default async function PrivacyPolicyPage({ params }: PageProps) {
+  const { locale } = await params;
+  const content = privacyPolicyForLocale(locale);
+
   return (
     <>
-      <h1>Privacy Policy</h1>
-      <p>Last updated: July 10, 2026</p>
-
-      <p>
-        Manaflow (the &ldquo;Company&rdquo;) is committed to maintaining robust
-        privacy protections for its users. This Privacy Policy is designed to
-        help you understand how we collect, use and safeguard the information you
-        provide to us.
-      </p>
-      <p>
-        For purposes of this policy, &ldquo;Site&rdquo; refers to the
-        Company&rsquo;s website at <a href="https://cmux.com">cmux.com</a>.
-        &ldquo;Application&rdquo; refers to the cmux desktop application for
-        macOS and the cmux mobile application for iPhone and iPad.
-        &ldquo;Service&rdquo; refers to the Site and Application collectively.
-        The terms &ldquo;we,&rdquo; &ldquo;us,&rdquo; and &ldquo;our&rdquo;
-        refer to the Company. &ldquo;You&rdquo; refers to you, as a user of our
-        Service.
-      </p>
-      <p>
-        By using our Service, you accept this Privacy Policy and our{" "}
-        <Link href="/terms-of-service">Terms of Service</Link>, and you consent to
-        our collection, storage, use and disclosure of your information as
-        described here.
-      </p>
-
-      <h2>I. Information We Collect</h2>
-      <p>
-        We collect &ldquo;Non-Personal Information&rdquo; and &ldquo;Personal
-        Information.&rdquo; Non-Personal Information includes information that
-        cannot be used to personally identify you, such as anonymous usage data,
-        platform types, and crash diagnostics. Personal Information includes
-        your email address, account identifiers, and other information you
-        choose to provide when you sign in, contact us, pair a device, or use
-        the Application.
-      </p>
-
-      <h3>1. Information collected via Technology</h3>
-      <p>
-        The Application may collect the following information automatically:
-      </p>
-      <ul>
-        <li>Crash reports and error diagnostics (via Sentry)</li>
-        <li>Operating system version and application version</li>
-        <li>
-          Product analytics and feature usage events for the Site and
-          Application
-        </li>
-        <li>
-          Device, account, and pairing metadata needed to connect your signed-in
-          devices
-        </li>
-        <li>
-          Apple Push Notification service device tokens, only after you enable
-          phone notifications
-        </li>
-      </ul>
-      <p>
-        The macOS Application checks for updates via Sparkle, which may transmit
-        your operating system version and application version to our update
-        server. The iPhone and iPad Application is updated through the App Store,
-        not Sparkle.
-      </p>
-      <p>
-        The Site uses PostHog for analytics, including page views and navigation
-        patterns. PostHog stores a cookie to distinguish unique visitors. If you
-        join a platform waitlist, the email address you submit is recorded in
-        PostHog so we can notify you when that platform is available. If you
-        submit the Enterprise contact form, we record the company and contact
-        details you provide in PostHog and send them to our internal Slack
-        workspace and founders email inbox so we can respond. You can opt out of
-        website analytics by using a browser extension that blocks tracking
-        scripts.
-      </p>
-      <p>
-        The iPhone and iPad Application sends product analytics events to our
-        server-side PostHog proxy. These events help us diagnose reliability,
-        understand feature usage, and improve the Application. They include app
-        launch and session events, sign-in status, pairing attempts and results,
-        connection recovery, workspace opens, terminal input byte and line
-        counts, and notification opt-in or notification-deep-link results. The
-        mobile analytics pipeline does not send terminal command text, terminal
-        output, selected photos, or speech transcripts to PostHog. Before sign
-        in, events use a random per-install client identifier. After sign in,
-        our server attaches your Stack Auth account identifier to events before
-        forwarding them to PostHog. We retain mobile analytics only as long as
-        needed for product analytics and debugging. In the current iPhone and
-        iPad Application, analytics and crash reports start disabled and are sent
-        only after you enable the Share Analytics and Crash Reports control in
-        Settings. Turning that control off stops analytics events from being
-        buffered or sent. You may also contact us at{" "}
-        <a href="mailto:founders@manaflow.com">founders@manaflow.com</a> to
-        request deletion of analytics associated with your account.
-      </p>
-
-      <h3>2. Information you provide directly</h3>
-      <p>
-        If you contact us via email, our contact page, or the Enterprise contact
-        form, we collect the information you provide such as your name, email
-        address, company, role, phone number, country, deployment needs, and
-        comments. If you join a platform waitlist, we collect the email address
-        you submit so we can email you when that platform launches, and we send a
-        notification of the signup (including that email address) to our internal
-        Slack workspace.
-      </p>
-      <p>
-        When you sign in to the Application, we receive the account information
-        required to authenticate you, such as your email address and provider
-        identifier from Apple, Google, GitHub, or email-code sign-in. When you
-        pair the mobile app with a Mac, we process the pairing information
-        required to connect those devices. When you use the mobile app to view a
-        workspace, send terminal input, attach selected photos, use speech
-        transcription, or receive terminal notifications, the related content or
-        transcript may be transmitted between your devices and our service as
-        needed to provide that feature.
-      </p>
-      <p>
-        Camera access is used only to scan cmux pairing QR codes. Microphone and
-        speech recognition access are used only when you choose voice
-        transcription in the message box. Photo library access is used only when
-        you choose photos to attach.
-      </p>
-
-      <h3>3. Children&rsquo;s Privacy</h3>
-      <p>
-        The Service is not directed to anyone under the age of 13. We do not
-        knowingly collect information from anyone under 13. If you believe we
-        have collected such information, please contact us at{" "}
-        <a href="mailto:founders@manaflow.com">founders@manaflow.com</a>.
-      </p>
-
-      <h2>II. Third-Party Services</h2>
-      <p>
-        The Application integrates with the following third-party services:
-      </p>
-      <ul>
-        <li>
-          <strong>Stack Auth</strong> &mdash; authentication and account
-          management for sign-in, session management, and account deletion.
-        </li>
-        <li>
-          <strong>Apple, Google, and GitHub</strong> &mdash; optional sign-in
-          providers. These providers send us the account information required to
-          authenticate you.
-        </li>
-        <li>
-          <strong>Apple Push Notification service</strong> &mdash; delivers
-          notifications to iPhone and iPad after you opt in.
-        </li>
-        <li>
-          <strong>Apple Speech Recognition</strong> &mdash; used when you choose
-          voice transcription in the mobile app.
-        </li>
-        <li>
-          <strong>Sentry</strong> &mdash; error tracking and crash reporting.
-          May collect error logs, stack traces, device information, and OS
-          version.
-        </li>
-        <li>
-          <strong>Sparkle</strong> &mdash; macOS auto-update framework.
-          Transmits application and OS version to check for macOS updates.
-        </li>
-        <li>
-          <strong>Ghostty / libghostty</strong> &mdash; terminal rendering
-          engine. Runs entirely locally on your device.
-        </li>
-        <li>
-          <strong>PostHog</strong> &mdash; website and mobile product analytics.
-          Collects page view data, navigation patterns, browser metadata, mobile
-          app feature events, and account-linked mobile analytics after sign-in
-          via a first-party proxy. If you join a platform waitlist, the email
-          address you submit is also recorded in PostHog so we can notify you.
-        </li>
-        <li>
-          <strong>Resend</strong> &mdash; transactional email delivery. Used to
-          deliver feedback submissions from the Application. Your email address
-          is transmitted to Resend only if you voluntarily submit feedback.
-        </li>
-        <li>
-          <strong>Slack</strong> &mdash; internal team notifications. If you join
-          a platform waitlist, the email address and platforms you submit are
-          sent to our private Slack workspace so the team is notified of the
-          signup.
-        </li>
-      </ul>
-      <p>
-        Each of these services has its own privacy policy governing the
-        collection and use of your data. When we use a third-party service to
-        process Personal Information on our behalf, we require that service to
-        protect the information with safeguards at least as protective as this
-        Privacy Policy and to use it only to provide services to cmux.
-      </p>
-
-      <h2>III. How We Use and Share Information</h2>
-      <p>
-        We do not sell, trade, rent or otherwise share your Personal Information
-        with third parties for marketing purposes. We use crash reports and
-        diagnostics solely to improve the Application. We may share information
-        if we have a good-faith belief that disclosure is necessary to meet
-        legal process or protect against harm.
-      </p>
-
-      <h2>IV. How We Protect Information</h2>
-      <p>
-        We implement security measures designed to protect your information from
-        unauthorized access, including encryption and secure server software.
-        However, no method of transmission or storage is 100% secure. By using
-        our Service, you acknowledge and agree to assume these risks.
-      </p>
-
-      <h2>V. Your Rights</h2>
-      <p>
-        Depending on your location, you may have rights under applicable data
-        protection laws (such as GDPR or CCPA), including:
-      </p>
-      <ul>
-        <li>Right to access a copy of data we hold about you</li>
-        <li>Right to request correction of inaccurate data</li>
-        <li>Right to request deletion of your data</li>
-        <li>Right to data portability</li>
-        <li>Right to restrict or object to processing</li>
-      </ul>
-      <p>
-        To exercise any of these rights, please contact us at{" "}
-        <a href="mailto:founders@manaflow.com">founders@manaflow.com</a>.
-      </p>
-
-      <h2>VI. Links to Other Websites</h2>
-      <p>
-        The Service may provide links to third-party websites. We are not
-        responsible for the privacy practices of those websites. This Privacy
-        Policy applies solely to information collected by us.
-      </p>
-
-      <h2>VII. Changes to This Policy</h2>
-      <p>
-        We reserve the right to change this policy at any time. Significant
-        changes will go into effect 30 days following notification. You should
-        periodically check the Site for updates.
-      </p>
-
-      <h2>VIII. Contact Us</h2>
-      <p>
-        If you have any questions regarding this Privacy Policy, please contact
-        us at{" "}
-        <a href="mailto:founders@manaflow.com">founders@manaflow.com</a>.
-      </p>
-
-      <h2>IX. Data Retention</h2>
-      <p>
-        Crash reports and diagnostics are retained only as long as needed to
-        diagnose and fix issues. Mobile account identifiers and authentication
-        records are retained while your account is active and are deleted or
-        anonymized when account deletion completes, except where retention is
-        required for security, legal, billing, or fraud-prevention reasons.
-        Device and pairing metadata is retained until you unpair the device,
-        sign out and delete local data, delete your account, or the pairing data
-        is pruned as stale. Apple Push Notification service tokens are retained
-        only while notifications are enabled for that device, and are removed
-        when you disable notifications, sign out, delete your account, or Apple
-        reports the token invalid. Mobile product analytics in PostHog is
-        retained for product analytics and debugging for up to 24 months unless
-        you request earlier deletion. The mobile app account settings delete or
-        anonymize cmux-owned account, device, pairing, notification, billing, and
-        cloud data, and queue deletion of account-linked mobile PostHog
-        analytics, as part of account deletion. Some deletion work may be
-        processed asynchronously by our service providers. You may request
-        deletion of cmux-owned data associated with you from the mobile app
-        account settings or by contacting us at{" "}
-        <a href="mailto:founders@manaflow.com">founders@manaflow.com</a>.
-      </p>
+      <h1>{content.title}</h1>
+      <p>{content.lastUpdated}</p>
+      {content.sections.map((section, index) => (
+        <PolicySection key={index} section={section} />
+      ))}
     </>
   );
+}
+
+function PolicySection({ section }: { readonly section: PrivacyPolicySection }) {
+  return (
+    <>
+      {section.heading ? <h2>{section.heading}</h2> : null}
+      <PolicyBody content={section} />
+      {section.subsections?.map((subsection, index) => (
+        <PolicySubsection key={index} subsection={subsection} />
+      ))}
+    </>
+  );
+}
+
+function PolicySubsection({
+  subsection,
+}: {
+  readonly subsection: PrivacyPolicySubsection;
+}) {
+  return (
+    <>
+      <h3>{subsection.heading}</h3>
+      <PolicyBody content={subsection} />
+    </>
+  );
+}
+
+function PolicyBody({
+  content,
+}: {
+  readonly content: Pick<
+    PrivacyPolicySection,
+    "paragraphs" | "bullets" | "afterBullets"
+  >;
+}) {
+  return (
+    <>
+      {content.paragraphs?.map((paragraph, index) => (
+        <p key={`paragraph-${index}`}>{linkedText(paragraph)}</p>
+      ))}
+      {content.bullets?.length ? (
+        <ul>
+          {content.bullets.map((bullet, index) => (
+            <li key={index}>{linkedText(bullet)}</li>
+          ))}
+        </ul>
+      ) : null}
+      {content.afterBullets?.map((paragraph, index) => (
+        <p key={`after-${index}`}>{linkedText(paragraph)}</p>
+      ))}
+    </>
+  );
+}
+
+const markdownLinkPattern = /\[([^\]]+)]\((https?:\/\/[^)]+|mailto:[^)]+)\)/g;
+
+function linkedText(text: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+  for (const match of text.matchAll(markdownLinkPattern)) {
+    const index = match.index ?? 0;
+    if (index > cursor) nodes.push(text.slice(cursor, index));
+    nodes.push(
+      <a key={`${index}-${match[2]}`} href={match[2]}>
+        {match[1]}
+      </a>,
+    );
+    cursor = index + match[0].length;
+  }
+  if (cursor < text.length) nodes.push(text.slice(cursor));
+  return nodes;
 }
