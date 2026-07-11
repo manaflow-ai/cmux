@@ -132,6 +132,16 @@ import Testing
         #expect(result.isTruncated)
     }
 
+    @Test func capsIndividualRowsAndMarksResultTruncated() throws {
+        let oversizedText = String(repeating: "é", count: 100_000)
+        let result = parser.parse("@@ -0,0 +1 @@\n+\(oversizedText)")
+        let line = try #require(result.hunks.first?.lines.first)
+
+        #expect(line.text.utf8.count <= 8 * 1024)
+        #expect(line.text.utf8.count.isMultiple(of: 2))
+        #expect(result.isTruncated)
+    }
+
     @Test func capsTotalRowsAcrossHunksAndMarksResultTruncated() {
         let hunks = (0..<11).map { hunk in
             let start = hunk * 2_000 + 1
