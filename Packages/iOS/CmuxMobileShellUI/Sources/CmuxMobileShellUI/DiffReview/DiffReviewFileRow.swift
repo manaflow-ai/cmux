@@ -118,11 +118,16 @@ struct DiffReviewFileRow: View {
 
     private var accessibilityLabel: String {
         let additions =
-            file.additions.map {
-                String(
-                    format: L10n.string(
-                        "mobile.diff.additionsAccessibilityFormat", defaultValue: "%d additions"),
-                    $0
+            file.additions.map { count in
+                if count == 1 {
+                    return L10n.string(
+                        "mobile.diff.additionsAccessibility.one",
+                        defaultValue: "1 addition"
+                    )
+                }
+                return L10n.string(
+                    "mobile.diff.additionsAccessibility.other",
+                    defaultValue: "\(count) additions"
                 )
             }
             ?? L10n.string(
@@ -130,26 +135,25 @@ struct DiffReviewFileRow: View {
                 defaultValue: "addition count unavailable"
             )
         let deletions =
-            file.deletions.map {
-                String(
-                    format: L10n.string(
-                        "mobile.diff.deletionsAccessibilityFormat", defaultValue: "%d deletions"),
-                    $0
+            file.deletions.map { count in
+                if count == 1 {
+                    return L10n.string(
+                        "mobile.diff.deletionsAccessibility.one",
+                        defaultValue: "1 deletion"
+                    )
+                }
+                return L10n.string(
+                    "mobile.diff.deletionsAccessibility.other",
+                    defaultValue: "\(count) deletions"
                 )
             }
             ?? L10n.string(
                 "mobile.diff.deletionCountUnavailable",
                 defaultValue: "deletion count unavailable"
             )
-        return String(
-            format: L10n.string(
-                "mobile.diff.fileAccessibilityFormat",
-                defaultValue: "%1$@, %2$@, %3$@, %4$@"
-            ),
-            statusAccessibilityText,
-            file.path,
-            additions,
-            deletions
+        return L10n.string(
+            "mobile.diff.fileAccessibilityFormat",
+            defaultValue: "\(statusAccessibilityText), \(file.path), \(additions), \(deletions)"
         )
     }
 }

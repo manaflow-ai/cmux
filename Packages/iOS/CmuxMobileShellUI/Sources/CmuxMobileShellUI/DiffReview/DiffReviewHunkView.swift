@@ -58,17 +58,25 @@ struct DiffReviewHunkView: View {
     }
 
     private var hunkAccessibilityLabel: String {
-        String(
-            format: L10n.string(
-                "mobile.diff.hunkAccessibilityFormat",
-                defaultValue: "Hunk %1$d of %2$d. Old lines %3$d through %4$d. New lines %5$d through %6$d"
-            ),
-            position,
-            total,
-            hunk.oldStart,
-            max(hunk.oldStart, hunk.oldStart + hunk.oldCount - 1),
-            hunk.newStart,
-            max(hunk.newStart, hunk.newStart + hunk.newCount - 1)
+        let oldLines = if hunk.oldCount == 0 {
+            L10n.string("mobile.diff.noOldLines", defaultValue: "No old lines")
+        } else {
+            L10n.string(
+                "mobile.diff.oldLineRangeAccessibility",
+                defaultValue: "Old lines \(hunk.oldStart) through \(hunk.oldStart + hunk.oldCount - 1)"
+            )
+        }
+        let newLines = if hunk.newCount == 0 {
+            L10n.string("mobile.diff.noNewLines", defaultValue: "No new lines")
+        } else {
+            L10n.string(
+                "mobile.diff.newLineRangeAccessibility",
+                defaultValue: "New lines \(hunk.newStart) through \(hunk.newStart + hunk.newCount - 1)"
+            )
+        }
+        return L10n.string(
+            "mobile.diff.hunkAccessibilityFormat",
+            defaultValue: "Hunk \(position) of \(total). \(oldLines). \(newLines)"
         )
     }
 

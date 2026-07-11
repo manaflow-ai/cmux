@@ -9811,8 +9811,36 @@
     "mobile.diff.hunkAccessibilityFormat": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Hunk %1$d of %2$d. Old lines %3$d through %4$d. New lines %5$d through %6$d" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%2$d件中%1$d件目のハンク。旧%3$d行から%4$d行。新%5$d行から%6$d行" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Hunk %1$lld of %2$lld. %3$@. %4$@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%2$lld件中%1$lld件目のハンク。%3$@。%4$@" } }
+      }
+    },
+    "mobile.diff.noOldLines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No old lines" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "旧行なし" } }
+      }
+    },
+    "mobile.diff.noNewLines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No new lines" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新行なし" } }
+      }
+    },
+    "mobile.diff.oldLineRangeAccessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Old lines %1$lld through %2$lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "旧%1$lld行から%2$lld行" } }
+      }
+    },
+    "mobile.diff.newLineRangeAccessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New lines %1$lld through %2$lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新%1$lld行から%2$lld行" } }
       }
     },
     "mobile.diff.lineAdditionAccessibilityFormat": {
@@ -9878,18 +9906,32 @@
         "ja": { "stringUnit": { "state": "translated", "value": "未追跡" } }
       }
     },
-    "mobile.diff.additionsAccessibilityFormat": {
+    "mobile.diff.additionsAccessibility.one": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%d additions" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%d行追加" } }
+        "en": { "stringUnit": { "state": "translated", "value": "1 addition" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1行追加" } }
       }
     },
-    "mobile.diff.deletionsAccessibilityFormat": {
+    "mobile.diff.additionsAccessibility.other": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%d deletions" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%d行削除" } }
+        "en": { "stringUnit": { "state": "translated", "value": "%lld additions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld行追加" } }
+      }
+    },
+    "mobile.diff.deletionsAccessibility.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1 deletion" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1行削除" } }
+      }
+    },
+    "mobile.diff.deletionsAccessibility.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld deletions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld行削除" } }
       }
     },
     "mobile.diff.additionCountUnavailable": {

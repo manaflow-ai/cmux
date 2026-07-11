@@ -11,10 +11,12 @@ final class GitProcessWatchdog: @unchecked Sendable {
     private let lock = NSLock()
     private var fired = false
     private let process: Process
+    private let processGroupIdentifier: pid_t
     private let outputHandle: FileHandle
 
-    init(process: Process, outputHandle: FileHandle) {
+    init(process: Process, processGroupIdentifier: pid_t, outputHandle: FileHandle) {
         self.process = process
+        self.processGroupIdentifier = processGroupIdentifier
         self.outputHandle = outputHandle
     }
 
@@ -27,7 +29,9 @@ final class GitProcessWatchdog: @unchecked Sendable {
         guard shouldTerminate else { return }
         try? outputHandle.close()
         guard process.isRunning else { return }
-        process.terminate()
+        if kill(-processGroupIdentifier, SIGTERM) != 0 {
+            process.terminate()
+        }
         scheduleSigkill()
     }
 
@@ -38,9 +42,10 @@ final class GitProcessWatchdog: @unchecked Sendable {
     private func scheduleSigkill() {
         let timer = DispatchSource.makeTimerSource(queue: Self.timerQueue)
         timer.schedule(deadline: .now() + Self.sigkillGraceSeconds)
-        timer.setEventHandler { [process] in
+        timer.setEventHandler { [process, processGroupIdentifier] in
+            kill(-processGroupIdentifier, SIGKILL)
             if process.isRunning {
-                kill(process.processIdentifier, SIGKILL)
+                process.terminate()
             }
             timer.cancel()
         }

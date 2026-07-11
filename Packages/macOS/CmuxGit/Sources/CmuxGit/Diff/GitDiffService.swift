@@ -51,10 +51,11 @@ public struct GitDiffService: Sendable {
     ///     a workspace with an enormous change set (for example a large
     ///     unignored generated tree) cannot make one status call accumulate
     ///     unbounded memory.
-    /// - Returns: Changed-file summaries in path order, with a truncation marker.
-    public func changedFiles(repoRoot: String, maxOutputBytes: Int? = nil) -> GitChangedFiles {
+    /// - Returns: Changed-file summaries in path order with a truncation marker,
+    ///   or `nil` when any required git command fails or times out.
+    public func changedFiles(repoRoot: String, maxOutputBytes: Int? = nil) -> GitChangedFiles? {
         guard let baseline = diffBaseline(in: repoRoot) else {
-            return GitChangedFiles(files: [], truncated: false)
+            return nil
         }
         let numstat = runGit(
             in: repoRoot,
@@ -71,6 +72,12 @@ public struct GitDiffService: Sendable {
             arguments: ["ls-files", "--others", "--exclude-standard", "-z"],
             maxOutputBytes: maxOutputBytes
         )
+        guard numstat.successOutput != nil,
+              nameStatus.successOutput != nil,
+              untracked.successOutput != nil,
+              !numstat.timedOut,
+              !nameStatus.timedOut,
+              !untracked.timedOut else { return nil }
         let files = parseChangedFiles(
             numstatOutput: completeRecords(numstat),
             nameStatusOutput: completeRecords(nameStatus),
@@ -117,7 +124,8 @@ public struct GitDiffService: Sendable {
         let absolutePath = URL(fileURLWithPath: repoRoot, isDirectory: true)
             .appendingPathComponent(path).path
         if FileManager.default.fileExists(atPath: absolutePath, isDirectory: &isDirectory),
-           isDirectory.boolValue {
+           isDirectory.boolValue,
+           !isExactTrackedEntry(repoRoot: repoRoot, path: path) {
             return nil
         }
         if isUntracked(repoRoot: repoRoot, path: path, maxOutputBytes: maxOutputBytes) {
@@ -134,8 +142,8 @@ public struct GitDiffService: Sendable {
                 acceptedTerminationStatuses: [0, 1],
                 maxOutputBytes: maxOutputBytes
             )
-            guard let output = result.successOutput else { return nil }
-            return GitFileDiff(path: path, unifiedDiff: output)
+            guard let output = result.successOutput, !result.timedOut else { return nil }
+            return GitFileDiff(path: path, unifiedDiff: output, truncated: result.capped)
         }
         guard let baseline = diffBaseline(in: repoRoot) else { return nil }
         let result = runGit(
@@ -143,8 +151,8 @@ public struct GitDiffService: Sendable {
             arguments: ["diff", baseline, "--no-ext-diff", "--no-textconv", "--no-color", "--find-renames", "--", Self.literalPathspec(path)],
             maxOutputBytes: maxOutputBytes
         )
-        guard let output = result.successOutput else { return nil }
-        return GitFileDiff(path: path, unifiedDiff: output)
+        guard let output = result.successOutput, !result.timedOut else { return nil }
+        return GitFileDiff(path: path, unifiedDiff: output, truncated: result.capped)
     }
 
     /// Wraps a repository path in `:(literal)` pathspec magic so glob
@@ -216,6 +224,13 @@ public struct GitDiffService: Sendable {
         return output?.split(separator: "\0", omittingEmptySubsequences: true).contains(Substring(path)) == true
     }
 
+    private func isExactTrackedEntry(repoRoot: String, path: String) -> Bool {
+        runGit(
+            in: repoRoot,
+            arguments: ["ls-files", "--error-unmatch", "--", Self.literalPathspec(path)]
+        ).successOutput != nil
+    }
+
     /// `git diff HEAD` fails before the first commit. In that state Git's
     /// hash-format-aware empty tree is the correct baseline for index and
     /// working-tree changes, including files already staged in the index.
@@ -240,15 +255,28 @@ public struct GitDiffService: Sendable {
             return GitProcessResult(output: nil)
         }
         let process = Process()
-        process.executableURL = gitExecutableURL
-        process.arguments = arguments
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            "set -m; /usr/bin/env -u SHELLOPTS -u BASHOPTS \"$@\" 2>/dev/null & child=$!; printf '%s\\n' \"$child\" >&2; exec 2>&-; wait \"$child\"; exit $?",
+            "cmux-git",
+            gitExecutableURL.path,
+        ] + arguments
         process.currentDirectoryURL = URL(fileURLWithPath: directory)
         process.environment = nonLockingGitEnvironment()
         let pipe = Pipe()
+        let processGroupPipe = Pipe()
         process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
+        process.standardError = processGroupPipe
         do {
             try process.run()
+            guard let processGroupIdentifier = Self.readProcessGroupIdentifier(
+                processGroupPipe.fileHandleForReading
+            ) else {
+                process.terminate()
+                process.waitUntilExit()
+                return GitProcessResult(output: nil)
+            }
             // Wall-clock watchdog: terminate git at the deadline so a stalled
             // subprocess never outlives the request that spawned it. The
             // cancellable timer source is the sanctioned bounded-delay shape
@@ -256,6 +284,7 @@ public struct GitDiffService: Sendable {
             // below blocks this thread).
             let watchdog = GitProcessWatchdog(
                 process: process,
+                processGroupIdentifier: processGroupIdentifier,
                 outputHandle: pipe.fileHandleForReading
             )
             let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
@@ -269,14 +298,17 @@ public struct GitDiffService: Sendable {
                 watchdog: watchdog
             )
             process.waitUntilExit()
-            if read.capped || watchdog.didFire {
-                // We terminated git ourselves (output bound or deadline); its
+            if read.capped {
+                // We terminated git after reaching the output bound; its
                 // exit status reflects our signal, not a git failure. Return
                 // the bounded partial output and mark it cut off.
                 return GitProcessResult(
                     output: Self.decodeUTF8DroppingPartialTail(read.data),
                     capped: true
                 )
+            }
+            if watchdog.didFire {
+                return GitProcessResult(output: nil, timedOut: true)
             }
             guard acceptedTerminationStatuses.contains(process.terminationStatus) else {
                 return GitProcessResult(output: nil)
@@ -285,6 +317,19 @@ public struct GitDiffService: Sendable {
         } catch {
             return GitProcessResult(output: nil)
         }
+    }
+
+    /// The wrapper shell starts git as a monitored background job, which gives
+    /// git a dedicated process group, then reports that group leader here over
+    /// its otherwise-discarded stderr. Keeping the wrapper outside the group
+    /// lets it reap git after the watchdog signals the full descendant group.
+    private static func readProcessGroupIdentifier(_ handle: FileHandle) -> pid_t? {
+        guard let data = try? handle.read(upToCount: 64),
+              let text = String(data: data, encoding: .utf8),
+              let firstLine = text.split(separator: "\n", maxSplits: 1).first,
+              let identifier = pid_t(firstLine),
+              identifier > 0 else { return nil }
+        return identifier
     }
 
     /// Drains process stdout, stopping (and terminating the process) once
@@ -358,10 +403,12 @@ private struct GitProcessResult {
     let output: String?
     /// Whether the output was cut off at the caller's byte bound.
     let capped: Bool
+    let timedOut: Bool
 
-    init(output: String?, capped: Bool = false) {
+    init(output: String?, capped: Bool = false, timedOut: Bool = false) {
         self.output = output
         self.capped = capped
+        self.timedOut = timedOut
     }
 
     var successOutput: String? {

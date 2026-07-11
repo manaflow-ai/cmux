@@ -146,7 +146,10 @@ extension TerminalController {
         guard let repoRoot = service.repositoryRoot(for: directory) else {
             return .repositoryNotFound
         }
-        let changed = service.changedFiles(repoRoot: repoRoot, maxOutputBytes: mobileWorkspaceDiffStatusReadCap)
+        guard let changed = service.changedFiles(
+            repoRoot: repoRoot,
+            maxOutputBytes: mobileWorkspaceDiffStatusReadCap
+        ) else { return .gitFailed }
         let files = Array(changed.files.prefix(mobileWorkspaceDiffMaxFiles))
         return .ok(
             repoRoot: repoRoot,
@@ -172,7 +175,11 @@ extension TerminalController {
             return .fileNotFound(path: path)
         }
         let capped = utf8BoundaryCapped(diff.unifiedDiff, byteLimit: mobileWorkspaceDiffFileByteCap)
-        return .ok(path: diff.path, unifiedDiff: capped.text, truncated: capped.truncated)
+        return .ok(
+            path: diff.path,
+            unifiedDiff: capped.text,
+            truncated: diff.truncated || capped.truncated
+        )
     }
 
     private nonisolated static func utf8BoundaryCapped(_ text: String, byteLimit: Int) -> (text: String, truncated: Bool) {
@@ -195,6 +202,8 @@ extension TerminalController {
         switch result {
         case .repositoryNotFound:
             return .err(code: "not_found", message: "Git repository not found", data: nil)
+        case .gitFailed:
+            return .err(code: "git_failed", message: "Could not read repository changes", data: nil)
         case .ok(let repoRoot, let summaries, let truncated):
             let files = summaries.map { summary in
                 [
@@ -246,6 +255,7 @@ private enum MobileWorkspaceDiffSnapshotResult {
 
 private enum MobileWorkspaceDiffStatusResult: Sendable {
     case repositoryNotFound
+    case gitFailed
     case ok(repoRoot: String, files: [GitDiffSummary], truncated: Bool)
 }
 

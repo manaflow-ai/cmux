@@ -103,6 +103,7 @@ import Testing
         // truncation detection (the full diff far exceeds the cap).
         #expect(diff.unifiedDiff.utf8.count > cap / 2)
         #expect(diff.unifiedDiff.contains("+let payload"))
+        #expect(diff.truncated)
     }
 
     @Test func untrackedLeadingWhitespacePathDiffsVerbatim() throws {
@@ -208,11 +209,11 @@ import Testing
         }
 
         let service = GitDiffService()
-        let unbounded = service.changedFiles(repoRoot: repo.path)
+        let unbounded = try #require(service.changedFiles(repoRoot: repo.path))
         #expect(unbounded.files.count == 500)
         #expect(!unbounded.truncated)
 
-        let bounded = service.changedFiles(repoRoot: repo.path, maxOutputBytes: 2048)
+        let bounded = try #require(service.changedFiles(repoRoot: repo.path, maxOutputBytes: 2048))
         #expect(bounded.truncated)
         #expect(!bounded.files.isEmpty)
         #expect(bounded.files.count < 500)
@@ -229,7 +230,7 @@ import Testing
         try runTestGit(in: repo, ["add", "--", path])
 
         let service = GitDiffService()
-        let changed = service.changedFiles(repoRoot: repo.path)
+        let changed = try #require(service.changedFiles(repoRoot: repo.path))
         let file = try #require(changed.files.first { $0.path == path })
         let diff = try #require(service.fileDiff(repoRoot: repo.path, path: path))
 
@@ -278,8 +279,8 @@ import Testing
         task.cancel()
         let result = await task.value
 
-        // Without the cancellation bail this repo reports its untracked file.
-        #expect(result.files.isEmpty)
+        // Cancellation is a failed read, not a successful empty repository.
+        #expect(result == nil)
     }
 
     @Test func ambientGitRepositorySelectionEnvironmentIsScrubbed() throws {
@@ -300,8 +301,47 @@ import Testing
             URL(fileURLWithPath: root).resolvingSymlinksInPath().path
                 == repoA.resolvingSymlinksInPath().path
         )
-        let changed = service.changedFiles(repoRoot: repoA.path)
+        let changed = try #require(service.changedFiles(repoRoot: repoA.path))
         #expect(changed.files.map(\.path) == ["only-in-a.txt"])
+    }
+
+    @Test func changedFilesReturnsFailureInsteadOfEmptySuccessWhenGitFails() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let failingGit = repo.appendingPathComponent("failing-git.sh")
+        try Data("#!/bin/sh\nexit 2\n".utf8).write(to: failingGit)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: failingGit.path
+        )
+
+        let service = GitDiffService(gitExecutableURL: failingGit)
+
+        #expect(service.changedFiles(repoRoot: repo.path) == nil)
+    }
+
+    @Test func trackedGitlinkDirectoryCanProduceAFileDiff() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let nested = repo.appendingPathComponent("Nested")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        for arguments in [
+            ["init", "--quiet"],
+            ["config", "user.email", "tests@cmux.dev"],
+            ["config", "user.name", "cmux tests"],
+            ["commit", "--allow-empty", "--quiet", "-m", "nested init"],
+        ] {
+            try runTestGit(in: nested, arguments)
+        }
+        try runTestGit(in: repo, ["add", "--", "Nested"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add gitlink"])
+        try Data("changed\n".utf8).write(to: nested.appendingPathComponent("change.txt"))
+        try runTestGit(in: nested, ["add", "--", "change.txt"])
+        try runTestGit(in: nested, ["commit", "--quiet", "-m", "advance nested"])
+
+        let service = GitDiffService()
+        let diff = try #require(service.fileDiff(repoRoot: repo.path, path: "Nested"))
+
+        #expect(diff.unifiedDiff.contains("Subproject commit"))
     }
 
     @Test func stalledGitProcessIsTerminatedAtTheDeadline() throws {

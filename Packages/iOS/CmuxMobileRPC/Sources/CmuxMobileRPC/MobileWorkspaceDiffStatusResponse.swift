@@ -56,8 +56,8 @@ public struct MobileWorkspaceDiffStatusResponse: Decodable, Sendable {
     /// - Parameter decoder: The decoder for the RPC result payload.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        repoRoot = try container.decodeIfPresent(String.self, forKey: .repoRoot) ?? ""
-        files = try container.decodeIfPresent([File].self, forKey: .files) ?? []
+        repoRoot = try container.decode(String.self, forKey: .repoRoot)
+        files = try container.decode([File].self, forKey: .files)
         truncated = try container.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
     }
 

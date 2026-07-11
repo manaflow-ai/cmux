@@ -104,6 +104,12 @@ final class DiffReviewSession {
 
     func recordHunkCount(_ count: Int, for path: String) {
         hunkCountsByPath[path] = count
+        if let bookmark,
+           bookmark.filePath == path,
+           count > 0,
+           bookmark.hunkIndex >= count {
+            self.bookmark = Bookmark(filePath: path, hunkIndex: count - 1)
+        }
         guard currentFile?.path == path else { return }
         if pendingSeekToLastHunk {
             pendingSeekToLastHunk = false
