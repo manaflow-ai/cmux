@@ -136,6 +136,55 @@ import Testing
         #expect(secondEpisode.requestIDs == [deferred.id])
     }
 
+    @Test func completingAnEpisodeWhileInactiveLeavesPendingRecoveryDeferred() {
+        let now = Date()
+        var reducer = MobileConnectionLifecycleStateMachine()
+        guard case .start(let activeEpisode) = reducer.request(
+            .manualRetry,
+            health: .disconnected
+        ) else {
+            Issue.record("initial reconnect must start")
+            return
+        }
+        reducer.becameInactive(at: now)
+        #expect(reducer.request(.networkPathChanged, health: .disconnected) == nil)
+
+        #expect(reducer.complete(id: activeEpisode.id, health: .disconnected) == nil)
+        #expect(reducer.activeEpisode == nil)
+
+        guard case .start(let resumedEpisode) = reducer.becameActive(
+            at: now.addingTimeInterval(31),
+            shortDwellThreshold: 30,
+            health: .disconnected
+        ) else {
+            Issue.record("foreground activation must start the deferred recovery")
+            return
+        }
+        #expect(resumedEpisode.triggers == [.networkPathChanged])
+    }
+
+    @Test func foregroundReconnectCanJoinARequestForTheCurrentIdentity() {
+        let now = Date()
+        var reducer = MobileConnectionLifecycleStateMachine()
+        reducer.becameInactive(at: now)
+        guard case .start(let foregroundEpisode) = reducer.becameActive(
+            at: now.addingTimeInterval(31),
+            shortDwellThreshold: 30,
+            health: .disconnected
+        ) else {
+            Issue.record("foreground reconnect must start")
+            return
+        }
+        let reconnect = reducer.requestStoredMacReconnect(
+            stackUserID: "user-1",
+            health: .disconnected
+        )
+
+        #expect(reconnect.effect == nil)
+        #expect(reducer.activeEpisode?.id == foregroundEpisode.id)
+        #expect(reducer.activeEpisode?.requestIDs.contains(reconnect.id) == true)
+    }
+
     @MainActor
     @Test func staleShellFinishCannotDropNewerEpisodeTaskHandle() {
         let store = MobileShellComposite.preview()
