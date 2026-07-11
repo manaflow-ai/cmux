@@ -1,6 +1,12 @@
 import CmuxFoundation
 import CmuxGit
 import Foundation
+import os
+
+nonisolated private let extensionWorktreeLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "ExtensionWorktree"
+)
 
 struct CmuxExtensionWorktreeCreationResult: Sendable {
     let worktreePath: String
@@ -103,13 +109,11 @@ enum CmuxExtensionWorktreePrototype {
                 from: projectRoot,
                 to: worktree
             )
-#if DEBUG
             for diagnostic in worktreeIncludeDiagnostics {
-                cmuxDebugLog(
-                    "extensionSidebar.worktree.include.warning project=\(projectRoot.path) detail=\(diagnostic)"
+                extensionWorktreeLogger.warning(
+                    "worktree include sync warning project=\(projectRoot.path, privacy: .private(mask: .hash)) detail=\(diagnostic, privacy: .private(mask: .hash))"
                 )
             }
-#endif
             try writeSampleDevServerFiles(in: worktree, projectName: projectRoot.lastPathComponent)
 
             let port = 4_100 + abs(branchName.hashValue % 800)
