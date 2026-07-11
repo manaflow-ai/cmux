@@ -69,3 +69,6 @@ artifacts/
 
 # tmux verbose debug logs (tmux -v) that land in the cwd
 tmux-*.log
+
+# Local pinned Release DerivedData (sidebar-folder-drop build)
+build-release/
