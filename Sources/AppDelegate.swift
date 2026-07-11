@@ -7377,6 +7377,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     if focusInitialBrowserAddressBarOnCreate {
                         focusInitialBrowserAddressBar(in: workspace)
                     }
+                case .agentSession:
+                    let workspace = context.tabManager.addWorkspace(
+                        title: title,
+                        initialSurface: .agentSession
+                    )
+                    closeInitialWorkspaceIfNeeded(
+                        initialWorkspaceId: initialWorkspace?.id,
+                        in: context
+                    )
+                    createdWorkspaceHandler?(workspace)
                 case .cloudVMLoading:
                     let workspace = context.tabManager.addWorkspace(initialSurface: .cloudVMLoading)
                     closeInitialWorkspaceIfNeeded(
@@ -8284,6 +8294,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                select: true
+            )
+        } else if initialSurface == .agentSession {
+            workspace = context.tabManager.addWorkspace(
+                title: title,
+                workingDirectory: workingDirectory,
+                initialSurface: .agentSession,
                 select: true
             )
         } else if workingDirectory != nil || initialTerminalInput != nil {

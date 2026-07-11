@@ -2981,6 +2981,28 @@ final class Workspace: Identifiable, ObservableObject {
                 initialTabId = tabId
             }
             installBrowserPanelSubscription(browserPanel)
+        } else if initialSurface == .agentSession {
+            let agentPanel = AgentSessionPanel(
+                workspaceId: id,
+                rendererKind: .react,
+                initialProviderID: .codex,
+                workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil
+            )
+            panels[agentPanel.id] = agentPanel
+            panelTitles[agentPanel.id] = agentPanel.displayTitle
+
+            if let tabId = bonsplitController.createTab(
+                title: agentPanel.displayTitle,
+                icon: agentPanel.displayIcon,
+                kind: SurfaceKind.agentSession.rawValue,
+                isDirty: agentPanel.isDirty,
+                isLoading: false,
+                isPinned: false
+            ) {
+                bindSurface(tabId, toPanelId: agentPanel.id)
+                initialTabId = tabId
+            }
+            installAgentSessionPanelSubscription(agentPanel)
         } else if initialSurface == .cloudVMLoading {
             let loadingPanel = CloudVMLoadingPanel(workspaceId: id)
             panels[loadingPanel.id] = loadingPanel
