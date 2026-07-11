@@ -434,6 +434,33 @@ struct TerminalPortalHostAuthorityTests {
 
     @MainActor
     @Test
+    func currentHostBecomingUnusableAllowsSameEpochReplacement() {
+        let surface = makeSurface()
+        let host = NSView(), replacementHost = NSView()
+        let pane = PaneID()
+        let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+
+        #expect(surface.claimPortalHost(
+            hostId: ObjectIdentifier(host), paneId: pane, ownershipGeneration: 1,
+            inWindow: true, bounds: bounds, reason: "test.current.visible"
+        ))
+        #expect(surface.claimPortalHost(
+            hostId: ObjectIdentifier(host), paneId: pane, ownershipGeneration: 1,
+            inWindow: false, bounds: bounds, reason: "test.current.detached"
+        ))
+        #expect(surface.isPortalHostReplacementPending(ownershipGeneration: 1))
+        #expect(surface.claimPortalHost(
+            hostId: ObjectIdentifier(replacementHost), paneId: pane, ownershipGeneration: 1,
+            inWindow: true, bounds: bounds, reason: "test.replacement.visible"
+        ))
+        #expect(
+            surface.debugPortalHostLease().hostId ==
+                String(describing: ObjectIdentifier(replacementHost))
+        )
+    }
+
+    @MainActor
+    @Test
     func newerModelOwnershipGenerationAllowsRollbackToEarlierHost() {
         let surface = makeSurface()
         let originalHost = NSView(), movedHost = NSView()
