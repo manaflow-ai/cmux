@@ -10,6 +10,8 @@ public struct MobileWorkspaceCreateSpec: Equatable, Sendable {
     public var initialCommand: String?
     /// Initial terminal environment.
     public var initialEnv: [String: String]?
+    /// Stable identity for idempotent retry of one logical create operation.
+    public var operationID: UUID?
 
     /// Creates optional workspace-create parameters.
     /// - Parameters:
@@ -21,12 +23,13 @@ public struct MobileWorkspaceCreateSpec: Equatable, Sendable {
         title: String? = nil,
         workingDirectory: String? = nil,
         initialCommand: String? = nil,
-        initialEnv: [String: String]? = nil
+        initialEnv: [String: String]? = nil,
+        operationID: UUID? = nil
     ) {
         self.title = title
         self.workingDirectory = workingDirectory
         self.initialCommand = initialCommand
         self.initialEnv = initialEnv
+        self.operationID = operationID
     }
 }
-

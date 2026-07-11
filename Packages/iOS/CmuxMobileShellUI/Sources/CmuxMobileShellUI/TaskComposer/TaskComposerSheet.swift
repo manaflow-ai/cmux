@@ -28,17 +28,19 @@ struct TaskComposerSheet: View {
     @State private var failureText: String?
     @State private var isEditorPresented = false
     @State private var shouldPersistDraftOnDisappear = true
+    @State private var submissionIdentity: MobileTaskSubmissionIdentity
 
     private let composer = MobileTaskCommandComposer()
+    private let sessionGeneration: Int
 
     init(store: CMUXMobileShellStore) {
         self.store = store
+        self.sessionGeneration = store.currentSessionGeneration
         let loadedTemplates = store.taskTemplateStore?.listTemplates() ?? []
         let templates = loadedTemplates
         let draft = store.taskTemplateStore?.composerDraft()
         let foregroundMacID = store.connectedMacDeviceID
-        // A persisted last-used Mac may have been forgotten since; only restore
-        // it while it is still paired, mirroring the template-id validation below.
+        // Restore persisted Mac IDs only while they remain paired.
         let pairedMacIDs = store.displayPairedMacs.map(\.macDeviceID)
         let restoredMacID = store.taskTemplateStore?.lastMacDeviceID()
             .flatMap { id in pairedMacIDs.contains(id) ? id : nil }
@@ -68,12 +70,18 @@ struct TaskComposerSheet: View {
                 macDeviceID: selectedMacID,
                 templateStore: store.taskTemplateStore
             )
+        let restoredOperationID = (
+            draft?.templateID == selectedTemplateID
+                && draft?.macDeviceID == (selectedMacID.isEmpty ? nil : selectedMacID)
+                && canRestoreDraftDirectory
+        ) ? draft?.operationID : nil
         _prompt = State(initialValue: draft?.prompt ?? "")
         _templates = State(initialValue: templates)
         _selectedTemplateID = State(initialValue: selectedTemplateID)
         _selectedMacDeviceID = State(initialValue: selectedMacID)
         _directory = State(initialValue: initialDirectory)
         _didEditDirectory = State(initialValue: canRestoreDraftDirectory && draft?.didEditDirectory == true)
+        _submissionIdentity = State(initialValue: MobileTaskSubmissionIdentity(id: restoredOperationID ?? UUID()))
     }
 
     var body: some View {
@@ -172,9 +180,7 @@ struct TaskComposerSheet: View {
                         store.taskTemplateStore?.setComposerDraft(nil)
                         dismiss()
                     }
-                    // A sent workspace.create cannot be recalled; keep the
-                    // sheet up until the bounded RPC reports success/failure
-                    // rather than dismissing and hiding the outcome.
+                    // Keep the sheet up until the sent RPC finishes.
                     .disabled(isSubmitting)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
@@ -197,9 +203,7 @@ struct TaskComposerSheet: View {
                 focusedField = .prompt
             }
             .onDisappear {
-                // Safety net for parent-driven dismissal: a submit whose sheet
-                // is gone must not apply its result or persist last-used
-                // defaults. User-driven dismissal is blocked while submitting.
+                // Parent-driven dismissal must cancel result application.
                 submitTask?.cancel()
                 if shouldPersistDraftOnDisappear {
                     persistDraft()
@@ -240,6 +244,7 @@ struct TaskComposerSheet: View {
             get: { directory },
             set: { newValue in
                 directory = newValue
+                submissionIdentity.rotate()
                 didEditDirectory = true
                 failureText = nil
             }
@@ -251,6 +256,7 @@ struct TaskComposerSheet: View {
             get: { prompt },
             set: { newValue in
                 prompt = newValue
+                submissionIdentity.rotate()
                 failureText = nil
             }
         )
@@ -286,6 +292,7 @@ struct TaskComposerSheet: View {
                 ForEach(machines) { mac in
                     Button {
                         selectedMacDeviceID = mac.macDeviceID
+                        submissionIdentity.rotate()
                         failureText = nil
                         syncSuggestedDirectory()
                     } label: {
@@ -317,6 +324,7 @@ struct TaskComposerSheet: View {
         let isSelected = template.id == selectedTemplateID
         return Button {
             selectedTemplateID = template.id
+            submissionIdentity.rotate()
             failureText = nil
             didEditDirectory = false
             syncSuggestedDirectory()
@@ -355,7 +363,8 @@ struct TaskComposerSheet: View {
             title: composition.title,
             workingDirectory: trimmedDirectory.isEmpty ? nil : trimmedDirectory,
             initialCommand: composition.initialCommand,
-            initialEnv: composition.initialEnv.isEmpty ? nil : composition.initialEnv
+            initialEnv: composition.initialEnv.isEmpty ? nil : composition.initialEnv,
+            operationID: submissionIdentity.id
         )
         let result = await store.submitTaskComposer(macDeviceID: selectedMacDeviceID, spec: spec)
         isSubmitting = false
@@ -394,33 +403,37 @@ struct TaskComposerSheet: View {
     }
 
     private func refreshTemplates() {
+        submissionIdentity.rotate()
         templates = store.taskTemplateStore?.listTemplates() ?? []
         failureText = nil
         if let selectedTemplateID, !templates.contains(where: { $0.id == selectedTemplateID }) {
             self.selectedTemplateID = templates.first?.id
         }
-        // Selection or the selected template's default directory may have
-        // changed (add/edit/delete in the editor); keep the field in sync
-        // unless the user typed a directory themselves.
+        // Sync template edits unless the user typed the directory.
         syncSuggestedDirectory()
     }
 
     private func validateMacSelection() {
         guard selectedMachine == nil else { return }
         selectedMacDeviceID = machines.first?.macDeviceID ?? ""
+        submissionIdentity.rotate()
         failureText = nil
         syncSuggestedDirectory()
     }
 
     private func persistDraft() {
         guard shouldPersistDraftOnDisappear else { return }
-        store.taskTemplateStore?.setComposerDraft(MobileTaskComposerDraft(
-            prompt: prompt,
-            templateID: selectedTemplateID,
-            macDeviceID: selectedMacDeviceID.isEmpty ? nil : selectedMacDeviceID,
-            directory: directory,
-            didEditDirectory: didEditDirectory
-        ))
+        store.persistTaskComposerDraft(
+            MobileTaskComposerDraft(
+                prompt: prompt,
+                templateID: selectedTemplateID,
+                macDeviceID: selectedMacDeviceID.isEmpty ? nil : selectedMacDeviceID,
+                directory: directory,
+                didEditDirectory: didEditDirectory,
+                operationID: submissionIdentity.id
+            ),
+            ifSessionGeneration: sessionGeneration
+        )
     }
 
     private func announceFailure(_ message: String) {
@@ -434,8 +447,7 @@ struct TaskComposerSheet: View {
             .foregroundStyle(.secondary)
     }
 
-    /// Recompute the suggested directory for the current template/Mac unless
-    /// the user hand-edited the field.
+    /// Recompute the suggested directory unless the user hand-edited it.
     private func syncSuggestedDirectory() {
         guard !didEditDirectory else { return }
         directory = Self.suggestedDirectory(

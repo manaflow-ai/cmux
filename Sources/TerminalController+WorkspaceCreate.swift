@@ -2,6 +2,35 @@ import CmuxSettings
 import Foundation
 
 extension TerminalController {
+    final class WorkspaceCreateIdempotencyCache {
+        private let capacity: Int
+        private var results: [UUID: V2CallResult] = [:]
+        private var insertionOrder: [UUID] = []
+        private var nextEvictionIndex = 0
+
+        init(capacity: Int) {
+            precondition(capacity > 0)
+            self.capacity = capacity
+        }
+
+        func resolve(operationID: UUID?, perform: () -> V2CallResult) -> V2CallResult {
+            guard let operationID else { return perform() }
+            if let result = results[operationID] { return result }
+            let result = perform()
+            guard case .ok = result else { return result }
+            results[operationID] = result
+            if insertionOrder.count < capacity {
+                insertionOrder.append(operationID)
+            } else {
+                let evictedID = insertionOrder[nextEvictionIndex]
+                results.removeValue(forKey: evictedID)
+                insertionOrder[nextEvictionIndex] = operationID
+                nextEvictionIndex = (nextEvictionIndex + 1) % capacity
+            }
+            return result
+        }
+    }
+
     nonisolated static func v2ExpandedWorkingDirectory(_ raw: String?) -> String? {
         guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
@@ -17,6 +46,24 @@ extension TerminalController {
     func v2WorkspaceCreate(
         params: [String: Any],
         tabManager resolvedTabManager: TabManager? = nil
+    ) -> V2CallResult {
+        let operationID: UUID?
+        if v2HasNonNullParam(params, "operation_id") {
+            guard let parsed = v2UUID(params, "operation_id") else {
+                return .err(code: "invalid_params", message: "operation_id must be a UUID", data: nil)
+            }
+            operationID = parsed
+        } else {
+            operationID = nil
+        }
+        return workspaceCreateIdempotencyCache.resolve(operationID: operationID) {
+            v2PerformWorkspaceCreate(params: params, tabManager: resolvedTabManager)
+        }
+    }
+
+    private func v2PerformWorkspaceCreate(
+        params: [String: Any],
+        tabManager resolvedTabManager: TabManager?
     ) -> V2CallResult {
         guard let tabManager = resolvedTabManager ?? v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)

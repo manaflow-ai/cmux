@@ -72,7 +72,7 @@ public struct MobileTaskTemplate: Codable, Equatable, Sendable, Identifiable {
         [
             MobileTaskTemplate(name: claudeName, icon: "agent:claude", command: "claude"),
             MobileTaskTemplate(name: codexName, icon: "agent:codex", command: "codex"),
-            MobileTaskTemplate(name: openCodeName, icon: "agent:opencode", command: "opencode"),
+            MobileTaskTemplate(name: openCodeName, icon: "agent:opencode", command: "opencode --prompt {prompt}"),
             MobileTaskTemplate(name: shellName, icon: "terminal", command: ""),
         ]
     }

@@ -3,6 +3,27 @@ public import CmuxMobileShellModel
 internal import Foundation
 
 extension MobileShellComposite {
+    /// Persists an unsent composer draft only for the signed-in session that
+    /// created the sheet. A stale disappearing sheet must not restore the
+    /// previous account's draft after sign-out has cleared it.
+    /// - Parameters:
+    ///   - draft: Draft snapshot to persist.
+    ///   - capturedGeneration: ``currentSessionGeneration`` captured when the
+    ///     composer sheet was created.
+    /// - Returns: `true` when the draft belongs to the active session and was
+    ///   handed to the configured template store.
+    @discardableResult
+    public func persistTaskComposerDraft(
+        _ draft: MobileTaskComposerDraft,
+        ifSessionGeneration capturedGeneration: Int
+    ) -> Bool {
+        guard isSignedIn, capturedGeneration == currentSessionGeneration else {
+            return false
+        }
+        taskTemplateStore?.setComposerDraft(draft)
+        return taskTemplateStore != nil
+    }
+
     /// Submit a task-composer workspace create request to the selected Mac.
     /// - Parameters:
     ///   - macDeviceID: Target Mac device id.

@@ -23,6 +23,8 @@ public struct MobileTaskCommandComposer: Sendable {
         let initialCommand: String
         if interpolation.didReplacePrompt {
             initialCommand = interpolation.command
+        } else if Self.referencesPromptEnvironment(in: command) {
+            initialCommand = command
         } else if !prompt.isEmpty {
             initialCommand = command + " \"${CMUX_TASK_PROMPT}\""
         } else {
@@ -88,6 +90,12 @@ public struct MobileTaskCommandComposer: Sendable {
             index = command.index(after: index)
         }
         return (output, didReplacePrompt)
+    }
+
+    /// The documented environment-variable form is an explicit prompt consumer,
+    /// so the composer must not append a second prompt argument.
+    private static func referencesPromptEnvironment(in command: String) -> Bool {
+        command.contains("$CMUX_TASK_PROMPT") || command.contains("${CMUX_TASK_PROMPT}")
     }
 
     /// The suggested workspace title for a task prompt: its first line, capped

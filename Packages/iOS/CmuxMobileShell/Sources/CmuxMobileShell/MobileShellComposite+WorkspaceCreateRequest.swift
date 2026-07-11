@@ -73,6 +73,9 @@ extension MobileShellComposite {
             if let initialEnv = spec?.initialEnv, !initialEnv.isEmpty {
                 params["initial_env"] = initialEnv
             }
+            if let operationID = spec?.operationID {
+                params["operation_id"] = operationID.uuidString
+            }
             let resultData = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(method: "workspace.create", params: params)
             )
