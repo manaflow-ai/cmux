@@ -56,7 +56,7 @@ const docsDescriptionCandidateKeys: Record<
     "pinningDesc",
   ],
   textBox: ["intro", "defaultsDesc", "configDesc"],
-  concepts: ["intro", "summary", "workspaceDesc", "paneDesc", "surfaceDesc"],
+  concepts: ["intro", "workspaceDesc", "paneDesc", "surfaceDesc"],
   customCommands: [
     "intro",
     "simpleCommandsDesc",
@@ -85,7 +85,6 @@ const docsDescriptionCandidateKeys: Record<
     "howDesc",
     "requirementsDesc",
     "behaviorCwd",
-    "limitationsTitle",
   ],
 };
 
@@ -189,10 +188,10 @@ function selectDescription(
   const short = shortSeoDescriptionCandidate(locale);
   const detailed = detailedSeoDescriptionCandidate(locale);
   const completeCandidates = (options.completeCandidates ?? [])
-    .filter((candidate) => !/[:：]\s*$/u.test(candidate))
+    .filter((candidate) => !/[:：៖]\s*$/u.test(candidate))
     .map((candidate) => completeMetadataSentence(locale, candidate));
   const contextFragments = (options.contextFragments ?? []).filter(
-    (candidate) => !/[:：]\s*$/u.test(candidate),
+    (candidate) => !/[:：៖]\s*$/u.test(candidate),
   );
   const contextualCandidates = [
     ...completeCandidates,
@@ -272,14 +271,19 @@ export function docsPageSeoCopy(
   const authoredDescriptions = docsDescriptionCandidateKeys[pageKey].map(
     (key) => t(key),
   );
-  const contextFragments = (docsContextFragmentKeys[pageKey] ?? []).map(
+  const sectionLabels = (docsContextFragmentKeys[pageKey] ?? []).map(
     (key) => t(key),
   );
   return {
     title: selectTitle(locale, t("metaTitle"), siteMeta, [title]),
     description: selectDescription(locale, t("metaDescription"), {
       completeCandidates: authoredDescriptions,
-      contextFragments: [title, ...contextFragments],
+      contextFragments: [
+        title,
+        ...sectionLabels.map((label) =>
+          joinMetadataSentences(locale, title, label),
+        ),
+      ],
     }),
   };
 }

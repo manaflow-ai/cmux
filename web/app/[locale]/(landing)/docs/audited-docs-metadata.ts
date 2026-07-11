@@ -33,7 +33,7 @@ export async function auditedDocsMetadata({
     siteMeta,
   );
   return {
-    title: { absolute: title },
+    title,
     description,
     alternates,
     openGraph: {

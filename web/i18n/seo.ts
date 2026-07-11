@@ -166,7 +166,7 @@ export function joinMetadataSentences(
   const compact = usesCompactSentenceSpacing(locale);
   const terminator = localizedSentenceTerminator(locale);
   const spacing = compact ? "" : " ";
-  const separator = /[.!?。！？؟។៕:：]$/u.test(leading)
+  const separator = /[.!?。！？؟។៕:：៖]$/u.test(leading)
     ? spacing
     : `${terminator}${spacing}`;
   return `${leading}${separator}${trailing}`;
@@ -174,7 +174,7 @@ export function joinMetadataSentences(
 
 export function completeMetadataSentence(locale: string, value: string) {
   const trimmed = value.trim();
-  return /[.!?。！？؟។៕:：]$/u.test(trimmed)
+  return /[.!?。！？؟។៕:：៖]$/u.test(trimmed)
     ? trimmed
     : `${trimmed}${localizedSentenceTerminator(locale)}`;
 }
@@ -323,7 +323,7 @@ function isSafeMetadataText(value: string) {
     !/<\/?[a-z][^>]*>/iu.test(value) &&
     !/[{}]/u.test(value) &&
     !/__CMUXPH/iu.test(value) &&
-    !/[:：]\s*$/u.test(value)
+    !/[:：៖]\s*$/u.test(value)
   );
 }
 
