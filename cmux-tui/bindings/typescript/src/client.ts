@@ -294,7 +294,14 @@ export class CmuxClient {
   }
 
   request<C extends CmuxRequest>(request: C): Promise<CmuxResponseData<C>>;
-  request<C extends CmuxCommand>(cmd: C, params?: CmuxRequestParams<C>): Promise<CmuxResponseDataFor<C>>;
+  // params is only optional when the command genuinely has no required params;
+  // otherwise `client.request("send")` would compile and fail server-side.
+  request<C extends CmuxCommand>(
+    cmd: C,
+    ...args: Record<string, never> extends CmuxRequestParams<C>
+      ? [params?: CmuxRequestParams<C>]
+      : [params: CmuxRequestParams<C>]
+  ): Promise<CmuxResponseDataFor<C>>;
   async request<C extends CmuxCommand>(
     requestOrCommand: CmuxRequest | C,
     params?: CmuxRequestParams<C>,
