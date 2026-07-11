@@ -85,11 +85,60 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "今日" } }
       }
     },
+    "agent.demo.burstAppend" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Burst append five rows" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "5行を一括追加" } }
+      }
+    },
     "agent.demo.fieldPlaceholder" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Demo keyboard field" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "デモ用キーボード欄" } }
+      }
+    },
+    "agent.demo.fixture.agentFormat" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Synthetic %@ fixture row %d with enough prose to exercise realistic scroll physics." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "実際のスクロール挙動を確認するための十分な文章を含む%@フィクスチャ行%dです。" } }
+      }
+    },
+    "agent.demo.fixture.label.burst" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "burst" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "一括" } }
+      }
+    },
+    "agent.demo.fixture.label.tall" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "tall" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "縦長" } }
+      }
+    },
+    "agent.demo.fixture.toolResult" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "fixture rows added" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "フィクスチャ行を追加しました" } }
+      }
+    },
+    "agent.demo.fixture.toolName" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "fixture" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "フィクスチャ" } }
+      }
+    },
+    "agent.demo.fixture.toolSummary" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "append transcript rows" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "トランスクリプト行を追加" } }
       }
     },
     "agent.demo.jump" : {
@@ -146,6 +195,13 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Drafting the next update..." } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "次の更新を作成中..." } }
+      }
+    },
+    "agent.demo.tallFixture" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tall fixture" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "縦長フィクスチャ" } }
       }
     },
     "agent.demo.title" : {

@@ -56,6 +56,7 @@ let package = Package(
             name: "CmuxAgentGUIProjectionTests",
             dependencies: [
                 "CmuxAgentGUIProjection",
+                "CmuxAgentGUIUI",
                 "CmuxAgentReplica",
             ],
             swiftSettings: [

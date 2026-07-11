@@ -4,7 +4,7 @@ import SwiftUI
 import UIKit
 
 final class TranscriptCollectionCell: UICollectionViewListCell {
-    private var measuredHeight: CGFloat?
+    private(set) var rowSpacing = TranscriptRowSpacing(top: 0, bottom: 0)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -26,10 +26,13 @@ final class TranscriptCollectionCell: UICollectionViewListCell {
         }
     }
 
-    func configure(row: TranscriptRow, measuredHeight: CGFloat) {
-        self.measuredHeight = measuredHeight
+    private(set) var rowKind: TranscriptRowKind?
+
+    func configure(row: TranscriptRow, spacing: TranscriptRowSpacing) {
+        rowKind = row.rowKind
+        rowSpacing = spacing
         contentConfiguration = UIHostingConfiguration {
-            TranscriptRowContentView(row: row)
+            TranscriptRowContentView(row: row, spacing: rowSpacing)
         }
         .margins(.all, 0)
         isAccessibilityElement = true
@@ -37,12 +40,5 @@ final class TranscriptCollectionCell: UICollectionViewListCell {
         accessibilityLabel = row.accessibilityLabel
     }
 
-    override func preferredLayoutAttributesFitting(_ layoutAttributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
-        let attributes = super.preferredLayoutAttributesFitting(layoutAttributes)
-        if let measuredHeight {
-            attributes.size.height = measuredHeight
-        }
-        return attributes
-    }
 }
 #endif

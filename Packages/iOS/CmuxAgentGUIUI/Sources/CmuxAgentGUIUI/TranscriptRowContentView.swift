@@ -4,6 +4,7 @@ import SwiftUI
 
 struct TranscriptRowContentView: View {
     let row: TranscriptRow
+    let spacing: TranscriptRowSpacing
 
     var body: some View {
         switch row.rowKind {
@@ -29,11 +30,7 @@ struct TranscriptRowContentView: View {
             bubble(text: ticket.text, alignment: .trailing, style: .pending, grouping: .single)
         case .streaming(let textTail):
             bubble(text: textTail, alignment: .leading, style: .streaming, grouping: .single)
-                .phaseAnimator([false, true]) { content, phase in
-                    content.opacity(phase ? 0.48 : 0.82)
-                } animation: { _ in
-                    .easeInOut(duration: 0.9)
-                }
+                .opacity(0.82)
         case .genericActivity(let activity):
             activityRow(activity)
         case .unsupported(let rawKind, let summary):
@@ -53,6 +50,7 @@ struct TranscriptRowContentView: View {
             }
             Text(text)
                 .font(.body)
+                .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
@@ -64,7 +62,8 @@ struct TranscriptRowContentView: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 2)
+        .padding(.top, spacing.top)
+        .padding(.bottom, spacing.bottom)
     }
 
     private func centered(label: String) -> some View {
@@ -74,7 +73,9 @@ struct TranscriptRowContentView: View {
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 20)
-            .padding(.vertical, 8)
+            .padding(.vertical, 4)
+            .padding(.top, spacing.top)
+            .padding(.bottom, spacing.bottom)
             .accessibilityLabel(label)
     }
 
@@ -91,7 +92,9 @@ struct TranscriptRowContentView: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 8)
+        .padding(.vertical, 4)
+        .padding(.top, spacing.top)
+        .padding(.bottom, spacing.bottom)
         .accessibilityElement(children: .combine)
     }
 

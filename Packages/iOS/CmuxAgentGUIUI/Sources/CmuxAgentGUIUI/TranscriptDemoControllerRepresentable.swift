@@ -5,21 +5,19 @@ import UIKit
 
 struct TranscriptDemoControllerRepresentable: UIViewControllerRepresentable {
     let input: TranscriptProjectionInput
-    let focusToken: Int
     let jumpToken: Int
+    let bottomChromeHeight: CGFloat
 
     func makeUIViewController(context: Context) -> TranscriptDemoContainerViewController {
         let controller = TranscriptDemoContainerViewController()
         controller.apply(input: input)
+        controller.setBottomChromeHeight(bottomChromeHeight)
         return controller
     }
 
     func updateUIViewController(_ controller: TranscriptDemoContainerViewController, context: Context) {
         controller.apply(input: input)
-        if context.coordinator.focusToken != focusToken {
-            context.coordinator.focusToken = focusToken
-            controller.focusDemoField()
-        }
+        controller.setBottomChromeHeight(bottomChromeHeight)
         if context.coordinator.jumpToken != jumpToken {
             context.coordinator.jumpToken = jumpToken
             controller.scrollToBottom()
@@ -31,7 +29,6 @@ struct TranscriptDemoControllerRepresentable: UIViewControllerRepresentable {
     }
 
     final class Coordinator {
-        var focusToken = 0
         var jumpToken = 0
     }
 }

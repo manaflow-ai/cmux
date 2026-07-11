@@ -19,6 +19,23 @@ struct TranscriptProjectorTests {
     }
 
     @Test
+    func burstAppendUsesFiveNewIdentitiesWithoutReplacingExistingRows() {
+        let previous = projector.project(TranscriptProjectionInput(entries: Self.entries(count: 220)))
+        let next = projector.project(
+            TranscriptProjectionInput(entries: Self.entries(count: 225)),
+            previousRows: previous.rows
+        )
+        let insertedIDs = Set((221...225).map { seq in
+            TranscriptRowID.entry(journalID: Self.journal, seq: EntrySeq(rawValue: seq))
+        })
+
+        #expect(Set(next.diff.inserted.keys) == insertedIDs)
+        #expect(next.diff.removed.isEmpty)
+        #expect(next.diff.updated.isEmpty)
+        #expect(Set(previous.rows.map(\.rowID)).isSubset(of: Set(next.rows.map(\.rowID))))
+    }
+
+    @Test
     func proseGroupingFollowsRoleAndTickWindow() throws {
         let rows = projector.project(TranscriptProjectionInput(
             entries: [

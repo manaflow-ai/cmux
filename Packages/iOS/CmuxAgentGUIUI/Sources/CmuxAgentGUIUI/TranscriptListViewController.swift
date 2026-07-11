@@ -9,20 +9,25 @@ public import UIKit
     public private(set) var collectionView: UICollectionView!
 
     private let projector = TranscriptProjector()
-    private let transactionQueue = TranscriptTransactionQueue()
-    private let measurementCache = TranscriptMeasurementCache()
     private var dataSource: UICollectionViewDiffableDataSource<TranscriptListSection, TranscriptRowID>!
-    private var rowsByID: [TranscriptRowID: TranscriptMeasuredRow] = [:]
+    private var rowsByID: [TranscriptRowID: TranscriptRow] = [:]
+    private var spacingByID: [TranscriptRowID: TranscriptRowSpacing] = [:]
     private var currentRows: [TranscriptRow] = []
+    private var latestInput: TranscriptProjectionInput?
     private var scrollAnimator: UIViewPropertyAnimator?
-    var keyboardAnimator: UIViewPropertyAnimator?
+    var isAutoStickingToBottom = false
+    private var jumpSnapshotView: UIView?
+    private var collectionViewportView: UIView!
+    private var collectionMotionView: UIView!
+    private var collectionViewportBottomConstraint: NSLayoutConstraint!
+    private var collectionViewportHeightConstraint: NSLayoutConstraint!
+    var bottomChromeHeight: CGFloat = 0
+    private var unreadTracker = TranscriptUnreadTracker()
+    var pillChromeView: UIView?
     var pillHost: UIHostingController<ScrollToBottomPill>?
+    var pillBottomConstraint: NSLayoutConstraint?
     var unreadCount = 0
     var renderedPillUnreadCount = 0
-    var currentKeyboardInset: CGFloat = 0
-    private var latestInput: TranscriptProjectionInput?
-    private var transactionGeneration = 0
-    private var measurementConfiguration: TranscriptMeasurementConfiguration?
 
     /// Creates the transcript list controller.
     public init() {
@@ -35,100 +40,98 @@ public import UIKit
 
     /// The current physical bottom obstruction reported by `keyboardLayoutGuide`.
     public var keyboardBottomInset: CGFloat {
-        currentKeyboardInset
+        guard isViewLoaded else { return 0 }
+        let obstruction = view.bounds.maxY - view.keyboardLayoutGuide.layoutFrame.minY
+        return pixelRounded(max(0, obstruction - view.safeAreaInsets.bottom))
+    }
+
+    /// Updates the transcript's reserved visual bottom chrome height.
+    /// - Parameter height: Height obstructed by floating composer chrome.
+    public func setBottomChromeHeight(_ height: CGFloat) {
+        let height = pixelRounded(max(0, height))
+        guard abs(bottomChromeHeight - height) > 0.5 else {
+            return
+        }
+        bottomChromeHeight = height
+        updateCollectionViewportConstraints()
+        updatePillBottomConstraint()
     }
 
     public override func viewDidLoad() {
         super.viewDidLoad()
+        view.clipsToBounds = true
         configureCollectionView()
         configureDataSource()
         configurePill()
-        configureKeyboardObservation()
     }
 
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        updateCollectionViewportConstraints()
         updateVisualEdgeInsets(preservingBottomPosition: true)
-        guard let latestInput,
-              let configuration = currentMeasurementConfiguration,
-              configuration != measurementConfiguration
-        else {
-            return
-        }
-        enqueueProjection(latestInput, configuration: configuration)
     }
 
-    deinit {
-        NotificationCenter.default.removeObserver(self)
+    public override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        cancelActiveScrollTransition()
     }
 
-    /// Applies a replica projection input through the serial transaction queue.
+    /// Applies a replica projection input to the identity-stable collection snapshot.
     /// - Parameter input: The platform-neutral projection input.
     public func apply(input: TranscriptProjectionInput) {
         loadViewIfNeeded()
         latestInput = input
-        guard let configuration = currentMeasurementConfiguration else {
-            return
-        }
-        enqueueProjection(input, configuration: configuration)
-    }
-
-    private func enqueueProjection(
-        _ input: TranscriptProjectionInput,
-        configuration: TranscriptMeasurementConfiguration
-    ) {
         let projection = projector.project(input, previousRows: currentRows)
-        let existingIDs = Set(currentRows.map(\.rowID))
-        let configurationChanged = measurementConfiguration != nil
-            && measurementConfiguration != configuration
-        let diff: TranscriptProjectionDiff
-        if configurationChanged {
-            diff = TranscriptProjectionDiff(
-                inserted: projection.diff.inserted,
-                removed: projection.diff.removed,
-                moved: projection.diff.moved,
-                updated: projection.diff.updated.union(
-                    projection.rows.lazy.map(\.rowID).filter(existingIDs.contains)
-                )
-            )
-        } else {
-            diff = projection.diff
-        }
-        measurementConfiguration = configuration
         currentRows = projection.rows
-        unreadCount = projection.rows.filter(\.isUnread).count
-        let width = effectiveMeasurementWidth
-        transactionGeneration += 1
-        let generation = transactionGeneration
-        Task {
-            await transactionQueue.enqueue(
-                generation: generation,
-                rows: projection.rows,
-                diff: diff,
-                width: width,
-                environment: configuration.environment,
-                cache: measurementCache
-            ) { [weak self] measured, measuredDiff in
-                self?.applyMeasuredRows(measured, diff: measuredDiff)
-            }
-        }
+        applyRows(projection.rows, diff: projection.diff)
     }
 
     /// Scrolls to the newest transcript row in flipped space.
     public func scrollToBottom(animated: Bool = true) {
-        scrollAnimator?.stopAnimation(true)
-        let updates: () -> Void = { [weak self] in
-            guard let self else {
-                return
-            }
-            self.collectionView.setContentOffset(self.bottomRestOffset, animated: false)
+        cancelActiveScrollTransition()
+        flushLatestProjectionForJump { [weak self] in
+            self?.performScrollToBottom(animated: animated)
         }
-        guard animated else {
-            updates()
+    }
+
+    private func performScrollToBottom(animated: Bool) {
+        guard animated, distanceFromBottom > 44 else {
+            collectionView.setContentOffset(bottomRestOffset, animated: false)
+            updateUnreadCountFromVisibility()
+            updatePillVisibility()
             return
         }
-        let animator = UIViewPropertyAnimator(duration: 0.35, curve: .easeOut, animations: updates)
+        collectionView.layoutIfNeeded()
+        guard let oldSnapshot = collectionMotionView.snapshotView(afterScreenUpdates: false) else {
+            collectionView.setContentOffset(bottomRestOffset, animated: false)
+            updateUnreadCountFromVisibility()
+            updatePillVisibility()
+            return
+        }
+        let travel = max(1, collectionViewportView.bounds.height)
+        oldSnapshot.frame = collectionViewportView.bounds
+        oldSnapshot.isUserInteractionEnabled = false
+        collectionViewportView.addSubview(oldSnapshot)
+        jumpSnapshotView = oldSnapshot
+        UIView.performWithoutAnimation {
+            self.collectionView.setContentOffset(self.bottomRestOffset, animated: false)
+            self.collectionView.layoutIfNeeded()
+            self.collectionMotionView.transform = CGAffineTransform(translationX: 0, y: travel)
+        }
+        let animator = UIViewPropertyAnimator(duration: 0.25, curve: .easeOut) { [weak self, weak oldSnapshot] in
+            self?.collectionMotionView.transform = .identity
+            oldSnapshot?.transform = CGAffineTransform(translationX: 0, y: -travel)
+        }
         scrollAnimator = animator
+        animator.addCompletion { [weak self, weak animator, weak oldSnapshot] _ in
+            oldSnapshot?.removeFromSuperview()
+            guard let self, self.scrollAnimator === animator else { return }
+            self.collectionMotionView.transform = .identity
+            self.jumpSnapshotView = nil
+            self.scrollAnimator = nil
+            self.updateUnreadCountFromVisibility()
+            self.updatePillVisibility()
+        }
         animator.startAnimation()
     }
 
@@ -144,16 +147,42 @@ public import UIKit
         collection.keyboardDismissMode = .interactive
         collection.scrollsToTop = false
         collection.alwaysBounceVertical = true
+        collection.bounces = true
+        if #available(iOS 17.4, *) {
+            collection.bouncesVertically = true
+        }
         collection.delegate = self
         collection.register(TranscriptCollectionCell.self, forCellWithReuseIdentifier: "TranscriptCollectionCell")
-        view.addSubview(collection)
+        let viewport = UIView()
+        viewport.translatesAutoresizingMaskIntoConstraints = false
+        viewport.clipsToBounds = true
+        let motionView = UIView()
+        motionView.translatesAutoresizingMaskIntoConstraints = false
+        viewport.addSubview(motionView)
+        motionView.addSubview(collection)
+        view.addSubview(viewport)
+        let bottomConstraint = viewport.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor)
+        let heightConstraint = viewport.heightAnchor.constraint(equalTo: view.heightAnchor)
         NSLayoutConstraint.activate([
-            collection.topAnchor.constraint(equalTo: view.topAnchor),
-            collection.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            collection.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            collection.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            viewport.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            viewport.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomConstraint,
+            heightConstraint,
+            motionView.topAnchor.constraint(equalTo: viewport.topAnchor),
+            motionView.leadingAnchor.constraint(equalTo: viewport.leadingAnchor),
+            motionView.trailingAnchor.constraint(equalTo: viewport.trailingAnchor),
+            motionView.bottomAnchor.constraint(equalTo: viewport.bottomAnchor),
+            collection.topAnchor.constraint(equalTo: motionView.topAnchor),
+            collection.leadingAnchor.constraint(equalTo: motionView.leadingAnchor),
+            collection.trailingAnchor.constraint(equalTo: motionView.trailingAnchor),
+            collection.bottomAnchor.constraint(equalTo: motionView.bottomAnchor),
         ])
+        collectionViewportView = viewport
+        collectionMotionView = motionView
+        collectionViewportBottomConstraint = bottomConstraint
+        collectionViewportHeightConstraint = heightConstraint
         collectionView = collection
+        configureScrollEdgeEffects(for: collection)
     }
 
     private func configureDataSource() {
@@ -164,10 +193,13 @@ public import UIKit
                 withReuseIdentifier: "TranscriptCollectionCell",
                 for: indexPath
             ) as? TranscriptCollectionCell
-            guard let cell, let measured = self?.rowsByID[rowID] else {
+            guard let cell,
+                  let row = self?.rowsByID[rowID],
+                  let spacing = self?.spacingByID[rowID]
+            else {
                 return UICollectionViewCell()
             }
-            cell.configure(row: measured.row, measuredHeight: measured.height)
+            cell.configure(row: row, spacing: spacing)
             return cell
         }
         var snapshot = NSDiffableDataSourceSnapshot<TranscriptListSection, TranscriptRowID>()
@@ -178,38 +210,77 @@ public import UIKit
         #endif
     }
 
-    private func applyMeasuredRows(
-        _ measured: [TranscriptMeasuredRow],
+    private func applyRows(
+        _ rows: [TranscriptRow],
         diff: TranscriptProjectionDiff
     ) {
-        let wasNearBottom = distanceFromBottom <= 40
-        let anchor = wasNearBottom ? nil : captureAnchor()
-        rowsByID = Dictionary(uniqueKeysWithValues: measured.map { ($0.row.rowID, $0) })
+        cancelActiveScrollTransition()
+        let policy = TranscriptMutationApplyPolicy(
+            scrollIsInteracting: isScrollInteractionActive,
+            distanceFromBottom: Double(distanceFromBottom),
+            insertedIndexes: Array(diff.inserted.values)
+        )
+        let mode = policy.mode
+        #if DEBUG
+        if isScrollInteractionActive, mode == .animatedIdleAtBottom {
+            assertionFailure("Transcript mutations must not animate while the scroll view is tracking, dragging, or decelerating")
+        }
+        #endif
+        let anchor = mode == .nonAnimatedPreservingAnchor ? captureAnchor() : nil
+        rowsByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.rowID, $0) })
+        spacingByID = TranscriptRowSpacing.resolved(for: rows)
         let previousIDs = Set(dataSource.snapshot().itemIdentifiers)
         var snapshot = NSDiffableDataSourceSnapshot<TranscriptListSection, TranscriptRowID>()
         snapshot.appendSections([.main])
-        snapshot.appendItems(measured.map(\.row.rowID), toSection: .main)
+        snapshot.appendItems(rows.map(\.rowID), toSection: .main)
         let reconfigured = diff.updated.filter(previousIDs.contains)
         if !reconfigured.isEmpty {
             snapshot.reconfigureItems(Array(reconfigured))
         }
-        if wasNearBottom {
-            dataSource.apply(snapshot, animatingDifferences: true) { [weak self] in
-                guard let self else { return }
-                self.collectionView.layoutIfNeeded()
-                self.collectionView.setContentOffset(self.bottomRestOffset, animated: false)
-                (self.collectionView as? TranscriptCollectionView)?.updateAccessibilityOrder()
-                self.updatePillVisibility()
-            }
-        } else {
+        if mode == .animatedIdleAtBottom {
+            let anchor = captureAnchor()
             UIView.performWithoutAnimation {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
                 self.dataSource.apply(snapshot, animatingDifferences: false)
                 self.collectionView.layoutIfNeeded()
                 if let anchor {
                     self.restore(anchor: anchor)
                 }
+                CATransaction.commit()
+            }
+            isAutoStickingToBottom = true
+            updateUnreadCountFromVisibility()
+            updatePillVisibility()
+            let animator = UIViewPropertyAnimator(duration: 0.24, curve: .easeOut) { [weak self] in
+                guard let self else { return }
+                self.collectionView.setContentOffset(self.bottomRestOffset, animated: false)
+            }
+            scrollAnimator = animator
+            animator.addCompletion { [weak self, weak animator] _ in
+                guard let self, self.scrollAnimator === animator else { return }
+                self.scrollAnimator = nil
+                self.isAutoStickingToBottom = false
+                guard !self.isScrollInteractionActive else { return }
+                self.collectionView.setContentOffset(self.bottomRestOffset, animated: false)
+                (self.collectionView as? TranscriptCollectionView)?.updateAccessibilityOrder()
+                self.updateUnreadCountFromVisibility()
+                self.updatePillVisibility()
+            }
+            animator.startAnimation()
+        } else {
+            UIView.performWithoutAnimation {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                self.dataSource.apply(snapshot, animatingDifferences: false)
+                self.collectionView.layoutIfNeeded()
+                if let anchor {
+                    self.restore(anchor: anchor)
+                }
+                CATransaction.commit()
             }
             (collectionView as? TranscriptCollectionView)?.updateAccessibilityOrder()
+            updateUnreadCountFromVisibility()
             updatePillVisibility()
         }
     }
@@ -238,20 +309,6 @@ public import UIKit
         collectionView.contentOffset.y -= newScreenY - anchor.screenY
     }
 
-    private var currentMeasurementConfiguration: TranscriptMeasurementConfiguration? {
-        let width = effectiveMeasurementWidth
-        guard width > 1 else {
-            return nil
-        }
-        return TranscriptMeasurementConfiguration(
-            widthBucket: Int((width / 8).rounded(.toNearestOrAwayFromZero)),
-            environment: TranscriptMeasurementEnvironment(
-                contentSizeCategory: traitCollection.preferredContentSizeCategory.rawValue,
-                userInterfaceStyle: traitCollection.userInterfaceStyle.rawValue
-            )
-        )
-    }
-
     var bottomRestOffset: CGPoint {
         CGPoint(x: -collectionView.contentInset.left, y: -collectionView.contentInset.top)
     }
@@ -261,17 +318,22 @@ public import UIKit
         let wasNearBottom = distanceFromBottom <= 40
         let safeArea = view.safeAreaInsets
         let mappedInsets = UIEdgeInsets(
-            top: safeArea.bottom + currentKeyboardInset,
+            top: 0,
             left: safeArea.left,
-            bottom: safeArea.top,
+            bottom: safeArea.top + keyboardBottomInset,
             right: safeArea.right
         )
         guard collectionView.contentInset != mappedInsets else {
             return
         }
-        collectionView.contentInset = mappedInsets
-        collectionView.verticalScrollIndicatorInsets = mappedInsets
-        guard preservingBottomPosition, wasNearBottom else {
+        UIView.performWithoutAnimation {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            self.collectionView.contentInset = mappedInsets
+            self.collectionView.verticalScrollIndicatorInsets = mappedInsets
+            CATransaction.commit()
+        }
+        guard preservingBottomPosition, wasNearBottom, !isScrollInteractionActive else {
             return
         }
         let newRestOffset = bottomRestOffset
@@ -279,19 +341,124 @@ public import UIKit
         collectionView.contentOffset.y += newRestOffset.y - oldRestOffset.y
     }
 
-    private var effectiveMeasurementWidth: CGFloat {
-        max(1, collectionView.bounds.width - collectionView.contentInset.left - collectionView.contentInset.right)
+    var isScrollInteractionActive: Bool {
+        collectionView.isTracking || collectionView.isDragging || collectionView.isDecelerating
+    }
+
+    private static let visualBottomBreathingGap: CGFloat = 8
+
+    private func updateCollectionViewportConstraints() {
+        guard collectionViewportView != nil else { return }
+        let chromeBlock = pixelRounded(bottomChromeHeight + Self.visualBottomBreathingGap)
+        collectionViewportBottomConstraint.constant = -chromeBlock
+        collectionViewportHeightConstraint.constant = -pixelRounded(view.safeAreaInsets.bottom + chromeBlock)
+    }
+
+    private func pixelRounded(_ value: CGFloat) -> CGFloat {
+        let scale = view.window?.screen.scale ?? traitCollection.displayScale
+        return (value * scale).rounded() / scale
+    }
+
+    private func cancelActiveScrollTransition() {
+        scrollAnimator?.stopAnimation(true)
+        scrollAnimator = nil
+        jumpSnapshotView?.removeFromSuperview()
+        jumpSnapshotView = nil
+        collectionMotionView?.transform = .identity
+        isAutoStickingToBottom = false
+    }
+
+    private func flushLatestProjectionForJump(_ completion: @escaping () -> Void) {
+        guard let latestInput else {
+            completion()
+            return
+        }
+        let projection = projector.project(latestInput, previousRows: currentRows)
+        currentRows = projection.rows
+        rowsByID = Dictionary(uniqueKeysWithValues: projection.rows.map { ($0.rowID, $0) })
+        spacingByID = TranscriptRowSpacing.resolved(for: projection.rows)
+        let previousIDs = Set(dataSource.snapshot().itemIdentifiers)
+        var snapshot = NSDiffableDataSourceSnapshot<TranscriptListSection, TranscriptRowID>()
+        snapshot.appendSections([.main])
+        snapshot.appendItems(projection.rows.map(\.rowID), toSection: .main)
+        let reconfigured = projection.diff.updated.filter(previousIDs.contains)
+        if !reconfigured.isEmpty {
+            snapshot.reconfigureItems(Array(reconfigured))
+        }
+        UIView.performWithoutAnimation {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            self.dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
+                guard let self else { return }
+                UIView.performWithoutAnimation {
+                    self.collectionView.layoutIfNeeded()
+                }
+                self.updateUnreadCountFromVisibility()
+                self.updatePillVisibility()
+                completion()
+            }
+            CATransaction.commit()
+        }
+    }
+
+    func updateUnreadCountFromVisibility() {
+        guard dataSource != nil else { return }
+        let visibleIDs = Set(collectionView.indexPathsForVisibleItems.compactMap {
+            dataSource.itemIdentifier(for: $0)
+        })
+        unreadCount = unreadTracker.unreadCount(rows: currentRows, visibleRowIDs: visibleIDs)
+    }
+
+    private func configureScrollEdgeEffects(for collection: UICollectionView) {
+        if #available(iOS 26.0, *) {
+            // Native edge effects derive their regions from the translated, flipped
+            // scroll view and expand across the reading area while the keyboard is up.
+            collection.topEdgeEffect.isHidden = true
+            collection.bottomEdgeEffect.isHidden = true
+        }
+        let topMask = TranscriptPinnedTopMaskView()
+        topMask.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(topMask)
+        let bottomMask = TranscriptPinnedBottomMaskView()
+        bottomMask.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(bottomMask)
+        NSLayoutConstraint.activate([
+            topMask.topAnchor.constraint(equalTo: view.topAnchor),
+            topMask.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            topMask.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            topMask.heightAnchor.constraint(equalToConstant: 56),
+            bottomMask.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomMask.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomMask.bottomAnchor.constraint(equalTo: collectionViewportView.bottomAnchor),
+            bottomMask.heightAnchor.constraint(equalToConstant: 44),
+        ])
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_UITEST_CHROME_DEBUG"] == "1" {
+            let effectBand = UIView()
+            effectBand.translatesAutoresizingMaskIntoConstraints = false
+            effectBand.isUserInteractionEnabled = false
+            effectBand.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.22)
+            effectBand.accessibilityIdentifier = "transcript.chrome.edge-effect-band"
+            view.addSubview(effectBand)
+            NSLayoutConstraint.activate([
+                effectBand.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                effectBand.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                effectBand.bottomAnchor.constraint(equalTo: collectionViewportView.bottomAnchor),
+                effectBand.heightAnchor.constraint(equalToConstant: 10),
+            ])
+        }
+        #endif
     }
 }
 
 extension TranscriptListViewController: UICollectionViewDelegate {
     public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
-        scrollAnimator?.stopAnimation(true)
-        keyboardAnimator?.stopAnimation(true)
+        cancelActiveScrollTransition()
     }
 
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {
         (collectionView as? TranscriptCollectionView)?.updateAccessibilityOrder()
+        updateUnreadCountFromVisibility()
         updatePillVisibility()
     }
 }
