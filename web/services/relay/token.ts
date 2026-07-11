@@ -13,10 +13,13 @@ export const RELAY_TOKEN_ISS = "cmux";
 export const RELAY_TOKEN_AUD = "cmux-relay";
 export const RELAY_TOKEN_TTL_SECONDS = 300; // short-lived; the client refreshes
 
-// iroh EndpointId is an Ed25519 public key rendered as z-base-32 (~52 chars) or
-// hex (64 chars). Validate permissively on charset/length; the relay is
-// authoritative on parsing and on matching the handshake key.
-const ENDPOINT_ID_RE = /^[0-9a-z]{40,120}$/i;
+// iroh EndpointId is a 32-byte Ed25519 public key, which the relay parses as
+// EXACTLY 64 hex chars or its 52-char z-base-32 form. Anything else is rejected
+// by the relay at connect time, so a token minted for it would be a signed-but-
+// useless 200. Validate the exact encodings here so callers fail fast with 400.
+const HEX_ENDPOINT_ID_RE = /^[0-9a-f]{64}$/;
+// z-base-32 alphabet (ybndrfg8ejkmcpqxot1uwisza345h769); 256 bits -> 52 chars.
+const ZBASE32_ENDPOINT_ID_RE = /^[ybndrfg8ejkmcpqxot1uwisza345h769]{52}$/;
 
 // The relay fleet the client should probe (nearest wins). Overridable via env
 // (comma-separated) so the RelayMap can change without a code deploy.
@@ -43,7 +46,8 @@ export function relayUrls(): string[] {
 }
 
 export function isValidEndpointId(value: string): boolean {
-  return ENDPOINT_ID_RE.test(value);
+  const v = value.toLowerCase();
+  return HEX_ENDPOINT_ID_RE.test(v) || ZBASE32_ENDPOINT_ID_RE.test(v);
 }
 
 // Parse the signing key once and cache it keyed on the PEM value, so
@@ -75,10 +79,13 @@ function b64url(input: Buffer | string): string {
  * Mint a compact EdDSA (Ed25519) JWT. Ed25519 signs the raw message (no prehash),
  * so the digest passed to `sign` is `null`. The output is byte-for-byte what
  * `jsonwebtoken`/`jose` produce and what the relay's verifier accepts.
+ *
+ * `endpointId` is REQUIRED: every issued token is bound to the caller's iroh
+ * endpoint key so a leaked token cannot be replayed from a different key.
  */
 export function mintRelayToken(params: {
   sub: string;
-  endpointId?: string;
+  endpointId: string;
   key: KeyObject;
   nowSeconds: number;
 }): { token: string; expiresAt: number } {
@@ -91,8 +98,8 @@ export function mintRelayToken(params: {
     sub,
     iat: nowSeconds,
     exp: expiresAt,
+    endpoint_id: endpointId.toLowerCase(),
   };
-  if (endpointId) payload.endpoint_id = endpointId.toLowerCase();
   const signingInput = `${b64url(JSON.stringify(header))}.${b64url(
     JSON.stringify(payload),
   )}`;

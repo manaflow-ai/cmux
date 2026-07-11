@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { generateKeyPairSync, verify as edVerify } from "node:crypto";
 
 import type { AuthedUser } from "../services/vms/auth";
@@ -11,6 +11,7 @@ import {
 // nothing leaks into the shared bun-test registry). A throwaway keypair signs;
 // its public key verifies the minted token exactly as a relay would.
 const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+const HEX_ID = "0123456789abcdef".repeat(4); // valid 64-hex endpoint id
 
 function verifyJwt(token: string): {
   payload: Record<string, unknown>;
@@ -34,6 +35,7 @@ function deps(over: Partial<RelayTokenDeps> = {}): RelayTokenDeps {
     verifyRequest: async () => ({ id: "user_abc" }) as unknown as AuthedUser,
     signingKey: () => privateKey,
     nowSeconds: () => 1_700_000_000,
+    checkRateLimit: async () => ({ rateLimited: false }),
     ...over,
   };
 }
@@ -48,12 +50,16 @@ function postReq(body?: string): Request {
 
 beforeEach(() => {
   delete process.env.CMUX_RELAY_URLS;
+  delete process.env.CMUX_RELAY_TOKEN_RATE_LIMIT_ID;
+});
+afterEach(() => {
+  delete process.env.CMUX_RELAY_TOKEN_RATE_LIMIT_ID;
 });
 
 describe("handleRelayTokenRequest", () => {
   test("401 when unauthenticated", async () => {
     const res = await handleRelayTokenRequest(
-      postReq(),
+      postReq(JSON.stringify({ endpointId: HEX_ID })),
       deps({ verifyRequest: async () => null }),
     );
     expect(res.status).toBe(401);
@@ -61,14 +67,17 @@ describe("handleRelayTokenRequest", () => {
 
   test("503 when the signing key is not configured", async () => {
     const res = await handleRelayTokenRequest(
-      postReq(),
+      postReq(JSON.stringify({ endpointId: HEX_ID })),
       deps({ signingKey: () => null }),
     );
     expect(res.status).toBe(503);
   });
 
-  test("200 + relay-verifiable token for an empty body", async () => {
-    const res = await handleRelayTokenRequest(postReq(), deps());
+  test("200 + relay-verifiable, endpoint-bound token", async () => {
+    const res = await handleRelayTokenRequest(
+      postReq(JSON.stringify({ endpointId: HEX_ID })),
+      deps(),
+    );
     expect(res.status).toBe(200);
     const json = (await res.json()) as {
       token: string;
@@ -84,26 +93,27 @@ describe("handleRelayTokenRequest", () => {
     expect(payload.aud).toBe("cmux-relay");
     expect(payload.sub).toBe("user_abc");
     expect(payload.exp).toBe(json.expiresAt);
-    expect(payload.endpoint_id).toBeUndefined();
+    expect(payload.endpoint_id).toBe(HEX_ID);
   });
 
-  test("binds endpoint_id when provided", async () => {
-    const eid = "a".repeat(52);
-    const res = await handleRelayTokenRequest(
-      postReq(JSON.stringify({ endpointId: eid })),
-      deps(),
-    );
-    expect(res.status).toBe(200);
-    const { payload, valid } = verifyJwt(
-      ((await res.json()) as { token: string }).token,
-    );
-    expect(valid).toBe(true);
-    expect(payload.endpoint_id).toBe(eid);
+  test("400 when endpoint_id is missing (binding is mandatory)", async () => {
+    expect((await handleRelayTokenRequest(postReq(), deps())).status).toBe(400);
+    expect(
+      (await handleRelayTokenRequest(postReq("{}"), deps())).status,
+    ).toBe(400);
+    expect(
+      (
+        await handleRelayTokenRequest(
+          postReq(JSON.stringify({ endpointId: null })),
+          deps(),
+        )
+      ).status,
+    ).toBe(400);
   });
 
-  test("400 on malformed endpoint_id", async () => {
+  test("400 on a malformed endpoint_id", async () => {
     const res = await handleRelayTokenRequest(
-      postReq(JSON.stringify({ endpointId: "bad id !!" })),
+      postReq(JSON.stringify({ endpointId: "a".repeat(48) })),
       deps(),
     );
     expect(res.status).toBe(400);
@@ -120,5 +130,37 @@ describe("handleRelayTokenRequest", () => {
     const big = JSON.stringify({ endpointId: "a".repeat(5000) });
     const res = await handleRelayTokenRequest(postReq(big), deps());
     expect(res.status).toBe(413);
+  });
+
+  test("429 when the per-account rate limit is exhausted", async () => {
+    process.env.CMUX_RELAY_TOKEN_RATE_LIMIT_ID = "relay-token";
+    let keyedBy: string | undefined;
+    const res = await handleRelayTokenRequest(
+      postReq(JSON.stringify({ endpointId: HEX_ID })),
+      deps({
+        checkRateLimit: async (_id, opts) => {
+          keyedBy = opts.rateLimitKey;
+          return { rateLimited: true };
+        },
+      }),
+    );
+    expect(res.status).toBe(429);
+    // Rate limit is keyed per account, not per IP.
+    expect(keyedBy).toBe("user_abc");
+  });
+
+  test("no rate-limit call when the rule id is unset", async () => {
+    let called = false;
+    const res = await handleRelayTokenRequest(
+      postReq(JSON.stringify({ endpointId: HEX_ID })),
+      deps({
+        checkRateLimit: async () => {
+          called = true;
+          return { rateLimited: false };
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(called).toBe(false);
   });
 });

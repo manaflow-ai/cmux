@@ -13,6 +13,8 @@
 
 import type { KeyObject } from "node:crypto";
 
+import { checkRateLimit } from "@vercel/firewall";
+
 import {
   unauthorized,
   verifyRequest,
@@ -33,16 +35,23 @@ export const dynamic = "force-dynamic";
 
 const MAX_BODY_BYTES = 4 * 1024;
 
+type RateLimitCheck = (
+  id: string,
+  options: { request: Request; rateLimitKey?: string },
+) => Promise<{ rateLimited: boolean; error?: string }>;
+
 export interface RelayTokenDeps {
   verifyRequest: (request: Request) => Promise<AuthedUser | null>;
   signingKey: () => KeyObject | null;
   nowSeconds: () => number;
+  checkRateLimit: RateLimitCheck;
 }
 
 const productionDeps: RelayTokenDeps = {
   verifyRequest: (request) => verifyRequest(request, { allowCookie: false }),
   signingKey: relaySigningKey,
   nowSeconds: () => Math.floor(Date.now() / 1000),
+  checkRateLimit,
 };
 
 export async function handleRelayTokenRequest(
@@ -51,6 +60,21 @@ export async function handleRelayTokenRequest(
 ): Promise<Response> {
   const user = await deps.verifyRequest(request);
   if (!user) return unauthorized();
+
+  // Per-account issuance rate limit (Vercel firewall rule keyed by user id).
+  // Bounds how fast one account can mint tokens / register endpoint keys. The
+  // complementary per-relay connection cap lives in the relay itself (separate
+  // repo). Disabled when the rule id is unset, matching /api/client-config.
+  const rateLimitId = process.env.CMUX_RELAY_TOKEN_RATE_LIMIT_ID?.trim();
+  if (rateLimitId) {
+    const { error, rateLimited } = await deps.checkRateLimit(rateLimitId, {
+      request,
+      rateLimitKey: user.id,
+    });
+    if (rateLimited || error === "blocked") {
+      return jsonResponse({ error: "rate_limited" }, 429);
+    }
+  }
 
   const key = deps.signingKey();
   if (!key) {
@@ -66,22 +90,16 @@ export async function handleRelayTokenRequest(
     return jsonResponse({ error: body.error }, status);
   }
 
-  // Optional: bind the token to a specific iroh endpoint id (anti-replay).
-  let endpointId: string | undefined;
+  // endpoint_id is REQUIRED: every token is bound to the caller's iroh endpoint
+  // key so a leaked token cannot be replayed from a different generated key.
   const rawEndpointId = body.value.endpointId;
-  if (rawEndpointId !== undefined && rawEndpointId !== null) {
-    if (
-      typeof rawEndpointId !== "string" ||
-      !isValidEndpointId(rawEndpointId)
-    ) {
-      return jsonResponse({ error: "invalid_endpoint_id" }, 400);
-    }
-    endpointId = rawEndpointId;
+  if (typeof rawEndpointId !== "string" || !isValidEndpointId(rawEndpointId)) {
+    return jsonResponse({ error: "invalid_endpoint_id" }, 400);
   }
 
   const { token, expiresAt } = mintRelayToken({
     sub: user.id,
-    endpointId,
+    endpointId: rawEndpointId,
     key,
     nowSeconds: deps.nowSeconds(),
   });

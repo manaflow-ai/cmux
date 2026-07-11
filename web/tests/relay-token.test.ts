@@ -15,6 +15,10 @@ import {
 const { publicKey, privateKey } = generateKeyPairSync("ed25519");
 const privatePem = privateKey.export({ type: "pkcs8", format: "pem" }) as string;
 
+// A valid 64-hex iroh EndpointId and a valid 52-char z-base-32 one.
+const HEX_ID = "0123456789abcdef".repeat(4);
+const ZBASE32_ID = "ybndrfg8ejkmcpqxot1uwisza345h769ybndrfg8ejkmcpqxot1u";
+
 function verifyJwt(token: string): {
   header: Record<string, unknown>;
   payload: Record<string, unknown>;
@@ -46,6 +50,7 @@ describe("mintRelayToken", () => {
     const now = 1_700_000_000;
     const { token, expiresAt } = mintRelayToken({
       sub: "user_abc",
+      endpointId: HEX_ID,
       key: key!,
       nowSeconds: now,
     });
@@ -60,26 +65,27 @@ describe("mintRelayToken", () => {
     expect(payload.iat).toBe(now);
     expect(payload.exp).toBe(now + RELAY_TOKEN_TTL_SECONDS);
     expect(expiresAt).toBe(now + RELAY_TOKEN_TTL_SECONDS);
-    expect(payload.endpoint_id).toBeUndefined();
+    // endpoint_id is always bound.
+    expect(payload.endpoint_id).toBe(HEX_ID);
   });
 
-  test("binds and lowercases endpoint_id when provided", () => {
+  test("lowercases the bound endpoint_id", () => {
     const key = relaySigningKey()!;
     const { token } = mintRelayToken({
       sub: "user_1",
-      endpointId: "ABCdef0123456789".repeat(3), // 48 hex-ish chars
+      endpointId: HEX_ID.toUpperCase(),
       key,
       nowSeconds: 1_700_000_000,
     });
-    const { payload, valid } = verifyJwt(token);
-    expect(valid).toBe(true);
-    expect(payload.endpoint_id).toBe("abcdef0123456789".repeat(3));
+    const { payload } = verifyJwt(token);
+    expect(payload.endpoint_id).toBe(HEX_ID);
   });
 
   test("a token signed by a different key does NOT verify", () => {
     const key = relaySigningKey()!;
     const { token } = mintRelayToken({
       sub: "user_1",
+      endpointId: ZBASE32_ID,
       key,
       nowSeconds: 1_700_000_000,
     });
@@ -102,19 +108,30 @@ describe("relaySigningKey", () => {
     process.env.CMUX_RELAY_JWT_PRIVATE_KEY_PEM = "not a pem";
     expect(relaySigningKey()).toBeNull();
   });
+
+  test("returns null for a non-Ed25519 key (RSA)", () => {
+    const rsa = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    process.env.CMUX_RELAY_JWT_PRIVATE_KEY_PEM = rsa.privateKey.export({
+      type: "pkcs8",
+      format: "pem",
+    }) as string;
+    expect(relaySigningKey()).toBeNull();
+  });
 });
 
 describe("isValidEndpointId", () => {
-  test("accepts hex (64) and z-base-32-shaped (52) ids", () => {
-    expect(isValidEndpointId("a".repeat(64))).toBe(true);
-    expect(isValidEndpointId("ybndrfg8ejkmcpqxot1uwisza345h769ybndrfg8ejkm")).toBe(
-      true,
-    );
+  test("accepts exact 64-hex and 52-char z-base-32 ids (any case)", () => {
+    expect(isValidEndpointId(HEX_ID)).toBe(true);
+    expect(isValidEndpointId(HEX_ID.toUpperCase())).toBe(true);
+    expect(isValidEndpointId(ZBASE32_ID)).toBe(true);
   });
-  test("rejects too-short, too-long, and non-alphanumeric ids", () => {
-    expect(isValidEndpointId("short")).toBe(false);
-    expect(isValidEndpointId("a".repeat(200))).toBe(false);
-    expect(isValidEndpointId("has spaces and !!")).toBe(false);
+  test("rejects wrong-length or out-of-alphabet ids", () => {
+    expect(isValidEndpointId("a".repeat(48))).toBe(false); // wrong length
+    expect(isValidEndpointId("a".repeat(63))).toBe(false); // 63 != 64
+    expect(isValidEndpointId(`${HEX_ID}00`)).toBe(false); // 66 hex
+    expect(isValidEndpointId("g".repeat(64))).toBe(false); // 'g' not hex
+    expect(isValidEndpointId("l".repeat(52))).toBe(false); // 'l' not z-base-32
+    expect(isValidEndpointId("has spaces!!")).toBe(false);
   });
 });
 
