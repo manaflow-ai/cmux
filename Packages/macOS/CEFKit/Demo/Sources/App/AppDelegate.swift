@@ -83,6 +83,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if ProcessInfo.processInfo.environment["CEFDEMO_STRESS"] == "1" {
                 self.startStressLoop()
             }
+            // Chrome-style window check (chrome://extensions etc. only work
+            // there, not in Alloy-style embedded browsers).
+            if let chromeURL = ProcessInfo.processInfo.environment["CEFDEMO_CHROME_WINDOW_URL"] {
+                CEFBrowser.openChromeStyleWindow(url: chromeURL) { browser in
+                    self.debugLog("chrome-style window: \(browser != nil ? "created" : "FAILED") for \(chromeURL)")
+                }
+            }
         }
     }
 

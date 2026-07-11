@@ -13,8 +13,13 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 EXT_DIR="$ROOT_DIR/third_party/extensions"
 mkdir -p "$EXT_DIR"
 
-UBLOCK_VERSION="1.72.2"
-UBLOCK_URL="https://github.com/gorhill/uBlock/releases/download/${UBLOCK_VERSION}/uBlock0_${UBLOCK_VERSION}.chromium.zip"
+# uBlock Origin Lite (MV3), not classic uBlock Origin (MV2): MV2's
+# webRequest blocking never fires for Alloy-style embedded browsers (only
+# for Chrome-style windows) and unpacked MV2 is disabled until the user
+# turns on developer mode. uBOL's declarativeNetRequest rules are enforced
+# by the network service and block in embedded panes out of the box.
+UBOL_VERSION="2026.711.25"
+UBOL_URL="https://github.com/uBlockOrigin/uBOL-home/releases/download/${UBOL_VERSION}/uBOLite_${UBOL_VERSION}.chromium.zip"
 
 BITWARDEN_VERSION="2026.6.1"
 BITWARDEN_URL="https://github.com/bitwarden/clients/releases/download/browser-v${BITWARDEN_VERSION}/dist-chrome-${BITWARDEN_VERSION}.zip"
@@ -50,7 +55,7 @@ fetch_zip() {
   echo "fetch-extensions: $name $version -> $dest"
 }
 
-fetch_zip "ublock-origin" "$UBLOCK_VERSION" "$UBLOCK_URL" "uBlock0.chromium"
+fetch_zip "ublock-origin-lite" "$UBOL_VERSION" "$UBOL_URL" ""
 fetch_zip "bitwarden" "$BITWARDEN_VERSION" "$BITWARDEN_URL" ""
 
 echo "fetch-extensions: done ($EXT_DIR)"
