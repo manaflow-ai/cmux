@@ -190,18 +190,19 @@ struct ControlCommandExecutionPolicyTests {
         }
     }
 
-    @Test func v1NotificationFamilyRunsOnTheWorkerAndIsMainThreadCallable() {
-        // Tranche B2: parse on the worker; notify_target_async and
-        // clear_notifications are pure bus enqueues, the synchronous verbs
-        // carry one inline-collapsing v2MainSync hop, so main-thread
-        // in-process callers stay safe.
+    @Test func v1NotificationFamilyUsesSafeMainThreadPolicy() {
+        // The synchronous verbs collapse their main hop inline, while
+        // notify_target_async can wait for queue capacity and stays worker-only.
         for command in [
-            "notify", "notify_surface", "notify_target", "notify_target_async",
-            "list_notifications", "clear_notifications",
+            "notify", "notify_surface", "notify_target", "list_notifications", "clear_notifications",
         ] {
             let policy = ControlCommandExecutionPolicy(forV1Command: command)
             #expect(policy == .socketWorker(mainThreadCallable: true), "\(command)")
         }
+        #expect(
+            ControlCommandExecutionPolicy(forV1Command: "notify_target_async")
+                == .socketWorker(mainThreadCallable: false)
+        )
     }
 
     @Test func v2NotificationCreateFamilyRunsOnTheWorkerAndIsMainThreadCallable() {
@@ -295,13 +296,11 @@ struct ControlCommandExecutionPolicyTests {
         let expectedWorker = telemetry.union(notification).union(terminalRead)
             .union(resolutionReads).union(sends).union(["ping"])
         #expect(ControlCommandExecutionPolicy.socketWorkerV1Commands == expectedWorker)
-        // Every member except read_screen is deliberately main-thread
-        // callable (deadlock-free inline: bus enqueues plus inline-collapsing
-        // hops). read_screen opts out so its multi-MB formatting can never
-        // run inline on the main thread.
+        // read_screen and notify_target_async remain worker-only: the former
+        // performs multi-MB formatting and the latter may wait for capacity.
         #expect(
             ControlCommandExecutionPolicy.mainThreadCallableSocketWorkerV1Commands
-                == expectedWorker.subtracting(terminalRead)
+                == expectedWorker.subtracting(terminalRead.union(["notify_target_async"]))
         )
     }
 }

@@ -472,13 +472,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "report_shell_state",
         "report_tty",
         "ports_kick",
-        // The v1 notification family (tranche B2): notify_target_async and
-        // clear_notifications are pure bus enqueues; the synchronous verbs
-        // are one inline-collapsing hop each.
+        // The v1 notification family (tranche B2): clear_notifications is a
+        // pure bus enqueue; the synchronous verbs are one inline-collapsing
+        // hop each. notify_target_async can wait for bounded queue capacity,
+        // so it must remain on a socket worker.
         "notify",
         "notify_surface",
         "notify_target",
-        "notify_target_async",
         "list_notifications",
         "clear_notifications",
         // The v1 resolution reads (tranche D): non-blocking single-hop
