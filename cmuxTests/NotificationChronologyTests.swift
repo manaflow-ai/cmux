@@ -211,10 +211,9 @@ struct NotificationChronologyTests {
             createdAt: timestamp
         )
 
-        store.replaceNotificationsForTesting([live])
         defer { store.replaceNotificationsForTesting([]) }
 
-        store.restoreSessionNotifications([
+        let restored = [
             notification(
                 id: earlierId,
                 tabId: tabId,
@@ -250,12 +249,21 @@ struct NotificationChronologyTests {
                 title: "Stale replay",
                 createdAt: timestamp.addingTimeInterval(10)
             ),
-        ], forTabId: tabId)
+        ]
 
-        #expect(store.notifications.map(\.id) == [equalEarlierId, replayedId, equalLaterId, earlierId])
-        #expect(store.notifications.first(where: { $0.id == replayedId })?.title == "Live")
-        #expect(store.notifications.first(where: { $0.id == earlierId })?.title == "Earlier")
-        #expect(Set(store.notifications.map(\.id)).count == store.notifications.count)
+        store.replaceNotificationsForTesting([live])
+        store.restoreSessionNotifications(restored, forTabId: tabId)
+        let forward = store.notifications
+
+        store.replaceNotificationsForTesting([live])
+        store.restoreSessionNotifications(Array(restored.reversed()), forTabId: tabId)
+        let reversed = store.notifications
+
+        #expect(forward.map(\.id) == [equalEarlierId, replayedId, equalLaterId, earlierId])
+        #expect(forward.first(where: { $0.id == replayedId })?.title == "Live")
+        #expect(forward.first(where: { $0.id == earlierId })?.title == "Earlier")
+        #expect(Set(forward.map(\.id)).count == forward.count)
+        #expect(reversed == forward)
     }
 
     @Test

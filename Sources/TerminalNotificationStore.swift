@@ -1536,28 +1536,20 @@ final class TerminalNotificationStore: ObservableObject {
 
     func restoreSessionNotifications(_ restoredNotifications: [TerminalNotification], forTabId tabId: UUID) {
         clearFocusedReadIndicator(forTabId: tabId)
-        var knownIds = indexes.ids
-        let unseenRestored = restoredNotifications
-            .filter { $0.tabId == tabId }
-            .sorted(by: Self.notificationMergePrecedes)
-            .filter { knownIds.insert($0.id).inserted }
+        var canonicalById: [UUID: TerminalNotification] = [:]
+        for candidate in restoredNotifications
+        where candidate.tabId == tabId && !indexes.ids.contains(candidate.id) {
+            if let canonical = canonicalById[candidate.id] {
+                if Self.notificationRestoreCanonicalPrecedes(candidate, canonical) {
+                    canonicalById[candidate.id] = candidate
+                }
+            } else {
+                canonicalById[candidate.id] = candidate
+            }
+        }
+        let unseenRestored = canonicalById.values.sorted(by: Self.notificationSortPrecedes)
         guard !unseenRestored.isEmpty else { return }
         notifications = (notifications + unseenRestored).sorted(by: Self.notificationSortPrecedes)
-    }
-
-    private static func notificationMergePrecedes(
-        _ lhs: TerminalNotification,
-        _ rhs: TerminalNotification
-    ) -> Bool {
-        if lhs.createdAt != rhs.createdAt || lhs.id != rhs.id {
-            return notificationSortPrecedes(lhs, rhs)
-        }
-        let lhsKey = [lhs.tabId.uuidString, lhs.surfaceId?.uuidString ?? "", lhs.title, lhs.subtitle, lhs.body]
-        let rhsKey = [rhs.tabId.uuidString, rhs.surfaceId?.uuidString ?? "", rhs.title, rhs.subtitle, rhs.body]
-        for (left, right) in zip(lhsKey, rhsKey) where left != right {
-            return left < right
-        }
-        return false
     }
 
     private func replaceNotificationsForClear(_ next: [TerminalNotification]) { suppressNotificationDiffPublishing = true; notifications = next; suppressNotificationDiffPublishing = false }

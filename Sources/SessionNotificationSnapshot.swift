@@ -64,3 +64,46 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         )
     }
 }
+
+extension TerminalNotificationStore {
+    nonisolated static func notificationRestoreCanonicalPrecedes(
+        _ lhs: TerminalNotification,
+        _ rhs: TerminalNotification
+    ) -> Bool {
+        if lhs.createdAt != rhs.createdAt {
+            return lhs.createdAt < rhs.createdAt
+        }
+        return notificationRestoreCanonicalPayloadKey(lhs)
+            .lexicographicallyPrecedes(notificationRestoreCanonicalPayloadKey(rhs))
+    }
+
+    private nonisolated static func notificationRestoreCanonicalPayloadKey(
+        _ notification: TerminalNotification
+    ) -> [String] {
+        let clickActionKey: [String]
+        switch notification.clickAction {
+        case .none:
+            clickActionKey = ["0", ""]
+        case .revealInFinder(let path):
+            clickActionKey = ["1", path]
+        }
+
+        return [
+            notification.id.uuidString,
+            notification.tabId.uuidString,
+            notification.surfaceId == nil ? "0" : "1",
+            notification.surfaceId?.uuidString ?? "",
+            notification.panelId == nil ? "0" : "1",
+            notification.panelId?.uuidString ?? "",
+            notification.title,
+            notification.subtitle,
+            notification.body,
+            notification.isRead ? "1" : "0",
+            notification.paneFlash ? "1" : "0",
+            notification.scrollPosition == nil ? "0" : "1",
+            notification.scrollPosition.map { String($0.row) } ?? "",
+            notification.scrollPosition?.totalRows == nil ? "0" : "1",
+            notification.scrollPosition?.totalRows.map(String.init) ?? "",
+        ] + clickActionKey
+    }
+}
