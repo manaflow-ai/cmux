@@ -255,7 +255,7 @@ extension MobileShellComposite {
         return policy.allowsMacScopedWorkspaceMutations(ticket)
     }
 
-    private func sendWorkspaceMutation(
+    func sendWorkspaceMutation(
         method: String,
         params: [String: Any],
         id: MobileWorkspacePreview.ID,
@@ -346,7 +346,7 @@ extension MobileShellComposite {
         return .success(())
     }
 
-    private func workspaceMutationParams(id: MobileWorkspacePreview.ID) -> [String: Any] {
+    func workspaceMutationParams(id: MobileWorkspacePreview.ID) -> [String: Any] {
         var params: [String: Any] = [
             "workspace_id": remoteWorkspaceID(for: id).rawValue,
             "client_id": clientID,
@@ -417,7 +417,7 @@ extension MobileShellComposite {
         return fallback
     }
 
-    private func workspaceHostDisplayName(for id: MobileWorkspacePreview.ID) -> String? {
+    func workspaceHostDisplayName(for id: MobileWorkspacePreview.ID) -> String? {
         workspaces.first(where: { $0.id == id })?.macDisplayName
     }
 

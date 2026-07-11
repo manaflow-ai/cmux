@@ -1408,9 +1408,9 @@ final class MobileHostService {
             // not constrained by the ticket's workspace/terminal pin. The Stack
             // same-account gate in `authorizationError` remains authoritative.
             return nil
-        case "mobile.terminal.create", "terminal.create":
-            return nil
-        case "mobile.terminal.input", "terminal.input",
+        case "mobile.terminal.create", "terminal.create": return nil
+        case "mobile.terminal.close", "terminal.close", "mobile.terminal.reorder", "terminal.reorder",
+             "mobile.terminal.input", "terminal.input",
              "mobile.terminal.paste", "terminal.paste",
              "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.replay", "terminal.replay",

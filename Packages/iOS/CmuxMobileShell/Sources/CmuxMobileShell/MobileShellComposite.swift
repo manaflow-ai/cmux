@@ -4154,8 +4154,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Callers that act on a specific workspace (e.g. the "+" button on a
     /// workspace row) should pass its id so an in-flight create can't land in a
     /// different workspace if the selection drifts before the async work runs.
-    public func createTerminal(in workspaceID: MobileWorkspacePreview.ID? = nil) {
+    public func createTerminal(
+        in workspaceID: MobileWorkspacePreview.ID? = nil,
+        paneID explicitPaneID: MobilePanePreview.ID? = nil
+    ) {
         let targetWorkspaceID = workspaceID ?? selectedWorkspace?.id
+        let targetWorkspace = workspaces.first(where: { $0.id == targetWorkspaceID })
+        let targetPaneID = targetWorkspace?.actionCapabilities.supportsTerminalCreateInPane == true
+            ? (explicitPaneID ?? targetWorkspace?.terminalCreationPaneID)
+            : nil
         guard remoteClient == nil else {
             // Bail BEFORE pinning selection when a create is already in flight,
             // so a second "+" on another workspace can't strand the UI on that
@@ -4169,26 +4176,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             createTerminalTask = Task { @MainActor [weak self] in
                 defer { self?.clearCreateTerminalTask(id: taskID) }
                 guard let self else { return }
-                await self.createRemoteTerminal(in: targetWorkspaceID)
+                await self.createRemoteTerminal(in: targetWorkspaceID, paneID: targetPaneID)
             }
             return
         }
-        guard let workspace = workspaces.first(where: { $0.id == targetWorkspaceID }) else {
-            return
-        }
-        selectedWorkspaceID = targetWorkspaceID
-        let terminalIndex = workspace.terminals.count + 1
-        let terminal = MobileTerminalPreview(
-            id: .init(rawValue: "\(workspace.id.rawValue)-terminal-\(terminalIndex)"),
-            name: L10n.terminalName(index: terminalIndex)
-        )
-        mutateForegroundWorkspaces { list in
-            if let index = list.firstIndex(where: { $0.id == targetWorkspaceID }) {
-                list[index].terminals.append(terminal)
-            }
-        }
-        selectedTerminalID = terminal.id
-        suppressTerminalAutoFocusOnNextAttach(for: terminal.id)
+        createLocalTerminal(in: targetWorkspaceID, paneID: targetPaneID)
     }
 
     /// Select the active terminal by id without changing workspace selection.
@@ -5859,16 +5851,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         MobileTerminalViewportKey(workspaceID: workspaceID, terminalID: terminalID)
     }
 
-    private func createRemoteTerminal(in explicitWorkspaceID: MobileWorkspacePreview.ID? = nil) async {
+    private func createRemoteTerminal(
+        in explicitWorkspaceID: MobileWorkspacePreview.ID? = nil,
+        paneID: MobilePanePreview.ID? = nil
+    ) async {
         guard let client = remoteClient,
               let rowWorkspaceID = explicitWorkspaceID ?? selectedWorkspace?.id else { return }
         let requestedWorkspaceID = remoteWorkspaceID(for: rowWorkspaceID)
         let generation = connectionGeneration
         do {
+            var params: [String: Any] = ["workspace_id": requestedWorkspaceID.rawValue]
+            if let paneID {
+                params["pane_id"] = paneID.rawValue
+            }
             let resultData = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(
                     method: "terminal.create",
-                    params: ["workspace_id": requestedWorkspaceID.rawValue]
+                    params: params
                 )
             )
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)

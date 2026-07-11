@@ -121,6 +121,29 @@ final class cmuxUITests: XCTestCase {
         add(attachment)
     }
 
+    @MainActor
+    func testTerminalHierarchyPreviewUsesStablePaneAndTerminalActions() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TERMINAL_HIERARCHY_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.otherElements["MobileTerminalHierarchySheet"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.otherElements["MobileTerminalHierarchyWorkspace"].exists)
+        XCTAssertTrue(app.otherElements["MobileTerminalHierarchyPane-pane-left"].exists)
+        XCTAssertTrue(app.otherElements["MobileTerminalHierarchyPane-pane-right"].exists)
+        XCTAssertTrue(app.buttons["MobileTerminalHierarchyRow-terminal-agent-2"].exists)
+        XCTAssertTrue(app.buttons["MobileTerminalHierarchyClose-terminal-agent-2"].exists)
+
+        app.buttons["MobileTerminalHierarchyNewTerminal"].tap()
+        XCTAssertTrue(app.buttons["MobileTerminalHierarchyRow-terminal-created-5"].waitForExistence(timeout: 3))
+
+        app.buttons["MobileTerminalHierarchyClose-terminal-agent-2"].tap()
+        XCTAssertTrue(app.buttons["Cancel"].waitForExistence(timeout: 3))
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.buttons["MobileTerminalHierarchyRow-terminal-agent-2"].exists)
+    }
+
     /// Regression: fast pinch-zoom must not hang the main thread (the
     /// scene-update watchdog `0x8BADF00D` was killing the app because
     /// libghostty surface calls block on the main thread) and must not

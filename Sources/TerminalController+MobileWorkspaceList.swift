@@ -192,6 +192,33 @@ extension TerminalController {
         requestedTerminalID: UUID?,
         notificationStore: TerminalNotificationStore? = nil
     ) -> [String: Any] {
+        let focusedPaneID = workspace.bonsplitController.focusedPaneId
+        let panePayloads: [[String: Any]] = workspace.bonsplitController.allPaneIds.enumerated().map { spatialIndex, paneID in
+            let terminalIDs = workspace.bonsplitController.tabs(inPane: paneID).compactMap { tab in
+                guard let panelID = workspace.panelIdFromSurfaceId(tab.id),
+                      workspace.terminalPanel(for: panelID) != nil else {
+                    return nil
+                }
+                return panelID.uuidString
+            }
+            return [
+                "id": paneID.id.uuidString,
+                "spatial_index": spatialIndex,
+                "is_focused": paneID == focusedPaneID,
+                "terminal_ids": terminalIDs,
+            ]
+        }
+        let paneIDByTerminalID: [UUID: String] = Dictionary(
+            uniqueKeysWithValues: workspace.bonsplitController.allPaneIds.flatMap { paneID in
+                workspace.bonsplitController.tabs(inPane: paneID).compactMap { tab -> (UUID, String)? in
+                    guard let panelID = workspace.panelIdFromSurfaceId(tab.id),
+                          workspace.terminalPanel(for: panelID) != nil else {
+                        return nil
+                    }
+                    return (panelID, paneID.id.uuidString)
+                }
+            }
+        )
         let terminals = mobileTerminalPanels(in: workspace).compactMap { terminal -> [String: Any]? in
             if let requestedTerminalID, terminal.id != requestedTerminalID {
                 return nil
@@ -204,6 +231,9 @@ extension TerminalController {
                 "id": terminal.id.uuidString,
                 "title": workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
                 "current_directory": v2OrNull(terminalDirectory),
+                "pane_id": v2OrNull(paneIDByTerminalID[terminal.id]),
+                "can_close": workspace.panels.count > 1 && !workspace.pinnedPanelIds.contains(terminal.id),
+                "requires_close_confirmation": workspace.panelNeedsConfirmClose(panelId: terminal.id),
                 "is_ready": terminal.surface.surface != nil,
                 "is_focused": terminal.id == workspace.focusedPanelId
             ]
@@ -237,7 +267,10 @@ extension TerminalController {
             // unread + manual/panel-derived/restored indicators) so the phone can
             // show an iMessage-style unread dot.
             "has_unread": store?.workspaceIsUnread(forTabId: workspace.id) ?? false,
-            "terminals": terminals
+            "terminals": terminals,
+            "panes": panePayloads,
+            "focused_pane_id": v2OrNull(focusedPaneID?.id.uuidString),
+            "selected_terminal_id": v2OrNull(workspace.focusedTerminalPanel?.id.uuidString),
         ]
     }
 

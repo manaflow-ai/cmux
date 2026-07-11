@@ -46,6 +46,16 @@ struct WorkspaceDetailContainer: View {
                     createWorkspace: createWorkspace,
                     canCreateWorkspace: canCreateWorkspace,
                     createTerminal: { store.createTerminal(in: workspace.id) },
+                    reorderTerminal: { intent in
+                        await store.reorderTerminal(workspaceID: workspace.id, intent: intent)
+                    },
+                    closeTerminal: { terminalID, confirmed in
+                        await store.closeTerminal(
+                            workspaceID: workspace.id,
+                            terminalID: terminalID,
+                            confirmed: confirmed
+                        )
+                    },
                     renameWorkspace: workspace.actionCapabilities.supportsWorkspaceActions ? renameWorkspace : nil,
                     setWorkspaceUnread: workspace.actionCapabilities.supportsReadStateActions ? setWorkspaceUnread : nil,
                     closeWorkspace: workspace.actionCapabilities.supportsCloseActions ? closeWorkspace : nil,

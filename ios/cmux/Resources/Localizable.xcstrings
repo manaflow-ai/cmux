@@ -9243,6 +9243,168 @@
         "en": { "stringUnit": { "state": "translated", "value": "your Mac doesn't support that action" } },
         "ja": { "stringUnit": { "state": "translated", "value": "Mac はその操作に対応していません" } }
       }
+    },
+    "mobile.terminal.hierarchy.active": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Active" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用中" } }
+      }
+    },
+    "mobile.terminal.hierarchy.workspace": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース" } }
+      }
+    },
+    "mobile.terminal.hierarchy.reconnecting": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reconnecting…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再接続中…" } }
+      }
+    },
+    "mobile.terminal.hierarchy.disconnected": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mac Disconnected" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Mac との接続が切れました" } }
+      }
+    },
+    "mobile.terminal.hierarchy.starting": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Starting…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "起動中…" } }
+      }
+    },
+    "mobile.terminal.hierarchy.close": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Close Terminal" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルを閉じる" } }
+      }
+    },
+    "mobile.terminal.hierarchy.switch": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Switch to Terminal" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルに切り替える" } }
+      }
+    },
+    "mobile.terminal.hierarchy.duplicateTitle": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%1$@, %2$d" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%1$@、%2$d" } }
+      }
+    },
+    "mobile.terminal.hierarchy.activeLabel": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@, active terminal" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@、使用中のターミナル" } }
+      }
+    },
+    "mobile.terminal.hierarchy.title": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminals" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナル" } }
+      }
+    },
+    "mobile.terminal.hierarchy.closeTitle": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Close Terminal?" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルを閉じますか？" } }
+      }
+    },
+    "mobile.terminal.hierarchy.closeAction": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Close Terminal" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルを閉じる" } }
+      }
+    },
+    "mobile.terminal.hierarchy.errorTitle": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't Update Terminals" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルを更新できませんでした" } }
+      }
+    },
+    "mobile.terminal.hierarchy.errorMessage": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Mac kept the previous terminal state. Check the connection and try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Mac では以前のターミナル状態が維持されています。接続を確認してもう一度お試しください。" } }
+      }
+    },
+    "mobile.terminal.hierarchy.emptyTitle": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No Terminals" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルがありません" } }
+      }
+    },
+    "mobile.terminal.hierarchy.emptyMessage": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Create a terminal in the focused pane to get started." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォーカス中のペインにターミナルを作成してください。" } }
+      }
+    },
+    "mobile.terminal.hierarchy.emptyPane": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No terminals in this pane" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このペインにターミナルはありません" } }
+      }
+    },
+    "mobile.terminal.hierarchy.paneTitle": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pane %d" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペイン %d" } }
+      }
+    },
+    "mobile.terminal.hierarchy.focusedPane": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Focused" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォーカス中" } }
+      }
+    },
+    "mobile.terminal.hierarchy.hint": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Shows terminals grouped by pane" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペインごとにグループ化したターミナルを表示します" } }
+      }
+    },
+    "mobile.terminal.hierarchy.newHint": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Creates and selects a terminal in the focused pane" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォーカス中のペインにターミナルを作成して選択します" } }
+      }
+    },
+    "mobile.terminal.hierarchy.closeMessage": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The terminal will close and its position will be removed from this pane." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルが閉じ、このペインからその位置が削除されます。" } }
+      }
+    },
+    "mobile.terminal.hierarchy.closeRunningMessage": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This terminal is running a process. Closing it ends that process and cannot be undone." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このターミナルではプロセスが実行中です。閉じるとプロセスが終了し、元に戻せません。" } }
+      }
+    },
+    "mobile.terminal.hierarchy.switchedAnnouncement": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Switched to %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ に切り替えました" } }
+      }
+    },
+    "mobile.terminal.hierarchy.createdAnnouncement": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Creating terminal" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルを作成しています" } }
+      }
+    },
+    "mobile.terminal.hierarchy.reorderedAnnouncement": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal order updated" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルの順序を更新しました" } }
+      }
+    },
+    "mobile.terminal.hierarchy.closedAnnouncement": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal closed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルを閉じました" } }
+      }
     }
   },
   "version": "1.0"

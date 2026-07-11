@@ -14008,6 +14008,10 @@ class TerminalController {
             result = v2MobileWorkspaceCreate(params: request.params)
         case "mobile.terminal.create", "terminal.create":
             result = v2MobileTerminalCreate(params: request.params)
+        case "mobile.terminal.close", "terminal.close":
+            result = v2MobileTerminalClose(params: request.params)
+        case "mobile.terminal.reorder", "terminal.reorder":
+            result = v2MobileTerminalReorder(params: request.params)
         case "mobile.terminal.input", "terminal.input":
             result = v2MobileTerminalInput(params: request.params)
         case "mobile.terminal.paste", "terminal.paste":
@@ -14403,37 +14407,6 @@ class TerminalController {
         String(
             localized: "workspace.closeProtected.message",
             defaultValue: "Pinned workspaces can't be closed while pinned. Unpin the workspace first."
-        )
-    }
-
-    func v2MobileTerminalCreate(params: [String: Any]) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
-        }
-        if let error = mobileWorkspaceIDValidationError(params: params) {
-            return error
-        }
-        guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-            return .err(code: "not_found", message: "Workspace not found", data: nil)
-        }
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
-            return .err(code: "not_found", message: "Pane not found", data: nil)
-        }
-        guard let terminal = workspace.newTerminalSurface(
-            inPane: paneId,
-            focus: false,
-            autoRefreshMetadata: false,
-            preserveFocusWhenUnfocused: false,
-            inheritWorkingDirectoryFallback: true,
-            allowTextBoxFocusDefault: false
-        ) else {
-            return .err(code: "internal_error", message: "Failed to create terminal", data: nil)
-        }
-        // workspace.updated emit is handled by MobileWorkspaceListObserver.
-        return v2MobileWorkspaceList(
-            params: params,
-            tabManager: tabManager,
-            createdTerminalID: terminal.id.uuidString
         )
     }
 

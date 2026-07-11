@@ -22,6 +22,8 @@ struct WorkspaceDetailView: View {
     let createWorkspace: () -> Void
     let canCreateWorkspace: Bool
     let createTerminal: () -> Void
+    let reorderTerminal: (MobileTerminalReorderIntent) async -> Result<Void, MobileWorkspaceMutationFailure>
+    let closeTerminal: (MobileTerminalPreview.ID, Bool) async -> Result<Void, MobileWorkspaceMutationFailure>
     let renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
     let setWorkspaceUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     /// Close this workspace on the Mac. When `nil`, the close affordance is
@@ -34,6 +36,7 @@ struct WorkspaceDetailView: View {
     let signOut: (() -> Void)?
     @Environment(BrowserSurfaceStore.self) var browserStore
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(\.accessibilityReduceMotion) var accessibilityReduceMotion
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
@@ -52,6 +55,7 @@ struct WorkspaceDetailView: View {
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
     @State var terminalPickerRows: [TerminalPickerMenuRow] = []
+    @State private var isTerminalHierarchyPresented = false
     /// Chat-mode toggle for inline agent chat in place of the terminal.
     @State var isChatMode = false
     /// The session chat mode was entered on, pinned so sorting cannot swap the conversation
@@ -109,6 +113,18 @@ struct WorkspaceDetailView: View {
             .sheet(isPresented: $isTextSheetPresented) {
                 TerminalTextSheetView(surfaceID: textSheetSurfaceID)
             }
+            .sheet(isPresented: $isTerminalHierarchyPresented) {
+                TerminalHierarchySheet(
+                    snapshot: TerminalHierarchySnapshot(
+                        workspace: workspace,
+                        selectedTerminalID: store.selectedTerminalID
+                    ),
+                    createTerminal: createTerminalFromToolbar,
+                    selectTerminal: selectTerminalFromPicker,
+                    reorderTerminal: reorderTerminal,
+                    closeTerminal: closeTerminal
+                )
+            }
             .workspaceRenameDialog(
                 isPresented: $isRenamePresented,
                 text: $renameText,
@@ -159,6 +175,7 @@ struct WorkspaceDetailView: View {
             hasBackButton: backButtonConfiguration != nil,
             hasTrailingCluster: true,
             hasChatToggle: shouldShowChatToggle,
+            hasTerminalAdd: true,
             isEnabled: hasTitleMenuActions,
             menuContent: { titleMenuContent }
         ) {
@@ -323,6 +340,7 @@ struct WorkspaceDetailView: View {
         }
     }
 
+    @ViewBuilder
     var titleMenuContent: some View {
         WorkspaceTitleMenuContent(
             workspace: workspace,
@@ -333,77 +351,12 @@ struct WorkspaceDetailView: View {
             toggleReadState: toggleWorkspaceReadStateFromMenu,
             requestClose: requestCloseWorkspaceFromMenu
         )
-    }
-
-    #endif
-
-    private var newWorkspaceToolbarButton: some View {
-        Button(action: createWorkspaceFromToolbar) {
-            Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
-                .labelStyle(.iconOnly)
-        }
-        .foregroundStyle(TerminalPalette.foreground)
-        .disabled(!canCreateWorkspace)
-        .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
-    }
-
-    // Native menu keeps press-drag-release selection and routes through
-    // `selectTerminalFromPicker`; keyboard-dismiss-on-open is unavailable.
-    var terminalPickerToolbarButton: some View {
-        let rows = terminalPickerRows.isEmpty ? terminalPickerLiveRows : terminalPickerRows
-        let selection = terminalPickerLiveRows.resolvedTerminalPickerSelection(selectedID: store.selectedTerminalID)
-
-        return Menu {
-            terminalPickerMenuContent(rows: rows, selectedID: selection?.id)
-        } label: {
-            Label(
-                selection?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
-                systemImage: "rectangle.stack"
-            )
-            .labelStyle(.iconOnly)
-        }
-        .foregroundStyle(TerminalPalette.foreground)
-        .accessibilityLabel(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
-        .accessibilityIdentifier("MobileTerminalDropdown")
-        .accessibilityValue(selection?.name ?? "")
-        .simultaneousGesture(TapGesture().onEnded { syncTerminalPickerRows(includeTitleChanges: true) })
-        .onAppear { syncTerminalPickerRows(includeTitleChanges: true) }
-        .onChange(of: terminalPickerLiveMembership) { _, _ in syncTerminalPickerRows() }
-    }
-
-    @ViewBuilder
-    private func terminalPickerMenuContent(
-        rows: [TerminalPickerMenuRow],
-        selectedID: MobileTerminalPreview.ID?
-    ) -> some View {
-        Section(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals")) {
-            ForEach(rows) { terminal in
-                Button {
-                    selectTerminalFromPicker(terminal.id)
-                } label: {
-                    Label(
-                        terminal.name,
-                        systemImage: terminal.id == selectedID && activeBrowser == nil
-                            ? "checkmark.circle.fill"
-                            : "terminal"
-                    )
-                }
-                .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
-            }
-        }
-
         Section {
             Button(action: createWorkspaceFromToolbar) {
                 Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
             }
             .disabled(!canCreateWorkspace)
             .accessibilityIdentifier("MobileNewWorkspaceMenuItem")
-
-            Button(action: createTerminalFromToolbar) {
-                Label(L10n.string("mobile.terminal.new", defaultValue: "New Terminal"), systemImage: "plus")
-            }
-            .accessibilityIdentifier("MobileNewTerminalMenuItem")
-
             Button(action: openBrowserFromToolbar) {
                 Label(
                     L10n.string("mobile.browser.new", defaultValue: "New Browser"),
@@ -412,11 +365,7 @@ struct WorkspaceDetailView: View {
             }
             .accessibilityIdentifier("MobileNewBrowserMenuItem")
         }
-
-        #if canImport(UIKit)
         Section {
-            // Only while the terminal pane is showing: browser and chat modes
-            // do not mount a terminal surface for text capture.
             if activeBrowser == nil && !isChatMode {
                 Button(action: openTextSheetFromMenu) {
                     Label(
@@ -442,7 +391,58 @@ struct WorkspaceDetailView: View {
             }
             .accessibilityIdentifier("MobileSendFeedbackMenuItem")
         }
-        #endif
+    }
+
+    #endif
+
+    private var newWorkspaceToolbarButton: some View {
+        Button(action: createWorkspaceFromToolbar) {
+            Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
+                .labelStyle(.iconOnly)
+        }
+        .foregroundStyle(TerminalPalette.foreground)
+        .disabled(!canCreateWorkspace)
+        .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
+    }
+
+    var terminalPickerToolbarButton: some View {
+        let selection = terminalPickerLiveRows.resolvedTerminalPickerSelection(selectedID: store.selectedTerminalID)
+        return Button {
+            dismissTerminalKeyboardForChrome()
+            isTerminalHierarchyPresented = true
+        } label: {
+            Label(
+                selection?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
+                systemImage: "rectangle.stack"
+            )
+            .labelStyle(.iconOnly)
+        }
+        .foregroundStyle(TerminalPalette.foreground)
+        .accessibilityLabel(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
+        .accessibilityHint(
+            L10n.string(
+                "mobile.terminal.hierarchy.hint",
+                defaultValue: "Shows terminals grouped by pane"
+            )
+        )
+        .accessibilityIdentifier("MobileTerminalHierarchyButton")
+        .accessibilityValue(selection?.name ?? "")
+    }
+
+    var newTerminalToolbarButton: some View {
+        Button(action: createTerminalFromToolbar) {
+            Label(L10n.string("mobile.terminal.new", defaultValue: "New Terminal"), systemImage: "plus")
+                .labelStyle(.iconOnly)
+                .frame(minWidth: 44, minHeight: 44)
+        }
+        .foregroundStyle(TerminalPalette.foreground)
+        .accessibilityHint(
+            L10n.string(
+                "mobile.terminal.hierarchy.newHint",
+                defaultValue: "Creates and selects a terminal in the focused pane"
+            )
+        )
+        .accessibilityIdentifier("MobileTerminalNewTerminalButton")
     }
 
     #if canImport(UIKit)
