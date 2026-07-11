@@ -93,6 +93,7 @@ describe("SEO metadata helpers", () => {
       completeMetadataSentence("en", "The terminal built for multitasking"),
     ).toBe("The terminal built for multitasking.");
     expect(completeMetadataSentence("en", "Examples:")).toBe("Examples:");
+    expect(completeMetadataSentence("km", "ឧទាហរណ៍៖")).toBe("ឧទាហរណ៍៖");
     expect(joinMetadataQuestionAndAnswer("th", "ทำไมต้อง cmux", "เพราะเร็ว")).toBe(
       "ทำไมต้อง cmux? เพราะเร็ว.",
     );
@@ -492,6 +493,30 @@ describe("SEO metadata helpers", () => {
     expect(copy.description).toContain(page.faqA2);
     expect(searchSnippetLength(copy.description)).toBeGreaterThanOrEqual(110);
     expect(searchSnippetLength(copy.description)).toBeLessThanOrEqual(160);
+  });
+
+  test("keeps docs section headings and Khmer lead-ins out of descriptions", async () => {
+    const frenchMessages = await messagesFor("fr");
+    const frenchConcepts = docsPageSeoCopy(
+      "fr",
+      "concepts",
+      messageLookup(frenchMessages.docs.concepts),
+      messageLookup(frenchMessages.meta),
+    );
+    expect(
+      frenchConcepts.description.startsWith(
+        `${frenchMessages.docs.concepts.summary}.`,
+      ),
+    ).toBe(false);
+
+    const khmerMessages = await messagesFor("km");
+    const khmerDock = docsPageSeoCopy(
+      "km",
+      "dock",
+      messageLookup(khmerMessages.docs.dock),
+      messageLookup(khmerMessages.meta),
+    );
+    expect(khmerDock.description).not.toMatch(/៖[.។]/u);
   });
 
   test("keeps synthesized compare metadata tied to its localized route", async () => {
