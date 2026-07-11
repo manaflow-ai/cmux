@@ -16,6 +16,7 @@ let tombstoneRows: Array<{
 }> = [];
 let activeLeaseRows = 0;
 let leaseDeleteCalls = 0;
+let leaseDeleteConditions: unknown[] = [];
 let leaseCleanupError: unknown = null;
 
 let postHogFetchError: unknown = null;
@@ -58,6 +59,7 @@ beforeEach(() => {
   tombstoneRows = [];
   activeLeaseRows = 0;
   leaseDeleteCalls = 0;
+  leaseDeleteConditions = [];
   leaseCleanupError = null;
   verifyRequest.mockClear();
   selectRows.mockClear();
@@ -133,6 +135,13 @@ describe("iOS analytics events route", () => {
     expect(activeLeaseRows).toBe(0);
   });
 
+  test("prunes expired leases for every identity before reserving a forward", async () => {
+    const response = await POST(analyticsRequest("new-install-id"));
+
+    expect(response.status).toBe(200);
+    expect(conditionColumnNames(leaseDeleteConditions[0])).toEqual(["expires_at"]);
+  });
+
   test("releases the database transaction while an analytics forward is in flight", async () => {
     let transactionTail = Promise.resolve();
     let transactionActive = false;
@@ -206,8 +215,9 @@ function analyticsTransactionContext(): unknown {
     execute: async () => undefined,
     select: selectRows,
     delete: () => ({
-      where: async () => {
+      where: async (condition: unknown) => {
         leaseDeleteCalls += 1;
+        leaseDeleteConditions.push(condition);
         if (leaseCleanupError && leaseDeleteCalls > 1) throw leaseCleanupError;
         activeLeaseRows = 0;
       },
@@ -218,6 +228,24 @@ function analyticsTransactionContext(): unknown {
       },
     }),
   };
+}
+
+function conditionColumnNames(condition: unknown): string[] {
+  const names: string[] = [];
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    const candidate = value as {
+      readonly name?: unknown;
+      readonly table?: unknown;
+      readonly queryChunks?: readonly unknown[];
+    };
+    if (typeof candidate.name === "string" && candidate.table) names.push(candidate.name);
+    if (Array.isArray(candidate.queryChunks)) {
+      for (const chunk of candidate.queryChunks) visit(chunk);
+    }
+  };
+  visit(condition);
+  return names;
 }
 
 function analyticsRequest(distinctID: string): Request {

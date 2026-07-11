@@ -778,6 +778,10 @@ describe("account deletion route", () => {
       "transaction",
       "transaction-lock",
       "tombstone-upsert",
+      "transaction",
+      "transaction-lock",
+      "analytics-lease-cleanup",
+      "posthog-delete",
       "metadata-update",
       "stripe-cancel",
       "stripe-delete-customer",
@@ -791,10 +795,6 @@ describe("account deletion route", () => {
       "vault-delete",
       "vault-delete",
       "vault-delete",
-      "transaction",
-      "transaction-lock",
-      "analytics-lease-cleanup",
-      "posthog-delete",
       "transaction",
       "transaction-lock",
       "stack-delete",
@@ -812,12 +812,17 @@ describe("account deletion route", () => {
     expect(await response.json()).toEqual({
       error: "account_delete_retryable",
       retryable: true,
-      destroyedVms: 2,
+      destroyedVms: 0,
     });
     expectPostHogAccountDeleteRequest();
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(routeEvents).toContain("posthog-delete");
     expect(routeEvents).not.toContain("stack-delete");
+    expect(routeEvents).not.toContain("metadata-update");
+    expect(routeEvents).not.toContain("stripe-cancel");
+    expect(routeEvents).not.toContain("revoke-identities");
+    expect(routeEvents).not.toContain("destroy-vm");
+    expect(routeEvents).not.toContain("vault-delete");
     expect(tombstoneUpdates.some((values) =>
       (values as { readonly status?: unknown; readonly errorMessage?: unknown }).status === "failed" &&
       (values as { readonly errorMessage?: unknown }).errorMessage === "Error: PostHog account deletion failed with status 500"
@@ -839,11 +844,13 @@ describe("account deletion route", () => {
     expect(await response.json()).toEqual({
       error: "account_delete_retryable",
       retryable: true,
-      destroyedVms: 2,
+      destroyedVms: 0,
     });
     expectPostHogAccountDeleteRequest();
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(routeEvents).not.toContain("stack-delete");
+    expect(routeEvents).not.toContain("metadata-update");
+    expect(routeEvents).not.toContain("destroy-vm");
   });
 
   test("blocks Stack deletion until PostHog queues event and recording deletion", async () => {
@@ -890,10 +897,12 @@ describe("account deletion route", () => {
     expect(await response.json()).toEqual({
       error: "account_delete_retryable",
       retryable: true,
-      destroyedVms: 2,
+      destroyedVms: 0,
     });
     expect(postHogDeleteFetch).not.toHaveBeenCalled();
     expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(updateStackUser).not.toHaveBeenCalled();
+    expect(destroyVm).not.toHaveBeenCalled();
   });
 
   test("cleans stale analytics leases and retries PostHog deletion", async () => {
