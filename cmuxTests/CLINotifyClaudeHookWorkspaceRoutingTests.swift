@@ -115,17 +115,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
-    /// When the caller cannot be positively identified (recorded + live workspace
-    /// both gone) and the TTY matches more than one workspace, the hook must no-op
-    /// rather than guess a workspace by first-match.
-    func testClaudeNotificationDoesNotGuessOnAmbiguousTTY() throws {
+    /// A valid ambient workspace/surface can be leaked from the focused pane. When
+    /// the caller TTY is ambiguous, the hook must no-op instead of trusting it.
+    func testClaudeNotificationDoesNotTrustAmbientSurfaceOnAmbiguousTTY() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("claude-ambiguous-tty")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-claude-ambiguous-tty-\(UUID().uuidString)", isDirectory: true)
-        let staleWorkspaceId = "11111111-1111-1111-1111-111111111111"
+        let leakedWorkspaceId = "11111111-1111-1111-1111-111111111111"
+        let leakedSurfaceId = "77777777-7777-7777-7777-777777777777"
         let ttyWorkspaceA = "22222222-2222-2222-2222-222222222222"
         let ttyWorkspaceB = "33333333-3333-3333-3333-333333333333"
         let focusedWorkspaceId = "99999999-9999-9999-9999-999999999999"
@@ -149,6 +149,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "surface.list":
                 let ws = (payload["params"] as? [String: Any])?["workspace_id"] as? String
+                if ws == leakedWorkspaceId { return self.surfaceListResponse(id: id, surfaceId: leakedSurfaceId) }
                 if ws == ttyWorkspaceA { return self.surfaceListResponse(id: id, surfaceId: "55555555-5555-5555-5555-555555555555") }
                 if ws == ttyWorkspaceB { return self.surfaceListResponse(id: id, surfaceId: "66666666-6666-6666-6666-666666666666") }
                 if ws == focusedWorkspaceId { return self.surfaceListResponse(id: id, surfaceId: "44444444-4444-4444-4444-444444444444") }
@@ -178,8 +179,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_SOCKET_PATH": socketPath,
-                "CMUX_WORKSPACE_ID": staleWorkspaceId,
-                "CMUX_SURFACE_ID": "77777777-7777-7777-7777-777777777777",
+                "CMUX_WORKSPACE_ID": leakedWorkspaceId,
+                "CMUX_SURFACE_ID": leakedSurfaceId,
                 "CMUX_CLI_TTY_NAME": ttyName,
                 "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("claude-hook-sessions.json").path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
@@ -194,7 +195,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.status, 0, result.stderr)
         // Scope to routing commands so the resolver's own surface.list validation
         // calls (whose JSON carries a candidate workspace id) can't false-match.
-        for candidate in [ttyWorkspaceA, ttyWorkspaceB, focusedWorkspaceId] {
+        for candidate in [leakedWorkspaceId, ttyWorkspaceA, ttyWorkspaceB, focusedWorkspaceId] {
             XCTAssertFalse(
                 state.commands.contains {
                     ($0.hasPrefix("set_status ") || $0.hasPrefix("notify_target")) && $0.contains(candidate)

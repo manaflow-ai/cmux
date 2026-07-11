@@ -270,7 +270,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual((persisted["launchCommand"] as? [String: Any])?["source"] as? String, "default")
     }
 
-    func testCodexHookDoesNotLetAmbiguousTTYOverrideValidSurfaceEnvironment() throws {
+    func testCodexHookDropsAmbiguousTTYWithAmbientSurfaceEnvironment() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-ambiguous-tty")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -356,13 +356,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
 
-        let resumeRequests = state.snapshot().compactMap { command -> [String: Any]? in
-            guard let payload = self.jsonObject(command),
-                  payload["method"] as? String == "surface.resume.set" else { return nil }
-            return payload["params"] as? [String: Any]
-        }
-        let resume = try XCTUnwrap(resumeRequests.last, "expected a Codex resume binding")
-        XCTAssertEqual(resume["surface_id"] as? String, surfaceId)
+        XCTAssertFalse(
+            state.snapshot().contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "ambiguous TTY must not trust a potentially leaked ambient surface"
+        )
     }
 
     func testCodexHookDoesNotPublishResumeBindingFromAmbiguousTTYAndWorkspaceOnlyEnvironment() throws {
