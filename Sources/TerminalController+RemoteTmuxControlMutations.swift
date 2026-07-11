@@ -225,14 +225,16 @@ extension TerminalController {
         tabManager: TabManager,
         inputs: ControlPaneResizeInputs
     ) -> ControlPaneResizeResolution? {
-        let location: Workspace.RemoteTmuxControlPaneLocation
+        let location: RemoteTmuxControlPaneLocation
         if let paneID = inputs.paneID {
             guard let remote = workspace.remoteTmuxControlPane(paneID: paneID) else { return nil }
             location = remote
         } else if let focusedPanelID = workspace.focusedPanelId,
-                  let mirror = workspace.remoteTmuxWindowMirror(forPanelId: focusedPanelID) {
-            guard let pane = mirror.activeControlPane() else { return .noFocusedPane }
-            location = (focusedPanelID, mirror, pane)
+                  workspace.isRemoteTmuxControlContainer(focusedPanelID) {
+            guard let focused = workspace.activeRemoteTmuxControlPane(
+                containerPanelID: focusedPanelID
+            ) else { return .noFocusedPane }
+            location = focused
         } else {
             return nil
         }
@@ -247,7 +249,7 @@ extension TerminalController {
         )
         switch inputs.intent {
         case .tmuxAbsoluteCells(let axis, let targetCells, let fallbackPoints):
-            guard location.mirror.requestResizePane(
+            guard location.requestResizePane(
                 location.pane.tmuxPaneID,
                 absoluteAxis: axis,
                 targetCells: targetCells
@@ -263,7 +265,7 @@ extension TerminalController {
             )
 
         case .tmuxAbsolutePercentage(let axis, let percentage, let fallbackPoints):
-            guard location.mirror.requestResizePane(
+            guard location.requestResizePane(
                 location.pane.tmuxPaneID,
                 absoluteAxis: axis,
                 targetPercentage: percentage
@@ -279,7 +281,7 @@ extension TerminalController {
             )
 
         case .tmuxRelative(let direction, let amountCells, let fallbackPoints):
-            guard location.mirror.requestResizePane(
+            guard location.requestResizePane(
                 location.pane.tmuxPaneID,
                 direction: direction,
                 amountCells: amountCells
@@ -296,17 +298,18 @@ extension TerminalController {
 
         case .outerAbsolute(let axis, let targetPoints):
             guard targetPoints.isFinite else { return unavailable }
+            guard let windowMirror = location.windowMirror else { return unavailable }
             let orientation: SplitOrientation
             switch axis {
             case "horizontal": orientation = .horizontal
             case "vertical": orientation = .vertical
             default: return unavailable
             }
-            guard let context = RemoteTmuxNativeSplitTree(layout: location.mirror.layout)
+            guard let context = RemoteTmuxNativeSplitTree(layout: windowMirror.layout)
                 .paneResizeContext(
                     paneID: location.pane.tmuxPaneID,
                     orientation: orientation
-                ), let metrics = location.mirror.nativeLayoutMetrics() else {
+                ), let metrics = windowMirror.nativeLayoutMetrics() else {
                 return unavailable
             }
             guard context.hasSplitAncestor else {
@@ -317,7 +320,7 @@ extension TerminalController {
                 orientation: orientation,
                 outerExtent: CGFloat(targetPoints)
             )
-            guard location.mirror.requestResizePane(
+            guard location.requestResizePane(
                 location.pane.tmuxPaneID,
                 absoluteAxis: axis,
                 targetCells: targetCells
@@ -333,14 +336,15 @@ extension TerminalController {
             )
 
         case .borderRelative(let directionRaw, let amountPoints):
-            guard let direction = V2PaneResizeDirection(rawValue: directionRaw),
-                  let metrics = location.mirror.nativeLayoutMetrics() else {
+            guard let windowMirror = location.windowMirror,
+                  let direction = V2PaneResizeDirection(rawValue: directionRaw),
+                  let metrics = windowMirror.nativeLayoutMetrics() else {
                 return unavailable
             }
             let orientation: SplitOrientation = direction.splitOrientation == "horizontal"
                 ? .horizontal
                 : .vertical
-            guard let context = RemoteTmuxNativeSplitTree(layout: location.mirror.layout)
+            guard let context = RemoteTmuxNativeSplitTree(layout: windowMirror.layout)
                 .paneResizeContext(
                     paneID: location.pane.tmuxPaneID,
                     orientation: orientation
@@ -376,7 +380,7 @@ extension TerminalController {
                 pointDelta: CGFloat(amountPoints),
                 orientation: orientation
             )
-            guard location.mirror.requestResizePane(
+            guard location.requestResizePane(
                 commandPaneID,
                 direction: directionRaw,
                 amountCells: amountCells

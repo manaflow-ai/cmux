@@ -23,6 +23,7 @@ extension Workspace {
                 return RemoteTmuxControlPaneLocation(
                     containerPanelID: containerPanelID,
                     owner: mirror,
+                    windowMirror: mirror,
                     pane: pane
                 )
             }
@@ -39,6 +40,7 @@ extension Workspace {
                 return RemoteTmuxControlPaneLocation(
                     containerPanelID: containerPanelID,
                     owner: mirror,
+                    windowMirror: mirror,
                     pane: pane
                 )
             }
@@ -57,6 +59,7 @@ extension Workspace {
             RemoteTmuxControlPaneLocation(
                 containerPanelID: containerPanelID,
                 owner: mirror,
+                windowMirror: mirror,
                 pane: $0
             )
         }

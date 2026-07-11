@@ -7,6 +7,7 @@ import Foundation
 struct RemoteTmuxControlPaneLocation {
     let containerPanelID: UUID
     let owner: any RemoteTmuxControlPaneMutationOwner
+    let windowMirror: RemoteTmuxWindowMirror?
     let pane: RemoteTmuxControlPane
 
     func controlFocus() -> Bool {
@@ -23,6 +24,26 @@ struct RemoteTmuxControlPaneLocation {
 
     func requestSplit(vertical: Bool) -> Bool {
         owner.requestSplit(fromPane: pane.tmuxPaneID, vertical: vertical)
+    }
+
+    func requestResizePane(_ tmuxPaneID: Int, direction: String, amountCells: Int) -> Bool {
+        owner.requestResizePane(tmuxPaneID, direction: direction, amountCells: amountCells)
+    }
+
+    func requestResizePane(_ tmuxPaneID: Int, absoluteAxis: String, targetCells: Int) -> Bool {
+        owner.requestResizePane(tmuxPaneID, absoluteAxis: absoluteAxis, targetCells: targetCells)
+    }
+
+    func requestResizePane(
+        _ tmuxPaneID: Int,
+        absoluteAxis: String,
+        targetPercentage: Int
+    ) -> Bool {
+        owner.requestResizePane(
+            tmuxPaneID,
+            absoluteAxis: absoluteAxis,
+            targetPercentage: targetPercentage
+        )
     }
 
     func requestRespawn(command: String, workingDirectory: String?) -> Bool {

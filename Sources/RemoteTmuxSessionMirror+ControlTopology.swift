@@ -60,6 +60,7 @@ extension RemoteTmuxSessionMirror {
                     return RemoteTmuxControlPaneLocation(
                         containerPanelID: containerPanelID,
                         owner: self,
+                        windowMirror: windowMirror,
                         pane: $0
                     )
                 }
@@ -79,6 +80,7 @@ extension RemoteTmuxSessionMirror {
             return [RemoteTmuxControlPaneLocation(
                 containerPanelID: containerPanelID,
                 owner: self,
+                windowMirror: nil,
                 pane: pane
             )]
         }
@@ -116,6 +118,40 @@ extension RemoteTmuxSessionMirror {
         guard let windowID = windowIdByPane[tmuxPaneID] else { return false }
         return connection.send(
             "split-window \(vertical ? "-v" : "-h") -t @\(windowID).%\(tmuxPaneID)"
+        )
+    }
+
+    func requestResizePane(_ tmuxPaneID: Int, direction: String, amountCells: Int) -> Bool {
+        guard let windowID = windowIdByPane[tmuxPaneID],
+              let windowMirror = windowMirrorByWindowId[windowID] else { return false }
+        return windowMirror.requestResizePane(
+            tmuxPaneID,
+            direction: direction,
+            amountCells: amountCells
+        )
+    }
+
+    func requestResizePane(_ tmuxPaneID: Int, absoluteAxis: String, targetCells: Int) -> Bool {
+        guard let windowID = windowIdByPane[tmuxPaneID],
+              let windowMirror = windowMirrorByWindowId[windowID] else { return false }
+        return windowMirror.requestResizePane(
+            tmuxPaneID,
+            absoluteAxis: absoluteAxis,
+            targetCells: targetCells
+        )
+    }
+
+    func requestResizePane(
+        _ tmuxPaneID: Int,
+        absoluteAxis: String,
+        targetPercentage: Int
+    ) -> Bool {
+        guard let windowID = windowIdByPane[tmuxPaneID],
+              let windowMirror = windowMirrorByWindowId[windowID] else { return false }
+        return windowMirror.requestResizePane(
+            tmuxPaneID,
+            absoluteAxis: absoluteAxis,
+            targetPercentage: targetPercentage
         )
     }
 
