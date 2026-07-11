@@ -7,7 +7,7 @@ import { PRO_CHECKOUT_URL, TEAM_CHECKOUT_URL } from "../../lib/billing";
 import { DOWNLOAD_CONFIRMATION_HREF } from "../../lib/download";
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import { resolveProPlanStatus } from "../../../services/billing/pro";
-import { buildAlternates } from "../../../i18n/seo";
+import { buildAlternates, seoDescription } from "../../../i18n/seo";
 import {
   CurrentPlanBadge,
   DisabledButton,
@@ -42,9 +42,13 @@ export async function generateMetadata({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "pricing" });
+  const description = seoDescription(
+    locale,
+    SHOW_VAULT ? t("metaDescription") : t("metaDescriptionNoVault"),
+  );
   return {
     title: t("metaTitle"),
-    description: SHOW_VAULT ? t("metaDescription") : t("metaDescriptionNoVault"),
+    description,
     alternates: buildAlternates(locale, "/pricing"),
   };
 }
