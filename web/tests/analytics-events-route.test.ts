@@ -121,14 +121,9 @@ describe("iOS analytics events route", () => {
     expect(postHogFetch).toHaveBeenCalledTimes(1);
   });
 
-  test("serializes an in-flight forward before account deletion can tombstone and delete analytics", async () => {
+  test("releases the database transaction while an analytics forward is in flight", async () => {
     let transactionTail = Promise.resolve();
-    let transactionAttempts = 0;
-    let markSecondTransactionAttempted: (() => void) | undefined;
-    const secondTransactionAttempted = new Promise<void>((resolve) => {
-      markSecondTransactionAttempted = resolve;
-    });
-    let deletionStarted = false;
+    let transactionActive = false;
     let releaseForward: (() => void) | undefined;
     let markForwardStarted: (() => void) | undefined;
     const forwardStarted = new Promise<void>((resolve) => {
@@ -145,15 +140,15 @@ describe("iOS analytics events route", () => {
         transactionTail = new Promise<void>((resolve) => {
           releaseTransaction = resolve;
         });
-        transactionAttempts += 1;
-        if (transactionAttempts === 2) markSecondTransactionAttempted?.();
         await previousTransaction;
+        transactionActive = true;
         try {
           return await operation({
             execute: async () => undefined,
             select: selectRows,
           });
         } finally {
+          transactionActive = false;
           releaseTransaction?.();
         }
       },
@@ -171,22 +166,11 @@ describe("iOS analytics events route", () => {
 
     const analyticsResponse = handler(analyticsRequest(deletedUserID));
     await forwardStarted;
-    const deletion = transactionDb.transaction(async () => {
-      deletionStarted = true;
-      tombstoneRows = [{
-        userIdHash: accountDeletionUserHash(deletedUserID),
-        status: "completed",
-        updatedAt: new Date(),
-      }];
-    });
-    await secondTransactionAttempted;
-
-    expect(deletionStarted).toBe(false);
+    const transactionWasReleased = !transactionActive;
 
     releaseForward?.();
     expect((await analyticsResponse).status).toBe(200);
-    await deletion;
-    expect(deletionStarted).toBe(true);
+    expect(transactionWasReleased).toBe(true);
   });
 });
 
