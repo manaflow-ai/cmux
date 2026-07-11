@@ -82,10 +82,9 @@ public struct WorktreeIncludeSyncService: Sendable {
             arguments: includeArguments + ["--directory", "--no-empty-directory", "-z", "--"]
         )
         let includeDirectories = includeCollapsed.paths.filter { $0.hasSuffix("/") }
-        let standardCollapsed = await standardIgnoredPaths(
+        let standardDirectoryContents = await standardIgnoredDirectoryContents(
             source: source,
-            candidates: includeDirectories,
-            collapseDirectories: true
+            candidates: includeDirectories
         )
         let collapsedDirectoryExclusions = includeDirectories.map {
             "--exclude=!/\(gitignoreEscapedLiteralPath($0))"
@@ -94,17 +93,16 @@ public struct WorktreeIncludeSyncService: Sendable {
             source: source,
             arguments: includeArguments + collapsedDirectoryExclusions + ["-z", "--"]
         )
-        let standardFiles = await standardIgnoredPaths(
+        let standardFiles = await standardIgnoredFiles(
             source: source,
-            candidates: includeFiles.paths,
-            collapseDirectories: false
+            candidates: includeFiles.paths
         )
 
         var diagnostics = [
             includeCollapsed.diagnostic,
             includeFiles.diagnostic,
-        ].compactMap { $0 } + standardCollapsed.diagnostics + standardFiles.diagnostics
-        let candidates = Set(standardCollapsed.paths + standardFiles.paths).sorted()
+        ].compactMap { $0 } + standardDirectoryContents.diagnostics + standardFiles.diagnostics
+        let candidates = Set(standardDirectoryContents.paths + standardFiles.paths).sorted()
         let protectedSourceSubtree = destinationContainer(
             destination: destination,
             inside: source
@@ -166,10 +164,57 @@ public struct WorktreeIncludeSyncService: Sendable {
         return (paths, nil)
     }
 
-    private nonisolated func standardIgnoredPaths(
+    private nonisolated func standardIgnoredDirectoryContents(
         source: URL,
-        candidates: [String],
-        collapseDirectories: Bool
+        candidates: [String]
+    ) async -> (paths: [String], diagnostics: [String]) {
+        var paths: [String] = []
+        var diagnostics: [String] = []
+        for pathspecs in literalPathspecBatches(candidates) {
+            let collapsedResult = await gitPaths(
+                source: source,
+                arguments: [
+                    "ls-files",
+                    "--others",
+                    "--ignored",
+                    "--exclude-standard",
+                    "--directory",
+                    "--no-empty-directory",
+                    "-z",
+                    "--",
+                ] + pathspecs
+            )
+            if let diagnostic = collapsedResult.diagnostic {
+                diagnostics.append(diagnostic)
+                continue
+            }
+            paths += collapsedResult.paths
+
+            let collapsedExclusions = collapsedResult.paths
+                .filter { $0.hasSuffix("/") }
+                .map { ":(top,exclude,literal)\($0)" }
+            let fileResult = await gitPaths(
+                source: source,
+                arguments: [
+                    "ls-files",
+                    "--others",
+                    "--ignored",
+                    "--exclude-standard",
+                    "-z",
+                    "--",
+                ] + pathspecs + collapsedExclusions
+            )
+            paths += fileResult.paths
+            if let diagnostic = fileResult.diagnostic {
+                diagnostics.append(diagnostic)
+            }
+        }
+        return (paths, diagnostics)
+    }
+
+    private nonisolated func standardIgnoredFiles(
+        source: URL,
+        candidates: [String]
     ) async -> (paths: [String], diagnostics: [String]) {
         var paths: [String] = []
         var diagnostics: [String] = []
@@ -180,9 +225,6 @@ public struct WorktreeIncludeSyncService: Sendable {
                 "--ignored",
                 "--exclude-standard",
             ]
-            if collapseDirectories {
-                arguments += ["--directory", "--no-empty-directory"]
-            }
             arguments += ["-z", "--"] + pathspecs
             let result = await gitPaths(source: source, arguments: arguments)
             paths += result.paths

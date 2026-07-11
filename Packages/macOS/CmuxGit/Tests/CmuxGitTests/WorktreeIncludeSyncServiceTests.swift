@@ -374,7 +374,10 @@ struct WorktreeIncludeSyncServiceTests {
         #expect(standardIgnoreInvocations.allSatisfy { invocation in
             guard let separator = invocation.arguments.firstIndex(of: "--") else { return false }
             let pathspecs = invocation.arguments.suffix(from: invocation.arguments.index(after: separator))
-            return !pathspecs.isEmpty && pathspecs.allSatisfy { $0.hasPrefix(":(top,literal)") }
+            return pathspecs.contains { $0.hasPrefix(":(top,literal)") }
+                && pathspecs.allSatisfy {
+                    $0.hasPrefix(":(top,literal)") || $0.hasPrefix(":(top,exclude,literal)")
+                }
         })
     }
 
@@ -439,14 +442,21 @@ private actor CandidateFilteringCommandRunner: CommandRunning {
             guard argument.hasPrefix(prefix) else { return nil }
             return String(argument.dropFirst(prefix.count))
         }
+        let excludedPathspecs = Set(arguments.compactMap { argument -> String? in
+            let prefix = ":(top,exclude,literal)"
+            guard argument.hasPrefix(prefix) else { return nil }
+            return String(argument.dropFirst(prefix.count))
+        })
 
         let stdout: String
         if isStandardIgnoreCheck {
-            stdout = literalPathspecs.compactMap { path in
+            let matchedPaths = literalPathspecs.compactMap { path -> String? in
+                guard !excludedPathspecs.contains(path) else { return nil }
                 if path == "node_modules/" { return "node_modules/" }
                 if path == ".env" { return ".env" }
                 return nil
-            }.joined(separator: "\0") + (literalPathspecs.isEmpty ? "" : "\0")
+            }
+            stdout = matchedPaths.joined(separator: "\0") + (matchedPaths.isEmpty ? "" : "\0")
         } else if isDirectoryQuery {
             stdout = "node_modules/\0"
         } else {
