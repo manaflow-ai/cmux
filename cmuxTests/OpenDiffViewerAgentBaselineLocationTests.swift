@@ -1,5 +1,11 @@
 import XCTest
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
 final class OpenDiffViewerAgentBaselineLocationTests: XCTestCase {
     func testBaselineStoreUsesBundleScopedHookDirectory() {
         let applicationSupport = URL(fileURLWithPath: "/tmp/cmux-test-application-support", isDirectory: true)
