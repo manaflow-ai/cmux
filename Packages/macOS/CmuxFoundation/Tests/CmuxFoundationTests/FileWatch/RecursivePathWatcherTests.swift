@@ -150,7 +150,7 @@ private actor GateClock: FileWatchClock {
         #expect(wrapped == .eventIDsWrapped)
     }
 
-    @Test func conservativeIdentityDominatesThrottleWindow() async {
+    @Test func conservativeIdentityDominatesOnlyUntilBufferedResetIsObserved() async {
         let clock = GateClock()
         let watcher = RecursivePathWatcher(testThrottleClock: clock)
         var iterator = watcher.events.makeAsyncIterator()
@@ -169,6 +169,23 @@ private actor GateClock: FileWatchClock {
         await watcher.simulateFileSystemEventForTesting(
             id: FileWatchEventID(rawValue: 52)
         )
+        await clock.waitForSleeper()
+        await clock.releaseOne()
+        // Repeat the conservative signal once after the consumer drains it. This
+        // acknowledges the bounded AsyncStream buffer without losing a reset to
+        // a newer stable watermark.
+        #expect(await iterator.next() == .mustRescan)
+
+        await watcher.simulateFileSystemEventForTesting(
+            id: FileWatchEventID(rawValue: 53)
+        )
+        await clock.waitForSleeper()
+        await clock.releaseOne()
+        #expect(await iterator.next() == .stable(FileWatchEventID(rawValue: 53)))
+
+        await watcher.simulateFileSystemEventForTesting(
+            id: FileWatchEventID(rawValue: 54)
+        )
         await watcher.simulateFileSystemEventForTesting(identity: .eventIDsWrapped)
         await clock.waitForSleeper()
         await clock.releaseOne()
@@ -180,6 +197,13 @@ private actor GateClock: FileWatchClock {
         await clock.waitForSleeper()
         await clock.releaseOne()
         #expect(await iterator.next() == .eventIDsWrapped)
+
+        await watcher.simulateFileSystemEventForTesting(
+            id: FileWatchEventID(rawValue: 2)
+        )
+        await clock.waitForSleeper()
+        await clock.releaseOne()
+        #expect(await iterator.next() == .stable(FileWatchEventID(rawValue: 2)))
         await watcher.stop()
     }
 

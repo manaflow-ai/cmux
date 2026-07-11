@@ -225,7 +225,7 @@ private final class BlockingSnapshotLoadGate: @unchecked Sendable {
         )
         #expect(resetAuthority != secondUnknownAuthority)
         #expect(postResetAuthority != resetAuthority)
-        #expect(duplicatePostResetAuthority != postResetAuthority)
+        #expect(duplicatePostResetAuthority == postResetAuthority)
     }
 
     @Test func laterFallbackRescansAndCatchesMissedWatcherEvent() async throws {
