@@ -12,10 +12,11 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `5ba4701db`. It extends `e215e78bf` with hidden
+Current cmux pinned fork head: `de4e06a9b`. It extends `e215e78bf` with hidden
 renderer suspension, coalesced visibility transitions, reveal retries across
-mailbox backpressure and draw errors, and content-free renderer activity
-callbacks. The renderer changes are tracked in
+mailbox backpressure and draw errors, renderer visibility reconciliation after
+mailbox-handler errors, and content-free renderer activity callbacks. The
+renderer changes are tracked in
 https://github.com/manaflow-ai/ghostty/pull/100. The inherited upstream,
 scrollback, and selection changes were published via
 https://github.com/manaflow-ai/ghostty/pull/96 and
@@ -82,22 +83,27 @@ https://github.com/manaflow-ai/ghostty/pull/106.
    prepared damage across mailbox pressure and backend errors, and retry
    without losing the next redraw. Renderer callbacks expose timing only and
    never terminal content.
+10. Renderer visibility is reconciled after a mailbox handler throws. A
+    visibility message consumed before a later handler error therefore cannot
+    leave the logical visibility flag ahead of the renderer state and suppress
+    every subsequent reveal transition.
 
 The inherited `e215e78bf` lineage was verified with Zig 0.15.2 compression,
 formatter, selection activity, libghostty-vt compression, and cmux link-click
 tests, plus the `wasm32-freestanding` libghostty-vt build and tagged cmux
-reloads `gcmp` and `gsel2`. The `5ba4701db` universal GhosttyKit archive was
+reloads `gcmp` and `gsel2`. The `de4e06a9b` universal GhosttyKit archive was
 built and validated by
-https://github.com/manaflow-ai/cmux/actions/runs/29130302422; its SHA-256 is
+https://github.com/manaflow-ai/cmux/actions/runs/29133847382; its SHA-256 is
 pinned in `scripts/ghosttykit-checksums.txt`.
 Prebuilt archive:
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5ba4701db359dba75c0eff0e5a02a430d4e00187-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-de4e06a9b831d3a399d0ef140bce96b8f3280434-crashsubdir-cmux-crash-v1
 
 ### Previous pin
 
-The previous cmux pin was `e215e78bf`. It remains the fork-main base of
-`5ba4701db` and contains the compressed-scrollback and lock-free selection
-changes described above.
+The previous cmux pin was `5ba4701db`. It contains the renderer suspension,
+visibility coalescing, reveal retry, and activity callback changes described
+above. Its `e215e78bf` base contains the compressed-scrollback and lock-free
+selection changes.
 
 ### Earlier pin
 
