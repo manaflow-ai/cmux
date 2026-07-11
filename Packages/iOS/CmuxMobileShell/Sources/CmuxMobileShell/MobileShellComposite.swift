@@ -3537,30 +3537,37 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         browserWorkspaceListIsAuthoritative = false
         secondaryAggregationTask?.cancel()
         secondaryAggregationTask = Task { @MainActor [weak self] in
-            await self?.refreshSecondaryMacWorkspaces()
+            let isAuthoritative = await self?.refreshSecondaryMacWorkspaces() ?? false
             guard !Task.isCancelled else { return }
-            self?.browserWorkspaceListIsAuthoritative = true
+            self?.browserWorkspaceListIsAuthoritative = isAuthoritative
         }
     }
 
-    func refreshSecondaryMacWorkspaces() async {
-        guard let pairedMacStore, multiMacAggregationEnabled else { return }
+    @discardableResult
+    func refreshSecondaryMacWorkspaces() async -> Bool {
+        guard multiMacAggregationEnabled else { return true }
+        guard let pairedMacStore else { return false }
         // Require a concrete signed-in user before any load/connection: a nil/empty
         // account would make `loadAll(stackUserID: nil)` read EVERY locally stored
         // Mac across Stack accounts and publish another account's workspaces into
         // this UI (the scope guard alone passes for nil == nil). Mirrors
         // loadPairedMacs()'s account requirement.
-        guard let scope = await currentScopeSnapshot() else { return }
+        guard let scope = await currentScopeSnapshot() else { return false }
         // Pull the authoritative backup first so a secondary Mac that relaunched
         // on a new port has its route refreshed before we (re)connect.
         if let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
             await refresher.refreshFromBackup(stackUserID: scope.userID)
         }
-        guard await isAggregationScopeValid(scope) else { return }
-        let loadedMacs = (try? await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)) ?? []
-        guard await isAggregationScopeValid(scope) else { return }
+        guard await isAggregationScopeValid(scope) else { return false }
+        let loadedMacs: [MobilePairedMac]
+        do {
+            loadedMacs = try await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)
+        } catch {
+            return false
+        }
+        guard await isAggregationScopeValid(scope) else { return false }
         let visibleLoadedMacs = await visibleStoredPairedMacs(from: loadedMacs, scope: scope)
-        guard await isAggregationScopeValid(scope) else { return }
+        guard await isAggregationScopeValid(scope) else { return false }
         let macs = secondaryAggregationCandidateMacs(from: visibleLoadedMacs)
         let wanted = Set(macs.map(\.macDeviceID))
         // Tear down subscriptions for Macs that are gone or are now the foreground.
@@ -3578,7 +3585,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Re-check before each Mac so a sign-out / account/team switch
             // mid-loop stops us before we connect to or write state for another
             // scope.
-            guard await isAggregationScopeValid(scope) else { return }
+            guard await isAggregationScopeValid(scope) else { return false }
             if let existing = secondaryMacSubscriptions[mac.macDeviceID] {
                 let previews = await fetchSecondaryWorkspaces(on: existing.client, macDeviceID: mac.macDeviceID)
                 guard await isSecondaryRefreshStillCurrent(
@@ -3606,6 +3613,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     for: mac, scope: scope)
             }
         }
+        guard await isAggregationScopeValid(scope) else { return false }
+        return hasWorkspaceSnapshots(forSecondaryMacIDs: macs.map(\.macDeviceID))
+    }
+
+    func hasWorkspaceSnapshots(forSecondaryMacIDs macDeviceIDs: [String]) -> Bool {
+        macDeviceIDs.allSatisfy { workspacesByMac[$0] != nil }
     }
 
     private func isSecondaryRefreshStillCurrent(
@@ -4218,7 +4231,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Open the workspace preview, switching the foreground Mac first when the workspace belongs to another paired Mac.
-    public func openWorkspace(_ id: MobileWorkspacePreview.ID) async {
+    /// - Returns: The workspace's current UI row id after any Mac switch, or `nil` when opening failed.
+    @discardableResult
+    public func openWorkspace(_ id: MobileWorkspacePreview.ID) async -> MobileWorkspacePreview.ID? {
         let workspace = workspaces.first { $0.id == id }
         let remoteWorkspaceID = workspace?.rpcWorkspaceID ?? id
         let ownerMacDeviceID = workspace?.macDeviceID
@@ -4242,7 +4257,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 if selectedWorkspaceID == id {
                     setSelectedWorkspaceID(nil)
                 }
-                return
+                return nil
             }
         }
         let resolvedRowID = rowWorkspaceID(
@@ -4254,7 +4269,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if selectedWorkspaceID == id {
                 setSelectedWorkspaceID(nil)
             }
-            return
+            return nil
         }
         analytics.capture("ios_workspace_opened", [
             "terminal_count": .int(workspace?.terminals.count ?? 0),
@@ -4270,6 +4285,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if supportsWorkspaceReadStateActions, workspaceHadUnread {
             await setWorkspaceUnread(id: resolvedRowID, false)
         }
+        return resolvedRowID
     }
 
     /// Submit the current terminal input text from a synchronous UI action.

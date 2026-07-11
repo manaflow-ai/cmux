@@ -344,16 +344,16 @@ struct WorkspaceShellView: View {
             // The compact grid includes aggregated workspaces from secondary
             // Macs. Reuse the shared open path to foreground the owning Mac
             // before terminal.create can use the foreground remote client.
-            await store.openWorkspace(workspaceID)
-            guard store.selectedWorkspaceID == workspaceID,
-                  store.workspaces.contains(where: { $0.id == workspaceID }),
-                  store.createTerminal(in: workspaceID)
+            guard let resolvedWorkspaceID = await store.openWorkspace(workspaceID),
+                  store.selectedWorkspaceID == resolvedWorkspaceID,
+                  store.workspaces.contains(where: { $0.id == resolvedWorkspaceID }),
+                  store.createTerminal(in: resolvedWorkspaceID)
             else {
                 return
             }
-            guard let workspace = store.workspaces.first(where: { $0.id == workspaceID }) else { return }
+            guard let workspace = store.workspaces.first(where: { $0.id == resolvedWorkspaceID }) else { return }
             browserStore.showNonBrowserSurface(for: workspace.browserSurfaceIdentity)
-            compactNavigationPath = [workspaceID]
+            compactNavigationPath = [resolvedWorkspaceID]
         }
     }
 

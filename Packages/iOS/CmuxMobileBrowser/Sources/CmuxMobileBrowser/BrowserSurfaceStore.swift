@@ -446,18 +446,3 @@ public final class BrowserSurfaceStore {
         }
     }
 }
-
-@MainActor
-@Observable
-private final class BrowserSurfaceSnapshotSource {
-    private(set) var value: BrowserSurfaceSnapshot
-
-    init(value: BrowserSurfaceSnapshot) {
-        self.value = value
-    }
-
-    func update(_ nextValue: BrowserSurfaceSnapshot) {
-        guard nextValue != value else { return }
-        value = nextValue
-    }
-}
