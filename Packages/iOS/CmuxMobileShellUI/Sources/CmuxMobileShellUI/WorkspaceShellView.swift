@@ -345,15 +345,15 @@ struct WorkspaceShellView: View {
             // Macs. Reuse the shared open path to foreground the owning Mac
             // before terminal.create can use the foreground remote client.
             await store.openWorkspace(workspaceID)
-            guard let resolvedWorkspaceID = store.selectedWorkspaceID,
-                  store.workspaces.contains(where: { $0.id == resolvedWorkspaceID }),
-                  store.createTerminal(in: resolvedWorkspaceID)
+            guard store.selectedWorkspaceID == workspaceID,
+                  store.workspaces.contains(where: { $0.id == workspaceID }),
+                  store.createTerminal(in: workspaceID)
             else {
                 return
             }
-            guard let workspace = store.workspaces.first(where: { $0.id == resolvedWorkspaceID }) else { return }
+            guard let workspace = store.workspaces.first(where: { $0.id == workspaceID }) else { return }
             browserStore.showNonBrowserSurface(for: workspace.browserSurfaceIdentity)
-            compactNavigationPath = [resolvedWorkspaceID]
+            compactNavigationPath = [workspaceID]
         }
     }
 
