@@ -393,9 +393,12 @@ export function App({ config, initialStatus }: ConfigProps) {
           }
         }}
         onJump={scrollToItem}
-        onNavigate={async (url) => {
+        onNavigate={(url) => {
           setStatus(createDiffViewerStatus(label("loadingDiff"), { pending: true }));
-          await closeActiveSession();
+          // Session cleanup is best-effort and can wait on WebKit's reply path.
+          // Do not make source/repository/base selection wait for it: navigation
+          // starts a new typed session and must stay responsive.
+          void closeActiveSession();
           window.location.href = resolveDiffNavigationURL(url);
         }}
         onReload={async () => {
