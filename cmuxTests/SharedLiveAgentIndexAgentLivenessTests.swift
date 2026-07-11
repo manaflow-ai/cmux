@@ -12,6 +12,32 @@ import Testing
 @Suite(.serialized)
 struct SharedLiveAgentIndexAgentLivenessTests {
     @Test
+    func watchesEveryHookStoreReadDirectory() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-hook-store-watchers-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let scoped = root.appendingPathComponent("scoped", isDirectory: true)
+        let legacy = root.appendingPathComponent("legacy", isDirectory: true)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                (
+                    index: .empty,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: []
+                )
+            },
+            hookStoreDirectoryProvider: { [scoped.path, legacy.path] }
+        )
+
+        sharedIndex.scheduleRefreshIfStale()
+
+        #expect(fm.fileExists(atPath: scoped.path))
+        #expect(fm.fileExists(atPath: legacy.path))
+    }
+
+    @Test
     func forkAvailabilityIgnoresDeadUnrelatedPanelChildProcess() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
