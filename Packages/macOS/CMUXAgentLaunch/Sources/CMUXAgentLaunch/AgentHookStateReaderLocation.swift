@@ -80,6 +80,24 @@ public struct AgentHookStateReaderLocation: Sendable {
         return mergedStoreData(scopedData: scopedData, legacyData: legacyData)
     }
 
+    /// Returns scoped-first file locations for a sidecar store that manages
+    /// its own schema and legacy fallback.
+    ///
+    /// Stable and Nightly include the shared legacy directory after their
+    /// bundle-scoped directory. Explicit overrides and tagged debug builds
+    /// remain isolated. Hook-session JSON readers should use `storeData`
+    /// instead so their records are merged consistently.
+    public func compatibilityFileURLs(named filename: String) -> [URL] {
+        guard !filename.isEmpty,
+              filename == URL(fileURLWithPath: filename).lastPathComponent else { return [] }
+        let primary = directoryURL.appendingPathComponent(filename, isDirectory: false)
+        guard let legacyDirectoryURL else { return [primary] }
+        return [
+            primary,
+            legacyDirectoryURL.appendingPathComponent(filename, isDirectory: false),
+        ]
+    }
+
     /// Best-effort durable compaction for a background loader.
     ///
     /// Busy locks leave the marker absent so later background reloads retry;

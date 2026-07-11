@@ -6124,7 +6124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let snapshotWorkingDirectory = Self.normalizedOpenDiffViewerPath(
                 snapshot.workingDirectory ?? snapshot.launchCommand?.workingDirectory
             )
-            let storeURL = Self.agentTurnDiffBaselineStoreURL()
+            let storeURLs = Self.agentTurnDiffBaselineStoreURLs()
             let workspaceId = workspace.id
             let originWindowId = tabManager.flatMap { manager in
                 mainWindowContexts.values.first { $0.tabManager === manager }?.windowId
@@ -6139,7 +6139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 socketPath: socketPath,
                 fallbackCwd: fallbackCwd,
                 snapshotWorkingDirectory: snapshotWorkingDirectory,
-                storeURL: storeURL,
+                storeURLs: storeURLs,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 sessionId: sessionId,
@@ -6187,6 +6187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         surfaceId: UUID?,
         useLastTurnSource: Bool,
         sessionId: String?,
+        baselineStoreURL: URL? = nil,
         focus: Bool = true
     ) -> Bool {
         let process = Process()
@@ -6206,15 +6207,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             arguments.append(contentsOf: ["--session", sessionId])
         }
         process.arguments = arguments
-        var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
-        environment["CMUX_WORKSPACE_ID"] = workspaceId.uuidString
-        if let surfaceId {
-            environment["CMUX_SURFACE_ID"] = surfaceId.uuidString
-        }
-        environment.removeValue(forKey: "CMUX_SOCKET")
-        process.environment = environment
+        process.environment = Self.diffViewerProcessEnvironment(
+            baseEnvironment: ProcessInfo.processInfo.environment,
+            socketPath: socketPath,
+            cliURL: cliURL,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            baselineStoreURL: baselineStoreURL
+        )
         process.standardInput = FileHandle.nullDevice
 
         let stdoutPipe = Pipe()

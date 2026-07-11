@@ -1,6 +1,12 @@
-import Foundation
 import AppKit
+import CMUXAgentLaunch
 import CmuxFoundation
+import Foundation
+
+nonisolated struct OpenDiffViewerAgentBaselineContext: Sendable, Equatable {
+    let repoRoot: String
+    let storeURL: URL
+}
 
 extension AppDelegate {
     func startOpenDiffViewerAgentContextTask(
@@ -8,8 +14,8 @@ extension AppDelegate {
         taskKey: String
     ) {
         openDiffViewerAgentContextTasks[taskKey] = Task.detached(priority: .userInitiated) {
-            let repoRoot = Self.latestAgentTurnDiffRepoRoot(
-                storeURL: request.storeURL,
+            let baselineContext = Self.latestAgentTurnDiffContext(
+                storeURLs: request.storeURLs,
                 workspaceId: request.workspaceId,
                 surfaceId: request.surfaceId,
                 sessionId: request.sessionId
@@ -18,7 +24,7 @@ extension AppDelegate {
                 AppDelegate.shared?.finishOpenDiffViewerAgentContextTask(
                     request,
                     taskKey: taskKey,
-                    repoRoot: repoRoot
+                    baselineContext: baselineContext
                 )
             }
         }
@@ -27,7 +33,7 @@ extension AppDelegate {
     func finishOpenDiffViewerAgentContextTask(
         _ request: OpenDiffViewerAgentContextRequest,
         taskKey: String,
-        repoRoot: String?
+        baselineContext: OpenDiffViewerAgentBaselineContext?
     ) {
         openDiffViewerAgentContextTasks.removeValue(forKey: taskKey)
         let pendingRequest = openDiffViewerAgentContextPendingRequests.removeValue(forKey: taskKey)
@@ -43,8 +49,8 @@ extension AppDelegate {
         ) else {
             return
         }
-        let cwd = repoRoot ?? request.snapshotWorkingDirectory ?? request.fallbackCwd
-        let useLastTurnSource = repoRoot != nil
+        let cwd = baselineContext?.repoRoot ?? request.snapshotWorkingDirectory ?? request.fallbackCwd
+        let useLastTurnSource = baselineContext != nil
         guard launchDiffViewerProcess(
             cliURL: request.cliURL,
             socketPath: request.socketPath,
@@ -53,6 +59,7 @@ extension AppDelegate {
             surfaceId: request.surfaceId,
             useLastTurnSource: useLastTurnSource,
             sessionId: request.sessionId,
+            baselineStoreURL: baselineContext?.storeURL,
             focus: shouldFocus
         ) == true else {
             NSSound.beep()
@@ -121,6 +128,25 @@ extension AppDelegate {
         return candidates.max(by: { $0.capturedAt < $1.capturedAt })?.repoRoot
     }
 
+    nonisolated static func latestAgentTurnDiffContext(
+        storeURLs: [URL],
+        workspaceId: UUID,
+        surfaceId: UUID,
+        sessionId: String
+    ) -> OpenDiffViewerAgentBaselineContext? {
+        for storeURL in storeURLs {
+            if let repoRoot = latestAgentTurnDiffRepoRoot(
+                storeURL: storeURL,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: sessionId
+            ) {
+                return OpenDiffViewerAgentBaselineContext(repoRoot: repoRoot, storeURL: storeURL)
+            }
+        }
+        return nil
+    }
+
     nonisolated static func openDiffViewerAgentContextTaskKey(
         workspaceId: UUID,
         surfaceId: UUID,
@@ -133,16 +159,48 @@ extension AppDelegate {
         ].joined(separator: ":")
     }
 
-    nonisolated static func agentTurnDiffBaselineStoreURL() -> URL {
-        let environment = ProcessInfo.processInfo.environment
-        if let override = normalizedOpenDiffViewerPath(environment["CMUX_AGENT_HOOK_STATE_DIR"]) {
-            let expandedOverride = (override as NSString).expandingTildeInPath
-            return URL(fileURLWithPath: expandedOverride, isDirectory: true)
-                .appendingPathComponent("agent-turn-diff-baselines.json", isDirectory: false)
+    nonisolated static func agentTurnDiffBaselineStoreURLs(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        applicationSupportDirectory: URL? = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        legacyHomeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [URL] {
+        AgentHookStateReaderLocation(
+            environment: environment,
+            applicationSupportDirectory: applicationSupportDirectory,
+            bundleIdentifier: bundleIdentifier,
+            legacyHomeDirectory: legacyHomeDirectory,
+            fileManager: .default
+        ).compatibilityFileURLs(named: "agent-turn-diff-baselines.json")
+    }
+
+    nonisolated static func diffViewerProcessEnvironment(
+        baseEnvironment: [String: String],
+        socketPath: String,
+        cliURL: URL,
+        workspaceId: UUID,
+        surfaceId: UUID?,
+        baselineStoreURL: URL?
+    ) -> [String: String] {
+        var environment = baseEnvironment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
+        environment["CMUX_WORKSPACE_ID"] = workspaceId.uuidString
+        if let surfaceId {
+            environment["CMUX_SURFACE_ID"] = surfaceId.uuidString
+        } else {
+            environment.removeValue(forKey: "CMUX_SURFACE_ID")
         }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".cmuxterm", isDirectory: true)
-            .appendingPathComponent("agent-turn-diff-baselines.json", isDirectory: false)
+        if let baselineStoreURL {
+            environment["CMUX_AGENT_HOOK_STATE_DIR"] = baselineStoreURL.deletingLastPathComponent().path
+        } else {
+            environment.removeValue(forKey: "CMUX_AGENT_HOOK_STATE_DIR")
+        }
+        environment.removeValue(forKey: "CMUX_SOCKET")
+        return environment
     }
 
     nonisolated static func normalizedOpenDiffViewerIdentifier(_ value: String?) -> String? {

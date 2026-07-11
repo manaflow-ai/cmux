@@ -5,7 +5,7 @@ struct OpenDiffViewerAgentContextRequest: Sendable {
     let socketPath: String
     let fallbackCwd: String
     let snapshotWorkingDirectory: String?
-    let storeURL: URL
+    let storeURLs: [URL]
     let workspaceId: UUID
     let surfaceId: UUID
     let sessionId: String
