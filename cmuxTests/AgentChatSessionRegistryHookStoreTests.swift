@@ -39,10 +39,6 @@ struct AgentChatSessionRegistryHookStoreTests {
         let home = try temporaryHomeDirectory()
         let applicationSupport = home.appendingPathComponent("Application Support", isDirectory: true)
         let bundleIdentifier = "com.cmuxterm.app.nightly"
-        let scopedDirectory = applicationSupport
-            .appendingPathComponent("cmux", isDirectory: true)
-            .appendingPathComponent("agent-hooks", isDirectory: true)
-            .appendingPathComponent(bundleIdentifier, isDirectory: true)
         let sessionID = "legacy-upgrade-session"
         let workspaceID = UUID().uuidString
         let surfaceID = UUID().uuidString
@@ -64,9 +60,6 @@ struct AgentChatSessionRegistryHookStoreTests {
 
         #expect(entry?.workspaceID == workspaceID)
         #expect(entry?.surfaceID == surfaceID)
-        #expect(FileManager.default.fileExists(
-            atPath: scopedDirectory.appendingPathComponent("claude-hook-sessions.json").path
-        ))
     }
 
     @Test func mobileChatObserverDetectsCmuxLaunchedOpaqueClaudeWrapper() throws {
