@@ -190,24 +190,58 @@ function preferredFallbackContentLocale(request: NextRequest): "en" | "ja" {
     .map((preference, index) => {
       const [tag, ...parameters] = preference.trim().split(";");
       const qualityParameter = parameters.find((parameter) =>
-        parameter.trim().startsWith("q="),
+        /^q\s*=/iu.test(parameter.trim()),
       );
-      const quality = qualityParameter
-        ? Number.parseFloat(qualityParameter.trim().slice(2))
-        : 1;
-      return { tag: tag.toLowerCase(), quality, index };
+      const qualityValue = qualityParameter?.split("=")[1].trim();
+      const quality =
+        qualityValue === undefined
+          ? 1
+          : /^(?:0(?:\.\d{0,3})?|1(?:\.0{0,3})?)$/u.test(qualityValue)
+            ? Number(qualityValue)
+            : Number.NaN;
+      return { tag: tag.trim().toLowerCase(), quality, index };
     })
-    .filter(({ quality }) => Number.isFinite(quality) && quality > 0)
-    .sort(
-      (left, right) =>
-        right.quality - left.quality || left.index - right.index,
+    .filter(
+      ({ tag, quality }) =>
+        tag.length > 0 &&
+        Number.isFinite(quality) &&
+        quality >= 0 &&
+        quality <= 1,
     );
 
-  for (const { tag } of preferences) {
-    if (tag === "ja" || tag.startsWith("ja-")) return "ja";
-    if (tag === "en" || tag.startsWith("en-")) return "en";
+  const english = effectiveLanguageQuality("en", preferences);
+  const japanese = effectiveLanguageQuality("ja", preferences);
+  if (japanese.quality > english.quality) return "ja";
+  if (
+    japanese.quality === english.quality &&
+    japanese.quality > 0 &&
+    japanese.index < english.index
+  ) {
+    return "ja";
   }
   return "en";
+}
+
+function effectiveLanguageQuality(
+  locale: "en" | "ja",
+  preferences: Array<{ tag: string; quality: number; index: number }>,
+) {
+  const explicitMatches = preferences.filter(({ tag }) => {
+    if (tag === "*") return false;
+    return tag.split("-")[0] === locale;
+  });
+  const matches =
+    explicitMatches.length > 0
+      ? explicitMatches
+      : preferences.filter(({ tag }) => tag === "*");
+  return matches.reduce(
+    (best, preference) =>
+      preference.quality > best.quality ||
+      (preference.quality === best.quality && preference.index < best.index)
+        ? preference
+        : best,
+    { quality: 0, index: Number.POSITIVE_INFINITY },
+  );
 }
 
 function setFeatureWorkflowDocLinkHeader(

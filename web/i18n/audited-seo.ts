@@ -34,10 +34,6 @@ const shortTitleContexts: Record<string, string> = {
   uk: "AI-кодування на macOS",
 };
 
-const compareIdentityTitles: Partial<Record<string, string>> = {
-  multipleClaudeAgents: "cmux · Claude Code",
-};
-
 function selectTitle(
   locale: string,
   original: string,
@@ -71,14 +67,21 @@ function selectDescription(
   const tagline = openGraphImageTagline(locale);
   const contextualCandidates = authoredCandidates.flatMap((candidate) => [
     candidate,
-    `${candidate}. ${short}`,
-    `${candidate}. ${detailed}`,
-    `${candidate}. ${short} ${tagline}`,
+    joinSentences(candidate, short),
+    joinSentences(candidate, detailed),
+    joinSentences(joinSentences(candidate, short), tagline),
   ]);
   return seoDescription(locale, original, {
     minLength: 110,
     fallbackCandidates: contextualCandidates,
   });
+}
+
+function joinSentences(first: string, second: string) {
+  const leading = first.trim();
+  const trailing = second.trim();
+  const separator = /[.!?。！？؟។៕]$/u.test(leading) ? " " : ". ";
+  return `${leading}${separator}${trailing}`;
 }
 
 export function homeSeoCopy(locale: string, meta: SeoMessageLookup) {
@@ -103,7 +106,7 @@ export function assetsSeoCopy(
     title: selectTitle(locale, t("metaTitle"), siteMeta, [t("title")]),
     description: selectDescription(locale, t("metaDescription"), [
       t("title"),
-      `${t("title")}. ${t("metaDescription")}`,
+      joinSentences(t("title"), t("metaDescription")),
       t("description"),
     ]),
   };
@@ -118,7 +121,7 @@ export function blogIndexSeoCopy(
     title: selectTitle(locale, t("metaTitle"), siteMeta, [t("title")]),
     description: selectDescription(locale, t("metaDescription"), [
       t("title"),
-      `${t("title")}. ${t("metaDescription")}`,
+      joinSentences(t("title"), t("metaDescription")),
     ]),
   };
 }
@@ -135,7 +138,7 @@ export function communitySeoCopy(
     ]),
     description: selectDescription(locale, t("metaDescription"), [
       t("title"),
-      `${t("title")}. ${t("metaDescription")}`,
+      joinSentences(t("title"), t("metaDescription")),
       t("description"),
     ]),
   };
@@ -151,7 +154,7 @@ export function bestTerminalSeoCopy(
     description: selectDescription(locale, t("metaDescription"), [
       t("title"),
       t("cmuxBuiltFor"),
-      `${t("title")}. ${t("cmuxBuiltFor")}`,
+      joinSentences(t("title"), t("cmuxBuiltFor")),
     ]),
   };
 }
@@ -191,7 +194,7 @@ export function compareIndexSeoCopy(
     title: selectTitle(locale, t("metaTitle"), siteMeta, [t("title")]),
     description: selectDescription(locale, t("metaDescription"), [
       t("title"),
-      `${t("title")}. ${openGraphImageAlt(locale)}`,
+      joinSentences(t("title"), openGraphImageAlt(locale)),
       t("intro"),
     ]),
   };
@@ -205,27 +208,23 @@ export function comparePageSeoCopy(
   siteMeta: SeoMessageLookup,
 ) {
   const titleCandidates = [t("title")];
+  const descriptionCandidates = [t("title"), t("summaryBody"), t("intro")];
   if (pageKey === "bestTerminalForAgents") {
     titleCandidates.push(landingLinks("bestTerminal"));
+    descriptionCandidates.push(landingLinks("agents"));
+  } else if (pageKey === "multipleClaudeAgents") {
+    titleCandidates.push(landingLinks("claudeTeams"));
+    titleCandidates.push(t("faqQ1"), t("faqQ2"), t("faqQ3"));
   } else {
-    const identityTitle = compareIdentityTitles[pageKey];
-    if (identityTitle) titleCandidates.push(identityTitle);
     titleCandidates.push(t("faqQ1"), t("faqQ2"), t("faqQ3"));
   }
   return {
     title: selectTitle(locale, t("metaTitle"), siteMeta, titleCandidates),
     description: selectDescription(locale, t("metaDescription"), [
-      t("title"),
-      t("summaryBody"),
-      t("intro"),
-      t("faqA1"),
-      t("faqA2"),
-      t("faqA3"),
-      `${t("title")}. ${t("faqQ1")}`,
-      `${t("title")}. ${t("faqQ2")}`,
-      `${t("faqQ1")} ${t("faqQ2")}`,
-      `${t("title")}. ${t("faqA1")}`,
-      `${t("faqQ1")} ${t("faqA1")}`,
+      ...descriptionCandidates,
+      joinSentences(t("faqQ1"), t("faqA1")),
+      joinSentences(t("faqQ2"), t("faqA2")),
+      joinSentences(t("faqQ3"), t("faqA3")),
     ]),
   };
 }

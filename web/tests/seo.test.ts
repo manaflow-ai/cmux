@@ -258,11 +258,13 @@ describe("SEO metadata helpers", () => {
             pageMessages.title,
             pageMessages.metaDescription,
             pageMessages.faqQ1,
+            pageMessages.faqQ2,
+            pageMessages.faqQ3,
             pageMessages.summaryBody,
             pageMessages.intro,
-            pageMessages.faqA1,
-            pageMessages.faqA2,
-            pageMessages.faqA3,
+            ...(page.key === "bestTerminalForAgents"
+              ? [messages.landing.links.agents]
+              : []),
           ],
           page.key === "bestTerminalForAgents"
             ? [
@@ -274,7 +276,7 @@ describe("SEO metadata helpers", () => {
                 pageMessages.metaTitle,
                 pageMessages.title,
                 ...(page.key === "multipleClaudeAgents"
-                  ? ["cmux · Claude Code"]
+                  ? [messages.landing.links.claudeTeams]
                   : []),
               ],
           ),
@@ -331,6 +333,7 @@ describe("SEO metadata helpers", () => {
         expect(`${row.copy.title}${row.copy.description}`).not.toMatch(
           /…|<\/?(?:link|code)>/u,
         );
+        expect(row.copy.description).not.toMatch(/[!?។៕。！？؟]\./u);
         const hasRouteContext = row.contexts.some(
           (context) =>
             context.length > 0 && row.copy.description.includes(context),
@@ -370,6 +373,47 @@ describe("SEO metadata helpers", () => {
     expect(copy.description).toContain(page.title);
     expect(searchSnippetLength(copy.description)).toBeGreaterThanOrEqual(110);
     expect(searchSnippetLength(copy.description)).toBeLessThanOrEqual(160);
+  });
+
+  test("keeps synthesized compare metadata tied to its localized route", async () => {
+    const messages = await messagesFor("th");
+    const lookup = messageLookup(messages.landing.links);
+    const siteMeta = messageLookup(messages.meta);
+    const bestTerminal = messages.landing.compare.pages.bestTerminalForAgents;
+    const bestTerminalCopy = comparePageSeoCopy(
+      "th",
+      "bestTerminalForAgents",
+      messageLookup(bestTerminal),
+      lookup,
+      siteMeta,
+    );
+    const multipleAgents = messages.landing.compare.pages.multipleClaudeAgents;
+    const multipleAgentsCopy = comparePageSeoCopy(
+      "th",
+      "multipleClaudeAgents",
+      messageLookup(multipleAgents),
+      lookup,
+      siteMeta,
+    );
+
+    expect(bestTerminalCopy.description).toContain(messages.landing.links.agents);
+    expect(bestTerminalCopy.description).not.toBe(bestTerminal.faqA1);
+    expect(multipleAgentsCopy.title).toContain(
+      messages.landing.links.claudeTeams,
+    );
+    expect(multipleAgentsCopy.title).not.toContain("cmux · Claude Code");
+
+    const khmerMessages = await messagesFor("km");
+    const khmerMultipleAgents =
+      khmerMessages.landing.compare.pages.multipleClaudeAgents;
+    const khmerCopy = comparePageSeoCopy(
+      "km",
+      "multipleClaudeAgents",
+      messageLookup(khmerMultipleAgents),
+      messageLookup(khmerMessages.landing.links),
+      messageLookup(khmerMessages.meta),
+    );
+    expect(khmerCopy.description).not.toContain("។.");
   });
 });
 
@@ -428,6 +472,35 @@ describe("SEO middleware", () => {
     );
     expect(negotiatedJapanese.headers.get("location")).not.toContain("/en/");
 
+    const wildcardPrefersEnglish = middleware(
+      requestFor("/pricing", {
+        "accept-language": "ja;q=0.5,*;q=0.9",
+      }),
+    );
+    expect(wildcardPrefersEnglish.status).toBe(200);
+    expect(wildcardPrefersEnglish.headers.get("location")).toBeNull();
+    expect(wildcardPrefersEnglish.headers.get("x-middleware-rewrite")).toBe(
+      "https://cmux.com/en/pricing",
+    );
+
+    const wildcardExcludesEnglish = middleware(
+      requestFor("/pricing", {
+        "accept-language": "en;q=0,*;q=1",
+      }),
+    );
+    expect(wildcardExcludesEnglish.status).toBe(307);
+    expect(wildcardExcludesEnglish.headers.get("location")).toBe(
+      "https://cmux.com/ja/pricing",
+    );
+
+    const invalidJapaneseQuality = middleware(
+      requestFor("/pricing", {
+        "accept-language": "ja;q=0.8oops,en;q=0.4",
+      }),
+    );
+    expect(invalidJapaneseQuality.status).toBe(200);
+    expect(invalidJapaneseQuality.headers.get("location")).toBeNull();
+
     const cookieJapanese = middleware(
       requestFor("/pricing", {
         cookie: "NEXT_LOCALE=ja",
@@ -437,6 +510,18 @@ describe("SEO middleware", () => {
     expect(cookieJapanese.status).toBe(307);
     expect(cookieJapanese.headers.get("location")).toBe(
       "https://cmux.com/ja/pricing",
+    );
+
+    const cookieEnglish = middleware(
+      requestFor("/pricing", {
+        cookie: "NEXT_LOCALE=en",
+        "accept-language": "en;q=0,*;q=1",
+      }),
+    );
+    expect(cookieEnglish.status).toBe(200);
+    expect(cookieEnglish.headers.get("location")).toBeNull();
+    expect(cookieEnglish.headers.get("x-middleware-rewrite")).toBe(
+      "https://cmux.com/en/pricing",
     );
 
     const japanese = middleware(
