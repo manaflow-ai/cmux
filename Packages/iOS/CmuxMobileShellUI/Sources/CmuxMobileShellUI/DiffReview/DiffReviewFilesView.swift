@@ -12,6 +12,7 @@ struct DiffReviewFilesView: View {
     @State private var errorMessage: String?
     @State private var isFilePresented = false
     @State private var isListTruncated = false
+    @State private var statusLoadGeneration = 0
 
     var body: some View {
         List {
@@ -27,7 +28,7 @@ struct DiffReviewFilesView: View {
                         session.openFile(at: index)
                         isFilePresented = true
                     }
-                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                    .listRowInsets(EdgeInsets(top: 2, leading: 12, bottom: 2, trailing: 8))
                 }
             }
             if isListTruncated {
@@ -66,95 +67,25 @@ struct DiffReviewFilesView: View {
     }
 
     private func reload() async {
+        statusLoadGeneration &+= 1
+        let generation = statusLoadGeneration
         isLoading = true
         errorMessage = nil
-        defer { isLoading = false }
+        defer {
+            if statusLoadGeneration == generation {
+                isLoading = false
+            }
+        }
         do {
             let response = try await fetchStatus()
+            guard statusLoadGeneration == generation, !Task.isCancelled else { return }
             session.setFiles(response.files)
             isListTruncated = response.truncated
+        } catch is CancellationError {
+            return
         } catch {
+            guard statusLoadGeneration == generation, !Task.isCancelled else { return }
             errorMessage = error.localizedDescription
-        }
-    }
-}
-
-private struct DiffReviewFileRow: View {
-    let file: MobileWorkspaceDiffStatusResponse.File
-    let open: () -> Void
-
-    var body: some View {
-        Button(action: open) {
-            HStack(spacing: 12) {
-                statusBadge
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(fileName)
-                        .font(.body.weight(.semibold))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    if !directory.isEmpty {
-                        Text(directory)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                }
-                Spacer(minLength: 8)
-                counts
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .frame(minHeight: 44)
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("DiffReviewFileRow-\(file.path)")
-    }
-
-    private var statusBadge: some View {
-        Text(file.status)
-            .font(.system(size: 12, weight: .bold, design: .monospaced))
-            .foregroundStyle(.white)
-            .frame(width: 28, height: 28)
-            .background(statusColor, in: .rect(cornerRadius: 6))
-            .accessibilityHidden(true)
-    }
-
-    private var counts: some View {
-        HStack(spacing: 6) {
-            if let additions = file.additions {
-                Text(verbatim: "+\(additions)")
-                    .foregroundStyle(.green)
-            }
-            if let deletions = file.deletions {
-                Text(verbatim: "-\(deletions)")
-                    .foregroundStyle(.red)
-            }
-        }
-        .font(.system(.caption, design: .monospaced))
-    }
-
-    private var fileName: String {
-        URL(fileURLWithPath: file.path).lastPathComponent
-    }
-
-    private var directory: String {
-        let directory = (file.path as NSString).deletingLastPathComponent
-        return directory == "." ? "" : directory
-    }
-
-    private var statusColor: Color {
-        switch file.status {
-        case "A", "U":
-            return .green
-        case "D":
-            return .red
-        case "R":
-            return .blue
-        default:
-            return .orange
         }
     }
 }

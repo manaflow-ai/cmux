@@ -9102,13 +9102,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bookmark"
+            "value": "Bookmark this hunk"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ブックマーク"
+            "value": "このハンクをブックマーク"
           }
         }
       }
@@ -9264,6 +9264,153 @@
             "value": "ハンク 0/0"
           }
         }
+      }
+    },
+    "mobile.diff.bookmarked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Bookmarked" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブックマーク済み" } }
+      }
+    },
+    "mobile.diff.notBookmarked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Not bookmarked" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブックマークされていません" } }
+      }
+    },
+    "mobile.diff.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Loading diff" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "差分を読み込み中" } }
+      }
+    },
+    "mobile.diff.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Diff unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "差分を利用できません" } }
+      }
+    },
+    "mobile.diff.switchFileAccessibilityFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Current file, %@. Choose another file" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在のファイル、%@。別のファイルを選択" } }
+      }
+    },
+    "mobile.diff.hunkSwipeHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Swipe left or right here to move between hunks" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ここを左右にスワイプしてハンク間を移動" } }
+      }
+    },
+    "mobile.diff.hunkAccessibilityFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hunk %1$d of %2$d. Old lines %3$d through %4$d. New lines %5$d through %6$d" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%2$d件中%1$d件目のハンク。旧%3$d行から%4$d行。新%5$d行から%6$d行" } }
+      }
+    },
+    "mobile.diff.lineAdditionAccessibilityFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Addition, new line %1$d, %2$@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "追加、新%1$d行、%2$@" } }
+      }
+    },
+    "mobile.diff.lineDeletionAccessibilityFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Deletion, old line %1$d, %2$@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "削除、旧%1$d行、%2$@" } }
+      }
+    },
+    "mobile.diff.lineContextAccessibilityFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Context, old line %1$d, new line %2$d, %3$@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "前後行、旧%1$d行、新%2$d行、%3$@" } }
+      }
+    },
+    "mobile.diff.openFileHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Opens this file's diff" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このファイルの差分を開きます" } }
+      }
+    },
+    "mobile.diff.status.added": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Added" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "追加" } }
+      }
+    },
+    "mobile.diff.status.modified": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Modified" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "変更" } }
+      }
+    },
+    "mobile.diff.status.deleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Deleted" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "削除" } }
+      }
+    },
+    "mobile.diff.status.renamed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Renamed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "名前変更" } }
+      }
+    },
+    "mobile.diff.status.untracked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Untracked" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "未追跡" } }
+      }
+    },
+    "mobile.diff.additionsAccessibilityFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%d additions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%d行追加" } }
+      }
+    },
+    "mobile.diff.deletionsAccessibilityFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%d deletions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%d行削除" } }
+      }
+    },
+    "mobile.diff.additionCountUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "addition count unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "追加行数は不明" } }
+      }
+    },
+    "mobile.diff.deletionCountUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "deletion count unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "削除行数は不明" } }
+      }
+    },
+    "mobile.diff.fileAccessibilityFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%1$@, %2$@, %3$@, %4$@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%1$@、%2$@、%3$@、%4$@" } }
       }
     }
   },

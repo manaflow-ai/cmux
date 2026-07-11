@@ -3,6 +3,21 @@ import Testing
 @testable import CmuxDiffModel
 
 @Suite struct UnifiedDiffParserTests {
+    @Test func cancelledParseAvoidsProducingRows() async {
+        let task = Task.detached {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return UnifiedDiffParser().parse(
+                "@@ -1,2 +1,2 @@\n-old\n+new\n context\n",
+                isTruncated: true
+            )
+        }
+
+        let result = await task.value
+
+        #expect(result.hunks.isEmpty)
+        #expect(result.isTruncated)
+    }
+
     private let parser = UnifiedDiffParser()
 
     @Test func parsesMultiHunkFile() {

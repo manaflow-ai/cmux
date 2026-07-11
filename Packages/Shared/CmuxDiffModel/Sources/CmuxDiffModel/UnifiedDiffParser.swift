@@ -14,6 +14,9 @@ public struct UnifiedDiffParser: Sendable {
     ///   - isTruncated: Whether the producer capped `unifiedDiff`.
     /// - Returns: Parsed hunks plus the truncation flag.
     public func parse(_ unifiedDiff: String, isTruncated: Bool = false) -> DiffParseResult {
+        guard !Task.isCancelled else {
+            return DiffParseResult(hunks: [], isTruncated: isTruncated)
+        }
         var rawLines = unifiedDiff.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         if unifiedDiff.hasSuffix("\n") {
             rawLines.removeLast()

@@ -6,6 +6,30 @@ import Testing
 
 @MainActor
 @Suite struct DiffReviewSessionTests {
+    @Test func loadStateNeverProjectsPreviousFileUnderNewSelection() {
+        let state = DiffReviewFileLoadState.loaded(path: "A.swift", hunks: [], isTruncated: false)
+
+        switch state.visible(for: "B.swift") {
+        case .loading(let path):
+            #expect(path == "B.swift")
+        default:
+            Issue.record("A stale file state was projected for the new selection")
+        }
+    }
+
+    @Test func loadStateKeepsMatchingFileSnapshot() {
+        let state = DiffReviewFileLoadState.loaded(path: "A.swift", hunks: [], isTruncated: true)
+
+        switch state.visible(for: "A.swift") {
+        case .loaded(let path, let hunks, let isTruncated):
+            #expect(path == "A.swift")
+            #expect(hunks.isEmpty)
+            #expect(isTruncated)
+        default:
+            Issue.record("The matching file snapshot was not projected")
+        }
+    }
+
     @Test func hunkNavigationCrossesFileBoundary() {
         let session = DiffReviewSession(files: [
             file("A.swift"),
@@ -54,6 +78,40 @@ import Testing
         session.setFiles([file("A.swift")])
 
         #expect(session.currentFile?.path == "A.swift")
+        #expect(session.currentHunkIndex == 0)
+    }
+
+    @Test func setFilesPreservesSelectedPathAcrossReordering() {
+        let session = DiffReviewSession(files: [file("A.swift"), file("B.swift"), file("C.swift")])
+        session.openFile(path: "B.swift")
+        session.recordHunkCount(2, for: "B.swift")
+        session.moveForward()
+
+        session.setFiles([file("C.swift"), file("B.swift"), file("A.swift")])
+
+        #expect(session.currentFile?.path == "B.swift")
+        #expect(session.currentFileIndex == 1)
+        #expect(session.currentHunkIndex == 1)
+    }
+
+    @Test func directFileSelectionOpensExactFileAtFirstHunk() {
+        let session = DiffReviewSession(files: [file("A.swift"), file("B.swift"), file("C.swift")])
+        session.recordHunkCount(3, for: "C.swift")
+
+        session.openFile(path: "C.swift")
+
+        #expect(session.currentFile?.path == "C.swift")
+        #expect(session.currentFileIndex == 2)
+        #expect(session.currentHunkIndex == 0)
+    }
+
+    @Test func directFileSelectionIgnoresUnknownPath() {
+        let session = DiffReviewSession(files: [file("A.swift"), file("B.swift")])
+        session.openFile(path: "B.swift")
+
+        session.openFile(path: "missing.swift")
+
+        #expect(session.currentFile?.path == "B.swift")
         #expect(session.currentHunkIndex == 0)
     }
 
@@ -130,6 +188,23 @@ import Testing
 
         #expect(session.currentFile?.path == "A.swift")
         #expect(session.currentHunkIndex == 0)
+    }
+
+    @Test func bookmarkClampsToLastHunkWhenDiffShrinks() {
+        let session = DiffReviewSession(files: [file("A.swift"), file("B.swift")])
+        session.recordHunkCount(4, for: "A.swift")
+        session.moveForward()
+        session.moveForward()
+        session.moveForward()
+        session.markBookmark()
+        session.moveForward()
+
+        session.recordHunkCount(2, for: "A.swift")
+        session.jumpToBookmark()
+
+        #expect(session.currentFile?.path == "A.swift")
+        #expect(session.currentHunkIndex == 1)
+        #expect(!session.hasJumpBackTarget)
     }
 
     private func file(_ path: String) -> MobileWorkspaceDiffStatusResponse.File {

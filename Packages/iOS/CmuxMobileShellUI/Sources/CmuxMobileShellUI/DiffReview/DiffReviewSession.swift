@@ -62,9 +62,11 @@ final class DiffReviewSession {
     }
 
     func setFiles(_ files: [MobileWorkspaceDiffStatusResponse.File]) {
+        let selectedPath = currentFile?.path
         self.files = files
+        let validPaths = Set(files.map(\.path))
         hunkCountsByPath = hunkCountsByPath.filter { path, _ in
-            files.contains { $0.path == path }
+            validPaths.contains(path)
         }
         // A bookmark whose file left the list would keep showing the Jump
         // Back pill while jumpToBookmark silently no-ops.
@@ -77,8 +79,11 @@ final class DiffReviewSession {
             pendingSeekToLastHunk = false
             return
         }
-        if currentFileIndex >= self.files.count {
-            currentFileIndex = 0
+        if let selectedPath,
+           let selectedIndex = self.files.firstIndex(where: { $0.path == selectedPath }) {
+            currentFileIndex = selectedIndex
+        } else if currentFileIndex >= self.files.count {
+            currentFileIndex = self.files.count - 1
             currentHunkIndex = 0
             pendingSeekToLastHunk = false
         }
@@ -90,6 +95,11 @@ final class DiffReviewSession {
         currentHunkIndex = 0
         pendingSeekToLastHunk = false
         navigationGeneration &+= 1
+    }
+
+    func openFile(path: String) {
+        guard let index = files.firstIndex(where: { $0.path == path }) else { return }
+        openFile(at: index)
     }
 
     func recordHunkCount(_ count: Int, for path: String) {

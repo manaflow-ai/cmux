@@ -6,21 +6,12 @@ import SwiftUI
 struct DiffReviewFileView: View {
     @Bindable var session: DiffReviewSession
     let fetchFile: (String) async throws -> MobileWorkspaceDiffFileResponse
+    private let parser = DiffReviewParser()
 
-    @State private var loadedPath: String?
-    @State private var hunks: [DiffHunk] = []
-    @State private var isLoading = false
-    @State private var isTruncated = false
-    @State private var errorMessage: String?
-    /// Bumped by the error state's Retry action so the load task re-runs for
-    /// the same file after a transient RPC failure.
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var loadState = DiffReviewFileLoadState.idle
+    @State private var activeRequest: DiffReviewFileLoadRequest?
     @State private var loadAttempt = 0
-
-    /// Identity of one load: the file plus the retry generation.
-    private struct LoadRequest: Equatable {
-        let path: String?
-        let attempt: Int
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,15 +19,24 @@ struct DiffReviewFileView: View {
             Divider()
             bottomBar
         }
-        .navigationTitle(session.currentFile.map { fileTitle($0.path) } ?? "")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                fileSwitcher
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: session.markBookmark) {
-                    Image(systemName: session.bookmark == nil ? "bookmark" : "bookmark.fill")
+                    Image(systemName: isCurrentHunkBookmarked ? "bookmark.fill" : "bookmark")
                 }
                 .frame(minWidth: 44, minHeight: 44)
-                .accessibilityLabel(L10n.string("mobile.diff.bookmark", defaultValue: "Bookmark"))
+                .accessibilityLabel(
+                    L10n.string("mobile.diff.bookmark", defaultValue: "Bookmark this hunk")
+                )
+                .accessibilityValue(
+                    isCurrentHunkBookmarked
+                        ? L10n.string("mobile.diff.bookmarked", defaultValue: "Bookmarked")
+                        : L10n.string("mobile.diff.notBookmarked", defaultValue: "Not bookmarked")
+                )
             }
         }
         .overlay(alignment: .top) {
@@ -48,43 +48,47 @@ struct DiffReviewFileView: View {
                     )
                     .font(.callout.weight(.semibold))
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .frame(minHeight: 44)
                     .background(.regularMaterial, in: .capsule)
                 }
                 .buttonStyle(.plain)
-                .padding(.top, 8)
+                .padding(.top, 4)
                 .accessibilityIdentifier("DiffReviewJumpBack")
             }
         }
-        .task(id: LoadRequest(path: session.currentFile?.path, attempt: loadAttempt)) {
-            await loadCurrentFile()
+        .task(id: currentRequest) {
+            await loadCurrentFile(request: currentRequest)
         }
         .sensoryFeedback(.selection, trigger: session.navigationGeneration)
     }
 
     @ViewBuilder
     private var content: some View {
-        if isLoading {
-            ProgressView()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let errorMessage {
+        switch visibleLoadState {
+        case .idle, .loading:
+            ProgressView(
+                L10n.string("mobile.diff.loading", defaultValue: "Loading diff")
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .failed(_, let message):
             ContentUnavailableView {
                 Label(
                     L10n.string("mobile.diff.loadFailed", defaultValue: "Could not load diff"),
                     systemImage: "exclamationmark.triangle"
                 )
             } description: {
-                Text(errorMessage)
+                Text(message)
             } actions: {
                 Button(L10n.string("mobile.diff.retry", defaultValue: "Retry")) {
                     loadAttempt &+= 1
                 }
                 .buttonStyle(.borderedProminent)
+                .frame(minWidth: 44, minHeight: 44)
                 .accessibilityIdentifier("DiffReviewRetry")
             }
-        } else if let hunk = currentHunk {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+        case .loaded(_, let hunks, let isTruncated):
+            if let hunk = currentHunk(in: hunks) {
+                VStack(spacing: 0) {
                     if isTruncated {
                         Label(
                             L10n.string("mobile.diff.truncated", defaultValue: "Diff truncated"),
@@ -92,24 +96,71 @@ struct DiffReviewFileView: View {
                         )
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, 8)
+                        .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
                     }
-                    DiffReviewHunkView(hunk: hunk)
+                    DiffReviewHunkView(
+                        hunk: hunk,
+                        position: session.currentHunkIndex + 1,
+                        total: hunks.count,
+                        moveBackward: session.moveBackward,
+                        moveForward: session.moveForward
+                    )
                 }
-                .padding(.vertical, 12)
+            } else {
+                ContentUnavailableView(
+                    L10n.string("mobile.diff.noHunks", defaultValue: "No diff hunks"),
+                    systemImage: "doc.text"
+                )
+                .contentShape(.rect)
+                .gesture(hunkSwipeGesture)
             }
-            .gesture(swipeGesture)
-        } else {
-            ContentUnavailableView(
-                L10n.string("mobile.diff.noHunks", defaultValue: "No diff hunks"),
-                systemImage: "doc.text"
-            )
-            .gesture(swipeGesture)
         }
     }
 
+    private var fileSwitcher: some View {
+        Menu {
+            ForEach(Array(session.files.enumerated()), id: \.element.id) { index, file in
+                Button {
+                    session.openFile(at: index)
+                } label: {
+                    if index == session.currentFileIndex {
+                        Label(file.path, systemImage: "checkmark")
+                    } else {
+                        Text(file.path)
+                    }
+                }
+            }
+        } label: {
+            VStack(spacing: 0) {
+                Text(currentFileName)
+                    .font(.headline)
+                    .lineLimit(1)
+                if !dynamicTypeSize.isAccessibilitySize {
+                    Text(session.currentFile?.path ?? "")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            .frame(maxWidth: 220)
+            .contentShape(.rect)
+        }
+        .accessibilityLabel(
+            String(
+                format: L10n.string(
+                    "mobile.diff.switchFileAccessibilityFormat",
+                    defaultValue: "Current file, %@. Choose another file"
+                ),
+                session.currentFile?.path ?? ""
+            )
+        )
+        .accessibilityIdentifier("DiffReviewFileSwitcher")
+    }
+
     private var bottomBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             Button(action: session.moveBackward) {
                 Image(systemName: "chevron.left")
                     .font(.title3.weight(.semibold))
@@ -120,7 +171,10 @@ struct DiffReviewFileView: View {
 
             Text(hunkCounterText)
                 .font(.callout.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
                 .frame(maxWidth: .infinity)
+                .accessibilityIdentifier("DiffReviewHunkCounter")
 
             Button(action: session.moveForward) {
                 Image(systemName: "chevron.right")
@@ -130,197 +184,91 @@ struct DiffReviewFileView: View {
             .disabled(!session.canMoveForward)
             .accessibilityLabel(L10n.string("mobile.diff.nextHunk", defaultValue: "Next Hunk"))
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .frame(maxHeight: 60)
         .background(.bar)
     }
 
-    private var currentHunk: DiffHunk? {
-        guard hunks.indices.contains(session.currentHunkIndex) else { return nil }
-        return hunks[session.currentHunkIndex]
+    private var currentRequest: DiffReviewFileLoadRequest {
+        DiffReviewFileLoadRequest(path: session.currentFile?.path, attempt: loadAttempt)
+    }
+
+    private var visibleLoadState: DiffReviewFileLoadState {
+        loadState.visible(for: session.currentFile?.path)
+    }
+
+    private var currentFileName: String {
+        guard let path = session.currentFile?.path else { return "" }
+        return URL(fileURLWithPath: path).lastPathComponent
+    }
+
+    private var isCurrentHunkBookmarked: Bool {
+        guard let currentFile = session.currentFile, let bookmark = session.bookmark else {
+            return false
+        }
+        return bookmark.filePath == currentFile.path && bookmark.hunkIndex == session.currentHunkIndex
     }
 
     private var hunkCounterText: String {
-        let count = max(hunks.count, 0)
-        guard count > 0 else {
-            return L10n.string("mobile.diff.hunkCounterEmpty", defaultValue: "Hunk 0/0")
+        switch visibleLoadState {
+        case .idle, .loading:
+            return L10n.string("mobile.diff.loading", defaultValue: "Loading diff")
+        case .failed:
+            return L10n.string("mobile.diff.unavailable", defaultValue: "Diff unavailable")
+        case .loaded(_, let hunks, _):
+            guard !hunks.isEmpty else {
+                return L10n.string("mobile.diff.hunkCounterEmpty", defaultValue: "Hunk 0/0")
+            }
+            return String(
+                format: L10n.string("mobile.diff.hunkCounterFormat", defaultValue: "Hunk %d/%d"),
+                min(session.currentHunkIndex + 1, hunks.count),
+                hunks.count
+            )
         }
-        return String(
-            format: L10n.string("mobile.diff.hunkCounterFormat", defaultValue: "Hunk %d/%d"),
-            min(session.currentHunkIndex + 1, count),
-            count
-        )
     }
 
-    private var swipeGesture: some Gesture {
-        DragGesture(minimumDistance: 30)
+    private var hunkSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 36)
             .onEnded { value in
-                if value.translation.width < -60 {
+                let horizontal = value.translation.width
+                let vertical = value.translation.height
+                guard abs(horizontal) >= 80, abs(horizontal) > abs(vertical) * 1.5 else { return }
+                if horizontal < 0 {
                     session.moveForward()
-                } else if value.translation.width > 60 {
+                } else {
                     session.moveBackward()
                 }
             }
     }
 
-    private func loadCurrentFile() async {
-        guard let file = session.currentFile else { return }
-        let path = file.path
-        if loadedPath != path {
-            // Never show the previous file's hunks under the new file's title
-            // while the new diff is in flight.
-            hunks = []
-            isTruncated = false
+    private func currentHunk(in hunks: [DiffHunk]) -> DiffHunk? {
+        guard hunks.indices.contains(session.currentHunkIndex) else { return nil }
+        return hunks[session.currentHunkIndex]
+    }
+
+    private func loadCurrentFile(request: DiffReviewFileLoadRequest) async {
+        guard let path = request.path else {
+            activeRequest = nil
+            loadState = .idle
+            return
         }
-        isLoading = true
-        errorMessage = nil
-        loadedPath = path
-        // A cancelled/superseded load must not clear the spinner the newer
-        // load owns; `loadedPath` tracks the owning request.
-        defer {
-            if loadedPath == path { isLoading = false }
-        }
+        activeRequest = request
+        loadState = .loading(path: path)
         do {
             let response = try await fetchFile(path)
-            guard loadedPath == path, !Task.isCancelled else { return }
-            // Parse off the main actor: a 2 MiB capped diff of short lines can
-            // still allocate ~100k DiffLine values, which would hitch or
-            // freeze the screen if split on the main thread (rendering is
-            // separately bounded by DiffReviewHunkView.maxRenderedLines).
-            let result = await Self.parseDiff(response)
-            guard loadedPath == path, !Task.isCancelled else { return }
-            hunks = result.hunks
-            isTruncated = result.isTruncated
+            guard activeRequest == request, !Task.isCancelled else { return }
+            let result = await parser.parse(response)
+            guard activeRequest == request, !Task.isCancelled else { return }
+            loadState = .loaded(path: path, hunks: result.hunks, isTruncated: result.isTruncated)
             session.recordHunkCount(result.hunks.count, for: path)
         } catch is CancellationError {
             return
         } catch {
-            guard loadedPath == path, !Task.isCancelled else { return }
-            hunks = []
-            isTruncated = false
+            guard activeRequest == request, !Task.isCancelled else { return }
+            loadState = .failed(path: path, message: error.localizedDescription)
             session.recordHunkCount(0, for: path)
-            errorMessage = error.localizedDescription
         }
     }
 
-    private func fileTitle(_ path: String) -> String {
-        URL(fileURLWithPath: path).lastPathComponent
-    }
-
-    /// Runs the pure unified-diff parse on a background task; the response and
-    /// parse result are Sendable value types. Cancellation of the SwiftUI
-    /// load task is forwarded into the detached parse (Task.detached alone
-    /// severs it), and the parser checks it cooperatively, so rapid file
-    /// navigation does not stack stale multi-MB parses.
-    private nonisolated static func parseDiff(_ response: MobileWorkspaceDiffFileResponse) async -> DiffParseResult {
-        let task = Task.detached(priority: .userInitiated) {
-            UnifiedDiffParser().parse(response.unifiedDiff, isTruncated: response.truncated)
-        }
-        return await withTaskCancellationHandler {
-            await task.value
-        } onCancel: {
-            task.cancel()
-        }
-    }
-}
-
-private struct DiffReviewHunkView: View {
-    /// Upper bound on eagerly-built line rows. The Mac's byte cap does not
-    /// bound row count: a new/generated file is a single hunk, so a 2 MiB
-    /// diff of short lines could otherwise construct ~100k rows in this
-    /// non-lazy stack and freeze the screen.
-    static let maxRenderedLines = 2000
-
-    let hunk: DiffHunk
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(verbatim: hunk.header)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.thinMaterial)
-            ScrollView(.horizontal, showsIndicators: true) {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(hunk.lines.prefix(Self.maxRenderedLines)) { line in
-                        DiffReviewLineView(line: line)
-                    }
-                }
-            }
-            if hunk.lines.count > Self.maxRenderedLines {
-                Label(
-                    String(
-                        format: L10n.string(
-                            "mobile.diff.hunkLinesTruncated",
-                            defaultValue: "Showing first %1$d of %2$d lines"
-                        ),
-                        Self.maxRenderedLines,
-                        hunk.lines.count
-                    ),
-                    systemImage: "scissors"
-                )
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-            }
-        }
-    }
-}
-
-private struct DiffReviewLineView: View {
-    let line: DiffLine
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Text(lineNumber)
-                .foregroundStyle(.secondary)
-                .frame(width: 48, alignment: .trailing)
-            Text(verbatim: marker + line.text)
-                .foregroundStyle(foreground)
-        }
-        .font(.system(size: 12, design: .monospaced))
-        .lineLimit(1)
-        .fixedSize(horizontal: true, vertical: false)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 2)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(background)
-    }
-
-    private var lineNumber: String {
-        if let newLine = line.newLine {
-            return String(newLine)
-        }
-        if let oldLine = line.oldLine {
-            return String(oldLine)
-        }
-        return ""
-    }
-
-    private var marker: String {
-        switch line.kind {
-        case .addition: return "+"
-        case .deletion: return "-"
-        case .context: return " "
-        }
-    }
-
-    private var foreground: Color {
-        switch line.kind {
-        case .addition: return .green
-        case .deletion: return .red
-        case .context: return .primary.opacity(0.78)
-        }
-    }
-
-    private var background: Color {
-        switch line.kind {
-        case .addition: return .green.opacity(0.08)
-        case .deletion: return .red.opacity(0.08)
-        case .context: return .clear
-        }
-    }
 }
