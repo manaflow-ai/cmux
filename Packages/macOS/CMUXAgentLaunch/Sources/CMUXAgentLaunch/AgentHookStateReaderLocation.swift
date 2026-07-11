@@ -47,41 +47,52 @@ public struct AgentHookStateReaderLocation {
         guard legacyDirectory.standardizedFileURL != directoryURL.standardizedFileURL else { return }
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         let lock = directoryURL.appendingPathComponent(".legacy-hook-state-migration.lock", isDirectory: false)
-        let lockDescriptor = lock.withUnsafeFileSystemRepresentation { path -> Int32 in
-            guard let path else { return -1 }
-            return open(path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
-        }
-        guard lockDescriptor >= 0 else {
-            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-        }
-        defer { close(lockDescriptor) }
-        guard flock(lockDescriptor, LOCK_EX) == 0 else {
-            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-        }
-        defer { flock(lockDescriptor, LOCK_UN) }
+        try withExclusiveFileLock(at: lock) {
+            let marker = directoryURL.appendingPathComponent(".legacy-hook-state-migrated-v1", isDirectory: false)
+            guard !fileManager.fileExists(atPath: marker.path) else { return }
 
-        let marker = directoryURL.appendingPathComponent(".legacy-hook-state-migrated-v1", isDirectory: false)
-        guard !fileManager.fileExists(atPath: marker.path) else { return }
-
-        if fileManager.fileExists(atPath: legacyDirectory.path) {
-            let candidates = try fileManager.contentsOfDirectory(
-                at: legacyDirectory,
-                includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
-                options: [.skipsHiddenFiles]
-            )
-            for source in candidates where source.lastPathComponent.hasSuffix("-hook-sessions.json") {
-                let values = try source.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
-                guard values.isRegularFile == true, values.isSymbolicLink != true else { continue }
-                let destination = directoryURL.appendingPathComponent(source.lastPathComponent, isDirectory: false)
-                if fileManager.fileExists(atPath: destination.path) {
-                    try mergeMissingSessions(from: source, into: destination, fileManager: fileManager)
-                } else {
-                    try fileManager.copyItem(at: source, to: destination)
+            if fileManager.fileExists(atPath: legacyDirectory.path) {
+                let candidates = try fileManager.contentsOfDirectory(
+                    at: legacyDirectory,
+                    includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
+                    options: [.skipsHiddenFiles]
+                )
+                for source in candidates where source.lastPathComponent.hasSuffix("-hook-sessions.json") {
+                    let values = try source.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+                    guard values.isRegularFile == true, values.isSymbolicLink != true else { continue }
+                    let destination = directoryURL.appendingPathComponent(source.lastPathComponent, isDirectory: false)
+                    let destinationLock = URL(fileURLWithPath: destination.path + ".lock", isDirectory: false)
+                    try withExclusiveFileLock(at: destinationLock) {
+                        if fileManager.fileExists(atPath: destination.path) {
+                            try mergeMissingSessions(from: source, into: destination, fileManager: fileManager)
+                        } else {
+                            try fileManager.copyItem(at: source, to: destination)
+                        }
+                    }
                 }
             }
-        }
 
-        try Data().write(to: marker, options: .atomic)
+            try Data().write(to: marker, options: .atomic)
+        }
+    }
+
+    private func withExclusiveFileLock<T>(at lock: URL, body: () throws -> T) throws -> T {
+        let descriptor = lock.withUnsafeFileSystemRepresentation { path -> Int32 in
+            guard let path else { return -1 }
+            return open(path, O_CREAT | O_RDWR | O_NOFOLLOW, S_IRUSR | S_IWUSR)
+        }
+        guard descriptor >= 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+        defer { close(descriptor) }
+        guard flock(descriptor, LOCK_EX) == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+        defer { flock(descriptor, LOCK_UN) }
+        guard fchmod(descriptor, S_IRUSR | S_IWUSR) == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+        return try body()
     }
 
     private func mergeMissingSessions(from source: URL, into destination: URL, fileManager: FileManager) throws {
