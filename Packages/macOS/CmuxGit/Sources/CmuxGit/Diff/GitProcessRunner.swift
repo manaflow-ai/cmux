@@ -78,6 +78,7 @@ struct GitProcessRunner: Sendable {
                 watchdog: watchdog
             )
             process.waitUntilExit()
+            watchdog.cancelEscalation()
             if read.capped {
                 // We terminated git after reaching the output bound; its
                 // exit status reflects our signal, not a git failure. Return
@@ -164,6 +165,12 @@ struct GitProcessRunner: Sendable {
         // Diff output feeds a machine parser; an ambient external diff
         // driver must not execute or replace the unified format.
         "GIT_EXTERNAL_DIFF",
+        // These variables can execute startup files or mutate shell behavior
+        // before the wrapper reaches its child-level `env -u` boundary.
+        "SHELLOPTS",
+        "BASHOPTS",
+        "BASH_ENV",
+        "ENV",
     ]
 
     private func nonLockingGitEnvironment() -> [String: String] {

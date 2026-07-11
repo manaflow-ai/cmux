@@ -10,6 +10,9 @@ final class GitProcessWatchdog: @unchecked Sendable {
 
     private let lock = NSLock()
     private var fired = false
+    private var completed = false
+    private var escalationGeneration = 0
+    private var escalationTimer: (any DispatchSourceTimer)?
     private let process: Process
     private let processGroupIdentifier: pid_t
     private let outputHandle: FileHandle
@@ -29,26 +32,56 @@ final class GitProcessWatchdog: @unchecked Sendable {
         guard shouldTerminate else { return }
         try? outputHandle.close()
         guard process.isRunning else { return }
+        scheduleSigkill()
         if kill(-processGroupIdentifier, SIGTERM) != 0 {
             process.terminate()
         }
-        scheduleSigkill()
     }
 
     var didFire: Bool {
         lock.withLock { fired }
     }
 
-    private func scheduleSigkill() {
-        let timer = DispatchSource.makeTimerSource(queue: Self.timerQueue)
-        timer.schedule(deadline: .now() + Self.sigkillGraceSeconds)
-        timer.setEventHandler { [process, processGroupIdentifier] in
-            kill(-processGroupIdentifier, SIGKILL)
-            if process.isRunning {
-                process.terminate()
-            }
-            timer.cancel()
+    /// Invalidates a pending SIGKILL as soon as the wrapper has reaped git.
+    /// Without this cancellation, a delayed signal could target an unrelated
+    /// process group that reused git's numeric identifier after exit.
+    func cancelEscalation() {
+        let timer = lock.withLock {
+            completed = true
+            escalationGeneration &+= 1
+            let timer = escalationTimer
+            escalationTimer = nil
+            return timer
         }
-        timer.resume()
+        timer?.setEventHandler {}
+        timer?.cancel()
+    }
+
+    private func scheduleSigkill() {
+        lock.withLock {
+            guard !completed else { return }
+            escalationGeneration &+= 1
+            let generation = escalationGeneration
+            let timer = DispatchSource.makeTimerSource(queue: Self.timerQueue)
+            escalationTimer = timer
+            timer.schedule(deadline: .now() + Self.sigkillGraceSeconds)
+            timer.setEventHandler { [weak self] in
+                defer { timer.cancel() }
+                guard let self else { return }
+                self.lock.withLock {
+                    guard !self.completed,
+                          self.escalationGeneration == generation,
+                          self.process.isRunning else { return }
+                    // Keep the generation check and signal atomic with respect
+                    // to cancellation after `waitUntilExit`.
+                    kill(-self.processGroupIdentifier, SIGKILL)
+                    if self.process.isRunning {
+                        self.process.terminate()
+                    }
+                    self.escalationTimer = nil
+                }
+            }
+            timer.resume()
+        }
     }
 }

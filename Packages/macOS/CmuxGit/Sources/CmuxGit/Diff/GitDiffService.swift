@@ -121,7 +121,7 @@ public struct GitDiffService: Sendable {
             .appendingPathComponent(path).path
         if FileManager.default.fileExists(atPath: absolutePath, isDirectory: &isDirectory),
            isDirectory.boolValue,
-           !isExactTrackedEntry(repoRoot: repoRoot, path: path) {
+           !isExactTrackedGitlink(repoRoot: repoRoot, path: path, maxOutputBytes: maxOutputBytes) {
             return nil
         }
         if isUntracked(repoRoot: repoRoot, path: path, maxOutputBytes: maxOutputBytes) {
@@ -220,11 +220,30 @@ public struct GitDiffService: Sendable {
         return output?.split(separator: "\0", omittingEmptySubsequences: true).contains(Substring(path)) == true
     }
 
-    private func isExactTrackedEntry(repoRoot: String, path: String) -> Bool {
-        runGit(
+    /// A gitlink is the only index entry whose working-tree representation is
+    /// a directory but whose path is still one exact diffable file. Ordinary
+    /// directories must fail closed because `ls-files` pathspecs recursively
+    /// match their descendants even with `--error-unmatch`.
+    private func isExactTrackedGitlink(
+        repoRoot: String,
+        path: String,
+        maxOutputBytes: Int?
+    ) -> Bool {
+        let validationOutputLimit = min(maxOutputBytes ?? 64 * 1024, 64 * 1024)
+        let result = runGit(
             in: repoRoot,
-            arguments: ["ls-files", "--error-unmatch", "--", Self.literalPathspec(path)]
-        ).successOutput != nil
+            arguments: ["ls-files", "--stage", "-z", "--", Self.literalPathspec(path)],
+            maxOutputBytes: validationOutputLimit
+        )
+        guard let output = result.successOutput,
+              !result.capped,
+              !result.timedOut else { return false }
+        return output.split(separator: "\0", omittingEmptySubsequences: true).contains { record in
+            guard let tab = record.firstIndex(of: "\t") else { return false }
+            let metadata = record[..<tab].split(separator: " ", omittingEmptySubsequences: true)
+            let recordedPath = record[record.index(after: tab)...]
+            return metadata.first == "160000" && recordedPath == path
+        }
     }
 
     /// `git diff HEAD` fails before the first commit. In that state Git's
