@@ -1,7 +1,8 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Link } from "../../../i18n/navigation";
+import { hasFallbackContent } from "../../../i18n/locale-availability";
 import { NavLinks } from "./nav-links";
 import { DownloadButton } from "./download-button";
 import { ThemeToggle } from "../theme";
@@ -23,6 +24,8 @@ export function SiteHeader({
 }) {
   const t = useTranslations("nav");
   const tc = useTranslations("common");
+  const locale = useLocale();
+  const pricingLocale = hasFallbackContent(locale) ? locale : "en";
   const { open, toggle, close, drawerRef, buttonRef } = useMobileDrawer();
 
   return (
@@ -141,6 +144,7 @@ export function SiteHeader({
           <ProUpgradeVisibility>
             <Link
               href="/pricing"
+              locale={pricingLocale}
               onClick={close}
               className="hover:text-foreground transition-colors py-1"
             >

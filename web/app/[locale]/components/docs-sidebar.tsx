@@ -2,17 +2,24 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { Link, usePathname } from "../../../i18n/navigation";
-import { navItemsForLocale, isSection, type NavLink } from "./docs-nav-items";
+import {
+  navItemContentLocale,
+  navItemsForLocale,
+  isSection,
+  type NavLink,
+} from "./docs-nav-items";
 import { DocsSearch } from "./docs-search";
 
 function SidebarLink({
   item,
+  locale,
   pathname,
   onNavigate,
   indent,
   t,
 }: {
   item: NavLink;
+  locale: string;
   pathname: string;
   onNavigate?: () => void;
   indent?: boolean;
@@ -22,6 +29,7 @@ function SidebarLink({
   return (
     <Link
       href={item.href}
+      locale={navItemContentLocale(item, locale)}
       onClick={onNavigate}
       className={`block py-1.5 text-[14px] rounded-md transition-colors ${
         indent ? "px-5" : "px-3"
@@ -57,6 +65,7 @@ export function DocsSidebar({ onNavigate }: { onNavigate?: () => void }) {
                   <SidebarLink
                     key={child.href}
                     item={child}
+                    locale={locale}
                     pathname={pathname}
                     onNavigate={onNavigate}
                     indent
@@ -70,6 +79,7 @@ export function DocsSidebar({ onNavigate }: { onNavigate?: () => void }) {
             <SidebarLink
               key={entry.href}
               item={entry}
+              locale={locale}
               pathname={pathname}
               onNavigate={onNavigate}
               t={t}

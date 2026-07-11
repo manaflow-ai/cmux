@@ -1,13 +1,17 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
+import { Link } from "../../../i18n/navigation";
+import { hasFallbackContent } from "../../../i18n/locale-availability";
 
 // Reads the ?welcome= / ?billing= states set by /api/billing/checkout so the
 // /pro page itself can stay static.
 // Render inside <Suspense> (useSearchParams requirement).
 export function ProWelcomeBanner() {
   const t = useTranslations("pricing");
+  const locale = useLocale();
+  const pricingLocale = hasFallbackContent(locale) ? locale : "en";
   const params = useSearchParams();
   const welcome = params.get("welcome");
   const billing = params.get("billing");
@@ -41,12 +45,13 @@ export function ProWelcomeBanner() {
       {welcome === "pending" && (
         <>
           {" "}
-          <a
+          <Link
             href="/pricing"
+            locale={pricingLocale}
             className="underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors"
           >
             {t("welcomePendingAction")}
-          </a>
+          </Link>
         </>
       )}
     </div>

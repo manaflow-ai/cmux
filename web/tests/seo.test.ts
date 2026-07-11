@@ -73,16 +73,10 @@ describe("SEO metadata helpers", () => {
   test("does not split Unicode characters at the metadata cutoff", () => {
     const description = seoDescription(
       "en",
-      `${"A".repeat(158)}👩🏽‍💻${"B".repeat(20)}`,
+      `${"A".repeat(157)}👩🏽‍💻${"B".repeat(20)}`,
     );
     expect(description).toContain("👩🏽‍💻");
-    expect(
-      Array.from(
-        new Intl.Segmenter("en", { granularity: "grapheme" }).segment(
-          description,
-        ),
-      ).length,
-    ).toBeLessThanOrEqual(160);
+    expect(searchSnippetLength(description)).toBeLessThanOrEqual(160);
   });
 
   test("adds useful context to short titles and trims long titles", () => {
@@ -141,6 +135,10 @@ describe("SEO metadata helpers", () => {
 
   test("has localized SEO fallback copy for every configured locale", () => {
     for (const locale of locales) {
+      const detailedDescription = seoDescription(locale, "CLI reference", {
+        minLength: 110,
+      });
+      const detailedLength = searchSnippetLength(detailedDescription);
       expect(hasLocalizedSeoCopy(locale)).toBe(true);
       expect(seoDescription(locale, "CLI reference").length).toBeGreaterThan(
         "CLI reference".length,
@@ -150,11 +148,8 @@ describe("SEO metadata helpers", () => {
       expect(seoDescription(locale, "CLI reference").length).toBeLessThanOrEqual(
         160,
       );
-      expect(
-        searchSnippetLength(
-          seoDescription(locale, "CLI reference", { minLength: 110 }),
-        ),
-      ).toBeGreaterThanOrEqual(110);
+      expect(detailedLength).toBeGreaterThanOrEqual(110);
+      expect(detailedLength).toBeLessThanOrEqual(160);
     }
   });
 });

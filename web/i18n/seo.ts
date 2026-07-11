@@ -176,7 +176,7 @@ export function seoTitle(
   const maxLength = options.maxLength ?? MAX_TITLE_LENGTH;
   let normalized = title.trim();
 
-  if (metadataLength(normalized) < minLength) {
+  if (metadataSearchLength(normalized) < minLength) {
     const context = openGraphImageTagline(locale);
     if (!normalized.includes(context)) {
       normalized = `${normalized} — ${context}`;
@@ -192,27 +192,38 @@ function truncateMetadataText(
   minLength = 0,
 ) {
   const characters = metadataCharacters(value);
-  if (characters.length <= maxLength) return value;
+  if (metadataSearchLength(value) <= maxLength) return value;
 
-  const candidate = characters.slice(0, maxLength - 1);
+  const candidate: string[] = [];
+  const candidateWidths: number[] = [];
+  let candidateWidth = 0;
+  for (const character of characters) {
+    const characterWidth = metadataGraphemeWidth(character);
+    if (candidateWidth + characterWidth > maxLength - 1) break;
+    candidate.push(character);
+    candidateWidth += characterWidth;
+    candidateWidths.push(candidateWidth);
+  }
   while (/\s/u.test(candidate.at(-1) ?? "")) candidate.pop();
 
-  const minimumBoundary = Math.max(
+  const minimumBoundaryWidth = Math.max(
     minLength,
     Math.floor(maxLength * 0.6),
   );
   const sentenceTerminators = new Set([".", "!", "?", "。", "！", "？"]);
   const sentenceBoundary = candidate.findLastIndex(
     (character, index) =>
-      index >= minimumBoundary && sentenceTerminators.has(character),
+      candidateWidths[index] >= minimumBoundaryWidth &&
+      sentenceTerminators.has(character),
   );
   const wordBoundary = candidate.findLastIndex(
-    (character, index) => index >= minimumBoundary && character === " ",
+    (character, index) =>
+      candidateWidths[index] >= minimumBoundaryWidth && character === " ",
   );
   const boundary =
-    sentenceBoundary >= minimumBoundary
+    sentenceBoundary >= 0
       ? sentenceBoundary + 1
-      : wordBoundary >= minimumBoundary
+      : wordBoundary >= 0
         ? wordBoundary
         : candidate.length;
   let truncated = candidate
@@ -230,16 +241,15 @@ function metadataCharacters(value: string) {
   return Array.from(metadataSegmenter.segment(value), ({ segment }) => segment);
 }
 
-function metadataLength(value: string) {
-  return metadataCharacters(value).length;
-}
-
 function metadataSearchLength(value: string) {
   return metadataCharacters(value).reduce(
-    (length, grapheme) =>
-      length + (wideMetadataGrapheme.test(grapheme) ? 2 : 1),
+    (length, grapheme) => length + metadataGraphemeWidth(grapheme),
     0,
   );
+}
+
+function metadataGraphemeWidth(grapheme: string) {
+  return wideMetadataGrapheme.test(grapheme) ? 2 : 1;
 }
 
 export function openGraphDefaults(

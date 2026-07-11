@@ -2,7 +2,11 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { Link, usePathname } from "../../../i18n/navigation";
-import { navItemsForLocale, flatNavItems } from "./docs-nav-items";
+import {
+  navItemContentLocale,
+  navItemsForLocale,
+  flatNavItems,
+} from "./docs-nav-items";
 
 export function DocsPager() {
   const pathname = usePathname();
@@ -20,6 +24,7 @@ export function DocsPager() {
       {prev ? (
         <Link
           href={prev.href}
+          locale={navItemContentLocale(prev, locale)}
           className="flex items-center gap-1.5 text-muted hover:text-foreground transition-colors"
         >
           <span aria-hidden>&larr;</span>
@@ -31,6 +36,7 @@ export function DocsPager() {
       {next ? (
         <Link
           href={next.href}
+          locale={navItemContentLocale(next, locale)}
           className="flex items-center gap-1.5 text-muted hover:text-foreground transition-colors"
         >
           {t(next.titleKey)}

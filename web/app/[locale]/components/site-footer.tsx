@@ -1,5 +1,7 @@
-import { getTranslations } from "next-intl/server";
+import { getLocale, getTranslations } from "next-intl/server";
 import { Link } from "../../../i18n/navigation";
+import { hasFallbackContent } from "../../../i18n/locale-availability";
+import type { Locale } from "../../../i18n/routing";
 import { LanguageSwitcher } from "./language-switcher";
 import { ProUpgradeVisibility } from "./pro-upgrade-visibility";
 
@@ -12,6 +14,7 @@ type FooterLink = {
   href: string;
   proUpgrade?: boolean;
   unlocalized?: boolean;
+  locale?: Locale;
 };
 
 type FooterColumn = {
@@ -21,13 +24,20 @@ type FooterColumn = {
 
 export async function SiteFooter() {
   const t = await getTranslations("footer");
+  const locale = await getLocale();
+  const pricingLocale = hasFallbackContent(locale) ? locale : "en";
   const year = new Date().getFullYear();
 
   const columns: FooterColumn[] = [
     {
       heading: t("product"),
       links: [
-        { label: t("pricing"), href: "/pricing", proUpgrade: true },
+        {
+          label: t("pricing"),
+          href: "/pricing",
+          proUpgrade: true,
+          locale: pricingLocale,
+        },
         { label: t("blog"), href: "/blog" },
         { label: t("community"), href: "/community" },
         { label: t("nightly"), href: "/nightly" },
@@ -91,6 +101,7 @@ export async function SiteFooter() {
                       ) : (
                         <Link
                           href={link.href}
+                          locale={link.locale}
                           className="text-sm text-muted hover:text-foreground transition-colors"
                         >
                           {link.label}

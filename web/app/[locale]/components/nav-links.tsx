@@ -1,12 +1,15 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Link } from "../../../i18n/navigation";
+import { hasFallbackContent } from "../../../i18n/locale-availability";
 import posthog from "posthog-js";
 import { ProUpgradeVisibility } from "./pro-upgrade-visibility";
 
 export function NavLinks() {
   const t = useTranslations("nav");
+  const locale = useLocale();
+  const pricingLocale = hasFallbackContent(locale) ? locale : "en";
   return (
     <>
       <Link
@@ -36,6 +39,7 @@ export function NavLinks() {
       <ProUpgradeVisibility>
         <Link
           href="/pricing"
+          locale={pricingLocale}
           onClick={() =>
             posthog.capture("cmuxterm_pricing_nav_clicked", { location: "nav" })
           }
