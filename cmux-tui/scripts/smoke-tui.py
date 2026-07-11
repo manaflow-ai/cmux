@@ -139,6 +139,9 @@ if pid == 0:
     # (which the files sidebar follows); /bin/sh reports nothing, so the
     # sidebar deterministically roots at the spawn cwd (this tmpdir).
     os.environ["SHELL"] = "/bin/sh"
+    # Pane surfaces spawn at home_dir() when no cwd is configured; point HOME
+    # at the tmpdir so the files sidebar roots where the marker is seeded.
+    os.environ["HOME"] = tmpdir.name
     os.environ["CMUX_MUX_CDP_URL"] = "http://127.0.0.1:1/"
     os.environ.pop("NO_COLOR", None)
     os.execv(BIN, [BIN, "--session", SESSION, "--socket", SOCK])
