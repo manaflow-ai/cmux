@@ -19,18 +19,23 @@ extension ContentView {
         }
     }
 
-    static func commandPaletteNewAgentChatContribution() -> CommandPaletteCommandContribution {
-        CommandPaletteCommandContribution(
+    static func commandPaletteNewAgentChatContributions() -> [CommandPaletteCommandContribution] {
+        guard CmuxFeatureFlags.shared.isAgentChatUIEnabled else { return [] }
+        return [CommandPaletteCommandContribution(
             commandId: "palette.newAgentChat",
             title: { _ in String(localized: "command.newAgentChat.title", defaultValue: "New agent chat") },
             subtitle: { _ in String(localized: "command.newAgentChat.subtitle", defaultValue: "Agent Chat") },
             keywords: ["create", "new", "agent", "chat", "browser", "codex", "claude"],
             when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
-        )
+        )]
     }
 
     func registerAgentChatCommandPaletteHandler(_ registry: inout CommandPaletteHandlerRegistry) {
         registry.register(commandId: "palette.newAgentChat") {
+            guard CmuxFeatureFlags.shared.isAgentChatUIEnabled else {
+                NSSound.beep()
+                return
+            }
             guard let appDelegate = AppDelegate.shared else {
                 NSSound.beep()
                 return

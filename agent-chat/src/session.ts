@@ -1,5 +1,6 @@
 // Client-side session state: one WebSocket, one session per page.
 import { useCallback, useEffect, useRef, useState } from "react";
+import { applyThemeVars } from "./theme";
 
 export type AgentEvent =
   | { kind: "meta"; model?: string; providerSessionId?: string }
@@ -157,7 +158,29 @@ export interface SessionState {
   clearError(): void;
 }
 
-const routedSessionId = (location.pathname.match(/^\/s\/([\w-]+)/) || [])[1] || null;
+declare global {
+  interface Window { __AGENT_CHAT_BASE__?: string }
+}
+
+function basePrefix(): string {
+  const base = typeof window === "undefined" ? "" : window.__AGENT_CHAT_BASE__ ?? "";
+  return base && base !== "/" ? base.replace(/\/$/, "") : "";
+}
+
+function routePath(): string {
+  if (typeof location === "undefined") return "/";
+  const base = basePrefix();
+  if (!base) return location.pathname;
+  // Bare /<token> (no trailing slash) is the app root.
+  if (location.pathname === base) return "/";
+  return location.pathname.startsWith(base + "/") ? location.pathname.slice(base.length) : location.pathname;
+}
+
+function appPath(path: string): string {
+  return `${basePrefix()}${path}`;
+}
+
+const routedSessionId = (routePath().match(/^\/s\/([\w-]+)/) || [])[1] || null;
 export const composerDraftKey = "agentui.draft";
 const PENDING_START_TIMEOUT_MS = 30_000;
 
@@ -218,7 +241,7 @@ export function useSession(): SessionState {
     clearPendingStartTimeout();
     pendingStartRef.current = null;
     restoreComposerDraft(sessionStorage, pending.prompt);
-    history.replaceState(null, "", "/");
+    history.replaceState(null, "", appPath("/"));
     document.title = "cmux agent";
     sessionIdRef.current = null;
     optimisticUsersRef.current = [];
@@ -252,7 +275,7 @@ export function useSession(): SessionState {
   useEffect(() => {
     let closed = false;
     const connect = () => {
-      const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+      const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + appPath("/ws"));
       wsRef.current = ws;
       ws.onopen = () => {
         const pending = pendingStartRef.current;
@@ -277,7 +300,7 @@ export function useSession(): SessionState {
           }
           case "session-created":
             sessionIdRef.current = msg.session.id;
-            history.replaceState(null, "", "/s/" + msg.session.id);
+            history.replaceState(null, "", appPath("/s/" + msg.session.id));
             document.title = msg.session.title || "cmux agent";
             if (msg.requestId && pendingStartRef.current?.requestId === msg.requestId) {
               const queuedReplies = pendingStartRef.current.queuedReplies;
@@ -313,7 +336,7 @@ export function useSession(): SessionState {
             setPhase("chat");
             break;
           case "no-session":
-            history.replaceState(null, "", "/");
+            history.replaceState(null, "", appPath("/"));
             sessionIdRef.current = null;
             setSession(null);
             setOptions([]);
@@ -344,10 +367,15 @@ export function useSession(): SessionState {
             break;
           case "session-forked":
             setForkPending(false);
-            window.open("/s/" + msg.session.id, "_blank");
+            window.open(appPath("/s/" + msg.session.id), "_blank");
             break;
           case "options-list":
             setProviderOptions((m) => ({ ...m, [msg.provider]: msg.options ?? [] }));
+            break;
+          case "model-catalog":
+            if (msg.options && typeof msg.options === "object") {
+              setProviderOptions((current) => ({ ...current, ...msg.options }));
+            }
             break;
           case "commands-list":
             setProviderCommands((m) => ({ ...m, [msg.provider]: msg.groups ?? [] }));
@@ -357,6 +385,9 @@ export function useSession(): SessionState {
             break;
           case "cwd-check":
             setCwdChecks((m) => ({ ...m, [msg.cwd]: { ok: Boolean(msg.ok), message: msg.message } }));
+            break;
+          case "theme":
+            if (msg.vars && typeof msg.vars === "object") applyThemeVars(msg.vars, msg.theme);
             break;
           case "file-diff":
             if (msg.sessionId === sessionIdRef.current) {
@@ -404,7 +435,7 @@ export function useSession(): SessionState {
     armPendingStartTimeout();
     optimisticUsersRef.current = [opts.prompt];
     sessionIdRef.current = null;
-    history.replaceState(null, "", "/");
+    history.replaceState(null, "", appPath("/"));
     document.title = opts.prompt.length > 64 ? opts.prompt.slice(0, 64) + "…" : opts.prompt;
     setLastError("");
     setSession({
@@ -426,7 +457,7 @@ export function useSession(): SessionState {
   const compose = useCallback(() => {
     clearPendingStartTimeout();
     pendingStartRef.current = null;
-    history.replaceState(null, "", "/");
+    history.replaceState(null, "", appPath("/"));
     document.title = "cmux agent";
     sessionIdRef.current = null;
     setSession(null);

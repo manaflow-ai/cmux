@@ -55,11 +55,11 @@ def test_web_only_runs_web_without_macos() -> None:
     assert_areas(["web/app/page.tsx", "webviews/src/diff/App.tsx"], macos=False, web=True, go=False)
 
 
-def test_mux_only_skips_macos() -> None:
-    # cmux-mux is a standalone Rust project with its own `mux` workflow; its
+def test_cmux_tui_only_skips_macos() -> None:
+    # cmux-tui is a standalone Rust project with its own `cmux-tui` workflow; its
     # changes must not require the macOS app-host tests.
     assert_areas(
-        ["mux/crates/mux-core/src/browser.rs", "mux/README.md", "mux/docs/protocol.md"],
+        ["cmux-tui/crates/cmux-tui-core/src/browser.rs", "cmux-tui/README.md", "cmux-tui/docs/protocol.md"],
         macos=False,
         web=False,
         go=False,
@@ -588,6 +588,7 @@ def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> 
     package_block = workflow_job_block("swift-package-tests")
     release_block = workflow_job_block("release-build")
 
+    assert "vars.MACOS_RUNNER_DUAL_XCODE" in package_block
     assert "\n  ui-regressions:" not in workflow
     assert "\n  release-ghostty-cli-helper:" not in workflow
     assert "build-for-testing" in runtime_block

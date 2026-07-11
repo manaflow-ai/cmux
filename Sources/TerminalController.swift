@@ -237,10 +237,6 @@ class TerminalController {
         "ERROR: \(terminalInputQueueFullMessage)"
     }
 
-    private nonisolated static var terminalSurfaceUnavailableSocketError: String {
-        "ERROR: \(terminalSurfaceUnavailableMessage)"
-    }
-
     private nonisolated static let focusIntentV1Commands: Set<String> = [
         "__internal_flags",
         "focus_window",
@@ -271,7 +267,7 @@ class TerminalController {
         "browser.tab.switch",
         "notification.open",
         "notification.jump_to_unread",
-        "debug.command_palette.toggle",
+        "debug.command_palette.toggle", "debug.pro_welcome_checklist.show",
         "debug.notification.focus",
         "debug.app.activate",
         "debug.right_sidebar.focus",
@@ -327,7 +323,7 @@ class TerminalController {
     )
     private var browserDownloadObserver: NSObjectProtocol?
 
-    func cleanupSurfaceState(surfaceIds: [UUID]) {
+    func cleanupSurfaceState(surfaceIds: [UUID], paneIds: [UUID] = []) {
         for surfaceId in Set(surfaceIds) {
             v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
             v2BrowserInitScriptsBySurface.removeValue(forKey: surfaceId)
@@ -337,9 +333,9 @@ class TerminalController {
             v2ConsumedBrowserDownloadKeysBySurface.removeValue(forKey: surfaceId)
             v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
             v2BrowserElementRefs = v2BrowserElementRefs.filter { $0.value.surfaceId != surfaceId }
-
             controlCommandCoordinator.removeRef(kind: .surface, uuid: surfaceId)
         }
+        for paneId in Set(paneIds) { controlCommandCoordinator.removeRef(kind: .pane, uuid: paneId) }
     }
 
     /// Bridges the package server's event closures back to the controller.
@@ -1382,8 +1378,11 @@ class TerminalController {
             return v2RemoteTmuxState(id: request.id, params: request.params)
         case "remote.tmux.mirror":
             return v2RemoteTmuxMirror(id: request.id, params: request.params)
-        case "remote.tmux.window":
-            return v2RemoteTmuxWindow(id: request.id, params: request.params)
+        case "remote.tmux.pane_grids": return v2RemoteTmuxPaneGrids(id: request.id, params: request.params)
+#if DEBUG
+        case "remote.tmux.test_exec": return v2RemoteTmuxTestExec(id: request.id, params: request.params)
+        case "remote.tmux.test_set_frame": return v2RemoteTmuxTestSetFrame(id: request.id, params: request.params)
+#endif
         case "sidebar.custom.validate":
             return v2Result(id: request.id, v2CustomSidebarValidate(params: request.params))
         case "sidebar.custom.reload":
@@ -2417,13 +2416,9 @@ class TerminalController {
             "workspace.remote.reconnect",
             "workspace.remote.disconnect",
             "workspace.remote.status",
-            "workspace.remote.pty_sessions",
-            "workspace.remote.pty_close",
-            "workspace.remote.pty_detach",
-            "workspace.remote.pty_bridge",
-            "workspace.remote.pty_resize",
-            "workspace.remote.pty_attach_end",
-            "workspace.remote.terminal_session_end", "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window",
+            "workspace.remote.pty_sessions", "workspace.remote.pty_close", "workspace.remote.pty_detach",
+            "workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_attach_end",
+            "workspace.remote.terminal_session_end", "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.pane_grids",
             "session.restore_previous",
             "settings.open",
             "feedback.open",
@@ -2603,8 +2598,11 @@ class TerminalController {
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             if let wsId = tabManager.selectedTabId,
                let ws = tabManager.tabs.first(where: { $0.id == wsId }) {
-                let paneUUID = ws.bonsplitController.focusedPaneId?.id
-                let surfaceUUID = ws.focusedPanelId
+                let projection = ws.focusedPanelId.flatMap {
+                    ws.controlSurfaceProjection(forContainerPanelID: $0)
+                }
+                let paneUUID = projection?.paneID
+                let surfaceUUID = projection?.surfaceID
                 focused = [
                     "window_id": v2OrNull(windowId?.uuidString),
                     "window_ref": v2Ref(kind: .window, uuid: windowId),
@@ -2616,8 +2614,8 @@ class TerminalController {
                     "surface_ref": v2Ref(kind: .surface, uuid: surfaceUUID),
                     "tab_id": v2OrNull(surfaceUUID?.uuidString),
                     "tab_ref": v2TabRef(uuid: surfaceUUID),
-                    "surface_type": v2OrNull(surfaceUUID.flatMap { ws.panels[$0]?.panelType.rawValue }),
-                    "is_browser_surface": v2OrNull(surfaceUUID.flatMap { ws.panels[$0]?.panelType == .browser })
+                    "surface_type": v2OrNull(projection?.panel.panelType.rawValue),
+                    "is_browser_surface": v2OrNull(projection.map { $0.panel.panelType == .browser })
                 ]
             } else {
                 focused = [
@@ -2643,16 +2641,15 @@ class TerminalController {
                         "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
                     ]
 
-                    if let surfaceId, ws.panels[surfaceId] != nil {
-                        let paneUUID = ws.paneId(forPanelId: surfaceId)?.id
-                        payload["surface_id"] = surfaceId.uuidString
-                        payload["surface_ref"] = v2Ref(kind: .surface, uuid: surfaceId)
-                        payload["tab_id"] = surfaceId.uuidString
-                        payload["tab_ref"] = v2TabRef(uuid: surfaceId)
-                        payload["surface_type"] = v2OrNull(ws.panels[surfaceId]?.panelType.rawValue)
-                        payload["is_browser_surface"] = v2OrNull(ws.panels[surfaceId]?.panelType == .browser)
-                        payload["pane_id"] = v2OrNull(paneUUID?.uuidString)
-                        payload["pane_ref"] = v2Ref(kind: .pane, uuid: paneUUID)
+                    if let surfaceId, let target = ws.controlSurfaceTarget(for: surfaceId) {
+                        payload["surface_id"] = target.surfaceID.uuidString
+                        payload["surface_ref"] = v2Ref(kind: .surface, uuid: target.surfaceID)
+                        payload["tab_id"] = target.surfaceID.uuidString
+                        payload["tab_ref"] = v2TabRef(uuid: target.surfaceID)
+                        payload["surface_type"] = target.panel.panelType.rawValue
+                        payload["is_browser_surface"] = target.panel.panelType == .browser
+                        payload["pane_id"] = v2OrNull(target.paneID?.uuidString)
+                        payload["pane_ref"] = v2Ref(kind: .pane, uuid: target.paneID)
                     } else {
                         payload["surface_id"] = NSNull()
                         payload["surface_ref"] = NSNull()
@@ -3571,12 +3568,7 @@ class TerminalController {
             if let tm = app.tabManagerFor(windowId: item.windowId) {
                 for ws in tm.tabs {
                     _ = v2EnsureHandleRef(kind: .workspace, uuid: ws.id)
-                    for paneId in ws.bonsplitController.allPaneIds {
-                        _ = v2EnsureHandleRef(kind: .pane, uuid: paneId.id)
-                    }
-                    for panelId in ws.panels.keys {
-                        _ = v2EnsureHandleRef(kind: .surface, uuid: panelId)
-                    }
+                    v2RefreshRemoteTmuxAwarePaneAndSurfaceRefs(workspace: ws)
                 }
                 // Mint workspace_group refs for groups that exist before any
                 // workspace.group.* call so callers can pass `workspace_group:N`
@@ -3596,8 +3588,7 @@ class TerminalController {
         // methods are the only routing key for cross-window group ops, and
         // CLI helpers always inject caller workspace_id/surface_id, which
         // would otherwise win even when the group belongs to a different
-        // window). Fall back to workspace/surface/pane lookup, then the
-        // active window's TabManager.
+        // window). Then use workspace/surface/pane lookup and the active window.
         if v2HasNonNullParam(params, "window_id") {
             guard let windowId = v2UUID(params, "window_id") else { return nil }
             return v2MainSync { AppDelegate.shared?.tabManagerFor(windowId: windowId) }
@@ -3623,10 +3614,10 @@ class TerminalController {
         if let surfaceId = v2UUID(params, "surface_id")
             ?? v2UUID(params, "terminal_id")
             ?? v2UUID(params, "tab_id") {
-            if let located = v2MainSync({ AppDelegate.shared?.locateSurface(surfaceId: surfaceId) ?? locateDockSurface(surfaceId) }) { return located.tabManager }
+            if let manager = v2MainSync({ controlTabManager(surfaceID: surfaceId) }) { return manager }
         }
         if let paneId = v2UUID(params, "pane_id") {
-            if let tm = v2MainSync({ v2LocatePane(paneId)?.tabManager ?? locateDockPane(paneId)?.tabManager }) {
+            if let tm = v2MainSync({ controlTabManager(paneID: paneId) }) {
                 return tm
             }
         }
@@ -3675,10 +3666,10 @@ class TerminalController {
             }
         }
         if let surfaceId = routing.surfaceID {
-            if let located = AppDelegate.shared?.locateSurface(surfaceId: surfaceId) ?? locateDockSurface(surfaceId) { return located.tabManager }
+            if let manager = controlTabManager(surfaceID: surfaceId) { return manager }
         }
         if let paneId = routing.paneID,
-           let tm = v2LocatePane(paneId)?.tabManager ?? locateDockPane(paneId)?.tabManager {
+           let tm = controlTabManager(paneID: paneId) {
             return tm
         }
         return tabManager ?? AppDelegate.shared?.currentScriptableMainWindow()?.tabManager
@@ -4114,7 +4105,6 @@ class TerminalController {
                     }
                 }
             }
-
             var sessions: [[String: Any]] = []
             var errors: [[String: Any]] = []
             for target in targets {
@@ -4135,41 +4125,50 @@ class TerminalController {
                     errors.append(payload)
                 }
             }
-
-            return .ok([
-                "all_workspaces": true,
-                "workspace_count": targets.count,
-                "sessions": sessions,
-                "errors": errors,
-            ])
+            return .ok(["all_workspaces": true, "workspace_count": targets.count, "sessions": sessions, "errors": errors])
         }
-
         let resolved = v2ResolveRemotePTYTarget(
             params: params,
             requestedWorkspaceId: requestedWorkspaceId,
             preferredSurfaceId: surfaceSelection.surfaceId
         )
         if let error = resolved.error { return error }
-        guard let target = resolved.target else {
-            return .err(code: "not_found", message: "Workspace not found", data: nil)
-        }
+        guard let target = resolved.target else { return .err(code: "not_found", message: "Workspace not found", data: nil) }
         guard let controller = target.controller else {
-            return .err(code: "remote_pty_error", message: "remote connection is not active", data: [
-                "workspace_id": target.workspaceId.uuidString,
-                "workspace_ref": target.workspaceRef,
-            ])
+            return .err(code: "remote_pty_error", message: "remote connection is not active", data: ["workspace_id": target.workspaceId.uuidString, "workspace_ref": target.workspaceRef])
         }
-
         do {
+            let sessionID = v2RawString(params, "session_id")?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let lifecycleID = v2RawString(params, "lifecycle_id")?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let sessionID, !sessionID.isEmpty, let lifecycleID, !lifecycleID.isEmpty {
+                if v2Bool(params, "acknowledge_lifecycle") == true {
+                    try controller.acknowledgePTYLifecycle(sessionID: sessionID, lifecycleID: lifecycleID)
+                    var payload = v2RemotePTYTargetPayload(target)
+                    payload["sessions"] = [[String: Any]]()
+                    return .ok(payload)
+                }
+                let lifecycle = try controller.ptySessionLifecycle(sessionID: sessionID, lifecycleID: lifecycleID)
+                if lifecycle != .active {
+                    if lifecycle == .intentionallyClosed {
+                        try controller.acknowledgePTYLifecycle(sessionID: sessionID, lifecycleID: lifecycleID)
+                    }
+                    var payload = v2RemotePTYTargetPayload(target)
+                    payload["sessions"] = [[String: Any]]()
+                    payload["requested_session_lifecycle"] = lifecycle.rawValue
+                    return .ok(payload)
+                }
+            }
             let sessions = try controller.listPTYSessions()
+            let shouldAcknowledgeAbsentLifecycle = v2Bool(params, "acknowledge_lifecycle_if_session_absent") == true
+            if let sessionID, !sessionID.isEmpty, let lifecycleID, !lifecycleID.isEmpty, shouldAcknowledgeAbsentLifecycle,
+               !sessions.contains(where: { ($0["session_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) == sessionID }) {
+                try controller.acknowledgePTYLifecycle(sessionID: sessionID, lifecycleID: lifecycleID)
+            }
             var payload = v2RemotePTYTargetPayload(target)
             payload["sessions"] = sessions.map { v2RemotePTYSessionPayload($0, target: target) }
             return .ok(payload)
         } catch {
-            return .err(code: "remote_pty_error", message: v2RemotePTYUserFacingErrorMessage(error), data: [
-                "workspace_id": target.workspaceId.uuidString,
-                "workspace_ref": target.workspaceRef,
-            ])
+            return .err(code: "remote_pty_error", message: v2RemotePTYUserFacingErrorMessage(error), data: ["workspace_id": target.workspaceId.uuidString, "workspace_ref": target.workspaceRef])
         }
     }
 
@@ -4256,16 +4255,9 @@ class TerminalController {
             preferredSurfaceId: surfaceSelection.surfaceId
         )
         if let error = resolved.error { return error }
-        guard let target = resolved.target else {
-            return .err(code: "not_found", message: "Workspace not found", data: nil)
-        }
+        guard let target = resolved.target else { return .err(code: "not_found", message: "Workspace not found", data: nil) }
         guard let controller = target.controller else {
-            return .err(code: "remote_pty_error", message: "remote connection is not active", data: [
-                "workspace_id": target.workspaceId.uuidString,
-                "workspace_ref": target.workspaceRef,
-                "session_id": sessionID,
-                "attachment_id": attachmentID,
-            ])
+            return .err(code: "remote_pty_error", message: "remote connection is not active", data: ["workspace_id": target.workspaceId.uuidString, "workspace_ref": target.workspaceRef, "session_id": sessionID, "attachment_id": attachmentID])
         }
 
         do {
@@ -4308,6 +4300,7 @@ class TerminalController {
         let surfaceSelection = v2RequestedRemotePTYSurfaceID(params: params)
         if let error = surfaceSelection.error { return error }
         let preferredSurfaceId = surfaceSelection.surfaceId ?? UUID(uuidString: attachmentID)
+        let lifecycleID = (v2RawString(params, "lifecycle_id")?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? preferredSurfaceId?.uuidString.lowercased() ?? UUID().uuidString.lowercased()
 
         let controllerDeadline = Date().addingTimeInterval(waitForReady ? 90.0 : 8.0)
         let resolved = waitForReady
@@ -4330,14 +4323,12 @@ class TerminalController {
             return .err(code: "remote_pty_error", message: "remote connection is not active", data: [
                 "workspace_id": target.workspaceId.uuidString,
                 "workspace_ref": target.workspaceRef,
-                "session_id": sessionID,
-                "attachment_id": attachmentID,
             ])
         }
-
         do {
             let endpoint = try controller.startPTYBridge(
                 sessionID: sessionID,
+                lifecycleID: lifecycleID,
                 attachmentID: attachmentID,
                 command: command?.isEmpty == true ? nil : command,
                 requireExisting: requireExisting,
@@ -4349,14 +4340,14 @@ class TerminalController {
             payload["port"] = endpoint.port
             payload["token"] = endpoint.token
             payload["session_id"] = endpoint.sessionID
+            payload["lifecycle_id"] = endpoint.lifecycleID
             payload["attachment_id"] = endpoint.attachmentID
             return .ok(payload)
         } catch {
-            return .err(code: "remote_pty_error", message: v2RemotePTYUserFacingErrorMessage(error), data: [
+            let code = (error as? RemotePTYLifecycleError) == .intentionallyClosed ? "pty_lifecycle_closed" : "remote_pty_error"
+            return .err(code: code, message: v2RemotePTYUserFacingErrorMessage(error), data: [
                 "workspace_id": target.workspaceId.uuidString,
                 "workspace_ref": target.workspaceRef,
-                "session_id": sessionID,
-                "attachment_id": attachmentID,
             ])
         }
     }
@@ -5392,22 +5383,23 @@ class TerminalController {
                     guard let id = explicitSurfaceID else {
                         return .finished(.err(code: "not_found", message: "Surface not found for the given surface_id", data: nil))
                     }
-                    surfaceId = id
+                    guard let target = ws.controlTerminalTarget(for: id) else {
+                        return .finished(.err(
+                            code: "invalid_params",
+                            message: "Surface is not a terminal",
+                            data: ["surface_id": id.uuidString]
+                        ))
+                    }
+                    surfaceId = target.surfaceID
+                    terminalPanel = target.panel
                 } else {
-                    guard let focused = ws.focusedPanelId else {
+                    guard let focused = ws.controlDefaultTerminalTarget(paneID: routing.paneID) else {
                         return .finished(.err(code: "not_found", message: "No focused surface", data: nil))
                     }
-                    surfaceId = focused
-                }
-                guard let wsPanel = ws.terminalPanel(for: surfaceId) else {
-                    return .finished(.err(
-                        code: "invalid_params",
-                        message: "Surface is not a terminal",
-                        data: ["surface_id": surfaceId.uuidString]
-                    ))
+                    surfaceId = focused.surfaceID
+                    terminalPanel = focused.panel
                 }
                 workspaceID = ws.id
-                terminalPanel = wsPanel
                 resolvedWindowID = self.v2ResolveWindowId(tabManager: tabManager)
             }
             guard let rawSnapshot = self.readTerminalTextRawSnapshot(
@@ -11738,19 +11730,19 @@ class TerminalController {
 
         switch keyToken.lowercased() {
         case "left":
-            storedKey = "←"
+            storedKey = "\u{F702}"
             keyCode = 123
             charactersIgnoringModifiers = storedKey
         case "right":
-            storedKey = "→"
+            storedKey = "\u{F703}"
             keyCode = 124
             charactersIgnoringModifiers = storedKey
         case "down":
-            storedKey = "↓"
+            storedKey = "\u{F701}"
             keyCode = 125
             charactersIgnoringModifiers = storedKey
         case "up":
-            storedKey = "↑"
+            storedKey = "\u{F700}"
             keyCode = 126
             charactersIgnoringModifiers = storedKey
         case "enter", "return", "tab":
@@ -13249,8 +13241,8 @@ class TerminalController {
                     result = "ERROR: \(workspaceCloseProtectedMessage())"
                     return
                 }
-                tabManager.closeTab(tab)
-                result = "OK"
+                let closeFailure = String(localized: "cli.socket.error.workspaceNotClosed", defaultValue: "Workspace not closed")
+                result = tabManager.closeWorkspaceNonInteractively(tab) ? "OK" : "ERROR: \(closeFailure)"
             }
         }
         return result
@@ -14034,8 +14026,8 @@ class TerminalController {
             result = v2MobileWorkspaceAction(params: request.params)
         case "workspace.move":
             result = v2MobileWorkspaceMove(params: request.params)
-        case "workspace.group.action":
-            result = v2MobileWorkspaceGroupAction(params: request.params)
+        case "workspace.group.action", "workspace.group.create":
+            result = request.method == "workspace.group.create" ? v2MobileWorkspaceGroupCreate(params: request.params) : v2MobileWorkspaceGroupAction(params: request.params)
         case let method where method.hasPrefix("mobile.chat."):
             result = await v2MobileChatDispatch(method: method, params: request.params)
         case "workspace.close":

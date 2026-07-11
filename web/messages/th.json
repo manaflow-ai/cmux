@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "แผนส่วนตัวของคุณ",
+        "free": "ฟรี",
+        "pro": "Pro",
+        "loading": "กำลังโหลด…"
+      }
     }
   },
   "community": {
@@ -3461,6 +3469,9 @@
       "faqQ4": "cmux ที่ใช้กับ Cursor CLI ฟรีไหม?",
       "faqA4": "ฟรี cmux เป็นโอเพนซอร์สและใช้ฟรีสำหรับ macOS"
     }
+  },
+  "pricing": {
+    "billingUnavailable": "การเรียกเก็บเงินยังไม่พร้อมใช้งานในตอนนี้ โปรดลองอีกครั้งภายหลัง"
   },
   "platforms": {
     "macos": "macOS",

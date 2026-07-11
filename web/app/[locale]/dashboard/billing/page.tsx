@@ -21,6 +21,7 @@ import {
   resolveProPlanStatus,
 } from "@/services/billing/pro";
 import { resolveBillingTeam, type BillingTeamLike } from "@/services/billing/teamResolution";
+import { AccountPlanBadge } from "../components/account-plan-badge";
 
 export const dynamic = "force-dynamic";
 
@@ -87,6 +88,9 @@ export default async function DashboardBillingPage({
         <p className="text-xs font-medium text-muted">{t("eyebrow")}</p>
         <h1 className="mt-1 text-sm font-medium">{t("title")}</h1>
         <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
+        <div className="mt-2">
+          <AccountPlanBadge />
+        </div>
       </div>
 
       {banner ? (
@@ -107,7 +111,7 @@ export default async function DashboardBillingPage({
           canManageBilling={hasStripeCustomer}
         />
       ) : (
-        <LegacyPlan t={t} />
+        <FreePlan t={t} />
       )}
 
       {billingTeam && teamSubscription ? (
@@ -438,15 +442,6 @@ function TeamPlan({
           </a>
         ) : null}
       </div>
-    </section>
-  );
-}
-
-function LegacyPlan({ t }: { t: Awaited<ReturnType<typeof getTranslations>> }) {
-  return (
-    <section className="border border-border p-3">
-      <h2 className="text-sm font-medium">{t("pro.name")}</h2>
-      <p className="mt-2 max-w-2xl text-muted">{t("legacy.body")}</p>
     </section>
   );
 }

@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "你的个人方案",
+        "free": "免费",
+        "pro": "Pro",
+        "loading": "加载中…"
+      }
     }
   },
   "community": {
@@ -3461,6 +3469,9 @@
       "faqQ4": "搭配 Cursor CLI 使用的 cmux 免费吗？",
       "faqA4": "免费。cmux 是面向 macOS 的免费开源软件。"
     }
+  },
+  "pricing": {
+    "billingUnavailable": "目前无法使用结算功能。请稍后再试。"
   },
   "platforms": {
     "macos": "macOS",

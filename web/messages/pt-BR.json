@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "Seu plano pessoal",
+        "free": "Grátis",
+        "pro": "Pro",
+        "loading": "Carregando…"
+      }
     }
   },
   "community": {
@@ -3461,6 +3469,9 @@
         }
       }
     }
+  },
+  "pricing": {
+    "billingUnavailable": "O faturamento não está disponível no momento. Tente novamente mais tarde."
   },
   "platforms": {
     "macos": "macOS",
