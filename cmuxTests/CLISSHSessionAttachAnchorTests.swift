@@ -149,6 +149,8 @@ struct CLISSHSessionAttachAnchorTests {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment.removeValue(forKey: "CMUX_SOCKET")
+        environment.removeValue(forKey: "CMUX_SOCKET_PASSWORD")
         environment.removeValue(forKey: "CMUX_WINDOW_ID")
         environment["CMUX_WORKSPACE_ID"] = Self.callerWorkspaceId
         environment["CMUX_SURFACE_ID"] = Self.callerSurfaceId
