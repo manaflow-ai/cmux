@@ -4383,6 +4383,12 @@ struct CMUXCLI {
                 idFormat: idFormat, windowOverride: windowId
             )
 
+        case "ios":
+            try runIOSNamespace(
+                commandArgs: commandArgs, client: client, jsonOutput: jsonOutput,
+                idFormat: idFormat, windowOverride: windowId
+            )
+
         case "workspace":
             try runWorkspaceNamespace(
                 commandArgs: commandArgs,
@@ -12918,7 +12924,7 @@ struct CMUXCLI {
         return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
-    private func execInteractiveProgram(
+    func execInteractiveProgram(
         launchPath: String,
         arguments: [String]
     ) throws -> Never {
@@ -15070,6 +15076,8 @@ struct CMUXCLI {
             """
         case "simulator":
             return simulatorSubcommandUsage()
+        case "ios":
+            return iosSubcommandUsage()
         case "events":
             return """
             Usage: cmux events [options]
@@ -35187,6 +35195,7 @@ export default CMUXSessionRestore;
           ai-accounts <list|upload|remove> [--team <id>] [--json]
           rpc <method> [json-params]
           \(simulatorCommandUsageLine)
+          \(iosCommandUsageLine)
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--no-caller]
           list-windows
           current-window

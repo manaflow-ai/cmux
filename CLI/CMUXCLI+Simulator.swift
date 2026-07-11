@@ -11,6 +11,13 @@ extension CMUXCLI {
         )
     }
 
+    var iosCommandUsageLine: String {
+        String(
+            localized: "cli.help.ios",
+            defaultValue: "ios <subcommand> [args] [--surface <id|ref|index>]"
+        )
+    }
+
     struct SimulatorArguments {
         var surface: String?
         var readsStandardInput = false
@@ -58,6 +65,115 @@ extension CMUXCLI {
             """
         )
         return "\(usage)\n\n\(inspection)"
+    }
+
+    func iosSubcommandUsage() -> String {
+        String(
+            localized: "cli.ios.usage",
+            defaultValue: """
+            Usage: cmux ios <subcommand> [args] [--surface <id|ref|index>]
+
+            Every native `cmux simulator` subcommand is accepted unchanged.
+
+            Additional subcommands:
+              context [--udid]                    Print the selected Simulator identity
+              xcodebuildmcp <workflow> <tool> ... Run XcodeBuildMCP against that Simulator
+
+            Examples:
+              cmux ios context --json
+              cmux ios rotate landscape-left
+              cmux ios xcodebuildmcp simulator screenshot --return-format path
+            """
+        )
+    }
+
+    func runIOSNamespace(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        guard let subcommand = commandArgs.first?.lowercased() else {
+            throw CLIError(message: iosSubcommandUsage())
+        }
+        switch subcommand {
+        case "context":
+            var values = Array(commandArgs.dropFirst())
+            let udidOnly = values.contains("--udid")
+            values.removeAll { $0 == "--udid" }
+            let surface = try removeIOSSurfaceOption(from: &values)
+            guard values.isEmpty else { throw CLIError(message: iosSubcommandUsage()) }
+            let payload = try iosContextPayload(
+                surface: surface, client: client, windowOverride: windowOverride
+            )
+            if udidOnly {
+                guard let simulatorID = payload["simulator_id"] as? String else {
+                    throw missingIOSSimulatorIdentifier()
+                }
+                print(simulatorID)
+            } else if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                printIOSContext(payload)
+            }
+        case "xcodebuildmcp", "xbmcp":
+            var arguments = Array(commandArgs.dropFirst())
+            let surface = try removeIOSSurfaceOption(from: &arguments)
+            guard arguments.count >= 2 else { throw CLIError(message: iosSubcommandUsage()) }
+            let payload = try iosContextPayload(
+                surface: surface, client: client, windowOverride: windowOverride
+            )
+            guard let simulatorID = payload["simulator_id"] as? String else {
+                throw missingIOSSimulatorIdentifier()
+            }
+            if !arguments.contains("--simulator-id")
+                && !arguments.contains(where: { $0.hasPrefix("--simulator-id=") }) {
+                arguments.append(contentsOf: ["--simulator-id", simulatorID])
+            }
+            try execInteractiveProgram(launchPath: "xcodebuildmcp", arguments: arguments)
+        default:
+            try runSimulatorNamespace(
+                commandArgs: commandArgs, client: client, jsonOutput: jsonOutput,
+                idFormat: idFormat, windowOverride: windowOverride
+            )
+        }
+    }
+
+    private func iosContextPayload(
+        surface: String?, client: SocketClient, windowOverride: String?
+    ) throws -> [String: Any] {
+        let window = try normalizeWindowHandle(windowOverride, client: client)
+        let normalizedSurface = try normalizeSurfaceHandle(
+            surface, client: client, windowHandle: window
+        )
+        var params: [String: Any] = [:]
+        if let window { params["window_id"] = window }
+        if let normalizedSurface { params["surface_id"] = normalizedSurface }
+        return try client.sendV2(method: "simulator.context", params: params)
+    }
+
+    private func removeIOSSurfaceOption(from arguments: inout [String]) throws -> String? {
+        guard let index = arguments.firstIndex(of: "--surface") else { return nil }
+        guard index + 1 < arguments.count else { throw CLIError(message: iosSubcommandUsage()) }
+        let value = arguments[index + 1]
+        arguments.removeSubrange(index...(index + 1))
+        return value
+    }
+
+    private func missingIOSSimulatorIdentifier() -> CLIError {
+        CLIError(message: String(
+            localized: "cli.ios.error.missingSimulatorID",
+            defaultValue: "The selected iOS pane has no Simulator identifier"
+        ))
+    }
+
+    private func printIOSContext(_ payload: [String: Any]) {
+        for key in [
+            "simulator_id", "device_name", "runtime_id", "state", "orientation", "surface_ref",
+        ] {
+            if let value = payload[key], !(value is NSNull) { print("\(key)=\(value)") }
+        }
     }
 
     func runSimulatorNamespace(

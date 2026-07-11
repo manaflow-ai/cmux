@@ -150,7 +150,7 @@ public final class ControlCommandCoordinator {
              "simulator.web_inspector.highlight",
              "simulator.web_inspector.release":
             return simulatorWebInspector(request, context: context)
-        case "simulator.recover",
+        case "simulator.context", "simulator.recover",
              "simulator.gesture", "simulator.multi_touch", "simulator.tap", "simulator.swipe",
              "simulator.button", "simulator.rotate", "simulator.core_animation",
              "simulator.memory_warning", "simulator.event_log",

@@ -7,6 +7,8 @@ extension ControlCommandCoordinator {
     ) -> ControlCallResult? {
         let operation: ControlSimulatorOperation
         switch request.method {
+        case "simulator.context":
+            operation = .context
         case "simulator.recover":
             operation = .recover
         case "simulator.gesture", "simulator.multi_touch":

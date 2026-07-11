@@ -56,6 +56,24 @@ extension TerminalController {
         do {
             let payload: JSONValue
             switch operation {
+            case .context:
+                let deviceID = try simulatorSelectedDeviceID(coordinator)
+                let selectedDevice = coordinator.selectedDevice
+                var values: [String: JSONValue] = [
+                    "simulator_id": .string(deviceID),
+                    "device_name": selectedDevice.map { .string($0.name) } ?? .null,
+                    "runtime_id": selectedDevice.map { .string($0.runtimeIdentifier) } ?? .null,
+                    "device_type_id": selectedDevice.map { .string($0.deviceTypeIdentifier) } ?? .null,
+                    "family": selectedDevice.map { .string($0.family.rawValue) } ?? .null,
+                    "state": selectedDevice.map { .string($0.state.rawValue) } ?? .null,
+                ]
+                if let display = coordinator.display {
+                    values["orientation"] = .string(display.orientation.rawValue)
+                    values["display_width"] = .int(Int64(display.width))
+                    values["display_height"] = .int(Int64(display.height))
+                    values["display_scale"] = .double(display.scale)
+                }
+                payload = .object(values)
             case .recover:
                 try await coordinator.recoverAndWait()
                 payload = .object(["completed": .bool(true)])
@@ -209,6 +227,7 @@ extension TerminalController {
         for operation: ControlSimulatorOperation
     ) -> SimulatorCapability? {
         switch operation {
+        case .context: nil
         case .recover: nil
         case let .gesture(events): events.contains(where: { $0.secondX != nil }) ? .multiTouch : .touch
         case .hardwareButton: .hardwareButtons

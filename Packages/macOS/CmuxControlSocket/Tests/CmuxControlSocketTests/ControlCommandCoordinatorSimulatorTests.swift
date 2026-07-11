@@ -470,9 +470,34 @@ struct ControlCommandCoordinatorSimulatorTests {
         #expect(context.lastOperation == .foregroundApplication)
     }
 
+    @Test("Simulator context returns the selected pane identity")
+    func simulatorContext() {
+        let context = FakeSimulatorControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let receipt = ControlSimulatorOperationReceipt()
+        receipt.complete(.success(.object([
+            "simulator_id": .string("SIM-UDID"),
+            "device_name": .string("iPhone Air"),
+        ])))
+        context.operationResolution = .started(
+            surfaceID: UUID(), timeoutSeconds: 1, receipt: receipt
+        )
+
+        guard case let .ok(.object(payload)) = coordinator.handleSocketWorkerV2(
+            request("simulator.context"), context: context
+        ) else {
+            Issue.record("Expected Simulator context payload")
+            return
+        }
+        #expect(context.lastOperation == .context)
+        #expect(payload["simulator_id"] == .string("SIM-UDID"))
+        #expect(payload["device_name"] == .string("iPhone Air"))
+    }
+
     @Test("Permission and interface methods stay on the bounded socket worker")
     func settingsExecutionPolicy() {
         for method in [
+            "simulator.context",
             "simulator.permissions.read", "simulator.permissions.set",
             "simulator.ui.status", "simulator.ui.set",
         ] {
