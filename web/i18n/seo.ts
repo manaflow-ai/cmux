@@ -10,19 +10,19 @@ const shortDescriptionSuffixes: Record<string, string> = {
   "zh-TW": "面向 macOS 上的 AI 程式碼代理。",
   ko: "macOS의 AI 코딩 에이전트를 위해 설계되었습니다.",
   de: "Für KI-Coding-Agenten auf macOS entwickelt.",
-  es: "Creado para agentes de codificación con IA en macOS.",
-  fr: "Conçu pour les agents de codage IA sur macOS.",
+  es: "Creado para agentes de codificación con IA y flujos de trabajo paralelos y multitarea en macOS.",
+  fr: "Conçu pour les agents de codage IA et les workflows multitâches sur macOS.",
   it: "Creato per agenti di codifica IA su macOS.",
   da: "Bygget til AI-kodeagenter på macOS.",
-  pl: "Stworzone dla agentów kodowania AI na macOS.",
+  pl: "Stworzone dla agentów kodowania AI i wielozadaniowych przepływów pracy na macOS.",
   ru: "Создано для AI-агентов программирования на macOS.",
-  bs: "Napravljeno za AI agente za kodiranje na macOS-u.",
+  bs: "Napravljeno za AI agente za kodiranje i višezadaćne radne tokove na macOS-u.",
   ar: "مصمم لوكلاء البرمجة بالذكاء الاصطناعي على macOS.",
   no: "Laget for AI-kodeagenter på macOS.",
   "pt-BR": "Criado para agentes de código com IA no macOS.",
   th: "สร้างมาเพื่อเอเจนต์เขียนโค้ด AI และการทำงานหลายอย่างบน macOS.",
   tr: "macOS'taki AI kodlama ajanları için tasarlandı.",
-  km: "បង្កើតសម្រាប់ភ្នាក់ងារ AI សរសេរកូដលើ macOS។",
+  km: "បង្កើតសម្រាប់ភ្នាក់ងារ AI សរសេរកូដ និងលំហូរការងារពហុកិច្ចការលើ macOS។",
   uk: "Створено для AI-агентів програмування на macOS.",
 };
 
@@ -284,7 +284,11 @@ function selectCompleteMetadataCandidate(
 }
 
 function isSafeMetadataText(value: string) {
-  return !/<\/?[a-z][^>]*>/iu.test(value) && !/[{}]/u.test(value);
+  return (
+    !/<\/?[a-z][^>]*>/iu.test(value) &&
+    !/[{}]/u.test(value) &&
+    !/__CMUXPH/iu.test(value)
+  );
 }
 
 function metadataSearchLength(value: string) {

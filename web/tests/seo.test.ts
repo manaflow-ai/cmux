@@ -227,6 +227,9 @@ describe("SEO metadata helpers", () => {
             messages.blog.posts.cmuxHistory.p1,
             messages.blog.posts.cmuxHistory.focusP,
             messages.blog.posts.cmuxHistory.fullHistoryP,
+            messages.blog.posts.cmuxHistory.reopenTitle,
+            messages.blog.posts.cmuxHistory.agentTitle,
+            messages.blog.posts.cmuxHistory.focusTitle,
           ],
           [
             messages.blog.cmuxHistory.metaTitle,
@@ -384,7 +387,7 @@ describe("SEO metadata helpers", () => {
           /…|<\/?(?:link|code)>/u,
         );
         expect(`${row.copy.title}${row.copy.description}`).not.toMatch(
-          /[{}]/u,
+          /[{}]|__CMUXPH/iu,
         );
         expect(row.copy.description).not.toMatch(/[!?។៕。！？؟]\./u);
         expect(row.copy.description).not.toMatch(/[:：][.。]/u);

@@ -70,10 +70,6 @@ function selectDescription(
 ) {
   const short = shortSeoDescriptionCandidate(locale);
   const detailed = detailedSeoDescriptionCandidate(locale);
-  const tagline = completeMetadataSentence(
-    locale,
-    openGraphImageTagline(locale),
-  );
   const completeCandidates = (options.completeCandidates ?? [])
     .filter((candidate) => !/[:：]\s*$/u.test(candidate))
     .map((candidate) => completeMetadataSentence(locale, candidate));
@@ -88,25 +84,11 @@ function selectDescription(
     ...completeCandidates.map((candidate) =>
       joinMetadataSentences(locale, candidate, detailed),
     ),
-    ...completeCandidates.map((candidate) =>
-      joinMetadataSentences(
-        locale,
-        joinMetadataSentences(locale, candidate, short),
-        tagline,
-      ),
-    ),
     ...contextFragments.map((candidate) =>
       joinMetadataSentences(locale, candidate, short),
     ),
     ...contextFragments.map((candidate) =>
       joinMetadataSentences(locale, candidate, detailed),
-    ),
-    ...contextFragments.map((candidate) =>
-      joinMetadataSentences(
-        locale,
-        joinMetadataSentences(locale, candidate, short),
-        tagline,
-      ),
     ),
   ];
   return seoDescription(locale, completeMetadataSentence(locale, original), {
@@ -140,7 +122,10 @@ export function assetsSeoCopy(
     title: selectTitle(locale, t("metaTitle"), siteMeta, [t("title")]),
     description: selectDescription(locale, t("metaDescription"), {
       completeCandidates: [t("description")],
-      contextFragments: [t("title")],
+      contextFragments: [
+        `${t("title")} — ${t("iconSection")}`,
+        t("title"),
+      ],
     }),
   };
 }
@@ -237,7 +222,10 @@ export function compareIndexSeoCopy(
     title: selectTitle(locale, t("metaTitle"), siteMeta, [t("title")]),
     description: selectDescription(locale, t("metaDescription"), {
       completeCandidates: [t("intro")],
-      contextFragments: [t("title")],
+      contextFragments: [
+        `${t("title")} — ${shortTitleContexts[locale] ?? shortTitleContexts.en}`,
+        t("title"),
+      ],
     }),
   };
 }
@@ -270,6 +258,21 @@ export function comparePageSeoCopy(
         joinMetadataQuestionAndAnswer(locale, t("faqQ1"), t("faqA1")),
         joinMetadataQuestionAndAnswer(locale, t("faqQ2"), t("faqA2")),
         joinMetadataQuestionAndAnswer(locale, t("faqQ3"), t("faqA3")),
+        joinMetadataQuestionAndAnswer(
+          locale,
+          t("faqQ1"),
+          shortSeoDescriptionCandidate(locale),
+        ),
+        joinMetadataQuestionAndAnswer(
+          locale,
+          t("faqQ2"),
+          shortSeoDescriptionCandidate(locale),
+        ),
+        joinMetadataQuestionAndAnswer(
+          locale,
+          t("faqQ3"),
+          shortSeoDescriptionCandidate(locale),
+        ),
       ],
       contextFragments: descriptionFragments,
     }),
