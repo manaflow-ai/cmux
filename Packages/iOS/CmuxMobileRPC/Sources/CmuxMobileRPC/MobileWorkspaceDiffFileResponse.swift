@@ -15,13 +15,20 @@ public struct MobileWorkspaceDiffFileResponse: Decodable, Sendable, Equatable {
         case truncated
     }
 
-    /// Decodes a one-file diff response, tolerating absent optional fields from
-    /// older or future Mac builds.
+    /// Decodes a one-file diff response. File identity and diff text are
+    /// required so malformed payloads cannot be shown under the selected path.
     /// - Parameter decoder: The decoder for the RPC result payload.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        path = try container.decodeIfPresent(String.self, forKey: .path) ?? ""
-        unifiedDiff = try container.decodeIfPresent(String.self, forKey: .unifiedDiff) ?? ""
+        path = try container.decode(String.self, forKey: .path)
+        guard !path.isEmpty else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .path,
+                in: container,
+                debugDescription: "Diff file path must not be empty"
+            )
+        }
+        unifiedDiff = try container.decode(String.self, forKey: .unifiedDiff)
         truncated = try container.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
     }
 

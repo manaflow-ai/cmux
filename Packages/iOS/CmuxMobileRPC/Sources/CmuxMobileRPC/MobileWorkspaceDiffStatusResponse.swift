@@ -5,7 +5,7 @@ public struct MobileWorkspaceDiffStatusResponse: Decodable, Sendable {
     /// One changed file in the workspace repository.
     public struct File: Decodable, Sendable, Identifiable, Equatable {
         /// Stable row identity.
-        public var id: String { oldPath.map { "\($0)->\(path)" } ?? path }
+        public var id: String { path }
         /// New/current repository-relative path.
         public let path: String
         /// Old repository-relative path for renamed files.

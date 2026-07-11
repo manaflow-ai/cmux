@@ -262,6 +262,9 @@ struct DiffReviewFileView: View {
         do {
             let response = try await fetchFile(path, request.oldPath)
             guard activeRequest == request, !Task.isCancelled else { return }
+            guard response.path == path else {
+                throw MobileShellConnectionError.invalidResponse
+            }
             let result = await parser.parse(response)
             guard activeRequest == request, !Task.isCancelled else { return }
             loadState = .loaded(path: path, hunks: result.hunks, isTruncated: result.isTruncated)
@@ -270,7 +273,10 @@ struct DiffReviewFileView: View {
             return
         } catch {
             guard activeRequest == request, !Task.isCancelled else { return }
-            loadState = .failed(path: path, message: error.localizedDescription)
+            loadState = .failed(
+                path: path,
+                message: DiffReviewErrorPresentation.message(for: error)
+            )
             session.recordHunkCount(0, for: path)
         }
     }

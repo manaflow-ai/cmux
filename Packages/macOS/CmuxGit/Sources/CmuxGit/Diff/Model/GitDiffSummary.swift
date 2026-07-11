@@ -1,7 +1,7 @@
 /// A changed-file summary produced from git diff status output.
 public struct GitDiffSummary: Sendable, Codable, Equatable, Identifiable {
     /// Stable row identity.
-    public var id: String { oldPath.map { "\($0)->\(path)" } ?? path }
+    public var id: String { path }
     /// New/current repository-relative path.
     public let path: String
     /// Old repository-relative path for renamed files.

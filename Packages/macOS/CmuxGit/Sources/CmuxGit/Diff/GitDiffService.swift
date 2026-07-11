@@ -125,7 +125,8 @@ public struct GitDiffService: Sendable {
         var isDirectory: ObjCBool = false
         let absolutePath = URL(fileURLWithPath: repoRoot, isDirectory: true)
             .appendingPathComponent(path).path
-        if FileManager.default.fileExists(atPath: absolutePath, isDirectory: &isDirectory),
+        let pathExists = FileManager.default.fileExists(atPath: absolutePath, isDirectory: &isDirectory)
+        if pathExists,
            isDirectory.boolValue,
            !isExactTrackedGitlink(repoRoot: repoRoot, path: path, maxOutputBytes: maxOutputBytes) {
             return nil
@@ -148,9 +149,22 @@ public struct GitDiffService: Sendable {
             return GitFileDiff(path: path, unifiedDiff: output, truncated: result.capped)
         }
         guard let baseline = diffBaseline(in: repoRoot) else { return nil }
+        let requestedBaselineEntry = baselineEntryKind(repoRoot: repoRoot, baseline: baseline, path: path)
+        guard requestedBaselineEntry != .failed else { return nil }
+        if pathExists, !isDirectory.boolValue {
+            // A baseline tree and a current file can share the same spelling;
+            // Git would expand the pathspec to both the file and every deleted
+            // descendant instead of returning one file diff.
+            guard requestedBaselineEntry != .directory else { return nil }
+        } else if !pathExists {
+            // Deleted paths are valid only when the baseline contains one
+            // exact file or gitlink. A missing baseline tree is a directory-
+            // shaped request and must not widen to all of its descendants.
+            guard requestedBaselineEntry == .file else { return nil }
+        }
         if let oldPath {
             guard !oldPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  isExactBaselineFileEntry(repoRoot: repoRoot, baseline: baseline, path: oldPath) else {
+                  baselineEntryKind(repoRoot: repoRoot, baseline: baseline, path: oldPath) == .file else {
                 return nil
             }
         }
@@ -269,7 +283,7 @@ public struct GitDiffService: Sendable {
     /// Verifies a rename source is one exact file in the selected baseline.
     /// This prevents an untrusted old path such as `.` from widening the
     /// single-file request into a repository-wide diff.
-    private func isExactBaselineFileEntry(repoRoot: String, baseline: String, path: String) -> Bool {
+    private func baselineEntryKind(repoRoot: String, baseline: String, path: String) -> BaselineEntryKind {
         let result = runGit(
             in: repoRoot,
             arguments: ["ls-tree", "--full-tree", "-z", baseline, "--", Self.literalPathspec(path)],
@@ -277,14 +291,20 @@ public struct GitDiffService: Sendable {
         )
         guard let output = result.successOutput,
               !result.capped,
-              !result.timedOut else { return false }
-        return output.split(separator: "\0", omittingEmptySubsequences: true).contains { record in
-            guard let tab = record.firstIndex(of: "\t") else { return false }
+              !result.timedOut else { return .failed }
+        for record in output.split(separator: "\0", omittingEmptySubsequences: true) {
+            guard let tab = record.firstIndex(of: "\t") else { continue }
             let metadata = record[..<tab].split(separator: " ", omittingEmptySubsequences: true)
             let recordedPath = record[record.index(after: tab)...]
-            guard metadata.count >= 2 else { return false }
-            return (metadata[1] == "blob" || metadata[1] == "commit") && recordedPath == path
+            guard metadata.count >= 2, recordedPath == path else { continue }
+            if metadata[1] == "blob" || metadata[1] == "commit" {
+                return .file
+            }
+            if metadata[1] == "tree" {
+                return .directory
+            }
         }
+        return .missing
     }
 
     /// `git diff HEAD` fails before the first commit. In that state Git's
@@ -311,6 +331,13 @@ public struct GitDiffService: Sendable {
             maxOutputBytes: maxOutputBytes
         )
     }
+}
+
+private enum BaselineEntryKind: Equatable {
+    case missing
+    case file
+    case directory
+    case failed
 }
 
 private struct GitDiffSummaryPartial {

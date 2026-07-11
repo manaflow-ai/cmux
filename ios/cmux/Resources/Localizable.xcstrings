@@ -9545,6 +9545,34 @@
         }
       }
     },
+    "mobile.diff.error.gitFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Could not read repository changes" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リポジトリの変更を読み込めませんでした" } }
+      }
+    },
+    "mobile.diff.error.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Git repository or file not found" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Gitリポジトリまたはファイルが見つかりません" } }
+      }
+    },
+    "mobile.diff.error.repositoryChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace repository changed. Refresh changes." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースのリポジトリが変更されました。変更を再読み込みしてください" } }
+      }
+    },
+    "mobile.diff.error.timedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The paired Mac took too long to load changes" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペアリングしたMacからの変更の読み込みがタイムアウトしました" } }
+      }
+    },
     "mobile.diff.loadFailed": {
       "extractionState": "manual",
       "localizations": {

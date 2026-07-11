@@ -84,7 +84,7 @@ struct GitProcessRunner: Sendable {
                 // exit status reflects our signal, not a git failure. Return
                 // the bounded partial output and mark it cut off.
                 return GitProcessResult(
-                    output: Self.decodeUTF8DroppingPartialTail(read.data),
+                    output: Self.decodeUTF8Lossy(read.data, maxOutputBytes: maxOutputBytes),
                     capped: true
                 )
             }
@@ -94,7 +94,7 @@ struct GitProcessRunner: Sendable {
             guard acceptedTerminationStatuses.contains(process.terminationStatus) else {
                 return GitProcessResult(output: nil)
             }
-            return GitProcessResult(output: String(data: read.data, encoding: .utf8))
+            return GitProcessResult(output: Self.decodeUTF8Lossy(read.data, maxOutputBytes: nil))
         } catch {
             return GitProcessResult(output: nil)
         }
@@ -137,17 +137,19 @@ struct GitProcessRunner: Sendable {
         }
     }
 
-    /// Decodes capped output, dropping at most one trailing partial UTF-8
-    /// scalar introduced by the byte-bounded cut.
-    private static func decodeUTF8DroppingPartialTail(_ data: Data) -> String? {
-        if let text = String(data: data, encoding: .utf8) { return text }
-        var trimmed = data
-        for _ in 0..<3 {
-            guard !trimmed.isEmpty else { break }
-            trimmed.removeLast()
-            if let text = String(data: trimmed, encoding: .utf8) { return text }
+    /// Git emits raw bytes. Replace invalid UTF-8 instead of turning a valid
+    /// command into an apparent Git failure, then preserve the caller's byte
+    /// bound after replacement scalars expand in UTF-8.
+    private static func decodeUTF8Lossy(_ data: Data, maxOutputBytes: Int?) -> String {
+        let text = String(decoding: data, as: UTF8.self)
+        guard let maxOutputBytes, text.utf8.count > maxOutputBytes else { return text }
+        let utf8 = text.utf8
+        var boundary = utf8.index(utf8.startIndex, offsetBy: maxOutputBytes)
+        while String.Index(boundary, within: text) == nil {
+            boundary = utf8.index(before: boundary)
         }
-        return nil
+        let stringBoundary = String.Index(boundary, within: text) ?? text.startIndex
+        return String(text[..<stringBoundary])
     }
 
     /// Ambient git repository-selection variables that would make a subprocess

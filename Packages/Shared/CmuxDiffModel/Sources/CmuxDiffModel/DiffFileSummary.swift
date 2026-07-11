@@ -1,7 +1,7 @@
 /// A file-level changed-file summary.
 public struct DiffFileSummary: Sendable, Codable, Equatable, Identifiable {
     /// Stable row identity.
-    public var id: String { oldPath.map { "\($0)->\(path)" } ?? path }
+    public var id: String { path }
     /// New/current repository-relative path.
     public let path: String
     /// Old repository-relative path for renames.
