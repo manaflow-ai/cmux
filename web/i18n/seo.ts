@@ -254,6 +254,7 @@ export function seoTitle(
     minLength?: number;
     maxLength?: number;
     fallbackCandidates?: readonly string[];
+    appendLocalizedContext?: boolean;
   } = {},
 ) {
   const minLength = options.minLength ?? MIN_TITLE_LENGTH;
@@ -261,7 +262,10 @@ export function seoTitle(
   const normalized = title.trim();
   const candidates = [...(options.fallbackCandidates ?? [])];
 
-  if (metadataSearchLength(normalized) < minLength) {
+  if (
+    options.appendLocalizedContext !== false &&
+    metadataSearchLength(normalized) < minLength
+  ) {
     const context = openGraphImageTagline(locale);
     if (!normalized.includes(context)) {
       candidates.push(`${normalized} — ${context}`);

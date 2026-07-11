@@ -24,13 +24,13 @@ export async function auditedDocsMetadata({
   messages: SeoMessageLookup;
   availableLocales?: readonly Locale[];
 }) {
-  const siteMeta = await getTranslations({ locale, namespace: "meta" });
+  const docs = await getTranslations({ locale, namespace: "docs" });
   const alternates = buildAlternates(locale, path, availableLocales);
   const { title, description } = docsPageSeoCopy(
     locale,
     pageKey,
     messages,
-    siteMeta,
+    docs("layoutTitle"),
   );
   return {
     title,

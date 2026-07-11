@@ -177,6 +177,39 @@ function selectTitle(
   });
 }
 
+function selectDocsTitle(
+  locale: string,
+  original: string,
+  pageTitle: string,
+  layoutTitle: string,
+  compactTitle?: string,
+) {
+  const shortContext = shortTitleContexts[locale] ?? shortTitleContexts.en;
+  const suffix = ` — ${layoutTitle}`;
+  const titleCandidates = [
+    pageTitle,
+    `${pageTitle} — macOS`,
+    `${pageTitle} — ${shortContext}`,
+    ...(compactTitle
+      ? [
+          compactTitle,
+          `${compactTitle} — macOS`,
+          `${compactTitle} — ${shortContext}`,
+        ]
+      : []),
+  ];
+  const effectiveTitle = seoTitle(locale, `${original}${suffix}`, {
+    minLength: conciseTitleLocales.has(locale) ? 0 : undefined,
+    fallbackCandidates: titleCandidates.map(
+      (candidate) => `${candidate}${suffix}`,
+    ),
+    appendLocalizedContext: false,
+  });
+  return effectiveTitle.endsWith(suffix)
+    ? effectiveTitle.slice(0, -suffix.length)
+    : effectiveTitle;
+}
+
 function selectDescription(
   locale: string,
   original: string,
@@ -265,7 +298,7 @@ export function docsPageSeoCopy(
   locale: string,
   pageKey: AuditedDocsPageKey,
   t: SeoMessageLookup,
-  siteMeta: SeoMessageLookup,
+  layoutTitle: string,
 ) {
   const title = pageKey === "ohMyOpenCode" ? t("metaTitle") : t("title");
   const authoredDescriptions = docsDescriptionCandidateKeys[pageKey].map(
@@ -275,7 +308,13 @@ export function docsPageSeoCopy(
     (key) => t(key),
   );
   return {
-    title: selectTitle(locale, t("metaTitle"), siteMeta, [title]),
+    title: selectDocsTitle(
+      locale,
+      t("metaTitle"),
+      title,
+      layoutTitle,
+      pageKey === "ohMyOpenCode" ? "oh-my-opencode" : undefined,
+    ),
     description: selectDescription(locale, t("metaDescription"), {
       completeCandidates: authoredDescriptions,
       contextFragments: [

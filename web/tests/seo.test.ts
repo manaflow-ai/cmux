@@ -378,13 +378,18 @@ describe("SEO metadata helpers", () => {
               locale,
               pageKey,
               messageLookup(page),
-              siteMeta,
+              messages.docs.layoutTitle,
             ),
             Object.values(page).filter(
               (value): value is string =>
                 typeof value === "string" && !value.includes("<"),
             ),
-            [page.metaTitle, page.title],
+            [
+              page.metaTitle,
+              page.title,
+              ...(pageKey === "ohMyOpenCode" ? ["oh-my-opencode"] : []),
+            ].filter((value): value is string => typeof value === "string"),
+            ` — ${messages.docs.layoutTitle}`,
           ),
         );
       }
@@ -432,7 +437,8 @@ describe("SEO metadata helpers", () => {
       }
 
       for (const row of rows) {
-        const titleLength = searchSnippetLength(row.copy.title);
+        const renderedTitle = `${row.copy.title}${row.titleSuffix}`;
+        const titleLength = searchSnippetLength(renderedTitle);
         const descriptionLength = searchSnippetLength(row.copy.description);
         if (descriptionLength < 110 || descriptionLength > 160) {
           throw new Error(
@@ -443,11 +449,11 @@ describe("SEO metadata helpers", () => {
           expect(titleLength).toBeGreaterThanOrEqual(30);
         }
         expect(titleLength).toBeLessThanOrEqual(60);
-        expect(row.copy.title).not.toMatch(/cmux\s*—\s*cmux/iu);
-        expect(`${row.copy.title}${row.copy.description}`).not.toMatch(
+        expect(renderedTitle).not.toMatch(/cmux\s*—\s*cmux/iu);
+        expect(`${renderedTitle}${row.copy.description}`).not.toMatch(
           /…|<\/?(?:link|code)>/u,
         );
-        expect(`${row.copy.title}${row.copy.description}`).not.toMatch(
+        expect(`${renderedTitle}${row.copy.description}`).not.toMatch(
           /[{}]|__CMUXPH/iu,
         );
         expect(row.copy.description).not.toMatch(/[!?។៕。！？؟]\./u);
@@ -501,7 +507,7 @@ describe("SEO metadata helpers", () => {
       "fr",
       "concepts",
       messageLookup(frenchMessages.docs.concepts),
-      messageLookup(frenchMessages.meta),
+      frenchMessages.docs.layoutTitle,
     );
     expect(
       frenchConcepts.description.startsWith(
@@ -514,7 +520,7 @@ describe("SEO metadata helpers", () => {
       "km",
       "dock",
       messageLookup(khmerMessages.docs.dock),
-      messageLookup(khmerMessages.meta),
+      khmerMessages.docs.layoutTitle,
     );
     expect(khmerDock.description).not.toMatch(/៖[.។]/u);
   });
@@ -606,17 +612,11 @@ describe("SEO metadata helpers", () => {
       messages,
       namespace: "docs.concepts",
     });
-    const meta = createTranslator({
-      locale: "zh-CN",
-      messages,
-      namespace: "meta",
-    });
-
     const copy = docsPageSeoCopy(
       "zh-CN",
       "concepts",
       (key) => docs(key as never),
-      (key) => meta(key as never),
+      messages.docs.layoutTitle,
     );
 
     expect(`${copy.title}${copy.description}`).not.toMatch(/\{[^{}]+\}/u);
@@ -822,8 +822,9 @@ function auditedRow(
   copy: SeoCopy,
   contexts: string[],
   titleContexts: string[] = [contexts[0]],
+  titleSuffix = "",
 ) {
-  return { route, copy, contexts, titleContexts };
+  return { route, copy, contexts, titleContexts, titleSuffix };
 }
 
 function requestFor(pathname: string, headers: Record<string, string> = {}) {

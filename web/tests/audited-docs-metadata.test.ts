@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 
 mock.module("next-intl/server", () => ({
   getTranslations: async () => (key: string) =>
-    key === "title" ? "cmux — The terminal for AI coding" : key,
+    key === "layoutTitle" ? "cmux docs" : key,
 }));
 
 const { auditedDocsMetadata } = await import(
