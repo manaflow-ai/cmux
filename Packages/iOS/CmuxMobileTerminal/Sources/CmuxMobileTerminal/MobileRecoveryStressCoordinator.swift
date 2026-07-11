@@ -148,7 +148,7 @@ final class MobileRecoveryStressCoordinator: NSObject, GhosttySurfaceViewDelegat
                 return
             }
             let recoveryOutputApplied = await view.processOutputAndWait(
-                Self.postRecoveryOutput(cycle: cycle, generation: after.generation)
+                postRecoveryStressOutput(cycle: cycle, generation: after.generation)
             )
             guard recoveryOutputApplied else {
                 reporter.emit(
@@ -240,15 +240,16 @@ final class MobileRecoveryStressCoordinator: NSObject, GhosttySurfaceViewDelegat
         return Data(text.utf8)
     }
 
-    private static func postRecoveryOutput(cycle: Int, generation: UInt64) -> Data {
-        var text = "\u{1b}[2J\u{1b}[H\u{1b}]0;recovery stress recovered \(cycle)\u{07}"
-        for line in 0..<48 {
-            text += "\u{1b}[38;5;\((line + cycle + 32) % 216)m"
-            text += "post-recovery cycle=\(cycle) generation=\(generation) line=\(line) "
-            text += "replacement surface accepted output\u{1b}[0m\r\n"
-        }
-        text += "\u{1b}[1;32mRECOVERY-STRESS-RECOVERED-\(cycle) generation=\(generation)\u{1b}[0m"
-        return Data(text.utf8)
+}
+
+private func postRecoveryStressOutput(cycle: Int, generation: UInt64) -> Data {
+    var text = "\u{1b}[2J\u{1b}[H\u{1b}]0;recovery stress recovered \(cycle)\u{07}"
+    for line in 0..<48 {
+        text += "\u{1b}[38;5;\((line + cycle + 32) % 216)m"
+        text += "post-recovery cycle=\(cycle) generation=\(generation) line=\(line) "
+        text += "replacement surface accepted output\u{1b}[0m\r\n"
     }
+    text += "\u{1b}[1;32mRECOVERY-STRESS-RECOVERED-\(cycle) generation=\(generation)\u{1b}[0m"
+    return Data(text.utf8)
 }
 #endif
