@@ -1535,7 +1535,7 @@
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode แบบหลายเอเจนต์ใน cmux",
-      "metaDescription": "oh-my-opencode (cmux omo) รัน OpenCode CLI พร้อมปลั๊กอิน oh-my-openagent ภายใน cmux จัดการ Claude, GPT, Gemini และ Grok เป็นเอเจนต์แบบขนาน แต่ละตัวอยู่ในการแยกหน้าจอแบบเนทีฟของ cmux"
+      "metaDescription": "cmux omo รัน OpenCode พร้อม oh-my-openagent ให้ Claude, GPT, Gemini และ Grok ทำงานขนานกันในหน้าจอแยก cmux แบบเนทีฟ."
     },
     "ios": {
       "metaTitle": "แอป iOS",

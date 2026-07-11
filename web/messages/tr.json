@@ -1535,7 +1535,7 @@
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: cmux içinde OpenCode çoklu ajan",
-      "metaDescription": "oh-my-opencode (cmux omo), OpenCode CLI'yi oh-my-openagent eklentisiyle cmux içinde çalıştırır. Claude, GPT, Gemini ve Grok'u paralel ajanlar olarak, her biri yerel bir cmux bölmesinde olacak şekilde orkestre edin."
+      "metaDescription": "cmux omo, OpenCode’u oh-my-openagent ile cmux içinde çalıştırır. Claude, GPT, Gemini ve Grok’u yerel cmux bölmelerinde paralel ajanlar olarak orkestre eder."
     },
     "ios": {
       "metaTitle": "iOS Uygulaması",

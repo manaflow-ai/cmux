@@ -1068,7 +1068,7 @@
     "keyboardShortcuts": {
       "title": "ផ្លូវកាត់ក្ដារចុច",
       "description": "ផ្លូវកាត់ក្ដារចុចទាំងអស់ដែលមានក្នុង cmux, ដាក់ជាក្រុមតាមប្រភេទ។",
-      "metaDescription": "ផ្លូវកាត់ក្ដារចុច cmux ទាំងអស់សម្រាប់ workspace, surface, បន្ទះបំបែក, កម្មវិធីរុករក, ជូនដំណឹង, ស្វែងរក, និងការគ្រប់គ្រងបង្អួចនៅលើ macOS។",
+      "metaDescription": "ផ្លូវកាត់ក្ដារចុច cmux ទាំងអស់សម្រាប់ workspace, surface, បន្ទះបំបែក, កម្មវិធីរុករក, ជូនដំណឹង, ស្វែងរក និងការគ្រប់គ្រងបង្អួចនៅលើ macOS។",
       "searchPlaceholder": "ស្វែងរកផ្លូវកាត់...",
       "searchLabel": "ស្វែងរកផ្លូវកាត់ក្ដារចុច",
       "noResults": "រកមិនឃើញផ្លូវកាត់ទេ",
@@ -1535,7 +1535,7 @@
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode ពហុភ្នាក់ងារក្នុង cmux",
-      "metaDescription": "oh-my-opencode (cmux omo) ដំណើរការ OpenCode CLI ជាមួយកម្មវិធីជំនួយ oh-my-openagent នៅក្នុង cmux។ រៀបចំ Claude, GPT, Gemini, និង Grok ជាភ្នាក់ងារប៉ារ៉ាឡែល នីមួយៗនៅក្នុងបន្ទះបំបែកដើមរបស់ cmux។"
+      "metaDescription": "cmux omo ដំណើរការ OpenCode ជាមួយ oh-my-openagent។ Claude, GPT, Gemini និង Grok ធ្វើការជាភ្នាក់ងារប៉ារ៉ាឡែលក្នុងបន្ទះ cmux។"
     },
     "ios": {
       "metaTitle": "កម្មវិធី iOS",

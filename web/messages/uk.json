@@ -1402,7 +1402,7 @@
     "ohMyOpenCode": {
       "title": "oh-my-opencode",
       "metaTitle": "oh-my-opencode: мультиагентний OpenCode у cmux",
-      "metaDescription": "oh-my-opencode (cmux omo) запускає OpenCode CLI з плагіном oh-my-openagent усередині cmux. Оркеструйте Claude, GPT, Gemini і Grok як паралельних агентів, кожного в нативному розділенні cmux.",
+      "metaDescription": "cmux omo запускає OpenCode з плагіном oh-my-openagent. Claude, GPT, Gemini й Grok працюють паралельно як агенти в нативних розділеннях cmux.",
       "nightlyWarning": "Доступно лише в <nightly>нічних збірках</nightly>.",
       "intro": "cmux omo запускає OpenCode з плагіном oh-my-openagent у середовищі, сумісному з cmux. oh-my-openagent оркеструє кілька AI-моделей (Claude, GPT, Gemini, Grok) як спеціалізованих агентів, що працюють паралельно. Коли він створює панелі агентів, вони стають нативними розділеннями cmux.",
       "usage": "Використання",
