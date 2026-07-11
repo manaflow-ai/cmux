@@ -34,13 +34,39 @@ import Testing
         #expect(result.title == "Investigate logs")
     }
 
-    @Test func appendModeAddsQuotedPromptArgument() {
+    @Test func appendModeAddsOptionTerminatorAndQuotedPromptArgument() {
         let template = MobileTaskTemplate(name: "Claude", icon: "brain.head.profile", command: "claude")
 
         let result = composer.compose(template: template, prompt: "fix 'quote'")
 
-        #expect(result.initialCommand == "claude \"${CMUX_TASK_PROMPT}\"")
+        #expect(result.initialCommand == "claude -- \"${CMUX_TASK_PROMPT}\"")
         #expect(result.initialEnv == ["CMUX_TASK_PROMPT": "fix 'quote'"])
+    }
+
+    @Test func appendModeCannotInterpretLeadingDashPromptAsAnOption() {
+        let template = MobileTaskTemplate(name: "Agent", icon: "terminal", command: "agent")
+
+        let result = composer.compose(template: template, prompt: "--dangerous-option")
+
+        #expect(result.initialCommand == "agent -- \"${CMUX_TASK_PROMPT}\"")
+        #expect(result.initialEnv == ["CMUX_TASK_PROMPT": "--dangerous-option"])
+    }
+
+    @Test func claudeAndCodexSeedsUseSafeImplicitAppendWhileOpenCodeKeepsExplicitPlaceholder() throws {
+        let seeds = MobileTaskTemplate.seedDefaults(
+            claudeName: "Claude",
+            codexName: "Codex",
+            openCodeName: "OpenCode",
+            shellName: "Shell"
+        )
+        let byName = Dictionary(uniqueKeysWithValues: seeds.map { ($0.name, $0) })
+
+        #expect(composer.compose(template: try #require(byName["Claude"]), prompt: "--resume").initialCommand
+            == "claude -- \"${CMUX_TASK_PROMPT}\"")
+        #expect(composer.compose(template: try #require(byName["Codex"]), prompt: "--resume").initialCommand
+            == "codex -- \"${CMUX_TASK_PROMPT}\"")
+        #expect(composer.compose(template: try #require(byName["OpenCode"]), prompt: "--resume").initialCommand
+            == "opencode --prompt=\"${CMUX_TASK_PROMPT}\"")
     }
 
     @Test func placeholdersInsideShellQuotesCannotReparsePromptText() {

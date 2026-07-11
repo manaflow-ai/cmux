@@ -17,15 +17,19 @@ import CmuxMobileShellModel
         #expect(reloaded.listTemplates().map(\.name) == ["Codex", "OpenCode", "Shell"])
     }
 
-    @Test func seedingClearsAbandonedV1Keys() {
+    @Test func seedingClearsAbandonedV1AndV2Keys() {
         let defaults = Self.defaults()
         defaults.set(Data("stale".utf8), forKey: "cmux.mobile.taskTemplates.v1")
         defaults.set(true, forKey: "cmux.mobile.taskTemplates.seeded.v1")
+        defaults.set(Data("stale".utf8), forKey: "cmux.mobile.taskTemplates.v2")
+        defaults.set(true, forKey: "cmux.mobile.taskTemplates.seeded.v2")
 
         let store = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
         #expect(store.listTemplates().count == 4)
         #expect(defaults.object(forKey: "cmux.mobile.taskTemplates.v1") == nil)
         #expect(defaults.object(forKey: "cmux.mobile.taskTemplates.seeded.v1") == nil)
+        #expect(defaults.object(forKey: "cmux.mobile.taskTemplates.v2") == nil)
+        #expect(defaults.object(forKey: "cmux.mobile.taskTemplates.seeded.v2") == nil)
     }
 
     @Test func crudPersistsAcrossStoreInstances() {
@@ -120,6 +124,44 @@ import CmuxMobileShellModel
         shell.signOut()
 
         #expect(UserDefaultsMobileTaskTemplateStore(defaults: defaults).composerDraft() == nil)
+    }
+
+    @Test func signOutClearsAllTemplateDataAndNextListReseedsSafeDefaults() throws {
+        let defaults = Self.defaults()
+        let templateStore = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        let custom = MobileTaskTemplate(
+            name: "Account A executable",
+            icon: "terminal",
+            command: "/Users/account-a/bin/private-agent",
+            defaultDirectory: "/Users/account-a/secret"
+        )
+        templateStore.addTemplate(custom)
+        templateStore.setLastTemplateID(custom.id)
+        templateStore.setLastMacDeviceID("account-a-mac")
+        templateStore.setLastDirectory("/Users/account-a/project", macDeviceID: "account-a-mac")
+        templateStore.setLastDirectory("/tmp/account-a", macDeviceID: "other-mac")
+        templateStore.setComposerDraft(MobileTaskComposerDraft(
+            prompt: "Account A secret",
+            templateID: custom.id,
+            macDeviceID: "account-a-mac",
+            directory: "/Users/account-a/project",
+            didEditDirectory: true
+        ))
+        let shell = MobileShellComposite(isSignedIn: true, taskTemplateStore: templateStore)
+
+        shell.signOut()
+
+        let reloaded = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        #expect(reloaded.lastTemplateID() == nil)
+        #expect(reloaded.lastMacDeviceID() == nil)
+        #expect(reloaded.lastDirectory(macDeviceID: "account-a-mac") == nil)
+        #expect(reloaded.lastDirectory(macDeviceID: "other-mac") == nil)
+        #expect(reloaded.composerDraft() == nil)
+        let seeds = reloaded.listTemplates()
+        #expect(seeds.map(\.command) == ["claude", "codex", "opencode --prompt {prompt}", ""])
+        #expect(!seeds.contains(where: { $0.id == custom.id }))
+        #expect(!seeds.contains(where: { $0.command.contains("account-a") }))
+        #expect(defaults.bool(forKey: "cmux.mobile.taskTemplates.seeded.v3"))
     }
 
     @Test func staleComposerSheetCannotRepersistDraftAfterSignOut() {

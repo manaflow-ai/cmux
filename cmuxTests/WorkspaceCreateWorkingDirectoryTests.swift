@@ -87,6 +87,40 @@ import Testing
         #expect(Self.workspaceID(from: result) == restored.id)
     }
 
+    @Test func retryFromAnotherManagerReturnsOwningWindowWithoutCreatingWorkspaceOrCommand() throws {
+        let operationID = UUID()
+        let currentManager = TabManager()
+        let ownerManager = TabManager()
+        let ownerWindowID = UUID()
+        let ownerWorkspace = try #require(ownerManager.selectedWorkspace)
+        ownerWorkspace.taskCreateOperationID = operationID
+        TerminalController.shared.workspaceCreateIdempotencyCache.record(
+            operationID: operationID,
+            workspaceID: ownerWorkspace.id
+        )
+        let currentIDs = Set(currentManager.tabs.map(\.id))
+        let ownerIDs = Set(ownerManager.tabs.map(\.id))
+
+        let result = TerminalController.shared.v2WorkspaceCreate(
+            params: [
+                "operation_id": operationID.uuidString,
+                "initial_command": "must-not-launch",
+            ],
+            tabManager: currentManager,
+            taskCreateCandidates: [
+                .init(tabManager: currentManager, windowID: UUID()),
+                .init(tabManager: ownerManager, windowID: ownerWindowID),
+            ]
+        )
+
+        #expect(Set(currentManager.tabs.map(\.id)) == currentIDs)
+        #expect(Set(ownerManager.tabs.map(\.id)) == ownerIDs)
+        #expect(ownerWorkspace.panels.values.compactMap { $0 as? TerminalPanel }
+            .allSatisfy { $0.surface.debugInitialCommand() != "must-not-launch" })
+        #expect(Self.workspaceID(from: result) == ownerWorkspace.id)
+        #expect(Self.windowID(from: result) == ownerWindowID)
+    }
+
     @Test func composerWorkingDirectoryRequiresAbsoluteExistingDirectory() throws {
         let manager = TabManager()
         let baselineCount = manager.tabs.count
@@ -155,5 +189,14 @@ import Testing
     private static func errorCode(from result: TerminalController.V2CallResult) -> String? {
         guard case .err(let code, _, _) = result else { return nil }
         return code
+    }
+
+    private static func windowID(from result: TerminalController.V2CallResult) -> UUID? {
+        guard case .ok(let rawPayload) = result,
+              let payload = rawPayload as? [String: Any],
+              let rawID = payload["window_id"] as? String else {
+            return nil
+        }
+        return UUID(uuidString: rawID)
     }
 }
