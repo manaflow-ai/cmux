@@ -567,6 +567,7 @@ class FakeComputerUseProvider {
       { name: "NoWindowIdentityApp", bundleIdentifier: "com.cmux.nowindowidentity", pid: 1004 },
       { name: "ProviderFailureApp", bundleIdentifier: "com.cmux.providerfailure", pid: 1005 },
       { name: "NoScreenshotApp", bundleIdentifier: "com.cmux.noscreenshot", pid: 1006 },
+      { name: "DormantBetaApp", bundleIdentifier: "com.cmux.dormant-beta", pid: 1008 },
       { name: "RotatingIdentityApp", bundleIdentifier: "com.cmux.rotating", pid: this.rotatingIdentityPid },
     ];
     if (this.dormantTestAppResolveAttempts >= 2) {

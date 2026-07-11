@@ -1220,3 +1220,19 @@ if (dormantOpenAccepted.isError || !dormantOpenAccepted.text.includes("DormantTe
   console.error("FAIL: computer_open should launch an installed app that is not already running");
   process.exit(1);
 }
+
+const exactBundleOpenAccepted = await run({
+  withElicitation: true,
+  tool: "computer_open",
+  args: { app: "com.cmux.dormant" },
+  expectMessage: "com.cmux.dormant",
+});
+console.log(`computer_open exact bundle id -> isError=${exactBundleOpenAccepted.isError}`);
+if (
+  exactBundleOpenAccepted.isError ||
+  !exactBundleOpenAccepted.text.includes("DormantTestApp") ||
+  exactBundleOpenAccepted.text.includes("DormantBetaApp")
+) {
+  console.error("FAIL: computer_open bundle identifiers must not partially match a different running bundle");
+  process.exit(1);
+}
