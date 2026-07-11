@@ -271,8 +271,6 @@ import Testing
             "NODE_OPTIONS": "--require /tmp/guard.js",
             "CLAUDE_CODE_EXECPATH": "/usr/local/bin/claude",
             "CLAUDE_CODE_SSE_PORT": "12345",
-            "CLAUDE_CODE_SANDBOXED": "1",
-            "CMUX_CLAUDE_TEAMS_SANDBOXED": "1",
             "CLAUDE_CODE_USE_VERTEX": "1",
             "CLAUDE_CODE_USE_BEDROCK": "0",
             "ANTHROPIC_API_KEY": "key",
@@ -292,8 +290,6 @@ import Testing
         #expect(env["NODE_OPTIONS"] == nil)
         #expect(env["CLAUDE_CODE_EXECPATH"] == nil)
         #expect(env["CLAUDE_CODE_SSE_PORT"] == nil)
-        #expect(env["CLAUDE_CODE_SANDBOXED"] == nil)
-        #expect(env["CMUX_CLAUDE_TEAMS_SANDBOXED"] == nil)
         #expect(env["CLAUDE_CODE_USE_VERTEX"] == "1")
         #expect(env["CLAUDE_CODE_USE_BEDROCK"] == "0")
         #expect(env["ANTHROPIC_API_KEY"] == "key")
