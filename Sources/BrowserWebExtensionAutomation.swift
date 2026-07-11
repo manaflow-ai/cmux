@@ -234,12 +234,22 @@ enum BrowserWebExtensionAutomation {
         default:
             throw automationError("invalid_params", "Unknown target '\(target)'; expected popup or background.")
         }
+        // `async: true` runs `js` as an async function body (use `return` and
+        // `await`; promises resolve before the result serializes). The default
+        // evaluates a plain expression.
+        let runAsAsyncFunction = (params["async"] as? Bool) ?? false
         let raw: Any? = try await withCheckedThrowingContinuation { continuation in
-            webView.evaluateJavaScript(js) { value, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: value)
+            if runAsAsyncFunction {
+                webView.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
+                    continuation.resume(with: result.map { $0 as Any? })
+                }
+            } else {
+                webView.evaluateJavaScript(js) { value, error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else {
+                        continuation.resume(returning: value)
+                    }
                 }
             }
         }
