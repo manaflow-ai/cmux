@@ -300,7 +300,24 @@ struct NotificationRowSnapshotBoundaryTests {
         )
 
         #expect(didRestore)
-        #expect(surfaceView.performedBindingActions == ["scroll_to_row:356"])
+        #expect(surfaceView.performedBindingActions == ["scroll_to_bottom"])
+    }
+
+    /// Verifies that a live-bottom anchor keeps Ghostty in its active viewport
+    /// state when the terminal has no scrollback rows.
+    @Test func openingNotificationWithoutScrollbackKeepsLiveViewportActive() {
+        let surfaceView = NotificationScrollRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = GhosttyScrollbar(
+            c: ghostty_action_scrollbar_s(total: 44, offset: 0, len: 44)
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+
+        let didRestore = hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 0, totalRows: 44)
+        )
+
+        #expect(didRestore)
+        #expect(surfaceView.performedBindingActions == ["scroll_to_bottom"])
     }
 
     /// Verifies that legacy positions without a captured row count preserve
