@@ -173,6 +173,31 @@ import Testing
         #expect(state.addressText == "typed query")
     }
 
+    @Test func sameDocumentPersistenceIsCoalescibleButFinishedNavigationIsImmediate() {
+        let state = makeState(initialURL: URL(string: "https://example.com/first")!)
+        var immediateWrites: [Bool] = []
+        state.installPersistence { immediate in
+            immediateWrites.append(immediate)
+        }
+
+        state.navigationURLDidChange(URL(string: "https://example.com/second")!)
+        state.navigationDidFinish(url: URL(string: "https://example.com/final")!)
+
+        #expect(immediateWrites == [false, true])
+    }
+
+    @Test func provisionalFailureRecordsRecoveryWithoutDiscardingCommittedPage() {
+        let committedURL = URL(string: "https://example.com/committed")!
+        let failedURL = URL(string: "https://example.com/failed")!
+        let state = makeState(initialURL: committedURL)
+
+        state.navigationDidFail(message: "offline", url: failedURL, wasProvisional: true)
+
+        #expect(state.currentURL == committedURL)
+        #expect(state.lastFailedURL == failedURL)
+        #expect(state.lastFailureWasProvisional)
+    }
+
     @Test func commandQueueConsumedOnce() {
         let state = makeState()
         state.request(.reload)

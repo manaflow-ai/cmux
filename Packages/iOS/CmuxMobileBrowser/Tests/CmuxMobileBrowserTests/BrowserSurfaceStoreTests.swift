@@ -97,6 +97,17 @@ import Testing
         #expect(store.hasBrowser(for: "ws-2"))
     }
 
+    @Test func reconciliationPrunesBrowsersForDeletedWorkspaces() {
+        let store = makeStore()
+        _ = store.openBrowser(for: "ws-1")
+        _ = store.openBrowser(for: "ws-2")
+
+        store.reconcileWorkspaces(["ws-2"])
+
+        #expect(store.hasBrowser(for: "ws-1") == false)
+        #expect(store.hasBrowser(for: "ws-2"))
+    }
+
     @Test func reopenAfterCloseMakesFreshSurface() {
         let store = makeStore()
         let first = store.openBrowser(for: "ws-1")
