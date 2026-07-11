@@ -76,6 +76,37 @@ import Testing
         #expect(service.fileDiff(repoRoot: repo.path, path: "Tracked.swift", oldPath: ".") == nil)
     }
 
+    @Test func deletedBaselineDirectoryCannotExpandToDescendants() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let directory = repo.appendingPathComponent("Deleted")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data("one\n".utf8).write(to: directory.appendingPathComponent("One.txt"))
+        try Data("two\n".utf8).write(to: directory.appendingPathComponent("Two.txt"))
+        try runTestGit(in: repo, ["add", "--", "Deleted"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add directory"])
+        try FileManager.default.removeItem(at: directory)
+
+        let service = GitDiffService()
+
+        #expect(service.fileDiff(repoRoot: repo.path, path: "Deleted") == nil)
+    }
+
+    @Test func nonUTF8TextDiffUsesReplacementCharacters() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let file = repo.appendingPathComponent("Latin1.txt")
+        try Data([0x63, 0x61, 0x66, 0xE9, 0x0A]).write(to: file)
+        try runTestGit(in: repo, ["add", "--", "Latin1.txt"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add latin1 text"])
+        try Data([0x63, 0x61, 0x66, 0xE8, 0x0A]).write(to: file)
+
+        let service = GitDiffService()
+        let diff = try #require(service.fileDiff(repoRoot: repo.path, path: "Latin1.txt"))
+
+        #expect(diff.unifiedDiff.contains("�"))
+    }
+
     private func makeTempRepo() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-git-diff-boundary-tests-\(UUID().uuidString)")

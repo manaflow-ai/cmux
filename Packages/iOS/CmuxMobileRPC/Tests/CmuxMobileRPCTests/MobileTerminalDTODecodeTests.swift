@@ -71,12 +71,25 @@ import Testing
         #expect(response.truncated)
     }
 
-    @Test func diffFileToleratesMissingForwardCompatibleFields() throws {
-        let response = try MobileWorkspaceDiffFileResponse.decode(Data("{}".utf8))
+    @Test func diffFileRejectsMissingRequiredIdentityAndContent() {
+        #expect(throws: DecodingError.self) {
+            try MobileWorkspaceDiffFileResponse.decode(Data("{}".utf8))
+        }
+    }
 
-        #expect(response.path == "")
-        #expect(response.unifiedDiff == "")
-        #expect(!response.truncated)
+    @Test func diffStatusFileIDsUseCollisionFreeDestinationPath() throws {
+        let data = Data(
+            """
+            {"repo_root":"/repo","files":[
+              {"path":"b","old_path":"a","status":"R"},
+              {"path":"a->b","old_path":null,"status":"M"}
+            ]}
+            """.utf8
+        )
+        let response = try MobileWorkspaceDiffStatusResponse.decode(data)
+
+        #expect(response.files.map(\.id) == ["b", "a->b"])
+        #expect(Set(response.files.map(\.id)).count == 2)
     }
 
     /// A theme nested in the host-status payload, serialized with the Mac
