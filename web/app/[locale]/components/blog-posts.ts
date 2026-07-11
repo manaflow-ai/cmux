@@ -105,6 +105,7 @@ export const blogPosts = [
     date: "2026-03-30",
     summary:
       "Claude Code's teammate mode requires tmux. cmux fakes it so teammates become native splits with sidebar metadata and notifications.",
+    locales: englishFallbackContentLocales,
   },
   {
     slug: "cmux-omo",

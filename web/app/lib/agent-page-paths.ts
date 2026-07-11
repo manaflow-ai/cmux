@@ -131,6 +131,7 @@ export const agentReadablePages = [
   {
     path: "/blog/cmux-claude-teams",
     title: "Claude Code teammate agents as native cmux panes",
+    locales: englishFallbackContentLocales,
   },
   {
     path: "/blog/cmux-omo",
