@@ -1,0 +1,84 @@
+import Foundation
+import Testing
+@testable import CmuxMobileShell
+
+@MainActor
+@Suite struct MobileConnectionLifecycleTests {
+    @Test func backgroundPathChangesCoalesceUntilOneForegroundRecovery() async throws {
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let clock = TestClock()
+        let reachability = ControllableReachability()
+        let store = try await makeLifecycleConnectedStore(
+            router: router,
+            box: box,
+            clock: clock,
+            reachability: reachability
+        )
+
+        store.resumeForegroundRefresh()
+        await router.waitForCount(of: "mobile.events.subscribe", atLeast: 1)
+        let baselineSubscriptions = await router.count(of: "mobile.events.subscribe")
+
+        store.suspendForegroundRefresh()
+        for _ in 0..<20 {
+            reachability.sendPathChange()
+        }
+
+        let backgroundRestarted = await router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: baselineSubscriptions + 1,
+            timeoutNanoseconds: 200_000_000,
+            recordIssueOnTimeout: false
+        )
+        #expect(!backgroundRestarted)
+
+        clock.advance(by: 31)
+        store.resumeForegroundRefresh()
+        await router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: baselineSubscriptions + 1
+        )
+        #expect(await router.count(of: "mobile.events.subscribe") == baselineSubscriptions + 1)
+    }
+
+    @Test func repeatedInactiveTransitionsDoNotCreateExtraRecoveryEpisodes() async throws {
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let clock = TestClock()
+        let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+        await router.waitForCount(of: "mobile.events.subscribe", atLeast: 1)
+        let baselineSubscriptions = await router.count(of: "mobile.events.subscribe")
+
+        for _ in 0..<200 {
+            store.suspendForegroundRefresh()
+        }
+        clock.advance(by: 31)
+        store.resumeForegroundRefresh()
+
+        await router.waitForCount(of: "mobile.events.subscribe", atLeast: baselineSubscriptions + 1)
+        #expect(await router.count(of: "mobile.events.subscribe") == baselineSubscriptions + 1)
+    }
+}
+
+@MainActor
+private func makeLifecycleConnectedStore(
+    router: LivenessHostRouter,
+    box: TransportBox,
+    clock: TestClock,
+    reachability: ControllableReachability
+) async throws -> MobileShellComposite {
+    let runtime = LivenessTestRuntime(
+        transportFactory: LivenessTransportFactory(router: router, box: box),
+        now: { clock.now }
+    )
+    let store = MobileShellComposite(
+        runtime: runtime,
+        reachability: reachability,
+        deliveredNotificationClearer: NoopDeliveredNotificationClearer()
+    )
+    store.signIn()
+    let connected = await store.connectPairingURL(try attachURL(for: makeTicket(clock: clock)))
+    #expect(connected, "scripted connect must succeed")
+    return store
+}
