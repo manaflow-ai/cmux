@@ -58,13 +58,18 @@ function selectTitle(
 ) {
   const tagline = openGraphImageTagline(locale);
   const shortContext = shortTitleContexts[locale] ?? shortTitleContexts.en;
-  const contextualCandidates = authoredCandidates.flatMap((candidate) => [
-    candidate,
-    `${candidate} — cmux`,
-    `${candidate} — ${shortContext}`,
-    `${candidate} — ${tagline}`,
-    `${candidate} — ${siteMeta("title")}`,
-  ]);
+  const contextualCandidates = authoredCandidates.flatMap((candidate) => {
+    const brandCandidate = /cmux/iu.test(candidate)
+      ? []
+      : [`${candidate} — cmux`];
+    return [
+      candidate,
+      ...brandCandidate,
+      `${candidate} — ${shortContext}`,
+      `${candidate} — ${tagline}`,
+      `${candidate} — ${siteMeta("title")}`,
+    ];
+  });
   return seoTitle(locale, original, {
     minLength: conciseTitleLocales.has(locale) ? 0 : undefined,
     fallbackCandidates: [
@@ -212,10 +217,7 @@ export function cmuxHistorySeoCopy(
         ...(shortDescription ? [shortDescription] : []),
         post("summary"),
         post("p1"),
-        post("agentP2"),
-        post("focusP"),
         post("fullHistoryP"),
-        post("docsCta"),
       ],
       contextFragments: [
         post("title"),

@@ -385,6 +385,7 @@ describe("SEO metadata helpers", () => {
           expect(titleLength).toBeGreaterThanOrEqual(30);
         }
         expect(titleLength).toBeLessThanOrEqual(60);
+        expect(row.copy.title).not.toMatch(/cmux\s*—\s*cmux/iu);
         expect(`${row.copy.title}${row.copy.description}`).not.toMatch(
           /…|<\/?(?:link|code)>/u,
         );
