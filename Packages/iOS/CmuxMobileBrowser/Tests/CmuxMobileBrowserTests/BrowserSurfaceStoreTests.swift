@@ -108,6 +108,23 @@ import Testing
         #expect(store.hasBrowser(for: "ws-2"))
     }
 
+    @Test func stableWorkspaceIdentityAdoptsBrowserFromRemoteAlias() {
+        let store = makeStore()
+        let browser = store.openBrowser(for: "remote-ws")
+        let stableIdentity = BrowserWorkspaceIdentity(
+            rawValue: "5:mac-a:remote-ws",
+            aliases: ["remote-ws"]
+        )
+
+        #expect(store.browser(for: stableIdentity) === browser)
+
+        store.reconcileWorkspaces([stableIdentity])
+
+        #expect(store.browser(for: stableIdentity) === browser)
+        #expect(store.browser(for: "remote-ws") == nil)
+        #expect(store.activeBrowser(for: stableIdentity) === browser)
+    }
+
     @Test func reopenAfterCloseMakesFreshSurface() {
         let store = makeStore()
         let first = store.openBrowser(for: "ws-1")
