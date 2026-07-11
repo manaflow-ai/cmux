@@ -57,6 +57,17 @@ struct MobileViewportFitGeometryTests {
         #expect(resolved == 16)
     }
 
+    @Test func activeRuntimeConfigDefinesResetTargetForInheritedTemplateFont() {
+        let resolved = MobileViewportConfiguredFontPointSize.resolve(
+            templateBaseFontPointSize: 14,
+            runtimeConfigFontPointSize: 12,
+            fallbackBaseFontPointSize: 12,
+            magnificationPercent: 100
+        )
+
+        #expect(resolved == 12)
+    }
+
     @Test func configuredBaselineTracksConfigChangesDuringAutomaticFit() {
         var state = MobileViewportFontFitState(
             baseFontPointSize: 12,
