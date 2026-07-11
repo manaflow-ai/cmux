@@ -107,6 +107,48 @@ import Testing
         #expect(rows.first?.teamID == nil)
     }
 
+    @Test func newerTeamlessDuplicateKeepsLogicalActiveSelection() async throws {
+        let (inner, directory) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let feature = IOSBuildScopedPairedMacStore(
+            inner: inner,
+            scope: try #require(MobileIOSBuildScope("feature"))
+        )
+        try await feature.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Selected",
+            routes: [try route("10.0.0.1")],
+            instanceTag: "feature-a",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 1)
+        )
+        try await feature.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Fallback",
+            routes: [try route("10.0.0.2")],
+            instanceTag: "feature-b",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 2)
+        )
+
+        let rows = try await feature.loadAll(
+            stackUserID: "user-1", teamID: "team-a"
+        )
+        let row = try #require(rows.first)
+        #expect(rows.count == 1)
+        #expect(row.teamID == nil)
+        #expect(row.instanceTag == "feature-b")
+        #expect(row.routes == [try route("10.0.0.2")])
+        #expect(row.isActive)
+        #expect(try await feature.activeMac(
+            stackUserID: "user-1", teamID: "team-a"
+        )?.instanceTag == "feature-b")
+    }
+
     @Test func selectedTeamUpsertClaimsTeamlessScopedRow() async throws {
         let (inner, directory) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: directory) }

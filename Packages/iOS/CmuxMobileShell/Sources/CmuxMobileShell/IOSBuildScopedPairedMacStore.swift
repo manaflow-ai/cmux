@@ -206,9 +206,22 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
             byID[mac.macDeviceID] = mac
         }
         if normalizedTeamID(teamID) != nil {
+            // Restore/live races can briefly leave a selected-team row and its
+            // teamless fallback. Newest owns the host tuple; active is logical
+            // per physical Mac, so preserve it across the duplicate rows.
             for mac in try await scopedRows(stackUserID: stackUserID, teamID: nil) {
-                if byID[mac.macDeviceID]?.lastSeenAt ?? .distantPast < mac.lastSeenAt {
+                guard let selected = byID[mac.macDeviceID] else {
                     byID[mac.macDeviceID] = mac
+                    continue
+                }
+                if selected.lastSeenAt < mac.lastSeenAt {
+                    var newest = mac
+                    newest.isActive = selected.isActive || mac.isActive
+                    byID[mac.macDeviceID] = newest
+                } else if mac.isActive, !selected.isActive {
+                    var newest = selected
+                    newest.isActive = true
+                    byID[mac.macDeviceID] = newest
                 }
             }
         }
