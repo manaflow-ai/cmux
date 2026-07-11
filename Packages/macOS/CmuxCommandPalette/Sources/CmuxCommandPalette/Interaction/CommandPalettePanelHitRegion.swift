@@ -37,8 +37,7 @@ public extension NSView {
     /// - Returns: Whether the point is inside the panel, or `nil` before marker mounting.
     func commandPalettePanelContains(windowPoint: NSPoint) -> Bool? {
         guard let marker = commandPalettePanelHitRegionDescendant() else { return nil }
-        let pointInMarker = marker.convert(windowPoint, from: nil)
-        return marker.bounds.contains(pointInMarker)
+        return marker.bounds.contains(marker.convert(windowPoint, from: nil))
     }
 
     private func commandPalettePanelHitRegionDescendant() -> NSView? {

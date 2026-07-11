@@ -126,7 +126,7 @@ struct CommandPaletteInteractionMonitorTests {
         )
 
         #expect(eventSource.addCount == 1)
-        #expect(notificationCenter.addedObservers.map(\.name) == [
+        #expect(notificationCenter.addedObservers.map { $0.name } == [
             CommandPaletteInteractionMonitor.windowDidBecomeKeyNotification,
             CommandPaletteInteractionMonitor.windowDidResignKeyNotification,
             CommandPaletteInteractionMonitor.menuDidBeginTrackingNotification,
@@ -173,7 +173,7 @@ struct CommandPaletteInteractionMonitorTests {
         monitor.deactivate()
         #expect(eventSource.removeCount == 1)
         #expect(
-            notificationCenter.removedObserverIDs == notificationCenter.addedObservers.map(\.token.id)
+            notificationCenter.removedObserverIDs == notificationCenter.addedObservers.map { $0.token.id }
         )
     }
 
@@ -230,91 +230,7 @@ struct CommandPaletteInteractionMonitorTests {
         #expect(weakMonitor == nil)
         #expect(eventSource.removeCount == 1)
         #expect(
-            notificationCenter.removedObserverIDs == notificationCenter.addedObservers.map(\.token.id)
+            notificationCenter.removedObserverIDs == notificationCenter.addedObservers.map { $0.token.id }
         )
-    }
-
-    @MainActor
-    private final class RecordingMouseDownView: NSView {
-        private(set) var mouseDownCount = 0
-
-        override func mouseDown(with event: NSEvent) {
-            mouseDownCount += 1
-        }
-    }
-
-    @MainActor
-    private final class RecordingCommandPaletteEventMonitorSource: CommandPaletteEventMonitorSource {
-        private var handler: ((CommandPalettePointerEvent) -> Void)?
-        private(set) var addCount = 0
-        private(set) var removeCount = 0
-
-        func addLocalMouseDownMonitor(
-            for window: AnyObject,
-            handler: @escaping (CommandPalettePointerEvent) -> Void
-        ) -> Any? {
-            addCount += 1
-            self.handler = handler
-            return NSObject()
-        }
-
-        func removeLocalMonitor(_ monitor: Any) {
-            removeCount += 1
-            handler = nil
-        }
-
-        func send(_ event: CommandPalettePointerEvent) {
-            handler?(event)
-        }
-    }
-
-    private final class RecordingCommandPaletteObserverToken: NSObject {
-        let id: Int
-
-        init(id: Int) {
-            self.id = id
-            super.init()
-        }
-    }
-
-    // Test callbacks are invoked synchronously on MainActor; no state crosses concurrency domains.
-    private final class RecordingCommandPaletteNotificationCenter: NotificationCenter, @unchecked Sendable {
-        struct AddedObserver {
-            let name: Notification.Name?
-            weak var object: AnyObject?
-            let token: RecordingCommandPaletteObserverToken
-            let block: @Sendable (Notification) -> Void
-        }
-
-        private(set) var addedObservers: [AddedObserver] = []
-        private(set) var removedObserverIDs: [Int] = []
-
-        override func addObserver(
-            forName name: Notification.Name?,
-            object obj: Any?,
-            queue: OperationQueue?,
-            using block: @escaping @Sendable (Notification) -> Void
-        ) -> any NSObjectProtocol {
-            let token = RecordingCommandPaletteObserverToken(id: addedObservers.count + 1)
-            addedObservers.append(AddedObserver(
-                name: name,
-                object: obj as AnyObject?,
-                token: token,
-                block: block
-            ))
-            return token
-        }
-
-        override func removeObserver(_ observer: Any) {
-            guard let token = observer as? RecordingCommandPaletteObserverToken else { return }
-            removedObserverIDs.append(token.id)
-        }
-
-        func send(name: Notification.Name, object: AnyObject) {
-            for observer in addedObservers where
-                observer.name == name && (observer.object == nil || observer.object === object) {
-                observer.block(Notification(name: name, object: object))
-            }
-        }
     }
 }
