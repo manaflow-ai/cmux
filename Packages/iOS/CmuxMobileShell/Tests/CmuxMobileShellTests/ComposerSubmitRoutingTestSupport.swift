@@ -59,6 +59,7 @@ actor RoutingHostRouter {
     private var firstPasteImageContinuation: CheckedContinuation<Void, Never>?
     private var firstPasteImageReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var workspaceCreateCount = 0
+    private var hostCapabilities = ["workspace.task_create.v1"]
     private var rejectWorkspaceCreate = false
     private var holdFirstWorkspaceCreate = false
     private var firstWorkspaceCreateHeld = false
@@ -104,6 +105,10 @@ actor RoutingHostRouter {
 
     func setRejectWorkspaceCreate(_ reject: Bool) {
         rejectWorkspaceCreate = reject
+    }
+
+    func setHostCapabilities(_ capabilities: [String]) {
+        hostCapabilities = capabilities
     }
 
     func setHoldFirstWorkspaceCreate(_ hold: Bool) {
@@ -181,12 +186,7 @@ actor RoutingHostRouter {
         case "mobile.host.status":
             return try? Self.resultFrame(id: id, result: [
                 "terminal_fidelity": "render_grid",
-                "capabilities": [
-                    "events.v1",
-                    "terminal.render_grid.v1",
-                    "terminal.replay.v1",
-                    "workspace.group_actions.v1",
-                ],
+                "capabilities": hostCapabilities,
             ])
         case "mobile.events.subscribe":
             return try? Self.resultFrame(id: id, result: [

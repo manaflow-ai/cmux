@@ -34,6 +34,68 @@ import Testing
         ])
     }
 
+    @Test func taskComposerFailsClosedBeforeCreateWhenForegroundMacLacksCapability() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: router, hostCapabilities: [])
+
+        let result = await store.submitTaskComposer(
+            macDeviceID: "test-mac",
+            spec: MobileWorkspaceCreateSpec(title: "Unsupported", operationID: UUID())
+        )
+
+        guard case .failure(.unsupported) = result else {
+            return #expect(Bool(false), "old Mac should fail closed, got \(String(describing: result))")
+        }
+        #expect(await router.recordedWorkspaceCreateCount() == 0)
+    }
+
+    @Test func promotedSecondaryMacUsesItsOwnTaskCreateCapability() async throws {
+        let pairedStore = DelayedTeamPairedMacStore(recordsByTeam: [:], blockedTeams: [])
+        let unsupportedRouter = RoutingHostRouter()
+        let unsupportedStore = try await makeRoutingConnectedStore(
+            router: RoutingHostRouter(),
+            pairedMacStore: pairedStore
+        )
+        try installSecondaryClient(
+            on: unsupportedStore,
+            macDeviceID: "secondary-old",
+            router: unsupportedRouter,
+            supportedHostCapabilities: []
+        )
+
+        let unsupported = await unsupportedStore.submitTaskComposer(
+            macDeviceID: "secondary-old",
+            spec: MobileWorkspaceCreateSpec(title: "Old Mac", operationID: UUID())
+        )
+
+        guard case .failure(.unsupported) = unsupported else {
+            return #expect(Bool(false), "promoted old Mac should fail closed")
+        }
+        #expect(await unsupportedRouter.recordedWorkspaceCreateCount() == 0)
+
+        let currentRouter = RoutingHostRouter()
+        let currentStore = try await makeRoutingConnectedStore(
+            router: RoutingHostRouter(),
+            pairedMacStore: pairedStore
+        )
+        try installSecondaryClient(
+            on: currentStore,
+            macDeviceID: "secondary-current",
+            router: currentRouter,
+            supportedHostCapabilities: ["workspace.task_create.v1"]
+        )
+
+        let current = await currentStore.submitTaskComposer(
+            macDeviceID: "secondary-current",
+            spec: MobileWorkspaceCreateSpec(title: "Current Mac", operationID: UUID())
+        )
+
+        guard case .success = current else {
+            return #expect(Bool(false), "promoted current Mac should create, got \(String(describing: current))")
+        }
+        #expect(await currentRouter.recordedWorkspaceCreateCount() == 1)
+    }
+
     @Test func specLessCreateStillSendsOnlyGroupID() async throws {
         let router = RoutingHostRouter()
         let store = try await makeRoutingConnectedStore(router: router, macScopedWorkspaceMutations: true)

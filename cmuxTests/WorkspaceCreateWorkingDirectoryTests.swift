@@ -49,44 +49,98 @@ import Testing
         #expect(Self.workspaceID(from: retry) == created.id)
     }
 
+    @Test func taskCreateOperationIDSurvivesSnapshotRestoreWithFreshRuntimeWorkspaceID() throws {
+        let operationID = UUID()
+        let original = Workspace()
+        original.taskCreateOperationID = operationID
+
+        let snapshot = original.sessionSnapshot(includeScrollback: false)
+        let restored = Workspace()
+        _ = restored.restoreSessionSnapshot(snapshot)
+
+        #expect(snapshot.taskCreateOperationID == operationID)
+        #expect(restored.taskCreateOperationID == operationID)
+        #expect(restored.id != original.id)
+    }
+
+    @Test func retryFindsRestoredWorkspaceBeforeFreshCacheWithoutLaunchingCommand() throws {
+        let operationID = UUID()
+        let sourceManager = TabManager()
+        let sourceWorkspace = try #require(sourceManager.selectedWorkspace)
+        sourceWorkspace.taskCreateOperationID = operationID
+        let snapshot = sourceManager.sessionSnapshot(includeScrollback: false)
+        let manager = TabManager()
+        manager.restoreSessionSnapshot(snapshot)
+        let restored = try #require(manager.selectedWorkspace)
+        let initialIDs = Set(manager.tabs.map(\.id))
+
+        let result = TerminalController.shared.v2WorkspaceCreate(params: [
+            "operation_id": operationID.uuidString,
+            "initial_command": "must-not-launch",
+        ], tabManager: manager)
+
+        #expect(Set(manager.tabs.map(\.id)) == initialIDs)
+        #expect(restored.id != sourceWorkspace.id)
+        #expect(restored.taskCreateOperationID == operationID)
+        #expect(restored.panels.values.compactMap { $0 as? TerminalPanel }
+            .allSatisfy { $0.surface.debugInitialCommand() != "must-not-launch" })
+        #expect(Self.workspaceID(from: result) == restored.id)
+    }
+
+    @Test func composerWorkingDirectoryRequiresAbsoluteExistingDirectory() throws {
+        let manager = TabManager()
+        let baselineCount = manager.tabs.count
+        let missing = FileManager.default.temporaryDirectory
+            .appendingPathComponent("missing-task-dir-\(UUID().uuidString)").path
+        let regularFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("task-file-\(UUID().uuidString)")
+        try Data().write(to: regularFile)
+        defer { try? FileManager.default.removeItem(at: regularFile) }
+
+        for invalidPath in ["relative/path", missing, regularFile.path] {
+            let result = TerminalController.shared.v2WorkspaceCreate(params: [
+                "working_directory": invalidPath,
+            ], tabManager: manager)
+            #expect(Self.errorCode(from: result) == "invalid_params")
+        }
+        #expect(manager.tabs.count == baselineCount)
+    }
+
+    @Test func composerWorkingDirectoryAcceptsExistingDirectoryAndLegacyCwdRemainsCompatible() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("task-dir-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let manager = TabManager()
+
+        let composerResult = TerminalController.shared.v2WorkspaceCreate(params: [
+            "working_directory": directory.path,
+        ], tabManager: manager)
+        let legacyResult = TerminalController.shared.v2WorkspaceCreate(params: [
+            "cwd": "relative/legacy-path",
+        ], tabManager: manager)
+
+        #expect(Self.workspaceID(from: composerResult) != nil)
+        #expect(Self.workspaceID(from: legacyResult) != nil)
+    }
+
     @Test func idempotencyCacheEvictsSuccessfulResultsInFIFOOrder() {
         let cache = TerminalController.WorkspaceCreateIdempotencyCache(capacity: 2)
         let firstID = UUID()
         let secondID = UUID()
         let thirdID = UUID()
-        var runCounts: [UUID: Int] = [:]
+        let firstWorkspaceID = UUID()
+        let secondWorkspaceID = UUID()
+        let thirdWorkspaceID = UUID()
 
-        func resolve(_ id: UUID) {
-            _ = cache.resolve(operationID: id) {
-                runCounts[id, default: 0] += 1
-                return .ok(["id": id.uuidString])
-            }
-        }
+        cache.record(operationID: firstID, workspaceID: firstWorkspaceID)
+        cache.record(operationID: secondID, workspaceID: secondWorkspaceID)
+        #expect(cache.workspaceID(for: firstID) == firstWorkspaceID)
+        cache.record(operationID: thirdID, workspaceID: thirdWorkspaceID)
 
-        resolve(firstID)
-        resolve(secondID)
-        resolve(firstID)
-        resolve(thirdID)
-        resolve(firstID)
-
-        #expect(runCounts[firstID] == 2)
-        #expect(runCounts[secondID] == 1)
-        #expect(runCounts[thirdID] == 1)
-    }
-
-    @Test func failedOperationIsRetriedInsteadOfCached() {
-        let cache = TerminalController.WorkspaceCreateIdempotencyCache(capacity: 2)
-        let operationID = UUID()
-        var runCount = 0
-
-        for _ in 0..<2 {
-            _ = cache.resolve(operationID: operationID) {
-                runCount += 1
-                return .err(code: "unavailable", message: "try again", data: nil)
-            }
-        }
-
-        #expect(runCount == 2)
+        #expect(cache.workspaceID(for: firstID) == nil)
+        #expect(cache.workspaceID(for: secondID) == secondWorkspaceID)
+        #expect(cache.workspaceID(for: thirdID) == thirdWorkspaceID)
     }
 
     private static func workspaceID(from result: TerminalController.V2CallResult) -> UUID? {
@@ -96,5 +150,10 @@ import Testing
             return nil
         }
         return UUID(uuidString: rawID)
+    }
+
+    private static func errorCode(from result: TerminalController.V2CallResult) -> String? {
+        guard case .err(let code, _, _) = result else { return nil }
+        return code
     }
 }

@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
@@ -22,7 +23,9 @@ func makeRoutingConnectedStore(
     pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(
         defaults: UserDefaults(suiteName: "routing-dismiss-\(UUID().uuidString)")!
     ),
-    macScopedWorkspaceMutations: Bool = false
+    macScopedWorkspaceMutations: Bool = false,
+    hostCapabilities: Set<String> = ["workspace.task_create.v1"],
+    pairedMacStore: (any MobilePairedMacStoring)? = nil
 ) async throws -> MobileShellComposite {
     let runtime = RoutingTestRuntime(
         transportFactory: RoutingTransportFactory(router: router)
@@ -42,6 +45,8 @@ func makeRoutingConnectedStore(
                 terminals: terminals
             ),
         ],
+        pairedMacStore: pairedMacStore,
+        identityProvider: StaticIdentityProvider(userID: "routing-user"),
         pendingDismissQueue: pendingDismissQueue
     )
     // 127.0.0.1 is a Stack-auth-trusted route, so authorized requests carry the
@@ -68,6 +73,7 @@ func makeRoutingConnectedStore(
         allowsStackAuthFallback: true
     )
     store.foregroundMacDeviceID = "test-mac"
+    store.supportedHostCapabilities = hostCapabilities
     return store
 }
 
@@ -107,7 +113,8 @@ func installFreshRemoteClient(on store: MobileShellComposite, router: RoutingHos
 func installSecondaryClient(
     on store: MobileShellComposite,
     macDeviceID: String,
-    router: RoutingHostRouter
+    router: RoutingHostRouter,
+    supportedHostCapabilities: Set<String> = []
 ) throws {
     let runtime = RoutingTestRuntime(
         transportFactory: RoutingTransportFactory(router: router)
@@ -136,7 +143,7 @@ func installSecondaryClient(
         client: client,
         route: route,
         ticket: ticket,
-        supportedHostCapabilities: [],
+        supportedHostCapabilities: supportedHostCapabilities,
         actionCapabilities: .none
     )
 }
