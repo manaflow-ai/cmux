@@ -142,7 +142,10 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
     }
 
     public nonisolated func setSuperProperties(_ properties: [String: AnalyticsValue]) {
-        guard consent.isTelemetryEnabled else { return }
+        // This only updates in-memory event context; it performs no upload.
+        // Preserve launch-time app/device properties while consent is off so
+        // events captured after a mid-session opt-in receive the same context
+        // as events from an opted-in launch.
         continuation.yield(.superProperties(properties))
     }
 
