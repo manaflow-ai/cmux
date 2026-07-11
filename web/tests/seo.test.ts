@@ -636,6 +636,66 @@ describe("SEO metadata helpers", () => {
     }
   });
 
+  test("uses only audited standalone docs description sources", async () => {
+    const englishMessages = await messagesFor("en");
+    for (const [pageKey, excludedTrailingSentence] of [
+      ["concepts", "The hierarchy behind"],
+      ["workspaceGroups", "The anchor model"],
+      ["notifications", "CLI, OSC 99/777"],
+    ] as const) {
+      const page = englishMessages.docs[pageKey];
+      const copy = docsPageSeoCopy(
+        "en",
+        pageKey,
+        messageLookup(page),
+        englishMessages.docs.layoutTitle,
+        {
+          intro:
+            typeof (page as Record<string, unknown>).intro === "string"
+              ? ((page as Record<string, unknown>).intro as string)
+              : undefined,
+        },
+      );
+      expect(copy.description).not.toContain(excludedTrailingSentence);
+    }
+
+    for (const [locale, pageKey, expectedStart] of [
+      [
+        "fr",
+        "keyboardShortcuts",
+        "Utilisez les raccourcis clavier cmux pour gérer",
+      ],
+      [
+        "pl",
+        "browserAutomation",
+        "Steruj przeglądarką cmux: nawiguj",
+      ],
+      [
+        "bs",
+        "browserAutomation",
+        "Koristite cmux browser komande za navigaciju",
+      ],
+    ] as const) {
+      const messages = await messagesFor(locale);
+      const page = messages.docs[pageKey];
+      const copy = docsPageSeoCopy(
+        locale,
+        pageKey,
+        messageLookup(page),
+        messages.docs.layoutTitle,
+        {
+          curatedDescription:
+            typeof (page as Record<string, unknown>).metaDescriptionShort ===
+            "string"
+              ? ((page as Record<string, unknown>)
+                  .metaDescriptionShort as string)
+              : undefined,
+        },
+      );
+      expect(copy.description.startsWith(expectedStart)).toBe(true);
+    }
+  });
+
   test("selects social titles independently from the docs layout template", async () => {
     const messages = await messagesFor("de");
     const page = messages.docs.ohMyOpenCode;
