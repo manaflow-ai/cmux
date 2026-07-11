@@ -5216,6 +5216,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func clearRemoteConnectionContext(preservingOtherMacWorkspaceState: Bool = false) {
+        failStreamRepairLifecycleEpisodeIfNeeded()
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
         cancelRemoteOperationTasks()

@@ -170,7 +170,8 @@ import Testing
         guard case .start(let foregroundEpisode) = reducer.becameActive(
             at: now.addingTimeInterval(31),
             shortDwellThreshold: 30,
-            health: .disconnected
+            health: .disconnected,
+            reconnectStackUserID: "user-1"
         ) else {
             Issue.record("foreground reconnect must start")
             return

@@ -35,7 +35,8 @@ extension MobileShellComposite {
         let effect = connectionLifecycle.becameActive(
             at: now,
             shortDwellThreshold: Self.foregroundResyncShortBackgroundThreshold,
-            health: connectionLifecycleHealth(at: now)
+            health: connectionLifecycleHealth(at: now),
+            reconnectStackUserID: identityProvider?.currentUserID
         )
         applyConnectionLifecycleEffect(effect)
         // The foreground Mac's workspace list updates live over the sync stream,
@@ -106,6 +107,12 @@ extension MobileShellComposite {
         finishConnectionLifecycleEpisode(id: episode.id)
     }
 
+    func failStreamRepairLifecycleEpisodeIfNeeded() {
+        guard let episode = connectionLifecycle.activeEpisode,
+              episode.kind == .streamRepair else { return }
+        finishConnectionLifecycleEpisode(id: episode.id)
+    }
+
     private func connectionLifecycleHealth(at now: Date) -> MobileConnectionLifecycleHealthSnapshot {
         let lastEvent = lastTerminalEventAt ?? now
         return MobileConnectionLifecycleHealthSnapshot(
@@ -126,6 +133,11 @@ extension MobileShellComposite {
             guard let self, self.connectionLifecycle.ownsEpisode(episode.id) else { return }
             switch episode.kind {
             case .streamRepair:
+                guard self.connectionState == .connected,
+                      self.remoteClient != nil else {
+                    self.finishConnectionLifecycleEpisode(id: episode.id)
+                    return
+                }
                 self.markMacConnectionReconnecting()
                 self.resyncTerminalOutput(
                     reason: "lifecycle.\(episode.id)",
@@ -133,6 +145,9 @@ extension MobileShellComposite {
                 )
                 if self.multiMacAggregationEnabled {
                     self.scheduleSecondaryAggregation()
+                }
+                if self.terminalEventListenerTask == nil {
+                    self.finishConnectionLifecycleEpisode(id: episode.id)
                 }
             case .reconnect:
                 self.isRecoveringConnection = true

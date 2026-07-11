@@ -25,7 +25,8 @@ struct MobileConnectionLifecycleStateMachine {
     mutating func becameActive(
         at date: Date,
         shortDwellThreshold: TimeInterval,
-        health: MobileConnectionLifecycleHealthSnapshot
+        health: MobileConnectionLifecycleHealthSnapshot,
+        reconnectStackUserID: String? = nil
     ) -> MobileConnectionLifecycleEffect? {
         guard !isForegroundActive else { return nil }
         isForegroundActive = true
@@ -38,7 +39,11 @@ struct MobileConnectionLifecycleStateMachine {
         guard dwell >= shortDwellThreshold || !health.hasHealthyEventStream else {
             return nil
         }
-        return request(.foregroundResume, health: health)
+        return request(
+            .foregroundResume,
+            health: health,
+            reconnectStackUserID: reconnectStackUserID
+        )
     }
 
     mutating func request(
@@ -109,6 +114,7 @@ struct MobileConnectionLifecycleStateMachine {
         guard activeEpisode?.id == id else { return nil }
         completedRequestIDs.formUnion(activeEpisode?.requestIDs ?? [])
         activeEpisode = nil
+        guard isForegroundActive else { return nil }
         return startNextPendingEpisode(health: health)
     }
 
