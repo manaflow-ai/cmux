@@ -10,6 +10,8 @@ public struct MobileWorkspaceActionCapabilities: Equatable, Sendable {
     public var supportsMoveActions: Bool
     /// Whether workspace group mutation requests are supported.
     public var supportsGroupActions: Bool
+    /// Whether workspace group creation requests are supported.
+    public var supportsGroupCreate: Bool
     /// Whether exact terminal close requests are supported.
     public var supportsTerminalCloseActions: Bool
     /// Whether terminal creation can explicitly target the focused pane identity.
@@ -27,6 +29,7 @@ public struct MobileWorkspaceActionCapabilities: Equatable, Sendable {
         supportsCloseActions: Bool = false,
         supportsMoveActions: Bool = false,
         supportsGroupActions: Bool = false,
+        supportsGroupCreate: Bool = false,
         supportsTerminalCloseActions: Bool = false,
         supportsTerminalCreateInPane: Bool = false,
         supportsTerminalReorderActions: Bool = false
@@ -36,6 +39,7 @@ public struct MobileWorkspaceActionCapabilities: Equatable, Sendable {
         self.supportsCloseActions = supportsCloseActions
         self.supportsMoveActions = supportsMoveActions
         self.supportsGroupActions = supportsGroupActions
+        self.supportsGroupCreate = supportsGroupCreate
         self.supportsTerminalCloseActions = supportsTerminalCloseActions
         self.supportsTerminalCreateInPane = supportsTerminalCreateInPane
         self.supportsTerminalReorderActions = supportsTerminalReorderActions

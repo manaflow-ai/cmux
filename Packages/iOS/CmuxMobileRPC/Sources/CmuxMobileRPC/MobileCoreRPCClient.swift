@@ -317,7 +317,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value
             )
-        case "workspace.move", "workspace.group.action":
+        case "workspace.move", "workspace.group.action", "workspace.group.create":
             // These mutations are Mac-scoped. Always preserve the attach-ticket
             // context when one exists so the host can reject workspace-scoped
             // tickets instead of receiving a Stack-only request.
