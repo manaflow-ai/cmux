@@ -115,9 +115,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
-    /// A valid ambient workspace/surface can be leaked from the focused pane. When
-    /// the caller TTY is ambiguous, the hook must no-op instead of trusting it.
-    func testClaudeNotificationDoesNotTrustAmbientSurfaceOnAmbiguousTTY() throws {
+    /// A valid ambient workspace/surface can be leaked from the focused pane. A
+    /// saved session workspace must not bypass ambiguous caller identity and let
+    /// the ambient surface fill a missing saved surface.
+    func testClaudeNotificationDoesNotTrustAmbientSurfaceOnAmbiguousTTYWithMappedWorkspace() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("claude-ambiguous-tty")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -130,6 +131,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let ttyWorkspaceB = "33333333-3333-3333-3333-333333333333"
         let focusedWorkspaceId = "99999999-9999-9999-9999-999999999999"
         let ttyName = "ttys-shared-collision"
+        let sessionId = "mapped-ambiguous"
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
@@ -137,6 +139,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
         }
+
+        let stateURL = root.appendingPathComponent("claude-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: [
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": leakedWorkspaceId,
+                    "surfaceId": "",
+                    "startedAt": Date().timeIntervalSince1970,
+                    "updatedAt": Date().timeIntervalSince1970,
+                ],
+            ],
+        ]).write(to: stateURL, options: .atomic)
 
         // connectionCount 2: the deferred feed telemetry (the pre-fix regression this
         // test guards against) arrives on a second socket connection, which must be
@@ -182,11 +197,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "CMUX_WORKSPACE_ID": leakedWorkspaceId,
                 "CMUX_SURFACE_ID": leakedSurfaceId,
                 "CMUX_CLI_TTY_NAME": ttyName,
-                "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("claude-hook-sessions.json").path,
+                "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
                 "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
             ],
-            standardInput: #"{"session_id":"orphan-ambiguous","hook_event_name":"Notification","message":"Claude needs your input"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"Notification","message":"Claude needs your input"}"#,
             timeout: 5
         )
 
