@@ -206,7 +206,7 @@ import Testing
         #expect(factory.attemptedPorts() == [51000, 51001, 51001])
     }
 
-    @Test func supersededReconnectGenerationAbortsRouteIteration() async throws {
+    @Test func overlappingReconnectRequestsJoinOneOwnedEpisode() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
         let box = TransportBox()
@@ -239,11 +239,11 @@ import Testing
         let second = Task { @MainActor in
             await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
         }
-        let secondConnected = await second.value
         factory.releaseHeldConnect()
+        let secondConnected = await second.value
         let firstConnected = await first.value
 
-        #expect(!firstConnected)
+        #expect(firstConnected)
         #expect(secondConnected)
         #expect(factory.attemptedPorts() == [51000, 51001, 51001])
     }

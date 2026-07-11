@@ -715,7 +715,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var renderGridLivenessProbeTask: Task<Void, Never>?
     private var renderGridLivenessProbeID: UUID?
     var lastTerminalEventAt: Date?
-    var lastBackgroundedAt: Date?
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
     var createWorkspaceTask: Task<Result<Void, MobileWorkspaceMutationFailure>, Never>?
     var createWorkspaceTaskGroupID: MobileWorkspaceGroupPreview.ID?
@@ -1019,6 +1018,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     isolated deinit {
+        connectionLifecycleTask?.cancel()
         presenceTask?.cancel()
         networkPathObservationTask?.cancel()
         terminalEventListenerTask?.cancel()
@@ -1065,6 +1065,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     public func signOut() {
+        resetConnectionLifecycle()
         // Reset analytics identity to anonymous on the signed-in→signed-out edge
         // only (this is called on every unauthenticated auth-state sync).
         if isSignedIn {
@@ -1200,6 +1201,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// never drops the terminal the user is in (the chosen "keep session, re-scope
     /// lists" behavior).
     public func currentTeamDidChange() {
+        resetConnectionLifecycle()
         secondaryAggregationScopeGeneration &+= 1
         // Presence: cancel + re-subscribe so the online dots reflect the new team
         // (the subscribe reads the team live). Cheap live socket; the only eager bit.
@@ -1392,10 +1394,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// True while an automatic reconnect is in progress after a network change
     /// or drop.
-    public private(set) var isRecoveringConnection: Bool = false
+    public internal(set) var isRecoveringConnection: Bool = false
     /// True when automatic recovery could not restore the connection; the UI
     /// surfaces a manual Retry control in this state.
-    public private(set) var connectionRecoveryFailed: Bool = false {
+    public internal(set) var connectionRecoveryFailed: Bool = false {
         didSet {
             // Fire once on the false→true edge ("stuck disconnected, Retry is
             // dead"): the recovery-rate denominator.
@@ -1417,25 +1419,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private var networkPathObservationStarted = false
     private var networkPathObservationTask: Task<Void, Never>?
-    private var recoveryInFlight = false
-    private var recoveryTask: Task<Void, Never>?
-    private var lastReconnectStackUserID: String?
-
-    private enum RecoveryTrigger: CustomStringConvertible {
-        case networkChange
-        case manual
-        case presencePush
-
-        var reschedulesSecondaryAggregation: Bool { self != .presencePush }
-
-        var description: String {
-            switch self {
-            case .networkChange: return "networkChange"
-            case .manual: return "manual"
-            case .presencePush: return "presencePush"
-            }
-        }
-    }
+    var connectionLifecycle = MobileConnectionLifecycleStateMachine()
+    var connectionLifecycleTask: Task<Void, Never>?
+    var lastReconnectStackUserID: String?
 
     /// Begin observing meaningful network path changes (Wi-Fi<->cellular,
     /// offline->online) so a live terminal recovers when the network moves out
@@ -1450,7 +1436,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // connection so a moving network repaints instead of going stale.
             for await _ in reachability.pathChanges() {
                 guard let self, !Task.isCancelled else { return }
-                self.recoverMobileConnection(trigger: .networkChange)
+                self.requestConnectionLifecycleRecovery(.networkPathChanged)
             }
         }
     }
@@ -1458,42 +1444,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// User-initiated reconnect from the Retry control.
     public func retryMobileConnection() {
         connectionRecoveryFailed = false
-        recoverMobileConnection(trigger: .manual)
-    }
-
-    /// Single guarded recovery entry for every trigger (network change, manual
-    /// Retry). When still connected, a network move usually only broke the event
-    /// stream while input keeps flowing over the surviving connection, so a
-    /// resync re-subscribes and requests a render-grid replay to repaint.
-    /// Otherwise the connection dropped, so reconnect once; on failure the UI
-    /// shows Retry and the next network change re-attempts automatically.
-    private func recoverMobileConnection(trigger: RecoveryTrigger) {
-        guard remoteClient != nil || pairedMacStore != nil else { return }
-        if connectionState == .connected, remoteClient != nil {
-            markMacConnectionReconnecting()
-            resyncTerminalOutput(reason: "networkRecovery.\(trigger)", restartEventStream: true)
-            if multiMacAggregationEnabled, trigger.reschedulesSecondaryAggregation {
-                scheduleSecondaryAggregation()
-            }
-            return
-        }
-        guard !recoveryInFlight else { return }
-        recoveryInFlight = true
-        isRecoveringConnection = true
-        connectionRecoveryFailed = false
-        let stackUserID = lastReconnectStackUserID
-        recoveryTask?.cancel()
-        recoveryTask = Task { @MainActor [weak self] in
-            defer {
-                self?.recoveryInFlight = false
-                self?.isRecoveringConnection = false
-            }
-            guard let self, self.connectionState != .connected else { return }
-            let reconnected = await self.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
-            if !reconnected, !Task.isCancelled {
-                self.connectionRecoveryFailed = true
-            }
-        }
+        requestConnectionLifecycleRecovery(.manualRetry)
     }
 
     public func connectPreviewHost() {
@@ -1665,8 +1616,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// from SQLite and re-mints an attach ticket via the StackAuth-authenticated
     /// manual host flow. Auth tokens never persist; we always re-mint.
     @discardableResult
-    public func reconnectActiveMacIfAvailable(stackUserID: String?) async -> Bool {
-        lastReconnectStackUserID = stackUserID
+    func performStoredMacReconnect(stackUserID: String?) async -> Bool {
         startObservingNetworkPathChanges()
         // Claim this attempt's generation. Only the current generation may resolve
         // the restoring-gate flags, so an older superseded attempt can't clear the
@@ -2215,7 +2165,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         supportedKinds: self.runtime?.supportedRouteKinds ?? [],
                         preferNonLoopback: Self.prefersNonLoopbackRoutes
                    )) {
-                    self.recoverMobileConnection(trigger: .presencePush)
+                    self.requestConnectionLifecycleRecovery(.presenceRoutesChanged)
                 }
             }
         }
@@ -3374,6 +3324,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// active so reconnect-on-launch is a no-op until the user pairs again).
     /// Backs the "Rescan QR" action.
     public func disconnectAndForgetActiveMac() {
+        resetConnectionLifecycle()
         let staleMacID = activeTicket?.macDeviceID
         disconnectLiveConnection()
         // Forgetting the active Mac clears the restoring hint so the next launch
@@ -5671,7 +5622,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             && isSignedIn
     }
 
-    private func markMacConnectionHealthy() {
+    func markMacConnectionHealthy() {
         guard connectionState == .connected else {
             macConnectionStatus = .unavailable
             return
@@ -5680,9 +5631,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         isRecoveringConnection = false
         connectionRecoveryFailed = false
         connectionRequiresReauth = false
+        completeStreamRepairLifecycleEpisodeIfNeeded()
     }
 
-    private func markMacConnectionReconnecting() {
+    func markMacConnectionReconnecting() {
         guard connectionState == .connected, remoteClient != nil else {
             macConnectionStatus = .unavailable
             return
@@ -5692,7 +5644,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionRecoveryFailed = false
     }
 
-    private func markMacConnectionUnavailable() {
+    func markMacConnectionUnavailable() {
         guard connectionState == .connected else {
             macConnectionStatus = .unavailable
             return
@@ -5700,6 +5652,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macConnectionStatus = .unavailable
         isRecoveringConnection = false
         connectionRecoveryFailed = true
+        failConnectionLifecycleEpisodeIfNeeded()
     }
 
     func markMacConnectionUnavailableIfNeeded(after error: any Error) {
@@ -6427,11 +6380,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         mobileShellLog.info("terminal event stream ended, restarting")
         MobileDebugLog.anchormux("sync.stream_ended restarting (render-grid push stopped; falling back to poll)")
         diagnosticLog?.record(DiagnosticEvent(.streamEnded))
-        markMacConnectionReconnecting()
-        terminalEventListenerTask = nil
-        terminalEventListenerID = nil
-        startTerminalRefreshPolling()
-        scheduleWorkspaceListRefreshFromEvent()
+        requestConnectionLifecycleRecovery(.eventStreamLost)
     }
 
     // MARK: - Render-grid liveness watchdog
@@ -6622,7 +6571,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // and starts a fresh subscription + watchdog, then replays every
             // surface so the phone catches up on the deltas it missed while the
             // stream was dead.
-            self.resyncTerminalOutput(reason: "liveness", restartEventStream: true)
+            self.requestConnectionLifecycleRecovery(.eventStreamLost)
         }
     }
 

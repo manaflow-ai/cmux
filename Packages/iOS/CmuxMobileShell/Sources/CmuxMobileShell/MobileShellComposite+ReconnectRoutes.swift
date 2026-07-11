@@ -31,11 +31,13 @@ extension MobileShellComposite {
         // Covers stores constructed already-signed-in (no isSignedIn edge) and
         // restarts a subscription torn down while backgrounded.
         evaluatePresenceSubscription()
-        let shouldResync = shouldResyncTerminalOutputOnForeground()
-        lastBackgroundedAt = nil
-        if shouldResync {
-            resyncTerminalOutput(reason: "foreground", restartEventStream: true)
-        }
+        let now = runtime?.now() ?? Date()
+        let effect = connectionLifecycle.becameActive(
+            at: now,
+            shortDwellThreshold: Self.foregroundResyncShortBackgroundThreshold,
+            health: connectionLifecycleHealth(at: now)
+        )
+        applyConnectionLifecycleEffect(effect)
         // The foreground Mac's workspace list updates live over the sync stream,
         // but the other Macs are a read-only snapshot. Re-aggregate them on
         // foreground so workspaces created on another Mac while backgrounded
@@ -47,8 +49,110 @@ extension MobileShellComposite {
 
     /// Record that the app left the active scene phase.
     public func suspendForegroundRefresh() {
-        guard lastBackgroundedAt == nil else { return }
-        lastBackgroundedAt = runtime?.now() ?? Date()
+        connectionLifecycle.becameInactive(at: runtime?.now() ?? Date())
+    }
+
+    /// Coalesces direct launch/auth callers onto the same reconnect episode as network and presence.
+    @discardableResult
+    public func reconnectActiveMacIfAvailable(stackUserID: String?) async -> Bool {
+        lastReconnectStackUserID = stackUserID
+        requestConnectionLifecycleRecovery(.storedMacReconnect)
+        let task = connectionLifecycleTask
+        await task?.value
+        return connectionState == .connected
+    }
+
+    func requestConnectionLifecycleRecovery(
+        _ trigger: MobileConnectionLifecycleTrigger
+    ) {
+        guard remoteClient != nil || pairedMacStore != nil else { return }
+        let effect = connectionLifecycle.request(
+            trigger,
+            health: connectionLifecycleHealth(at: runtime?.now() ?? Date())
+        )
+        applyConnectionLifecycleEffect(effect)
+    }
+
+    func resetConnectionLifecycle() {
+        connectionLifecycle.reset()
+        storedMacReconnectGeneration &+= 1
+        connectionLifecycleTask?.cancel()
+        connectionLifecycleTask = nil
+        isRecoveringConnection = false
+    }
+
+    func completeStreamRepairLifecycleEpisodeIfNeeded() {
+        guard let episode = connectionLifecycle.activeEpisode,
+              episode.kind == .streamRepair else { return }
+        finishConnectionLifecycleEpisode(id: episode.id)
+    }
+
+    func failConnectionLifecycleEpisodeIfNeeded() {
+        guard let episode = connectionLifecycle.activeEpisode else { return }
+        finishConnectionLifecycleEpisode(id: episode.id)
+    }
+
+    private func connectionLifecycleHealth(at now: Date) -> MobileConnectionLifecycleHealthSnapshot {
+        let lastEvent = lastTerminalEventAt ?? now
+        return MobileConnectionLifecycleHealthSnapshot(
+            connected: connectionState == .connected,
+            hasClient: remoteClient != nil,
+            hasListener: terminalEventListenerTask != nil,
+            eventStreamFresh: now.timeIntervalSince(lastEvent) < Self.renderGridLivenessSilenceThreshold,
+            canReconnectPersistedMac: pairedMacStore != nil
+        )
+    }
+
+    private func applyConnectionLifecycleEffect(
+        _ effect: MobileConnectionLifecycleEffect?
+    ) {
+        guard case .start(let episode) = effect else { return }
+        connectionLifecycleTask?.cancel()
+        connectionLifecycleTask = Task { @MainActor [weak self] in
+            guard let self, self.connectionLifecycle.ownsEpisode(episode.id) else { return }
+            switch episode.kind {
+            case .streamRepair:
+                self.markMacConnectionReconnecting()
+                self.resyncTerminalOutput(
+                    reason: "lifecycle.\(episode.id)",
+                    restartEventStream: true
+                )
+                if self.multiMacAggregationEnabled {
+                    self.scheduleSecondaryAggregation()
+                }
+            case .reconnect:
+                self.isRecoveringConnection = true
+                self.connectionRecoveryFailed = false
+                let reconnected = await self.performStoredMacReconnect(
+                    stackUserID: self.lastReconnectStackUserID
+                )
+                guard !Task.isCancelled,
+                      self.connectionLifecycle.ownsEpisode(episode.id) else { return }
+                if !reconnected {
+                    self.connectionRecoveryFailed = true
+                }
+                self.finishConnectionLifecycleEpisode(id: episode.id)
+            }
+            if self.connectionLifecycle.ownsEpisode(episode.id), episode.kind == .streamRepair {
+                self.connectionLifecycleTask = nil
+            }
+        }
+    }
+
+    func finishConnectionLifecycleEpisode(id: UInt64) {
+        guard connectionLifecycle.ownsEpisode(id) else { return }
+        let effect = connectionLifecycle.complete(
+            id: id,
+            health: connectionLifecycleHealth(at: runtime?.now() ?? Date())
+        )
+        if connectionLifecycleTask != nil,
+           connectionLifecycle.activeEpisode?.id != id {
+            connectionLifecycleTask = nil
+        }
+        if connectionLifecycle.activeEpisode == nil {
+            isRecoveringConnection = false
+        }
+        applyConnectionLifecycleEffect(effect)
     }
 
     func freshReconnectRoutesAfterLocalFailure(
@@ -77,21 +181,6 @@ extension MobileShellComposite {
         let fresh = Set(refreshed.map { "\($0.host)\u{1F}\($0.port)" })
         guard fresh != tried else { return nil }
         return refreshed
-    }
-
-    func shouldResyncTerminalOutputOnForeground() -> Bool {
-        guard connectionState == .connected,
-              remoteClient != nil,
-              terminalEventListenerTask != nil,
-              let lastBackgroundedAt else {
-            return true
-        }
-        let now = runtime?.now() ?? Date()
-        guard now.timeIntervalSince(lastBackgroundedAt) < Self.foregroundResyncShortBackgroundThreshold else {
-            return true
-        }
-        let last = lastTerminalEventAt ?? now
-        return now.timeIntervalSince(last) >= Self.renderGridLivenessSilenceThreshold
     }
 
     /// Writes the persisted paired-Mac hint only when `generation` is current.
