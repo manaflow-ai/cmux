@@ -13,6 +13,17 @@ extension GhosttySurfaceScrollView {
 
     @discardableResult
     func restoreNotificationScrollPosition(_ position: TerminalNotificationScrollPosition?) -> Bool {
+        restoreNotificationScrollPosition(
+            position,
+            performBindingAction: surfaceView.performBindingAction
+        )
+    }
+
+    @discardableResult
+    func restoreNotificationScrollPosition(
+        _ position: TerminalNotificationScrollPosition?,
+        performBindingAction: (String) -> Bool
+    ) -> Bool {
         guard let position else { return false }
         guard let scrollbar = surfaceView.scrollbar else { return false }
         let currentTotalRows = Int(clamping: scrollbar.total)
@@ -20,7 +31,7 @@ extension GhosttySurfaceScrollView {
         let rowFromBottom = max(0, position.row + currentTotalRows - capturedTotalRows)
         allowExplicitScrollbarSync = true
         userScrolledAwayFromBottom = rowFromBottom > 0
-        let didRestore = surfaceView.performBindingAction("scroll_to_row:\(rowFromBottom)")
+        let didRestore = performBindingAction("scroll_to_row:\(rowFromBottom)")
         if !didRestore {
             allowExplicitScrollbarSync = false
         }
