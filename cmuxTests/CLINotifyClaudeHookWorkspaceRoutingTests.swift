@@ -178,6 +178,23 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         ["tty": ttyName, "workspace_id": ttyWorkspaceB, "surface_id": "66666666-6666-6666-6666-666666666666"],
                     ]]
                 )
+            case "system.top":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["windows": [[
+                        "workspaces": [[
+                            "id": ttyWorkspaceB,
+                            "panes": [[
+                                "surfaces": [[
+                                    "id": "66666666-6666-6666-6666-666666666666",
+                                    "top_level_pids": [42_424],
+                                    "processes": [],
+                                ]],
+                            ]],
+                        ]],
+                    ]]]
+                )
             case "workspace.current":
                 return self.v2Response(id: id, ok: true, result: ["workspace_id": focusedWorkspaceId])
             case "feed.push":
@@ -197,6 +214,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "CMUX_WORKSPACE_ID": leakedWorkspaceId,
                 "CMUX_SURFACE_ID": leakedSurfaceId,
                 "CMUX_CLI_TTY_NAME": ttyName,
+                "CMUX_CLAUDE_PID": "42424",
                 "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
                 "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
@@ -424,6 +442,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNil(
             activeSurfaceSessions[pollutedSurfaceId],
             "Expected the cross-pane active pointer to be self-healed, saw \(activeSurfaceSessions.keys)"
+        )
+        let diagnosticMethods = state.commands.compactMap { command in
+            self.jsonObject(command)?["method"] as? String
+        }.filter { $0 == "debug.terminals" || $0 == "system.top" }
+        XCTAssertEqual(
+            diagnosticMethods,
+            [],
+            "A complete live session binding must not trigger app-wide terminal/process diagnostics"
         )
     }
 }
