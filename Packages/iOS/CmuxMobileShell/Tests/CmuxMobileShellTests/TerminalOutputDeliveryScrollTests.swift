@@ -144,7 +144,7 @@ import Testing
     let rawClaim = queue.claimInFlight(deliveryID: rawBytes.deliveryID)
     #expect(!staleClaim)
     #expect(rawClaim)
-    #expect(queue.pendingCount == 0)
+    #expect(queue.pendingCount == 1)
     #expect(queue.completeInFlight() == nil)
 }
 
@@ -237,6 +237,52 @@ import Testing
     #expect(rawClaim)
 }
 
+@Test func optimisticScrollInvalidationIsLazyAndPreservesOrderedBarriers() throws {
+    var queue = TerminalOutputDeliveryQueue()
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal",
+        stateSeq: 1,
+        columns: 12,
+        rows: 2,
+        text: "old\nviewport"
+    )
+    let claimedGrid = TerminalOutputDelivery(renderGrid: frame, replaceable: true)
+    #expect(queue.enqueue(claimedGrid) == claimedGrid)
+    let claimed = queue.claimInFlight(deliveryID: claimedGrid.deliveryID)
+    #expect(claimed)
+
+    let rawDeliveries = (0..<64).map {
+        TerminalOutputDelivery(bytes: Data("raw-\($0)".utf8), replaceable: false)
+    }
+    for raw in rawDeliveries {
+        #expect(queue.enqueue(TerminalOutputDelivery(renderGrid: frame, replaceable: true)) == nil)
+        #expect(queue.enqueue(raw) == nil)
+    }
+    let policy = TerminalOutputDelivery(
+        bytes: Data(),
+        replaceable: true,
+        replacementScope: .viewportPolicy,
+        viewportPolicy: .natural
+    )
+    let incremental = TerminalOutputDelivery(renderGrid: frame, replaceable: false)
+    #expect(queue.enqueue(policy) == nil)
+    #expect(queue.enqueue(incremental) == nil)
+
+    for _ in 0..<100 {
+        #expect(queue.discardUnclaimedForOptimisticScroll() == nil)
+    }
+    #expect(queue.optimisticInvalidationGeneration == 100)
+    #expect(queue.pendingTraversalCount == 0)
+
+    for raw in rawDeliveries {
+        #expect(queue.completeInFlight() == raw)
+    }
+    #expect(queue.completeInFlight() == policy)
+    #expect(queue.completeInFlight() == incremental)
+    #expect(queue.completeInFlight() == nil)
+    #expect(queue.pendingTraversalCount == 130)
+}
+
 @MainActor
 @Test func terminalOutputUnmountRetiresScrollRevisionState() async throws {
     let store = MobileShellComposite.preview()
@@ -320,4 +366,70 @@ import Testing
 
     #expect(!deferred.requiresReplay)
     #expect(deferred.frame == replacement)
+}
+
+@MainActor
+@Test(arguments: [UInt64(12), UInt64(13)])
+func gridlessAcknowledgementDeliversSameOrNewerDeferredFrameBeforeAdvancingFloor(
+    deferredRevision: UInt64
+) async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 1,
+        renderRevision: deferredRevision,
+        columns: 12,
+        rows: 2,
+        text: "ack\ndeferred",
+        full: false,
+        changedRows: [0, 1]
+    )
+    store.deferTerminalRenderGridEvent(frame)
+
+    let completed = store.completeGridlessTerminalScrollReconciliation(
+        surfaceID: surfaceID,
+        renderRevision: 12
+    )
+
+    #expect(completed)
+    let delivered = try #require(await iterator.next())
+    #expect(delivered.data == frame.vtPatchBytes())
+    #expect(store.acceptedTerminalRenderRevisionsBySurfaceID[surfaceID] == deferredRevision)
+    #expect(store.deferredTerminalRenderGridEventsBySurfaceID[surfaceID] == nil)
+}
+
+@MainActor
+@Test func gridlessAcknowledgementReplaysInsteadOfPaintingOlderDeferredFrame() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 1,
+        renderRevision: 11,
+        columns: 12,
+        rows: 2,
+        text: "older\ndeferred",
+        full: false,
+        changedRows: [0, 1]
+    )
+    store.deferTerminalRenderGridEvent(frame)
+    let replayCount = await router.count(of: "mobile.terminal.replay")
+
+    let completed = store.completeGridlessTerminalScrollReconciliation(
+        surfaceID: surfaceID,
+        renderRevision: 12
+    )
+
+    #expect(completed)
+    let replayRequested = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") == replayCount + 1
+    }
+    #expect(replayRequested)
+    #expect(store.acceptedTerminalRenderRevisionsBySurfaceID[surfaceID] == 12)
+    #expect(store.deferredTerminalRenderGridEventsBySurfaceID[surfaceID] == nil)
 }

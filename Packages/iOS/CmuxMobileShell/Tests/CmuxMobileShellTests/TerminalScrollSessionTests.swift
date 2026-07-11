@@ -13,11 +13,12 @@ struct TerminalScrollSessionTests {
         let session = harness.makeSession()
 
         session.submit(lines: 24, col: 2, row: 3)
-        await settleTasks()
+        try await requireEventually {
+            harness.remote.pending.count == 1 && harness.local.pending.count == 1
+        }
         let remote = try #require(harness.remote.pending.first)
         harness.remote.pending.removeFirst()
         remote.continuation.resume(returning: response(for: remote.request, renderRevision: 10))
-        await settleTasks()
 
         #expect(harness.delivered.isEmpty)
         #expect(session.shouldDeferLiveRenderGrid)
@@ -25,7 +26,7 @@ struct TerminalScrollSessionTests {
         let local = try #require(harness.local.pending.first)
         harness.local.pending.removeFirst()
         local.continuation.resume(returning: true)
-        await settleTasks()
+        try await requireEventually { harness.delivered.count == 1 }
 
         #expect(harness.delivered.map(\.renderRevision) == [10])
         #expect(session.shouldDeferLiveRenderGrid)
@@ -42,7 +43,9 @@ struct TerminalScrollSessionTests {
         let session = harness.makeSession()
 
         session.submit(lines: -6, col: 1, row: 1)
-        await settleTasks()
+        try await requireEventually {
+            harness.remote.pending.count == 1 && harness.local.pending.count == 1
+        }
         let remote = try #require(harness.remote.pending.first)
         harness.remote.pending.removeFirst()
         remote.continuation.resume(returning: TerminalScrollResponse(
@@ -55,7 +58,7 @@ struct TerminalScrollSessionTests {
         let local = try #require(harness.local.pending.first)
         harness.local.pending.removeFirst()
         local.continuation.resume(returning: true)
-        await settleTasks()
+        try await requireEventually { harness.reconciliationCompletionCount == 1 }
 
         #expect(harness.delivered.isEmpty)
         #expect(harness.acceptedRenderRevisions == [12])
@@ -64,56 +67,110 @@ struct TerminalScrollSessionTests {
         #expect(session.latestReconciledRevision == 1)
     }
 
-    @Test("rapid reversals retain one in-flight and one newest batch per lane")
-    func rapidReversalsStayBounded() async throws {
+    @Test("capable host splits 65 ordered runs into bounded RPCs")
+    func capableHostSplitsLargeOrderedJournal() throws {
+        let request = try makeRequest(lines: (0..<65).map { $0.isMultiple(of: 2) ? 3 : -2 })
+
+        let planned = request.plannedRPCRequests(supportsOrderedRuns: true)
+
+        #expect(planned.map(\.directionalRuns.count) == [32, 32, 1])
+        #expect(planned.allSatisfy { $0.wireEncoding == .orderedRuns })
+        #expect(planned.dropLast().allSatisfy { $0.prefetchWindow == nil })
+        #expect(planned.last?.prefetchWindow == request.prefetchWindow)
+        #expect(planned.flatMap(\.directionalRuns).map(\.lines) == request.directionalRuns.map(\.lines))
+    }
+
+    @Test("capable host sends one ordered batch when within the wire limit")
+    func capableHostUsesSingleOrderedBatch() throws {
+        let request = try makeRequest(lines: [10, -10, 5])
+
+        let planned = request.plannedRPCRequests(supportsOrderedRuns: true)
+
+        #expect(planned.count == 1)
+        #expect(planned.first?.wireEncoding == .orderedRuns)
+        #expect(planned.first?.directionalRuns.map(\.lines) == [10, -10, 5])
+        #expect(planned.first?.prefetchWindow == request.prefetchWindow)
+    }
+
+    @Test("unresolved or legacy host sends exact scalar run order")
+    func legacyHostUsesSequentialScalarRequests() async throws {
+        let request = try makeRequest(lines: [10, -10, 5])
+
+        let planned = request.plannedRPCRequests(supportsOrderedRuns: false)
+
+        #expect(planned.map(\.wireEncoding) == [.legacyScalar, .legacyScalar, .legacyScalar])
+        #expect(planned.map(\.lines) == [10, -10, 5])
+        #expect(planned.map { $0.directionalRuns.map(\.lines) } == [[10], [-10], [5]])
+        #expect(planned[0].prefetchWindow == nil)
+        #expect(planned[1].prefetchWindow == nil)
+        #expect(planned[2].prefetchWindow == request.prefetchWindow)
+
+        let harness = Harness()
+        let session = harness.makeSession()
+        session.submit(lines: 10, col: 1, row: 1)
+        try await requireEventually {
+            harness.remote.pending.count == 1 && harness.local.pending.count == 1
+        }
+        session.submit(lines: -10, col: 2, row: 2)
+        session.submit(lines: 5, col: 3, row: 3)
+        session.interactionDidEnd()
+
+        let firstRemote = harness.remote.pending.removeFirst()
+        firstRemote.continuation.resume(returning: response(for: firstRemote.request, renderRevision: 10))
+        try await requireEventually { harness.remote.pending.count == 1 }
+        let secondRemote = harness.remote.pending.removeFirst()
+        #expect(secondRemote.request.lines == -10)
+        #expect(secondRemote.request.wireEncoding == .legacyScalar)
+        #expect(secondRemote.request.prefetchWindow == nil)
+        secondRemote.continuation.resume(returning: response(for: secondRemote.request, renderRevision: 20))
+        try await requireEventually { harness.remote.pending.count == 1 }
+        let finalRemote = harness.remote.pending.removeFirst()
+        #expect(finalRemote.request.lines == 5)
+        #expect(finalRemote.request.wireEncoding == .legacyScalar)
+        #expect(finalRemote.request.prefetchWindow == .directional(for: 5))
+        finalRemote.continuation.resume(returning: response(for: finalRemote.request, renderRevision: 30))
+
+        let firstLocal = harness.local.pending.removeFirst()
+        firstLocal.continuation.resume(returning: true)
+        try await requireEventually { harness.local.pending.count == 1 }
+        let finalLocal = harness.local.pending.removeFirst()
+        finalLocal.continuation.resume(returning: true)
+        try await requireEventually { harness.delivered.count == 1 }
+
+        #expect(harness.remote.started.map(\.lines) == [10, -10, 5])
+        #expect(harness.remote.started.allSatisfy { $0.directionalRuns.count == 1 })
+        #expect(harness.delivered.map(\.renderRevision) == [30])
+    }
+
+    @Test("journal overflow enters replay recovery without stuck reconciliation")
+    func journalOverflowRecoversCleanly() async throws {
         let harness = Harness()
         let session = harness.makeSession()
 
         session.submit(lines: 10, col: 1, row: 1)
-        await settleTasks()
-        for index in 1...1_000 {
+        try await requireEventually {
+            harness.remote.pending.count == 1 && harness.local.pending.count == 1
+        }
+        for index in 1...257 {
             session.submit(
                 lines: index.isMultiple(of: 2) ? 3 : -2,
                 col: index,
                 row: index + 1
             )
         }
-        await settleTasks()
+        #expect(harness.replayEpochs == [2])
+        #expect(session.interactionEpoch == 2)
+        #expect(session.latestClientRevision == 0)
+        #expect(session.latestReconciledRevision == 0)
+        #expect(!session.shouldDeferLiveRenderGrid)
 
-        #expect(harness.local.started.count == 1)
-        #expect(harness.remote.started.count == 1)
-
-        let firstRemote = try #require(harness.remote.pending.first)
+        let staleRemote = try #require(harness.remote.pending.first)
         harness.remote.pending.removeFirst()
-        firstRemote.continuation.resume(returning: response(for: firstRemote.request, renderRevision: 20))
-        let firstLocal = try #require(harness.local.pending.first)
+        staleRemote.continuation.resume(returning: response(for: staleRemote.request, renderRevision: 20))
+        let staleLocal = try #require(harness.local.pending.first)
         harness.local.pending.removeFirst()
-        firstLocal.continuation.resume(returning: true)
-        await settleTasks()
-
-        #expect(harness.local.started.count == 2)
-        #expect(harness.remote.started.count == 2)
-        let latestLocal = try #require(harness.local.started.last)
-        let latestRemote = try #require(harness.remote.started.last)
-        #expect(latestRemote.clientRevision == 1_001)
-        #expect(latestLocal.lines == 500)
-        #expect(latestRemote.lines == 500)
-        #expect(latestRemote.directionalRuns.count == 1_000)
-        #expect(latestRemote.directionalRuns.map(\.lines) == (1...1_000).map {
-            $0.isMultiple(of: 2) ? 3 : -2
-        })
-
-        let finalRemote = try #require(harness.remote.pending.first)
-        harness.remote.pending.removeFirst()
-        finalRemote.continuation.resume(returning: response(for: finalRemote.request, renderRevision: 1_001))
-        let finalLocal = try #require(harness.local.pending.first)
-        harness.local.pending.removeFirst()
-        finalLocal.continuation.resume(returning: true)
-        await settleTasks()
-
-        #expect(harness.delivered.map(\.renderRevision) == [1_001])
-        session.authoritativeDidApply(interactionEpoch: 1, clientRevision: 1_001)
-        #expect(session.latestReconciledRevision == 1_001)
+        staleLocal.continuation.resume(returning: true)
+        #expect(harness.delivered.isEmpty)
     }
 
     @Test("input epoch invalidates old local and remote completions")
@@ -122,7 +179,9 @@ struct TerminalScrollSessionTests {
         let session = harness.makeSession()
 
         session.submit(lines: 14, col: 2, row: 4)
-        await settleTasks()
+        try await requireEventually {
+            harness.remote.pending.count == 1 && harness.local.pending.count == 1
+        }
         let local = try #require(harness.local.pending.first)
         harness.local.pending.removeFirst()
         let remote = try #require(harness.remote.pending.first)
@@ -135,7 +194,6 @@ struct TerminalScrollSessionTests {
 
         remote.continuation.resume(returning: response(for: remote.request, renderRevision: 30))
         local.continuation.resume(returning: true)
-        await settleTasks()
 
         #expect(harness.delivered.isEmpty)
         #expect(session.latestReconciledRevision == 0)
@@ -147,7 +205,9 @@ struct TerminalScrollSessionTests {
         let session = harness.makeSession()
 
         session.submit(lines: -8, col: 4, row: 5)
-        await settleTasks()
+        try await requireEventually {
+            harness.remote.pending.count == 1 && harness.local.pending.count == 1
+        }
         let first = try #require(harness.remote.pending.first)
         harness.remote.pending.removeFirst()
         #expect(first.request.prefetchWindow == TerminalScrollPrefetchWindow(
@@ -158,10 +218,10 @@ struct TerminalScrollSessionTests {
         let local = try #require(harness.local.pending.first)
         harness.local.pending.removeFirst()
         local.continuation.resume(returning: true)
-        await settleTasks()
+        try await requireEventually { harness.delivered.count == 1 }
 
         session.interactionDidEnd()
-        await settleTasks()
+        try await requireEventually { harness.remote.pending.count == 1 }
         let settled = try #require(harness.remote.pending.first)
         #expect(settled.request.lines == 0)
         #expect(settled.request.clientRevision == 1)
@@ -214,10 +274,36 @@ struct TerminalScrollSessionTests {
         )
     }
 
-    private func settleTasks() async {
-        for _ in 0..<4 {
-            await Task.yield()
+    private func makeRequest(lines: [Double]) throws -> TerminalScrollRequest {
+        let first = try #require(lines.first)
+        var request = TerminalScrollRequest(
+            surfaceID: "surface-1",
+            interactionEpoch: 1,
+            clientRevision: 1,
+            lines: first,
+            col: 1,
+            row: 1,
+            prefetchWindow: .directional(for: first)
+        )
+        for (index, lines) in lines.dropFirst().enumerated() {
+            let appended = request.append(TerminalScrollRequest(
+                surfaceID: "surface-1",
+                interactionEpoch: 1,
+                clientRevision: UInt64(index + 2),
+                lines: lines,
+                col: index + 2,
+                row: index + 2,
+                prefetchWindow: nil
+            ))
+            try #require(appended)
         }
+        return request
+    }
+
+    private func requireEventually(
+        _ condition: @MainActor () async -> Bool
+    ) async throws {
+        try #require(await pollUntil(condition))
     }
 }
 
@@ -255,6 +341,7 @@ private final class Harness {
     var prepareIntentCount = 0
     var reconciliationCompletionCount = 0
     var cancelLocalCount = 0
+    var replayEpochs: [UInt64] = []
     var epoch: UInt64 = 1
 
     func makeSession() -> TerminalScrollSession {
@@ -288,13 +375,18 @@ private final class Harness {
                 self?.delivered.append(frame)
                 return true
             },
-            acceptAuthoritativeRevision: { [weak self] revision in
-                self?.acceptedRenderRevisions.append(revision)
+            completeGridlessAuthoritative: { [weak self] revision in
+                if let revision {
+                    self?.acceptedRenderRevisions.append(revision)
+                }
+                return true
             },
             reconciliationDidComplete: { [weak self] in
                 self?.reconciliationCompletionCount += 1
             },
-            requestReplay: { _ in },
+            requestReplay: { [weak self] epoch in
+                self?.replayEpochs.append(epoch)
+            },
             advanceEpoch: { [weak self] in
                 guard let self else { return 0 }
                 self.epoch += 1

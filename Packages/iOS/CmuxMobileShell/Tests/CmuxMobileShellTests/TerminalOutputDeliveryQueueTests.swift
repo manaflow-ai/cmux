@@ -60,7 +60,10 @@ import Testing
 
     oldConsumer.cancel()
     await oldConsumer.value
-    for _ in 0..<4 { await Task.yield() }
+    let oldConsumerSettled = try await pollUntil {
+        store.terminalOutputStreamTokensBySurfaceID[surfaceID] == currentToken
+    }
+    #expect(oldConsumerSettled)
 
     #expect(store.terminalOutputStreamTokensBySurfaceID[surfaceID] == currentToken)
     let accepted = store.deliverTerminalBytes(Data("replacement-live".utf8), surfaceID: surfaceID)

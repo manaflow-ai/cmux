@@ -9,6 +9,10 @@ import Testing
 #endif
 
 struct MobileHostServiceSettingsTests {
+    @Test func advertisesOrderedTerminalScrollRuns() {
+        #expect(MobileHostService.mobileHostCapabilities.contains("terminal.scroll.ordered_runs.v1"))
+    }
+
     @Test func mobileHostListenerDefaultsOffUntilIOSPairingIsEnabled() throws {
         let suiteName = "MobileHostServiceSettingsTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -105,6 +109,26 @@ struct MobileHostServiceSettingsTests {
         #expect(MobileHostService.syncDecision(enabled: true, listenerRunning: true, desiredPort: 9000, appliedPort: 58465) == .restart)
         // Running but the applied port is unknown: restart to reconcile.
         #expect(MobileHostService.syncDecision(enabled: true, listenerRunning: true, desiredPort: 58465, appliedPort: nil) == .restart)
+    }
+}
+
+@MainActor
+struct MobileTerminalScrollHandlerTests {
+    @Test func orderedRunPayloadAccepts32AndRejects33BeforeExecution() {
+        func params(count: Int) -> [String: Any] {
+            [
+                "delta_runs": (0..<count).map { index in
+                    [
+                        "lines": index.isMultiple(of: 2) ? 1.0 : -1.0,
+                        "col": index,
+                        "row": index,
+                    ] as [String: Any]
+                }
+            ]
+        }
+
+        #expect(TerminalController.shared.mobileScrollDirectionalRuns(params: params(count: 32))?.count == 32)
+        #expect(TerminalController.shared.mobileScrollDirectionalRuns(params: params(count: 33)) == nil)
     }
 }
 
