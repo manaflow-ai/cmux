@@ -1,10 +1,86 @@
-import Foundation
+import AppKit
+import SwiftUI
 import Testing
 @testable import CmuxCommandPalette
 
 @MainActor
 @Suite("CommandPaletteInteractionMonitor")
 struct CommandPaletteInteractionMonitorTests {
+    @Test("pointer dismissal requires known-outside panel geometry")
+    func pointerDismissalPolicy() {
+        let observedWindowEvent = CommandPalettePointerEvent(
+            isInObservedWindow: true,
+            locationInWindow: CGPoint(x: 20, y: 20)
+        )
+        let otherWindowEvent = CommandPalettePointerEvent(
+            isInObservedWindow: false,
+            locationInWindow: CGPoint(x: 20, y: 20)
+        )
+
+        #expect(!observedWindowEvent.shouldDismissPalette(panelContainsPoint: true))
+        #expect(!observedWindowEvent.shouldDismissPalette(panelContainsPoint: nil))
+        #expect(observedWindowEvent.shouldDismissPalette(panelContainsPoint: false))
+        #expect(otherWindowEvent.shouldDismissPalette(panelContainsPoint: true))
+        #expect(otherWindowEvent.shouldDismissPalette(panelContainsPoint: nil))
+    }
+
+    @Test("AppKit monitor keeps inside clicks and exposes the underlying view for outside clicks")
+    func appKitMonitorRoutesInsideAndOutsideClicks() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let underlyingView = RecordingMouseDownView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView = underlyingView
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+
+        let overlayView = RecordingMouseDownView(frame: underlyingView.bounds)
+        overlayView.autoresizingMask = [.width, .height]
+        underlyingView.addSubview(overlayView)
+
+        let panelFrame = NSRect(x: 100, y: 100, width: 200, height: 100)
+        let panelMarker = NSHostingView(rootView: CommandPalettePanelHitRegion())
+        panelMarker.frame = panelFrame
+        overlayView.addSubview(panelMarker)
+        overlayView.layoutSubtreeIfNeeded()
+
+        #expect(overlayView.commandPalettePanelContains(windowPoint: panelFrame.center) == true)
+        #expect(overlayView.commandPalettePanelContains(windowPoint: NSPoint(x: 20, y: 20)) == false)
+        #expect(NSView().commandPalettePanelContains(windowPoint: .zero) == nil)
+
+        let monitor = CommandPaletteInteractionMonitor()
+        var dismissCount = 0
+        monitor.activate(
+            for: window,
+            shouldDismiss: { event in
+                event.shouldDismissPalette(
+                    panelContainsPoint: overlayView.commandPalettePanelContains(
+                        windowPoint: event.locationInWindow
+                    )
+                )
+            },
+            onWindowStateChange: {},
+            onDismiss: {
+                dismissCount += 1
+                overlayView.removeFromSuperview()
+            }
+        )
+        defer { monitor.deactivate() }
+
+        NSApp.sendEvent(try mouseDownEvent(at: panelFrame.center, in: window))
+        #expect(dismissCount == 0)
+        #expect(overlayView.mouseDownCount == 1)
+        #expect(underlyingView.mouseDownCount == 0)
+
+        NSApp.sendEvent(try mouseDownEvent(at: NSPoint(x: 20, y: 20), in: window))
+        #expect(dismissCount == 1)
+        #expect(underlyingView.mouseDownCount == 1)
+    }
+
     @Test("outside mouse-down dismisses and lifecycle cleanup removes every observer")
     func outsideMouseDownDismissesAndCleansUp() {
         let notificationCenter = RecordingCommandPaletteNotificationCenter()
@@ -110,6 +186,36 @@ struct CommandPaletteInteractionMonitorTests {
         #expect(
             notificationCenter.removedObserverIDs == notificationCenter.addedObservers.map(\.token.id)
         )
+    }
+}
+
+private extension NSRect {
+    var center: NSPoint {
+        NSPoint(x: midX, y: midY)
+    }
+}
+
+@MainActor
+private func mouseDownEvent(at location: NSPoint, in window: NSWindow) throws -> NSEvent {
+    try #require(NSEvent.mouseEvent(
+        with: .leftMouseDown,
+        location: location,
+        modifierFlags: [],
+        timestamp: ProcessInfo.processInfo.systemUptime,
+        windowNumber: window.windowNumber,
+        context: nil,
+        eventNumber: 1,
+        clickCount: 1,
+        pressure: 1
+    ))
+}
+
+@MainActor
+private final class RecordingMouseDownView: NSView {
+    private(set) var mouseDownCount = 0
+
+    override func mouseDown(with event: NSEvent) {
+        mouseDownCount += 1
     }
 }
 

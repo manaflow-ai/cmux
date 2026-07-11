@@ -512,7 +512,9 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         makeRootView: @MainActor () -> AnyView = { AnyView(EmptyView()) }
     ) {
         let wasVisible = isPaletteVisible
-        if !isVisible, !wasVisible, !hasMountedPaletteRootView, containerView.isHidden {
+        if !isVisible {
+            guard wasVisible || hasMountedPaletteRootView || !containerView.isHidden else { return }
+            hideOverlay()
             return
         }
 
@@ -532,42 +534,39 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             cmuxDebugLog("palette.overlay.update visible=\(isVisible ? 1 : 0) promote=\(shouldPromote ? 1 : 0) window=nil")
         }
 #endif
-        isPaletteVisible = isVisible
-        if isVisible {
-            hostingView.rootView = makeRootView()
-            hasMountedPaletteRootView = true
-            containerView.capturesMouseEvents = true
-            containerView.isHidden = false
-            containerView.alphaValue = 1
-            if shouldPromote {
-                promoteOverlayAboveSiblingsIfNeeded()
-            }
-            if let window {
-                interactionMonitor.activate(
-                    for: window,
-                    shouldDismiss: { [weak self] event in
-                        self?.shouldDismissPalette(for: event) ?? false
-                    },
-                    onWindowStateChange: { [weak self] in
-                        self?.updateFocusLockForWindowState()
-                    },
-                    onDismiss: { [weak self] in
-                        guard let self, self.isPaletteVisible else { return }
-                        self.hideOverlay()
-                        onDismiss()
-                    }
-                )
-            }
-            updateFocusLockForWindowState()
-        } else {
-            hideOverlay()
+        isPaletteVisible = true
+        hostingView.rootView = makeRootView()
+        hasMountedPaletteRootView = true
+        containerView.capturesMouseEvents = true
+        containerView.isHidden = false
+        containerView.alphaValue = 1
+        if shouldPromote {
+            promoteOverlayAboveSiblingsIfNeeded()
         }
+        if let window {
+            interactionMonitor.activate(
+                for: window,
+                shouldDismiss: { [weak self] event in
+                    self?.shouldDismissPalette(for: event) ?? false
+                },
+                onWindowStateChange: { [weak self] in
+                    self?.updateFocusLockForWindowState()
+                },
+                onDismiss: { [weak self] in
+                    guard let self, self.isPaletteVisible else { return }
+                    self.hideOverlay()
+                    onDismiss()
+                }
+            )
+        }
+        updateFocusLockForWindowState()
     }
 
     private func shouldDismissPalette(for event: CommandPalettePointerEvent) -> Bool {
         guard window != nil else { return true }
-        guard event.isInObservedWindow else { return true }
-        return hostingView.commandPalettePanelContains(windowPoint: event.locationInWindow) != true
+        return event.shouldDismissPalette(
+            panelContainsPoint: hostingView.commandPalettePanelContains(windowPoint: event.locationInWindow)
+        )
     }
 
     private func hideOverlay() {

@@ -17,4 +17,17 @@ public struct CommandPalettePointerEvent: Sendable, Equatable {
         self.isInObservedWindow = isInObservedWindow
         self.locationInWindow = locationInWindow
     }
+
+    /// Returns whether this event is known to be outside the visible palette.
+    ///
+    /// An unmounted panel marker produces `nil`. That transient geometry state is
+    /// not evidence of an outside click, so events in the observed window keep the
+    /// palette open until its panel bounds are available.
+    ///
+    /// - Parameter panelContainsPoint: Whether the mounted panel contains the event.
+    /// - Returns: `true` only for another window or a known-outside panel point.
+    public func shouldDismissPalette(panelContainsPoint: Bool?) -> Bool {
+        guard isInObservedWindow else { return true }
+        return panelContainsPoint == false
+    }
 }
