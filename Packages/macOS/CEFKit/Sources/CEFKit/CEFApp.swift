@@ -156,6 +156,11 @@ public final class CEFApp {
         }
         isInitialized = true
         wasEverInitialized = true
+        // Context initialization runs before any browser exists; keep the
+        // backstop up for that bounded window so a missed schedule cannot
+        // stall it (browser/creation demand takes over afterwards).
+        isAwaitingContextInitialization = true
+        updateBackstopDemand()
     }
 
     /// Runs `action` once the CEF context is ready (immediately if it already
@@ -197,15 +202,45 @@ public final class CEFApp {
 
     /// Number of live CEF browsers (created and not yet destroyed).
     public private(set) var liveBrowserCount = 0
+    /// Creations in flight (createBrowser accepted, on_after_created not yet
+    /// fired); they need the pump backstop just like live browsers.
+    private var pendingBrowserCreations = 0
+    /// True from cef_initialize until on_context_initialized.
+    private var isAwaitingContextInitialization = false
     private var terminationCompletion: (() -> Void)?
     /// True while the post-close message-loop drain is still running; quit
     /// must keep waiting even though liveBrowserCount is already zero.
     private var isDrainingAfterClose = false
 
-    func browserDidStart() { liveBrowserCount += 1 }
+    func browserCreationDidStart() {
+        pendingBrowserCreations += 1
+        updateBackstopDemand()
+    }
+
+    func browserCreationDidSettle() {
+        pendingBrowserCreations = max(0, pendingBrowserCreations - 1)
+        updateBackstopDemand()
+    }
+
+    func browserDidStart() {
+        liveBrowserCount += 1
+        updateBackstopDemand()
+    }
+
+    /// The 30 Hz backstop runs only while browsers exist (or are being
+    /// created); otherwise a host that opened a browser once would pay
+    /// permanent main-thread wakeups for the rest of the process. Without
+    /// demand the pump stays purely schedule-driven
+    /// (on_schedule_message_pump_work one-shot timers).
+    private func updateBackstopDemand() {
+        CEFMessagePump.shared.setBackstopDemand(
+            liveBrowserCount > 0 || pendingBrowserCreations > 0 || isAwaitingContextInitialization
+        )
+    }
 
     func browserDidStop() {
         liveBrowserCount = max(0, liveBrowserCount - 1)
+        updateBackstopDemand()
         guard liveBrowserCount == 0, terminationCompletion != nil, !isDrainingAfterClose else { return }
         // browserDidStop runs inside the last browser's on_before_close,
         // which fires BEFORE destruction finishes. Defer a turn and
@@ -260,6 +295,8 @@ public final class CEFApp {
 
     func contextDidInitialize() {
         isContextInitialized = true
+        isAwaitingContextInitialization = false
+        updateBackstopDemand()
         let actions = pendingContextInitialized
         pendingContextInitialized = []
         actions.forEach { $0() }
@@ -376,11 +413,14 @@ final class CEFAppHandlerImpl {
 final class CEFMessagePump {
     static let shared = CEFMessagePump()
 
-    private var scheduledTimer: Timer?
-    private var backstopTimer: Timer?
+    private(set) var scheduledTimer: Timer?
+    private(set) var backstopTimer: Timer?
+    /// True while browsers are live or being created; only then does a
+    /// standing 30 Hz backstop run (internal for @testable assertions).
+    private(set) var backstopDemand = false
     private var isPumping = false
 
-    private init() {}
+    init() {}
 
     func schedule(afterMilliseconds delayMs: Int64) {
         if Thread.isMainThread {
@@ -390,11 +430,33 @@ final class CEFMessagePump {
         }
     }
 
+    /// Installs the backstop while browsers demand it and tears it down when
+    /// the last browser closes, so an idle host pays no recurring
+    /// main-thread wakeups. Schedule-driven one-shot pumps keep servicing
+    /// CEF's own work requests either way.
+    func setBackstopDemand(_ demand: Bool) {
+        if Thread.isMainThread {
+            applyBackstopDemand(demand)
+        } else {
+            DispatchQueue.main.async { self.applyBackstopDemand(demand) }
+        }
+    }
+
     func stop() {
         scheduledTimer?.invalidate()
         scheduledTimer = nil
         backstopTimer?.invalidate()
         backstopTimer = nil
+    }
+
+    private func applyBackstopDemand(_ demand: Bool) {
+        backstopDemand = demand
+        if demand {
+            ensureBackstop()
+        } else {
+            backstopTimer?.invalidate()
+            backstopTimer = nil
+        }
     }
 
     private func scheduleOnMain(_ delayMs: Int64) {
@@ -411,7 +473,7 @@ final class CEFMessagePump {
     }
 
     private func ensureBackstop() {
-        guard backstopTimer == nil else { return }
+        guard backstopDemand, backstopTimer == nil else { return }
         let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
             self?.pump()
         }

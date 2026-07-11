@@ -44,7 +44,11 @@ public final class CEFBrowser {
         let clientImpl = CEFClientImpl()
         clientImpl.delegate = delegate
         let profileRef = profile
+        // Keeps the pump backstop running while creation is in flight (the
+        // browser is not counted live until on_after_created).
+        CEFApp.shared.browserCreationDidStart()
         clientImpl.onBrowserCreated = { [weak parentView] browser in
+            CEFApp.shared.browserCreationDidSettle()
             browser.profile = profileRef
             browser.hostView = parentView
             CEFDebugDump.scheduleDump(for: browser, label: url)
@@ -81,6 +85,7 @@ public final class CEFBrowser {
             // wraps its ref-counted arguments (client, request context) into
             // CefRefPtr on entry, so the transferred references are consumed
             // and released by libcef even when it returns 0.
+            CEFApp.shared.browserCreationDidSettle()
             completion(nil)
         }
     }
