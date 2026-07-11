@@ -58,7 +58,7 @@ extension Workspace {
             fields["bindingSource"] = resumeBinding.source ?? ""
             fields["hasCheckpoint"] = resumeBinding.checkpointId == nil ? "0" : "1"
         }
-        StartupBreadcrumbLog.append("app.init.sessionRestore.panel.binding", fields: fields)
+        StartupBreadcrumbLog.appendBatched("app.init.sessionRestore.panel.binding", fields: fields)
     }
 
     func logSessionRestoreTerminalPanelOutcome(
@@ -76,7 +76,7 @@ extension Workspace {
         fields["startup"] = sessionRestoreStartupKind(command: startupCommand, input: startupInput)
         let didCreatePanel = restoredPanelId != nil
         fields["startupCommandIssued"] = didCreatePanel && startupCommand != nil ? "1" : "0"
-        StartupBreadcrumbLog.append("app.init.sessionRestore.panel.outcome", fields: fields)
+        StartupBreadcrumbLog.appendBatched("app.init.sessionRestore.panel.outcome", fields: fields)
     }
 
     private func sessionRestoreLogFields(snapshot: SessionPanelSnapshot) -> [String: String] {
