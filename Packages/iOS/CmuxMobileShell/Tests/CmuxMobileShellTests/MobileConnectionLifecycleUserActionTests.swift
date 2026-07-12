@@ -191,6 +191,44 @@ import Testing
         #expect(resources.lifecycleWaiterCount == 0)
     }
 
+    @Test func rejectedReconnectResolvesCallerWithoutLeakingWaiter() async throws {
+        let pairedMacStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [:],
+            blockedTeams: [""]
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedMacStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1")
+        )
+        let first = Task { @MainActor in
+            await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        await pairedMacStore.waitUntilLoadStarted(teamID: nil)
+        defer { Task { await pairedMacStore.release(teamID: nil) } }
+
+        store.retryMobileConnection()
+        let result = ReconnectResultProbe()
+        let rejected = Task { @MainActor in
+            let connected = await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+            await result.record(connected)
+            return connected
+        }
+
+        #expect(try await pollUntil { await result.value() == false })
+        #expect(store.connectionLifecycleRequestWaiters.isEmpty)
+        #expect(store.connectionLifecycle.resourceSnapshot.pendingRequestCount == 0)
+
+        for continuation in store.connectionLifecycleRequestWaiters.values {
+            continuation.resume()
+        }
+        store.connectionLifecycleRequestWaiters.removeAll()
+        await pairedMacStore.release(teamID: nil)
+        store.signOut()
+        #expect(await first.value == false)
+        #expect(await rejected.value == false)
+    }
+
     @Test func forgettingDuringReconnectCannotBeUndoneByLatePersistence() async throws {
         let router = LivenessHostRouter()
         let box = TransportBox()
@@ -343,31 +381,40 @@ import Testing
         #expect(store.connectionLifecycle.resourceSnapshot.pendingRequestCount == 0)
     }
 
-    @Test func teamChangeReplacesStoredMacRecoveryWithNewScopeEpisode() {
+    @Test func teamChangeReplaysStoredMacRecoveryAfterRetiredTaskDrains() async throws {
+        let team = MutableTeamID("team-a")
+        let pairedMacStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [:],
+            blockedTeams: ["team-a"]
+        )
         let store = MobileShellComposite(
             isSignedIn: true,
-            pairedMacStore: DelayedTeamPairedMacStore(
-                recordsByTeam: [:],
-                blockedTeams: []
-            ),
-            identityProvider: StaticIdentityProvider(userID: "user-1")
+            pairedMacStore: pairedMacStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { await team.value }
         )
-        let oldRequest = store.connectionLifecycle.requestStoredMacReconnect(
-            stackUserID: "user-1",
-            health: .disconnected
-        )
-        guard case .start(let oldEpisode) = oldRequest.effect else {
-            Issue.record("old-team reconnect must start")
-            return
+        let oldReconnect = Task { @MainActor in
+            await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
         }
+        await pairedMacStore.waitUntilLoadStarted(teamID: "team-a")
 
+        await team.set("team-b")
         store.currentTeamDidChange()
+        #expect(await oldReconnect.value == false)
+        #expect(await pairedMacStore.currentLoadStartCount(teamID: "team-b") == 0)
 
-        let replacement = store.connectionLifecycle.activeEpisode
-        #expect(replacement?.id != oldEpisode.id)
-        #expect(replacement?.kind == .reconnect)
-        #expect(replacement?.reconnectStackUserID == "user-1")
-        #expect(!store.didFinishStoredMacReconnectAttempt)
+        await pairedMacStore.release(teamID: "team-a")
+
+        #expect(try await pollUntil {
+            await pairedMacStore.currentLoadStartCount(teamID: "team-b") == 1
+        })
+        #expect(try await pollUntil {
+            store.connectionResourceSnapshotForTesting().activeEpisodeCount == 0
+                && store.connectionResourceSnapshotForTesting().retiredLifecycleTaskCount == 0
+        })
+        let resources = store.connectionResourceSnapshotForTesting()
+        #expect(resources.pendingRequestCount == 0)
+        #expect(resources.lifecycleWaiterCount == 0)
     }
 }
 
