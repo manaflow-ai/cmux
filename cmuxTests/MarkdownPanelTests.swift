@@ -706,11 +706,27 @@ final class MarkdownPanelTests: XCTestCase {
         let calls = try XCTUnwrap(result as? [[String: Any]])
         XCTAssertEqual(calls.count, 3)
         XCTAssertEqual(calls.map { $0["behavior"] as? String }, ["smooth", "smooth", "smooth"])
-        XCTAssertEqual((calls[0]["top"] as? NSNumber)?.doubleValue, 24)
+        XCTAssertEqual((calls[0]["top"] as? NSNumber)?.doubleValue, 72)
         XCTAssertGreaterThan((calls[1]["top"] as? NSNumber)?.doubleValue ?? 0, 100)
         XCTAssertLessThan(
             (calls[2]["top"] as? NSNumber)?.doubleValue ?? .greatestFiniteMagnitude,
             (calls[1]["top"] as? NSNumber)?.doubleValue ?? 0
+        )
+    }
+
+    func testMarkdownWebViewRoutesNativeViewerNavigationKeysToSharedActions() throws {
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        var actions: [KeyboardShortcutSettings.Action] = []
+        webView.onViewerNavigationActionForTesting = { actions.append($0) }
+
+        XCTAssertTrue(webView.handleViewerNavigationKey(Self.viewerKeyEvent("j")))
+        XCTAssertTrue(webView.handleViewerNavigationKey(Self.viewerKeyEvent("d", modifiers: .control)))
+        XCTAssertTrue(webView.handleViewerNavigationKey(Self.viewerKeyEvent("g")))
+        XCTAssertTrue(webView.handleViewerNavigationKey(Self.viewerKeyEvent("g")))
+        XCTAssertFalse(webView.handleViewerNavigationKey(Self.viewerKeyEvent("x")))
+        XCTAssertEqual(
+            actions,
+            [.diffViewerScrollDown, .diffViewerScrollHalfPageDown, .diffViewerScrollToTop]
         )
     }
 
@@ -1425,6 +1441,24 @@ final class MarkdownPanelTests: XCTestCase {
         let data = try JSONSerialization.data(withJSONObject: [markdown])
         let literal = try XCTUnwrap(String(data: data, encoding: .utf8))
         _ = try await webView.evaluateJavaScript("window.__cmuxRenderMarkdown(\(literal)[0]);")
+    }
+
+    private static func viewerKeyEvent(
+        _ characters: String,
+        modifiers: NSEvent.ModifierFlags = []
+    ) -> NSEvent {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: 0
+        )!
     }
 
     private func evaluateScrollSnapshot(_ script: String, in webView: WKWebView) async throws -> [String: Double] {

@@ -56,10 +56,11 @@
     return Math.max(1, Number(global.innerHeight) || 1);
   }
 
-  function lineHeight(scroller) {
-    var computed = global.getComputedStyle && scroller && global.getComputedStyle(scroller);
-    var value = computed ? parseFloat(computed.lineHeight) : NaN;
-    return Number.isFinite(value) && value > 0 ? Math.max(18, value) : 24;
+  function performAction(action, scroller) {
+    var motion = actionMotions.find(function(entry) { return entry[0] === action; });
+    if (!motion) { return false; }
+    runMotion(scroller, motion[1], motion[2]);
+    return true;
   }
 
   function runMotion(scroller, kind, direction) {
@@ -73,7 +74,7 @@
     }
     var amount = kind === 'halfPage'
       ? Math.max(80, Math.floor(viewportHeight(scroller) * 0.5))
-      : lineHeight(scroller);
+      : 72;
     var now = Date.now();
     var previous = smoothTargets.get(scroller);
     var current = Number(scroller.scrollTop) || 0;
@@ -93,6 +94,7 @@
 
     var bindings = actionMotions.map(function(entry) {
       return {
+        action: entry[0],
         shortcut: normalizeShortcut(shortcuts[entry[0]]),
         kind: entry[1],
         direction: entry[2]
@@ -114,7 +116,7 @@
       if (pending) {
         if (strokeMatches(pending.shortcut.second, event)) {
           event.preventDefault();
-          runMotion(getScroller(), pending.kind, pending.direction);
+          performAction(pending.action, getScroller());
           clearPending();
           return;
         }
@@ -128,7 +130,7 @@
           pending = binding;
           pendingTimer = global.setTimeout(clearPending, 700);
         } else {
-          runMotion(getScroller(), binding.kind, binding.direction);
+          performAction(binding.action, getScroller());
         }
         return;
       }
@@ -141,5 +143,5 @@
     };
   }
 
-  global.CmuxViewerNavigation = { install: install };
+  global.CmuxViewerNavigation = { install: install, performAction: performAction };
 })(globalThis);

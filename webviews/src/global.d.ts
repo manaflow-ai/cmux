@@ -7,6 +7,7 @@ declare global {
       getScroller: () => HTMLElement;
       shortcuts: Record<string, unknown>;
     }): () => void;
+    performAction(action: string, scroller: HTMLElement): boolean;
   };
 
   interface Window {

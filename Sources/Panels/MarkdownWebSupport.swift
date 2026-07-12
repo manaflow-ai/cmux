@@ -32,6 +32,21 @@ final class MarkdownWebView: WKWebView {
     var onReenterWindow: (() -> Void)?
 
     private var needsRenderingReattach = false
+    private var pendingViewerNavigationChordPrefix: ShortcutStroke?
+#if DEBUG
+    var onViewerNavigationActionForTesting: ((KeyboardShortcutSettings.Action) -> Void)?
+#endif
+
+    private static let viewerNavigationActions: [KeyboardShortcutSettings.Action] = [
+        .diffViewerScrollDown,
+        .diffViewerScrollUp,
+        .diffViewerScrollHalfPageDown,
+        .diffViewerScrollHalfPageUp,
+        .diffViewerScrollDownEmacs,
+        .diffViewerScrollUpEmacs,
+        .diffViewerScrollToBottom,
+        .diffViewerScrollToTop,
+    ]
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         PaneFirstClickFocusSettings.isEnabled()
@@ -40,6 +55,49 @@ final class MarkdownWebView: WKWebView {
     override func mouseDown(with event: NSEvent) {
         onPointerDown?()
         super.mouseDown(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if handleViewerNavigationKey(event) {
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    func handleViewerNavigationKey(_ event: NSEvent) -> Bool {
+        let candidates = Self.viewerNavigationActions.map { action in
+            (action, KeyboardShortcutSettings.shortcut(for: action))
+        }
+        if let pendingPrefix = pendingViewerNavigationChordPrefix {
+            pendingViewerNavigationChordPrefix = nil
+            for (action, shortcut) in candidates {
+                guard shortcut.firstStroke == pendingPrefix,
+                      let secondStroke = shortcut.secondStroke,
+                      secondStroke.matches(event: event) else { continue }
+                performViewerNavigationAction(action)
+                return true
+            }
+        }
+
+        for (action, shortcut) in candidates where !shortcut.isUnbound {
+            if shortcut.secondStroke != nil {
+                if shortcut.firstStroke.matches(event: event) {
+                    pendingViewerNavigationChordPrefix = shortcut.firstStroke
+                    return true
+                }
+            } else if shortcut.matches(event: event) {
+                performViewerNavigationAction(action)
+                return true
+            }
+        }
+        return false
+    }
+
+    private func performViewerNavigationAction(_ action: KeyboardShortcutSettings.Action) {
+#if DEBUG
+        onViewerNavigationActionForTesting?(action)
+#endif
+        evaluateJavaScript("window.__cmuxPerformViewerNavigationAction?.('\(action.rawValue)')")
     }
 
     override func viewDidMoveToWindow() {

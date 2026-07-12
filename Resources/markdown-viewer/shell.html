@@ -1777,6 +1777,9 @@ html { scroll-behavior: smooth; }
     getScroller: markdownScroller,
     shortcuts: {{viewerShortcutsJSON}}
   });
+  window.__cmuxPerformViewerNavigationAction = function(action) {
+    return CmuxViewerNavigation.performAction(action, markdownScroller());
+  };
 })();
 </script>
 </body>

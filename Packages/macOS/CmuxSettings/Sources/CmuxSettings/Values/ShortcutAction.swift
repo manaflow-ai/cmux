@@ -146,9 +146,9 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case diffViewerScrollHalfPageDown
     /// Scrolls the focused viewer up half a page.
     case diffViewerScrollHalfPageUp
-    /// Scrolls the focused viewer down one line using the Emacs binding.
+    /// Scrolls the focused viewer down one smooth step using the Emacs binding.
     case diffViewerScrollDownEmacs
-    /// Scrolls the focused viewer up one line using the Emacs binding.
+    /// Scrolls the focused viewer up one smooth step using the Emacs binding.
     case diffViewerScrollUpEmacs
     /// Scrolls the focused diff viewer to the bottom.
     case diffViewerScrollToBottom

@@ -42,8 +42,8 @@ test("viewer navigation shares smooth Vim and Emacs motions", () => {
   dispatchKey("g");
 
   expect(calls).toEqual([
-    ["to", { top: 24, behavior: "smooth" }],
-    ["to", { top: 324, behavior: "smooth" }],
+    ["to", { top: 72, behavior: "smooth" }],
+    ["to", { top: 372, behavior: "smooth" }],
     ["to", { top: 300, behavior: "smooth" }],
     ["to", { top: 1_800, behavior: "smooth" }],
     ["to", { top: 0, behavior: "smooth" }],
