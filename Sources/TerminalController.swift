@@ -267,7 +267,7 @@ class TerminalController {
         "browser.tab.switch",
         "notification.open",
         "notification.jump_to_unread",
-        "debug.command_palette.toggle",
+        "debug.command_palette.toggle", "debug.pro_welcome_checklist.show",
         "debug.notification.focus",
         "debug.app.activate",
         "debug.right_sidebar.focus",
@@ -323,7 +323,7 @@ class TerminalController {
     )
     private var browserDownloadObserver: NSObjectProtocol?
 
-    func cleanupSurfaceState(surfaceIds: [UUID]) {
+    func cleanupSurfaceState(surfaceIds: [UUID], paneIds: [UUID] = []) {
         for surfaceId in Set(surfaceIds) {
             v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
             v2BrowserInitScriptsBySurface.removeValue(forKey: surfaceId)
@@ -333,9 +333,9 @@ class TerminalController {
             v2ConsumedBrowserDownloadKeysBySurface.removeValue(forKey: surfaceId)
             v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
             v2BrowserElementRefs = v2BrowserElementRefs.filter { $0.value.surfaceId != surfaceId }
-
             controlCommandCoordinator.removeRef(kind: .surface, uuid: surfaceId)
         }
+        for paneId in Set(paneIds) { controlCommandCoordinator.removeRef(kind: .pane, uuid: paneId) }
     }
 
     /// Bridges the package server's event closures back to the controller.
@@ -2598,8 +2598,11 @@ class TerminalController {
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             if let wsId = tabManager.selectedTabId,
                let ws = tabManager.tabs.first(where: { $0.id == wsId }) {
-                let paneUUID = ws.bonsplitController.focusedPaneId?.id
-                let surfaceUUID = ws.focusedPanelId
+                let projection = ws.focusedPanelId.flatMap {
+                    ws.controlSurfaceProjection(forContainerPanelID: $0)
+                }
+                let paneUUID = projection?.paneID
+                let surfaceUUID = projection?.surfaceID
                 focused = [
                     "window_id": v2OrNull(windowId?.uuidString),
                     "window_ref": v2Ref(kind: .window, uuid: windowId),
@@ -2611,8 +2614,8 @@ class TerminalController {
                     "surface_ref": v2Ref(kind: .surface, uuid: surfaceUUID),
                     "tab_id": v2OrNull(surfaceUUID?.uuidString),
                     "tab_ref": v2TabRef(uuid: surfaceUUID),
-                    "surface_type": v2OrNull(surfaceUUID.flatMap { ws.panels[$0]?.panelType.rawValue }),
-                    "is_browser_surface": v2OrNull(surfaceUUID.flatMap { ws.panels[$0]?.panelType == .browser })
+                    "surface_type": v2OrNull(projection?.panel.panelType.rawValue),
+                    "is_browser_surface": v2OrNull(projection.map { $0.panel.panelType == .browser })
                 ]
             } else {
                 focused = [
@@ -2638,16 +2641,15 @@ class TerminalController {
                         "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
                     ]
 
-                    if let surfaceId, ws.panels[surfaceId] != nil {
-                        let paneUUID = ws.paneId(forPanelId: surfaceId)?.id
-                        payload["surface_id"] = surfaceId.uuidString
-                        payload["surface_ref"] = v2Ref(kind: .surface, uuid: surfaceId)
-                        payload["tab_id"] = surfaceId.uuidString
-                        payload["tab_ref"] = v2TabRef(uuid: surfaceId)
-                        payload["surface_type"] = v2OrNull(ws.panels[surfaceId]?.panelType.rawValue)
-                        payload["is_browser_surface"] = v2OrNull(ws.panels[surfaceId]?.panelType == .browser)
-                        payload["pane_id"] = v2OrNull(paneUUID?.uuidString)
-                        payload["pane_ref"] = v2Ref(kind: .pane, uuid: paneUUID)
+                    if let surfaceId, let target = ws.controlSurfaceTarget(for: surfaceId) {
+                        payload["surface_id"] = target.surfaceID.uuidString
+                        payload["surface_ref"] = v2Ref(kind: .surface, uuid: target.surfaceID)
+                        payload["tab_id"] = target.surfaceID.uuidString
+                        payload["tab_ref"] = v2TabRef(uuid: target.surfaceID)
+                        payload["surface_type"] = target.panel.panelType.rawValue
+                        payload["is_browser_surface"] = target.panel.panelType == .browser
+                        payload["pane_id"] = v2OrNull(target.paneID?.uuidString)
+                        payload["pane_ref"] = v2Ref(kind: .pane, uuid: target.paneID)
                     } else {
                         payload["surface_id"] = NSNull()
                         payload["surface_ref"] = NSNull()
@@ -3566,12 +3568,7 @@ class TerminalController {
             if let tm = app.tabManagerFor(windowId: item.windowId) {
                 for ws in tm.tabs {
                     _ = v2EnsureHandleRef(kind: .workspace, uuid: ws.id)
-                    for paneId in ws.bonsplitController.allPaneIds {
-                        _ = v2EnsureHandleRef(kind: .pane, uuid: paneId.id)
-                    }
-                    for panelId in ws.panels.keys {
-                        _ = v2EnsureHandleRef(kind: .surface, uuid: panelId)
-                    }
+                    v2RefreshRemoteTmuxAwarePaneAndSurfaceRefs(workspace: ws)
                 }
                 // Mint workspace_group refs for groups that exist before any
                 // workspace.group.* call so callers can pass `workspace_group:N`
@@ -3591,8 +3588,7 @@ class TerminalController {
         // methods are the only routing key for cross-window group ops, and
         // CLI helpers always inject caller workspace_id/surface_id, which
         // would otherwise win even when the group belongs to a different
-        // window). Fall back to workspace/surface/pane lookup, then the
-        // active window's TabManager.
+        // window). Then use workspace/surface/pane lookup and the active window.
         if v2HasNonNullParam(params, "window_id") {
             guard let windowId = v2UUID(params, "window_id") else { return nil }
             return v2MainSync { AppDelegate.shared?.tabManagerFor(windowId: windowId) }
@@ -3618,10 +3614,10 @@ class TerminalController {
         if let surfaceId = v2UUID(params, "surface_id")
             ?? v2UUID(params, "terminal_id")
             ?? v2UUID(params, "tab_id") {
-            if let located = v2MainSync({ AppDelegate.shared?.locateSurface(surfaceId: surfaceId) ?? locateDockSurface(surfaceId) }) { return located.tabManager }
+            if let manager = v2MainSync({ controlTabManager(surfaceID: surfaceId) }) { return manager }
         }
         if let paneId = v2UUID(params, "pane_id") {
-            if let tm = v2MainSync({ v2LocatePane(paneId)?.tabManager ?? locateDockPane(paneId)?.tabManager }) {
+            if let tm = v2MainSync({ controlTabManager(paneID: paneId) }) {
                 return tm
             }
         }
@@ -3670,10 +3666,10 @@ class TerminalController {
             }
         }
         if let surfaceId = routing.surfaceID {
-            if let located = AppDelegate.shared?.locateSurface(surfaceId: surfaceId) ?? locateDockSurface(surfaceId) { return located.tabManager }
+            if let manager = controlTabManager(surfaceID: surfaceId) { return manager }
         }
         if let paneId = routing.paneID,
-           let tm = v2LocatePane(paneId)?.tabManager ?? locateDockPane(paneId)?.tabManager {
+           let tm = controlTabManager(paneID: paneId) {
             return tm
         }
         return tabManager ?? AppDelegate.shared?.currentScriptableMainWindow()?.tabManager
@@ -5387,22 +5383,23 @@ class TerminalController {
                     guard let id = explicitSurfaceID else {
                         return .finished(.err(code: "not_found", message: "Surface not found for the given surface_id", data: nil))
                     }
-                    surfaceId = id
+                    guard let target = ws.controlTerminalTarget(for: id) else {
+                        return .finished(.err(
+                            code: "invalid_params",
+                            message: "Surface is not a terminal",
+                            data: ["surface_id": id.uuidString]
+                        ))
+                    }
+                    surfaceId = target.surfaceID
+                    terminalPanel = target.panel
                 } else {
-                    guard let focused = ws.focusedPanelId else {
+                    guard let focused = ws.controlDefaultTerminalTarget(paneID: routing.paneID) else {
                         return .finished(.err(code: "not_found", message: "No focused surface", data: nil))
                     }
-                    surfaceId = focused
-                }
-                guard let wsPanel = ws.terminalPanel(for: surfaceId) else {
-                    return .finished(.err(
-                        code: "invalid_params",
-                        message: "Surface is not a terminal",
-                        data: ["surface_id": surfaceId.uuidString]
-                    ))
+                    surfaceId = focused.surfaceID
+                    terminalPanel = focused.panel
                 }
                 workspaceID = ws.id
-                terminalPanel = wsPanel
                 resolvedWindowID = self.v2ResolveWindowId(tabManager: tabManager)
             }
             guard let rawSnapshot = self.readTerminalTextRawSnapshot(
@@ -14029,8 +14026,8 @@ class TerminalController {
             result = v2MobileWorkspaceAction(params: request.params)
         case "workspace.move":
             result = v2MobileWorkspaceMove(params: request.params)
-        case "workspace.group.action":
-            result = v2MobileWorkspaceGroupAction(params: request.params)
+        case "workspace.group.action", "workspace.group.create":
+            result = request.method == "workspace.group.create" ? v2MobileWorkspaceGroupCreate(params: request.params) : v2MobileWorkspaceGroupAction(params: request.params)
         case let method where method.hasPrefix("mobile.chat."):
             result = await v2MobileChatDispatch(method: method, params: request.params)
         case "workspace.close":

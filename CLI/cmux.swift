@@ -15272,7 +15272,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, grok, opencode, pi, omp, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
+              codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -15287,6 +15287,7 @@ struct CMUXCLI {
               ~/.config/opencode/plugins/cmux-feed.js
               ~/.pi/agent/extensions/cmux-session.ts
               ~/.omp/agent/extensions/cmux-omp-session.ts
+              ~/.campfire/agent/extensions/cmux-campfire-session.ts
               ~/.config/amp/plugins/cmux-session.ts
               ~/.kiro/agents/cmux.json
               See docs/agent-hooks.md for the full integration matrix.
@@ -20149,6 +20150,7 @@ struct CMUXCLI {
         explicitPassword: String?,
         focusedContext: TmuxCompatFocusedContext?, commandArgs: [String]
     ) {
+        clearInheritedClaudeLaunchEnvironment()
         configureTmuxCompatEnvironment(
             processEnvironment: processEnvironment,
             shimDirectory: shimDirectory,
@@ -20161,7 +20163,6 @@ struct CMUXCLI {
             termOverrideEnvVar: "CMUX_CLAUDE_TEAMS_TERM",
             extraEnvVars: claudeTeamsExtraEnvVars(commandArgs: commandArgs)
         )
-        clearInheritedClaudeSessionEnvironment(); if !claudeTeamsHasDangerousSkipPermissions(commandArgs: commandArgs) { unsetenv("CMUX_CLAUDE_TEAMS_SANDBOXED"); unsetenv("CLAUDE_CODE_SANDBOXED") }  // clear ambient markers inherited from a parent opted-in session so the trust bypass never leaks across invocations (#6447)
         guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
@@ -22503,7 +22504,6 @@ struct CMUXCLI {
     }
 
     // MARK: - cmux omc (Oh My Claude Code)
-
     private func resolveOMCExecutable(searchPath: String?) -> String? {
         resolveExecutableInSearchPath("omc", searchPath: searchPath)
     }
@@ -22542,6 +22542,7 @@ struct CMUXCLI {
             cmuxBinEnvVar: "CMUX_OMC_CMUX_BIN",
             termOverrideEnvVar: "CMUX_OMC_TERM"
         )
+        clearInheritedClaudeLaunchEnvironment()
         // omc wraps Claude Code, so it needs the same NODE_OPTIONS restore module
         guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")
@@ -23066,46 +23067,46 @@ struct CMUXCLI {
                 return
             }
 
-            if !hasDirectionalFlags, let absWidth = parsed.value("-x").flatMap({ Int($0.replacingOccurrences(of: "%", with: "")) }) {
-                // Absolute width: resize-pane -t <pane> -x <columns>
-                // Compute pixel delta from current width to desired width.
-                try tmuxResizePaneToCells(
+            if !hasDirectionalFlags, let absWidth = parsed.value("-x") {
+                try tmuxResizePaneToSize(
                     workspaceId: target.workspaceId,
                     paneId: target.paneId,
-                    targetCells: absWidth,
-                    currentCellsKey: "columns",
-                    cellSizeKey: "cell_width_px",
+                    targetSize: absWidth,
+                    absoluteAxis: "horizontal",
                     client: client
                 )
-            } else if !hasDirectionalFlags, let absHeight = parsed.value("-y").flatMap({ Int($0.replacingOccurrences(of: "%", with: "")) }) {
-                try tmuxResizePaneToCells(
+            } else if !hasDirectionalFlags, let absHeight = parsed.value("-y") {
+                try tmuxResizePaneToSize(
                     workspaceId: target.workspaceId,
                     paneId: target.paneId,
-                    targetCells: absHeight,
-                    currentCellsKey: "rows",
-                    cellSizeKey: "cell_height_px",
+                    targetSize: absHeight,
+                    absoluteAxis: "vertical",
                     client: client
                 )
             } else if hasDirectionalFlags {
-                let direction: String
-                if parsed.hasFlag("-L") {
-                    direction = "left"
-                } else if parsed.hasFlag("-U") {
-                    direction = "up"
-                } else if parsed.hasFlag("-D") {
-                    direction = "down"
-                } else {
-                    direction = "right"
+                let directionFlag = ["-L", "-U", "-D", "-R"]
+                    .first(where: parsed.hasFlag) ?? "-R"
+                let direction: String = switch directionFlag {
+                case "-L": "left"
+                case "-U": "up"
+                case "-D": "down"
+                default: "right"
                 }
-                let rawAmount = (parsed.value("-x") ?? parsed.value("-y") ?? "5")
+                let firstPositional = parsed.positional.first
+                let attachedAmount = firstPositional.flatMap { raw in
+                    raw.hasPrefix(directionFlag) && raw.count > directionFlag.count
+                        ? String(raw.dropFirst(directionFlag.count)) : nil
+                }
+                let rawAmount = (attachedAmount ?? firstPositional ?? parsed.value("-x") ?? parsed.value("-y") ?? "1")
                     .replacingOccurrences(of: "%", with: "")
-                let amount = Int(rawAmount) ?? 5
-                _ = try client.sendV2(method: "pane.resize", params: [
-                    "workspace_id": target.workspaceId,
-                    "pane_id": target.paneId,
-                    "direction": direction,
-                    "amount": max(1, amount)
-                ])
+                let amount = Int(rawAmount) ?? 1
+                try tmuxResizePaneByCells(
+                    workspaceId: target.workspaceId,
+                    paneId: target.paneId,
+                    direction: direction,
+                    amountCells: max(1, amount),
+                    client: client
+                )
             }
 
         case "wait-for":
@@ -26927,6 +26928,7 @@ struct CMUXCLI {
                 isFallback: false
             )
         }
+        if let campfireSummary = summarizeCampfireObserverNotification(def: def, object: object) { return campfireSummary }
         if let grokSummary = summarizeGrokAssistantCompletionNotification(
             def: def,
             message: normalizedMessage,
@@ -27977,7 +27979,7 @@ struct CMUXCLI {
     }
 
     private func selectedAgentLaunchEnvironment(from env: [String: String], kind: String? = nil) -> [String: String] {
-        var selected = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: env, kind: kind)
+        var selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: env, kind: kind)
         if kind == "hermes-agent" {
             selected = HermesAgentCodexEnvironment.applyingDefaultCodexBaseURL(
                 to: selected,
@@ -28834,18 +28836,10 @@ export default CMUXSessionRestore;
     }
 
     private func installAgentHooks(_ def: AgentHookDef) throws {
-        if def.name == "opencode" {
-            try installOpenCodePluginHooks(def)
-            return
-        }
-        if def.name == "pi" {
-            try installPiExtensionHooks(def)
-            return
-        }
-        if def.name == "omp" {
-            try installOmpExtensionHooks(def)
-            return
-        }
+        if def.name == "opencode" { try installOpenCodePluginHooks(def); return }
+        if def.name == "pi" { try installPiExtensionHooks(def); return }
+        if def.name == "omp" { try installOmpExtensionHooks(def); return }
+        if def.name == "campfire" { try installCampfireExtensionHooks(def); return }
         if def.name == "amp" {
             try installAmpExtensionHooks(def)
             return
@@ -29199,18 +29193,10 @@ export default CMUXSessionRestore;
     }
 
     private func uninstallAgentHooks(_ def: AgentHookDef) throws {
-        if def.name == "opencode" {
-            try uninstallOpenCodePluginHooks(def)
-            return
-        }
-        if def.name == "pi" {
-            try uninstallPiExtensionHooks(def)
-            return
-        }
-        if def.name == "omp" {
-            try uninstallOmpExtensionHooks(def)
-            return
-        }
+        if def.name == "opencode" { try uninstallOpenCodePluginHooks(def); return }
+        if def.name == "pi" { try uninstallPiExtensionHooks(def); return }
+        if def.name == "omp" { try uninstallOmpExtensionHooks(def); return }
+        if def.name == "campfire" { try uninstallCampfireExtensionHooks(def); return }
         if def.name == "amp" {
             try uninstallAmpExtensionHooks(def)
             return

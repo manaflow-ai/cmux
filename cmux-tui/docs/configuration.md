@@ -36,8 +36,11 @@ Tabs are numbered by default. A recognized agent program can appear after the nu
 
 ## Sidebar
 
+The built-in sidebar now defaults to the file browser. To preserve the previous workspace-list default, set `"sidebar": {"view": "workspaces"}`. `Tab` toggles the built-in view while the sidebar is focused, and the configurable `toggle-sidebar-view` action toggles it from anywhere. A configured `sidebar.plugin` still replaces either built-in view.
+
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
+| `sidebar.view` | `"files"` or `"workspaces"` | `"files"` | Built-in sidebar view when `sidebar.plugin` is unset |
 | `sidebar.width` | integer | `22` | Sidebar width, clamped to 10 through 60 on load |
 | `sidebar.max_width` | integer | `0` | Maximum live drag width; `0` means no configured maximum |
 | `sidebar.plugin.command` | array of strings | unset | External sidebar plugin argv; when set, the sidebar hosts this program in a PTY instead of the built-in list |
@@ -95,6 +98,15 @@ Chrome 136 and newer reject CDP remote debugging on the OS-default profile direc
 | --- | --- | --- | --- |
 | `scrollbar.position` | `"column"` or `"border"` | `"column"` | Dedicated scrollbar column or right-border overlay |
 
+## Server
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `server.ws` | socket address string | unset | Enables the WebSocket control listener, for example `127.0.0.1:7681` |
+| `server.ws_token` | string | unset | Requires the first WebSocket text frame to be `{"auth":{"token":"..."}}` |
+
+WebSocket binds must be loopback unless cmux-tui is started with `--ws-insecure-bind`. The listener has no TLS; use an authenticated TLS reverse proxy for remote access. See the [transport contract](../spec/transports.md#websocket).
+
 ## Keys
 
 | Key | Type | Default | Effect |
@@ -124,7 +136,8 @@ Chrome 136 and newer reject CDP remote debugging on the OS-default profile direc
 | `keys.next-workspace` | chord string or array or `"none"` | `"w"` | Next workspace |
 | `keys.new-workspace` | chord string or array or `"none"` | `"W"` | New workspace |
 | `keys.toggle-sidebar` | chord string or array or `"none"` | `"s"` | Toggle sidebar |
-| `keys.focus-sidebar` | chord string or array or `"none"` | `"S"` | Focus the sidebar plugin (keys forward to it; prefix returns) |
+| `keys.toggle-sidebar-view` | chord string or array or `"none"` | `"e"` | Toggle the built-in files/workspaces view; a plugin still takes precedence |
+| `keys.focus-sidebar` | chord string or array or `"none"` | `"S"` | Focus the built-in sidebar or sidebar plugin; a prefixed command returns focus to the pane |
 | `keys.focus-next-pane` | chord string or array or `"none"` | `"o"` | Cycle to the next pane in the current screen |
 | `keys.focus-left` | chord string or array or `"none"` | `["h","left","alt+h","alt+left"]` | Focus left |
 | `keys.focus-right` | chord string or array or `"none"` | `["l","right","alt+l","alt+right"]` | Focus right |
@@ -176,6 +189,7 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
     "agents": ["claude", "codex", "opencode", "pi"]
   },
   "sidebar": {
+    "view": "files",
     "width": 24,
     "max_width": 40
   },
@@ -193,6 +207,10 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
   "scrollbar": {
     "position": "column"
   },
+  "server": {
+    "ws": "127.0.0.1:7681",
+    "ws_token": "replace-with-a-secret"
+  },
   "keys": {
     "prefix": "ctrl+a",
     "alt_shortcuts": false,
@@ -207,6 +225,7 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
     "prev-screen": ["p", "alt+["],
     "rename-tab": "r",
     "rename-screen": ",",
+    "toggle-sidebar-view": "e",
     "focus-left": ["h", "left", "alt+h", "alt+left"],
     "focus-right": ["l", "right", "alt+l", "alt+right"],
     "close-pane": "x",

@@ -3,10 +3,10 @@ import Foundation
 enum SidebarAgentActivitySummary {
     static func visibleActiveCodingAgentCount(
         showsAgentActivity: Bool,
-        statesByPanelId: [UUID: [String: AgentHibernationLifecycleState]]
+        statesByPanelId: @autoclosure () -> [UUID: [String: AgentHibernationLifecycleState]]
     ) -> Int {
         guard showsAgentActivity else { return 0 }
-        return activeCodingAgentCount(statesByPanelId: statesByPanelId)
+        return activeCodingAgentCount(statesByPanelId: statesByPanelId())
     }
 
     static func activeCodingAgentCount(

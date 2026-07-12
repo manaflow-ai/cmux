@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "แผนส่วนตัวของคุณ",
+        "free": "ฟรี",
+        "pro": "Pro",
+        "loading": "กำลังโหลด…"
+      }
     }
   },
   "community": {

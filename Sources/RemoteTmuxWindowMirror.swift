@@ -26,7 +26,9 @@ import Observation
 /// user state and are never written.
 @MainActor
 @Observable
-final class RemoteTmuxWindowMirror {
+final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
+    typealias AdoptedPane = (tmuxPaneId: Int, panel: TerminalPanel)
+
     /// tmux window id (the `@N` without the sigil).
     let windowId: Int
     /// The bonsplit tab's panel id this window renders into.
@@ -40,6 +42,9 @@ final class RemoteTmuxWindowMirror {
     /// Creates a configured manual-I/O pane panel whose input goes to `tmuxPaneId`.
     @ObservationIgnored let makePanel: (_ tmuxPaneId: Int) -> TerminalPanel?
     @ObservationIgnored var onClosePaneRequest: ((Int) -> Void)?
+    /// Session-owned control identity lookup. Render nodes are replaceable.
+    @ObservationIgnored private let controlPaneID: (Int) -> PaneID?
+    @ObservationIgnored private let onControlSurfaceChanged: ((Int, UUID?) -> Void)?
 
     /// The window's BASE pane layout (tmux's full tree even while a pane is
     /// zoomed). Drives panel lifecycle and the sizing structure fold.
@@ -61,6 +66,9 @@ final class RemoteTmuxWindowMirror {
     private(set) var layoutStructureVersion = 0
     /// The tmux pane the user last focused (drives the focus overlay + splits).
     private(set) var activePaneId: Int?
+    /// Display title for this mirrored tmux window; every inner surface/tab title
+    /// derives from this tmux window name, never from pane-border labels.
+    private(set) var windowTitle = String(localized: "remoteTmux.tab.window", defaultValue: "tmux window")
 
     /// Only the visible tab's mirror writes after its initial claim. Hidden
     /// tabs stay mounted and still receive geometry callbacks, so default-hidden
@@ -75,6 +83,7 @@ final class RemoteTmuxWindowMirror {
     @ObservationIgnored var paneIdByPaneId: [Int: PaneID] = [:]
     @ObservationIgnored var paneIdByBonsplitPane: [PaneID: Int] = [:]
     @ObservationIgnored var paneIdByTabId: [TabID: Int] = [:]
+    @ObservationIgnored var paneIndexByPaneId: [Int: Int] = [:]
     @ObservationIgnored var cwdByPaneId: [Int: String] = [:]
     @ObservationIgnored var isApplyingRemoteLayout = false
     @ObservationIgnored var isApplyingTmuxFocus = false
@@ -128,6 +137,9 @@ final class RemoteTmuxWindowMirror {
         appearance: BonsplitConfiguration.Appearance = .init(),
         workspaceBonsplitController: BonsplitController? = nil,
         geometrySource: (() -> RemoteTmuxMirrorGeometry?)? = nil,
+        controlPaneID: @escaping (Int) -> PaneID? = { _ in nil },
+        onControlSurfaceChanged: ((Int, UUID?) -> Void)? = nil,
+        adoptedPanes: [AdoptedPane] = [],
         makePanel: @escaping (_ tmuxPaneId: Int) -> TerminalPanel?
     ) {
         self.windowId = windowId
@@ -136,12 +148,19 @@ final class RemoteTmuxWindowMirror {
         self.workspaceBonsplitController = workspaceBonsplitController
         self.makePanel = makePanel
         self.geometrySource = geometrySource
+        self.controlPaneID = controlPaneID
+        self.onControlSurfaceChanged = onControlSurfaceChanged
         self.layout = layout
         let initialConfiguration = workspaceBonsplitController?.configuration
             ?? BonsplitConfiguration(appearance: appearance)
         self.bonsplitController = Self.makeController(configuration: initialConfiguration)
         configureBonsplitController()
         observeWorkspaceBonsplitConfiguration()
+        for pane in adoptedPanes where layout.paneIDsInOrder.contains(pane.tmuxPaneId) {
+            panelsByPaneId[pane.tmuxPaneId] = pane.panel
+            onControlSurfaceChanged?(pane.tmuxPaneId, pane.panel.id)
+            configurePanePanel(pane.panel, paneId: pane.tmuxPaneId, needsSeed: false)
+        }
         reconcile(layout: layout)
     }
 
@@ -154,9 +173,9 @@ final class RemoteTmuxWindowMirror {
     /// The surface rendering `tmuxPaneId`, if it exists.
     func surface(forPane tmuxPaneId: Int) -> TerminalSurface? { panelsByPaneId[tmuxPaneId]?.surface }
 
-    /// The stable native Bonsplit pane id for `tmuxPaneId`, if currently rendered.
+    /// The session-owned stable control pane id for `tmuxPaneId`.
     func syntheticPaneID(forPane tmuxPaneId: Int) -> PaneID? {
-        paneIdByPaneId[tmuxPaneId]
+        controlPaneID(tmuxPaneId)
     }
 
     /// Applies a full window update: panel lifecycle + sizing structure from
@@ -164,6 +183,8 @@ final class RemoteTmuxWindowMirror {
     /// never creates or closes panels, and f's output is zoom-invariant.
     func apply(window: RemoteTmuxWindow) {
         let previousRenderedLayout = renderedLayout
+        let nextTitle = RemoteTmuxSessionMirror.tabTitle(for: window)
+        if windowTitle != nextTitle { windowTitle = nextTitle }
         let newVisible = window.zoomed ? window.visibleLayout : nil
         if visibleLayout != newVisible { visibleLayout = newVisible }
         if zoomed != window.zoomed { zoomed = window.zoomed }
@@ -181,21 +202,17 @@ final class RemoteTmuxWindowMirror {
         layout newLayout: RemoteTmuxLayoutNode,
         previousRenderedLayout: RemoteTmuxLayoutNode
     ) {
-        let livePaneIds = Set(newLayout.paneIDsInOrder)
-        for paneId in newLayout.paneIDsInOrder where panelsByPaneId[paneId] == nil {
+        let livePaneIDsInOrder = newLayout.paneIDsInOrder
+        let livePaneIds = Set(livePaneIDsInOrder)
+        paneIndexByPaneId = Dictionary(
+            livePaneIDsInOrder.enumerated().map { ($0.element, $0.offset) },
+            uniquingKeysWith: { firstIndex, _ in firstIndex }
+        )
+        for paneId in livePaneIDsInOrder where panelsByPaneId[paneId] == nil {
             guard let panel = makePanel(paneId) else { continue }
             panelsByPaneId[paneId] = panel
-            let surface = panel.surface
-            surface.onManualSizeApplied = { [weak self] in self?.handleSizingSample($0) }
-            surface.onRuntimeReady = { [weak self, weak surface] in
-                guard let sample = surface?.rawSizingSample() else { return }
-                self?.handleSizingSample(sample)
-            }
-            surface.flushPendingManualSizeReportIfAttached()
-            if let sample = surface.rawSizingSample() { handleSizingSample(sample) }
-            // Canonical seed (reflow classification → capture → cwd). The session
-            // mirror's cwd observer maps the pane back to this window's tab.
-            connection?.seedPane(paneId: paneId)
+            onControlSurfaceChanged?(paneId, panel.id)
+            configurePanePanel(panel, paneId: paneId, needsSeed: true)
         }
         for (paneId, panel) in panelsByPaneId where !livePaneIds.contains(paneId) {
             // Use the full panel close (detaches the portal from the registry
@@ -203,6 +220,7 @@ final class RemoteTmuxWindowMirror {
             // dereferenced by a later Core Animation commit.
             panel.surface.onManualSizeApplied = nil
             panel.surface.onRuntimeReady = nil
+            onControlSurfaceChanged?(paneId, nil)
             panel.close()
             connection?.unsubscribePanePath(paneId: paneId)
             connection?.unsubscribePaneReflow(paneId: paneId)
@@ -248,6 +266,18 @@ final class RemoteTmuxWindowMirror {
         if let connection, connection.lastWindowSizes[windowId] == nil {
             updateClientSize()
         }
+    }
+
+    private func configurePanePanel(_ panel: TerminalPanel, paneId: Int, needsSeed: Bool) {
+        let surface = panel.surface
+        surface.onManualSizeApplied = { [weak self] in self?.handleSizingSample($0) }
+        surface.onRuntimeReady = { [weak self, weak surface] in
+            guard let sample = surface?.rawSizingSample() else { return }
+            self?.handleSizingSample(sample)
+        }
+        surface.flushPendingManualSizeReportIfAttached()
+        if let sample = surface.rawSizingSample() { handleSizingSample(sample) }
+        if needsSeed { connection?.seedPane(paneId: paneId) }
     }
 
     /// Routes a tmux `%output` to the surface for `paneId` (no-op if unknown).
@@ -394,20 +424,13 @@ final class RemoteTmuxWindowMirror {
         setActivePane(tmuxPaneId, fromTmux: false)
     }
 
-    /// Propagates a user split of `tmuxPaneId` to tmux `split-window`
-    /// (`-h` = side-by-side, `-v` = stacked). The new pane arrives via the
-    /// resulting `%layout-change` → ``reconcile(layout:)``.
-    @discardableResult
-    func requestSplit(fromPane tmuxPaneId: Int, vertical: Bool) -> Bool {
-        guard let connection, connection.connectionState == .connected else { return false }
-        return connection.send("split-window \(vertical ? "-v" : "-h") -t @\(windowId).%\(tmuxPaneId)")
+    /// Routes an accepted control-plane mutation through the owned connection.
+    func sendControlCommand(_ command: String) -> Bool {
+        connection?.send(command) ?? false
     }
 
-    /// Propagates a user close of `tmuxPaneId` to tmux `kill-pane`. The pane is
-    /// removed via the resulting `%layout-change` (or `%window-close` if it was
-    /// the window's last pane).
-    func requestKillPane(_ tmuxPaneId: Int) {
-        connection?.send("kill-pane -t @\(windowId).%\(tmuxPaneId)")
+    func connectionSendKeys(paneID: Int, data: Data) -> Bool {
+        connection?.sendKeys(paneId: paneID, data: data) ?? false
     }
 
     /// The pane's last-known foreground classification (alt-screen flag +
@@ -443,9 +466,10 @@ final class RemoteTmuxWindowMirror {
             connection?.unsubscribePaneReflow(paneId: paneId)
             connection?.unsubscribePaneHeader(paneId: paneId)
         }
-        for panel in panelsByPaneId.values {
+        for (paneId, panel) in panelsByPaneId {
             panel.surface.onManualSizeApplied = nil
             panel.surface.onRuntimeReady = nil
+            onControlSurfaceChanged?(paneId, nil)
             panel.close()
         }
         panelsByPaneId.removeAll()

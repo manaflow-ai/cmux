@@ -11,6 +11,27 @@ extension RemoteTmuxControlConnection {
         sendInternal(command, kind: .other)
     }
 
+    /// Atomically enqueues a window-reorder batch and its result correlation.
+    func sendWindowReorder(
+        _ commands: [String],
+        verification: ((Bool) -> Void)? = nil
+    ) -> Bool {
+        guard !commands.isEmpty else {
+            verification?(true)
+            return true
+        }
+        guard windowReorderRecoveryGeneration == nil,
+              windowReorderVerificationGeneration == nil else { return false }
+        let kinds: [CommandKind] = commands.indices.map {
+            .windowReorder(isLast: $0 == commands.index(before: commands.endIndex))
+        }
+        guard sendBatchInternal(commands, kinds: kinds) else { return false }
+        windowReorderGeneration &+= 1
+        windowReorderVerificationGeneration = windowReorderGeneration
+        windowReorderVerifications[windowReorderGeneration] = verification
+        return true
+    }
+
     /// Sends `new-window -P -F '#{window_id}'` and returns its stable window id.
     @discardableResult
     func sendNewWindow(_ command: String, completion: @escaping (Int?) -> Void) -> Bool {
@@ -29,10 +50,35 @@ extension RemoteTmuxControlConnection {
     /// id and layout tokens never do — so the result parses as
     /// `@id <layout> <name with spaces…>`.
     func requestWindows() {
-        sendInternal(
+        guard !windowListRequestInFlight else {
+            windowListRequestDirty = true
+            return
+        }
+        guard sendInternal(
             "list-windows -F \"#{window_id} #{window_layout} #{window_visible_layout} [#{window_flags}] #{window_name}\"",
-            kind: .listWindows
-        )
+            kind: .listWindows(
+                reorderGeneration: windowReorderGeneration,
+                retainedPaneIDs: paneIDsRetainedUntilWindowList
+            )
+        ) else { return }
+        windowListRequestInFlight = true
+    }
+
+    func completeWindowListRequest() {
+        windowListRequestInFlight = false
+        guard windowListRequestDirty else { return }
+        windowListRequestDirty = false
+        requestWindows()
+    }
+
+    func resetWindowListRequestCoalescing() {
+        windowListRequestInFlight = false
+        windowListRequestDirty = false
+    }
+
+    func restartAfterWindowReorderRecoveryFailure() {
+        record("window-reorder-recovery-reconnect")
+        beginReconnecting()
     }
 
     /// Fetches one window's REAL pane rectangles (plus the active flag, the
@@ -139,6 +185,32 @@ extension RemoteTmuxControlConnection {
         requestPanePath(paneId: paneId)
         subscribePanePath(paneId: paneId)
         subscribePaneHeader(paneId: paneId)
+    }
+
+    func reseedAfterReconnect() {
+        if let size = lastClientSize {
+            send("refresh-client -C \(size.columns)x\(size.rows)")
+        }
+        // Re-pin every per-window size: pins are per-client state, and the
+        // fresh ssh client starts with none (windows would sit at 80×24 or
+        // the session-wide size). Feed-forward by nature — replays recorded
+        // requests, reads nothing back.
+        if supportsPerWindowSize {
+            for (windowId, size) in lastWindowSizes.sorted(by: { $0.key < $1.key }) {
+                sendPerWindowSize(windowId: windowId, columns: size.0, rows: size.1)
+            }
+        }
+        // The re-applied size is usually a no-op (the server kept the window at our
+        // size across the transport drop), so TUIs get no SIGWINCH — kick them so
+        // they repaint over the re-seeded (possibly stale) frame. FIFO-safe: the
+        // captures below are queued before the kick task's first push can run.
+        scheduleAttachRedrawKickIfNeeded()
+        for window in windowsByID.values {
+            for paneId in window.paneIDsInOrder {
+                observers.emitPaneOutput(paneId, Data("\u{1b}[H\u{1b}[2J\u{1b}[3J".utf8))
+                seedPane(paneId: paneId)
+            }
+        }
     }
 
     /// Sends literal key bytes to a pane via tmux `send-keys -H` (hex-encoded),

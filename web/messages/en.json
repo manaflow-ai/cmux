@@ -101,9 +101,6 @@
         "pendingBody": "{team} is scheduled to end on {date}.",
         "price": "$35/seat/month"
       },
-      "legacy": {
-        "body": "Your subscription is managed by our previous billing system. Contact support to make changes."
-      },
       "details": {
         "renewsOn": "Renews on",
         "endsOn": "Ends on",
@@ -124,6 +121,12 @@
         "cancelSummary": "Cancel plan",
         "confirmCancel": "Confirm cancellation",
         "resume": "Resume plan"
+      },
+      "plan": {
+        "heading": "Your personal plan",
+        "free": "Free",
+        "pro": "Pro",
+        "loading": "Loading…"
       }
     },
     "testflight": {
@@ -338,7 +341,9 @@
   "pricing": {
     "metaTitle": "Pricing — cmux",
     "metaDescription": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for Cloud VMs, cmux Vault session backup, and a model gateway. Enterprise adds SSO and self-hosting.",
+    "metaDescriptionShort": "cmux is a free, open source macOS terminal. Pro adds Cloud VMs, Vault session backup, and a model gateway; Enterprise adds SSO and self-hosting.",
     "metaDescriptionNoVault": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for Cloud VMs and a model gateway. Enterprise adds SSO and self-hosting.",
+    "metaDescriptionNoVaultShort": "cmux is a free, open source macOS terminal. Pro adds Cloud VMs and a model gateway; Enterprise adds SSO and self-hosting.",
     "title": "Pricing",
     "perMonth": "/month",
     "perUserMonth": "/user/month",
@@ -617,7 +622,6 @@
     "welcomePendingAction": "Check again",
     "billingError": "Something went wrong starting checkout. Please try again in a moment.",
     "billingUnavailable": "Billing is not available right now. Please try again later.",
-    "billingExternal": "Your subscription is managed by our previous billing system. Contact support to make changes.",
     "billingCancelled": "Checkout cancelled. You have not been charged.",
     "billingInvalidPlan": "That plan is not available. Pick a plan below.",
     "welcomeTeam": "Your cmux Team purchase is complete."
@@ -692,7 +696,7 @@
   },
   "community": {
     "title": "Community",
-    "description": "Browse projects built by the cmux community, from agent hooks to multi-agent orchestration and remote access.",
+    "description": "Browse projects built by the cmux community, from agent hooks to multi-agent orchestration and remote access tools.",
     "metaTitle": "Community — cmux",
     "metaDescription": "Browse every project from awesome-cmux on the cmux community page",
     "sourceAction": "View awesome-cmux",
@@ -2946,6 +2950,10 @@
       "title": "Guides",
       "intro": "Comparisons, background, and use-case guides for cmux. For product documentation, see the docs."
     },
+    "remoteTmux": {
+      "title": "Remote tmux",
+      "metaDescription": "Use cmux as a native macOS front end for tmux running on another machine."
+    },
     "compare": {
       "metaTitle": "Compare cmux with AI coding terminals and agent workspaces",
       "metaDescription": "Compare cmux with Superset, Conductor, Cursor, Devin, VS Code, Zed, Warp, Ghostty, iTerm2, Kitty, Alacritty, WezTerm, Herdr, and other tools for running Claude Code, Codex, OpenCode, and coding agents.",
@@ -4463,6 +4471,7 @@
       "cursorCli": "A terminal for Cursor CLI",
       "keyboardShortcuts": "Keyboard shortcuts",
       "browserAutomation": "Browser automation",
+      "remoteTmux": "Remote tmux",
       "compare": "Compare cmux"
     },
     "agents": {
@@ -4664,6 +4673,34 @@
       "submitting": "Submitting...",
       "success": "Thanks. We received your request and will reply from founders@manaflow.com.",
       "error": "Something went wrong. Please try again or email founders@manaflow.com."
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro is active",
+    "title": "Welcome to cmux Pro",
+    "body": "Your plan includes cloud agents on Cloud VMs, 20 monthly compute-hours, the model gateway, and the cmux iOS app. Start here.",
+    "done": "Go to dashboard",
+    "steps": {
+      "modelGateway": {
+        "title": "Model gateway",
+        "body": "Route across providers with usage and cost analytics.",
+        "action": "Open model gateway"
+      },
+      "aiAccounts": {
+        "title": "Connect your AI accounts",
+        "body": "Add provider accounts so cmux can route work through them.",
+        "action": "Connect providers"
+      },
+      "iosApp": {
+        "title": "cmux iOS app",
+        "body": "Use cmux on your phone.",
+        "action": "Join the iOS beta"
+      },
+      "billing": {
+        "title": "Manage your plan",
+        "body": "See your plan, invoices, and cancellation.",
+        "action": "Manage plan"
+      }
     }
   }
 }

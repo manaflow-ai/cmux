@@ -413,6 +413,10 @@ import Testing
         #expect(RemoteTmuxRawLayoutParser.parse("abcd,60x40,0,0{60x40,0,0,4}") == nil)
     }
 
+    @Test func rejectsDuplicatePaneIDs() {
+        #expect(RemoteTmuxRawLayoutParser.parse("abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,4}") == nil)
+    }
+
     @Test func rejectsGarbageLayout() {
         #expect(RemoteTmuxRawLayoutParser.parse("not-a-layout") == nil)
         #expect(RemoteTmuxRawLayoutParser.parse("") == nil)
@@ -551,57 +555,5 @@ import Testing
         #expect(RemoteTmuxControlConnection.parseActivityQueryLine("0|bash") == nil)
         #expect(RemoteTmuxControlConnection.parseActivityQueryLine("garbage") == nil)
         #expect(RemoteTmuxControlConnection.parseActivityQueryLine("") == nil)
-    }
-}
-
-/// Naming the kill-window confirmation dialog from the live foreground
-/// classification (`RemoteTmuxController.mirrorTabActivity`) so it can't lag the
-/// tab's own tmux automatic-rename.
-@Suite struct RemoteTmuxMirrorTabActivityTests {
-    private typealias State = RemoteTmuxControlConnection.PaneForegroundState
-
-    @Test @MainActor func namesTheActivePaneCommand() {
-        let activity = RemoteTmuxController.mirrorTabActivity(
-            states: [1: State(rawValue: "0|bash"), 2: State(rawValue: "0|sleep")],
-            paneOrder: [1, 2], activePaneId: nil
-        )
-        #expect(activity.hasActiveCommand)
-        #expect(activity.activeCommandName == "sleep")
-    }
-
-    @Test @MainActor func prefersTheFocusedPaneWhenSeveralAreActive() {
-        let activity = RemoteTmuxController.mirrorTabActivity(
-            states: [1: State(rawValue: "0|vim"), 2: State(rawValue: "0|sleep")],
-            paneOrder: [1, 2], activePaneId: 2
-        )
-        #expect(activity.activeCommandName == "sleep")
-    }
-
-    @Test @MainActor func namesAnActiveBackgroundPaneWhenTheFocusedOneIsIdle() {
-        // Focused pane idle, another pane active → fall past the focused pane to
-        // the active one in layout order (the deduped second half of the scan).
-        let activity = RemoteTmuxController.mirrorTabActivity(
-            states: [1: State(rawValue: "0|bash"), 2: State(rawValue: "0|sleep")],
-            paneOrder: [1, 2], activePaneId: 1
-        )
-        #expect(activity.hasActiveCommand)
-        #expect(activity.activeCommandName == "sleep")
-    }
-
-    @Test @MainActor func idleWindowHasNoNameAndIsNotActive() {
-        let activity = RemoteTmuxController.mirrorTabActivity(
-            states: [1: State(rawValue: "0|bash"), 2: State(rawValue: "0|zsh")],
-            paneOrder: [1, 2], activePaneId: 1
-        )
-        #expect(!activity.hasActiveCommand)
-        #expect(activity.activeCommandName == nil)
-    }
-
-    @Test @MainActor func unclassifiedWindowIsIdle() {
-        let activity = RemoteTmuxController.mirrorTabActivity(
-            states: [:], paneOrder: [1, 2], activePaneId: nil
-        )
-        #expect(!activity.hasActiveCommand)
-        #expect(activity.activeCommandName == nil)
     }
 }

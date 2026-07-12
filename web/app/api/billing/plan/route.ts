@@ -1,11 +1,11 @@
 import { NextRequest } from "next/server";
 import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
+import { isStripeBillingConfigured } from "../../../../services/billing/stripe";
 import { parseBearer, jsonResponse } from "../../../../services/vms/routeHelpers";
 import {
   FREE_PLAN_ID,
   TEAM_PLAN_ID,
   hasActiveTeamSubscriptionForTeam,
-  metadataPlanId,
   resolveProPlanStatus,
   type BillingManagementKind,
 } from "../../../../services/billing/pro";
@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  const billingAvailable = isStripeBillingConfigured();
   const stackServerApp = getStackServerApp();
   const bearer = parseBearer(request);
   const user = bearer
@@ -49,7 +50,7 @@ export async function GET(request: NextRequest) {
   if (!user) {
     return jsonResponse({
       authenticated: false,
-      billingAvailable: true,
+      billingAvailable,
       planId: FREE_PLAN_ID,
       isPro: false,
       billingManagement: "none",
@@ -63,7 +64,7 @@ export async function GET(request: NextRequest) {
   const teamStatus = await resolveTeamPlanStatus(user);
   return jsonResponse({
     authenticated: !user.isAnonymous,
-    billingAvailable: true,
+    billingAvailable,
     planId: status.planId,
     isPro: status.isPro,
     billingManagement: status.billingManagement,
@@ -90,12 +91,8 @@ async function resolveTeamPlanStatus(user: BillingTeamUserLike): Promise<TeamPla
     return { planId: FREE_PLAN_ID, billingManagement: "none" };
   }
   const stripeActive = await hasActiveTeamSubscriptionForTeam(team.id);
-  const metadataActive = metadataPlanId(team.clientReadOnlyMetadata) === TEAM_PLAN_ID;
   if (stripeActive) {
     return { planId: TEAM_PLAN_ID, billingManagement: "stripe" };
-  }
-  if (metadataActive) {
-    return { planId: TEAM_PLAN_ID, billingManagement: "external" };
   }
   return { planId: FREE_PLAN_ID, billingManagement: "none" };
 }

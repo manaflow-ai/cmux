@@ -306,13 +306,23 @@ final class RemoteTmuxController {
             autoWelcomeIfNeeded: false
         )
         workspace.isRemoteTmuxMirror = true
+        workspace.remoteTmuxWindowOrderSync = { [weak self, weak workspace] orderedPanelIds, verification in
+            guard let self, let workspace else { return false }
+            return self.handleMirrorWindowsReordered(
+                workspaceId: workspace.id,
+                orderedPanelIds: orderedPanelIds,
+                verification: verification
+            )
+        }
         sessionMirrors[key] = RemoteTmuxSessionMirror(
             host: host,
             sessionName: sessionName,
             seededSessionId: sessionId,
             connection: connection,
             tabManager: tabManager,
-            workspace: workspace
+            workspace: workspace,
+            onControlPaneRemoved: TerminalController.remoteTmuxControlPaneRemovalHandler(),
+            onControlSurfaceRemoved: TerminalController.remoteTmuxControlSurfaceRemovalHandler()
         )
         return true
     }
@@ -372,44 +382,6 @@ final class RemoteTmuxController {
             }
 
         }
-    }
-
-    /// Mirror tabs were drag-reordered → reorder the tmux windows to match.
-    ///
-    /// Uses `swap-window` (selection-sort over the current order), NOT
-    /// `move-window`: `move-window` unlinks+relinks a window, which in control
-    /// mode emits `%window-close`/`%window-add` and transiently empties the
-    /// mirror workspace — causing cmux to auto-seed a stray local terminal tab.
-    /// `swap-window` only swaps two windows' indices (no unlink), so there is no
-    /// churn. `-d` keeps the active window unchanged.
-    func handleMirrorWindowsReordered(workspaceId: UUID, orderedPanelIds: [UUID]) {
-        guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
-              mirror.connection.connectionState == .connected else { return }
-        let desired = orderedPanelIds.compactMap { mirror.windowId(forPanel: $0) }
-        guard desired.count >= 2 else { return }
-        // Current tmux window order (as last reported by list-windows), restricted
-        // to the windows we're reordering. Bail if the sets diverge, so we never
-        // issue a swap against a window the mirror doesn't currently track.
-        let desiredSet = Set(desired)
-        var current = mirror.connection.windowOrder.filter { desiredSet.contains($0) }
-        guard current.count == desired.count, Set(current) == desiredSet else { return }
-        var swapped = false
-        for index in desired.indices where current[index] != desired[index] {
-            guard let swapFrom = current.firstIndex(of: desired[index]) else { continue }
-            guard mirror.connection.send("swap-window -d -s @\(current[index]) -t @\(current[swapFrom])") else {
-                return
-            }
-            current.swapAt(index, swapFrom)
-            swapped = true
-        }
-        // `swap-window` changes window indices but emits no notification cmux
-        // re-reads the order from, so update the tracked order locally. The swaps
-        // achieve exactly `desired`, so this matches tmux and a rapid follow-up
-        // drag computes against the just-applied order. (Deliberately NOT a
-        // `requestWindows()` re-fetch: its async snapshot could land after a later
-        // reorder and roll the order back, reintroducing the race; out-of-band
-        // changes reconcile on the topology events that re-fetch anyway.)
-        if swapped { mirror.connection.applyWindowReorder(desired) }
     }
 
     /// A split was requested from a mirrored multi-pane surface → propagate to
