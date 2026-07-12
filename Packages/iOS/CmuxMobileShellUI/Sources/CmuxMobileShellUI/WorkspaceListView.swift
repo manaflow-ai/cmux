@@ -288,6 +288,16 @@ struct WorkspaceListView: View {
             }
         }
         .listStyle(.plain)
+        #if os(iOS)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            WorkspaceSearchBar(text: $searchText)
+                .frame(height: 52)
+                .background(.bar)
+                .overlay(alignment: .bottom) {
+                    Divider()
+                }
+        }
+        #endif
         // Let the invisible footer use its 16pt boundary height. Real rows are taller.
         .environment(\.defaultMinListRowHeight, 16)
         .workspaceListRefreshable(refresh)
@@ -301,7 +311,6 @@ struct WorkspaceListView: View {
         }
         .navigationTitle(L10n.string("mobile.workspaces.title", defaultValue: "Workspaces"))
         .mobileInlineNavigationTitle()
-        .searchable(text: $searchText)
 
         workspaceListWithToolbar(
             list,

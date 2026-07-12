@@ -7634,6 +7634,23 @@
         }
       }
     },
+    "mobile.workspaces.search.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search Workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを検索"
+          }
+        }
+      }
+    },
     "mobile.workspaces.settings": {
       "extractionState": "manual",
       "localizations": {
