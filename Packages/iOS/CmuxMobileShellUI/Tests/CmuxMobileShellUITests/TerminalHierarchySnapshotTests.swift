@@ -151,6 +151,24 @@ import Testing
     #expect(decision == .unavailable)
 }
 
+@MainActor
+@Test func competingMutationReportsReorderReservationUnavailable() throws {
+    let reorderGate = MobileTerminalReorderGate()
+    let competingReservation = try #require(reorderGate.reserve(
+        workspaceID: "workspace-reorder-owner",
+        paneID: "pane-reorder-owner"
+    ))
+    defer { reorderGate.finish(competingReservation) }
+
+    let decision = TerminalHierarchyMoveReservationDecision(
+        workspaceID: "workspace-reorder-owner",
+        paneID: "pane-reorder-owner",
+        reorderGate: reorderGate
+    )
+
+    #expect(decision == .unavailable)
+}
+
 @Test func closeProtectedFailureUsesPinnedTerminalPresentation() {
     #expect(TerminalHierarchyCloseResultPresentation(
         .failure(.protected(hostDisplayName: "Test Mac"))

@@ -3,6 +3,36 @@ import Testing
 
 @MainActor
 @Suite struct MobileShellWorkspaceCreateTests {
+    @Test func terminalCreateHoldFixtureOnlyGatesFirstRequest() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstTerminalCreate(true)
+        let firstInfo = RoutingHostRouter.RequestInfo(
+            method: "terminal.create",
+            id: "first",
+            workspaceID: RoutingHostRouter.workspaceID
+        )
+        let secondInfo = RoutingHostRouter.RequestInfo(
+            method: "terminal.create",
+            id: "second",
+            workspaceID: RoutingHostRouter.workspaceID
+        )
+
+        let first = Task { await router.response(firstInfo) }
+        await router.awaitFirstTerminalCreateReached()
+        let second = Task { await router.response(secondInfo) }
+        for _ in 0..<100 where await router.recordedTerminalCreateCount() < 2 {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+
+        let heldCount = await router.recordedHeldTerminalCreateCount()
+        await router.releaseFirstTerminalCreate()
+        await router.releaseFirstTerminalCreate()
+        _ = await first.value
+        _ = await second.value
+
+        #expect(heldCount == 1)
+    }
+
     @Test func createWorkspaceInGroupWithoutConnectionDoesNotCreateLocalWorkspace() {
         let store = MobileShellComposite.preview()
         let initialWorkspaceIDs = store.workspaces.map(\.id)

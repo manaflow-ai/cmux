@@ -68,7 +68,9 @@ actor RoutingHostRouter {
     private var firstWorkspaceCreateReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var holdFirstTerminalCreate = false
     private var firstTerminalCreateHeld = false
-    private var firstTerminalCreateContinuation: CheckedContinuation<Void, Never>?
+    private var terminalCreateCount = 0
+    private var heldTerminalCreateCount = 0
+    private var terminalCreateContinuations: [CheckedContinuation<Void, Never>] = []
     private var firstTerminalCreateReachedWaiters: [CheckedContinuation<Void, Never>] = []
 
     static let workspaceID = "ws-route"
@@ -154,15 +156,16 @@ actor RoutingHostRouter {
     }
 
     func releaseFirstTerminalCreate() {
-        let continuation = firstTerminalCreateContinuation
-        firstTerminalCreateContinuation = nil
-        continuation?.resume()
+        guard !terminalCreateContinuations.isEmpty else { return }
+        terminalCreateContinuations.removeFirst().resume()
     }
 
     func recordedWorkspaceCreateCount() -> Int { workspaceCreateCount }
     func recordedWorkspaceCreateGroupIDs() -> [String?] { workspaceCreateGroupIDs }
     func recordedTerminalCloseCount() -> Int { terminalCloseCount }
     func recordedTerminalReorderCount() -> Int { terminalReorderCount }
+    func recordedTerminalCreateCount() -> Int { terminalCreateCount }
+    func recordedHeldTerminalCreateCount() -> Int { heldTerminalCreateCount }
 
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
@@ -251,14 +254,16 @@ actor RoutingHostRouter {
                 "created_terminal_id": "terminal-created",
             ])
         case "terminal.create":
+            terminalCreateCount += 1
             terminalHasBeenCreated = true
             selectedHostWorkspaceID = info.workspaceID ?? Self.workspaceID
             if holdFirstTerminalCreate {
+                heldTerminalCreateCount += 1
                 firstTerminalCreateHeld = true
                 let reachedWaiters = firstTerminalCreateReachedWaiters
                 firstTerminalCreateReachedWaiters = []
                 for waiter in reachedWaiters { waiter.resume() }
-                await withCheckedContinuation { firstTerminalCreateContinuation = $0 }
+                await withCheckedContinuation { terminalCreateContinuations.append($0) }
             }
             var workspaces: [[String: Any]] = [Self.routingWorkspacePayload(
                 title: "Terminal Response Workspace",

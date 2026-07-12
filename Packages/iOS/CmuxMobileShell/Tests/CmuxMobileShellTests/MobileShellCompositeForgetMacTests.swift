@@ -317,12 +317,19 @@ import Testing
                 status: .connected
             ),
         ], foregroundMacDeviceID: nil)
+        store.workspaceFocusEventRevisionsByMac[MobileShellComposite.foregroundAnonymousKey] = [
+            "deleted-workspace": .init(pane: 3, terminal: 5),
+            "remaining-workspace": .init(pane: 7, terminal: 11),
+        ]
 
         await store.forgetMac(macDeviceID: "mac-a")
 
         #expect(store.pairedMacs.map(\.macDeviceID) == ["mac-b"])
         #expect(store.workspaces.map(\.rpcWorkspaceID.rawValue) == ["remaining-workspace"])
         #expect(store.workspaceListConnectionStatus == .connected)
+        #expect(store.workspaceFocusEventRevisionsByMac[MobileShellComposite.foregroundAnonymousKey] == [
+            "remaining-workspace": .init(pane: 7, terminal: 11),
+        ])
     }
 
     @Test func failedForgetRestoresMacVisibilityAndForgottenTombstone() async throws {
