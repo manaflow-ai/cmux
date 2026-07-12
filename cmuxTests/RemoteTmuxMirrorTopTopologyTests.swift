@@ -99,7 +99,10 @@ struct RemoteTmuxMirrorTopTopologyTests {
     /// Task Manager navigation must consume the same projected surface IDs
     /// that its top snapshot displays.
     @Test func taskManagerViewsProjectedMirrorSurface() async throws {
-        let harness = try RemoteTmuxMirrorCLIObservabilityTests.Harness(connectedTransport: true)
+        let harness = try RemoteTmuxMirrorCLIObservabilityTests.Harness(
+            activeTmuxPaneID: 11,
+            connectedTransport: true
+        )
         defer { harness.tearDown() }
 
         let activeTmuxPaneID = try #require(harness.mirror.activePaneId)
