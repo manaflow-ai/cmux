@@ -81,9 +81,12 @@ public final class MobileDiffState {
         for (index, file) in files.enumerated() where fileIndexByID[file.id] == nil {
             fileIndexByID[file.id] = index
         }
+        if self.selectedFileID.flatMap({ fileIndexByID[$0] }) != nil {
+            return
+        }
         if let selectedFileID, fileIndexByID[selectedFileID] != nil {
             self.selectedFileID = selectedFileID
-        } else if self.selectedFileID.flatMap({ fileIndexByID[$0] }) == nil {
+        } else {
             self.selectedFileID = files.first?.id
         }
     }

@@ -35,4 +35,18 @@ import CmuxMobileShellModel
 
         #expect(state.selectedFileID == "a")
     }
+
+    @Test func staleRendererSelectionDoesNotOverrideNativeNavigation() {
+        let state = MobileDiffState()
+        let files = [
+            MobileDiffFile(id: "a", path: "A.swift", added: 1, deleted: 0),
+            MobileDiffFile(id: "b", path: "B.swift", added: 1, deleted: 0),
+        ]
+        state.updateFiles(files, selectedFileID: "a")
+        state.selectFile(id: "b")
+
+        state.updateFiles(files, selectedFileID: "a")
+
+        #expect(state.selectedFileID == "b")
+    }
 }
