@@ -662,7 +662,7 @@ jobs:
             -only-testing:cmuxTests/TerminalWindowPortalAnchorReuseTests \
             test
 
-      - name: Run shared live agent index invalidation regression
+      - name: Run agent index and close enrichment regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
           # The tolerant full-suite step can accept an earlier XCTest summary
@@ -679,6 +679,7 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/SharedLiveAgentIndexFingerprintInvalidationTests \
+            -only-testing:cmuxTests/ClosedItemHistoryAgentEnrichmentTests \
             test
 
       - name: Run unit tests

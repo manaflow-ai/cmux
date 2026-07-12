@@ -269,7 +269,13 @@ struct ClosedItemHistoryPendingEnrichmentTests {
                 isManuallyUnread: false,
                 listeningPorts: [],
                 ttyName: nil,
-                terminal: SessionTerminalPanelSnapshot(),
+                terminal: SessionTerminalPanelSnapshot(
+                    resumeBinding: SurfaceResumeBindingSnapshot(
+                        kind: "codex",
+                        command: "codex resume candidate",
+                        source: "agent-hook"
+                    )
+                ),
                 browser: nil,
                 markdown: nil,
                 filePreview: nil,
