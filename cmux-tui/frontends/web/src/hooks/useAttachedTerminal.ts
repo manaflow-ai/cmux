@@ -10,6 +10,7 @@ import type {
   Id,
 } from "cmux/browser";
 import { debounce } from "../lib/debounce";
+import { nextFitSize } from "../lib/fit";
 import { terminalTheme } from "../lib/terminalTheme";
 
 interface AttachedTerminalOptions {
@@ -50,11 +51,14 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     host.addEventListener("focusout", handleFocusOut);
     host.addEventListener("touchend", focusOnTouch, { passive: true });
 
-    const sendResize = debounce(() => {
+    const applyFit = () => {
       if (cancelled) return;
-      fit.fit();
-      void client.resizeSurface(surface, terminal.cols, terminal.rows).catch(onError);
-    }, 100);
+      const next = nextFitSize({ cols: terminal.cols, rows: terminal.rows }, fit.proposeDimensions());
+      if (!next) return;
+      terminal.resize(next.cols, next.rows);
+      void client.resizeSurface(surface, next.cols, next.rows).catch(onError);
+    };
+    const sendResize = debounce(applyFit, 100);
     const observer = new ResizeObserver(sendResize);
     observer.observe(host);
     window.visualViewport?.addEventListener("resize", sendResize);
@@ -85,6 +89,11 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
             const replay = event as DecodedVtStateEvent;
             terminal.resize(replay.cols, replay.rows);
             terminal.write(replay.data);
+            // Attaching is our interaction: fit the replayed surface to this
+            // pane and push it (latest-interaction-wins). Foreign `resized`
+            // events below are accepted as-is — the pane clips them — so the
+            // two attached clients never ping-pong sizes.
+            applyFit();
           } else if (event.event === "output") {
             terminal.write((event as DecodedOutputEvent).data);
           } else if (event.event === "resized") {
