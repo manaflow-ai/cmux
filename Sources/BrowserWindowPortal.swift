@@ -1551,32 +1551,6 @@ final class WindowBrowserSlotView: NSView {
             abs(frame.height - bounds.height) > epsilon
     }
 
-    private static func hasWebKitCompanionSubview(in host: NSView, primaryWebView: WKWebView) -> Bool {
-        var stack = host.subviews.filter { $0 !== primaryWebView }
-        while let current = stack.popLast() {
-            if current.isDescendant(of: primaryWebView) {
-                continue
-            }
-            if current.isHidden || current.alphaValue <= 0 {
-                continue
-            }
-            if String(describing: type(of: current)).contains("WK") {
-                let width = max(current.frame.width, current.bounds.width)
-                let height = max(current.frame.height, current.bounds.height)
-                if width > 1, height > 1 {
-                    return true
-                }
-                continue
-            }
-            stack.append(contentsOf: current.subviews)
-        }
-        return false
-    }
-
-    func hasVisibleWebKitCompanionSubview(for primaryWebView: WKWebView) -> Bool {
-        Self.hasWebKitCompanionSubview(in: self, primaryWebView: primaryWebView)
-    }
-
     func effectivePaneTopChromeHeight() -> CGFloat {
         paneTopChromeHeight
     }
@@ -3545,7 +3519,7 @@ final class WindowBrowserPortal: NSObject {
         if forcePresentationRefresh {
             refreshReasons.append("anchor")
         }
-        if webView.browserPortalRequiresFirstSizedRevealNudge {
+        if webView.browserPortalNeedsFirstSizedRevealNudge {
             refreshReasons.append("firstSizedReveal")
         }
         if transientRecoveryReason == nil {

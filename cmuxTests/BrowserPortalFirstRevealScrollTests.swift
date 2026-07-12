@@ -60,11 +60,11 @@ struct BrowserPortalFirstRevealScrollTests {
         let webView = RecordingWebView(frame: .zero, configuration: WKWebViewConfiguration())
         defer { webView.stopLoading() }
 
-        #expect(!webView.browserPortalHasPendingFirstSizedRevealNudgeForTesting)
+        #expect(!webView.browserPortalNeedsFirstSizedRevealNudge)
 
         _ = browserLoadRequest(URLRequest(url: URL(fileURLWithPath: #filePath)), in: webView)
 
-        #expect(webView.browserPortalHasPendingFirstSizedRevealNudgeForTesting)
+        #expect(webView.browserPortalNeedsFirstSizedRevealNudge)
     }
 
     @Test func navigationStartedInAlphaZeroBackgroundHostSetsPendingFirstRevealNudge() throws {
@@ -91,12 +91,12 @@ struct BrowserPortalFirstRevealScrollTests {
         #expect(webView.window === window)
         #expect(webView.frame.width == 800)
         #expect(webView.frame.height == 600)
-        #expect(!webView.browserPortalHasPendingFirstSizedRevealNudgeForTesting)
+        #expect(!webView.browserPortalNeedsFirstSizedRevealNudge)
 
         let navigationURL = try #require(URL(string: "about:blank"))
         _ = browserLoadRequest(URLRequest(url: navigationURL), in: webView)
 
-        #expect(webView.browserPortalHasPendingFirstSizedRevealNudgeForTesting)
+        #expect(webView.browserPortalNeedsFirstSizedRevealNudge)
     }
 
     @Test func navigationStartedInVisibleSizedWindowDoesNotSetPendingFirstRevealNudge() throws {
@@ -115,12 +115,12 @@ struct BrowserPortalFirstRevealScrollTests {
 
         #expect(webView.window === fixture.window)
         #expect(fixture.window.alphaValue > 0.01)
-        #expect(!webView.browserPortalHasPendingFirstSizedRevealNudgeForTesting)
+        #expect(!webView.browserPortalNeedsFirstSizedRevealNudge)
 
         let navigationURL = try #require(URL(string: "about:blank"))
         _ = browserLoadRequest(URLRequest(url: navigationURL), in: webView)
 
-        #expect(!webView.browserPortalHasPendingFirstSizedRevealNudgeForTesting)
+        #expect(!webView.browserPortalNeedsFirstSizedRevealNudge)
     }
 
     @Test func hiddenHostRevealThroughPortalNudgesFrameOnceAndClearsFlag() async throws {
@@ -134,7 +134,7 @@ struct BrowserPortalFirstRevealScrollTests {
         defer { BrowserWindowPortalRegistry.detach(webView: webView) }
 
         webView.browserPortalPrepareForHiddenHostAdoption()
-        #expect(webView.browserPortalHasPendingFirstSizedRevealNudgeForTesting)
+        #expect(webView.browserPortalNeedsFirstSizedRevealNudge)
 
         BrowserWindowPortalRegistry.bind(webView: webView, to: fixture.anchor, visibleInUI: true)
         BrowserWindowPortalRegistry.synchronizeForAnchor(fixture.anchor)
@@ -147,7 +147,7 @@ struct BrowserPortalFirstRevealScrollTests {
         #expect(webView.frameSizeCalls.filter { size($0, approximatelyEquals: nudgedSize) }.count == 1)
         #expect(webView.frameSizeCalls.contains { size($0, approximatelyEquals: revealedSize) })
         #expect(size(webView.frame.size, approximatelyEquals: revealedSize))
-        #expect(!webView.browserPortalHasPendingFirstSizedRevealNudgeForTesting)
+        #expect(!webView.browserPortalNeedsFirstSizedRevealNudge)
         #expect(fixture.window.firstResponder === firstResponder)
 
         webView.frameSizeCalls.removeAll()
@@ -178,7 +178,7 @@ struct BrowserPortalFirstRevealScrollTests {
 
         #expect(!fired)
         #expect(webView.frameSizeCalls.isEmpty)
-        #expect(!webView.browserPortalHasPendingFirstSizedRevealNudgeForTesting)
+        #expect(!webView.browserPortalNeedsFirstSizedRevealNudge)
     }
 
     @Test func slotCompanionDetectionMatchesDockedWebKitSubviewCondition() throws {
@@ -214,6 +214,44 @@ struct BrowserPortalFirstRevealScrollTests {
 
         #expect(!fired)
         #expect(webView.frameSizeCalls.isEmpty)
-        #expect(!webView.browserPortalHasPendingFirstSizedRevealNudgeForTesting)
+        #expect(!webView.browserPortalNeedsFirstSizedRevealNudge)
+    }
+
+    @Test func noDeltaAtMinimumHeightKeepsPendingNudgeForLaterSizedReveal() async {
+        let fixture = makeWindowFixture()
+        defer { fixture.window.orderOut(nil) }
+        let webView = RecordingWebView(
+            frame: NSRect(x: 0, y: 0, width: 300, height: 1.25),
+            configuration: WKWebViewConfiguration()
+        )
+        fixture.window.contentView?.addSubview(webView)
+        webView.browserPortalNotifyHidden(reason: "unitTestNoDelta")
+        webView.frameSizeCalls.removeAll()
+
+        let firedAtMinimumHeight = webView.browserPortalApplyFirstSizedRevealGeometryNudgeIfNeeded(
+            reason: "unitTestNoDelta",
+            hasCompanionWKSubviews: false,
+            managedByExternalFullscreenWindow: false
+        )
+
+        #expect(!firedAtMinimumHeight)
+        #expect(webView.browserPortalNeedsFirstSizedRevealNudge)
+        #expect(webView.frameSizeCalls.isEmpty)
+
+        let revealedSize = NSSize(width: 300, height: 180)
+        webView.setFrameSize(revealedSize)
+        webView.frameSizeCalls.removeAll()
+        let firedAfterSizing = webView.browserPortalApplyFirstSizedRevealGeometryNudgeIfNeeded(
+            reason: "unitTestNoDeltaRetry",
+            hasCompanionWKSubviews: false,
+            managedByExternalFullscreenWindow: false
+        )
+        await waitForNextMainTurn()
+
+        let nudgedSize = NSSize(width: revealedSize.width, height: revealedSize.height - 1)
+        #expect(firedAfterSizing)
+        #expect(webView.frameSizeCalls.contains { size($0, approximatelyEquals: nudgedSize) })
+        #expect(size(webView.frame.size, approximatelyEquals: revealedSize))
+        #expect(!webView.browserPortalNeedsFirstSizedRevealNudge)
     }
 }

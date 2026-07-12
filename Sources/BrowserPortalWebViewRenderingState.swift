@@ -73,7 +73,7 @@ extension WKWebView {
         }
     }
 
-    fileprivate var browserPortalNeedsFirstSizedRevealNudge: Bool {
+    private(set) var browserPortalNeedsFirstSizedRevealNudge: Bool {
         get {
             (objc_getAssociatedObject(self, &cmuxBrowserPortalNeedsFirstSizedRevealNudgeKey) as? NSNumber)?
                 .boolValue ?? false
@@ -106,16 +106,6 @@ extension WKWebView {
     var browserPortalRequiresRenderingStateReattach: Bool {
         browserPortalNeedsRenderingStateReattach
     }
-
-    var browserPortalRequiresFirstSizedRevealNudge: Bool {
-        browserPortalNeedsFirstSizedRevealNudge
-    }
-
-#if DEBUG
-    var browserPortalHasPendingFirstSizedRevealNudgeForTesting: Bool {
-        browserPortalNeedsFirstSizedRevealNudge
-    }
-#endif
 
     func browserPortalMarkNeedsFirstSizedRevealNudge(reason: String) {
         browserPortalNeedsFirstSizedRevealNudge = true
@@ -219,7 +209,6 @@ extension WKWebView {
         let nudgedSize = NSSize(width: originalSize.width, height: max(1, originalSize.height - 1))
         let nudgedFrame = NSRect(origin: originalFrame.origin, size: nudgedSize)
         guard !Self.browserPortalRectApproximatelyEqual(originalFrame, nudgedFrame) else {
-            browserPortalNeedsFirstSizedRevealNudge = false
 #if DEBUG
             cmuxDebugLog(
                 "browser.portal.webview.firstSizedReveal.skip web=\(browserPortalRenderingStateDebugToken(self)) " +
@@ -318,5 +307,29 @@ extension WKWebView {
             )
         }
 #endif
+    }
+}
+
+extension WindowBrowserSlotView {
+    func hasVisibleWebKitCompanionSubview(for primaryWebView: WKWebView) -> Bool {
+        var stack = subviews.filter { $0 !== primaryWebView }
+        while let current = stack.popLast() {
+            if current.isDescendant(of: primaryWebView) {
+                continue
+            }
+            if current.isHidden || current.alphaValue <= 0 {
+                continue
+            }
+            if String(describing: type(of: current)).contains("WK") {
+                let width = max(current.frame.width, current.bounds.width)
+                let height = max(current.frame.height, current.bounds.height)
+                if width > 1, height > 1 {
+                    return true
+                }
+                continue
+            }
+            stack.append(contentsOf: current.subviews)
+        }
+        return false
     }
 }

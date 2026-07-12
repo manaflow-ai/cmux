@@ -22,15 +22,6 @@ import CommonCrypto
 import Security
 #endif
 
-enum BrowserAddressBarFocusSelectionIntent: Equatable {
-    case preserveFieldEditorSelection
-    case selectAll
-
-    var shouldSelectAll: Bool {
-        self == .selectAll
-    }
-}
-
 fileprivate func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
     var seen = Set<String>()
     var result: [URL] = []
