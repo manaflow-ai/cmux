@@ -99,6 +99,27 @@ struct RemotePortScanGatingTests {
         coordinator.stop()
     }
 
+    @Test("A transient empty TTY scan keeps the published port")
+    func transientEmptyTTYScanKeepsPublishedPort() {
+        let runner = SpyProcessRunner(results: [
+            RemoteCommandResult(status: 0, stdout: "ttys010\t4200\n", stderr: ""),
+            RemoteCommandResult(status: 0, stdout: "", stderr: ""),
+        ])
+        let host = RecordingRemoteSessionHost()
+        let coordinator = Self.makeCoordinator(runner: runner, host: host)
+        let panelId = UUID()
+
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.updateRemotePortScanTTYsLocked([panelId: "ttys010"])
+            coordinator.performRemotePortScanLocked()
+            coordinator.performRemotePortScanLocked()
+        }
+
+        #expect(host.detectedPorts == [4200])
+        coordinator.stop()
+    }
+
     @Test("Disabling makes a scan kick schedule no burst")
     func disablingDropsScanKick() {
         let runner = SpyProcessRunner()
@@ -302,10 +323,15 @@ struct RemotePortScanGatingTests {
 private final class SpyProcessRunner: RemoteSessionProcessRunning, @unchecked Sendable {
     private let lock = NSLock()
     private var _runCount = 0
-    private let result: RemoteCommandResult
+    private let results: [RemoteCommandResult]
 
     init(result: RemoteCommandResult = RemoteCommandResult(status: 0, stdout: "", stderr: "")) {
-        self.result = result
+        results = [result]
+    }
+
+    init(results: [RemoteCommandResult]) {
+        precondition(!results.isEmpty)
+        self.results = results
     }
 
     var runCount: Int { lock.withLock { _runCount } }
@@ -314,8 +340,11 @@ private final class SpyProcessRunner: RemoteSessionProcessRunning, @unchecked Se
         _ request: RemoteProcessRequest,
         operation: (any RemoteTransferCancelling)?
     ) throws -> RemoteCommandResult {
-        lock.withLock { _runCount += 1 }
-        return result
+        lock.withLock {
+            let result = results[min(_runCount, results.count - 1)]
+            _runCount += 1
+            return result
+        }
     }
 }
 
@@ -331,10 +360,12 @@ private struct NoopRemoteSessionHost: RemoteSessionHosting {
 private final class RecordingRemoteSessionHost: RemoteSessionHosting, @unchecked Sendable {
     private let lock = NSLock()
     private var _connectionStates: [(state: WorkspaceRemoteConnectionState, detail: String?)] = []
+    private var _detectedPorts: [Int] = []
 
     var connectionStates: [(state: WorkspaceRemoteConnectionState, detail: String?)] {
         lock.withLock { _connectionStates }
     }
+    var detectedPorts: [Int] { lock.withLock { _detectedPorts } }
 
     func publishConnectionState(_ state: WorkspaceRemoteConnectionState, detail: String?) {
         lock.withLock {
@@ -344,7 +375,9 @@ private final class RecordingRemoteSessionHost: RemoteSessionHosting, @unchecked
 
     func publishDaemonStatus(_ status: WorkspaceRemoteDaemonStatus) {}
     func publishProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {}
-    func publishPortsSnapshot(detectedByPanel: [UUID: [Int]], detected: [Int]) {}
+    func publishPortsSnapshot(detectedByPanel: [UUID: [Int]], detected: [Int]) {
+        lock.withLock { _detectedPorts = detected }
+    }
     func publishHeartbeat(count: Int, lastSeenAt: Date?) {}
     func publishBootstrapRemoteTTY(_ ttyName: String) {}
 }
