@@ -161,6 +161,39 @@ import Testing
 }
 
 @MainActor
+@Test func cancelledAggregateCompletionCannotEraseReplacementRefresh() async throws {
+    let router = RoutingHostRouter()
+    let store = MobileShellComposite(
+        connectionState: .connected,
+        workspaces: MobileShellComposite.preview().workspaces
+    )
+    try installFreshRemoteClient(on: store, router: router)
+    await router.workspaceListGate.setHoldFirst(true)
+    await router.workspaceListGate.setHoldSecond(true)
+
+    let cancelledRefresh = Task { await store.refreshWorkspaces() }
+    await router.workspaceListGate.waitUntilFirstReached()
+    store.remoteClient = nil
+    try installFreshRemoteClient(on: store, router: router)
+
+    let replacementRefresh = Task { await store.refreshWorkspaces() }
+    await router.workspaceListGate.waitUntilSecondReached()
+    await router.workspaceListGate.releaseFirst()
+    await cancelledRefresh.value
+
+    #expect(store.aggregateWorkspaceRefreshTask != nil)
+    let joiningRefresh = Task { await store.refreshWorkspaces() }
+    await Task.yield()
+
+    await router.workspaceListGate.releaseSecond()
+    await replacementRefresh.value
+    await joiningRefresh.value
+    #expect(store.aggregateWorkspaceRefreshStartCountForTesting == 2)
+    #expect(await router.workspaceListGate.requestCount() == 2)
+    #expect(store.aggregateWorkspaceRefreshTask == nil)
+}
+
+@MainActor
 @Test func foregroundMutationRefreshRejectsOlderEventResponse() async throws {
     let router = RoutingHostRouter()
     let store = MobileShellComposite(

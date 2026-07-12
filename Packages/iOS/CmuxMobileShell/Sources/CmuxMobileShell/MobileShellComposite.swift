@@ -736,7 +736,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
     var pullToRefreshTask: Task<Bool, Never>?
     var pullToRefreshTaskID: UUID?
-    private var aggregateWorkspaceRefreshTask: Task<Void, Never>?
+    var aggregateWorkspaceRefreshTask: Task<Void, Never>?
+    #if DEBUG
+    var aggregateWorkspaceRefreshStartCountForTesting = 0
+    #endif
     var createWorkspaceTaskID: UUID?
     var connectionGeneration: UUID
     private var connectionAttemptGeneration: UUID
@@ -7341,6 +7344,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await inFlight.value
             return
         }
+        #if DEBUG
+        aggregateWorkspaceRefreshStartCountForTesting += 1
+        #endif
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.aggregateWorkspaceRefreshTask = nil }
