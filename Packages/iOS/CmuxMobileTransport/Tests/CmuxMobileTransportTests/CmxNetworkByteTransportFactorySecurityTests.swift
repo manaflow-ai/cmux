@@ -92,7 +92,7 @@ private actor RejectingTailscaleAuthority: CmxTailscaleRouteAuthorizing {
         }
     }
 
-    @Test func preparesInjectedTailscaleAuthorityAtConnectBoundary() async throws {
+    @Test func rejectsTailscaleBearerWhenOnlyPacketTunnelHeuristicsAreAvailable() async throws {
         let route = try CmxAttachRoute(
             id: "tailscale",
             kind: .tailscale,
@@ -108,12 +108,9 @@ private actor RejectingTailscaleAuthority: CmxTailscaleRouteAuthorizing {
             tailscaleRouteAuthority: authority
         )
 
-        let transport = try factory.makeTransport(for: request)
-        #expect(await authority.preparationCount == 0)
-
-        await #expect(throws: CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable) {
-            try await transport.connect()
+        #expect(throws: CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable) {
+            _ = try factory.makeTransport(for: request)
         }
-        #expect(await authority.preparationCount == 1)
+        #expect(await authority.preparationCount == 0)
     }
 }

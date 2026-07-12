@@ -88,10 +88,13 @@ import Testing
         #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.0.0.1") == .debugLoopback)
         #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.attacker.example") == .tailscale)
 
-        // Encrypted / loopback channels may carry the Stack bearer token.
+        // Loopback never leaves the device and may carry the Stack bearer token.
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(loopback))
-        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIP))
-        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIPv6))
+
+        // A numeric Tailscale address and an anonymous utun path do not prove
+        // which VPN owns that path or which peer accepted plaintext TCP.
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIP))
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIPv6))
 
         // Iroh's session context authenticates RPC out of band. The Stack
         // bearer token must never be sent to the peer or any path hint.

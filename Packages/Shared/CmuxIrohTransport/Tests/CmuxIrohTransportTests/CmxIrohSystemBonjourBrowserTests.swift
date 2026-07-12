@@ -77,6 +77,35 @@ struct CmxIrohSystemBonjourBrowserTests {
     }
 
     @Test
+    func queuedServiceStartsWhenActiveResolveCompletes() async throws {
+        let dnsService = TestBonjourDNSService()
+        let clock = TestBonjourClock(now: Date(timeIntervalSince1970: 1_800_000_000))
+        let browser = CmxIrohSystemBonjourBrowser(
+            dnsService: dnsService,
+            clock: clock,
+            maximumPendingResolves: 1,
+            resolveTimeout: 5
+        )
+        let stream = await browser.events()
+        let observationTask = Task {
+            for await _ in stream {}
+        }
+        let aliases = canonicalAliases(count: 2)
+
+        await dnsService.emitAdded(serviceName: aliases[0])
+        await dnsService.emitAdded(serviceName: aliases[1])
+        #expect(dnsService.snapshot().resolveStarts == [aliases[0]])
+
+        await dnsService.emitResolved(serviceName: aliases[0])
+
+        #expect(dnsService.snapshot().resolveStarts == aliases)
+        #expect(dnsService.snapshot().maximumActiveResolveCount == 1)
+
+        await browser.stop()
+        await observationTask.value
+    }
+
+    @Test
     func canonicalServiceStillResolvesAfterGarbageBrowseEvents() async throws {
         let dnsService = TestBonjourDNSService()
         let clock = TestBonjourClock(now: Date(timeIntervalSince1970: 1_800_000_000))
