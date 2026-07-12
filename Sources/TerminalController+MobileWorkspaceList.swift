@@ -209,7 +209,7 @@ extension TerminalController {
             ]
         }
         let paneIDByTerminalID: [UUID: String] = Dictionary(
-            uniqueKeysWithValues: workspace.bonsplitController.allPaneIds.flatMap { paneID in
+            workspace.bonsplitController.allPaneIds.flatMap { paneID in
                 workspace.bonsplitController.tabs(inPane: paneID).compactMap { tab -> (UUID, String)? in
                     guard let panelID = workspace.panelIdFromSurfaceId(tab.id),
                           workspace.terminalPanel(for: panelID) != nil else {
@@ -217,7 +217,8 @@ extension TerminalController {
                     }
                     return (panelID, paneID.id.uuidString)
                 }
-            }
+            },
+            uniquingKeysWith: { first, _ in first }
         )
         let terminals = mobileTerminalPanels(in: workspace).compactMap { terminal -> [String: Any]? in
             if let requestedTerminalID, terminal.id != requestedTerminalID {
