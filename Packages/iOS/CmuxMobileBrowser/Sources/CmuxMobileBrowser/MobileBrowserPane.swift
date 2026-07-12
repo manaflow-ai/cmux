@@ -136,13 +136,10 @@ public struct MobileBrowserPane: View {
 
     @ViewBuilder
     private var securityIndicator: some View {
-        // A provisional destination can already differ from `currentURL` while
-        // WebKit is loading. Hide committed-page security chrome until the new
-        // page finishes so an HTTPS lock can never label an HTTP destination.
-        let indicatorURL = state.isLoading || state.lastErrorMessage != nil
-            ? nil
-            : state.currentURL
-        switch BrowserSecurityIndicator(url: indicatorURL) {
+        // Only a URL received from WebKit's commit/finish delegate callbacks can
+        // drive security chrome. Initial, provisional, restored, and failed
+        // destinations remain unclassified.
+        switch BrowserSecurityIndicator(url: state.securityIndicatorURL) {
         case .secure:
             Image(systemName: "lock.fill")
                 .font(.caption)

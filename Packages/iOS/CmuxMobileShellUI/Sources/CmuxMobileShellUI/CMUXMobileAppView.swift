@@ -87,7 +87,7 @@ public struct CMUXMobileAppView: View {
     }
 
     private var browserWorkspaceIdentities: [BrowserWorkspaceIdentity] {
-        store.workspaces.map(\.browserSurfaceIdentity)
+        WorkspaceBrowserReconciliation(workspaces: store.workspaces).identities
     }
 
     private var browserPersistenceScope: BrowserPersistenceScope? {
@@ -107,8 +107,7 @@ public struct CMUXMobileAppView: View {
         // Before that point an empty list is transitional and must not erase
         // restorable browser sessions from the prior launch.
         guard store.connectionState == .connected,
-              store.browserWorkspaceListIsAuthoritative,
-              store.workspaces.allSatisfy(\.hasStableBrowserSurfaceIdentity) else { return }
+              store.browserWorkspaceListIsAuthoritative else { return }
         browserStore.reconcileWorkspaces(browserWorkspaceIdentities)
     }
 }

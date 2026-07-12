@@ -11,9 +11,4 @@ extension MobileWorkspacePreview {
         let scopedID = "\(macDeviceID.utf8.count):\(macDeviceID):\(remoteID)"
         return BrowserWorkspaceIdentity(rawValue: scopedID, aliases: [remoteID])
     }
-
-    /// Reconciliation is safe only after the owning Mac identity is known.
-    var hasStableBrowserSurfaceIdentity: Bool {
-        macDeviceID?.isEmpty == false
-    }
 }

@@ -24,6 +24,7 @@ struct WorkspaceShellView: View {
     @Environment(MobileDisplaySettings.self) var displaySettings
     @Environment(BrowserSurfaceStore.self) var browserStore
     @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
+    @State private var compactLocalBrowserWorkspaceID: MobileWorkspacePreview.ID?
     @State var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
@@ -140,6 +141,9 @@ struct WorkspaceShellView: View {
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(
                     for: workspaceID,
+                    openMode: compactLocalBrowserWorkspaceID == workspaceID
+                        ? .localBrowser
+                        : .remoteWorkspace,
                     createWorkspace: createWorkspaceInCompactStack,
                     canCreateWorkspaceInContext: canCreateWorkspace,
                     backButtonConfiguration: WorkspaceBackButtonConfiguration(
@@ -201,6 +205,7 @@ struct WorkspaceShellView: View {
         }
         .onChange(of: compactNavigationPath) { _, path in
             guard let selectedWorkspaceID = path.last else {
+                compactLocalBrowserWorkspaceID = nil
                 return
             }
             pendingCompactCreateNavigationWorkspaceIDs = nil
@@ -289,6 +294,7 @@ struct WorkspaceShellView: View {
         guard store.deeplinkWorkspaceNavigationRequest != nil else { return }
         guard let workspaceID = store.consumeDeeplinkWorkspaceNavigationRequest() else { return }
         guard usesCompactStack else { return }
+        compactLocalBrowserWorkspaceID = nil
         if compactNavigationPath.last != workspaceID {
             compactNavigationPath = [workspaceID]
         }
@@ -296,6 +302,7 @@ struct WorkspaceShellView: View {
 
     private func selectWorkspace(_ id: MobileWorkspacePreview.ID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
+        compactLocalBrowserWorkspaceID = nil
         store.selectedWorkspaceID = id
         if usesCompactStack, compactNavigationPath.last != id {
             compactNavigationPath = [id]
@@ -315,6 +322,7 @@ struct WorkspaceShellView: View {
 
     private func openTerminalFromSurfaceGrid(_ workspaceID: MobileWorkspacePreview.ID, terminalID: MobileTerminalPreview.ID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
+        compactLocalBrowserWorkspaceID = nil
         if let workspace = store.workspaces.first(where: { $0.id == workspaceID }) {
             WorkspaceTerminalSurfaceSelection(
                 store: store,
@@ -330,6 +338,7 @@ struct WorkspaceShellView: View {
 
     private func openBrowserFromSurfaceGrid(_ workspaceID: MobileWorkspacePreview.ID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
+        compactLocalBrowserWorkspaceID = workspaceID
         store.selectedWorkspaceID = workspaceID
         guard let workspace = store.workspaces.first(where: { $0.id == workspaceID }) else { return }
         browserStore.openBrowser(for: workspace.browserSurfaceIdentity)
@@ -450,11 +459,13 @@ struct WorkspaceShellView: View {
     private func popCompactStack() {
         guard !compactNavigationPath.isEmpty else { return }
         compactNavigationPath.removeLast()
+        compactLocalBrowserWorkspaceID = nil
     }
 
     @ViewBuilder
     private func workspaceDestination(
         for workspaceID: MobileWorkspacePreview.ID?,
+        openMode: WorkspaceDetailOpenMode = .remoteWorkspace,
         createWorkspace: @escaping () -> Void,
         canCreateWorkspaceInContext: Bool,
         safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth,
@@ -463,6 +474,7 @@ struct WorkspaceShellView: View {
         WorkspaceDetailContainer(
             store: store,
             workspaceID: workspaceID,
+            openMode: openMode,
             createWorkspace: createWorkspace,
             canCreateWorkspace: canCreateWorkspaceInContext,
             renameWorkspace: renameWorkspaceClosure,

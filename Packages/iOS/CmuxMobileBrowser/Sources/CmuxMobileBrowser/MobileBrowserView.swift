@@ -274,6 +274,12 @@ public struct MobileBrowserView: UIViewRepresentable {
             state.navigationDidStart()
         }
 
+        /// Records the destination only after WebKit explicitly commits it.
+        public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+            guard acceptsCallbacks(from: webView) else { return }
+            state.navigationDidCommit(url: webView.url)
+        }
+
         /// Commits the final URL, title, and interaction state after a successful navigation.
         public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             guard acceptsCallbacks(from: webView) else { return }

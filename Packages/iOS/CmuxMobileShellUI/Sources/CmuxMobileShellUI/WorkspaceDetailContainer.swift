@@ -12,6 +12,7 @@ import AppKit
 struct WorkspaceDetailContainer: View {
     @Bindable var store: CMUXMobileShellStore
     let workspaceID: MobileWorkspacePreview.ID?
+    let openMode: WorkspaceDetailOpenMode
     let createWorkspace: () -> Void
     let canCreateWorkspace: Bool
     let renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
@@ -64,7 +65,11 @@ struct WorkspaceDetailContainer: View {
                 .onChange(of: workspace) { _, workspace in
                     rememberRouteWorkspace(workspace)
                 }
-                .task(id: workspace.id) {
+                .task(id: WorkspaceDetailOpenTaskID(
+                    workspaceID: workspace.id,
+                    openMode: openMode
+                )) {
+                    guard openMode.opensRemoteWorkspace else { return }
                     await store.openWorkspace(workspace.id)
                 }
             } else {

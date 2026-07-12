@@ -3,10 +3,19 @@ import CmuxMobileShellModel
 import Testing
 @testable import CmuxMobileShellUI
 
+@MainActor
 @Suite struct WorkspaceBrowserRoutingTests {
     @Test func localBrowserDestinationDoesNotOpenRemoteWorkspace() {
         #expect(WorkspaceDetailOpenMode.localBrowser.opensRemoteWorkspace == false)
         #expect(WorkspaceDetailOpenMode.remoteWorkspace.opensRemoteWorkspace)
+        #expect(
+            WorkspaceDetailOpenTaskID(workspaceID: "workspace-a", openMode: .remoteWorkspace)
+                != WorkspaceDetailOpenTaskID(workspaceID: "workspace-b", openMode: .remoteWorkspace)
+        )
+        #expect(
+            WorkspaceDetailOpenTaskID(workspaceID: "workspace-a", openMode: .localBrowser)
+                != WorkspaceDetailOpenTaskID(workspaceID: "workspace-a", openMode: .remoteWorkspace)
+        )
     }
 
     @Test func mixedIdentityReconciliationIncludesEveryVisibleWorkspace() {
@@ -17,6 +26,12 @@ import Testing
 
         let reconciliation = WorkspaceBrowserReconciliation(workspaces: workspaces)
 
+        let browserStore = BrowserSurfaceStore(defaultURL: nil)
+        let anonymousBrowser = browserStore.openBrowser(for: reconciliation.identities[0])
+        let secondaryBrowser = browserStore.openBrowser(for: reconciliation.identities[1])
+        _ = browserStore.openBrowser(for: "stale")
+        browserStore.reconcileWorkspaces(reconciliation.identities)
+
         #expect(reconciliation.identities == [
             BrowserWorkspaceIdentity(rawValue: "anonymous"),
             BrowserWorkspaceIdentity(
@@ -24,6 +39,9 @@ import Testing
                 aliases: ["secondary"]
             ),
         ])
+        #expect(browserStore.browser(for: reconciliation.identities[0]) === anonymousBrowser)
+        #expect(browserStore.browser(for: reconciliation.identities[1]) === secondaryBrowser)
+        #expect(browserStore.browser(for: "stale") == nil)
     }
 
     private func workspace(

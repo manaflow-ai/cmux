@@ -61,6 +61,13 @@ public final class BrowserSurfaceState: Identifiable {
     /// The page's current committed URL, or `nil` before the first navigation.
     public var currentURL: URL?
 
+    /// The URL WebKit explicitly committed for the security indicator.
+    ///
+    /// This is intentionally separate from ``currentURL``. Restored and pending
+    /// destinations may seed `currentURL` before the new `WKWebView` commits
+    /// them, and must never receive secure or insecure chrome prematurely.
+    private(set) var securityIndicatorURL: URL?
+
     /// The most recent WebKit interaction state for this surface.
     ///
     /// `WKWebView` instances are view-lifecycle objects and can be torn down
@@ -146,6 +153,7 @@ public final class BrowserSurfaceState: Identifiable {
         self.isAddressEditing = false
         self.title = nil
         self.currentURL = initialURL
+        self.securityIndicatorURL = nil
         self.savedInteractionState = nil
         self.contentModePreference = .recommended
         self.recommendedContentModeIsDesktop = false
@@ -167,6 +175,7 @@ public final class BrowserSurfaceState: Identifiable {
     public func load(_ url: URL) {
         loadRequest = url
         addressText = url.absoluteString
+        securityIndicatorURL = nil
         isLoading = true
         estimatedProgress = 0
         lastErrorMessage = nil
@@ -260,9 +269,18 @@ public final class BrowserSurfaceState: Identifiable {
     public func navigationDidStart() {
         isLoading = true
         estimatedProgress = 0
+        securityIndicatorURL = nil
         lastErrorMessage = nil
         lastFailedURL = nil
         lastFailureWasProvisional = false
+    }
+
+    /// Record the URL from WebKit's explicit navigation-commit callback.
+    ///
+    /// - Parameter url: The committed WebKit URL, or `nil` when WebKit did not
+    ///   expose one for the commit.
+    func navigationDidCommit(url: URL?) {
+        securityIndicatorURL = url
     }
 
     /// Commit a URL change that WebKit reports without a full navigation
@@ -301,6 +319,7 @@ public final class BrowserSurfaceState: Identifiable {
     public func navigationDidFinish(url: URL? = nil, title: String? = nil) {
         isLoading = false
         estimatedProgress = 1
+        securityIndicatorURL = url
         if let url {
             currentURL = url
             if !isAddressEditing {
@@ -327,6 +346,7 @@ public final class BrowserSurfaceState: Identifiable {
     ) {
         isLoading = false
         estimatedProgress = 0
+        securityIndicatorURL = nil
         lastErrorMessage = message
         lastFailedURL = url
         lastFailureWasProvisional = wasProvisional
@@ -336,6 +356,7 @@ public final class BrowserSurfaceState: Identifiable {
     public func navigationDidCancel() {
         isLoading = false
         estimatedProgress = 0
+        securityIndicatorURL = nil
         if let currentURL, !isAddressEditing {
             addressText = currentURL.absoluteString
         }

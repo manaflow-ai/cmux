@@ -285,13 +285,15 @@ public final class BrowserSurfaceStore {
     ///
     /// - Parameter workspaces: The complete authoritative stable workspace identity set.
     public func reconcileWorkspaces(_ workspaces: [BrowserWorkspaceIdentity]) {
+        let canonicalWorkspaceIDs = Set(workspaces.map(\.rawValue))
         let aliasClaimCounts = workspaces.reduce(into: [String: Int]()) { counts, workspace in
             for alias in workspace.aliases {
                 counts[alias, default: 0] += 1
             }
         }
         var didChange = false
-        for (alias, count) in aliasClaimCounts where count > 1 {
+        for (alias, count) in aliasClaimCounts
+        where count > 1 && !canonicalWorkspaceIDs.contains(alias) {
             if surfacesByWorkspace.removeValue(forKey: alias) != nil {
                 selectedBrowserWorkspaceIDs.remove(alias)
                 snapshotSourcesByWorkspace.removeValue(forKey: alias)
@@ -303,7 +305,9 @@ public final class BrowserSurfaceStore {
         for workspace in workspaces.sorted(by: { $0.rawValue < $1.rawValue }) {
             if surfacesByWorkspace[workspace.rawValue] == nil,
                let alias = workspace.aliases.sorted().first(where: {
-                   aliasClaimCounts[$0] == 1 && surfacesByWorkspace[$0] != nil
+                   aliasClaimCounts[$0] == 1
+                       && !canonicalWorkspaceIDs.contains($0)
+                       && surfacesByWorkspace[$0] != nil
                }) {
                 migrateBrowserIfNeeded(from: alias, to: workspace.rawValue)
                 didChange = true
