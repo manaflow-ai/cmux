@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxWorkspaces
 import Foundation
 
 @MainActor
@@ -90,6 +91,31 @@ extension Workspace {
         // Never alias it to the mutable active pane: callers may cache handles,
         // and a later focus publication would silently retarget that handle.
         return .unresolvedMirror
+    }
+
+    /// Intercepts focus requests the remote tmux layer owns. Focus activation
+    /// is dropped while mirror mutations suppress it, and a mirror-projected
+    /// pane surface — which is not a Bonsplit tab, so the ordinary focus path
+    /// cannot resolve it — routes through the pane's sole mutation owner
+    /// (select-pane on the remote) before focusing the mirror's container
+    /// panel, mirroring `focusRemoteTmuxControlPane`. Returns true when the
+    /// request was consumed.
+    func remoteTmuxMirrorInterceptsFocusPanel(
+        _ panelId: UUID,
+        previousHostedView: GhosttySurfaceScrollView?,
+        trigger: FocusPanelTrigger,
+        focusIntent: PanelFocusIntent?
+    ) -> Bool {
+        if remoteTmuxMirrorMutations.suppressesFocusActivation { return true }
+        guard let location = remoteTmuxControlPane(surfaceID: panelId) else { return false }
+        _ = location.controlFocus()
+        focusPanel(
+            location.containerPanelID,
+            previousHostedView: previousHostedView,
+            trigger: trigger,
+            focusIntent: focusIntent
+        )
+        return true
     }
 
     /// Canonicalizes an explicit control-plane terminal target. Hidden mirror
