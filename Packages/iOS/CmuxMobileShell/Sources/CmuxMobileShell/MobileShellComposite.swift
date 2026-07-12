@@ -4058,7 +4058,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Pin selection to the target so the async create + the resulting
             // terminal selection stay on the workspace the caller intended.
             if let targetWorkspaceID { selectedWorkspaceID = targetWorkspaceID }
-            terminalCreationRequestOwner.start(
+            terminalCreationRequestOwner.startIfIdle(
                 claim: mutationClaim,
                 gate: terminalReorderGate
             ) { @MainActor [weak self] in

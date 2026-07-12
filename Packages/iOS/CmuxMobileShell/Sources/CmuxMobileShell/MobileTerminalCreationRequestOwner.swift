@@ -14,12 +14,18 @@ final class MobileTerminalCreationRequestOwner {
 
     var isActive: Bool { taskID != nil }
 
-    func start(
+    @discardableResult
+    func startIfIdle(
         claim: MobileTerminalCreationMutationClaim,
         gate: MobileTerminalReorderGate,
         operation: @escaping @MainActor () async -> Void
-    ) {
-        precondition(taskID == nil)
+    ) -> Bool {
+        guard taskID == nil else {
+            if case let .reserved(reservation) = claim {
+                gate.finish(reservation)
+            }
+            return false
+        }
         let id = UUID()
         taskID = id
         self.claim = claim
@@ -27,6 +33,7 @@ final class MobileTerminalCreationRequestOwner {
             defer { self?.finish(id: id, gate: gate) }
             await operation()
         }
+        return true
     }
 
     func cancel(gate: MobileTerminalReorderGate) {
