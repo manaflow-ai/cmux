@@ -509,7 +509,7 @@ pub struct Sidebar {
 
 impl Default for Sidebar {
     fn default() -> Self {
-        Sidebar { view: SidebarView::Files, width: 22, max_width: 0, plugin: None }
+        Sidebar { view: SidebarView::Workspaces, width: 22, max_width: 0, plugin: None }
     }
 }
 
@@ -1683,7 +1683,7 @@ mod tests {
 
     #[test]
     fn sidebar_view_defaults_parses_and_unknown_values_fall_back_with_warning() {
-        assert_eq!(Sidebar::default().view, SidebarView::Files);
+        assert_eq!(Sidebar::default().view, SidebarView::Workspaces);
         assert_eq!(parse_sidebar_view("files"), Ok(SidebarView::Files));
         assert_eq!(parse_sidebar_view("workspaces"), Ok(SidebarView::Workspaces));
 
@@ -1693,7 +1693,7 @@ mod tests {
         if let Ok(view) = parse_sidebar_view("tree") {
             sidebar.view = view;
         }
-        assert_eq!(sidebar.view, SidebarView::Files);
+        assert_eq!(sidebar.view, SidebarView::Workspaces);
     }
 
     #[test]
