@@ -24,6 +24,12 @@ if [ -f "$LOCK" ] && kill -0 "$(cat "$LOCK" 2>/dev/null)" 2>/dev/null; then
   exit 96
 fi
 echo $$ > "$LOCK"
+# Hold the lock for the whole run: the trap releases it on ANY exit
+# (including SIGTERM), so nobody ever needs to delete it by hand — and
+# deleting it by hand is exactly how two drivers once ran concurrently.
+trap 'rm -f "$LOCK"' EXIT
+# Children (live-fuzz) inherit this token instead of re-taking the lock.
+export CMUX_FUZZ_LOCK_HELD=1
 
 DIR="/tmp/cmux-fuzz-marathon/$(date +%Y%m%d-%H%M%S)"
 HERE="$(cd "$(dirname "$0")" && pwd)"

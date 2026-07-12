@@ -84,11 +84,16 @@ final class CmuxMainWindow: NSWindow {
     /// pass). The user sizes this window; layout does not.
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
         var frame = frameRect
+        // The bound is the LARGEST attached display, not the current one:
+        // a restore can legitimately target a bigger screen than the window
+        // currently sits on, and AppKit moves the window after sizing it.
+        let widths = NSScreen.screens.map(\.frame.width)
+        let heights = NSScreen.screens.map(\.frame.height)
         if !styleMask.contains(.fullScreen),
-           let limit = (screen ?? NSScreen.main)?.frame,
-           limit.width > 1, limit.height > 1 {
-            frame.size.width = min(frame.size.width, limit.width)
-            frame.size.height = min(frame.size.height, limit.height)
+           let maxW = widths.max(), let maxH = heights.max(),
+           maxW > 1, maxH > 1 {
+            frame.size.width = min(frame.size.width, maxW)
+            frame.size.height = min(frame.size.height, maxH)
         }
         super.setFrame(frame, display: flag)
     }

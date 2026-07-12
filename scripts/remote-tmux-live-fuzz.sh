@@ -36,6 +36,27 @@ SESSION=fuzz
 state=$SEED
 rand() { state=$(( (state * 1103515245 + 12345) % 2147483648 )); R=$(( state % $1 )); }
 
+# One fuzz driver at a time, marathon or standalone: both churn the same
+# app and the same lab tmux server, and a second driver's per-seed
+# kill-server yanks layouts out from under the first, manufacturing
+# failures no code produced. The marathon holds the lock for its whole
+# run and passes CMUX_FUZZ_LOCK_HELD to its children.
+FUZZ_LOCK=/tmp/cmux-fuzz-marathon.pid
+if [ "${CMUX_FUZZ_LOCK_HELD:-0}" != 1 ] && [ "${CMUX_FUZZ_DRY:-0}" != 1 ]; then
+  HOLDER="$(cat "$FUZZ_LOCK" 2>/dev/null)"
+  # A live holder that is not our own parent is a competing driver. The
+  # parent check keeps marathon children legitimate even when the token
+  # env var is absent (a marathon started before the token existed).
+  if [ -n "$HOLDER" ] && [ "$HOLDER" != "$PPID" ] && kill -0 "$HOLDER" 2>/dev/null; then
+    echo "another fuzz driver (pid $HOLDER) is running — refusing to start"
+    exit 96
+  fi
+  if [ "$HOLDER" != "$PPID" ] || ! kill -0 "$HOLDER" 2>/dev/null; then
+    echo $$ > "$FUZZ_LOCK"
+    trap 'rm -f "$FUZZ_LOCK"' EXIT
+  fi
+fi
+
 t() { TMUX_TMPDIR="$TMPDIR_REMOTE" tmux "$@"; }
 fail=0
 note_fail() { echo "FUZZ FAIL seed=$SEED iter=$1: $2"; fail=$((fail + 1)); }
@@ -148,9 +169,9 @@ check_iter() {
   done
   if [ "$tries" -ge 10 ]; then
     note_fail "$iter" "windows never settled after 20s: $(printf '%s' "$settled_json" | tr -d '\n' | cut -c1-300)"
-  elif printf '%s' "$settled_json" | grep -qE 'rendered=|misplaced'; then
+  elif printf '%s' "$settled_json" | grep -qE 'rendered=|misplaced|surplus'; then
     note_fail "$iter" "settled with pane mismatches:"
-    printf '%s' "$settled_json" | grep -oE '"(%[0-9]* rendered=|misplaced )[^"]*"' | head -4 | sed 's/^/  /'
+    printf '%s' "$settled_json" | grep -oE '"(%[0-9]* (rendered=|surplus )|misplaced )[^"]*"' | head -4 | sed 's/^/  /'
   fi
   # Oracle 2: every ruler redrew to its actual pane size on the tmux side
   # (a stale ruler would make on-screen text look mangled without any

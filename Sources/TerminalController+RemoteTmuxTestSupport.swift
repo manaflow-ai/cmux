@@ -188,6 +188,12 @@ extension TerminalController {
                                 )
                                 continue
                             }
+                            if rendered.cols > node.width + 1 || rendered.rows > node.height + 1 {
+                                mismatches.append(
+                                    "%\(leaf) surplus rendered=\(rendered.cols)x\(rendered.rows)"
+                                        + " assigned=\(node.width)x\(node.height)"
+                                )
+                            }
                             if rendered.cols < node.width || rendered.rows < node.height {
                                 var detail = "%\(leaf) rendered=\(rendered.cols)x\(rendered.rows)"
                                     + " assigned=\(node.width)x\(node.height)"

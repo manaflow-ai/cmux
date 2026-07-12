@@ -337,6 +337,14 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         // its attach-time size so the initial claim can keep tmux off its
         // 80×24 default.
         guard isVisibleForSizing || containerSizePt == nil else { return }
+        // A first measurement is only worth recording if it is usable: a
+        // hidden mount can report 0x0 or 1x1 first, and recording that
+        // would consume the one unvalidated slot the initial claim needs —
+        // blocking every later measurement while the window sits unclaimed.
+        if containerSizePt == nil, !isVisibleForSizing,
+           pointSize.width <= 1 || pointSize.height <= 1 {
+            return
+        }
         // Nothing displayable exceeds an attached display, so no honest
         // container does either. SwiftUI can hand this callback a
         // content-derived size when some ancestor adopts a layout ideal —
@@ -400,7 +408,14 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// check. When a completed pass's inputs equal the current inputs, the
     /// mirror is settled and a pass would be a no-op.
     struct SizingInputs: Equatable {
-        var layout: RemoteTmuxLayoutNode
+        /// Base and visible trees are fingerprinted SEPARATELY: the claim
+        /// reads the BASE tree (its residual depends on the full tree even
+        /// while zoomed), and the plan reads the visible one. Fingerprinting
+        /// only their merge let a base-tree change hide behind an unchanged
+        /// visible tree — the pass skipped, the claim went stale, and tmux
+        /// kept an old size through a whole settle window.
+        var baseLayout: RemoteTmuxLayoutNode
+        var visibleLayout: RemoteTmuxLayoutNode?
         var container: CGSize?
         var scale: CGFloat?
         var geometry: RemoteTmuxMirrorGeometry?
@@ -413,7 +428,8 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
 
     private func currentSizingInputs() -> SizingInputs {
         SizingInputs(
-            layout: renderedLayout,
+            baseLayout: layout,
+            visibleLayout: visibleLayout,
             container: containerSizePt,
             scale: containerScale,
             geometry: geometrySnapshot,
