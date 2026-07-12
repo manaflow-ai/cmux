@@ -24629,12 +24629,23 @@ struct CMUXCLI {
                     workspaceId = consumedSession.workspaceId
                     cleanupSurfaceId = consumedSession.surfaceId
                 }
+                // Clear the resume binding on the LIVE pane, and on the
+                // record's surface when it differs (misfiled binding); the
+                // checkpoint guards make the extra clear a safe no-op.
                 clearAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
-                    surfaceId: consumedSession.surfaceId,
+                    surfaceId: cleanupSurfaceId,
                     sessionId: consumedSession.sessionId
                 )
+                if cleanupSurfaceId != consumedSession.surfaceId {
+                    clearAgentSurfaceResumeBinding(
+                        client: client,
+                        workspaceId: consumedSession.workspaceId,
+                        surfaceId: consumedSession.surfaceId,
+                        sessionId: consumedSession.sessionId
+                    )
+                }
                 sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: cleanupSurfaceId)
                 let shouldClearVisibleState = shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
@@ -24659,7 +24670,13 @@ struct CMUXCLI {
                         workspaceId: consumedSession.workspaceId,
                         surfaceId: consumedSession.surfaceId
                     )
-                    _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+                    // A re-homed cleanup scopes the clear to the pane: wiping
+                    // the whole DESTINATION workspace would erase sibling
+                    // panes' notifications. Non-moved keeps workspace-wide.
+                    let clearScope = workspaceId == consumedSession.workspaceId
+                        ? ""
+                        : socketPanelOption(cleanupSurfaceId)
+                    _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(clearScope)", client: client)
                 } else {
                     telemetry.breadcrumb("claude-hook.session-end.stale")
                 }
@@ -24751,9 +24768,14 @@ struct CMUXCLI {
                 } else {
                     needsInputBody = describeExitPlanMode(parsedInput.object) ?? waitingBody
                 }
-                // Preserve a non-empty surfaceId from SessionStart; passing ""
-                // would overwrite it and cause notifications to target the wrong workspace.
-                let existingSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId
+                // An authoritative live resolution outranks the persisted
+                // session surface (stale after a pane move); re-preferring it
+                // would re-pollute the record and pin the blocking prompt on
+                // the wrong pane. A focused-guess resolution keeps the
+                // recorded surface ("" would overwrite it and misroute).
+                let existingSurfaceId = resolvedSurface.isAuthoritative
+                    ? surfaceId
+                    : (nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId)
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,

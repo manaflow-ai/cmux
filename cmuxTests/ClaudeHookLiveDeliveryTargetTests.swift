@@ -303,8 +303,12 @@ struct ClaudeHookLiveDeliveryTargetTests {
             "SessionEnd must clear agent pid/status on the pane's current workspace; saw \(commands)"
         )
         #expect(
-            commands.contains("clear_notifications --tab=\(newWorkspaceId)"),
-            "SessionEnd must clear notifications on the pane's current workspace; saw \(commands)"
+            commands.contains("clear_notifications --tab=\(newWorkspaceId) --panel=\(Self.liveSurfaceId)"),
+            "A re-homed SessionEnd clear must be scoped to the moved pane, not wipe sibling panes in the destination workspace; saw \(commands)"
+        )
+        #expect(
+            !commands.contains("clear_notifications --tab=\(newWorkspaceId)"),
+            "A re-homed SessionEnd must not clear the whole destination workspace; saw \(commands)"
         )
         #expect(
             !commands.contains { $0.hasPrefix("clear_notifications --tab=\(Self.liveWorkspaceId)") },
@@ -370,6 +374,64 @@ struct ClaudeHookLiveDeliveryTargetTests {
         let record = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
         #expect(record?["workspaceId"] as? String == newWorkspaceId, "Session record must re-home, not re-pollute")
         #expect(record?["surfaceId"] as? String == Self.liveSurfaceId)
+    }
+
+    /// The persisted session surface is stale/closed but the resolver
+    /// recovers an authoritative live target from the spawn-time env surface:
+    /// the blocking needs-input branch (AskUserQuestion) must use the
+    /// resolved surface for its upsert, lifecycle, and notification — not
+    /// re-prefer the stale record surface and pin the prompt on a dead pane.
+    @Test func preToolUseNeedsInputUsesAuthoritativeResolvedSurface() throws {
+        let context = try Harness.makeContext(name: "needs-input-live-surface")
+        defer { context.cleanup() }
+        let sessionId = "needs-input-live-surface-session"
+        let closedSurfaceId = "66666666-6666-6666-6666-666666666666"
+
+        try Harness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: sessionId,
+            workspaceId: Self.liveWorkspaceId,
+            surfaceId: closedSurfaceId,
+            cwd: context.root.path
+        )
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.fallbackSurfaceId]],
+            pidTarget: nil,
+            surfaceTargets: [Self.liveSurfaceId: Self.liveWorkspaceId]
+        )
+
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        environment["CMUX_CLAUDE_PID"] = "43217"
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","cwd":"\#(context.root.path)"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let commands = context.state.snapshot()
+        #expect(
+            commands.contains {
+                $0.hasPrefix("notify_target_async \(Self.liveWorkspaceId) \(Self.liveSurfaceId) ")
+            },
+            "Needs-input notification must target the authoritative resolved surface; saw \(commands)"
+        )
+        #expect(
+            !commands.contains { $0.contains(closedSurfaceId) },
+            "No mutation may target the stale/closed record surface; saw \(commands)"
+        )
+        let record = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        #expect(
+            record?["surfaceId"] as? String == Self.liveSurfaceId,
+            "Upsert must heal the record to the resolved surface, not re-pollute it"
+        )
     }
 
     /// Older app without `agent.resolve_delivery_target`: the legacy chain
