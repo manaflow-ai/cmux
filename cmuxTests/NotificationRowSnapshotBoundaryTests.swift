@@ -343,16 +343,20 @@ struct NotificationRowSnapshotBoundaryTests {
         surfaceView.scrollbar = notificationScrollbar(total: 400, offset: 356, len: 44)
         surfaceView.bindingActionResults = [false, false, false]
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
-        let position = TerminalNotificationScrollPosition(row: 0, totalRows: 400)
+        let position = TerminalNotificationScrollPosition(row: 100, totalRows: 400)
 
         #expect(!hostedView.restoreNotificationScrollPosition(position))
+        #expect(!hostedView.userScrolledAwayFromBottom)
+        #expect(!hostedView.allowExplicitScrollbarSync)
 
         let readyScrollbar = notificationScrollbar(total: 400, offset: 356, len: 44)
         for _ in 0 ..< 3 {
             postScrollbar(readyScrollbar, to: surfaceView)
         }
 
-        #expect(surfaceView.performedBindingActions == ["scroll_to_bottom", "scroll_to_bottom"])
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:256", "scroll_to_row:256"])
+        #expect(!hostedView.userScrolledAwayFromBottom)
+        #expect(!hostedView.allowExplicitScrollbarSync)
     }
 
     @Test(arguments: [Notification.Name.ghosttyDidReceiveWheelScroll, NSScrollView.didLiveScrollNotification])
@@ -390,6 +394,21 @@ struct NotificationRowSnapshotBoundaryTests {
             isARepeat: false, keyCode: 116
         ))
         hostedView.surfaceView.keyDown(with: event)
+        #expect(hostedView.pendingNotificationScrollPosition == nil)
+    }
+
+    @Test func menuPasteCancelsPendingNotificationRestore() {
+        let terminal = TerminalSurface(
+            tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil, workingDirectory: nil
+        )
+        defer { terminal.releaseSurfaceForTesting() }
+        let hostedView = terminal.hostedView
+        hostedView.pendingNotificationScrollPosition = .init(row: 0, totalRows: 400)
+        hostedView.pendingNotificationScrollRestoreAttemptsRemaining = 2
+
+        hostedView.surfaceView.paste(nil)
+
         #expect(hostedView.pendingNotificationScrollPosition == nil)
     }
 
