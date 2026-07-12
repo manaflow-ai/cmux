@@ -115,6 +115,20 @@ struct MobileDiffTests {
         }
     }
 
+    @Test func loaderRejectsPatchWhoseJSONExpansionExceedsFrameLimit() async throws {
+        let repository = try makeRepository(named: "json-expanded")
+        defer { try? FileManager.default.removeItem(at: repository) }
+        try Data(repeating: 92, count: 4_200_000)
+            .write(to: repository.appendingPathComponent("backslashes.txt"))
+
+        do {
+            _ = try await MobileWorkingTreeDiffLoader().load(directory: repository.path, title: "Fixture")
+            Issue.record("Expected JSON-expanded patch to fail")
+        } catch let error as MobileWorkingTreeDiffLoadError {
+            #expect(error.code == "too_large")
+        }
+    }
+
     @Test func loaderSkipsUntrackedFIFOs() async throws {
         let repository = try makeRepository(named: "fifo")
         defer { try? FileManager.default.removeItem(at: repository) }
