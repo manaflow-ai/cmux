@@ -1,6 +1,5 @@
 public import CmuxCore
 public import Dispatch
-internal import Darwin
 internal import Foundation
 
 /// Shares one daemon proxy tunnel per remote transport across all subscribers.
@@ -48,6 +47,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
     private var entries: [String: Entry] = [:]
     private var ptyLifecycleOwners: [RemotePTYLifecycleKey: (transportKey: String, attachmentKey: RemotePTYAttachmentKey)] = [:]
     internal private(set) var currentPTYLifecycleByAttachment: [RemotePTYAttachmentKey: RemotePTYLifecycleKey] = [:]
+    private var endedPTYLifecycles = RemotePTYEndedLifecycleRegistry()
     /// Creates a broker.
     ///
     /// - Parameters:
@@ -173,6 +173,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
                 throw Self.ptyTunnelNotReadyError()
             }
             let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+            endedPTYLifecycles.remove(lifecycleKey)
             if let owner = ptyLifecycleOwners.removeValue(forKey: lifecycleKey), currentPTYLifecycleByAttachment[owner.attachmentKey] == lifecycleKey {
                 currentPTYLifecycleByAttachment.removeValue(forKey: owner.attachmentKey)
             }
@@ -183,10 +184,14 @@ public final class RemoteProxyBroker: @unchecked Sendable {
     public func acknowledgePTYLifecycleAfterWrapperEnd(sessionID: String, lifecycleID: String) -> Bool {
         let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
         let ownership = queue.sync { () -> (transportKey: String, wasCurrent: Bool)? in
-            guard let owner = ptyLifecycleOwners.removeValue(forKey: lifecycleKey) else { return nil }
-            let wasCurrent = currentPTYLifecycleByAttachment[owner.attachmentKey] == lifecycleKey
-            if wasCurrent { currentPTYLifecycleByAttachment.removeValue(forKey: owner.attachmentKey) }
-            return (owner.transportKey, wasCurrent)
+            if let owner = ptyLifecycleOwners.removeValue(forKey: lifecycleKey) {
+                let wasCurrent = currentPTYLifecycleByAttachment[owner.attachmentKey] == lifecycleKey
+                if wasCurrent { currentPTYLifecycleByAttachment.removeValue(forKey: owner.attachmentKey) }
+                endedPTYLifecycles.remove(lifecycleKey)
+                return (owner.transportKey, wasCurrent)
+            }
+            guard let ended = endedPTYLifecycles.take(lifecycleKey) else { return nil }
+            return (ended.transportKey, currentPTYLifecycleByAttachment[ended.attachmentKey] == nil)
         }
         guard let ownership else { return false }
         queue.async { [weak self] in
@@ -270,9 +275,15 @@ public final class RemoteProxyBroker: @unchecked Sendable {
                     self.ptyLifecycleOwners.removeValue(forKey: lifecycleKey)
                     if self.currentPTYLifecycleByAttachment[attachmentKey] == lifecycleKey {
                         self.currentPTYLifecycleByAttachment.removeValue(forKey: attachmentKey)
+                        self.endedPTYLifecycles.record(
+                            lifecycleKey,
+                            transportKey: ownerKey,
+                            attachmentKey: attachmentKey
+                        )
                     }
                 }
             }
+            endedPTYLifecycles.remove(lifecycleKey)
             ptyLifecycleOwners[lifecycleKey] = (ownerKey, attachmentKey)
             currentPTYLifecycleByAttachment[attachmentKey] = lifecycleKey
             return endpoint
@@ -412,6 +423,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         entries.removeValue(forKey: key)
         ptyLifecycleOwners = ptyLifecycleOwners.filter { $0.value.transportKey != key }
         currentPTYLifecycleByAttachment = currentPTYLifecycleByAttachment.filter { $0.key.transportKey != key }
+        endedPTYLifecycles.removeAll(forTransportKey: key)
     }
 
     private func stopEntryRuntimeLocked(_ entry: Entry, preservePTYLifecycle: Bool) {
@@ -441,47 +453,6 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         NSError(domain: "cmux.remote.pty", code: 40, userInfo: [
             NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
         ])
-    }
-
-    /// Binds an ephemeral loopback TCP socket to discover a free port (pure
-    /// Darwin socket utility; no broker state).
-    private static func allocateLoopbackPort() -> Int? {
-        for _ in 0..<8 {
-            let fd = socket(AF_INET, SOCK_STREAM, 0)
-            guard fd >= 0 else { return nil }
-            defer { close(fd) }
-
-            var yes: Int32 = 1
-            setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
-
-            var addr = sockaddr_in()
-            addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-            addr.sin_family = sa_family_t(AF_INET)
-            addr.sin_port = in_port_t(0)
-            addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-
-            let bindResult = withUnsafePointer(to: &addr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    bind(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
-                }
-            }
-            guard bindResult == 0 else { continue }
-
-            var bound = sockaddr_in()
-            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
-            let nameResult = withUnsafeMutablePointer(to: &bound) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    getsockname(fd, sockaddrPtr, &len)
-                }
-            }
-            guard nameResult == 0 else { continue }
-
-            let port = Int(UInt16(bigEndian: bound.sin_port))
-            if port > 0 && port <= 65535 {
-                return port
-            }
-        }
-        return nil
     }
 
     private static func retrySuffix(delay: TimeInterval) -> String {

@@ -269,6 +269,22 @@ struct RemoteProxyBrokerPTYLifecycleRestartTests {
         #expect(broker.currentPTYLifecycleByAttachment.isEmpty)
     }
 
+    @Test("ended lifecycle reconciliation state stays bounded")
+    func endedLifecycleReconciliationStateStaysBounded() {
+        var registry = RemotePTYEndedLifecycleRegistry()
+        for index in 0..<(RemotePTYEndedLifecycleRegistry.capacity + 10) {
+            registry.record(
+                RemotePTYLifecycleKey(sessionID: "session-\(index)", lifecycleID: "generation-\(index)"),
+                transportKey: "transport",
+                attachmentKey: RemotePTYAttachmentKey(transportKey: "transport", attachmentID: "surface-\(index)")
+            )
+        }
+
+        #expect(registry.count == RemotePTYEndedLifecycleRegistry.capacity)
+        #expect(registry.take(RemotePTYLifecycleKey(sessionID: "session-0", lifecycleID: "generation-0")) == nil)
+        #expect(registry.take(RemotePTYLifecycleKey(sessionID: "session-265", lifecycleID: "generation-265")) != nil)
+    }
+
     @Test("forced local proxy port is used verbatim")
     func forcedLocalProxyPort() throws {
         let provider = FakeTunnelProvider()
