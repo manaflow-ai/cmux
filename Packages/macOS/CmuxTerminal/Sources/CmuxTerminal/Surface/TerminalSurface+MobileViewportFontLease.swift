@@ -101,6 +101,7 @@ extension TerminalSurface {
     public func prepareMobileViewportFontFitForConfigurationReload(
         reason: String
     ) -> MobileViewportFontFitReloadLease? {
+        pendingMobileViewportFontFitReloadLease = nil
         guard !manualIO,
               let limit = mobileViewportCellLimit,
               let surface = liveSurfaceForGhosttyAccess(reason: reason) else {
@@ -118,22 +119,25 @@ extension TerminalSurface {
             ? mobileViewportFontFitState.baseFontPointSize
             : nil
         let surrendered = !hadAutomaticFit || restoreMobileViewportFitFontIfNeeded()
-        return MobileViewportFontFitReloadLease(
+        let lease = MobileViewportFontFitReloadLease(
             columns: limit.columns,
             rows: limit.rows,
             surrendered: surrendered,
             userAdjustedBaseFontPointSize: userAdjustedBaseFontPointSize
         )
+        pendingMobileViewportFontFitReloadLease = lease
+        return lease
     }
 
-    /// Reapplies a prepared mobile viewport constraint from the reloaded font.
+    /// Completes a pending reload from Ghostty's resolved surface config signal.
     @MainActor
-    public func finishMobileViewportFontFitConfigurationReload(
-        _ lease: MobileViewportFontFitReloadLease,
+    public func completeMobileViewportFontFitConfigurationReload(
         configuredFontPointSize: Float?,
         reason: String
     ) {
         recordMobileViewportConfiguredFontPointSize(configuredFontPointSize)
+        guard let lease = pendingMobileViewportFontFitReloadLease else { return }
+        pendingMobileViewportFontFitReloadLease = nil
         guard liveSurfaceForGhosttyAccess(reason: "\(reason).refit") != nil else {
             mobileViewportFontFitState.clear()
             return
@@ -165,19 +169,10 @@ extension TerminalSurface {
     @MainActor
     public func withMobileViewportFontFitSurrenderedForConfigurationReload(
         reason: String,
-        reload: () -> Float?
+        reload: () -> Void
     ) {
-        let lease = prepareMobileViewportFontFitForConfigurationReload(reason: reason)
-        let configuredFontPointSize = reload()
-        if let lease {
-            finishMobileViewportFontFitConfigurationReload(
-                lease,
-                configuredFontPointSize: configuredFontPointSize,
-                reason: reason
-            )
-        } else {
-            recordMobileViewportConfiguredFontPointSize(configuredFontPointSize)
-        }
+        _ = prepareMobileViewportFontFitForConfigurationReload(reason: reason)
+        reload()
     }
 
     @MainActor

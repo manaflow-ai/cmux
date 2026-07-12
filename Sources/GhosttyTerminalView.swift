@@ -2969,6 +2969,9 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_CONFIG_CHANGE:
+            let resolvedFontPointSize = configuredFontPointSize(from: action.action.config_change.config)
+            let terminalSurface = surfaceView.terminalSurface
+            DispatchQueue.main.async { guard surfaceView.terminalSurface === terminalSurface else { return }; terminalSurface?.completeMobileViewportFontFitConfigurationReload(configuredFontPointSize: resolvedFontPointSize, reason: "surface.configChange") }
             DispatchQueue.main.async { [self] in
                 if let staleOverride = surfaceView.backgroundColor {
                     surfaceView.backgroundColor = nil
@@ -2981,13 +2984,9 @@ class GhosttyApp {
                     surfaceView.applyWindowBackgroundIfActive()
                 }
             }
-            // Keep surface config-change handling scoped to the surface. The app-level
-            // default background is owned by reloadConfiguration's resolved GhosttyConfig.
+            // Keep this surface-scoped; reloadConfiguration owns the app-level default background.
             let effectiveConfigChangeColorScheme = effectiveTerminalColorSchemePreference
-            synchronizeGhosttyRuntimeColorScheme(
-                effectiveConfigChangeColorScheme,
-                source: "action.config_change.surface:resolved"
-            )
+            synchronizeGhosttyRuntimeColorScheme(effectiveConfigChangeColorScheme, source: "action.config_change.surface:resolved")
             DispatchQueue.main.async {
                 surfaceView.applySurfaceColorScheme(
                     force: true,
