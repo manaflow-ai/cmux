@@ -113,6 +113,7 @@ struct MobileHostServiceSettingsTests {
 }
 
 @MainActor
+@Suite(.serialized)
 struct MobileTerminalScrollHandlerTests {
     @Test func orderedRunPayloadAccepts32AndRejects33BeforeExecution() {
         func params(count: Int) -> [String: Any] {
@@ -129,6 +130,117 @@ struct MobileTerminalScrollHandlerTests {
 
         #expect(TerminalController.shared.mobileScrollDirectionalRuns(params: params(count: 32))?.count == 32)
         #expect(TerminalController.shared.mobileScrollDirectionalRuns(params: params(count: 33)) == nil)
+    }
+
+    @Test func releasedSurfaceRejectsScrollAndZeroLineSettlement() throws {
+        let harness = try makeTerminalHarness()
+        defer { harness.restore() }
+        harness.panel.surface.releaseSurfaceForTesting()
+
+        let scroll = TerminalController.shared.v2MobileTerminalScroll(params: harness.params(
+            epoch: 1,
+            revision: 1,
+            deltaLines: -8
+        ))
+        let settlement = TerminalController.shared.v2MobileTerminalScroll(params: harness.params(
+            epoch: 1,
+            revision: 1,
+            deltaLines: 0,
+            prefetchBeforeRows: 120,
+            prefetchAfterRows: 600
+        ))
+
+        #expect(accepted(scroll) == false)
+        #expect(accepted(settlement) == false)
+    }
+
+    @Test func clickEpochRejectsAnOlderScroll() throws {
+        let harness = try makeTerminalHarness()
+        defer { harness.restore() }
+
+        let click = TerminalController.shared.v2MobileTerminalMouse(params: harness.params(
+            epoch: 2,
+            col: 7,
+            row: 9
+        ))
+        let staleScroll = TerminalController.shared.v2MobileTerminalScroll(params: harness.params(
+            epoch: 1,
+            revision: 1,
+            deltaLines: -4
+        ))
+
+        guard case .ok = click else {
+            return #expect(Bool(false), "live-surface click should be accepted")
+        }
+        #expect(accepted(staleScroll) == false)
+    }
+
+    @MainActor
+    private struct TerminalHarness {
+        let previousTabManager: TabManager?
+        let manager: TabManager
+        let workspace: Workspace
+        let panel: TerminalPanel
+        let clientID: String
+
+        func params(
+            epoch: Int,
+            revision: Int? = nil,
+            deltaLines: Double? = nil,
+            col: Int = 0,
+            row: Int = 0,
+            prefetchBeforeRows: Int? = nil,
+            prefetchAfterRows: Int? = nil
+        ) -> [String: Any] {
+            var params: [String: Any] = [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panel.id.uuidString,
+                "client_id": clientID,
+                "interaction_epoch": epoch,
+                "col": col,
+                "row": row,
+            ]
+            if let revision { params["client_scroll_revision"] = revision }
+            if let deltaLines { params["delta_lines"] = deltaLines }
+            if let prefetchBeforeRows { params["prefetch_before_rows"] = prefetchBeforeRows }
+            if let prefetchAfterRows { params["prefetch_after_rows"] = prefetchAfterRows }
+            return params
+        }
+
+        func restore() {
+            TerminalController.shared.mobileInteractionEpochsBySurfaceID[panel.id] = nil
+            TerminalController.shared.tabManager = previousTabManager
+            panel.surface.releaseSurfaceForTesting()
+        }
+    }
+
+    private func makeTerminalHarness() throws -> TerminalHarness {
+        let controller = TerminalController.shared
+        let previousTabManager = controller.tabManager
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(
+            select: true,
+            eagerLoadTerminal: true,
+            autoWelcomeIfNeeded: false,
+            autoRefreshMetadata: false
+        )
+        let panel = try #require(workspace.focusedTerminalPanel)
+        controller.tabManager = manager
+        return TerminalHarness(
+            previousTabManager: previousTabManager,
+            manager: manager,
+            workspace: workspace,
+            panel: panel,
+            clientID: "scroll-handler-\(UUID().uuidString)"
+        )
+    }
+
+    private func accepted(_ result: TerminalController.V2CallResult) -> Bool? {
+        guard case .ok(let rawPayload) = result,
+              let payload = rawPayload as? [String: Any] else {
+            return nil
+        }
+        return payload["accepted"] as? Bool
     }
 }
 

@@ -32,6 +32,14 @@ private struct RoutingTestRuntime: MobileSyncRuntime {
 /// surface_id (and the image format), in send order. Can be configured to reject
 /// the paste_image call so the composer's keep-on-failure path runs.
 actor RoutingHostRouter {
+    struct TerminalInteractionRecord: Sendable {
+        var method: String
+        var surfaceID: String
+        var interactionEpoch: Int?
+        var clientScrollRevision: Int?
+        var col: Int?
+        var row: Int?
+    }
     struct PasteImageRecord: Sendable {
         var surfaceID: String
         var format: String
@@ -56,6 +64,11 @@ actor RoutingHostRouter {
     private var firstWorkspaceCreateHeld = false
     private var firstWorkspaceCreateContinuation: CheckedContinuation<Void, Never>?
     private var firstWorkspaceCreateReachedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var terminalInteractions: [TerminalInteractionRecord] = []
+    private var holdFirstTerminalScroll = false
+    private var firstTerminalScrollHeld = false
+    private var firstTerminalScrollContinuation: CheckedContinuation<Void, Never>?
+    private var firstTerminalScrollReachedWaiters: [CheckedContinuation<Void, Never>] = []
 
     static let workspaceID = "ws-route"
     static let terminalA = "term-route-a"
@@ -119,6 +132,22 @@ actor RoutingHostRouter {
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
     func recordedDismisses() -> [(notificationIDs: [String], clientID: String?)] { dismisses }
+    func recordedTerminalInteractions() -> [TerminalInteractionRecord] { terminalInteractions }
+
+    func setHoldFirstTerminalScroll(_ hold: Bool) {
+        holdFirstTerminalScroll = hold
+    }
+
+    func awaitFirstTerminalScrollReached() async {
+        if firstTerminalScrollHeld { return }
+        await withCheckedContinuation { firstTerminalScrollReachedWaiters.append($0) }
+    }
+
+    func releaseFirstTerminalScroll() {
+        let continuation = firstTerminalScrollContinuation
+        firstTerminalScrollContinuation = nil
+        continuation?.resume()
+    }
 
     /// Sendable extract of the request fields the router needs, pulled off the
     /// non-Sendable params dictionary before crossing the Task boundary.
@@ -131,6 +160,10 @@ actor RoutingHostRouter {
         var notificationIDs: [String]?
         var clientID: String?
         var groupID: String?
+        var interactionEpoch: Int?
+        var clientScrollRevision: Int?
+        var col: Int?
+        var row: Int?
     }
 
     func response(_ info: RequestInfo) async -> Data? {
@@ -238,6 +271,39 @@ actor RoutingHostRouter {
             let text = info.text ?? ""
             pastes.append(PasteRecord(surfaceID: surfaceID, text: text))
             return try? Self.resultFrame(id: id, result: [:])
+        case "mobile.terminal.scroll":
+            terminalInteractions.append(TerminalInteractionRecord(
+                method: method ?? "",
+                surfaceID: info.surfaceID ?? "",
+                interactionEpoch: info.interactionEpoch,
+                clientScrollRevision: info.clientScrollRevision,
+                col: info.col,
+                row: info.row
+            ))
+            if terminalInteractions.filter({ $0.method == "mobile.terminal.scroll" }).count == 1,
+               holdFirstTerminalScroll {
+                firstTerminalScrollHeld = true
+                let reachedWaiters = firstTerminalScrollReachedWaiters
+                firstTerminalScrollReachedWaiters = []
+                for waiter in reachedWaiters { waiter.resume() }
+                await withCheckedContinuation { firstTerminalScrollContinuation = $0 }
+            }
+            return try? Self.resultFrame(id: id, result: [
+                "accepted": true,
+                "interaction_epoch": info.interactionEpoch ?? 0,
+                "client_scroll_revision": info.clientScrollRevision ?? 0,
+                "render_revision": 1,
+            ])
+        case "mobile.terminal.mouse":
+            terminalInteractions.append(TerminalInteractionRecord(
+                method: method ?? "",
+                surfaceID: info.surfaceID ?? "",
+                interactionEpoch: info.interactionEpoch,
+                clientScrollRevision: info.clientScrollRevision,
+                col: info.col,
+                row: info.row
+            ))
+            return try? Self.resultFrame(id: id, result: [:])
         case "notification.dismiss":
             dismisses.append((
                 notificationIDs: info.notificationIDs ?? [],
@@ -318,7 +384,11 @@ private actor RoutingTransport: CmxByteTransport {
                 text: params?["text"] as? String,
                 notificationIDs: params?["notification_ids"] as? [String],
                 clientID: params?["client_id"] as? String,
-                groupID: params?["group_id"] as? String
+                groupID: params?["group_id"] as? String,
+                interactionEpoch: params?["interaction_epoch"] as? Int,
+                clientScrollRevision: params?["client_scroll_revision"] as? Int,
+                col: params?["col"] as? Int,
+                row: params?["row"] as? Int
             )
             Task { [router, weak self] in
                 guard let response = await router.response(info) else {

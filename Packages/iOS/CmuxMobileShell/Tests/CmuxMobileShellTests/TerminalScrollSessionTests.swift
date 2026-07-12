@@ -264,6 +264,52 @@ struct TerminalScrollSessionTests {
         #expect(harness.acceptedRenderRevisions.isEmpty)
     }
 
+    @Test("click waits for preceding scroll and advances the interaction fence")
+    func clickWaitsForPrecedingScroll() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstTerminalScroll(true)
+        let store = try await makeRoutingConnectedStore(router: router)
+        let surfaceID = RoutingHostRouter.terminalA
+        let token = store.mountTerminalScrollSession(
+            surfaceID: surfaceID,
+            applyLocal: { _ in true },
+            cancelLocal: {}
+        )
+        defer { store.unmountTerminalScrollSession(surfaceID: surfaceID, token: token) }
+
+        store.scrollTerminal(surfaceID: surfaceID, lines: -9, col: 3, row: 4)
+        await router.awaitFirstTerminalScrollReached()
+
+        let clickTask = Task { @MainActor in
+            await store.clickTerminal(surfaceID: surfaceID, col: 11, row: 13)
+        }
+        let clickOvertookScroll = try await pollUntil(attempts: 20) {
+            await router.recordedTerminalInteractions().count > 1
+        }
+        #expect(!clickOvertookScroll)
+
+        await router.releaseFirstTerminalScroll()
+        await clickTask.value
+        let interactionsArrived = try await pollUntil {
+            await router.recordedTerminalInteractions().count == 2
+        }
+        #expect(interactionsArrived)
+
+        let interactions = await router.recordedTerminalInteractions()
+        #expect(interactions.map(\.method) == [
+            "mobile.terminal.scroll",
+            "mobile.terminal.mouse",
+        ])
+        #expect(interactions.map(\.surfaceID) == [surfaceID, surfaceID])
+        #expect(interactions[0].col == 3)
+        #expect(interactions[0].row == 4)
+        #expect(interactions[1].col == 11)
+        #expect(interactions[1].row == 13)
+        let scrollEpoch = try #require(interactions[0].interactionEpoch)
+        let clickEpoch = try #require(interactions[1].interactionEpoch)
+        #expect(clickEpoch > scrollEpoch)
+    }
+
     @Test("disconnect recovery preserves the mounted session")
     func disconnectRecoveryPreservesMountedSession() {
         let store = MobileShellComposite.preview()
