@@ -1,5 +1,7 @@
+internal import CmuxMobileRPC
 public import CmuxMobileShellModel
 internal import CmuxMobileSupport
+internal import Foundation
 
 enum MobileTerminalCreationMutationClaim {
     case blocked
@@ -8,6 +10,87 @@ enum MobileTerminalCreationMutationClaim {
 }
 
 extension MobileShellComposite {
+    func createRemoteTerminal(
+        in explicitWorkspaceID: MobileWorkspacePreview.ID? = nil,
+        paneID: MobilePanePreview.ID? = nil
+    ) async {
+        guard let client = remoteClient,
+              let rowWorkspaceID = explicitWorkspaceID ?? selectedWorkspace?.id else { return }
+        let requestedWorkspaceID = remoteWorkspaceID(for: rowWorkspaceID)
+        let existingTerminalIDs = Set(
+            workspaces.first(where: { $0.id == rowWorkspaceID })?.terminals.map(\.id) ?? []
+        )
+        let generation = connectionGeneration
+        let focusRevision = workspaceFocusRevisionSnapshot()
+        let responseMutationEpoch = foregroundWorkspaceListMutationEpoch
+        do {
+            var params: [String: Any] = ["workspace_id": requestedWorkspaceID.rawValue]
+            if let paneID {
+                params["pane_id"] = paneID.rawValue
+            }
+            let resultData = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "terminal.create",
+                    params: params
+                )
+            )
+            let response = try MobileSyncWorkspaceListResponse.decode(resultData)
+            guard isCurrentRemoteOperation(client: client, generation: generation),
+                  !Task.isCancelled else { return }
+            advanceForegroundWorkspaceListMutationEpoch()
+            applyRemoteWorkspaceList(
+                response,
+                mergeExistingWorkspaces: true,
+                listStartedAtFocusRevision: focusRevision
+            )
+            markForegroundWorkspaceListApplied(through: responseMutationEpoch)
+            if selectedWorkspaceID == rowWorkspaceID,
+               let createdTerminalID = resolvedRemoteTerminalCreationSelection(
+                   responseCreatedTerminalID: response.createdTerminalID,
+                   workspaceID: rowWorkspaceID,
+                   existingTerminalIDs: existingTerminalIDs,
+                   paneID: paneID
+               ) {
+                selectTerminal(createdTerminalID)
+                suppressTerminalAutoFocusOnNextAttach(for: createdTerminalID)
+            }
+        } catch {
+            guard generation == connectionGeneration, !Task.isCancelled else { return }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
+            markMacConnectionUnavailableIfNeeded(after: error)
+            applyOperationalError(error)
+        }
+    }
+
+    /// Resolves the terminal identity the phone should select after a remote
+    /// create. Some hosts acknowledge with the transient bonsplit create ID
+    /// while the returned workspace already exposes the durable panel ID. Trust
+    /// the acknowledgement only when it exists in the returned hierarchy;
+    /// otherwise select the one new identity in the requested pane. Titles are
+    /// deliberately ignored because duplicate terminal titles are normal.
+    func resolvedRemoteTerminalCreationSelection(
+        responseCreatedTerminalID: String?,
+        workspaceID: MobileWorkspacePreview.ID,
+        existingTerminalIDs: Set<MobileTerminalPreview.ID>,
+        paneID: MobilePanePreview.ID?
+    ) -> MobileTerminalPreview.ID? {
+        guard let workspace = workspaces.first(where: { $0.id == workspaceID }) else { return nil }
+        if let responseCreatedTerminalID {
+            let responseID = MobileTerminalPreview.ID(rawValue: responseCreatedTerminalID)
+            if workspace.terminals.contains(where: { $0.id == responseID }) {
+                return responseID
+            }
+        }
+
+        let addedTerminals = workspace.terminals.filter { !existingTerminalIDs.contains($0.id) }
+        if let paneID {
+            let addedInPane = addedTerminals.filter { $0.paneID == paneID }
+            if addedInPane.count == 1 { return addedInPane[0].id }
+            if addedInPane.count > 1 { return nil }
+        }
+        return addedTerminals.count == 1 ? addedTerminals[0].id : nil
+    }
+
     /// Resolves a real host pane for a remote create. Compatibility panes are
     /// presentation-only and must never be sent to the host as stable IDs.
     func remoteTerminalCreationPaneID(

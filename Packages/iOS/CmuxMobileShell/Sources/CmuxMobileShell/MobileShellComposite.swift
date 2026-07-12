@@ -5749,51 +5749,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         MobileTerminalViewportKey(workspaceID: workspaceID, terminalID: terminalID)
     }
 
-    private func createRemoteTerminal(
-        in explicitWorkspaceID: MobileWorkspacePreview.ID? = nil,
-        paneID: MobilePanePreview.ID? = nil
-    ) async {
-        guard let client = remoteClient,
-              let rowWorkspaceID = explicitWorkspaceID ?? selectedWorkspace?.id else { return }
-        let requestedWorkspaceID = remoteWorkspaceID(for: rowWorkspaceID)
-        let generation = connectionGeneration
-        let focusRevision = workspaceFocusRevisionSnapshot()
-        let responseMutationEpoch = foregroundWorkspaceListMutationEpoch
-        do {
-            var params: [String: Any] = ["workspace_id": requestedWorkspaceID.rawValue]
-            if let paneID {
-                params["pane_id"] = paneID.rawValue
-            }
-            let resultData = try await client.sendRequest(
-                MobileCoreRPCClient.requestData(
-                    method: "terminal.create",
-                    params: params
-                )
-            )
-            let response = try MobileSyncWorkspaceListResponse.decode(resultData)
-            guard isCurrentRemoteOperation(client: client, generation: generation),
-                  !Task.isCancelled else { return }
-            advanceForegroundWorkspaceListMutationEpoch()
-            applyRemoteWorkspaceList(
-                response,
-                mergeExistingWorkspaces: true,
-                listStartedAtFocusRevision: focusRevision
-            )
-            markForegroundWorkspaceListApplied(through: responseMutationEpoch)
-            if selectedWorkspaceID == rowWorkspaceID,
-               let createdID = response.createdTerminalID {
-                let createdTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
-                selectTerminal(createdTerminalID)
-                suppressTerminalAutoFocusOnNextAttach(for: createdTerminalID)
-            }
-        } catch {
-            guard generation == connectionGeneration, !Task.isCancelled else { return }
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
-            markMacConnectionUnavailableIfNeeded(after: error)
-            applyOperationalError(error)
-        }
-    }
-
     private func sendRemoteTerminalInput(_ text: String) async {
         guard let workspaceID = selectedWorkspace?.id,
               let terminalID = selectedTerminalID else {
