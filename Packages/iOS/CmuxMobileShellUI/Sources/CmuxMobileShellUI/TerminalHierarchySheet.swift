@@ -320,9 +320,7 @@ struct TerminalHierarchySheet: View {
             mutationFailed = true
             return
         }
-        if destination == sourceIndex || destination == sourceIndex + 1 {
-            return
-        }
+        if destination == sourceIndex || destination == sourceIndex + 1 { return }
         guard let intent = MobileTerminalReorderIntent(
                   terminalID: pane.rows[sourceIndex].id,
                   sourceIndex: sourceIndex,
@@ -333,9 +331,7 @@ struct TerminalHierarchySheet: View {
             return
         }
         let reservationDecision = TerminalHierarchyMoveReservationDecision(
-            workspaceID: snapshot.workspaceID,
-            paneID: pane.id,
-            reorderGate: reorderGate
+            snapshot: snapshot, paneID: pane.id, reorderGate: reorderGate
         )
         guard case .reserved(let reservation) = reservationDecision else {
             moveUnavailable = true
@@ -368,7 +364,6 @@ struct TerminalHierarchySheet: View {
             announce(L10n.string("mobile.terminal.hierarchy.reorderedAnnouncement", defaultValue: "Terminal order updated"))
         }
     }
-
     private func presentedPane(_ pane: TerminalHierarchyPaneSnapshot) -> TerminalHierarchyPaneSnapshot {
         guard let optimisticIDs = optimisticTerminalIDsByPane[pane.id] else { return pane }
         let rowsByID = Dictionary(

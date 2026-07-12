@@ -7,6 +7,19 @@ enum TerminalHierarchyMoveReservationDecision: Equatable {
 
     @MainActor
     init(
+        snapshot: TerminalHierarchySnapshot,
+        paneID: MobilePanePreview.ID,
+        reorderGate: MobileTerminalReorderGate
+    ) {
+        self.init(
+            workspaceID: snapshot.workspaceID,
+            paneID: paneID,
+            reorderGate: reorderGate
+        )
+    }
+
+    @MainActor
+    init(
         workspaceID: MobileWorkspacePreview.ID,
         paneID: MobilePanePreview.ID,
         reorderGate: MobileTerminalReorderGate
