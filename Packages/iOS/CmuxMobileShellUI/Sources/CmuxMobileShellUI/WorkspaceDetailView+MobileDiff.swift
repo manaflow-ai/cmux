@@ -14,6 +14,7 @@ extension WorkspaceDetailView {
     }
 
     func reloadMobileDiff(_ state: MobileDiffState) {
+        guard !state.isLoading else { return }
         mobileDiffLoadTask?.cancel()
         state.beginLoading()
         let workspaceID = workspace.id

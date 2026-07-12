@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CMUXMobileCore
 
 /// Builds a bounded Git working-tree patch for transport to a mobile client.
 final class MobileWorkingTreeDiffLoader: Sendable {
@@ -7,6 +8,7 @@ final class MobileWorkingTreeDiffLoader: Sendable {
     private let maximumUntrackedFiles = 200
     private let maximumPathListBytes = 1024 * 1024
     private let maximumErrorBytes = 64 * 1024
+    private let responseEnvelopeBudget = 64 * 1024
     private let loadTimeout = Duration.seconds(15)
     private let clock = ContinuousClock()
 
@@ -27,7 +29,17 @@ final class MobileWorkingTreeDiffLoader: Sendable {
             group.cancelAll()
             return result
         }
-        return ["patch": result.patch, "repository_root": result.repositoryRoot, "title": result.title]
+        let document: [String: Any] = [
+            "patch": result.patch,
+            "repository_root": result.repositoryRoot,
+            "title": result.title,
+        ]
+        let maximumDocumentBytes = MobileSyncFrameCodec.defaultMaximumFrameByteCount - responseEnvelopeBudget
+        guard let encodedDocument = try? JSONSerialization.data(withJSONObject: document),
+              encodedDocument.count <= maximumDocumentBytes else {
+            throw MobileWorkingTreeDiffLoadError(code: "too_large", message: "Workspace diff is too large to send to this phone")
+        }
+        return document
     }
 
     private func loadResult(
