@@ -459,7 +459,7 @@ struct ClosedItemHistoryAgentEnrichmentTests {
                 resumeBinding: SurfaceResumeBindingSnapshot(
                     kind: "codex",
                     command: "codex resume candidate",
-                    source: "agent-hook"
+                    source: "process-detected"
                 )
             ),
             browser: nil,

@@ -209,8 +209,12 @@ extension ClosedItemHistoryEntry {
 
 private extension SessionPanelSnapshot {
     var requiresAgentMetadataEnrichment: Bool {
-        guard let terminal else { return false }
-        return terminal.agent == nil
+        guard let terminal,
+              terminal.agent == nil,
+              let resumeBinding = terminal.resumeBinding else {
+            return false
+        }
+        return resumeBinding.isAgentHookBinding || resumeBinding.isProcessDetected
     }
 
     func mergingAgentMetadata(from captured: SessionPanelSnapshot) -> SessionPanelSnapshot {
