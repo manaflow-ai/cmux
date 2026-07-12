@@ -2274,6 +2274,116 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func disconnectReleasesSuspendedTerminalCreateAndReconnectCanRetry() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "workspace-main",
+        terminalID: "terminal-build",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date(timeIntervalSince1970: 2_000_000_000)
+    )
+    let router = DisconnectDuringTerminalCreateRouter()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router),
+        supportsServerPushEvents: true
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    let attachURL = try attachURL(for: ticket).absoluteString
+
+    store.signIn()
+    await store.connectPairingURL(attachURL)
+    await router.waitForHostStatusRequest(count: 1)
+    #expect(await waitForTerminalHierarchyCapabilities(store))
+    let workspaceID = try installTerminalHierarchyWorkspace(in: store)
+
+    store.createTerminal(in: workspaceID)
+    await router.waitForTerminalCreateRequest(count: 1)
+    #expect(store.terminalReorderGate.isActive)
+
+    store.disconnectAndForgetActiveMac()
+
+    let releasedSuspendedCreate = !store.terminalReorderGate.isActive
+    #expect(releasedSuspendedCreate)
+    guard releasedSuspendedCreate else {
+        await router.releaseFirstTerminalCreateResponse()
+        return
+    }
+
+    await store.connectPairingURL(attachURL)
+    await router.waitForHostStatusRequest(count: 2)
+    #expect(await waitForTerminalHierarchyCapabilities(store))
+    let reconnectedWorkspaceID = try installTerminalHierarchyWorkspace(in: store)
+
+    store.createTerminal(in: reconnectedWorkspaceID)
+    await router.waitForTerminalCreateRequest(count: 2)
+    #expect(await waitForSelectedTerminal("workspace-main-terminal-2", in: store))
+    #expect(store.terminalReorderGate.canMutate(workspaceID: reconnectedWorkspaceID))
+
+    await router.releaseFirstTerminalCreateResponse()
+}
+
+@MainActor
+private func installTerminalHierarchyWorkspace(
+    in store: CMUXMobileShellStore
+) throws -> MobileWorkspacePreview.ID {
+    var workspace = try #require(store.workspaces.first {
+        $0.rpcWorkspaceID.rawValue == "workspace-main" || $0.id.rawValue == "workspace-main"
+    })
+    let paneID = MobilePanePreview.ID(rawValue: "pane-main")
+    for index in workspace.terminals.indices {
+        workspace.terminals[index].paneID = paneID
+    }
+    workspace.panes = [
+        MobilePanePreview(
+            id: paneID,
+            spatialIndex: 0,
+            isFocused: true,
+            terminalIDs: workspace.terminals.map(\.id)
+        ),
+    ]
+    workspace.focusedPaneID = paneID
+    workspace.selectedTerminalID = workspace.terminals.first?.id
+    store.replaceForegroundWorkspaceState([workspace])
+    let installed = try #require(store.workspaces.first { $0.id == workspace.id })
+    #expect(installed.actionCapabilities.supportsTerminalCreateInPane)
+    #expect(installed.actionCapabilities.supportsTerminalCloseActions)
+    return installed.id
+}
+
+@MainActor
+private func waitForTerminalHierarchyCapabilities(_ store: CMUXMobileShellStore) async -> Bool {
+    for _ in 0..<1_000 {
+        if store.workspaces.first?.actionCapabilities.supportsTerminalCreateInPane == true,
+           store.workspaces.first?.actionCapabilities.supportsTerminalCloseActions == true {
+            return true
+        }
+        await Task.yield()
+    }
+    return false
+}
+
+@MainActor
+private func waitForSelectedTerminal(
+    _ terminalID: String,
+    in store: CMUXMobileShellStore
+) async -> Bool {
+    for _ in 0..<1_000 {
+        if store.selectedTerminalID?.rawValue == terminalID {
+            return true
+        }
+        await Task.yield()
+    }
+    return false
+}
+
+@MainActor
 @Test func selectingWorkspaceReconcilesTerminalSelection() {
     let store = CMUXMobileShellStore.preview()
     store.signIn()
@@ -2920,7 +3030,8 @@ private func rpcHostStatusFrame(
     renderGrid: Bool,
     terminalBytes: Bool = true,
     macDeviceID: String? = nil,
-    macDisplayName: String? = nil
+    macDisplayName: String? = nil,
+    additionalCapabilities: [String] = []
 ) throws -> Data {
     var capabilities = ["events.v1", "terminal.replay.v1"]
     if terminalBytes {
@@ -2929,6 +3040,7 @@ private func rpcHostStatusFrame(
     if renderGrid {
         capabilities.append("terminal.render_grid.v1")
     }
+    capabilities.append(contentsOf: additionalCapabilities)
     var result: [String: Any] = [
         "terminal_fidelity": renderGrid ? "render_grid" : "ghostty_bytes",
         "capabilities": capabilities,
@@ -3386,6 +3498,91 @@ private actor DelayedRemoteCreateTerminalRouter: RequestAwareTransportRouter {
         guard !terminalCreateReleased else { return }
         await withCheckedContinuation { continuation in
             terminalCreateReleaseContinuation = continuation
+        }
+    }
+}
+
+private actor DisconnectDuringTerminalCreateRouter: RequestAwareTransportRouter {
+    private var requests: [RecordedRPCRequest] = []
+    private var terminalCreateRequestCount = 0
+    private var hostStatusRequestCount = 0
+    private var terminalCreateWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var hostStatusWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var firstTerminalCreateReleaseContinuation: CheckedContinuation<Void, Never>?
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func waitForTerminalCreateRequest(count: Int) async {
+        guard terminalCreateRequestCount < count else { return }
+        await withCheckedContinuation { continuation in
+            terminalCreateWaiters.append((count, continuation))
+        }
+    }
+
+    func waitForHostStatusRequest(count: Int) async {
+        guard hostStatusRequestCount < count else { return }
+        await withCheckedContinuation { continuation in
+            hostStatusWaiters.append((count, continuation))
+        }
+    }
+
+    func releaseFirstTerminalCreateResponse() {
+        firstTerminalCreateReleaseContinuation?.resume()
+        firstTerminalCreateReleaseContinuation = nil
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "workspace.list":
+            return try rpcTwoWorkspaceListFrame()
+        case "mobile.host.status":
+            hostStatusRequestCount += 1
+            resumeHostStatusWaiters()
+            return try rpcHostStatusFrame(
+                renderGrid: true,
+                macDeviceID: "test-mac",
+                macDisplayName: "Test Mac",
+                additionalCapabilities: [
+                    "terminal.close.v1",
+                    "terminal.create_in_pane.v1",
+                    "terminal.reorder.v1",
+                ]
+            )
+        case "mobile.events.subscribe":
+            return try rpcResultFrame(result: ["stream_id": "terminal-events"])
+        case "terminal.create":
+            terminalCreateRequestCount += 1
+            resumeTerminalCreateWaiters()
+            if terminalCreateRequestCount == 1 {
+                await withCheckedContinuation { continuation in
+                    firstTerminalCreateReleaseContinuation = continuation
+                }
+            }
+            return try rpcTerminalCreateScopedFrame()
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+
+    private func resumeTerminalCreateWaiters() {
+        let ready = terminalCreateWaiters.filter { $0.count <= terminalCreateRequestCount }
+        terminalCreateWaiters.removeAll { $0.count <= terminalCreateRequestCount }
+        for waiter in ready {
+            waiter.continuation.resume()
+        }
+    }
+
+    private func resumeHostStatusWaiters() {
+        let ready = hostStatusWaiters.filter { $0.count <= hostStatusRequestCount }
+        hostStatusWaiters.removeAll { $0.count <= hostStatusRequestCount }
+        for waiter in ready {
+            waiter.continuation.resume()
         }
     }
 }
