@@ -29,6 +29,7 @@ test("completion republishes the current renderer selection after the file index
   expect(mobileDiffCompletionMessages(null, "item-2", 7)).toEqual([
     { type: "files", files: [], generation: 7 },
     { type: "selection", selectedItemId: "item-2", generation: 7 },
+    { type: "ready", generation: 7 },
   ]);
 });
 
