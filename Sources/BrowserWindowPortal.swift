@@ -405,6 +405,16 @@ final class WindowBrowserHostView: NSView {
         )
         let splitPassThrough = dividerHit.map { !$0.isInHostedContent } ?? false
 
+        // The corner zone outranks chrome (tab strips can sit inside its
+        // ~28pt square just below a horizontal divider); the four-way
+        // affordance must win wherever it shows.
+        if dividerHit?.kind == .both {
+            if claimsIntersectionMouseDown(at: point, eventType: eventType, dividerHitKind: dividerHit?.kind) {
+                return self
+            }
+            if PortalDividerCursorKind.isPointerHoverEvent(eventType) { return self }
+        }
+
         if titlebarPassThrough {
 #if DEBUG
             debugLogPointerRouting(
@@ -445,13 +455,6 @@ final class WindowBrowserHostView: NSView {
             return nil
         }
         if splitPassThrough {
-            if claimsIntersectionMouseDown(at: point, eventType: eventType, dividerHitKind: dividerHit?.kind) {
-                return self
-            }
-            // Claim corner-zone hover too, or a passed-through cursorUpdate lets the split view flicker its single-axis cursor.
-            if dividerHit?.kind == .both, PortalDividerCursorKind.isPointerHoverEvent(eventType) {
-                return self
-            }
 #if DEBUG
             debugLogPointerRouting(
                 stage: "hitTest.splitPass",
@@ -759,6 +762,16 @@ final class WindowBrowserHostView: NSView {
     ) {
         let resolvedDividerHit = dividerHit ?? splitDividerHit(at: point)
         let resolvedHostedInspectorHit = resolvedDividerHit == nil ? (hostedInspectorHit ?? hostedInspectorDividerHit(at: point)) : nil
+        // The corner zone outranks chrome (see hit testing).
+        if resolvedDividerHit?.kind == .both {
+            guard dividerCursorOcclusion.mayAssertDividerCursor(in: window) else {
+                clearActiveDividerCursor(restoreArrow: false)
+                return
+            }
+            activeDividerCursorKind = .both
+            PortalDividerCursorKind.both.cursor.set()
+            return
+        }
         if shouldPassThroughToSidebarResizer(
             at: point,
             dividerHit: resolvedDividerHit,

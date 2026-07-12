@@ -166,6 +166,24 @@ final class WindowTerminalHostView: NSView {
         if routingContext.allowsPortalPointerHitTesting {
             let resolveHostedTerminalHitView = hostedTerminalHitViewResolver(at: point)
 
+            // The corner zone outranks pane tab bars and other chrome: its
+            // ~28pt square can overlap the tab bar just below a horizontal
+            // divider, and the four-way affordance must win wherever it
+            // shows. Claims: mouseDown (live pair, same predicate begin()
+            // uses) starts the two-axis drag; hover keeps the view
+            // underneath from flickering its own cursor back.
+            if splitDividerCursorKind(at: point) == .both {
+                let eventType = currentEvent?.type
+                assertDividerCursor(.both)
+                if eventType == .leftMouseDown,
+                   DividerRegion.dividerIntersection(at: convert(point, to: nil), in: splitDividerRegions()) != nil {
+                    return self
+                }
+                if PortalDividerCursorKind.isPointerHoverEvent(eventType) { return self }
+                TerminalWindowPortalRegistry.noteSplitDividerInteraction(in: window, event: currentEvent)
+                return nil
+            }
+
             if shouldPassThroughToTitlebar(at: point, hostedTerminalHitView: resolveHostedTerminalHitView) {
                 clearActiveDividerCursor(restoreArrow: false)
                 return nil
@@ -182,31 +200,6 @@ final class WindowTerminalHostView: NSView {
             }
 
             if let kind = splitDividerCursorKind(at: point) {
-                // Intersection drags resize two split views at once, which
-                // NSSplitView cannot do natively — claim the mouseDown. Gate
-                // the claim on the same live-intersection predicate that
-                // `mouseDown` uses to begin the drag (the cursor path skips
-                // liveness); otherwise a non-live pair would swallow the click.
-                if kind == .both, currentEvent?.type == .leftMouseDown,
-                   DividerRegion.dividerIntersection(
-                       at: convert(point, to: nil),
-                       in: splitDividerRegions()
-                   ) != nil {
-                    // Record cursor ownership before claiming: without a
-                    // preceding hover event `activeDividerCursorKind` would
-                    // stay nil and `clearActiveDividerCursor` at mouse-up
-                    // could not restore the arrow.
-                    assertDividerCursor(kind)
-                    return self
-                }
-                // Claim hover in the corner zone too: a passed-through
-                // cursorUpdate reaches the split view underneath, whose
-                // native divider cursor then fights the four-way one and
-                // the pointer flickers between them.
-                if kind == .both, PortalDividerCursorKind.isPointerHoverEvent(currentEvent?.type) {
-                    assertDividerCursor(kind)
-                    return self
-                }
                 assertDividerCursor(kind)
                 TerminalWindowPortalRegistry.noteSplitDividerInteraction(in: window, event: currentEvent)
                 return nil
@@ -377,6 +370,13 @@ final class WindowTerminalHostView: NSView {
     }
 
     private func updateDividerCursor(at point: NSPoint) {
+        // The corner zone outranks chrome (see performHitTest).
+        let kind = splitDividerCursorKind(at: point)
+        if kind == .both {
+            assertDividerCursor(.both)
+            return
+        }
+
         if shouldPassThroughToChrome(at: point, eventType: NSApp.currentEvent?.type) {
             clearActiveDividerCursor(restoreArrow: false)
             return
@@ -387,7 +387,7 @@ final class WindowTerminalHostView: NSView {
             return
         }
 
-        guard let nextKind = splitDividerCursorKind(at: point) else {
+        guard let nextKind = kind else {
             clearActiveDividerCursor(restoreArrow: true)
             return
         }
