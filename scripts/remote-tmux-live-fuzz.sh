@@ -329,6 +329,20 @@ if [ "$DRY" != 1 ]; then
     exit 98
   fi
   "$CLI" workspace select "$WORKSPACE_REF" >/dev/null 2>&1
+  # Close THIS seed's mirror workspace on exit. The marathon runs seeds
+  # against one long-lived app, and each seed's fresh-lab setup kills the
+  # tmux server; a workspace left mounted from a prior seed then points at
+  # a server that was killed and recreated with recycled window ids, and
+  # its reconnect churns forever. One seed = one workspace, opened and
+  # closed, so the gate measures steady-state sizing under churn rather
+  # than reconnection to a stranger's recycled session (a separate
+  # concern, tracked on its own). The FUZZ_LOCK trap already set above is
+  # preserved by chaining.
+  if [ "${CMUX_FUZZ_LOCK_HELD:-0}" = 1 ]; then
+    trap '"$CLI" workspace close "$WORKSPACE_REF" >/dev/null 2>&1' EXIT
+  else
+    trap 'rm -f "$FUZZ_LOCK"; "$CLI" workspace close "$WORKSPACE_REF" >/dev/null 2>&1' EXIT
+  fi
 fi
 # Inertness guard: a fuzzer that mutates nothing and reports green is worse
 # than none (this happened — a subshell bug froze the RNG). Fingerprint the
