@@ -490,12 +490,19 @@ export class CmuxClient {
   }
 
   private matchesAttachEvent(event: UnknownEvent, surface: Id): boolean {
+    // colors-changed is scoped by its attach connection and intentionally has
+    // no surface field in protocol v6.
+    if (event.event === "colors-changed") return true;
     if (!("surface" in event) || event.surface !== surface) return false;
     return this.attachOnlyEvent(event.event) || event.event === "scroll-changed";
   }
 
   private attachOnlyEvent(event: string): boolean {
-    return event === "vt-state" || event === "output" || event === "resized" || event === "detached";
+    return event === "vt-state"
+      || event === "output"
+      || event === "resized"
+      || event === "colors-changed"
+      || event === "detached";
   }
 
   private dropUndefined(value: Record<string, unknown>): JsonObject {

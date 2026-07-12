@@ -4,6 +4,7 @@ import { Terminal } from "@xterm/xterm";
 import { CmuxTimeoutError } from "cmux/browser";
 import type {
   CmuxClient,
+  DecodedColorsChangedEvent,
   DecodedOutputEvent,
   DecodedResizedEvent,
   DecodedVtStateEvent,
@@ -11,6 +12,7 @@ import type {
 } from "cmux/browser";
 import { debounce } from "../lib/debounce";
 import { nextFitSize } from "../lib/fit";
+import { colorsToThemePatch } from "../lib/terminalColors";
 import { terminalTheme } from "../lib/terminalTheme";
 
 interface AttachedTerminalOptions {
@@ -27,6 +29,8 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
   useEffect(() => {
     if (!host || !client || surface === null) return;
     let cancelled = false;
+    const baseTheme = terminalTheme(host);
+    const stage = host.closest<HTMLElement>(".terminal-stage");
     const terminal = new Terminal({
       allowProposedApi: true,
       cursorBlink: true,
@@ -34,7 +38,7 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
       fontSize: 13,
       lineHeight: 1.15,
-      theme: terminalTheme(host),
+      theme: baseTheme,
     });
     const fit = new FitAddon();
     terminal.loadAddon(fit);
@@ -73,6 +77,16 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       if (!sizeClaimed) applyFit();
       void client.send(surface, { text }).catch(onError);
     });
+    const applyColors = (colors: DecodedVtStateEvent["colors"] | DecodedColorsChangedEvent) => {
+      const patch = colorsToThemePatch(colors);
+      if (patch === null) return;
+      terminal.options.theme = { ...baseTheme, ...patch };
+      if (patch.background !== undefined) {
+        stage?.style.setProperty("--surface-background", patch.background);
+      } else {
+        stage?.style.removeProperty("--surface-background");
+      }
+    };
     let stream: Awaited<ReturnType<CmuxClient["attachSurface"]>> | null = null;
 
     void (async () => {
@@ -95,6 +109,7 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
           if (cancelled) return;
           if (event.event === "vt-state") {
             const replay = event as DecodedVtStateEvent;
+            applyColors(replay.colors);
             terminal.resize(replay.cols, replay.rows);
             terminal.write(replay.data);
             // Attaching is our interaction: fit the replayed surface to this
@@ -111,6 +126,8 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
             terminal.write(resized.data);
             // Could be our own echo; applyFit no-ops in that case.
             sizeClaimed = false;
+          } else if (event.event === "colors-changed") {
+            applyColors(event as DecodedColorsChangedEvent);
           }
         }
       } catch (error) {
@@ -132,6 +149,7 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       input.dispose();
       stream?.close();
       terminal.dispose();
+      stage?.style.removeProperty("--surface-background");
       setFocused(false);
     };
   }, [client, host, onError, surface]);

@@ -74,12 +74,23 @@ function surfaceFromKnownEvent(event: KnownCmuxEvent): number | undefined {
     case "output":
     case "resized":
     case "detached": return event.surface;
+    case "colors-changed": return undefined;
     default: return undefined;
   }
 }
 
+const colorsChanged: KnownCmuxEvent = {
+  event: "colors-changed",
+  fg: "#d8d9da",
+  bg: "#131415",
+  cursor: null,
+  selection_bg: null,
+  selection_fg: null,
+};
+
 const futureEvent: CmuxEvent = { event: "future-event", extension: true };
 void surfaceFromKnownEvent;
+void colorsChanged;
 void futureEvent;
 
 // @ts-expect-error `read-screen` requires a surface id.

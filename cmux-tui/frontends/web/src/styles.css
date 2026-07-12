@@ -110,7 +110,7 @@ button { color: inherit; touch-action: manipulation; }
 .tab-bar button.active { color: var(--status-active-fg); background: var(--status-active-bg); font-weight: 700; }
 .tab-bar button.active span { color: var(--tab-rail); }
 .tab-bar .new-tab { min-width: 34px; width: 34px; color: var(--status-dim); font-size: 16px; }
-.terminal-stage { position: relative; min-width: 0; min-height: 0; padding: 4px 3px 3px 6px; background: var(--terminal-background); overflow: hidden; }
+.terminal-stage { position: relative; min-width: 0; min-height: 0; padding: 4px 3px 3px 6px; background: var(--surface-background, var(--terminal-background)); overflow: hidden; }
 .terminal-host { width: 100%; height: 100%; }
 .terminal-host .xterm { height: 100%; }
 .terminal-empty { display: grid; place-items: center; height: 100%; color: var(--status-dim); font-size: 12px; }

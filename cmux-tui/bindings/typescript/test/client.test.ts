@@ -19,14 +19,27 @@ class ScriptedTransport implements Transport {
   }
 }
 
-test("attachSurface decodes VT, output, and resized payloads", async () => {
+test("attachSurface decodes VT colors, output, and resized payloads", async () => {
   const main = new ScriptedTransport((request, transport) => {
     assert.equal(request.cmd, "identify");
     transport.emit({ id: request.id, ok: true, data: { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 } });
   });
   const attach = new ScriptedTransport((request, transport) => {
     assert.equal(request.cmd, "attach-surface");
-    transport.emit({ event: "vt-state", surface: 7, cols: 80, rows: 24, data: "G1s/bA==" });
+    transport.emit({
+      event: "vt-state",
+      surface: 7,
+      cols: 80,
+      rows: 24,
+      data: "G1s/bA==",
+      colors: {
+        fg: "#d8d9da",
+        bg: "#131415",
+        cursor: "#f0f0f0",
+        selection_bg: null,
+        selection_fg: null,
+      },
+    });
     transport.emit({ id: request.id, ok: true, data: {} });
     transport.emit({ event: "output", surface: 7, data: "aGk=" });
     transport.emit({ event: "resized", surface: 7, cols: 100, rows: 30, data: "AQID" });
@@ -42,7 +55,16 @@ test("attachSurface decodes VT, output, and resized payloads", async () => {
   const output = await stream.next();
   const resized = await stream.next();
   assert.equal(initial.event, "vt-state");
-  if (initial.event === "vt-state") assert.deepEqual(initial.data, Uint8Array.from([27, 91, 63, 108]));
+  if (initial.event === "vt-state") {
+    assert.deepEqual(initial.data, Uint8Array.from([27, 91, 63, 108]));
+    assert.deepEqual(initial.colors, {
+      fg: "#d8d9da",
+      bg: "#131415",
+      cursor: "#f0f0f0",
+      selection_bg: null,
+      selection_fg: null,
+    });
+  }
   assert.equal(output.event, "output");
   if (output.event === "output") assert.deepEqual(output.data, Uint8Array.from([104, 105]));
   assert.equal(resized.event, "resized");
@@ -50,6 +72,44 @@ test("attachSurface decodes VT, output, and resized payloads", async () => {
     assert.deepEqual(resized.data, Uint8Array.from([1, 2, 3]));
     assert.deepEqual(resized.replay, resized.data);
   }
+  stream.close();
+  await client.close();
+});
+
+test("attachSurface routes colors-changed events without a surface field", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 },
+      });
+      return;
+    }
+    assert.equal(request.cmd, "attach-surface");
+    connection.emit({ event: "vt-state", surface: 7, cols: 80, rows: 24, data: "" });
+    connection.emit({ id: request.id, ok: true, data: {} });
+    connection.emit({
+      event: "colors-changed",
+      fg: "#eeeeee",
+      bg: "#1d1f21",
+      cursor: null,
+      selection_bg: "#334455",
+      selection_fg: "#ffffff",
+    });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  const stream = await client.attachSurface(7);
+  assert.equal((await stream.next()).event, "vt-state");
+  assert.deepEqual(await stream.next(), {
+    event: "colors-changed",
+    fg: "#eeeeee",
+    bg: "#1d1f21",
+    cursor: null,
+    selection_bg: "#334455",
+    selection_fg: "#ffffff",
+  });
   stream.close();
   await client.close();
 });

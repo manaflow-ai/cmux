@@ -2,6 +2,7 @@ import type {
   AgentSource,
   AgentState,
   Base64,
+  ColorHex,
   Id,
   NotificationLevel,
 } from "./common.js";
@@ -36,6 +37,15 @@ export interface ConfigReloadRequestedEvent { event: "config-reload-requested" }
 export interface WindowTitleRequestedEvent { event: "window-title-requested"; title: string }
 export interface EmptyEvent { event: "empty" }
 
+/** Effective special colors for an attached terminal surface. */
+export interface TerminalColors {
+  fg: ColorHex | null;
+  bg: ColorHex | null;
+  cursor: ColorHex | null;
+  selection_bg: ColorHex | null;
+  selection_fg: ColorHex | null;
+}
+
 /** Initial base64 VT replay for an attached PTY surface. */
 export interface VtStateEvent {
   event: "vt-state";
@@ -43,6 +53,8 @@ export interface VtStateEvent {
   cols: number;
   rows: number;
   data: Base64;
+  /** Protocol v6 additive extension. Older servers omit this field. */
+  colors?: TerminalColors;
 }
 
 /** Live base64 PTY bytes after the attach snapshot. */
@@ -60,6 +72,9 @@ export interface ResizedEvent {
 }
 
 export interface DetachedEvent { event: "detached"; surface: Id }
+
+/** Updated effective special colors for this attach stream's surface. */
+export interface ColorsChangedEvent extends TerminalColors { event: "colors-changed" }
 
 /** Proposed event retained for forward-compatible protocol v6 clients. */
 export interface AgentStateChangedEvent {
@@ -102,7 +117,13 @@ export type KnownSubscribeEvent =
 export type SubscribeEvent = KnownSubscribeEvent | UnknownEvent;
 
 /** All currently implemented attach event payloads. */
-export type KnownAttachEvent = VtStateEvent | OutputEvent | ResizedEvent | ScrollChangedEvent | DetachedEvent;
+export type KnownAttachEvent =
+  | VtStateEvent
+  | OutputEvent
+  | ResizedEvent
+  | ColorsChangedEvent
+  | ScrollChangedEvent
+  | DetachedEvent;
 
 /** Wire-format attach events, including unknown future event names. */
 export type AttachEvent = KnownAttachEvent | UnknownEvent;
@@ -126,11 +147,15 @@ export interface DecodedResizedEvent extends Omit<ResizedEvent, "data" | "replay
   replay: Uint8Array;
 }
 
+/** A special-color update yielded by `attachSurface()`. */
+export type DecodedColorsChangedEvent = ColorsChangedEvent;
+
 /** Attach events as yielded by the client after base64 decoding. */
 export type DecodedAttachEvent =
   | DecodedVtStateEvent
   | DecodedOutputEvent
   | DecodedResizedEvent
+  | DecodedColorsChangedEvent
   | ScrollChangedEvent
   | DetachedEvent
   | UnknownEvent;
