@@ -63,6 +63,38 @@ struct SharedLiveAgentIndexFingerprintInvalidationTests {
     }
 
     @Test
+    func cacheFingerprintChangesWithAgentRegistryConfiguration() {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-registry-fingerprint-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [],
+            sampledAt: Date(),
+            includesProcessDetails: true
+        )
+        func fingerprint(resumeCommand: String) -> Set<String> {
+            let registration = CmuxVaultAgentRegistration(
+                id: "custom-agent",
+                name: "Custom Agent",
+                detect: CmuxVaultAgentDetectRule(processName: "custom-agent"),
+                sessionIdSource: .argvOption("--session"),
+                resumeCommand: resumeCommand
+            )
+            return SharedLiveAgentIndexLoader(
+                homeDirectory: root.path,
+                registry: CmuxVaultAgentRegistry(registrations: [registration]),
+                processSnapshotProvider: { snapshot }
+            ).loadResultSynchronously().processScopeFingerprint
+        }
+
+        #expect(
+            fingerprint(resumeCommand: "custom-agent --session {{sessionId}}")
+                != fingerprint(resumeCommand: "custom-agent resume {{sessionId}}"),
+            "Changing effective agent configuration must invalidate cached resume metadata."
+        )
+    }
+
+    @Test
     func fingerprintMismatchInvalidatesPublishedIndex() async {
         let now = Date()
         let hookDirectory = FileManager.default.temporaryDirectory
