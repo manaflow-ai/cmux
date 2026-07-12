@@ -5,7 +5,7 @@ import Foundation
 @MainActor
 extension MobileShellComposite {
     var hasStoredMacReconnectDemand: Bool {
-        connectionLifecycle.isReconnectingStoredMac
+        connectionLifecycle.hasStoredMacReconnectDemand
             || connectionLifecycleReconnectPendingAfterRetirement
     }
 

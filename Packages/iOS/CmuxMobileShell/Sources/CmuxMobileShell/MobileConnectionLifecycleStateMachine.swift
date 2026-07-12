@@ -20,6 +20,11 @@ struct MobileConnectionLifecycleStateMachine {
         activeEpisode?.kind == .reconnect
     }
 
+    var hasStoredMacReconnectDemand: Bool {
+        isReconnectingStoredMac
+            || pendingRequests.contains { $0.trigger == .storedMacReconnect }
+    }
+
     var resourceSnapshot: MobileConnectionLifecycleResourceSnapshot {
         MobileConnectionLifecycleResourceSnapshot(
             activeEpisodeCount: activeEpisode == nil ? 0 : 1,
