@@ -3,14 +3,21 @@ public import Foundation
 /// Detects completed interactive turns from a raw PTY output stream.
 ///
 /// The detector becomes ready after seeing the configured prompt on a logical
-/// line. It then requires a non-empty echoed submission and subsequent output
-/// before the prompt can complete a turn. ANSI CSI and OSC sequences are
-/// ignored, while carriage returns and backspaces update the logical line.
+/// line. It then requires a non-empty echoed submission and subsequent
+/// output before a later prompt can complete a turn. Exact prompt text first
+/// becomes a pending boundary; callers confirm it after the configured debounce
+/// interval or let subsequent same-line output invalidate it. ANSI CSI and OSC
+/// sequences are ignored, while carriage returns and backspaces update the line.
 public struct PromptLineTurnDetector: Sendable {
-    private enum Phase: Sendable {
+    private enum StablePhase: Sendable {
         case seekingInitialPrompt
         case readyForSubmission
         case awaitingPrompt(observedOutput: Bool)
+    }
+
+    private enum Phase: Sendable {
+        case stable(StablePhase)
+        case pendingPrompt(previous: StablePhase)
     }
 
     private enum ControlSequence: Sendable {
@@ -24,10 +31,20 @@ public struct PromptLineTurnDetector: Sendable {
     private static let maximumLogicalLineBytes = 4_096
 
     private let configuration: PromptLineTurnDetectionConfiguration
-    private var phase: Phase = .seekingInitialPrompt
+    private var phase: Phase = .stable(.seekingInitialPrompt)
     private var controlSequence: ControlSequence = .none
     private var logicalLine: [UInt8] = []
     private var logicalLineOverflowed = false
+    private var nextConfirmationIdentifier: UInt64 = 0
+
+    /// The current prompt boundary awaiting debounce confirmation, if any.
+    public private(set) var pendingConfirmation: PromptLineTurnConfirmation?
+
+    /// Changes whenever the pending confirmation is created or invalidated.
+    ///
+    /// A caller can cheaply compare this value after each PTY chunk and only
+    /// schedule asynchronous work when the confirmation state changed.
+    public private(set) var confirmationRevision: UInt64 = 0
 
     /// Creates a detector for one prompt-line configuration.
     ///
@@ -37,29 +54,49 @@ public struct PromptLineTurnDetector: Sendable {
         logicalLine.reserveCapacity(configuration.promptBytes.count + 64)
     }
 
-    /// Consumes one PTY output chunk and returns the number of completed turns.
+    /// Consumes one PTY output chunk.
+    ///
+    /// Inspect ``pendingConfirmation`` and ``confirmationRevision`` after this
+    /// call. A completion is never emitted until ``confirm(_:)`` succeeds.
     ///
     /// - Parameter data: Raw bytes read from the PTY.
-    /// - Returns: The number of conservative prompt-return boundaries in this chunk.
-    public mutating func consume(_ data: Data) -> Int {
+    public mutating func consume(_ data: Data) {
         data.withUnsafeBytes { rawBuffer in
             consume(rawBuffer.bindMemory(to: UInt8.self))
         }
     }
 
-    /// Consumes one borrowed PTY output chunk and returns the number of completed turns.
+    /// Consumes one borrowed PTY output chunk.
     ///
     /// - Parameter bytes: Raw bytes read from the PTY.
-    /// - Returns: The number of conservative prompt-return boundaries in this chunk.
-    public mutating func consume(_ bytes: UnsafeBufferPointer<UInt8>) -> Int {
-        var completions = 0
+    public mutating func consume(_ bytes: UnsafeBufferPointer<UInt8>) {
         for byte in bytes {
-            completions += consume(byte)
+            consume(byte)
         }
-        return completions
     }
 
-    private mutating func consume(_ byte: UInt8) -> Int {
+    /// Confirms a prompt boundary after its debounce interval elapsed.
+    ///
+    /// Stale confirmations return zero, including candidates invalidated by
+    /// later visible bytes on the same logical line.
+    ///
+    /// - Parameter confirmation: The candidate previously read from
+    ///   ``pendingConfirmation``.
+    /// - Returns: One for a completed model turn, or zero for an invalidated
+    ///   or already-confirmed candidate.
+    public mutating func confirm(_ confirmation: PromptLineTurnConfirmation) -> Int {
+        guard pendingConfirmation?.identifier == confirmation.identifier,
+              case .pendingPrompt = phase else {
+            return 0
+        }
+
+        let completedTurns = confirmation.completedTurnCount
+        phase = .stable(.readyForSubmission)
+        setPendingConfirmation(nil)
+        return completedTurns
+    }
+
+    private mutating func consume(_ byte: UInt8) {
         switch controlSequence {
         case .escape:
             switch byte {
@@ -67,22 +104,22 @@ public struct PromptLineTurnDetector: Sendable {
             case UInt8(ascii: "]"): controlSequence = .osc
             default: controlSequence = .none
             }
-            return 0
+            return
         case .csi:
             if (0x40...0x7E).contains(byte) {
                 controlSequence = .none
             }
-            return 0
+            return
         case .osc:
             if byte == 0x07 {
                 controlSequence = .none
             } else if byte == 0x1B {
                 controlSequence = .oscEscape
             }
-            return 0
+            return
         case .oscEscape:
             controlSequence = byte == UInt8(ascii: "\\") ? .none : .osc
-            return 0
+            return
         case .none:
             break
         }
@@ -90,21 +127,24 @@ public struct PromptLineTurnDetector: Sendable {
         switch byte {
         case 0x1B:
             controlSequence = .escape
-            return 0
         case 0x0A, 0x0D:
+            invalidatePendingPrompt()
             handleLineBoundary()
             resetLogicalLine()
-            return 0
         case 0x08, 0x7F:
+            invalidatePendingPrompt()
             if !logicalLineOverflowed, !logicalLine.isEmpty {
                 logicalLine.removeLast()
             }
-            return evaluateLogicalLine()
+            evaluateLogicalLine()
         case 0x20...0x7E, 0x80...0xFF:
+            if pendingConfirmation != nil {
+                invalidatePendingPrompt()
+            }
             appendToLogicalLine(byte)
-            return evaluateLogicalLine()
+            evaluateLogicalLine()
         default:
-            return 0
+            break
         }
     }
 
@@ -119,31 +159,45 @@ public struct PromptLineTurnDetector: Sendable {
         logicalLine.append(byte)
     }
 
-    private mutating func evaluateLogicalLine() -> Int {
-        guard !logicalLineOverflowed else { return 0 }
-        let prompt = configuration.promptBytes
+    private mutating func evaluateLogicalLine() {
+        guard !logicalLineOverflowed,
+              logicalLine == configuration.promptBytes,
+              case .stable(let stablePhase) = phase else {
+            if !configuration.promptBytes.starts(with: logicalLine),
+               containsVisibleContent(logicalLine) {
+                markOutputObserved()
+            }
+            return
+        }
 
-        switch phase {
-        case .seekingInitialPrompt:
-            if logicalLine == prompt {
-                phase = .readyForSubmission
-            }
-        case .readyForSubmission:
-            break
+        switch stablePhase {
+        case .seekingInitialPrompt, .readyForSubmission:
+            phase = .stable(.readyForSubmission)
+            return
         case .awaitingPrompt(let observedOutput):
-            if logicalLine == prompt {
-                phase = .readyForSubmission
-                return observedOutput ? 1 : 0
-            }
-            if !prompt.starts(with: logicalLine), containsVisibleContent(logicalLine) {
-                phase = .awaitingPrompt(observedOutput: true)
+            guard observedOutput else {
+                phase = .stable(.readyForSubmission)
+                return
             }
         }
-        return 0
+        phase = .pendingPrompt(previous: stablePhase)
+        nextConfirmationIdentifier &+= 1
+        setPendingConfirmation(PromptLineTurnConfirmation(
+            identifier: nextConfirmationIdentifier,
+            completedTurnCount: 1,
+            delay: configuration.confirmationDelay
+        ))
+    }
+
+    private mutating func invalidatePendingPrompt() {
+        guard case .pendingPrompt(let previous) = phase else { return }
+        phase = .stable(previous)
+        setPendingConfirmation(nil)
     }
 
     private mutating func handleLineBoundary() {
-        switch phase {
+        guard case .stable(let stablePhase) = phase else { return }
+        switch stablePhase {
         case .readyForSubmission:
             guard !logicalLineOverflowed,
                   logicalLine.starts(with: configuration.promptBytes) else {
@@ -151,7 +205,7 @@ public struct PromptLineTurnDetector: Sendable {
             }
             let submission = logicalLine.dropFirst(configuration.promptBytes.count)
             if containsVisibleContent(submission) {
-                phase = .awaitingPrompt(observedOutput: false)
+                phase = .stable(.awaitingPrompt(observedOutput: false))
             }
         case .awaitingPrompt:
             markOutputObserved()
@@ -161,13 +215,19 @@ public struct PromptLineTurnDetector: Sendable {
     }
 
     private mutating func markOutputObserved() {
-        guard case .awaitingPrompt(let observedOutput) = phase,
+        guard case .stable(.awaitingPrompt(let observedOutput)) = phase,
               !observedOutput,
               containsVisibleContent(logicalLine),
               logicalLine != configuration.promptBytes else {
             return
         }
-        phase = .awaitingPrompt(observedOutput: true)
+        phase = .stable(.awaitingPrompt(observedOutput: true))
+    }
+
+    private mutating func setPendingConfirmation(_ confirmation: PromptLineTurnConfirmation?) {
+        guard pendingConfirmation != confirmation else { return }
+        pendingConfirmation = confirmation
+        confirmationRevision &+= 1
     }
 
     private func containsVisibleContent<S: Sequence>(_ bytes: S) -> Bool where S.Element == UInt8 {

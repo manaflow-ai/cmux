@@ -62,6 +62,20 @@ struct OllamaAgentLaunchTests {
         ) == nil)
     }
 
+    @Test("Sanitization preserves Ollama maximum thinking level forms")
+    func sanitizerPreservesMaximumThinkingLevel() {
+        #expect(AgentLaunchSanitizer.sanitizedLaunchArguments(
+            ["ollama", "run", "qwen3", "--think", "max"],
+            launcher: "",
+            fallbackKind: "ollama"
+        ) == ["ollama", "run", "qwen3", "--think", "max"])
+        #expect(AgentLaunchSanitizer.sanitizedLaunchArguments(
+            ["ollama", "run", "qwen3", "--think=max"],
+            launcher: "",
+            fallbackKind: "ollama"
+        ) == ["ollama", "run", "qwen3", "--think=max"])
+    }
+
     @Test("Relaunch argv starts a fresh conversation with the captured model")
     func relaunchArgvReusesSanitizedCommand() {
         #expect(AgentResumeArgv().builtInRelaunchKind(

@@ -25,7 +25,7 @@ struct OllamaLaunchArgumentsPreserver {
     ]
 
     private static let thinkingLevels: Set<String> = [
-        "false", "high", "low", "medium", "true",
+        "false", "high", "low", "max", "medium", "true",
     ]
 
     func preservedArguments(_ arguments: [String]) -> [String]? {

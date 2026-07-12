@@ -1,29 +1,23 @@
 import Foundation
 
 extension CmuxTopProcessSnapshot {
-    /// Verifies that a prompt-boundary candidate belongs to the configured foreground agent.
-    func matchingPromptAgentDefinition(
-        workspaceID: UUID,
-        surfaceID: UUID,
-        agentID: String
+    /// Verifies one foreground PID without enumerating the process table.
+    nonisolated static func promptAgentDefinition(
+        foregroundPID: Int
     ) -> CmuxTaskManagerCodingAgentDefinition? {
-        for process in cmuxScopedProcesses() where
-            process.cmuxWorkspaceID == workspaceID
-                && process.cmuxSurfaceID == surfaceID
-                && process.isTerminalForegroundProcessGroup {
-            let details = Self.processArgumentsAndEnvironment(for: process.pid)
-            guard let definition = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
-                processName: process.name,
-                processPath: process.path,
-                arguments: details?.arguments ?? [],
-                environment: details?.environment ?? [:]
-            ),
-            definition.id == agentID,
-            definition.promptTurnDetection != nil else {
-                continue
-            }
-            return definition
+        guard let details = processArgumentsAndEnvironment(for: foregroundPID),
+              let executable = details.arguments.first else {
+            return nil
         }
-        return nil
+        let definition = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            processName: (executable as NSString).lastPathComponent,
+            processPath: executable,
+            arguments: details.arguments,
+            environment: details.environment
+        )
+        guard definition?.promptTurnDetection != nil else {
+            return nil
+        }
+        return definition
     }
 }

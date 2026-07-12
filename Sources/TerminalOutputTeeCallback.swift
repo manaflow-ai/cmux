@@ -10,12 +10,6 @@ let cmuxTerminalOutputTeeCallback: @convention(c) (
     bytes.withMemoryRebound(to: UInt8.self, capacity: count) { rebound in
         let buffer = UnsafeBufferPointer(start: rebound, count: count)
         MobileTerminalByteTee.shared.append(surfaceID: context.surfaceID, bytes: buffer)
-        context.forEachCompletedAgentID(in: buffer) { agentID in
-            PromptTurnNotificationHandler().handle(
-                workspaceID: context.workspaceID,
-                surfaceID: context.surfaceID,
-                agentID: agentID
-            )
-        }
+        context.consume(buffer)
     }
 }

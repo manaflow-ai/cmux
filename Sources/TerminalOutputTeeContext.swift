@@ -10,10 +10,14 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     private struct DetectorBinding {
         let agentID: String
         var detector: PromptLineTurnDetector
+        var forwardedRevision: UInt64 = 0
+        var confirmationDeadline: ContinuousClock.Instant?
     }
 
     let workspaceID: UUID
     let surfaceID: UUID
+    private let clock = ContinuousClock()
+    private let notificationHandler: PromptTurnNotificationHandler
     private var detectors: [DetectorBinding]
 
     init(
@@ -23,6 +27,10 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     ) {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
+        self.notificationHandler = PromptTurnNotificationHandler(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        )
         self.detectors = agentDefinitions.compactMap { definition in
             definition.promptTurnDetection.map {
                 DetectorBinding(
@@ -33,16 +41,43 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         }
     }
 
-    func forEachCompletedAgentID(
-        in bytes: UnsafeBufferPointer<UInt8>,
-        _ body: (String) -> Void
-    ) {
+    func consume(_ bytes: UnsafeBufferPointer<UInt8>) {
+        let now = clock.now
         for index in detectors.indices {
-            let count = detectors[index].detector.consume(bytes)
-            guard count > 0 else { continue }
-            for _ in 0..<count {
-                body(detectors[index].agentID)
+            if let confirmation = detectors[index].detector.pendingConfirmation,
+               let deadline = detectors[index].confirmationDeadline,
+               now >= deadline {
+                _ = detectors[index].detector.confirm(confirmation)
+                detectors[index].confirmationDeadline = nil
             }
+
+            detectors[index].detector.consume(bytes)
+            forwardConfirmationChangeIfNeeded(at: index, now: now)
+        }
+    }
+
+    private func forwardConfirmationChangeIfNeeded(
+        at index: Int,
+        now: ContinuousClock.Instant
+    ) {
+        let revision = detectors[index].detector.confirmationRevision
+        guard revision != detectors[index].forwardedRevision else { return }
+        detectors[index].forwardedRevision = revision
+
+        let confirmation = detectors[index].detector.pendingConfirmation
+        let deadline = confirmation.map {
+            now.advanced(by: $0.delay)
+        }
+        detectors[index].confirmationDeadline = deadline
+        let agentID = detectors[index].agentID
+        let notificationHandler = notificationHandler
+        Task {
+            await notificationHandler.update(
+                agentID: agentID,
+                revision: revision,
+                confirmation: confirmation,
+                deadline: deadline
+            )
         }
     }
 }
