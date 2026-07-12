@@ -13,6 +13,26 @@ import Testing
 }
 
 @MainActor
+@Test func reconciledTimeoutReportsUnknownResultWithLatestStateLoaded() {
+    let store = MobileShellComposite.preview()
+
+    #expect(store.reconciledWorkspaceMutationFailure(
+        MobileShellConnectionError.requestTimedOut,
+        hostDisplayName: "Studio"
+    ) == .resultUnknownRefreshed(hostDisplayName: "Studio"))
+}
+
+@MainActor
+@Test func reconciledRejectedMutationPreservesDefiniteFailure() {
+    let store = MobileShellComposite.preview()
+
+    #expect(store.reconciledWorkspaceMutationFailure(
+        MobileShellConnectionError.rpcError("rejected", "Rejected"),
+        hostDisplayName: "Studio"
+    ) == .rejected(hostDisplayName: "Studio"))
+}
+
+@MainActor
 @Test func unreconciledRejectedMutationPreservesDefiniteFailure() {
     let store = MobileShellComposite.preview()
 

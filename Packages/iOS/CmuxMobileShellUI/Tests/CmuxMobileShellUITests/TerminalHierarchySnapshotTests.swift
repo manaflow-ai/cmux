@@ -129,6 +129,18 @@ import Testing
     ) == .confirmationRequired)
 }
 
+@Test func closeAmbiguousResultDistinguishesRefreshedFromRefreshRequired() {
+    #expect(TerminalHierarchyCloseResultPresentation(
+        .failure(.resultUnknownRefreshed(hostDisplayName: "Test Mac"))
+    ) == .resultUnknownRefreshed)
+    #expect(TerminalHierarchyCloseResultPresentation(
+        .failure(.resultUnknownNeedsRefresh(hostDisplayName: "Test Mac"))
+    ) == .resultUnknownNeedsRefresh)
+    #expect(TerminalHierarchyCloseResultPresentation(
+        .failure(.rejected(hostDisplayName: "Test Mac"))
+    ) == .failed)
+}
+
 @Test func hierarchySnapshotHandlesEmptyAndSingleTerminalWorkspaces() {
     let empty = MobileWorkspacePreview(id: "empty", name: "Empty", terminals: [])
     #expect(TerminalHierarchySnapshot(workspace: empty, selectedTerminalID: nil).panes.isEmpty)
