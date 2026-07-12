@@ -38,11 +38,13 @@ import Testing
 
         #expect(store.isReconnectingStoredMac)
         #expect(!store.didFinishStoredMacReconnectAttempt)
+        store.storedMacReconnectTargetDeviceID = "mac-being-restored"
 
         store.resetConnectionLifecycle()
 
         #expect(!store.isReconnectingStoredMac)
         #expect(store.didFinishStoredMacReconnectAttempt)
+        #expect(store.storedMacReconnectTargetDeviceID == nil)
     }
 
     @Test func manualRetrySupersedesAnOwnedStoredMacReconnect() {
