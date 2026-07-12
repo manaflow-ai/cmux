@@ -107,6 +107,7 @@ extension CMUXCLI {
         "hooks",
         "identify",
         "is-webview-focused",
+        "ios",
         "join-pane",
         "jump-to-unread",
         "last-pane",
