@@ -732,6 +732,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
     var pullToRefreshTask: Task<Bool, Never>?
+    var pullToRefreshTaskID: UUID?
     private var aggregateWorkspaceRefreshTask: Task<Void, Never>?
     var createWorkspaceTaskID: UUID?
     var connectionGeneration: UUID
@@ -978,6 +979,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.createWorkspaceTaskGroupID = nil
         self.workspaceListRefreshTask = nil
         self.pullToRefreshTask = nil
+        self.pullToRefreshTaskID = nil
         self.aggregateWorkspaceRefreshTask = nil
         self.createWorkspaceTaskID = nil
         self.connectionGeneration = UUID()
@@ -5214,6 +5216,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceListRefreshTask = nil
         pullToRefreshTask?.cancel()
         pullToRefreshTask = nil
+        pullToRefreshTaskID = nil
         aggregateWorkspaceRefreshTask?.cancel()
         aggregateWorkspaceRefreshTask = nil
         foregroundWorkspaceMutationRefreshTask?.cancel()
@@ -7327,22 +7330,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         _ = await reloadWorkspaceListFromMac()
-    }
-
-    /// Refresh only the foreground Mac and report whether an authoritative list
-    /// was installed. Mutation reconciliation uses this result to fail closed.
-    func refreshForegroundWorkspaceList() async -> Bool {
-        guard connectionState == .connected, remoteClient != nil else { return false }
-        if let inFlight = pullToRefreshTask {
-            return await inFlight.value
-        }
-        let task: Task<Bool, Never> = Task { @MainActor [weak self] in
-            guard let self else { return false }
-            defer { self.pullToRefreshTask = nil }
-            return await self.reloadWorkspaceListFromMac()
-        }
-        pullToRefreshTask = task
-        return await task.value
     }
 
     /// Refresh the foreground Mac workspace list and re-aggregate secondary Macs.

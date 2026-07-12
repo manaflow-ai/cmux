@@ -44,6 +44,29 @@ extension MobileShellComposite {
         }
     }
 
+    /// Refresh only the foreground Mac and report whether an authoritative list
+    /// was installed. Mutation reconciliation uses this result to fail closed.
+    func refreshForegroundWorkspaceList() async -> Bool {
+        guard connectionState == .connected, remoteClient != nil else { return false }
+        if let inFlight = pullToRefreshTask {
+            return await inFlight.value
+        }
+        let taskID = UUID()
+        let task: Task<Bool, Never> = Task { @MainActor [weak self] in
+            guard let self else { return false }
+            defer {
+                if self.pullToRefreshTaskID == taskID {
+                    self.pullToRefreshTask = nil
+                    self.pullToRefreshTaskID = nil
+                }
+            }
+            return await self.reloadWorkspaceListFromMac()
+        }
+        pullToRefreshTask = task
+        pullToRefreshTaskID = taskID
+        return await task.value
+    }
+
     /// Starts a foreground read after a mutation acknowledgement. An older pull
     /// may contain the pre-mutation hierarchy, so it must settle before this read.
     func refreshForegroundWorkspaceListAfterMutation() async -> Bool {
