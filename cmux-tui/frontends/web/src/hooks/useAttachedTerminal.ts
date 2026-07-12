@@ -19,6 +19,7 @@ interface AttachedTerminalOptions {
 
 export function useAttachedTerminal({ client, surface, onError }: AttachedTerminalOptions) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
+  const [focused, setFocused] = useState(false);
   const terminalRef = useCallback((node: HTMLDivElement | null) => setHost(node), []);
 
   useEffect(() => {
@@ -41,6 +42,17 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     terminal.loadAddon(fit);
     terminal.open(host);
 
+    const handleFocusIn = () => setFocused(true);
+    const handleFocusOut = () => {
+      queueMicrotask(() => {
+        if (!cancelled) setFocused(host.contains(document.activeElement));
+      });
+    };
+    const focusOnTouch = () => terminal.focus();
+    host.addEventListener("focusin", handleFocusIn);
+    host.addEventListener("focusout", handleFocusOut);
+    host.addEventListener("touchend", focusOnTouch, { passive: true });
+
     const sendResize = debounce(() => {
       if (cancelled) return;
       fit.fit();
@@ -48,6 +60,8 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     }, 100);
     const observer = new ResizeObserver(sendResize);
     observer.observe(host);
+    window.visualViewport?.addEventListener("resize", sendResize);
+    window.visualViewport?.addEventListener("scroll", sendResize);
     sendResize();
     const input = terminal.onData((text) => void client.send(surface, { text }).catch(onError));
     let stream: Awaited<ReturnType<CmuxClient["attachSurface"]>> | null = null;
@@ -93,12 +107,18 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     return () => {
       cancelled = true;
       observer.disconnect();
+      window.visualViewport?.removeEventListener("resize", sendResize);
+      window.visualViewport?.removeEventListener("scroll", sendResize);
+      host.removeEventListener("focusin", handleFocusIn);
+      host.removeEventListener("focusout", handleFocusOut);
+      host.removeEventListener("touchend", focusOnTouch);
       sendResize.cancel();
       input.dispose();
       stream?.close();
       terminal.dispose();
+      setFocused(false);
     };
   }, [client, host, onError, surface]);
 
-  return terminalRef;
+  return { terminalRef, focused };
 }
