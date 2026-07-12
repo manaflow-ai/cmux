@@ -9613,7 +9613,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard !browserPanel.shouldSuppressOmnibarAutofocus() else { return }
         guard browserPanel.isContentBlankForOmnibar else { return }
 
-        _ = browserPanel.requestAddressBarFocus()
+        _ = browserPanel.requestAddressBarFocus(selectionIntent: .preserveFieldEditorSelection)
         NotificationCenter.default.post(name: .browserFocusAddressBar, object: browserPanel.id)
     }
 
