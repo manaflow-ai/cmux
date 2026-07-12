@@ -72,6 +72,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
 
         let configuration = WKWebViewConfiguration()
         configuration.suppressesIncrementalRendering = false
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.userContentController.addScriptMessageHandler(
             self,
             contentWorld: .page,
@@ -103,9 +104,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         guard let webView, webView.window != nil else {
             return
         }
-        guard let resourceDirectoryURL = Bundle.main.resourceURL else {
-            return
-        }
+        guard let resourceDirectoryURL = Bundle.main.resourceURL else { return }
         let indexURL = Self.shellURL(
             rendererKind: rendererKind,
             resourceDirectoryURL: resourceDirectoryURL
@@ -117,7 +116,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             "index=\(indexURL.path)"
         )
 #endif
-        webView.loadFileURL(indexURL, allowingReadAccessTo: Bundle.main.resourceURL ?? resourceDirectoryURL)
+        webView.loadFileURL(indexURL, allowingReadAccessTo: resourceDirectoryURL)
         loadedRendererKind = rendererKind
         hasFinishedNavigation = false
         hasCompletedVisiblePaintFlush = false

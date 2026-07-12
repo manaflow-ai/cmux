@@ -6,10 +6,19 @@ SRC_DIR="$ROOT/webviews"
 OUT_DIR="$ROOT/Resources/markdown-viewer/webviews-app"
 MARKED_JS="$ROOT/Resources/markdown-viewer/marked.min.js"
 
+escape_inline_script() {
+  /usr/bin/perl -0pe 's{</script}{<\\/script}ig; s{<!--}{<\\!--}g' "$1"
+}
+
 write_agent_session_html() {
   out_dir="$1"
+  agent_session_js="$out_dir/agent-session.js"
   if [ ! -f "$MARKED_JS" ]; then
     echo "error: missing markdown parser asset at $MARKED_JS" >&2
+    exit 1
+  fi
+  if [ ! -f "$agent_session_js" ]; then
+    echo "error: missing Agent Chat webview bundle at $agent_session_js" >&2
     exit 1
   fi
   {
@@ -23,12 +32,15 @@ write_agent_session_html() {
     printf '  <body data-cmux-webview-kind="agent-session" data-codex-window-type="electron">\n'
     printf '    <main id="root"></main>\n'
     printf '    <script>\n'
-    /usr/bin/perl -0pe 's{</script}{<\\/script}ig; s{<!--}{<\\!--}g' "$MARKED_JS"
+    escape_inline_script "$MARKED_JS"
     printf '\n    </script>\n'
-    printf '    <script type="module" src="./main.mjs"></script>\n'
+    printf '    <script>\n'
+    escape_inline_script "$agent_session_js"
+    printf '\n    </script>\n'
     printf '  </body>\n'
     printf '</html>\n'
   } > "$out_dir/agent-session.html"
+  rm -f "$agent_session_js"
 }
 
 strip_trailing_line_whitespace() {

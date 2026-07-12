@@ -21,23 +21,6 @@ struct CmuxAgentChatConfigTests {
         return try body()
     }
 
-    @MainActor
-    private func withBrowserDisabled(_ body: () throws -> Void) rethrows {
-        let defaults = UserDefaults.standard
-        let previous = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey) as? Bool
-        let hadPrevious = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey) != nil
-        BrowserAvailabilitySettings.setDisabled(true)
-        defer {
-            if hadPrevious, let previous {
-                BrowserAvailabilitySettings.setDisabled(previous)
-            } else {
-                defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
-                NotificationCenter.default.post(name: BrowserAvailabilitySettings.didChangeNotification, object: nil)
-            }
-        }
-        try body()
-    }
-
     private func decode(_ json: String) throws -> CmuxConfigFile {
         let data = json.data(using: .utf8)!
         return try JSONDecoder().decode(CmuxConfigFile.self, from: data)
@@ -479,19 +462,4 @@ struct CmuxAgentChatConfigTests {
         }
     }
 
-    @MainActor
-    @Test func performNewAgentChatActionRejectsWhenBrowserSurfacesAreDisabled() throws {
-        try withAgentChatUIFlag(true) {
-            try withBrowserDisabled {
-                let didStart = AppDelegate().performNewAgentChatAction(
-                    tabManager: TabManager(),
-                    agentChat: .default,
-                    globalConfigPath: nil,
-                    preferredWindow: nil
-                )
-
-                #expect(!didStart)
-            }
-        }
-    }
 }

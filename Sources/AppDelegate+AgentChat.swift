@@ -119,6 +119,18 @@ extension AppDelegate {
             NSSound.beep()
             return false
         }
+        if agentChat.serverMode == .legacyDefaultURL {
+            let workspaceName = String(
+                localized: "workspace.agentChat.defaultTitle",
+                defaultValue: "Agent Chat"
+            )
+            tabManager.addWorkspace(
+                title: workspaceName,
+                initialSurface: .agentSession
+            )
+            onExecuted?()
+            return true
+        }
         guard BrowserAvailabilitySettings.isEnabled() else {
             NSSound.beep()
             return false
@@ -169,40 +181,16 @@ extension AppDelegate {
         tabManager: TabManager,
         url: URL
     ) -> Workspace? {
-        let beforeIds = Set(tabManager.tabs.map(\.id))
         let workspaceName = String(
             localized: "workspace.agentChat.defaultTitle",
             defaultValue: "Agent Chat"
         )
-        let workspaceDefinition = CmuxWorkspaceDefinition(
-            name: workspaceName,
-            layout: .pane(CmuxPaneDefinition(surfaces: [
-                CmuxSurfaceDefinition(
-                    type: .browser,
-                    name: workspaceName,
-                    command: nil,
-                    cwd: nil,
-                    env: nil,
-                    url: url.absoluteString,
-                    focus: true
-                ),
-            ]))
+        return tabManager.addWorkspace(
+            title: workspaceName,
+            initialSurface: .browser,
+            initialBrowserURL: url,
+            initialBrowserOmnibarVisible: false
         )
-        let command = CmuxCommandDefinition(
-            name: workspaceName,
-            workspace: workspaceDefinition
-        )
-        let baseCwd = tabManager.selectedWorkspace?.currentDirectory
-            ?? FileManager.default.homeDirectoryForCurrentUser.path
-        guard CmuxConfigExecutor.executeWorkspaceCommand(
-            command: command,
-            workspace: workspaceDefinition,
-            tabManager: tabManager,
-            baseCwd: baseCwd
-        ) else {
-            return nil
-        }
-        return tabManager.tabs.first { !beforeIds.contains($0.id) } ?? tabManager.selectedWorkspace
     }
 
 

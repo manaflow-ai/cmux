@@ -7358,13 +7358,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         debugSource: debugSource,
                         replacingInitialWorkspace: initialWorkspace
                     )
-                case .browser:
+                case .browser, .agentSession:
                     // The fresh window boots with a terminal workspace; add the
-                    // browser workspace and close that initial one so the
-                    // action's result matches the no-window case for terminals.
+                    // requested workspace and close it to match the no-window case.
                     let workspace = context.tabManager.addWorkspace(
                         title: title,
-                        initialSurface: .browser,
+                        initialSurface: initialSurface,
                         initialBrowserURL: initialBrowserURL,
                         initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                         initialBrowserTransparentBackground: initialBrowserTransparentBackground
@@ -7374,7 +7373,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         in: context
                     )
                     createdWorkspaceHandler?(workspace)
-                    if focusInitialBrowserAddressBarOnCreate {
+                    if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
                         focusInitialBrowserAddressBar(in: workspace)
                     }
                 case .cloudVMLoading:
@@ -8277,10 +8276,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let workspace: Workspace
-        if initialSurface == .browser {
+        if initialSurface == .browser || initialSurface == .agentSession {
             workspace = context.tabManager.addWorkspace(
                 title: title,
-                initialSurface: .browser,
+                workingDirectory: workingDirectory,
+                initialSurface: initialSurface,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
