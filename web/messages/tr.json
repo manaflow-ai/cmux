@@ -628,7 +628,7 @@
       ]
     },
     "sessionRestore": {
-      "metaDescription": "cmux ile yeniden başlatma veya terminal çökmesinden sonra Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI ve diğer kodlama agent oturumlarını geri yükleme.",
+      "metaDescription": "cmux, yeniden başlatma veya terminal çökmesinden sonra Claude Code, Codex, OpenCode ve diğer kodlama ajanlarının düzenlerini ve oturumlarını geri yükler.",
       "metaKeywords": [
         "cmux",
         "oturum geri yükleme",
