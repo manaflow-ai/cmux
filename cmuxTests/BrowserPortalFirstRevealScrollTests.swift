@@ -39,6 +39,7 @@ struct BrowserPortalFirstRevealScrollTests {
         let anchor = NSView(frame: anchorFrame)
         contentView.addSubview(anchor)
         contentView.layoutSubtreeIfNeeded()
+        window.orderFrontRegardless()
         window.displayIfNeeded()
         return WindowFixture(window: window, anchor: anchor)
     }
@@ -148,6 +149,42 @@ struct BrowserPortalFirstRevealScrollTests {
         _ = browserLoadRequest(URLRequest(url: navigationURL), in: webView)
 
         #expect(webView.browserPortalNeedsFirstSizedRevealNudge)
+    }
+
+    @Test func orderedOutWindowMarksAndDefersPendingNudgeUntilVisible() async {
+        let fixture = makeWindowFixture()
+        defer {
+            fixture.window.orderOut(nil)
+            fixture.window.close()
+        }
+        let webView = RecordingWebView(
+            frame: NSRect(x: 0, y: 0, width: 300, height: 180),
+            configuration: WKWebViewConfiguration()
+        )
+        fixture.window.contentView?.addSubview(webView)
+        fixture.window.orderOut(nil)
+
+        #expect(!fixture.window.isVisible)
+        webView.browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsWithoutPresentation(
+            reason: "unitTestOrderedOutNavigation"
+        )
+        #expect(webView.browserPortalNeedsFirstSizedRevealNudge)
+        #expect(!webView.browserPortalApplyFirstSizedRevealGeometryNudgeIfNeeded(
+            reason: "unitTestOrderedOutReveal",
+            hasCompanionWKSubviews: false,
+            managedByExternalFullscreenWindow: false
+        ))
+        #expect(webView.browserPortalNeedsFirstSizedRevealNudge)
+
+        fixture.window.orderFrontRegardless()
+        #expect(fixture.window.isVisible)
+        #expect(webView.browserPortalApplyFirstSizedRevealGeometryNudgeIfNeeded(
+            reason: "unitTestOrderedInReveal",
+            hasCompanionWKSubviews: false,
+            managedByExternalFullscreenWindow: false
+        ))
+        await waitForNextMainTurn()
+        #expect(!webView.browserPortalNeedsFirstSizedRevealNudge)
     }
 
     @Test func hiddenHostRevealThroughPortalNudgesFrameOnceAndClearsFlag() async throws {
