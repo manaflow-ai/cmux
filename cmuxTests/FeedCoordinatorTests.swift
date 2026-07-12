@@ -10,6 +10,55 @@ import CMUXAgentLaunch
 
 @Suite("Feed coordinator", .serialized)
 struct FeedCoordinatorTests {
+    @Test @MainActor
+    func closingPanelConcludesObservedPermissionAttentionLease() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelID = try #require(workspace.focusedPanelId)
+        let key = FeedCoordinator.ObservedAttentionKey(
+            source: "claude",
+            sessionID: "panel-close-lease",
+            workspaceID: workspace.id,
+            panelID: panelID
+        )
+        let target = FeedCoordinator.AttentionTarget(
+            workspaceId: workspace.id,
+            panelId: panelID,
+            statusKey: "claude_code"
+        )
+        FeedCoordinator.shared.recordObservedAttentionLease(key: key, target: target, ppid: nil)
+        defer { FeedCoordinator.shared.concludeObservedAttentionLeases(workspaceID: workspace.id) }
+
+        #expect(FeedCoordinator.shared.hasObservedAttentionLease(key: key))
+        #expect(workspace.closePanel(panelID, force: true))
+        drainMainQueue()
+        drainMainQueue()
+        #expect(!FeedCoordinator.shared.hasObservedAttentionLease(key: key))
+    }
+
+    @Test @MainActor
+    func closingWorkspaceConcludesObservedPermissionAttentionLeaseWithoutPanel() throws {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace()
+        let key = FeedCoordinator.ObservedAttentionKey(
+            source: "claude",
+            sessionID: "workspace-close-lease",
+            workspaceID: workspace.id,
+            panelID: nil
+        )
+        let target = FeedCoordinator.AttentionTarget(
+            workspaceId: workspace.id,
+            panelId: nil,
+            statusKey: "claude_code"
+        )
+        FeedCoordinator.shared.recordObservedAttentionLease(key: key, target: target, ppid: nil)
+        defer { FeedCoordinator.shared.concludeObservedAttentionLeases(workspaceID: workspace.id) }
+
+        #expect(FeedCoordinator.shared.hasObservedAttentionLease(key: key))
+        manager.closeWorkspace(workspace)
+        #expect(!FeedCoordinator.shared.hasObservedAttentionLease(key: key))
+    }
+
     @Test func codexTeamsResolvesExplicitWorkingDirectoryFlags() {
         let base = "/tmp/cmux-base"
 

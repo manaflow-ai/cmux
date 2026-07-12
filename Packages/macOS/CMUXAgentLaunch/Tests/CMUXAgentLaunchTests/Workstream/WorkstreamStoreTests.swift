@@ -14,6 +14,16 @@ struct WorkstreamStoreTests {
         #expect(store.items[0].kind == .permissionRequest)
     }
 
+    @Test("observe-only permission is telemetry, not a reply-capable pending card")
+    func ingestObserveOnlyPermission() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingestObserveOnly(.permission("s1", requestId: "r1"))
+        #expect(store.items.count == 1)
+        #expect(store.pending.isEmpty)
+        #expect(store.items[0].status == .telemetry)
+        #expect(store.items[0].kind == .permissionRequest)
+    }
+
     @Test("send(.approvePermission) marks the item resolved")
     func resolvePermission() async throws {
         let store = WorkstreamStore(ringCapacity: 10)
