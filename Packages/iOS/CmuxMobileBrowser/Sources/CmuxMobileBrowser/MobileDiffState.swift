@@ -57,7 +57,6 @@ public final class MobileDiffState {
         self.document = document
         files = []
         fileIndexByID = [:]
-        selectedFileID = nil
         errorMessage = nil
         isLoading = false
         generation &+= 1

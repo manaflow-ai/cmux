@@ -11,6 +11,7 @@ export type MobileDiffFile = {
 export type MobileDiffFilesMessage = {
   files: MobileDiffFile[];
   generation: number | null;
+  selectedItemId?: string;
   type: "files";
 };
 
@@ -69,11 +70,13 @@ export function mobileDiffFiles(source: FileTreeSource | null): MobileDiffFile[]
 export function mobileDiffMessage(
   source: FileTreeSource | null,
   generation: number | null,
+  selectedItemId?: string,
 ): MobileDiffFilesMessage {
   return {
     type: "files",
     files: mobileDiffFiles(source),
     generation,
+    ...(selectedItemId === undefined ? {} : { selectedItemId }),
   };
 }
 
@@ -88,10 +91,9 @@ export function mobileDiffCompletionMessages(
   source: FileTreeSource | null,
   selectedItemId: string,
   generation: number,
-): [MobileDiffFilesMessage, MobileDiffSelectionMessage, MobileDiffLifecycleMessage] {
+): [MobileDiffFilesMessage, MobileDiffLifecycleMessage] {
   return [
-    mobileDiffMessage(source, generation),
-    mobileDiffSelectionMessage(selectedItemId, generation),
+    mobileDiffMessage(source, generation, selectedItemId),
     { type: "ready", generation },
   ];
 }

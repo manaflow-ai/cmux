@@ -36,7 +36,7 @@ import Testing
             macDeviceID: "test-mac",
             macDisplayName: "Test Mac",
             routes: [route],
-            expiresAt: Date().addingTimeInterval(60),
+            expiresAt: Date(timeIntervalSince1970: 4_102_444_800),
             authToken: "ticket-secret"
         )
         let client = MobileCoreRPCClient(

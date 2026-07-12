@@ -5,7 +5,7 @@ import CMUXMobileCore
 /// Builds a bounded Git working-tree patch for transport to a mobile client.
 final class MobileWorkingTreeDiffLoader: Sendable {
     private let maximumPatchBytes = 6 * 1024 * 1024
-    private let maximumUntrackedFiles = 200
+    private let maximumChangedFiles = 200
     private let maximumPathListBytes = 1024 * 1024
     private let maximumErrorBytes = 64 * 1024
     private let responseEnvelopeBudget = 64 * 1024
@@ -75,7 +75,23 @@ final class MobileWorkingTreeDiffLoader: Sendable {
         )).status == 0
         var patch = Data()
         var individualPaths: [Data] = []
+        var trackedFileCount = 0
         if hasHead {
+            let trackedPaths = try await runGit(
+                ["diff", "--name-only", "-z", "--no-ext-diff", "--no-textconv", "HEAD", "--"],
+                directory: repositoryRoot,
+                maximumStdoutBytes: maximumPathListBytes
+            )
+            guard !trackedPaths.stdoutOverflowed else {
+                throw MobileWorkingTreeDiffLoadError(code: "too_many_files", message: "Workspace has too many files to display")
+            }
+            guard trackedPaths.status == 0 else {
+                throw MobileWorkingTreeDiffLoadError(code: "git_error", message: "Could not list changed files")
+            }
+            trackedFileCount = trackedPaths.stdout.split(separator: UInt8(0)).count
+            guard trackedFileCount <= maximumChangedFiles else {
+                throw MobileWorkingTreeDiffLoadError(code: "too_many_files", message: "Workspace has too many files to display")
+            }
             let tracked = try await runGit(
                 ["diff", "--no-ext-diff", "--no-textconv", "--binary", "HEAD", "--"],
                 directory: repositoryRoot,
@@ -110,7 +126,7 @@ final class MobileWorkingTreeDiffLoader: Sendable {
         )
         let untrackedPaths = untracked.stdout.split(separator: UInt8(0)).map { Data($0) }
         guard !untracked.stdoutOverflowed,
-              individualPaths.count + untrackedPaths.count <= maximumUntrackedFiles else {
+              trackedFileCount + individualPaths.count + untrackedPaths.count <= maximumChangedFiles else {
             throw MobileWorkingTreeDiffLoadError(code: "too_many_files", message: "Workspace has too many files to display")
         }
         guard untracked.status == 0 else {
@@ -223,7 +239,9 @@ final class MobileWorkingTreeDiffLoader: Sendable {
         let fullPath = URL(fileURLWithPath: repositoryRoot).appendingPathComponent(path).path
         guard lstat(fullPath, &metadata) == 0 else { return false }
         let kind = metadata.st_mode & S_IFMT
-        return kind == S_IFREG || kind == S_IFLNK
+        if kind == S_IFREG { return true }
+        guard kind == S_IFLNK, stat(fullPath, &metadata) == 0 else { return false }
+        return metadata.st_mode & S_IFMT == S_IFREG
     }
 
     /// Drains a pipe to EOF while retaining only the caller's bounded prefix.

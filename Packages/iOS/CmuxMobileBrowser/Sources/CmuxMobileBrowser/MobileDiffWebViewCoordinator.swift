@@ -16,6 +16,7 @@ public final class MobileDiffWebViewCoordinator: NSObject, WKNavigationDelegate,
     private var appliedSelection: String?
     private var loadTask: Task<Void, Never>?
     private var renderTimeoutTask: Task<Void, Never>?
+    private var navigationGenerations: [ObjectIdentifier: Int] = [:]
 
     init(state: MobileDiffState) {
         self.state = state
@@ -32,6 +33,7 @@ public final class MobileDiffWebViewCoordinator: NSObject, WKNavigationDelegate,
         renderTimeoutTask?.cancel()
         renderTimeoutTask = nil
         patchHandler.cancelAll()
+        navigationGenerations.removeAll()
         webView = nil
     }
 
@@ -65,7 +67,9 @@ public final class MobileDiffWebViewCoordinator: NSObject, WKNavigationDelegate,
                     pendingGeneration = nil
                     appliedSelection = nil
                     let url = URL(string: "\(MobileDiffPatchSchemeHandler.scheme)://viewer/index-\(generation).html")!
-                    webView.load(URLRequest(url: url))
+                    if let navigation = webView.load(URLRequest(url: url)) {
+                        navigationGenerations[ObjectIdentifier(navigation)] = generation
+                    }
                     startRenderTimeout(generation: generation)
                 }
             } catch {
@@ -73,6 +77,7 @@ public final class MobileDiffWebViewCoordinator: NSObject, WKNavigationDelegate,
             }
         }
         if appliedSelection != state.selectedFileID, let selectedFileID = state.selectedFileID {
+            let generation = state.generation
             let literal = mobileDiffJavaScriptLiteral(selectedFileID)
             let script = "Boolean(window.__cmuxMobileDiff && (window.__cmuxMobileDiff.selectFile(\(literal)), true))"
             webView.evaluateJavaScript(script) { [weak self] value, error in
@@ -80,6 +85,7 @@ public final class MobileDiffWebViewCoordinator: NSObject, WKNavigationDelegate,
                     guard let self,
                           error == nil,
                           value as? Bool == true,
+                          state.generation == generation,
                           state.selectedFileID == selectedFileID else { return }
                     self.appliedSelection = selectedFileID
                 }
@@ -126,25 +132,32 @@ public final class MobileDiffWebViewCoordinator: NSObject, WKNavigationDelegate,
 
     /// Reapplies native state after a renderer navigation finishes.
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard takeGeneration(for: navigation) == state.generation else { return }
         apply(state: state)
     }
 
     /// Surfaces a committed-navigation failure in native diff state.
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
-        failNavigation(with: error)
+        failNavigation(navigation, with: error)
     }
 
     /// Surfaces a provisional-navigation failure in native diff state.
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
-        failNavigation(with: error)
+        failNavigation(navigation, with: error)
     }
 
-    private func failNavigation(with error: any Error) {
+    private func failNavigation(_ navigation: WKNavigation?, with error: any Error) {
+        guard takeGeneration(for: navigation) == state.generation else { return }
         let nsError = error as NSError
         guard nsError.domain != NSURLErrorDomain || nsError.code != NSURLErrorCancelled else { return }
         renderTimeoutTask?.cancel()
         renderTimeoutTask = nil
         state.fail(message: error.localizedDescription)
+    }
+
+    private func takeGeneration(for navigation: WKNavigation?) -> Int? {
+        guard let navigation else { return nil }
+        return navigationGenerations.removeValue(forKey: ObjectIdentifier(navigation))
     }
 
     private func startRenderTimeout(generation: Int) {
