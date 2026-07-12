@@ -369,16 +369,12 @@ final class MobileHostIrohRuntime {
                 } else if cachedHostPolicy?.binding != metadata {
                     try? await hostPolicyCache.delete(for: policyExpectation)
                 }
-                await MainActor.run {
-                    guard let self, revision == self.lifecycleRevision else { return }
-                    self.lastKnownBindingID = binding.bindingID
-                    self.lastKnownAccountID = accountID
-                    self.lastKnownTag = tag
-                    if self.preparedSignOut?.pendingRevocation?.accountID == accountID {
-                        self.preparedSignOut = nil
-                    }
-                    MobileHostService.shared.updateIrohBinding(binding)
-                }
+                await self?.recordRegisteredBinding(
+                    binding,
+                    accountID: accountID,
+                    tag: tag,
+                    revision: revision
+                )
             },
             handleDeactivation: { bindingID in
                 await lanPublisher.stop()
@@ -443,6 +439,22 @@ final class MobileHostIrohRuntime {
         if preparedSignOut?.pendingRevocation?.accountID == accountID {
             preparedSignOut = nil
         }
+    }
+
+    private func recordRegisteredBinding(
+        _ binding: CmxIrohBrokerBinding,
+        accountID: String,
+        tag: String,
+        revision: UInt64
+    ) {
+        guard revision == lifecycleRevision else { return }
+        lastKnownBindingID = binding.bindingID
+        lastKnownAccountID = accountID
+        lastKnownTag = tag
+        if preparedSignOut?.pendingRevocation?.accountID == accountID {
+            preparedSignOut = nil
+        }
+        MobileHostService.shared.updateIrohBinding(binding)
     }
 
 }

@@ -333,7 +333,9 @@ final class MobilePairingModel {
     /// Whether `route` can serve released iOS clients: a Tailscale route that
     /// does not point back at this Mac. Iroh-capable clients use an identity-only
     /// route and never receive this private address in their default QR.
-    private static func isPhoneReachableLegacyRoute(_ route: CmxAttachRoute) -> Bool {
+    private nonisolated static func isPhoneReachableLegacyRoute(
+        _ route: CmxAttachRoute
+    ) -> Bool {
         route.kind == .tailscale && !CmxLoopbackHost().matches(route)
     }
 
