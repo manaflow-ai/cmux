@@ -63,9 +63,26 @@ struct MobileViewportFitGeometryTests {
 
         state.cellMetricsDidChange()
         state.suppressLiveFontProbeUntilMetricsChange()
-        #expect(!state.consumeLiveFontProbeRequest())
+        let suppressedRequest = state.consumeLiveFontProbeRequest()
+        #expect(!suppressedRequest)
         state.cellMetricsDidChange()
-        #expect(state.consumeLiveFontProbeRequest())
+        let resumedRequest = state.consumeLiveFontProbeRequest()
+        #expect(resumedRequest)
+    }
+
+    @Test func pendingLiveFontProbePreservesZoomBeforeReloadLease() {
+        var state = MobileViewportFontFitState(
+            baseFontPointSize: 12,
+            fittedFontPointSize: 8,
+            baseWasUserAdjusted: false
+        )
+
+        state.cellMetricsDidChange()
+        state.reconcilePendingLiveFontProbe(configuredFontPointSize: 12) { 14 }
+
+        #expect(state.baseFontPointSize == 14)
+        #expect(state.fittedFontPointSize == nil)
+        #expect(state.baseWasUserAdjusted == true)
     }
 
     @Test func activeRuntimeConfigWinsWhenSurfaceHasNoTemplateFont() {

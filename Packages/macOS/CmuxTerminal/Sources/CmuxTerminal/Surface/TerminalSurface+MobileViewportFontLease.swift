@@ -103,8 +103,14 @@ extension TerminalSurface {
     ) -> MobileViewportFontFitReloadLease? {
         guard !manualIO,
               let limit = mobileViewportCellLimit,
-              liveSurfaceForGhosttyAccess(reason: reason) != nil else {
+              let surface = liveSurfaceForGhosttyAccess(reason: reason) else {
             return nil
+        }
+
+        mobileViewportFontFitState.reconcilePendingLiveFontProbe(
+            configuredFontPointSize: configuredMobileViewportFontPointSize()
+        ) {
+            GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(surface)
         }
 
         let hadAutomaticFit = mobileViewportFontFitState.fittedFontPointSize != nil

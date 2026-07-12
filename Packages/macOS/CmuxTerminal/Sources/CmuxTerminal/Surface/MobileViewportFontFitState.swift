@@ -35,6 +35,13 @@ struct MobileViewportFontFitState: Equatable {
         needsLiveFontProbe = false
     }
 
+    mutating func reconcilePendingLiveFontProbe(
+        configuredFontPointSize _: Float,
+        probe _: () -> Float?
+    ) {
+        _ = consumeLiveFontProbeRequest()
+    }
+
     mutating func begin(
         baseFontPointSize: Float,
         configuredFontPointSize: Float,

@@ -44,6 +44,12 @@ extension GhosttySurfaceView {
         let reportFontSize: Float32
         if let effectiveGrid,
            effectiveGrid.rows < rows,
+           TerminalRowCapacityFit.shouldReportDestinationFont(
+               renderedRows: natural.rows,
+               effectiveRows: effectiveGrid.rows,
+               liveFontSize: liveFontSize,
+               baseFontSize: userBaseFontSize
+           ),
            let fitted = fit.fitFontSize(forEffectiveRows: effectiveGrid.rows) {
             reportFontSize = min(
                 max(fitted, userBaseFontSize),

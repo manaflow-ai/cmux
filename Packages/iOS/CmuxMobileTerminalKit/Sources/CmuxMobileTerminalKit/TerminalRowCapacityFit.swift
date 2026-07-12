@@ -77,6 +77,15 @@ public struct TerminalRowCapacityFit {
         return abs(renderedRows - effectiveRows) >= refitThresholdRows
     }
 
+    public static func shouldReportDestinationFont(
+        renderedRows _: Int,
+        effectiveRows _: Int,
+        liveFontSize _: Float32,
+        baseFontSize _: Float32
+    ) -> Bool {
+        true
+    }
+
     /// The row capacity this device should REPORT: how many rows fit in the
     /// container at the user's base font. Cell height scales linearly with
     /// the font point size, so the base-font cell height is derived from the

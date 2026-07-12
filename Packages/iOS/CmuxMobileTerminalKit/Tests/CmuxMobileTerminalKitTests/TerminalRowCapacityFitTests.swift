@@ -67,6 +67,28 @@ struct TerminalRowCapacityFitTests {
         #expect(fit.capacityColumns(atFontSize: 0) == nil)
     }
 
+    @Test("destination-font reporting follows fit hysteresis until font changes")
+    func destinationFontReportingFollowsFitHysteresis() {
+        #expect(!TerminalRowCapacityFit.shouldReportDestinationFont(
+            renderedRows: 50,
+            effectiveRows: 49,
+            liveFontSize: 12,
+            baseFontSize: 12
+        ))
+        #expect(TerminalRowCapacityFit.shouldReportDestinationFont(
+            renderedRows: 50,
+            effectiveRows: 48,
+            liveFontSize: 12,
+            baseFontSize: 12
+        ))
+        #expect(TerminalRowCapacityFit.shouldReportDestinationFont(
+            renderedRows: 49,
+            effectiveRows: 49,
+            liveFontSize: 14,
+            baseFontSize: 12
+        ))
+    }
+
     @Test("column capacity is the measured grid when live font equals base font")
     func columnCapacityIdentityAtBaseFont() throws {
         let fit = try #require(TerminalRowCapacityFit(
