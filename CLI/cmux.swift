@@ -30398,6 +30398,14 @@ export default CMUXSessionRestore;
                 !ambientDirectBindingIsBlocked()
             }
 
+            func ambientDirectWorkspaceAgreesWithProcessBinding(_ workspaceId: String) -> Bool {
+                guard hookWsFlag == nil, explicitSurfaceFlag == nil else { return true }
+                guard let processWorkspaceId = resolveAccessibleWorkspaceId(processBinding()?.workspaceId) else {
+                    return true
+                }
+                return processWorkspaceId == workspaceId
+            }
+
             // G3 (codex jumble defense-in-depth): the surface id can arrive from the ambient env
             // (CMUX_SURFACE_ID), which a launcher or an inherited subprocess can leak as the operator's
             // FOCUSED pane rather than the agent's own pane. When the agent process's controlling TTY
@@ -30428,7 +30436,8 @@ export default CMUXSessionRestore;
             }
 
             if let workspaceId = resolvedDirectWorkspaceArg,
-               !ambientDirectBindingIsBlocked() {
+               !ambientDirectBindingIsBlocked(),
+               ambientDirectWorkspaceAgreesWithProcessBinding(workspaceId) {
                 let preferredSurfaceId = correctedDirectSurfaceId(workspaceId: workspaceId)
                     ?? (hookWsFlag == nil ? processBinding()?.surfaceId : nil)
                 let target = resolveTarget(workspaceId: workspaceId, preferredSurfaceId: preferredSurfaceId, mapped: mapped, allowDefaultSurfaceFallback: allowsDefaultSurfaceFallback())
