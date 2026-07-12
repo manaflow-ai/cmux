@@ -6326,7 +6326,7 @@ final class Workspace: Identifiable, ObservableObject {
         let scrollback = if capturedScrollback?.contains(where: { !$0.isWhitespace }) == true {
             capturedScrollback
         } else {
-            SessionPersistencePolicy.truncatedScrollback(restoredTerminalScrollbackByPanelId[surfaceId])
+            Self.plainTextRemoteDisconnectFallbackScrollback(restoredTerminalScrollbackByPanelId[surfaceId])
         }
         guard let placeholderCommand = Self.remoteDisconnectPlaceholderScript(
             target: pendingRemoteDisconnectReplacement.target,

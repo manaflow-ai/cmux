@@ -12,6 +12,17 @@ extension Workspace {
         terminalPanel.surface.boundedScreenTailVT(maxRows: lineLimit, maxBytes: byteLimit)
     }
 
+    /// Replays persisted fallback only when truncation cannot leave terminal control state open.
+    static func plainTextRemoteDisconnectFallbackScrollback(_ scrollback: String?) -> String? {
+        guard let bounded = SessionPersistencePolicy.truncatedScrollback(scrollback) else { return nil }
+        let containsTerminalControl = bounded.unicodeScalars.contains { scalar in
+            let value = scalar.value
+            let allowedWhitespace = value == 0x09 || value == 0x0A || value == 0x0D
+            return !allowedWhitespace && (value < 0x20 || (0x7F...0x9F).contains(value))
+        }
+        return containsTerminalControl ? nil : bounded
+    }
+
     /// Writes a small shell wrapper that keeps a disconnected remote terminal visible.
     /// The returned path goes to `initialCommand`; failure returns `nil` without a shell fallback.
     static func remoteDisconnectPlaceholderScript(
