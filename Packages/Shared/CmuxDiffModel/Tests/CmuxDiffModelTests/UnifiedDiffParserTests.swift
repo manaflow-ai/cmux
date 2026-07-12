@@ -91,6 +91,27 @@ import Testing
         #expect(result.hunks[0].lines.map(\.newLine) == [1, 2])
     }
 
+    @Test func fileBoundaryDoesNotBecomeNumberedHunkContext() {
+        let diff = """
+        diff --git a/Old.swift b/Old.swift
+        --- a/Old.swift
+        +++ /dev/null
+        @@ -1 +0,0 @@
+        -old
+        diff --git a/New.swift b/New.swift
+        --- /dev/null
+        +++ b/New.swift
+        @@ -0,0 +1 @@
+        +new
+        """
+
+        let result = parser.parse(diff)
+
+        #expect(result.hunks.count == 2)
+        #expect(result.hunks[0].lines.map(\.text) == ["old"])
+        #expect(result.hunks[1].lines.map(\.text) == ["new"])
+    }
+
     @Test func binaryDiffProducesNoHunks() {
         let diff = """
         diff --git a/image.png b/image.png

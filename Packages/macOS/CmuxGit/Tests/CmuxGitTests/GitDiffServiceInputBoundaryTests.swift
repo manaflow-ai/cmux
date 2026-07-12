@@ -132,6 +132,26 @@ import Testing
         #expect(diff.unifiedDiff.contains("+TargetB"))
     }
 
+    @Test func deletedPathWithUntrackedReplacementKeepsDeletedDiff() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let file = repo.appendingPathComponent("replaced.txt")
+        try Data("original\n".utf8).write(to: file)
+        try runTestGit(in: repo, ["add", "--", "replaced.txt"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add original"])
+        try runTestGit(in: repo, ["rm", "--cached", "--quiet", "--", "replaced.txt"])
+        try Data("replacement\n".utf8).write(to: file)
+
+        let service = GitDiffService()
+        let status = try #require(service.changedFiles(repoRoot: repo.path))
+        let summary = try #require(status.files.first { $0.path == "replaced.txt" })
+        let diff = try #require(service.fileDiff(repoRoot: repo.path, path: "replaced.txt"))
+
+        #expect(summary.status == .deleted)
+        #expect(diff.unifiedDiff.contains("-original"))
+        #expect(!diff.unifiedDiff.contains("+replacement"))
+    }
+
     private func makeTempRepo() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-git-diff-boundary-tests-\(UUID().uuidString)")
