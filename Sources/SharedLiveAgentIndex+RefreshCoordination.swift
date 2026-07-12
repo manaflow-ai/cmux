@@ -68,10 +68,14 @@ extension SharedLiveAgentIndex {
             self.refreshGenerationsByID[generationID] = generation
             self.capturingGenerationIDs.insert(generationID)
 
-            let result = await self.performRefreshWork(
+            let workResult = await self.performRefreshWork(
                 validating: generation.cachedResultToValidate
             )
-            self.completeRefresh(generationID: generationID, result: result)
+            self.completeRefresh(
+                generationID: generationID,
+                result: workResult.result,
+                preservingPublishedForkValidations: workResult.reusedCachedResult
+            )
         }
         refreshWorkTasksByID[generationID] = workTask
         return task
@@ -135,27 +139,35 @@ extension SharedLiveAgentIndex {
         drainPendingHookStoreChangeIfPossible()
     }
 
-    private func performRefreshWork(validating cachedResult: LoadResult?) async -> LoadResult {
+    private func performRefreshWork(
+        validating cachedResult: LoadResult?
+    ) async -> (result: LoadResult, reusedCachedResult: Bool) {
         let indexLoader = self.indexLoader
         guard let cachedResult else {
-            return await Task.detached(priority: .utility) {
+            let result = await Task.detached(priority: .utility) {
                 indexLoader()
             }.value
+            return (result, false)
         }
         let processScopeFingerprintProvider = self.processScopeFingerprintProvider
         let currentProcessScopeFingerprint = await Task.detached(priority: .utility) {
             processScopeFingerprintProvider()
         }.value
         guard cachedResult.processScopeFingerprint != currentProcessScopeFingerprint else {
-            return cachedResult
+            return (cachedResult, true)
         }
         invalidateAllCachedResults()
-        return await Task.detached(priority: .utility) {
+        let result = await Task.detached(priority: .utility) {
             indexLoader()
         }.value
+        return (result, false)
     }
 
-    private func completeRefresh(generationID: UUID, result: LoadResult) {
+    private func completeRefresh(
+        generationID: UUID,
+        result: LoadResult,
+        preservingPublishedForkValidations: Bool
+    ) {
         guard let generation = refreshGenerationsByID.removeValue(forKey: generationID) else {
             return
         }
@@ -185,7 +197,7 @@ extension SharedLiveAgentIndex {
                     generationID: generationID
                 )
                 NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
-            } else {
+            } else if !preservingPublishedForkValidations {
                 invalidatePublishedForkValidations()
             }
         } else {
