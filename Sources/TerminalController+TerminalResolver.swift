@@ -31,7 +31,7 @@ extension TerminalController {
                   let parsedWorkspaceID = UUID(uuidString: workspaceID) else {
                 return .err(
                     code: "invalid_params",
-                    message: "_cmux_authenticated_relay_workspace_id must be a UUID",
+                    message: "invalid relay workspace id",
                     data: nil
                 )
             }

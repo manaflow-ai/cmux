@@ -246,12 +246,10 @@ extension CMUXCLI {
             return CallerTerminalBinding(workspaceId: workspaceId, surfaceId: surfaceId)
         }
         var ttyBindings: [CallerTerminalBinding] = []
+        var seenTTYBindings: Set<CallerTerminalBinding> = []
         for raw in rawTTYBindings {
             guard let candidate = binding(raw) else { return nil }
-            guard !ttyBindings.contains(where: {
-                normalizedHandleValue($0.workspaceId) == normalizedHandleValue(candidate.workspaceId)
-                    && normalizedHandleValue($0.surfaceId) == normalizedHandleValue(candidate.surfaceId)
-            }) else { continue }
+            guard seenTTYBindings.insert(candidate).inserted else { continue }
             ttyBindings.append(candidate)
         }
         if requirePIDBinding {

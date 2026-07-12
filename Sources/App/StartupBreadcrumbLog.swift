@@ -193,8 +193,12 @@ nonisolated enum StartupBreadcrumbLog {
         }
         let handle = try FileHandle(forUpdating: url)
         defer { try? handle.close() }
-        guard flock(handle.fileDescriptor, LOCK_EX) == 0 else {
-            let code = POSIXErrorCode(rawValue: errno) ?? .EIO
+        guard flock(handle.fileDescriptor, LOCK_EX | LOCK_NB) == 0 else {
+            let errorNumber = errno
+            if errorNumber == EWOULDBLOCK || errorNumber == EAGAIN {
+                return
+            }
+            let code = POSIXErrorCode(rawValue: errorNumber) ?? .EIO
             throw POSIXError(code)
         }
         defer { flock(handle.fileDescriptor, LOCK_UN) }

@@ -253,7 +253,7 @@ final class ClaudeHookSessionStore {
            !overridePath.isEmpty {
             self.statePath = NSString(string: overridePath).expandingTildeInPath
         } else {
-            self.statePath = resolveAgentHookStateWriterLocation(
+            self.statePath = CMUXCLI.resolveAgentHookStateWriterLocation(
                 environment: processEnv,
                 fileManager: fileManager,
                 applicationSupportDirectory: applicationSupportDirectory
@@ -1461,7 +1461,7 @@ final class ClaudeHookSessionStore {
     }
 
     private func withLockedState<T>(_ body: (inout ClaudeHookSessionStoreFile) throws -> T) throws -> T {
-        try ensurePrivateAgentHookStateDirectory(
+        try CMUXCLI.ensurePrivateAgentHookStateDirectory(
             at: URL(fileURLWithPath: statePath).deletingLastPathComponent(),
             fileManager: fileManager
         )
@@ -1515,7 +1515,7 @@ final class ClaudeHookSessionStore {
     private func saveUnlocked(_ state: ClaudeHookSessionStoreFile) throws {
         let stateURL = URL(fileURLWithPath: statePath)
         let parentURL = stateURL.deletingLastPathComponent()
-        try ensurePrivateAgentHookStateDirectory(at: parentURL, fileManager: fileManager)
+        try CMUXCLI.ensurePrivateAgentHookStateDirectory(at: parentURL, fileManager: fileManager)
         let data = try encoder.encode(state)
         let tempURL = parentURL.appendingPathComponent(".\(stateURL.lastPathComponent).\(UUID().uuidString).tmp")
         guard fileManager.createFile(atPath: tempURL.path, contents: data, attributes: [
@@ -25396,7 +25396,7 @@ struct CMUXCLI {
         })
     }
 
-    struct CallerTerminalBinding {
+    struct CallerTerminalBinding: Hashable {
         let workspaceId: String
         let surfaceId: String
     }
@@ -27974,7 +27974,7 @@ struct CMUXCLI {
 
     func agentHookStatePath(sessionStoreSuffix: String, env: [String: String]) -> String {
         let filename = "\(sessionStoreSuffix)-hook-sessions.json"
-        return resolveAgentHookStateWriterLocation(environment: env, fileManager: .default).directoryURL
+        return Self.resolveAgentHookStateWriterLocation(environment: env, fileManager: .default).directoryURL
             .appendingPathComponent(filename, isDirectory: false)
             .path
     }

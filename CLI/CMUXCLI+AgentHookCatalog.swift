@@ -1,61 +1,61 @@
 import CMUXAgentLaunch
 import Foundation
 
-func resolveAgentHookStateWriterLocation(
-    environment: [String: String],
-    fileManager: FileManager,
-    applicationSupportDirectory: URL? = nil,
-    containingBundleIdentifier: String? = nil,
-    legacyHomeDirectory: URL? = nil
-) -> AgentHookStateWriterLocation {
-    let inheritedHome = environment["HOME"]?
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-    let resolvedLegacyHomeDirectory: URL
-    if let legacyHomeDirectory {
-        resolvedLegacyHomeDirectory = legacyHomeDirectory
-    } else if let inheritedHome, !inheritedHome.isEmpty {
-        resolvedLegacyHomeDirectory = URL(fileURLWithPath: inheritedHome, isDirectory: true)
-    } else {
-        resolvedLegacyHomeDirectory = fileManager.homeDirectoryForCurrentUser
-    }
-    let resolvedApplicationSupportDirectory = applicationSupportDirectory ?? fileManager.urls(
-        for: .applicationSupportDirectory,
-        in: .userDomainMask
-    ).first
-    let resolvedContainingBundleIdentifier = containingBundleIdentifier
-        ?? CLIExecutableLocator.enclosingAppBundle()?.bundleIdentifier
-    let inheritedBundleIdentifier = environment["CMUX_BUNDLE_ID"]?
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-    let resolvedBundleIdentifier = inheritedBundleIdentifier?.isEmpty == false
-        ? inheritedBundleIdentifier
-        : resolvedContainingBundleIdentifier
-    let writerLocation = AgentHookStateWriterLocation(
-        environment: environment,
-        applicationSupportDirectory: resolvedApplicationSupportDirectory,
-        containingBundleIdentifier: resolvedContainingBundleIdentifier,
-        legacyHomeDirectory: resolvedLegacyHomeDirectory
-    )
-    AgentHookStateReaderLocation(
-        environment: environment,
-        applicationSupportDirectory: resolvedApplicationSupportDirectory,
-        bundleIdentifier: resolvedBundleIdentifier,
-        legacyHomeDirectory: resolvedLegacyHomeDirectory,
-        fileManager: fileManager
-    ).migrateLegacyStoresIfNeeded(fileManager: fileManager)
-    return writerLocation
-}
-
-func ensurePrivateAgentHookStateDirectory(at directoryURL: URL, fileManager: FileManager) throws {
-    let permissions = NSNumber(value: Int16(0o700))
-    try fileManager.createDirectory(
-        at: directoryURL,
-        withIntermediateDirectories: true,
-        attributes: [.posixPermissions: permissions]
-    )
-    try fileManager.setAttributes([.posixPermissions: permissions], ofItemAtPath: directoryURL.path)
-}
-
 extension CMUXCLI {
+    static func resolveAgentHookStateWriterLocation(
+        environment: [String: String],
+        fileManager: FileManager,
+        applicationSupportDirectory: URL? = nil,
+        containingBundleIdentifier: String? = nil,
+        legacyHomeDirectory: URL? = nil
+    ) -> AgentHookStateWriterLocation {
+        let inheritedHome = environment["HOME"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedLegacyHomeDirectory: URL
+        if let legacyHomeDirectory {
+            resolvedLegacyHomeDirectory = legacyHomeDirectory
+        } else if let inheritedHome, !inheritedHome.isEmpty {
+            resolvedLegacyHomeDirectory = URL(fileURLWithPath: inheritedHome, isDirectory: true)
+        } else {
+            resolvedLegacyHomeDirectory = fileManager.homeDirectoryForCurrentUser
+        }
+        let resolvedApplicationSupportDirectory = applicationSupportDirectory ?? fileManager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first
+        let resolvedContainingBundleIdentifier = containingBundleIdentifier
+            ?? CLIExecutableLocator.enclosingAppBundle()?.bundleIdentifier
+        let inheritedBundleIdentifier = environment["CMUX_BUNDLE_ID"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedBundleIdentifier = inheritedBundleIdentifier?.isEmpty == false
+            ? inheritedBundleIdentifier
+            : resolvedContainingBundleIdentifier
+        let writerLocation = AgentHookStateWriterLocation(
+            environment: environment,
+            applicationSupportDirectory: resolvedApplicationSupportDirectory,
+            containingBundleIdentifier: resolvedContainingBundleIdentifier,
+            legacyHomeDirectory: resolvedLegacyHomeDirectory
+        )
+        AgentHookStateReaderLocation(
+            environment: environment,
+            applicationSupportDirectory: resolvedApplicationSupportDirectory,
+            bundleIdentifier: resolvedBundleIdentifier,
+            legacyHomeDirectory: resolvedLegacyHomeDirectory,
+            fileManager: fileManager
+        ).migrateLegacyStoresIfNeeded(fileManager: fileManager)
+        return writerLocation
+    }
+
+    static func ensurePrivateAgentHookStateDirectory(at directoryURL: URL, fileManager: FileManager) throws {
+        let permissions = NSNumber(value: Int16(0o700))
+        try fileManager.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: permissions]
+        )
+        try fileManager.setAttributes([.posixPermissions: permissions], ofItemAtPath: directoryURL.path)
+    }
+
     // MARK: Agent definitions
 
     static let agentDefs: [AgentHookDef] = [
