@@ -354,6 +354,40 @@ struct NotificationRowSnapshotBoundaryTests {
         #expect(surfaceView.performedBindingActions == ["scroll_to_bottom"])
     }
 
+    /// Verifies that a temporarily unavailable Ghostty runtime does not consume
+    /// the pending anchor before a later scrollbar update can retry it.
+    @Test func openingNotificationRetriesAfterBindingActionIsRejected() {
+        let surfaceView = NotificationScrollRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = GhosttyScrollbar(
+            c: ghostty_action_scrollbar_s(total: 400, offset: 356, len: 44)
+        )
+        surfaceView.bindingActionResults = [false, true]
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+
+        let didRestoreImmediately = hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 0, totalRows: 400)
+        )
+        #expect(!didRestoreImmediately)
+        #expect(surfaceView.performedBindingActions == ["scroll_to_bottom"])
+
+        let readyScrollbar = GhosttyScrollbar(
+            c: ghostty_action_scrollbar_s(total: 400, offset: 356, len: 44)
+        )
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: readyScrollbar]
+        )
+        #expect(surfaceView.performedBindingActions == ["scroll_to_bottom", "scroll_to_bottom"])
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: readyScrollbar]
+        )
+        #expect(surfaceView.performedBindingActions == ["scroll_to_bottom", "scroll_to_bottom"])
+    }
+
     /// Verifies that legacy positions without a captured row count preserve
     /// their distance from the current live bottom.
     @Test func openingLegacyNotificationPreservesBottomRelativeViewport() {
@@ -392,10 +426,11 @@ struct NotificationRowSnapshotBoundaryTests {
 
 private final class NotificationScrollRecordingSurfaceView: GhosttyNSView {
     private(set) var performedBindingActions: [String] = []
+    var bindingActionResults: [Bool] = []
 
     /// Records the binding action so the test observes the production restore path.
     override func performBindingAction(_ action: String) -> Bool {
         performedBindingActions.append(action)
-        return true
+        return bindingActionResults.isEmpty ? true : bindingActionResults.removeFirst()
     }
 }
