@@ -22,7 +22,6 @@ struct TerminalHierarchySheet: View {
         MobileTerminalReorderReservation
     ) async -> Result<Void, MobileWorkspaceMutationFailure>
     let refreshTerminals: () async -> Bool
-    var onCloseRequested: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var pendingClose: TerminalHierarchyRowSnapshot?
     @State private var closeConfirmationIncludesRunningProcess = false
@@ -397,16 +396,12 @@ struct TerminalHierarchySheet: View {
 
     private func confirmPendingClose(_ confirmation: TerminalHierarchyCloseConfirmation) {
         let pendingClose = confirmation.row
-        guard let paneID = snapshot.panes.first(where: { pane in
-            pane.rows.contains(where: { $0.id == pendingClose.id })
-        })?.id else {
-            presentCloseUnavailable()
-            return
-        }
-        guard let reservation = reorderGate.reserve(
-            workspaceID: snapshot.workspaceID,
-            paneID: paneID
-        ) else {
+        let decision = TerminalHierarchyCloseReservationDecision(
+            terminalID: pendingClose.id,
+            snapshot: snapshot,
+            reorderGate: reorderGate
+        )
+        guard case .reserved(let reservation) = decision else {
             presentCloseUnavailable()
             return
         }
@@ -439,7 +434,6 @@ struct TerminalHierarchySheet: View {
         pendingClose = row
         closeConfirmationIncludesRunningProcess = row.requiresCloseConfirmation
         isCloseConfirmationPresented = true
-        onCloseRequested?()
     }
 
     private func presentCloseUnavailable() {

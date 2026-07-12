@@ -118,6 +118,39 @@ import Testing
     #expect(capturedConfirmation?.confirmed == true)
 }
 
+@MainActor
+@Test func confirmedCloseReportsUnavailableWhenAnotherMutationOwnsTheGate() throws {
+    let workspace = MobileWorkspacePreview(
+        id: "workspace-close-owner",
+        name: "Close owner",
+        terminals: [
+            MobileTerminalPreview(id: "terminal-close", name: "Shell", paneID: "pane-close"),
+        ],
+        panes: [
+            MobilePanePreview(
+                id: "pane-close",
+                spatialIndex: 0,
+                terminalIDs: ["terminal-close"]
+            ),
+        ]
+    )
+    let snapshot = TerminalHierarchySnapshot(workspace: workspace, selectedTerminalID: nil)
+    let reorderGate = MobileTerminalReorderGate()
+    let competingReservation = try #require(reorderGate.reserve(
+        workspaceID: workspace.id,
+        paneID: "pane-close"
+    ))
+    defer { reorderGate.finish(competingReservation) }
+
+    let decision = TerminalHierarchyCloseReservationDecision(
+        terminalID: "terminal-close",
+        snapshot: snapshot,
+        reorderGate: reorderGate
+    )
+
+    #expect(decision == .unavailable)
+}
+
 @Test func closeProtectedFailureUsesPinnedTerminalPresentation() {
     #expect(TerminalHierarchyCloseResultPresentation(
         .failure(.protected(hostDisplayName: "Test Mac"))

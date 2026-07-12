@@ -217,22 +217,14 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testTerminalHierarchyCloseReservationRaceShowsChangedStateAlert() throws {
+    func testTerminalHierarchyCloseUnavailableCopy() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_TERMINAL_HIERARCHY_PREVIEW": "1",
             "CMUX_UITEST_TERMINAL_HIERARCHY_SCENARIO": "close-unavailable",
         ])
         defer { app.terminate() }
 
-        XCTAssertTrue(app.otherElements["MobileTerminalHierarchySheet"].waitForExistence(timeout: 8))
-        app.buttons["MobileTerminalHierarchyClose-terminal-shell"].tap()
-        let confirmClose = app.buttons.matching(
-            identifier: "MobileTerminalHierarchyCloseConfirm-terminal-shell"
-        ).firstMatch
-        XCTAssertTrue(confirmClose.waitForExistence(timeout: 3))
-        confirmClose.tap()
-
-        XCTAssertTrue(app.staticTexts["Terminal Close Unavailable"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Terminal Close Unavailable"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.staticTexts[
             "The terminal list changed or another terminal action started. Review the latest state before trying again."
         ].exists)

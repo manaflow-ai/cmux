@@ -9,10 +9,10 @@ public struct TerminalHierarchyPreviewView: View {
     @State private var selectedTerminalID: MobileTerminalPreview.ID?
     @State private var hasSimulatedMutationFailure = false
     @State private var reorderGate = MobileTerminalReorderGate()
+    @State private var isCloseUnavailablePresented: Bool
     private let simulatesMutationFailure: Bool
     private let simulatesProtectedClose: Bool
     private let simulatesResultUnknownRefreshed: Bool
-    private let simulatesCloseUnavailable: Bool
 
     /// Creates the preview fixture.
     public init() {
@@ -48,10 +48,10 @@ public struct TerminalHierarchyPreviewView: View {
         }
         _workspace = State(initialValue: workspace)
         _selectedTerminalID = State(initialValue: workspace.selectedTerminalID)
+        _isCloseUnavailablePresented = State(initialValue: scenario == "close-unavailable")
         simulatesMutationFailure = scenario == "error"
         simulatesProtectedClose = scenario == "close-protected"
         simulatesResultUnknownRefreshed = scenario == "result-unknown-refreshed"
-        simulatesCloseUnavailable = scenario == "close-unavailable"
     }
 
     /// Renders the deterministic hierarchy fixture for UI verification.
@@ -66,9 +66,9 @@ public struct TerminalHierarchyPreviewView: View {
             reorderGate: reorderGate,
             reorderTerminal: reorderTerminal,
             closeTerminal: closeTerminal,
-            refreshTerminals: { true },
-            onCloseRequested: simulateCompetingCloseReservation
+            refreshTerminals: { true }
         )
+        .terminalHierarchyCloseUnavailableAlert(isPresented: $isCloseUnavailablePresented)
     }
 
     private func createTerminal() {
@@ -84,14 +84,6 @@ public struct TerminalHierarchyPreviewView: View {
         workspace.panes[paneIndex].terminalIDs.append(terminal.id)
         workspace.selectedTerminalID = terminal.id
         selectedTerminalID = terminal.id
-    }
-
-    private func simulateCompetingCloseReservation() {
-        guard simulatesCloseUnavailable else { return }
-        _ = reorderGate.reserve(
-            workspaceID: workspace.id,
-            paneID: workspace.terminalCreationPaneID ?? "pane-left"
-        )
     }
 
     private func reorderTerminal(
