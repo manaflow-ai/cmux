@@ -65,6 +65,29 @@ import Testing
 }
 
 @MainActor
+@Test func foregroundMutationRefreshRejectsReplacedClient() async throws {
+    let originalRouter = RoutingHostRouter()
+    let store = MobileShellComposite(
+        connectionState: .connected,
+        workspaces: MobileShellComposite.preview().workspaces
+    )
+    try installFreshRemoteClient(on: store, router: originalRouter)
+    let target = WorkspaceMutationTarget(
+        client: store.remoteClient,
+        isForeground: true,
+        macDeviceID: store.foregroundMacDeviceID
+    )
+    let replacementRouter = RoutingHostRouter()
+    try installFreshRemoteClient(on: store, router: replacementRouter)
+
+    let refreshed = await store.refreshAfterWorkspaceMutation(target)
+
+    #expect(!refreshed)
+    #expect(await originalRouter.workspaceListGate.requestCount() == 0)
+    #expect(await replacementRouter.workspaceListGate.requestCount() == 0)
+}
+
+@MainActor
 @Test func workspaceFocusEventUpdatesOnlyItsWorkspaceSnapshot() throws {
     let workspace = MobileWorkspacePreview(
         id: "ws-focus",

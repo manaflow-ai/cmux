@@ -48,3 +48,31 @@ import Testing
     gate.finishRecovery(workspaceID: "other-workspace", succeeded: true)
     #expect(gate.canMutate(workspaceID: "other-workspace"))
 }
+
+@MainActor
+@Test func rejectedReorderReleasesItsReservation() async throws {
+    let store = MobileShellComposite.preview()
+    let pane = MobilePanePreview(
+        id: "missing-pane",
+        spatialIndex: 0,
+        terminalIDs: ["terminal-a", "terminal-b"]
+    )
+    let intent = try #require(MobileTerminalReorderIntent(
+        terminalID: "terminal-a",
+        sourceIndex: 0,
+        destinationIndex: 2,
+        pane: pane
+    ))
+    let reservation = try #require(store.terminalReorderGate.reserve(
+        workspaceID: "missing-workspace",
+        paneID: pane.id
+    ))
+
+    _ = await store.reorderTerminal(
+        workspaceID: "missing-workspace",
+        intent: intent,
+        reservation: reservation
+    )
+
+    #expect(store.terminalReorderGate.canMutate(workspaceID: "missing-workspace"))
+}

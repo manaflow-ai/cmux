@@ -11,6 +11,8 @@ extension MobileShellComposite {
     /// Re-syncs one mutation target before the caller clears optimistic state.
     func refreshAfterWorkspaceMutation(_ target: WorkspaceMutationTarget) async -> Bool {
         if target.isForeground {
+            guard target.client === remoteClient,
+                  target.macDeviceID == foregroundMacDeviceID else { return false }
             return await refreshForegroundWorkspaceListAfterMutation()
         }
         guard let macID = target.macDeviceID,
