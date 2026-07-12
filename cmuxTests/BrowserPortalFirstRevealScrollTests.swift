@@ -268,12 +268,12 @@ struct BrowserPortalFirstRevealScrollTests {
         let webView = RecordingWebView(frame: slot.bounds, configuration: WKWebViewConfiguration())
         slot.addSubview(webView)
 
-        #expect(!slot.hasVisibleWebKitCompanionSubview(for: webView))
+        #expect(!slot.browserPortalHasVisibleWebKitCompanionSubview(for: webView))
 
         let companion = WKCompanionTestView(frame: NSRect(x: 0, y: 0, width: 60, height: 180))
         slot.addSubview(companion)
 
-        #expect(slot.hasVisibleWebKitCompanionSubview(for: webView))
+        #expect(slot.browserPortalHasVisibleWebKitCompanionSubview(for: webView))
     }
 
     @Test func externalFullscreenWindowSkipsAndClearsPendingNudge() async {

@@ -1513,7 +1513,7 @@ final class WindowBrowserSlotView: NSView {
     func pinHostedWebView(_ webView: WKWebView) {
         guard webView.superview === self else { return }
 
-        let hasCompanionWKSubviews = hasVisibleWebKitCompanionSubview(for: webView)
+        let hasCompanionWKSubviews = browserPortalHasVisibleWebKitCompanionSubview(for: webView)
         let needsPlainWebViewFrameReset =
             !hasCompanionWKSubviews &&
             Self.frameDiffersFromBounds(webView.frame, bounds: bounds)
@@ -2380,8 +2380,8 @@ final class WindowBrowserPortal: NSObject {
             if webKitSubview === webView {
                 webView.browserPortalApplyFirstSizedRevealGeometryNudgeIfNeeded(
                     reason: "\(reason):\(phase)",
-                    hasCompanionWKSubviews: containerView.hasVisibleWebKitCompanionSubview(for: webView),
-                    managedByExternalFullscreenWindow: webView.cmuxIsManagedByExternalFullscreenWindow(relativeTo: window)
+                    companionSearchRoot: containerView,
+                    relativeTo: window
                 )
             }
             webKitSubview.displayIfNeeded()

@@ -159,6 +159,19 @@ extension WKWebView {
     @discardableResult
     func browserPortalApplyFirstSizedRevealGeometryNudgeIfNeeded(
         reason: String,
+        companionSearchRoot: NSView,
+        relativeTo expectedWindow: NSWindow?
+    ) -> Bool {
+        browserPortalApplyFirstSizedRevealGeometryNudgeIfNeeded(
+            reason: reason,
+            hasCompanionWKSubviews: companionSearchRoot.browserPortalHasVisibleWebKitCompanionSubview(for: self),
+            managedByExternalFullscreenWindow: cmuxIsManagedByExternalFullscreenWindow(relativeTo: expectedWindow)
+        )
+    }
+
+    @discardableResult
+    func browserPortalApplyFirstSizedRevealGeometryNudgeIfNeeded(
+        reason: String,
         hasCompanionWKSubviews: Bool,
         managedByExternalFullscreenWindow: Bool
     ) -> Bool {
@@ -311,11 +324,11 @@ extension WKWebView {
     }
 }
 
-extension WindowBrowserSlotView {
-    func hasVisibleWebKitCompanionSubview(for primaryWebView: WKWebView) -> Bool {
+extension NSView {
+    func browserPortalHasVisibleWebKitCompanionSubview(for primaryWebView: WKWebView) -> Bool {
         var stack = subviews.filter { $0 !== primaryWebView }
         while let current = stack.popLast() {
-            if current.isDescendant(of: primaryWebView) {
+            if current === primaryWebView || current.isDescendant(of: primaryWebView) {
                 continue
             }
             if current.isHidden || current.alphaValue <= 0 {
