@@ -1420,6 +1420,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var connectionLifecycleTask: Task<Void, Never>?
     var connectionLifecycleRetiredTask: Task<Void, Never>?
     var connectionLifecycleRetiredTaskGeneration: UInt64 = 0
+    var connectionLifecycleReconnectPendingAfterRetirement = false
     var connectionLifecycleDeadlineTask: Task<Void, Never>?
     var connectionLifecycleRequestWaiters: [UInt64: CheckedContinuation<Void, Never>] = [:]
 

@@ -66,9 +66,9 @@ extension MobileShellComposite {
             stackUserID: stackUserID,
             health: connectionLifecycleHealth(at: runtime?.now() ?? Date())
         )
-        applyConnectionLifecycleEffect(request.effect)
         await withCheckedContinuation { continuation in
             connectionLifecycleRequestWaiters[request.id] = continuation
+            applyConnectionLifecycleEffect(request.effect)
         }
         return connectionState == .connected
     }
@@ -94,6 +94,7 @@ extension MobileShellComposite {
         let canceledOperation = connectionLifecycleTask
         connectionLifecycle.reset()
         resumeCompletedConnectionLifecycleRequests()
+        connectionLifecycleReconnectPendingAfterRetirement = false
         invalidateStoredMacReconnectAttempt()
         connectionLifecycleTask = nil
         if canceledKind == .reconnect {
@@ -112,6 +113,10 @@ extension MobileShellComposite {
         guard isSignedIn,
               connectionState != .connected,
               pairedMacStore != nil else { return }
+        guard connectionLifecycleRetiredTask == nil else {
+            connectionLifecycleReconnectPendingAfterRetirement = true
+            return
+        }
         let request = connectionLifecycle.requestStoredMacReconnect(
             stackUserID: identityProvider?.currentUserID,
             health: connectionLifecycleHealth(at: runtime?.now() ?? Date())
@@ -230,6 +235,11 @@ extension MobileShellComposite {
             guard let self,
                   self.connectionLifecycleRetiredTaskGeneration == generation else { return }
             self.connectionLifecycleRetiredTask = nil
+            let shouldReconnect = self.connectionLifecycleReconnectPendingAfterRetirement
+            self.connectionLifecycleReconnectPendingAfterRetirement = false
+            if shouldReconnect {
+                self.restartStoredMacReconnectAfterScopeChange()
+            }
         }
     }
 
