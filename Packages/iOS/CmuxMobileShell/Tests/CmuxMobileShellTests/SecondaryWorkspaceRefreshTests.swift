@@ -126,6 +126,41 @@ import Testing
 }
 
 @MainActor
+@Test func cancelledPullCompletionCannotEraseReconnectSuccessor() async throws {
+    let router = RoutingHostRouter()
+    let store = MobileShellComposite(
+        connectionState: .connected,
+        workspaces: MobileShellComposite.preview().workspaces
+    )
+    try installFreshRemoteClient(on: store, router: router)
+    await router.workspaceListGate.setHoldFirst(true)
+    await router.workspaceListGate.setHoldSecond(true)
+
+    let cancelledPull = Task { await store.refreshForegroundWorkspaceList() }
+    await router.workspaceListGate.waitUntilFirstReached()
+    store.pullToRefreshTask?.cancel()
+    store.pullToRefreshTask = nil
+
+    let successorPull = Task { await store.refreshForegroundWorkspaceList() }
+    await router.workspaceListGate.waitUntilSecondReached()
+    await router.workspaceListGate.releaseFirst()
+    _ = await cancelledPull.value
+
+    #expect(store.pullToRefreshTask != nil)
+    let mutationRefresh = Task { await store.refreshForegroundWorkspaceListAfterMutation() }
+    for _ in 0..<100 {
+        await Task.yield()
+    }
+    #expect(await router.workspaceListGate.requestCount() == 2)
+
+    await router.workspaceListGate.releaseSecond()
+    _ = await successorPull.value
+    #expect(await mutationRefresh.value)
+    #expect(await router.workspaceListGate.requestCount() == 3)
+    #expect(store.pullToRefreshTask == nil)
+}
+
+@MainActor
 @Test func foregroundMutationRefreshRejectsOlderEventResponse() async throws {
     let router = RoutingHostRouter()
     let store = MobileShellComposite(
