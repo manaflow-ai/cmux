@@ -70,6 +70,31 @@ struct RemoteDisconnectLifecycleTests {
         #expect(!workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(panel.id))
     }
 
+    @Test func disconnectedPlaceholderChildExitPreservesWorkspaceAndPanel() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        workspace.configureRemoteConnection(Self.remoteConfiguration(), autoConnect: false)
+        workspace.restoredTerminalScrollbackByPanelId[panel.id] = "remote-output\n"
+
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panel.id)
+
+        let firstPlaceholder = try #require(workspace.terminalPanel(for: panel.id))
+        let firstWrapperPath = firstPlaceholder.surface.initialCommand
+        defer {
+            if let firstWrapperPath { try? FileManager.default.removeItem(atPath: firstWrapperPath) }
+            Self.removeTransitionArtifacts(workspace: workspace, panelIds: [panel.id])
+        }
+
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panel.id)
+
+        let secondPlaceholder = try #require(workspace.terminalPanel(for: panel.id))
+        #expect(manager.tabs.contains(where: { $0.id == workspace.id }))
+        #expect(secondPlaceholder.surface !== firstPlaceholder.surface)
+        #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
+        #expect(workspace.remoteConnectionState == .disconnected)
+    }
+
     private static func remoteConfiguration() -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
