@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileBrowser
+import CmuxMobileShell
 import CmuxMobileSupport
 
 extension WorkspaceDetailView {
