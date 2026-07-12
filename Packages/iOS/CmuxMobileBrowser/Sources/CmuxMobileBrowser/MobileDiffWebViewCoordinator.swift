@@ -130,6 +130,7 @@ public final class MobileDiffWebViewCoordinator: NSObject, WKNavigationDelegate,
     }
 }
 
+// lint:allow File-scope pure helper required by the cmux package-design policy.
 private func mobileDiffViewerHTML(document: MobileDiffDocument, generation: Int) throws -> String {
     let payload: [String: Any] = [
         "patchURL": "\(MobileDiffPatchSchemeHandler.scheme)://viewer/patch/current-\(generation).diff",
@@ -168,6 +169,7 @@ private func mobileDiffViewerHTML(document: MobileDiffDocument, generation: Int)
     """
 }
 
+// lint:allow File-scope pure helper required by the cmux package-design policy.
 private func mobileDiffJavaScriptLiteral(_ value: String) -> String {
     guard let data = try? JSONSerialization.data(withJSONObject: [value]),
           let array = String(data: data, encoding: .utf8) else { return "\"\"" }
