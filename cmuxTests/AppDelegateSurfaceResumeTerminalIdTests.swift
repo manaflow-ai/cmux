@@ -220,6 +220,67 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
         XCTAssertNil(targetWorkspace.surfaceResumeBinding(panelId: targetPanel.id))
     }
 
+    func testSurfaceResumeRejectsAmbiguousStableSurfaceIdAcrossWindows() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let previousActiveManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let activeWindowId = UUID()
+        let otherWindowId = UUID()
+        let activeWindow = makeMainWindow(id: activeWindowId)
+        let otherWindow = makeMainWindow(id: otherWindowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousActiveManager)
+            app.unregisterMainWindowContextForTesting(windowId: activeWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: otherWindowId)
+            activeWindow.orderOut(nil)
+            otherWindow.orderOut(nil)
+        }
+
+        let activeManager = TabManager(autoWelcomeIfNeeded: false)
+        let otherManager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            activeWindow,
+            windowId: activeWindowId,
+            tabManager: activeManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        app.registerMainWindow(
+            otherWindow,
+            windowId: otherWindowId,
+            tabManager: otherManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(activeManager)
+
+        let activeWorkspace = try XCTUnwrap(activeManager.selectedWorkspace)
+        let activePanel = try XCTUnwrap(activeWorkspace.focusedTerminalPanel)
+        let otherWorkspace = try XCTUnwrap(otherManager.selectedWorkspace)
+        let otherPanel = try XCTUnwrap(otherWorkspace.focusedTerminalPanel)
+        let duplicateStableId = UUID()
+        activePanel.adoptStableSurfaceId(duplicateStableId)
+        otherPanel.adoptStableSurfaceId(duplicateStableId)
+
+        let (raw, envelope) = try v2Envelope(method: "surface.resume.set", params: [
+            "surface_id": duplicateStableId.uuidString,
+            "kind": "codex",
+            "source": "agent-hook",
+            "auto_resume": true,
+            "command": "codex resume ambiguous-stable-target",
+            "checkpoint_id": "ambiguous-stable-target",
+        ])
+
+        XCTAssertEqual(envelope["ok"] as? Bool, false, raw)
+        XCTAssertNil(activeWorkspace.surfaceResumeBinding(panelId: activePanel.id))
+        XCTAssertNil(otherWorkspace.surfaceResumeBinding(panelId: otherPanel.id))
+    }
+
     func testSystemResolveTerminalRejectsInheritedScopeWithoutUniqueLiveTTY() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
@@ -290,13 +351,18 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
     }
 
     private func v2Result(method: String, params: [String: Any]) throws -> [String: Any] {
+        let (raw, envelope) = try v2Envelope(method: method, params: params)
+        XCTAssertEqual(envelope["ok"] as? Bool, true, raw)
+        return try XCTUnwrap(envelope["result"] as? [String: Any], raw)
+    }
+
+    private func v2Envelope(method: String, params: [String: Any]) throws -> (raw: String, envelope: [String: Any]) {
         let request = ["id": method, "method": method, "params": params] as [String: Any]
         let data = try JSONSerialization.data(withJSONObject: request)
         let requestLine = try XCTUnwrap(String(data: data, encoding: .utf8))
         let raw = TerminalController.shared.handleSocketLine(requestLine)
         let responseData = try XCTUnwrap(raw.data(using: .utf8))
         let envelope = try XCTUnwrap(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
-        XCTAssertEqual(envelope["ok"] as? Bool, true, raw)
-        return try XCTUnwrap(envelope["result"] as? [String: Any], raw)
+        return (raw, envelope)
     }
 }
