@@ -150,6 +150,24 @@ struct PromptLineTurnDetectorTests {
         #expect(detector.confirm(confirmation) == 1)
     }
 
+    @Test("Backspacing an overflowed submission fails closed at the boundary")
+    func backspacedOverflowedSubmissionDoesNotStartTurn() throws {
+        var detector = readyDetector()
+
+        // Spaces after the prompt store without tripping the printable-run
+        // skip (visible count stays at the prompt's), so the line genuinely
+        // overflows the storage cap. A visible byte then latches the
+        // overflowed-submission snapshot.
+        detector.consume(Data(String(repeating: " ", count: 5_000).utf8))
+        detector.consume(Data("a".utf8))
+        // Erasing from an overflowed line makes its exact content
+        // unknowable, so the boundary must not count a submission from the
+        // latched snapshot.
+        detector.consume(Data("\u{7F}".utf8))
+        detector.consume(Data("\r".utf8))
+        #expect(detector.submissionCount == 0)
+    }
+
     @Test("An oversized response line still counts as observed output")
     func oversizedOutputLineMarksObservedOutput() throws {
         var detector = readyDetector()
