@@ -3,9 +3,9 @@ import UniformTypeIdentifiers
 import WebKit
 
 final class CmuxAgentSessionURLSchemeHandler: NSObject, WKURLSchemeHandler {
-    static let scheme = "cmux-agent-session"
-    static let host = "app"
-    static let shellURL = URL(string: "\(scheme)://\(host)/agent-session.html")!
+    nonisolated static let scheme = "cmux-agent-session"
+    nonisolated static let host = "app"
+    nonisolated static let shellURL = URL(string: "\(scheme)://\(host)/agent-session.html")!
 
     struct Asset {
         let fileURL: URL
