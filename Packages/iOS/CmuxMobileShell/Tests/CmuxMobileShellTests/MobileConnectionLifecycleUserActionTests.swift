@@ -118,6 +118,98 @@ import Testing
         #expect(store.didFinishStoredMacReconnectAttempt)
     }
 
+    @Test func ownedDeadlineResolvesReconnectBlockedInStoreIO() async {
+        let deadline = ControlledStoredMacReconnectDeadline()
+        let pairedMacStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [:],
+            blockedTeams: [""]
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedMacStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            storedMacReconnectDeadline: { await deadline.wait() }
+        )
+        let reconnect = Task { @MainActor in
+            await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        await pairedMacStore.waitUntilLoadStarted(teamID: nil)
+        await deadline.waitUntilArmed()
+        defer { Task { await pairedMacStore.release(teamID: nil) } }
+
+        await deadline.expire()
+
+        #expect(await reconnect.value == false)
+        #expect(store.connectionRecoveryFailed)
+        #expect(store.connectionError == "Still loading")
+        #expect(store.connectionErrorGuidance == "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry or add this computer again.")
+        #expect(store.connectionLifecycle.activeEpisode == nil)
+        #expect(store.connectionLifecycle.resourceSnapshot.pendingRequestCount == 0)
+        #expect(store.connectionLifecycleRequestWaiters.isEmpty)
+        #expect(store.connectionLifecycleTask == nil)
+        #expect(store.connectionLifecycleDeadlineTask == nil)
+        #expect(store.didFinishStoredMacReconnectAttempt)
+    }
+
+    @Test func staleOwnedDeadlineCannotOverwriteSuccessfulCompletion() async {
+        let deadline = ControlledStoredMacReconnectDeadline()
+        let pairedMacStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [:],
+            blockedTeams: [""]
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedMacStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            storedMacReconnectDeadline: { await deadline.wait() }
+        )
+        let reconnect = Task { @MainActor in
+            await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        await pairedMacStore.waitUntilLoadStarted(teamID: nil)
+        await deadline.waitUntilArmed()
+        defer { Task { await pairedMacStore.release(teamID: nil) } }
+        let episodeID = try! #require(store.connectionLifecycle.activeEpisode?.id)
+
+        store.finishConnectionLifecycleEpisode(id: episodeID, succeeded: true)
+        #expect(await reconnect.value == false)
+        await deadline.expire()
+
+        #expect(!store.connectionRecoveryFailed)
+        #expect(store.connectionError == nil)
+        #expect(store.connectionErrorGuidance == nil)
+        #expect(store.connectionLifecycle.activeEpisode == nil)
+    }
+
+    @Test func staleOwnedDeadlineCannotOverwriteManualPairingCancellation() async {
+        let deadline = ControlledStoredMacReconnectDeadline()
+        let pairedMacStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [:],
+            blockedTeams: [""]
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedMacStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            storedMacReconnectDeadline: { await deadline.wait() }
+        )
+        let reconnect = Task { @MainActor in
+            await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        await pairedMacStore.waitUntilLoadStarted(teamID: nil)
+        await deadline.waitUntilArmed()
+        defer { Task { await pairedMacStore.release(teamID: nil) } }
+
+        store.prepareForManualPairing()
+        #expect(await reconnect.value == false)
+        await deadline.expire()
+
+        #expect(!store.connectionRecoveryFailed)
+        #expect(store.connectionError == nil)
+        #expect(store.connectionErrorGuidance == nil)
+        #expect(store.connectionLifecycle.activeEpisode == nil)
+    }
+
     @Test func missingReconnectDependenciesResolveTheStoredMacGate() async {
         let store = MobileShellComposite(
             isSignedIn: true,
@@ -158,6 +250,38 @@ import Testing
         #expect(replacement?.kind == .reconnect)
         #expect(replacement?.reconnectStackUserID == "user-1")
         #expect(!store.didFinishStoredMacReconnectAttempt)
+    }
+}
+
+private actor ControlledStoredMacReconnectDeadline {
+    private var isArmed = false
+    private var armWaiters: [CheckedContinuation<Void, Never>] = []
+    private var deadlineWaiter: CheckedContinuation<Void, Never>?
+
+    func wait() async {
+        isArmed = true
+        let waiters = armWaiters
+        armWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+        await withCheckedContinuation { continuation in
+            deadlineWaiter = continuation
+        }
+    }
+
+    func waitUntilArmed() async {
+        if isArmed { return }
+        await withCheckedContinuation { continuation in
+            armWaiters.append(continuation)
+        }
+    }
+
+    func expire() async {
+        deadlineWaiter?.resume()
+        deadlineWaiter = nil
+        await Task.yield()
+        await Task.yield()
     }
 }
 
