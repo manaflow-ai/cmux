@@ -659,7 +659,7 @@ final class TerminalPanel: Panel, ObservableObject {
     func close() {
         isClosingPanel = true
         discardTextBoxContentForClose()
-        SessionScrollbackReplayStore.removeReplayFile(atPath: surface.startupEnvironmentValue(SessionScrollbackReplayStore.environmentKey))
+        removeOwnedSessionScrollbackReplayArtifact()
         // Detach from the window portal on real close so stale hosted views
         // cannot remain above browser panes after split close.
         surface.beginPortalCloseLifecycle(reason: "panel.close")
