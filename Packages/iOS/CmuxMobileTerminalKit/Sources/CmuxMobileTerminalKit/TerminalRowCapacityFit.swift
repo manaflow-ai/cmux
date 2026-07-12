@@ -78,12 +78,16 @@ public struct TerminalRowCapacityFit {
     }
 
     public static func shouldReportDestinationFont(
-        renderedRows _: Int,
-        effectiveRows _: Int,
-        liveFontSize _: Float32,
-        baseFontSize _: Float32
+        renderedRows: Int,
+        effectiveRows: Int,
+        liveFontSize: Float32,
+        baseFontSize: Float32
     ) -> Bool {
-        true
+        guard liveFontSize > 0, baseFontSize > 0 else { return false }
+        if abs(liveFontSize - baseFontSize) >= 0.25 {
+            return true
+        }
+        return shouldRefit(renderedRows: renderedRows, effectiveRows: effectiveRows)
     }
 
     /// The row capacity this device should REPORT: how many rows fit in the
