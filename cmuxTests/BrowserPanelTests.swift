@@ -3863,11 +3863,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             initialReattachCount,
             "Hiding a portal-hosted browser should not itself trigger the WebKit reattach path"
         )
-        XCTAssertGreaterThan(
-            webView.displayIfNeededCount,
-            hiddenDisplayCount,
-            "Revealing an existing portal-hosted browser should refresh WebKit presentation immediately"
-        )
+        XCTAssertGreaterThan(webView.displayIfNeededCount, hiddenDisplayCount)
         XCTAssertEqual(
             webView.reattachRenderingStateCount,
             hiddenReattachCount,
@@ -3904,8 +3900,6 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             XCTFail("Expected browser slot")
             return
         }
-        let lastVisibleFrame = slot.frame
-
         anchor1.removeFromSuperview()
         portal.synchronizeWebViewForAnchor(anchor1)
         advanceAnimations()
@@ -3915,10 +3909,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             slot.isHidden,
             "Transient anchor churn should preserve the last visible browser presentation until rebind"
         )
-        XCTAssertEqual(slot.frame.origin.x, lastVisibleFrame.origin.x, accuracy: 0.5)
-        XCTAssertEqual(slot.frame.origin.y, lastVisibleFrame.origin.y, accuracy: 0.5)
-        XCTAssertEqual(slot.frame.size.width, lastVisibleFrame.size.width, accuracy: 0.5)
-        XCTAssertEqual(slot.frame.size.height, lastVisibleFrame.size.height, accuracy: 0.5)
+        XCTAssertEqual(slot.frame, anchorFrame)
         XCTAssertEqual(portal.debugEntryCount(), 1)
 
         let displayCountBeforeRebind = webView.displayIfNeededCount
@@ -3931,16 +3922,9 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         XCTAssertTrue(webView.superview === slot, "Rebinding after transient anchor removal should reuse the existing portal slot")
         XCTAssertFalse(slot.isHidden)
-        XCTAssertEqual(slot.frame.origin.x, reboundFrame.origin.x, accuracy: 0.5)
-        XCTAssertEqual(slot.frame.origin.y, reboundFrame.origin.y, accuracy: 0.5)
-        XCTAssertEqual(slot.frame.size.width, reboundFrame.size.width, accuracy: 0.5)
-        XCTAssertEqual(slot.frame.size.height, reboundFrame.size.height, accuracy: 0.5)
+        XCTAssertEqual(slot.frame, reboundFrame)
         XCTAssertEqual(portal.debugEntryCount(), 1)
-        XCTAssertGreaterThan(
-            webView.displayIfNeededCount,
-            displayCountBeforeRebind,
-            "Anchor rebinds should refresh hosted browser presentation even when geometry is unchanged"
-        )
+        XCTAssertGreaterThan(webView.displayIfNeededCount, displayCountBeforeRebind)
     }
 
     func testVisiblePortalEntryStaysVisibleDuringOffWindowAnchorReparentUntilRebind() {

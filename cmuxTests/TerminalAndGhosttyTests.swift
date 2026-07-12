@@ -5216,13 +5216,8 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         let anchorCenter = NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY)
         let originalWindowPoint = anchor.convert(anchorCenter, to: nil)
         let originalAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
-        XCTAssertNotNil(
-            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(originalWindowPoint, in: window),
-            "Initial hit-testing should resolve the portal-hosted terminal at its original window position"
-        )
+        XCTAssertNotNil(TerminalWindowPortalRegistry.terminalViewAtWindowPoint(originalWindowPoint, in: window))
 
-        // Clear setup-triggered portal work so this test exercises the explicitly
-        // deferred request without an older immediate request upgrading it.
         drainMainQueue()
         TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window, forceImmediate: false)
         DispatchQueue.main.async {
@@ -5231,17 +5226,11 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             window.displayIfNeeded()
         }
 
-        // The deferred path intentionally schedules its geometry reconciliation on
-        // the queue turn after the request. Queue barriers make both turns explicit.
         drainMainQueue()
         drainMainQueue()
 
         let shiftedAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
-        XCTAssertGreaterThan(
-            shiftedAnchorFrameInWindow.minX,
-            originalAnchorFrameInWindow.minX + 1,
-            "The queued layout shift should move the anchor to the right"
-        )
+        XCTAssertGreaterThan(shiftedAnchorFrameInWindow.minX, originalAnchorFrameInWindow.minX + 1)
         XCTAssertGreaterThan(
             shiftedAnchorFrameInWindow.maxX,
             originalAnchorFrameInWindow.maxX + 1,
