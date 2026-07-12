@@ -426,6 +426,9 @@ extension MobileShellComposite {
             if normalizedCode == "unavailable" {
                 return .notConnected(hostDisplayName: hostDisplayName)
             }
+            if normalizedCode == "request_timeout" {
+                return .requestTimedOut(hostDisplayName: hostDisplayName)
+            }
             if normalizedCode == "invalid_params",
                message == "working_directory must be an absolute existing directory" {
                 return .invalidWorkingDirectory(hostDisplayName: hostDisplayName)

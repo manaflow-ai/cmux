@@ -12,11 +12,6 @@ extension TerminalController {
         let candidate: TaskCreateWorkspaceCandidate
     }
 
-    private struct WorkspaceCreatePreparation {
-        let tabManager: TabManager
-        let operationID: UUID?
-    }
-
     final class WorkspaceCreateIdempotencyCache {
         private let capacity: Int
         private var workspaceIDs: [UUID: UUID] = [:]
@@ -64,14 +59,22 @@ extension TerminalController {
         tabManager resolvedTabManager: TabManager? = nil,
         taskCreateCandidates: [TaskCreateWorkspaceCandidate]? = nil
     ) -> V2CallResult {
-        let prepared = v2PrepareWorkspaceCreate(
+        let outcome = v2PrepareWorkspaceCreate(
             params: params,
             tabManager: resolvedTabManager,
             taskCreateCandidates: taskCreateCandidates
         )
-        if let result = prepared.result { return result }
-        guard let preparation = prepared.preparation else {
-            return .err(code: "internal_error", message: "Workspace create preparation failed", data: nil)
+        let preparation: WorkspaceCreatePreparation
+        switch outcome {
+        case let .failure(result):
+            return result
+        case let .existing(resolution):
+            return workspaceCreateResult(
+                workspace: resolution.workspace,
+                windowID: resolution.candidate.windowID
+            )
+        case let .ready(ready):
+            preparation = ready
         }
         guard !v2HasNonNullParam(params, "working_directory") else {
             return .err(
@@ -84,49 +87,6 @@ extension TerminalController {
             params: params,
             preparation: preparation,
             workingDirectoryValidation: .notProvided
-        )
-    }
-
-    private func v2PrepareWorkspaceCreate(
-        params: [String: Any],
-        tabManager resolvedTabManager: TabManager?,
-        taskCreateCandidates: [TaskCreateWorkspaceCandidate]?
-    ) -> (preparation: WorkspaceCreatePreparation?, result: V2CallResult?) {
-        let operationID: UUID?
-        if v2HasNonNullParam(params, "operation_id") {
-            guard let parsed = v2UUID(params, "operation_id") else {
-                return (
-                    nil,
-                    .err(code: "invalid_params", message: "operation_id must be a UUID", data: nil)
-                )
-            }
-            operationID = parsed
-        } else {
-            operationID = nil
-        }
-        guard let tabManager = resolvedTabManager ?? v2ResolveTabManager(params: params) else {
-            return (nil, .err(code: "unavailable", message: "TabManager not available", data: nil))
-        }
-
-        if let operationID,
-           let resolution = existingTaskCreateWorkspace(
-               operationID: operationID,
-               candidates: taskCreateCandidates ?? taskCreateWorkspaceCandidates(requested: tabManager)
-           ) {
-            return (
-                nil,
-                workspaceCreateResult(
-                    workspace: resolution.workspace,
-                    windowID: resolution.candidate.windowID
-                )
-            )
-        }
-        return (
-            WorkspaceCreatePreparation(
-                tabManager: tabManager,
-                operationID: operationID
-            ),
-            nil
         )
     }
 
@@ -146,6 +106,12 @@ extension TerminalController {
             workingDirectory = path
         case .invalid:
             return Self.v2InvalidWorkingDirectoryResult
+        case .timedOut:
+            return .err(
+                code: "request_timeout",
+                message: "working_directory validation timed out",
+                data: ["field": "working_directory"]
+            )
         case .cancelled:
             return .err(code: "cancelled", message: "Workspace creation was cancelled", data: nil)
         }
@@ -300,58 +266,6 @@ extension TerminalController {
         )
     }
 
-    private func taskCreateWorkspaceCandidates(requested tabManager: TabManager) -> [TaskCreateWorkspaceCandidate] {
-        var candidates = [TaskCreateWorkspaceCandidate(
-            tabManager: tabManager,
-            windowID: v2ResolveWindowId(tabManager: tabManager)
-        )]
-        candidates.append(contentsOf: AppDelegate.shared?.scriptableMainWindows().map {
-            TaskCreateWorkspaceCandidate(tabManager: $0.tabManager, windowID: $0.windowId)
-        } ?? [])
-        return candidates
-    }
-
-    private func existingTaskCreateWorkspace(
-        operationID: UUID,
-        candidates: [TaskCreateWorkspaceCandidate]
-    ) -> TaskCreateWorkspaceResolution? {
-        let resolution = Self.resolveTaskCreateWorkspace(
-            operationID: operationID,
-            cachedWorkspaceID: workspaceCreateIdempotencyCache.workspaceID(for: operationID),
-            candidates: candidates
-        )
-        if let resolution {
-            workspaceCreateIdempotencyCache.record(
-                operationID: operationID,
-                workspaceID: resolution.workspace.id
-            )
-        }
-        return resolution
-    }
-
-    static func resolveTaskCreateWorkspace(
-        operationID: UUID,
-        cachedWorkspaceID: UUID?,
-        candidates: [TaskCreateWorkspaceCandidate]
-    ) -> TaskCreateWorkspaceResolution? {
-        var seen: Set<ObjectIdentifier> = []
-        let uniqueCandidates = candidates.filter { seen.insert(ObjectIdentifier($0.tabManager)).inserted }
-        if let cachedWorkspaceID {
-            for candidate in uniqueCandidates {
-                if let workspace = candidate.tabManager.tabs.first(where: { $0.id == cachedWorkspaceID }),
-                   workspace.taskCreateOperationID == operationID {
-                    return TaskCreateWorkspaceResolution(workspace: workspace, candidate: candidate)
-                }
-            }
-        }
-        for candidate in uniqueCandidates {
-            if let workspace = candidate.tabManager.tabs.first(where: { $0.taskCreateOperationID == operationID }) {
-                return TaskCreateWorkspaceResolution(workspace: workspace, candidate: candidate)
-            }
-        }
-        return nil
-    }
-
     private func workspaceCreateResult(
         workspace: Workspace,
         windowID: UUID?
@@ -453,14 +367,22 @@ extension TerminalController {
         createParams["focus"] = false
         createParams["eager_load_terminal"] = false
         createParams["auto_refresh_metadata"] = false
-        let prepared = v2PrepareWorkspaceCreate(
+        let outcome = v2PrepareWorkspaceCreate(
             params: createParams,
             tabManager: resolvedTabManager,
             taskCreateCandidates: nil
         )
-        if let result = prepared.result { return result }
-        guard let preparation = prepared.preparation else {
-            return .err(code: "internal_error", message: "Workspace create preparation failed", data: nil)
+        let preparation: WorkspaceCreatePreparation
+        switch outcome {
+        case let .failure(result):
+            return result
+        case let .existing(resolution):
+            return mobileWorkspaceCreateResult(
+                resolution: resolution,
+                params: createParams
+            )
+        case let .ready(ready):
+            preparation = ready
         }
         guard !Task.isCancelled else {
             return .err(code: "cancelled", message: "Workspace creation was cancelled", data: nil)
@@ -472,6 +394,16 @@ extension TerminalController {
         )
         guard !Task.isCancelled, validation != .cancelled else {
             return .err(code: "cancelled", message: "Workspace creation was cancelled", data: nil)
+        }
+        if let operationID = preparation.operationID,
+           let resolution = existingTaskCreateWorkspace(
+               operationID: operationID,
+               candidates: taskCreateWorkspaceCandidates(requested: preparation.tabManager)
+           ) {
+            return mobileWorkspaceCreateResult(
+                resolution: resolution,
+                params: createParams
+            )
         }
         let createResult = v2PerformWorkspaceCreate(
             params: createParams,
@@ -494,5 +426,19 @@ extension TerminalController {
         case .err:
             return createResult
         }
+    }
+
+    private func mobileWorkspaceCreateResult(
+        resolution: TaskCreateWorkspaceResolution,
+        params: [String: Any]
+    ) -> V2CallResult {
+        let workspaceID = resolution.workspace.id.uuidString
+        var listParams = params
+        listParams["workspace_id"] = workspaceID
+        return v2MobileWorkspaceList(
+            params: listParams,
+            tabManager: resolution.candidate.tabManager,
+            createdWorkspaceID: workspaceID
+        )
     }
 }
