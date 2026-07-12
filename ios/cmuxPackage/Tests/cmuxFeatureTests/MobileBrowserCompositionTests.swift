@@ -6,35 +6,57 @@ import Testing
 @testable import cmuxFeature
 
 @MainActor
-@Test func browserCompositionSharesOneArchiveAcrossSceneConsumers() async throws {
+@Test func browserCompositionSharesPersistenceWithoutSharingLiveSceneState() async throws {
     let suiteName = "MobileBrowserCompositionTests.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suiteName))
     defaults.removePersistentDomain(forName: suiteName)
     defer { defaults.removePersistentDomain(forName: suiteName) }
 
     let composition = MobileBrowserComposition(defaults: defaults)
+    let firstStore = composition.makeSceneStore()
+    let secondStore = composition.makeSceneStore()
     let firstScene = CMUXMobileAppView(
         store: .preview(),
-        browserStore: composition.store,
+        browserStore: firstStore,
         onboardingStore: MobileOnboardingStore(defaults: defaults, forceSeen: true)
     )
     let secondScene = CMUXMobileAppView(
         store: .preview(),
-        browserStore: composition.store,
+        browserStore: secondStore,
         onboardingStore: MobileOnboardingStore(defaults: defaults, forceSeen: true)
     )
 
-    #expect(firstScene.browserStore === composition.store)
-    #expect(secondScene.browserStore === composition.store)
+    #expect(firstScene.browserStore === firstStore)
+    #expect(secondScene.browserStore === secondStore)
+    #expect(firstScene.browserStore !== secondScene.browserStore)
 
     let scope = BrowserPersistenceScope(userID: "user", teamID: "team")
     firstScene.browserStore.setPersistenceScope(scope)
-    _ = firstScene.browserStore.openBrowser(for: "workspace-a")
-    _ = secondScene.browserStore.openBrowser(for: "workspace-b")
-    await composition.store.flushPersistence()
+    secondScene.browserStore.setPersistenceScope(scope)
+    let firstShared = firstScene.browserStore.openBrowser(for: "workspace-shared")
+    firstShared.navigationDidFinish(
+        url: URL(string: "https://first.example")!,
+        title: "First"
+    )
+    _ = firstScene.browserStore.openBrowser(for: "workspace-first-only")
+    let secondShared = secondScene.browserStore.openBrowser(for: "workspace-shared")
+    secondShared.navigationDidFinish(
+        url: URL(string: "https://second.example")!,
+        title: "Second"
+    )
+    let secondOnly = secondScene.browserStore.openBrowser(for: "workspace-second-only")
 
-    let restored = BrowserSurfaceStore(defaultURL: nil, persistenceDefaults: defaults)
+    firstScene.browserStore.closeBrowser(for: "workspace-shared")
+    firstScene.browserStore.reconcileWorkspaces([] as [String])
+
+    #expect(secondScene.browserStore.browser(for: "workspace-shared") === secondShared)
+    #expect(secondScene.browserStore.browser(for: "workspace-second-only") === secondOnly)
+    #expect(secondShared.currentURL?.absoluteString == "https://second.example")
+    await composition.flushPersistence()
+
+    let restored = composition.makeSceneStore(defaultURL: nil)
     restored.setPersistenceScope(scope)
-    #expect(restored.browser(for: "workspace-a") != nil)
-    #expect(restored.browser(for: "workspace-b") != nil)
+    #expect(restored.browser(for: "workspace-first-only") == nil)
+    #expect(restored.browser(for: "workspace-shared")?.currentURL?.absoluteString == "https://second.example")
+    #expect(restored.browser(for: "workspace-second-only") != nil)
 }
