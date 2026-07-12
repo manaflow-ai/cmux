@@ -231,6 +231,39 @@ struct TerminalScrollSessionTests {
         ))
     }
 
+    @Test("gridless settlement preserves a pending authoritative frame")
+    func gridlessSettlementPreservesPendingFrame() async throws {
+        let harness = Harness()
+        let session = harness.makeSession()
+
+        session.submit(lines: -8, col: 4, row: 5)
+        try await requireEventually {
+            harness.remote.pending.count == 1 && harness.local.pending.count == 1
+        }
+        let scroll = harness.remote.pending.removeFirst()
+        scroll.continuation.resume(returning: response(for: scroll.request, renderRevision: 40))
+
+        session.interactionDidEnd()
+        try await requireEventually { harness.remote.pending.count == 1 }
+        let settlement = harness.remote.pending.removeFirst()
+        settlement.continuation.resume(returning: TerminalScrollResponse(
+            accepted: true,
+            interactionEpoch: settlement.request.interactionEpoch,
+            clientRevision: settlement.request.clientRevision,
+            renderRevision: 41,
+            renderGrid: nil
+        ))
+
+        let local = harness.local.pending.removeFirst()
+        local.continuation.resume(returning: true)
+        try await requireEventually {
+            !harness.delivered.isEmpty || !harness.acceptedRenderRevisions.isEmpty
+        }
+
+        #expect(harness.delivered.map(\.renderRevision) == [40])
+        #expect(harness.acceptedRenderRevisions.isEmpty)
+    }
+
     @Test("disconnect recovery preserves the mounted session")
     func disconnectRecoveryPreservesMountedSession() {
         let store = MobileShellComposite.preview()
