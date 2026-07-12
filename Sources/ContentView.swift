@@ -8713,7 +8713,7 @@ struct ContentView: View {
             in: window
         )
         dismissCommandPalette(
-            restoreFocus: clickedFocusTarget != nil,
+            restoreFocus: true,
             preferredFocusTarget: clickedFocusTarget
         )
     }
