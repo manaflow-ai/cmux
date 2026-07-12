@@ -107,6 +107,27 @@ struct MobileViewportFitGeometryTests {
         #expect(resolved == 18)
     }
 
+    @Test func cachedSurfaceConfigAvoidsConstructingFallbackFontConfig() {
+        var fallbackWasConstructed = false
+        var runtimeConfigWasRead = false
+        let resolved = MobileViewportConfiguredFontPointSizeResolver(
+            surfaceConfigFontPointSize: 18,
+            runtimeConfigFontPointSize: {
+                runtimeConfigWasRead = true
+                return 12
+            },
+            fallbackBaseFontPointSize: {
+                fallbackWasConstructed = true
+                return 10
+            },
+            magnificationPercent: 100
+        ).resolve()
+
+        #expect(resolved == 18)
+        #expect(!runtimeConfigWasRead)
+        #expect(!fallbackWasConstructed)
+    }
+
     @Test func activeRuntimeConfigDefinesResetTargetForInheritedTemplateFont() {
         let configured = MobileViewportResetFontPointSize(
             surfaceConfigFontPointSize: nil,

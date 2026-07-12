@@ -38,10 +38,10 @@ nonisolated struct MobileViewportResetFontPointSize {
 extension TerminalSurface {
     @MainActor
     func configuredMobileViewportFontPointSize() -> Float {
-        MobileViewportResetFontPointSize(
+        MobileViewportConfiguredFontPointSizeResolver(
             surfaceConfigFontPointSize: mobileViewportConfiguredFontPointSize,
-            runtimeConfigFontPointSize: runtimeConfigFontPointSize(),
-            fallbackBaseFontPointSize: Float(GhosttyConfig().fontSize),
+            runtimeConfigFontPointSize: { self.runtimeConfigFontPointSize() },
+            fallbackBaseFontPointSize: { Float(GhosttyConfig().fontSize) },
             magnificationPercent: globalFontMagnificationPercent()
         ).resolve()
     }
