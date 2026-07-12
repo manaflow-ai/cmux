@@ -123,6 +123,33 @@ struct BrowserPortalFirstRevealScrollTests {
         #expect(!webView.browserPortalNeedsFirstSizedRevealNudge)
     }
 
+    @Test func navigationStartedInHiddenFullSizedSlotSetsPendingFirstRevealNudge() throws {
+        let fixture = makeWindowFixture()
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 300, height: 180))
+        let webView = RecordingWebView(frame: slot.bounds, configuration: WKWebViewConfiguration())
+        slot.addSubview(webView)
+        fixture.window.contentView?.addSubview(slot)
+        slot.isHidden = true
+        fixture.window.orderFrontRegardless()
+        defer {
+            webView.stopLoading()
+            fixture.window.orderOut(nil)
+            fixture.window.close()
+        }
+
+        #expect(webView.window === fixture.window)
+        #expect(fixture.window.alphaValue > 0.01)
+        #expect(webView.frame.width == 300)
+        #expect(webView.frame.height == 180)
+        #expect(webView.isHiddenOrHasHiddenAncestor)
+        #expect(!webView.browserPortalNeedsFirstSizedRevealNudge)
+
+        let navigationURL = try #require(URL(string: "about:blank"))
+        _ = browserLoadRequest(URLRequest(url: navigationURL), in: webView)
+
+        #expect(webView.browserPortalNeedsFirstSizedRevealNudge)
+    }
+
     @Test func hiddenHostRevealThroughPortalNudgesFrameOnceAndClearsFlag() async throws {
         let fixture = makeWindowFixture()
         defer { fixture.window.orderOut(nil) }
