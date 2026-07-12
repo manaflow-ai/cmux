@@ -32,8 +32,9 @@ public struct MobileWorkspaceFocusEvent: Decodable, Sendable {
     }
 
     /// Decodes a focus event, returning `nil` for legacy/global payloads.
-    public static func decode(_ data: Data?) -> Self? {
+    public init?(payloadJSON data: Data?) {
         guard let data else { return nil }
-        return try? JSONDecoder().decode(Self.self, from: data)
+        guard let decoded = try? JSONDecoder().decode(Self.self, from: data) else { return nil }
+        self = decoded
     }
 }

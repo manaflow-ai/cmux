@@ -3717,7 +3717,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // Stop if this subscription was replaced/torn down.
                 guard self.secondaryMacSubscriptions[macID]?.client === client else { break }
                 if event.topic == "workspace.updated" {
-                    if let focusEvent = MobileWorkspaceFocusEvent.decode(event.payloadJSON) {
+                    if let focusEvent = MobileWorkspaceFocusEvent(payloadJSON: event.payloadJSON) {
                         self.applyWorkspaceFocusEvent(focusEvent, macID: macID)
                         continue
                     }
@@ -6297,7 +6297,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 self.recordTerminalEventStreamLiveness()
                 self.markMacConnectionHealthy()
                 if event.topic == "workspace.updated" {
-                    if let focusEvent = MobileWorkspaceFocusEvent.decode(event.payloadJSON) {
+                    if let focusEvent = MobileWorkspaceFocusEvent(payloadJSON: event.payloadJSON) {
                         self.applyWorkspaceFocusEvent(focusEvent, macID: nil)
                     } else {
                         self.scheduleWorkspaceListRefreshFromEvent()

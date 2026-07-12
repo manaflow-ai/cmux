@@ -61,7 +61,7 @@ import Testing
         selectedTerminalID: "terminal-a"
     )
     let store = MobileShellComposite(workspaces: [workspace])
-    let event = try #require(MobileWorkspaceFocusEvent.decode(Data("""
+    let event = try #require(MobileWorkspaceFocusEvent(payloadJSON: Data("""
     {"kind":"focus","workspace_id":"ws-focus","focused_pane_id":"pane-right","selected_terminal_id":"terminal-b"}
     """.utf8)))
 
