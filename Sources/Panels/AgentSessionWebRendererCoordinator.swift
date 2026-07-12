@@ -92,7 +92,7 @@ final class CmuxAgentSessionURLSchemeHandler: NSObject, WKURLSchemeHandler {
             if asset.mimeType == "text/html" {
                 headers["Content-Security-Policy"] = [
                     "default-src 'none'",
-                    "script-src 'self' 'wasm-unsafe-eval'",
+                    "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
                     "style-src 'unsafe-inline'",
                     "img-src 'self' data:",
                     "connect-src 'none'",
