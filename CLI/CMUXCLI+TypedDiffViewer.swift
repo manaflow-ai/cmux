@@ -93,7 +93,7 @@ extension CMUXCLI {
             repoOptions = []
         }
 
-        let responseInput: DiffInput
+        var responseInput: DiffInput
         if selectedSource == .lastTurn {
             do {
                 responseInput = try nonEmptyGitDiffInput(source: selectedSource, context: context)
