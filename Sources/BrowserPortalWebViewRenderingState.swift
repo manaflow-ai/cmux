@@ -47,15 +47,13 @@ private extension NSObject {
 }
 
 extension WKWebView {
-    private static func browserPortalRectApproximatelyEqual(
-        _ lhs: NSRect,
-        _ rhs: NSRect,
+    private static func browserPortalSizeApproximatelyEqual(
+        _ lhs: NSSize,
+        _ rhs: NSSize,
         epsilon: CGFloat = 0.5
     ) -> Bool {
-        abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
-            abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
-            abs(lhs.size.width - rhs.size.width) <= epsilon &&
-            abs(lhs.size.height - rhs.size.height) <= epsilon
+        abs(lhs.width - rhs.width) <= epsilon &&
+            abs(lhs.height - rhs.height) <= epsilon
     }
 
     fileprivate var browserPortalNeedsRenderingStateReattach: Bool {
@@ -162,7 +160,8 @@ extension WKWebView {
         companionSearchRoot: NSView,
         relativeTo expectedWindow: NSWindow?
     ) -> Bool {
-        browserPortalApplyFirstSizedRevealGeometryNudgeIfNeeded(
+        guard browserPortalNeedsFirstSizedRevealNudge else { return false }
+        return browserPortalApplyFirstSizedRevealGeometryNudgeIfNeeded(
             reason: reason,
             hasCompanionWKSubviews: companionSearchRoot.browserPortalHasVisibleWebKitCompanionSubview(for: self),
             managedByExternalFullscreenWindow: cmuxIsManagedByExternalFullscreenWindow(relativeTo: expectedWindow)
@@ -176,11 +175,29 @@ extension WKWebView {
         managedByExternalFullscreenWindow: Bool
     ) -> Bool {
         guard browserPortalNeedsFirstSizedRevealNudge else { return false }
-        guard window != nil else {
+        guard let window else {
 #if DEBUG
             cmuxDebugLog(
                 "browser.portal.webview.firstSizedReveal.skip web=\(browserPortalRenderingStateDebugToken(self)) " +
                 "reason=\(reason) skip=noWindow frame=\(browserPortalRenderingStateDebugFrame(frame))"
+            )
+#endif
+            return false
+        }
+        guard window.alphaValue > 0.01 else {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.portal.webview.firstSizedReveal.skip web=\(browserPortalRenderingStateDebugToken(self)) " +
+                "reason=\(reason) skip=hiddenWindow frame=\(browserPortalRenderingStateDebugFrame(frame))"
+            )
+#endif
+            return false
+        }
+        guard !isHiddenOrHasHiddenAncestor else {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.portal.webview.firstSizedReveal.skip web=\(browserPortalRenderingStateDebugToken(self)) " +
+                "reason=\(reason) skip=hiddenView frame=\(browserPortalRenderingStateDebugFrame(frame))"
             )
 #endif
             return false
@@ -222,7 +239,7 @@ extension WKWebView {
         let originalSize = originalFrame.size
         let nudgedSize = NSSize(width: originalSize.width, height: max(1, originalSize.height - 1))
         let nudgedFrame = NSRect(origin: originalFrame.origin, size: nudgedSize)
-        guard !Self.browserPortalRectApproximatelyEqual(originalFrame, nudgedFrame) else {
+        guard !Self.browserPortalSizeApproximatelyEqual(originalSize, nudgedSize) else {
 #if DEBUG
             cmuxDebugLog(
                 "browser.portal.webview.firstSizedReveal.skip web=\(browserPortalRenderingStateDebugToken(self)) " +
@@ -250,24 +267,15 @@ extension WKWebView {
         enclosingScrollView?.layoutSubtreeIfNeeded()
         displayIfNeeded()
 
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             guard let self else { return }
             guard self.browserPortalFirstSizedRevealNudgeGeneration == generation else { return }
-            guard self.window != nil else {
+            guard Self.browserPortalSizeApproximatelyEqual(self.frame.size, nudgedSize) else {
 #if DEBUG
                 cmuxDebugLog(
                     "browser.portal.webview.firstSizedReveal.restore.skip web=\(browserPortalRenderingStateDebugToken(self)) " +
-                    "reason=\(reason) skip=noWindow"
-                )
-#endif
-                return
-            }
-            guard Self.browserPortalRectApproximatelyEqual(self.frame, nudgedFrame) else {
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.portal.webview.firstSizedReveal.restore.skip web=\(browserPortalRenderingStateDebugToken(self)) " +
-                    "reason=\(reason) skip=frameChanged current=\(browserPortalRenderingStateDebugFrame(self.frame)) " +
-                    "expected=\(browserPortalRenderingStateDebugFrame(nudgedFrame))"
+                    "reason=\(reason) skip=sizeChanged current=\(browserPortalRenderingStateDebugFrame(self.frame)) " +
+                    "expectedSize=\(String(format: "%.1fx%.1f", nudgedSize.width, nudgedSize.height))"
                 )
 #endif
                 return
