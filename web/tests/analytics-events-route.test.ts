@@ -109,6 +109,22 @@ describe("iOS analytics events route", () => {
     expect(postHogFetch).not.toHaveBeenCalled();
   });
 
+  test("blocks a deleted identity supplied as a PostHog anonymous alias", async () => {
+    tombstoneRows = [
+      {
+        userIdHash: accountDeletionUserHash(deletedUserID),
+        status: "completed",
+        updatedAt: new Date("2026-07-10T12:00:00.000Z"),
+      },
+    ];
+
+    const response = await POST(identifyRequest("fresh-install-id", deletedUserID));
+
+    expect(response.status).toBe(410);
+    expect(await response.json()).toEqual({ error: "account_deleted" });
+    expect(postHogFetch).not.toHaveBeenCalled();
+  });
+
   test("rate limits Vercel analytics ingress before database access", async () => {
     process.env.VERCEL = "1";
     rateLimitResult = { rateLimited: true };
@@ -258,6 +274,22 @@ function analyticsRequest(distinctID: string): Request {
           event: "ios_app_launched",
           distinct_id: distinctID,
           properties: {},
+        },
+      ],
+    }),
+  });
+}
+
+function identifyRequest(distinctID: string, anonymousID: string): Request {
+  return new Request("https://cmux.test/api/analytics/events", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      batch: [
+        {
+          event: "$identify",
+          distinct_id: distinctID,
+          properties: { $anon_distinct_id: anonymousID },
         },
       ],
     }),
