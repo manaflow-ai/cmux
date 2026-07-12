@@ -40,17 +40,11 @@ public final class BrowserSurfaceStore {
     /// configurable and tests stay hermetic.
     private let defaultURL: URL?
 
-    /// Optional durable storage. `nil` keeps tests and previews hermetic.
-    private let persistenceDefaults: UserDefaults?
+    /// Process persistence owner shared without sharing live scene state.
+    private let persistenceCoordinator: BrowserSurfacePersistenceCoordinator
 
-    /// UserDefaults key for the versioned snapshot array.
-    private let persistenceKey: String
-
-    /// Owner epoch that makes queued prior-owner archives unobservable.
-    private var archiveGeneration: BrowserArchiveGenerationState
-
-    /// Ordered archive writer. Scheduled page churn never encodes on the main actor.
-    private let archiveWriter: BrowserSurfaceArchiveWriter?
+    /// Stable identity for this scene's independent archive contribution.
+    private let persistenceClientID: UUID
 
     /// The authenticated owner allowed to read and write the persisted archive.
     private var persistenceScope: BrowserPersistenceScope?
@@ -76,25 +70,25 @@ public final class BrowserSurfaceStore {
     ///   - persistenceDefaults: Optional defaults storage for cold-launch
     ///     restoration. Pass `.standard` at the app composition root.
     ///   - persistenceKey: The versioned defaults key.
+    ///   - persistenceCoordinator: An optional process persistence owner shared
+    ///     by distinct scene stores.
     public init(
         defaultURL: URL? = URL(string: "https://duckduckgo.com/"),
         makeSurfaceID: @escaping () -> BrowserSurfaceState.ID = {
             BrowserSurfaceState.ID(rawValue: UUID().uuidString)
         },
         persistenceDefaults: UserDefaults? = nil,
-        persistenceKey: String = "cmux.mobile.browserSurfaces.v1"
+        persistenceKey: String = "cmux.mobile.browserSurfaces.v1",
+        persistenceCoordinator: BrowserSurfacePersistenceCoordinator? = nil
     ) {
         self.makeSurfaceID = makeSurfaceID
         self.defaultURL = defaultURL
-        self.persistenceDefaults = persistenceDefaults
-        self.persistenceKey = persistenceKey
-        self.archiveGeneration = BrowserArchiveGenerationState(
-            defaults: persistenceDefaults,
-            archiveKey: persistenceKey
-        )
-        self.archiveWriter = persistenceDefaults.map {
-            BrowserSurfaceArchiveWriter(defaults: $0, key: persistenceKey)
-        }
+        self.persistenceCoordinator = persistenceCoordinator
+            ?? BrowserSurfacePersistenceCoordinator(
+                defaults: persistenceDefaults,
+                archiveKey: persistenceKey
+            )
+        self.persistenceClientID = UUID()
         self.surfacesByWorkspace = [:]
         self.selectedBrowserWorkspaceIDs = []
         self.snapshotSourcesByWorkspace = [:]
@@ -119,25 +113,20 @@ public final class BrowserSurfaceStore {
         scheduledPersistenceTask?.cancel()
         scheduledPersistenceTask = nil
         hasPendingPersistence = false
-        if persistenceScope != nil { revokePersistedArchive() }
         surfacesByWorkspace.removeAll()
         selectedBrowserWorkspaceIDs.removeAll()
         snapshotSourcesByWorkspace.removeAll()
         durableSnapshotsByWorkspace.removeAll()
         persistenceScope = newScope
         #if canImport(WebKit)
-        if let newScope, let persistenceDefaults {
-            let identifier = BrowserWebsiteDataStoreIDStore(
-                defaults: persistenceDefaults,
-                key: "\(persistenceKey).websiteDataStoreIDs"
-            ).identifier(for: newScope)
-            websiteDataStore = WKWebsiteDataStore(forIdentifier: identifier)
-        } else {
-            websiteDataStore = .nonPersistent()
-        }
+        websiteDataStore = persistenceCoordinator.websiteDataStore(for: newScope)
         #endif
+        let restoredSnapshots = persistenceCoordinator.setScope(
+            newScope,
+            for: persistenceClientID
+        )
         guard newScope != nil else { return }
-        restorePersistedSurfaces()
+        restorePersistedSurfaces(from: restoredSnapshots)
         installPersistenceCallbacks()
     }
 
@@ -365,7 +354,7 @@ public final class BrowserSurfaceStore {
         selectedBrowserWorkspaceIDs.removeAll()
         snapshotSourcesByWorkspace.removeAll()
         durableSnapshotsByWorkspace.removeAll()
-        revokePersistedArchive()
+        enqueuePersistence()
     }
 
     private func installPersistenceCallbacks() {
@@ -387,24 +376,14 @@ public final class BrowserSurfaceStore {
         }
     }
 
-    private func restorePersistedSurfaces() {
-        guard let persistenceDefaults, let persistenceScope,
-              let data = persistenceDefaults.data(forKey: persistenceKey) else { return }
-        guard let archive = try? JSONDecoder().decode(BrowserSurfaceArchive.self, from: data),
-              archive.scope == persistenceScope,
-              archiveGeneration.accepts(archive.generation) else {
-            persistenceDefaults.removeObject(forKey: persistenceKey)
-            return
-        }
-
-        if archive.generation == nil {
-            archiveGeneration.consumeLegacyRestore()
-        }
-
+    private func restorePersistedSurfaces(
+        from snapshotsByWorkspace: [String: BrowserSurfaceSnapshot]
+    ) {
         // Decode into the workspace-keyed source of truth. Duplicate rows from
         // an interrupted or older writer cannot create duplicate browser cards;
         // the first valid persisted association wins deterministically.
-        for snapshot in archive.surfaces where surfacesByWorkspace[snapshot.workspaceID] == nil {
+        for snapshot in snapshotsByWorkspace.values
+        where surfacesByWorkspace[snapshot.workspaceID] == nil {
             let restoredURL = snapshot.currentURL.flatMap(URL.init(string:))
             let surface = BrowserSurfaceState(
                 id: .init(rawValue: snapshot.surfaceID),
@@ -419,9 +398,6 @@ public final class BrowserSurfaceStore {
             snapshotSourcesByWorkspace[snapshot.workspaceID] = BrowserSurfaceSnapshotSource(value: snapshot)
             durableSnapshotsByWorkspace[snapshot.workspaceID] = snapshot
         }
-        if archive.generation == nil {
-            enqueuePersistence()
-        }
     }
 
     private func persistImmediately() {
@@ -432,7 +408,7 @@ public final class BrowserSurfaceStore {
     }
 
     private func schedulePersistence() {
-        guard persistenceDefaults != nil else { return }
+        guard persistenceScope != nil else { return }
         hasPendingPersistence = true
         guard scheduledPersistenceTask == nil else { return }
         scheduledPersistenceTask = Task { @MainActor [weak self] in
@@ -453,18 +429,11 @@ public final class BrowserSurfaceStore {
     }
 
     private func enqueuePersistence() {
-        guard let archiveWriter, let persistenceScope else { return }
-        archiveWriter.enqueueWrite(
-            scope: persistenceScope,
-            snapshotsByWorkspace: durableSnapshotsByWorkspace,
-            generation: archiveGeneration.current
+        persistenceCoordinator.replaceSnapshots(
+            durableSnapshotsByWorkspace,
+            for: persistenceClientID,
+            scope: persistenceScope
         )
-    }
-
-    private func revokePersistedArchive() {
-        archiveGeneration.revoke(in: persistenceDefaults)
-        persistenceDefaults?.removeObject(forKey: persistenceKey)
-        archiveWriter?.enqueueRemoval()
     }
 
     /// Waits until archive requests already submitted by this store finish.
@@ -472,7 +441,7 @@ public final class BrowserSurfaceStore {
     /// This is useful at explicit durability boundaries and in persistence tests;
     /// normal UI updates never wait for JSON encoding or defaults I/O.
     func flushPersistence() async {
-        await archiveWriter?.flush()
+        await persistenceCoordinator.flush()
     }
 
     private func makeSnapshot(workspaceID: String, surface: BrowserSurfaceState) -> BrowserSurfaceSnapshot {

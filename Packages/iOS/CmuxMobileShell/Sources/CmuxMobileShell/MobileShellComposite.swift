@@ -3538,8 +3538,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryAggregationTask?.cancel()
         secondaryAggregationTask = Task { @MainActor [weak self] in
             let isAuthoritative = await self?.refreshSecondaryMacWorkspaces() ?? false
-            guard !Task.isCancelled else { return }
-            self?.browserWorkspaceListIsAuthoritative = isAuthoritative
+            self?.completeSecondaryWorkspaceRefresh(isAuthoritative: isAuthoritative)
         }
     }
 
@@ -7482,7 +7481,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // workspaces created on a secondary Mac since the last fetch (the
             // read-only secondary list is a snapshot, not a live subscription).
             if self?.multiMacAggregationEnabled == true {
-                await self?.refreshSecondaryMacWorkspaces()
+                let isAuthoritative = await self?.refreshSecondaryMacWorkspaces() ?? false
+                self?.completeSecondaryWorkspaceRefresh(isAuthoritative: isAuthoritative)
             }
         }
         pullToRefreshTask = task

@@ -2,6 +2,7 @@ import CMUXAuthCore
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileAnalytics
+import CmuxMobileBrowser
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -34,7 +35,7 @@ public struct CMUXMobileRootScene: View {
     private let auth: MobileAuthComposition
     private let reachability: any ReachabilityProviding
     private let analytics: any AnalyticsEmitting
-    private let browserComposition: MobileBrowserComposition
+    private let browserStore: BrowserSurfaceStore
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
@@ -99,7 +100,7 @@ public struct CMUXMobileRootScene: View {
         self.analytics = analytics
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
-        self.browserComposition = browserComposition
+        self.browserStore = browserComposition.makeSceneStore()
         self.onboardingStore = onboardingStore
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.pairedMacStore = Self.openPairedMacStore()
@@ -121,7 +122,7 @@ public struct CMUXMobileRootScene: View {
         self.auth = auth
         self.reachability = reachability
         self.analytics = analytics
-        self.browserComposition = browserComposition
+        self.browserStore = browserComposition.makeSceneStore()
         self.tailscaleStatusMonitor = nil
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
@@ -258,19 +259,19 @@ public struct CMUXMobileRootScene: View {
         } else {
             CMUXMobileAppView(
                 store: makeStore(),
-                browserStore: browserComposition.store,
+                browserStore: browserStore,
                 onboardingStore: onboardingStore
             )
         }
         #else
         CMUXMobileAppView(
             store: makeStore(),
-            browserStore: browserComposition.store,
+            browserStore: browserStore,
             onboardingStore: onboardingStore
         )
         #endif
         #else
-        CMUXMobileAppView(store: makeStore(), browserStore: browserComposition.store)
+        CMUXMobileAppView(store: makeStore(), browserStore: browserStore)
         #endif
     }
 

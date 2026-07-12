@@ -46,6 +46,12 @@ import Testing
     )
     let secondOnly = secondScene.browserStore.openBrowser(for: "workspace-second-only")
 
+    firstScene.browserStore.showNonBrowserSurface(for: "workspace-shared")
+    firstShared.request(.reload)
+    #expect(firstScene.browserStore.activeBrowser(for: "workspace-shared") == nil)
+    #expect(secondScene.browserStore.activeBrowser(for: "workspace-shared") === secondShared)
+    #expect(secondShared.pendingCommand == nil)
+
     firstScene.browserStore.closeBrowser(for: "workspace-shared")
     firstScene.browserStore.reconcileWorkspaces([] as [String])
 

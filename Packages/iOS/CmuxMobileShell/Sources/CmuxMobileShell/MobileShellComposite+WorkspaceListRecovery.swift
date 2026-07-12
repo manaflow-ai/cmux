@@ -3,6 +3,13 @@ import Foundation
 
 @MainActor
 extension MobileShellComposite {
+    /// Applies one complete secondary aggregation result unless its owner task
+    /// was cancelled by a newer refresh or an authentication-scope transition.
+    func completeSecondaryWorkspaceRefresh(isAuthoritative: Bool) {
+        guard !Task.isCancelled else { return }
+        browserWorkspaceListIsAuthoritative = isAuthoritative
+    }
+
     /// Marks a complete foreground list ready for browser reconciliation after
     /// including secondary Macs when that rollout is enabled.
     func foregroundWorkspaceListDidBecomeAuthoritative() {

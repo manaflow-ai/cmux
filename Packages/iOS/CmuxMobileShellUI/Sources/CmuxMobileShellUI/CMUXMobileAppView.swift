@@ -12,9 +12,9 @@ import AppKit
 public struct CMUXMobileAppView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @State private var store: CMUXMobileShellStore
-    /// The process-owned phone browser store, injected into this scene and then
-    /// into the environment. Unlike terminals, browser state has no Mac-side
-    /// counterpart and must survive scene creation and workspace re-syncs.
+    /// This scene's phone browser store, injected into the environment. Unlike
+    /// terminals, browser state has no Mac-side counterpart and must survive
+    /// view reconstruction and workspace re-syncs.
     @State var browserStore: BrowserSurfaceStore
     #if os(iOS)
     private let onboardingStore: MobileOnboardingStore
