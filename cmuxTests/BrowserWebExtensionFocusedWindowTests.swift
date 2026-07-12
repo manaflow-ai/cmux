@@ -13,7 +13,7 @@ struct BrowserWebExtensionFocusedWindowTests {
     @MainActor
     @Test
     @available(macOS 15.4, *)
-    func keyWindowSwitchRestoresThatWindowsActiveExtensionTab() {
+    func keyWindowSwitchRestoresThatWindowsActiveExtensionTab() throws {
         let support = BrowserWebExtensionSupport()
         let firstPanel = BrowserPanel(
             workspaceId: UUID(),
@@ -57,8 +57,10 @@ struct BrowserWebExtensionFocusedWindowTests {
         support.noteWindowBecameKey(firstWindow)
 
         #expect(support.activePanelID == firstPanel.id)
-        #expect((support.webExtensionWindow(for: firstWindow) as AnyObject?) === support.windowAdapter)
-        #expect((support.focusedWebExtensionWindow(for: firstWindow) as AnyObject?) === support.windowAdapter)
+        let firstAdapter = try #require(support.webExtensionWindow(for: firstWindow))
+        let secondAdapter = try #require(support.webExtensionWindow(for: secondWindow))
+        #expect((firstAdapter as AnyObject) !== (secondAdapter as AnyObject))
+        #expect((support.focusedWebExtensionWindow(for: firstWindow) as AnyObject?) === (firstAdapter as AnyObject))
         let unrelatedWindow = NSWindow()
         #expect(support.webExtensionWindow(for: unrelatedWindow) == nil)
         #expect(support.focusedWebExtensionWindow(for: unrelatedWindow) == nil)
