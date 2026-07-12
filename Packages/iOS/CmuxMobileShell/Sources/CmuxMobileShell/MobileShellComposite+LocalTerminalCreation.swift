@@ -85,8 +85,7 @@ extension MobileShellComposite {
         let addedTerminals = workspace.terminals.filter { !existingTerminalIDs.contains($0.id) }
         if let paneID {
             let addedInPane = addedTerminals.filter { $0.paneID == paneID }
-            if addedInPane.count == 1 { return addedInPane[0].id }
-            if addedInPane.count > 1 { return nil }
+            return addedInPane.count == 1 ? addedInPane[0].id : nil
         }
         return addedTerminals.count == 1 ? addedTerminals[0].id : nil
     }
