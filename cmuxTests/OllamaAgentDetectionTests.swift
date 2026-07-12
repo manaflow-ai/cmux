@@ -142,4 +142,32 @@ struct OllamaAgentDetectionTests {
         #expect(RestorableAgentKind.ollama.rawValue == "ollama")
         #expect(RestorableAgentKind.ollama.restoreMode == .relaunchCommand)
     }
+
+    @Test("Textbox agent detection recognizes interactive Ollama sessions")
+    func textBoxAgentDetectionRecognizesOllama() {
+        #expect(TextBoxAgentDetection.supportsAgentPrefixes(context: "restoredAgent:ollama"))
+        #expect(TextBoxAgentDetection.supportsAgentPrefixes(context: "agentPIDKey:ollama"))
+        #expect(TextBoxAgentDetection.supportsAgentPrefixes(context: "initialCommand:ollama run qwen3:8b"))
+        #expect(TextBoxAgentDetection.supportsAgentPrefixes(context: "tmuxStartCommand:ollama run qwen3:8b --think high"))
+        // Utility subcommands are not interactive agents.
+        #expect(!TextBoxAgentDetection.supportsAgentPrefixes(context: "initialCommand:ollama serve"))
+        #expect(!TextBoxAgentDetection.supportsAgentPrefixes(context: "initialCommand:ollama pull qwen3:8b"))
+    }
+
+    @Test("Textbox launch command context binds only the run subcommand")
+    func textBoxLaunchCommandContextRequiresRun() {
+        #expect(TextBoxAgentDetection.boundedLaunchCommandContext(from: "ollama run qwen3:8b") == "ollama")
+        #expect(TextBoxAgentDetection.boundedLaunchCommandContext(from: "ollama serve") == nil)
+        #expect(TextBoxAgentDetection.boundedLaunchCommandContext(from: "ollama list") == nil)
+    }
+
+    @Test("Sleepy census buckets ollama status keys")
+    func sleepyCensusBucketsOllama() {
+        #expect(SleepyAgentCensus.bucket(forStatusKey: "ollama") == .ollama)
+        #expect(SleepyAgentCensus.bucket(forStatusKey: "ollama.session-abc") == .ollama)
+        var counts = SleepyAgentCounts()
+        counts.ollama = 2
+        counts.claude = 1
+        #expect(counts.total == 3)
+    }
 }
