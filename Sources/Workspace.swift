@@ -5252,7 +5252,10 @@ final class Workspace: Identifiable, ObservableObject {
         let previousPresentedDirectory = presentedCurrentDirectory
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         let shouldResetRemoteDisconnectOwnership = previousConfiguration.map { $0 != configuration } ?? true
-        if shouldResetRemoteDisconnectOwnership { pendingRemoteDisconnectReplacementsBySurfaceId.removeAll() }
+        if shouldResetRemoteDisconnectOwnership {
+            pendingRemoteDisconnectReplacementsBySurfaceId.removeAll()
+            pendingRemoteTerminalChildExitSurfaceIds.removeAll()
+        }
         let remoteDisconnectPlaceholderPanelIdsToClear = shouldResetRemoteDisconnectOwnership
             ? remoteDisconnectPlaceholderPanelIds
             : []
