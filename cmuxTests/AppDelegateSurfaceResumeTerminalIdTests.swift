@@ -281,6 +281,62 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
         XCTAssertNil(otherWorkspace.surfaceResumeBinding(panelId: otherPanel.id))
     }
 
+    func testSurfaceResumeRejectsAnyAmbiguousStableSurfaceIdWithinExplicitWindow() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let previousActiveManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousActiveManager)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let firstPanel = try XCTUnwrap(firstWorkspace.focusedTerminalPanel)
+        let firstSplit = try XCTUnwrap(firstWorkspace.newTerminalSplit(
+            from: firstPanel.id,
+            orientation: .horizontal,
+            focus: false
+        ))
+        let secondWorkspace = manager.addWorkspace(select: false)
+        let secondPanel = try XCTUnwrap(secondWorkspace.focusedTerminalPanel)
+        let duplicateStableId = UUID()
+        firstPanel.adoptStableSurfaceId(duplicateStableId)
+        firstSplit.adoptStableSurfaceId(duplicateStableId)
+        secondPanel.adoptStableSurfaceId(duplicateStableId)
+
+        let (raw, envelope) = try v2Envelope(method: "surface.resume.set", params: [
+            "window_id": windowId.uuidString,
+            "surface_id": duplicateStableId.uuidString,
+            "kind": "codex",
+            "source": "agent-hook",
+            "auto_resume": true,
+            "command": "codex resume ambiguous-window-target",
+            "checkpoint_id": "ambiguous-window-target",
+        ])
+
+        XCTAssertEqual(envelope["ok"] as? Bool, false, raw)
+        XCTAssertNil(firstWorkspace.surfaceResumeBinding(panelId: firstPanel.id))
+        XCTAssertNil(firstWorkspace.surfaceResumeBinding(panelId: firstSplit.id))
+        XCTAssertNil(secondWorkspace.surfaceResumeBinding(panelId: secondPanel.id))
+    }
+
     func testSystemResolveTerminalRejectsInheritedScopeWithoutUniqueLiveTTY() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
