@@ -7,7 +7,21 @@ import Testing
 @Suite struct WorkspaceBrowserRoutingTests {
     @Test func localBrowserDestinationDoesNotOpenRemoteWorkspace() {
         #expect(WorkspaceDetailOpenMode.localBrowser.opensRemoteWorkspace == false)
+        #expect(WorkspaceDetailOpenMode.localBrowser.mountsRemoteWorkspaceSurface == false)
+        #expect(WorkspaceDetailOpenMode.localBrowser.showsRemoteWorkspaceControls == false)
         #expect(WorkspaceDetailOpenMode.remoteWorkspace.opensRemoteWorkspace)
+        #expect(WorkspaceDetailOpenMode.remoteWorkspace.mountsRemoteWorkspaceSurface)
+        #expect(WorkspaceDetailOpenMode.remoteWorkspace.showsRemoteWorkspaceControls)
+
+        var performedActions: [String] = []
+        WorkspaceDetailOpenMode.localBrowser.performRemoteAction {
+            performedActions.append("wrong-client")
+        }
+        WorkspaceDetailOpenMode.remoteWorkspace.performRemoteAction {
+            performedActions.append("attached-client")
+        }
+        #expect(performedActions == ["attached-client"])
+
         #expect(
             WorkspaceDetailOpenTaskID(workspaceID: "workspace-a", openMode: .remoteWorkspace)
                 != WorkspaceDetailOpenTaskID(workspaceID: "workspace-b", openMode: .remoteWorkspace)
