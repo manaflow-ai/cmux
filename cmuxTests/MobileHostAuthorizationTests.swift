@@ -93,7 +93,8 @@ struct MobileHostAuthorizationTests {
         #expect(decoded.routes.count == 1)
         #expect(decoded.routes.first?.kind == .iroh)
         guard case let .peer(identity, hints) = decoded.routes.first?.endpoint else {
-            return Issue.record("Expected identity-only Iroh route")
+            Issue.record("Expected identity-only Iroh route")
+            return
         }
         #expect(identity.endpointID == endpointID)
         #expect(hints.isEmpty)

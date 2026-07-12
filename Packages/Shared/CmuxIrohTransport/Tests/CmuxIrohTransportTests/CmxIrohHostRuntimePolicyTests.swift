@@ -122,6 +122,7 @@ extension CmxIrohHostRuntimeTests {
     ) async throws {
         let fixture = try HostRuntimeFixture()
         let cachedFixture = try fixture.cachedPolicyFixture()
+        let now = cachedFixture.now
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
         let factory = TestIrohEndpointFactory(endpoints: [endpoint])
         let broker = TestIrohHostBroker(
@@ -136,7 +137,7 @@ extension CmxIrohHostRuntimeTests {
                 cachedHostPolicy: try cachedFixture.policy()
             ),
             pendingRevocations: fixture.pendingRevocations(),
-            now: { cachedFixture.now },
+            now: { now },
             handleTransport: { session, _ in await session.close() }
         )
 
@@ -164,6 +165,7 @@ extension CmxIrohHostRuntimeTests {
             identityGeneration: fixture.binding.identityGeneration
         )
         let cachedFixture = try fixture.cachedPolicyFixture(binding: cachedMetadata)
+        let now = cachedFixture.now
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
         let factory = TestIrohEndpointFactory(endpoints: [endpoint])
         let broker = TestIrohHostBroker(
@@ -178,7 +180,7 @@ extension CmxIrohHostRuntimeTests {
                 cachedHostPolicy: try cachedFixture.policy()
             ),
             pendingRevocations: fixture.pendingRevocations(),
-            now: { cachedFixture.now },
+            now: { now },
             handleTransport: { session, _ in await session.close() },
             handleBinding: { _, _, _ in await bindings.record() }
         )
@@ -194,6 +196,7 @@ extension CmxIrohHostRuntimeTests {
     func forgedCachedPolicyFailsAfterConnectivityFailure() async throws {
         let fixture = try HostRuntimeFixture()
         let cachedFixture = try fixture.cachedPolicyFixture()
+        let now = cachedFixture.now
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
         let factory = TestIrohEndpointFactory(endpoints: [endpoint])
         let broker = TestIrohHostBroker(
@@ -210,7 +213,7 @@ extension CmxIrohHostRuntimeTests {
                 )
             ),
             pendingRevocations: fixture.pendingRevocations(),
-            now: { cachedFixture.now },
+            now: { now },
             handleTransport: { session, _ in await session.close() }
         )
 
@@ -226,6 +229,7 @@ extension CmxIrohHostRuntimeTests {
     func confirmedOnlineBindingChangePreventsDiscoveryConnectivityFallback() async throws {
         let fixture = try HostRuntimeFixture()
         let cachedFixture = try fixture.cachedPolicyFixture()
+        let now = cachedFixture.now
         let changedBinding = try HostRuntimeFixture.binding(
             endpointID: fixture.endpointID.endpointID,
             bindingID: "123e4567-e89b-42d3-a456-426614174099"
@@ -244,7 +248,7 @@ extension CmxIrohHostRuntimeTests {
                 cachedHostPolicy: try cachedFixture.policy()
             ),
             pendingRevocations: fixture.pendingRevocations(),
-            now: { cachedFixture.now },
+            now: { now },
             handleTransport: { session, _ in await session.close() }
         )
 
@@ -259,6 +263,7 @@ extension CmxIrohHostRuntimeTests {
     func routeContractMismatchNeverUsesCachedPolicy() async throws {
         let fixture = try HostRuntimeFixture()
         let cachedFixture = try fixture.cachedPolicyFixture()
+        let now = cachedFixture.now
         let mismatchedDiscovery = try HostRuntimeFixture.discovery(
             binding: fixture.binding,
             relays: Array(fixture.managedRelays),
@@ -277,7 +282,7 @@ extension CmxIrohHostRuntimeTests {
                 cachedHostPolicy: try cachedFixture.policy()
             ),
             pendingRevocations: fixture.pendingRevocations(),
-            now: { cachedFixture.now },
+            now: { now },
             handleTransport: { session, _ in await session.close() }
         )
 
@@ -303,6 +308,7 @@ extension CmxIrohHostRuntimeTests {
             discovery: substituted
         )
         let cachedFixture = try fixture.cachedPolicyFixture()
+        let now = cachedFixture.now
         let runtime = CmxIrohHostRuntime(
             factory: factory,
             broker: broker,
@@ -310,7 +316,7 @@ extension CmxIrohHostRuntimeTests {
                 cachedHostPolicy: try cachedFixture.policy()
             ),
             pendingRevocations: fixture.pendingRevocations(),
-            now: { cachedFixture.now },
+            now: { now },
             handleTransport: { session, _ in await session.close() }
         )
 

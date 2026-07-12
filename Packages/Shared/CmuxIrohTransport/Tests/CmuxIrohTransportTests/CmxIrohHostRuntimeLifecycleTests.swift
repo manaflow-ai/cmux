@@ -208,6 +208,7 @@ extension CmxIrohHostRuntimeTests {
     func connectivityFailureUsesVerifiedCacheOnlyAfterOnlineAttempt() async throws {
         let fixture = try HostRuntimeFixture()
         let cachedFixture = try fixture.cachedPolicyFixture()
+        let now = cachedFixture.now
         let cachedPolicy = try cachedFixture.policy()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
         let factory = TestIrohEndpointFactory(endpoints: [endpoint])
@@ -222,7 +223,7 @@ extension CmxIrohHostRuntimeTests {
             broker: broker,
             configuration: fixture.configuration(cachedHostPolicy: cachedPolicy),
             pendingRevocations: fixture.pendingRevocations(),
-            now: { cachedFixture.now },
+            now: { now },
             handleTransport: { session, _ in await session.close() },
             handleBinding: { _, _, _ in await bindings.record() }
         )
@@ -308,4 +309,3 @@ extension CmxIrohHostRuntimeTests {
     }
 
 }
-
