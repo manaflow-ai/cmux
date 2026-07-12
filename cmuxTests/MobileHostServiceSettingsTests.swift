@@ -146,7 +146,7 @@ struct MobileTerminalScrollHandlerTests {
 
         service.debugRemoveConnectionForTesting(id: connectionB)
 
-        #expect(controller.debugMobileViewportReportClientIDsForTesting(surfaceID: surfaceID).isEmpty)
+        #expect(controller.debugMobileViewportReportClientIDsForTesting(surfaceID: surfaceID) == nil)
         #expect(controller.mobileInteractionEpochsBySurfaceID[surfaceID] == nil)
     }
 

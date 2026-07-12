@@ -26,16 +26,17 @@ extension MobileShellComposite {
         runs: [MobileTerminalScrollRun]
     ) -> TerminalSurfaceMutationReceipt {
         let receipt = TerminalSurfaceMutationReceipt()
-        guard terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil,
-              let continuation = terminalByteContinuationsBySurfaceID[surfaceID],
+        let delivery = TerminalOutputDelivery(localScroll: runs, receipt: receipt)
+        if terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil {
+            return enqueueTerminalBarrierInteraction(delivery, surfaceID: surfaceID)
+        }
+        guard let continuation = terminalByteContinuationsBySurfaceID[surfaceID],
               let streamToken = terminalOutputStreamTokensBySurfaceID[surfaceID],
               var queue = terminalOutputQueuesBySurfaceID[surfaceID] else {
             receipt.resolve(false)
             return receipt
         }
-        let enqueueResult = queue.enqueueOptimisticScroll(
-            TerminalOutputDelivery(localScroll: runs, receipt: receipt)
-        )
+        let enqueueResult = queue.enqueueOptimisticScroll(delivery)
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
         if let immediate = enqueueResult.immediate {
             continuation.yield(MobileTerminalOutputChunk(
@@ -49,8 +50,12 @@ extension MobileShellComposite {
 
     func enqueueTerminalScrollToBottomMutation(surfaceID: String) -> TerminalSurfaceMutationReceipt {
         let receipt = TerminalSurfaceMutationReceipt()
+        let delivery = TerminalOutputDelivery(scrollToBottomReceipt: receipt)
+        if terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil {
+            return enqueueTerminalBarrierInteraction(delivery, surfaceID: surfaceID)
+        }
         let accepted = deliverTerminalOutput(
-            TerminalOutputDelivery(scrollToBottomReceipt: receipt),
+            delivery,
             surfaceID: surfaceID
         )
         if !accepted { receipt.resolve(false) }
@@ -59,8 +64,12 @@ extension MobileShellComposite {
 
     func enqueueTerminalMutationBarrier(surfaceID: String) -> TerminalSurfaceMutationReceipt {
         let receipt = TerminalSurfaceMutationReceipt()
+        let delivery = TerminalOutputDelivery(barrierReceipt: receipt)
+        if terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil {
+            return enqueueTerminalBarrierInteraction(delivery, surfaceID: surfaceID)
+        }
         let accepted = deliverTerminalOutput(
-            TerminalOutputDelivery(barrierReceipt: receipt),
+            delivery,
             surfaceID: surfaceID
         )
         if !accepted { receipt.resolve(false) }
@@ -93,14 +102,53 @@ extension MobileShellComposite {
         }
     }
 
-    func resetTerminalMutationQueue(surfaceID: String, remove: Bool = false) {
+    func resetTerminalMutationQueue(
+        surfaceID: String,
+        remove: Bool = false,
+        preservingBarrierInteractions: Bool = false
+    ) {
         if var queue = terminalOutputQueuesBySurfaceID[surfaceID] {
-            queue.reset()
+            if preservingBarrierInteractions {
+                queue.resetForReplayBarrier()
+            } else {
+                queue.reset()
+            }
+            terminalOutputQueuesBySurfaceID[surfaceID] = queue
         }
         if remove {
             terminalOutputQueuesBySurfaceID.removeValue(forKey: surfaceID)
-        } else {
+        } else if terminalOutputQueuesBySurfaceID[surfaceID] == nil {
             terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
+        }
+    }
+
+    private func enqueueTerminalBarrierInteraction(
+        _ delivery: TerminalOutputDelivery,
+        surfaceID: String
+    ) -> TerminalSurfaceMutationReceipt {
+        guard terminalByteContinuationsBySurfaceID[surfaceID] != nil,
+              var queue = terminalOutputQueuesBySurfaceID[surfaceID] else {
+            delivery.resolveReceipt(false)
+            return delivery.primaryReceipt!
+        }
+        let receipt = queue.enqueueBarrierInteraction(delivery)
+        terminalOutputQueuesBySurfaceID[surfaceID] = queue
+        return receipt
+    }
+
+    func releaseTerminalReplayBarrierInteractions(surfaceID: String) {
+        guard terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil,
+              let continuation = terminalByteContinuationsBySurfaceID[surfaceID],
+              let streamToken = terminalOutputStreamTokensBySurfaceID[surfaceID],
+              var queue = terminalOutputQueuesBySurfaceID[surfaceID] else { return }
+        let immediate = queue.releaseBarrierInteractions()
+        terminalOutputQueuesBySurfaceID[surfaceID] = queue
+        if let immediate {
+            continuation.yield(MobileTerminalOutputChunk(
+                mutation: immediate.mutation,
+                streamToken: streamToken,
+                deliveryID: immediate.deliveryID
+            ))
         }
     }
 

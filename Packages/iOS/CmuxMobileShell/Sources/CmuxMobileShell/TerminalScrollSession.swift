@@ -351,6 +351,7 @@ final class TerminalScrollSession {
     private func enqueueBottomSnapIfNeeded() {
         guard needsBottomSnap else { return }
         needsBottomSnap = false
+        lastDirectionLines = 1
         bottomSnapReceiptGeneration &+= 1
         if bottomSnapReceiptGeneration == 0 { bottomSnapReceiptGeneration = 1 }
         let generation = bottomSnapReceiptGeneration

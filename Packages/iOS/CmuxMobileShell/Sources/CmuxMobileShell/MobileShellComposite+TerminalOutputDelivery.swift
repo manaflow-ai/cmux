@@ -319,8 +319,15 @@ extension MobileShellComposite {
         }
         var queue = terminalOutputQueuesBySurfaceID[surfaceID] ?? TerminalOutputDeliveryQueue()
         let immediate = queue.enqueue(delivery)
+        let rawBacklogOverflowed = queue.consumeRawBacklogOverflow()
         let pendingCount = queue.pendingCount
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
+        if rawBacklogOverflowed {
+            let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+            MobileDebugLog.anchormux("terminal.output.raw_backlog_overflow surface=\(surfaceID)")
+            requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+            return false
+        }
         if bypassReplayBarrier,
            immediate != nil,
            terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil {
@@ -417,6 +424,7 @@ extension MobileShellComposite {
                 // so the floor restore is the truthful baseline hand-back.
                 restoreTerminalPreBarrierBaselineIfNeeded(surfaceID: surfaceID)
                 terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
+                releaseTerminalReplayBarrierInteractions(surfaceID: surfaceID)
             }
         }
         guard let next,

@@ -71,7 +71,7 @@ extension MobileShellComposite {
     ) -> UUID {
         cancelTerminalReplayInFlight(surfaceID: surfaceID)
         terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.remove(surfaceID)
-        resetTerminalMutationQueue(surfaceID: surfaceID)
+        resetTerminalMutationQueue(surfaceID: surfaceID, preservingBarrierInteractions: true)
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
         stashTerminalPreBarrierDeliveredEndSeq(surfaceID: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
@@ -188,6 +188,7 @@ extension MobileShellComposite {
         terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensInFlightBySurfaceID.removeValue(forKey: surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_barrier_cleared_\(reason) surface=\(surfaceID)")
+        releaseTerminalReplayBarrierInteractions(surfaceID: surfaceID)
         return true
     }
 
@@ -245,6 +246,7 @@ extension MobileShellComposite {
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_barrier_fail_open surface=\(surfaceID) reason=\(reason)")
+        releaseTerminalReplayBarrierInteractions(surfaceID: surfaceID)
         return true
     }
 

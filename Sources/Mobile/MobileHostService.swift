@@ -1201,14 +1201,14 @@ final class MobileHostService {
     private func removeConnection(id: UUID) {
         MobileHostConnectionRegistry.shared.remove(id: id)
         activeConnections.removeValue(forKey: id)
-        // Drop this connection's sticky viewport reports so a disconnected
-        // device stops pinning the shared grid (and its macOS viewport border
-        // clears) even though it never sent an explicit clear.
-        let clientIDs = clientIDsByConnectionID[id] ?? []
-        clientIDsByConnectionID.removeValue(forKey: id)
-        if !clientIDs.isEmpty {
+        // Retire state only when no replacement connection still owns the client ID.
+        let clientIDs = clientIDsByConnectionID.removeValue(forKey: id) ?? []
+        let retiredClientIDs = clientIDs.subtracting(
+            clientIDsByConnectionID.values.reduce(into: Set<String>()) { $0.formUnion($1) }
+        )
+        if !retiredClientIDs.isEmpty {
             TerminalController.shared.clearMobileViewportReports(
-                clientIDs: clientIDs,
+                clientIDs: retiredClientIDs,
                 reason: "mobile.connection.closed"
             )
         }

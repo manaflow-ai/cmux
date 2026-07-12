@@ -376,6 +376,30 @@ struct TerminalSurfaceMutationInvalidationTests {
         #expect(await bottomReceipt.value)
     }
 
+    @Test("replay barrier interaction retention is bounded and resettable")
+    func replayBarrierInteractionRetentionIsBounded() async {
+        var queue = TerminalOutputDeliveryQueue()
+        var retained: [TerminalSurfaceMutationReceipt] = []
+        for _ in 0..<TerminalScrollSession.maximumQueuedInteractionCount {
+            let receipt = TerminalSurfaceMutationReceipt()
+            retained.append(receipt)
+            _ = queue.enqueueBarrierInteraction(
+                TerminalOutputDelivery(scrollToBottomReceipt: receipt)
+            )
+        }
+        let rejected = TerminalSurfaceMutationReceipt()
+
+        _ = queue.enqueueBarrierInteraction(
+            TerminalOutputDelivery(scrollToBottomReceipt: rejected)
+        )
+
+        #expect(await rejected.value == false)
+        queue.reset()
+        for receipt in retained {
+            #expect(await receipt.value == false)
+        }
+    }
+
     @Test("raw byte budget recovers before admitting local scroll")
     func rawByteBudgetRecoversBeforeScroll() async throws {
         let store = MobileShellComposite.preview()
