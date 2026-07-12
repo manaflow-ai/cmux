@@ -209,6 +209,53 @@ struct SharedLiveAgentIndexFingerprintInvalidationTests {
         )
     }
 
+    @Test
+    func matchingWarmValidationPreservesForkAvailability() async {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let now = Date()
+        let hookDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-warm-validation-fork-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: hookDirectory) }
+        let cachedResult: SharedLiveAgentIndex.LoadResult = (
+            index: SharedLiveAgentIndexLoadCoalescingTests.index(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                sessionId: "validated-session"
+            ),
+            surfaceResumeBindingIndex: .empty,
+            liveAgentProcessFingerprint: [],
+            processScopeFingerprint: ["scope"],
+            forkValidatedPanels: [panelKey]
+        )
+        let sharedIndex = SharedLiveAgentIndex(
+            processScopeFingerprintProvider: { ["scope"] },
+            hookStoreDirectoryProvider: { hookDirectory.path },
+            dateProvider: { now }
+        )
+        sharedIndex.applyReloadedResult(
+            cachedResult,
+            validationPanelsByPanelID: [:],
+            generationID: UUID()
+        )
+        sharedIndex.latestCompletedLoadResult = cachedResult
+        sharedIndex.latestCompletedAt = now
+        #expect(
+            sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId) != nil
+        )
+
+        #expect(await sharedIndex.resumeIndexesRefreshingIfNeeded(maximumAge: 60) != nil)
+
+        #expect(
+            sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId) != nil,
+            "A matching warm validation must preserve the existing fork availability proof."
+        )
+    }
+
     @Test(arguments: [false, true])
     func expiredCacheIsRejectedWhenRefreshIsUnavailable(joinExistingRefresh: Bool) async {
         var now = Date()
