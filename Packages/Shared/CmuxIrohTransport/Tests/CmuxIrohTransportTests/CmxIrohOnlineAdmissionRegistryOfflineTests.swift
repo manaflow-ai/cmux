@@ -227,14 +227,16 @@ extension CmxIrohOnlineAdmissionRegistryTests {
             suspended: true
         )
         let registry = fixture.registry(broker: broker)
+        let grant = fixture.grant()
+        let initiatorEndpointID = fixture.initiator.endpointID
 
         async let first = registry.authorizePairGrant(
-            fixture.grant(),
-            authenticatedPeerID: fixture.initiator.endpointID
+            grant,
+            authenticatedPeerID: initiatorEndpointID
         )
         async let second = registry.authorizePairGrant(
-            fixture.grant(),
-            authenticatedPeerID: fixture.initiator.endpointID
+            grant,
+            authenticatedPeerID: initiatorEndpointID
         )
         await broker.waitUntilCalled()
         #expect(await broker.callCount() == 1)
@@ -253,13 +255,16 @@ extension CmxIrohOnlineAdmissionRegistryTests {
             suspended: true
         )
         let registry = fixture.registry(broker: broker)
+        let grant = fixture.grant()
+        let initiatorEndpointID = fixture.initiator.endpointID
+        let initiatorBindingID = fixture.initiator.bindingID
 
         async let authorization = registry.authorizePairGrant(
-            fixture.grant(),
-            authenticatedPeerID: fixture.initiator.endpointID
+            grant,
+            authenticatedPeerID: initiatorEndpointID
         )
         await broker.waitUntilCalled()
-        await registry.revoke(bindingID: fixture.initiator.bindingID)
+        await registry.revoke(bindingID: initiatorBindingID)
         await broker.resume()
 
         #expect(await authorization == .denied)
@@ -273,15 +278,19 @@ extension CmxIrohOnlineAdmissionRegistryTests {
             suspended: true
         )
         let registry = fixture.registry(broker: broker)
+        let grant = fixture.grant()
+        let initiatorEndpointID = fixture.initiator.endpointID
+        let keySet = fixture.keySet
+        let replacementAcceptor = fixture.replacementAcceptor()
 
         async let authorization = registry.authorizePairGrant(
-            fixture.grant(),
-            authenticatedPeerID: fixture.initiator.endpointID
+            grant,
+            authenticatedPeerID: initiatorEndpointID
         )
         await broker.waitUntilCalled()
         await registry.update(
-            keys: fixture.keySet,
-            acceptor: fixture.replacementAcceptor()
+            keys: keySet,
+            acceptor: replacementAcceptor
         )
         await broker.resume()
 
@@ -330,4 +339,3 @@ extension CmxIrohOnlineAdmissionRegistryTests {
     }
 
 }
-
