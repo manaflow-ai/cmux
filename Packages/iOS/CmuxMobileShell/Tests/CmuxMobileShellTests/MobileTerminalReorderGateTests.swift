@@ -92,6 +92,46 @@ import Testing
 }
 
 @MainActor
+@Test func duplicateTerminalCreationStartFailsClosedAndReleasesItsClaim() async throws {
+    let owner = MobileTerminalCreationRequestOwner()
+    let gate = MobileTerminalReorderGate()
+    var firstStarted = false
+    var firstRelease: CheckedContinuation<Void, Never>?
+    var duplicateRan = false
+
+    let firstAccepted = owner.startIfIdle(claim: .unreserved, gate: gate) {
+        firstStarted = true
+        await withCheckedContinuation { firstRelease = $0 }
+    }
+    while !firstStarted {
+        await Task.yield()
+    }
+    let duplicateReservation = try #require(gate.reserve(
+        workspaceID: "duplicate-workspace",
+        paneID: "duplicate-pane"
+    ))
+
+    let duplicateAccepted = owner.startIfIdle(
+        claim: .reserved(duplicateReservation),
+        gate: gate
+    ) {
+        duplicateRan = true
+    }
+
+    #expect(firstAccepted)
+    #expect(!duplicateAccepted)
+    #expect(!duplicateRan)
+    #expect(owner.isActive)
+    #expect(gate.canMutate(workspaceID: "duplicate-workspace"))
+
+    firstRelease?.resume()
+    for _ in 0..<100 where owner.isActive {
+        await Task.yield()
+    }
+    #expect(!owner.isActive)
+}
+
+@MainActor
 @Test func rejectedReorderReleasesItsReservation() async throws {
     let store = MobileShellComposite.preview()
     let pane = MobilePanePreview(
