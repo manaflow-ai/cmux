@@ -326,6 +326,29 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
         XCTAssertEqual(recorded.map(\.tabId), [fixture.owningWorkspace.id])
     }
 
+    func testPidSignalCombiningRequiresTTYMatch() {
+        let tty = AgentDeliveryTargetCandidate(workspaceId: UUID(), surfaceId: UUID())
+        let otherEnv = AgentDeliveryTargetCandidate(workspaceId: UUID(), surfaceId: UUID())
+        XCTAssertEqual(agentDeliveryTargetCombining(ttyTarget: tty, envTarget: nil), tty)
+        XCTAssertEqual(
+            agentDeliveryTargetCombining(
+                ttyTarget: tty,
+                envTarget: AgentDeliveryTargetCandidate(workspaceId: otherEnv.workspaceId, surfaceId: tty.surfaceId)
+            ),
+            tty,
+            "A corroborating env surface keeps the tty answer"
+        )
+        XCTAssertNil(
+            agentDeliveryTargetCombining(ttyTarget: tty, envTarget: otherEnv),
+            "Disagreeing signals must refuse to resolve"
+        )
+        XCTAssertNil(
+            agentDeliveryTargetCombining(ttyTarget: nil, envTarget: otherEnv),
+            "Inherited CMUX_SURFACE_ID alone is spawn-time evidence (leakable from the operator's pane) and must never resolve by itself"
+        )
+        XCTAssertNil(agentDeliveryTargetCombining(ttyTarget: nil, envTarget: nil))
+    }
+
     func testTTYDeviceMatchRequiresUniqueSurface() {
         let w1 = UUID(), s1 = UUID(), w2 = UUID(), s2 = UUID()
         let bindings: [(workspaceId: UUID, surfaceId: UUID, ttyDevice: Int64)] = [

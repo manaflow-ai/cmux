@@ -29,6 +29,21 @@ struct AgentDeliveryTargetCandidate: Equatable {
     let surfaceId: UUID
 }
 
+/// Combines the two pid signals. The controlling-tty match is the live kernel
+/// fact and is required; the inherited `CMUX_SURFACE_ID` environment is
+/// spawn-time evidence that can be leaked from the operator's focused pane
+/// (see `testCodexHookOverridesLeakedEnvSurfaceWithProcessTTYBinding`), so it
+/// only corroborates the tty match — an env-only answer refuses so the caller
+/// falls back to the legacy chain and the re-home probes.
+nonisolated func agentDeliveryTargetCombining(
+    ttyTarget: AgentDeliveryTargetCandidate?,
+    envTarget: AgentDeliveryTargetCandidate?
+) -> AgentDeliveryTargetCandidate? {
+    guard let ttyTarget else { return nil }
+    if let envTarget, envTarget.surfaceId != ttyTarget.surfaceId { return nil }
+    return ttyTarget
+}
+
 /// Pure core of the pid → surface lookup: the unique surface whose pty device
 /// matches the process's controlling terminal. Multiple matches (tty device
 /// reuse across mirrors) or none refuse to guess.
@@ -59,16 +74,13 @@ nonisolated func agentLiveProcessIdentity(pid: pid_t) -> (ttyDevice: Int64?, sco
 
 @MainActor
 extension AppDelegate {
-    /// The live pane that owns the given agent process right now. Two
-    /// independent live signals, both required to agree when both resolve:
-    /// - the process's controlling tty matched against every surface's pty
-    ///   device (unique-match only), and
-    /// - the process's own `CMUX_SURFACE_ID` environment (a panel UUID is
-    ///   stable pane identity for the process's lifetime — unlike the
-    ///   workspace id, it cannot go stale on pane moves) re-homed through
-    ///   `workspaceContainingPanel`.
-    /// Disagreement (e.g. a pid-number collision with an unrelated process)
-    /// refuses to answer rather than guessing.
+    /// The live pane that owns the given agent process right now: the
+    /// process's controlling tty matched against every surface's pty device
+    /// (unique-match only), corroborated — never replaced — by the process's
+    /// own `CMUX_SURFACE_ID` environment re-homed through
+    /// `workspaceContainingPanel`. Disagreement (e.g. a pid-number collision
+    /// with an unrelated process) or an env-only answer refuses to resolve
+    /// rather than guessing; see `agentDeliveryTargetCombining`.
     func liveAgentDeliveryTarget(forAgentPID pid: pid_t) -> AgentDeliveryTargetCandidate? {
         guard let identity = agentLiveProcessIdentity(pid: pid) else { return nil }
 
@@ -102,16 +114,7 @@ extension AppDelegate {
             envTarget = AgentDeliveryTargetCandidate(workspaceId: owner.workspace.id, surfaceId: envSurfaceId)
         }
 
-        switch (ttyTarget, envTarget) {
-        case (let tty?, let env?):
-            return tty.surfaceId == env.surfaceId ? tty : nil
-        case (let tty?, nil):
-            return tty
-        case (nil, let env?):
-            return env
-        case (nil, nil):
-            return nil
-        }
+        return agentDeliveryTargetCombining(ttyTarget: ttyTarget, envTarget: envTarget)
     }
 
     /// Delivery-time target for a notification addressed to
