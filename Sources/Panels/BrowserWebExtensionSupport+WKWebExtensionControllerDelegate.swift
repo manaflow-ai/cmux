@@ -419,7 +419,7 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
         persistPermissionStateSoon(for: extensionContext)
     }
 
-    private func permissionMessage(
+    func permissionMessage(
         extensionContext: WKWebExtensionContext,
         details: String,
         key: StaticString,
@@ -436,7 +436,7 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
         )
     }
 
-    private func confirmPermissionRequest(informativeText: String) -> Bool {
+    func confirmPermissionRequest(informativeText: String) -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = String(

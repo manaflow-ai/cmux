@@ -24,20 +24,43 @@ struct BrowserWebExtensionToolbarButtons: View {
                 }
             )
             // Right-click any extension button to choose which extensions show
-            // a toolbar button, without leaving the browser. Hidden extensions
-            // stay loaded; their popup remains reachable by re-showing here or
-            // from Settings > Browser > Extensions.
+            // a toolbar button, without leaving the browser.
             .contextMenu {
-                ForEach(snapshots) { menuSnapshot in
-                    Toggle(isOn: Binding(
-                        get: { menuSnapshot.showsToolbarButton },
-                        set: { support.setToolbarButtonVisible($0, entryID: menuSnapshot.id) }
-                    )) {
-                        Text(menuSnapshot.displayName)
-                    }
-                    .disabled(!menuSnapshot.canToggleToolbarButton)
-                }
+                visibilityToggles(snapshots)
             }
+        }
+        if snapshots.contains(where: { !$0.showsToolbarButton }) {
+            Menu {
+                visibilityToggles(snapshots)
+            } label: {
+                CmuxSystemSymbolImage(
+                    systemName: "puzzlepiece.extension",
+                    pointSize: iconPointSize,
+                    weight: .medium
+                )
+                .frame(width: hitSize, height: hitSize, alignment: .center)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .frame(width: hitSize, height: hitSize, alignment: .center)
+            .safeHelp(String(
+                localized: "settings.browser.webExtensions",
+                defaultValue: "Extensions"
+            ))
+            .accessibilityIdentifier("BrowserWebExtensionVisibilityMenu")
+        }
+    }
+
+    @ViewBuilder
+    private func visibilityToggles(_ snapshots: [BrowserWebExtensionActionSnapshot]) -> some View {
+        ForEach(snapshots) { snapshot in
+            Toggle(isOn: Binding(
+                get: { snapshot.showsToolbarButton },
+                set: { support.setToolbarButtonVisible($0, entryID: snapshot.id) }
+            )) {
+                Text(snapshot.displayName)
+            }
+            .disabled(!snapshot.canToggleToolbarButton)
         }
     }
 }

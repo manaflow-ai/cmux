@@ -322,6 +322,11 @@ extension BrowserWebExtensionSupport {
         context.isInspectable = true
 #endif
         restorePermissionState(for: context, entryID: entryID, standardizedPath: standardizedPath)
+        reviewInitialRequiredPermissions(
+            for: context,
+            entryID: entryID,
+            standardizedPath: standardizedPath
+        )
         installPermissionStateObservers(
             for: context,
             entryID: entryID,
