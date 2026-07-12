@@ -34,6 +34,7 @@ import Testing
     #expect(gate.canMutate(workspaceID: "other-workspace"))
 
     #expect(!gate.beginRecovery(workspaceID: "other-workspace"))
+    gate.requireRefresh(workspaceID: "other-workspace")
     #expect(gate.beginRecovery(workspaceID: "workspace"))
     gate.finishRecovery(workspaceID: "workspace", succeeded: false)
     #expect(!gate.canMutate(workspaceID: "workspace"))
@@ -41,4 +42,9 @@ import Testing
     #expect(gate.beginRecovery(workspaceID: "workspace"))
     gate.finishRecovery(workspaceID: "workspace", succeeded: true)
     #expect(gate.canMutate(workspaceID: "workspace"))
+    #expect(!gate.canMutate(workspaceID: "other-workspace"))
+
+    #expect(gate.beginRecovery(workspaceID: "other-workspace"))
+    gate.finishRecovery(workspaceID: "other-workspace", succeeded: true)
+    #expect(gate.canMutate(workspaceID: "other-workspace"))
 }

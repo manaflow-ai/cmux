@@ -440,17 +440,6 @@ extension MobileShellComposite {
         }
     }
 
-    private func workspaceMutationMayHaveApplied(_ error: any Error) -> Bool {
-        guard let connectionError = error as? MobileShellConnectionError else { return true }
-        switch connectionError {
-        case .connectionClosed, .requestTimedOut, .invalidResponse:
-            return true
-        case .attachTicketExpired, .authorizationFailed, .accountMismatch,
-             .insecureManualRoute, .rpcError:
-            return false
-        }
-    }
-
     private func workspaceMutationHostDisplayName(
         target: WorkspaceMutationTarget,
         fallback: String?

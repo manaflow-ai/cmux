@@ -21,7 +21,7 @@ final class MobileWorkspaceListObserver {
     private weak var notificationStore: TerminalNotificationStore?
     private var tabsCancellable: AnyCancellable?
     private var selectionCancellable: AnyCancellable?
-    private var focusedSurfaceCancellable: AnyCancellable?
+    private var focusedSurfaceTask: Task<Void, Never>?
     private var groupsCancellable: AnyCancellable?
     private var notificationsCancellable: AnyCancellable?
     private var unreadIndicatorsCancellable: AnyCancellable?
@@ -42,6 +42,10 @@ final class MobileWorkspaceListObserver {
         cmuxDebugLog("mobile.observer init tabs=\(tabManager.tabs.count)")
         #endif
         attach(to: tabManager)
+    }
+
+    deinit {
+        focusedSurfaceTask?.cancel()
     }
 
     private func attach(to tabManager: TabManager) {
@@ -82,17 +86,16 @@ final class MobileWorkspaceListObserver {
         // not @Published Workspace state. The existing deferred focus broadcast
         // fires after selection converges, so use it as the scoped wakeup and
         // let summaryHash suppress duplicate notifications.
-        focusedSurfaceCancellable = NotificationCenter.default
-            .publisher(for: .ghosttyDidFocusSurface)
-            .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
-            .sink { [weak self] notification in
+        focusedSurfaceTask = Task { @MainActor [weak self] in
+            for await notification in NotificationCenter.default.notifications(named: .ghosttyDidFocusSurface) {
                 guard let self,
                       let workspaceID = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                       let workspace = self.tabManager?.tabs.first(where: { $0.id == workspaceID }) else {
-                    return
+                    continue
                 }
                 self.emitFocusedHierarchyUpdateIfNeeded(for: workspace)
             }
+        }
         // Group structure (order, name, collapse/pin, anchor, membership) is
         // iOS-facing: the phone renders collapsible group sections. A pure
         // collapse/expand or group rename need not change the tab set, so without
@@ -249,7 +252,7 @@ final class MobileWorkspaceListObserver {
         MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: payload)
     }
 
-    private static func focusedHierarchySignature(for workspace: Workspace) -> Int {
+    static func focusedHierarchySignature(for workspace: Workspace) -> Int {
         var hasher = Hasher()
         let paneIDs = workspace.bonsplitController.allPaneIds
         hasher.combine(workspace.bonsplitController.focusedPaneId?.id)
@@ -301,7 +304,7 @@ final class MobileWorkspaceListObserver {
     /// preview (notification id + timestamp). Folding it in means a new notification
     /// (or a cleared one) re-emits to the phone, which renders the preview + relative
     /// time. Workspaces with no notification are simply absent from the map.
-    private static func summaryHash(
+    static func summaryHash(
         for tabs: [Workspace],
         groups: [WorkspaceGroup],
         selectedTabID: UUID?,
@@ -370,23 +373,4 @@ final class MobileWorkspaceListObserver {
         return hasher.finalize()
     }
 
-    #if DEBUG
-    static func focusedHierarchySignatureForTesting(workspace: Workspace) -> Int {
-        focusedHierarchySignature(for: workspace)
-    }
-
-    static func summaryHashForTesting(
-        tabs: [Workspace],
-        groups: [WorkspaceGroup] = [],
-        selectedTabID: UUID?,
-        previewSignatures: [UUID: Int] = [:]
-    ) -> Int {
-        summaryHash(
-            for: tabs,
-            groups: groups,
-            selectedTabID: selectedTabID,
-            previewSignatures: previewSignatures
-        )
-    }
-    #endif
 }

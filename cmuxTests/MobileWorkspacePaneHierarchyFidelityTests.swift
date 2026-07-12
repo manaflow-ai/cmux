@@ -32,24 +32,20 @@ struct MobileWorkspacePaneHierarchyFidelityTests {
 
     @Test func focusingAnotherPaneChangesOnlyScopedFocusSignature() throws {
         let (workspace, ordered) = try makeWorkspaceWithSplitTerminals()
-        let before = MobileWorkspaceListObserver.summaryHashForTesting(
+        let before = MobileWorkspaceListObserver.summaryHash(
             tabs: [workspace],
             selectedTabID: workspace.id
         )
-        let focusedBefore = MobileWorkspaceListObserver.focusedHierarchySignatureForTesting(
-            workspace: workspace
-        )
+        let focusedBefore = MobileWorkspaceListObserver.focusedHierarchySignature(for: workspace)
 
         workspace.focusPanel(ordered[1])
 
         #expect(workspace.focusedPanelId == ordered[1])
-        let after = MobileWorkspaceListObserver.summaryHashForTesting(
+        let after = MobileWorkspaceListObserver.summaryHash(
             tabs: [workspace],
             selectedTabID: workspace.id
         )
-        let focusedAfter = MobileWorkspaceListObserver.focusedHierarchySignatureForTesting(
-            workspace: workspace
-        )
+        let focusedAfter = MobileWorkspaceListObserver.focusedHierarchySignature(for: workspace)
         #expect(before == after, "generic list updates must not duplicate scoped focus events")
         #expect(focusedBefore != focusedAfter, "focus events recompute only the affected workspace")
     }
@@ -63,7 +59,7 @@ struct MobileWorkspacePaneHierarchyFidelityTests {
         let panes = workspace.bonsplitController.allPaneIds
         #expect(panes.count == 2)
         let movedTabID = try #require(workspace.surfaceIdFromPanelId(ordered[1]))
-        let before = MobileWorkspaceListObserver.summaryHashForTesting(
+        let before = MobileWorkspaceListObserver.summaryHash(
             tabs: [workspace],
             selectedTabID: workspace.id
         )
@@ -72,7 +68,7 @@ struct MobileWorkspacePaneHierarchyFidelityTests {
 
         #expect(workspace.orderedPanelIds == initialFlatOrder)
         #expect(workspace.orderedPanelIds.last == split.id)
-        let after = MobileWorkspaceListObserver.summaryHashForTesting(
+        let after = MobileWorkspaceListObserver.summaryHash(
             tabs: [workspace],
             selectedTabID: workspace.id
         )

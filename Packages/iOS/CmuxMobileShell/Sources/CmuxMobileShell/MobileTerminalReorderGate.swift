@@ -6,25 +6,25 @@ public import Observation
 @Observable
 public final class MobileTerminalReorderGate {
     private var activeReservation: MobileTerminalReorderReservation?
-    private var recoveryInFlight = false
+    private var recoveringWorkspaceID: MobileWorkspacePreview.ID?
 
-    /// Workspace whose acknowledged mutation still needs authoritative recovery.
-    public private(set) var refreshRequiredWorkspaceID: MobileWorkspacePreview.ID?
+    /// Workspaces whose acknowledged mutations still need authoritative recovery.
+    public private(set) var refreshRequiredWorkspaceIDs: Set<MobileWorkspacePreview.ID> = []
 
     /// Creates an inactive reorder gate.
     public init() {}
 
     /// Whether an authoritative reorder is still in flight.
-    public var isActive: Bool { activeReservation != nil || recoveryInFlight }
+    public var isActive: Bool { activeReservation != nil || recoveringWorkspaceID != nil }
 
     /// Whether a new close or reorder may start in one workspace.
     public func canMutate(workspaceID: MobileWorkspacePreview.ID) -> Bool {
-        !isActive && refreshRequiredWorkspaceID != workspaceID
+        !isActive && !refreshRequiredWorkspaceIDs.contains(workspaceID)
     }
 
     /// Whether one workspace is waiting for authoritative recovery.
     public func requiresRefresh(workspaceID: MobileWorkspacePreview.ID) -> Bool {
-        refreshRequiredWorkspaceID == workspaceID
+        refreshRequiredWorkspaceIDs.contains(workspaceID)
     }
 
     /// Claims the reorder owner before optimistic UI changes are applied.
@@ -49,22 +49,22 @@ public final class MobileTerminalReorderGate {
 
     /// Keeps hierarchy mutations disabled until an authoritative reload succeeds.
     public func requireRefresh(workspaceID: MobileWorkspacePreview.ID) {
-        refreshRequiredWorkspaceID = workspaceID
+        refreshRequiredWorkspaceIDs.insert(workspaceID)
     }
 
     /// Claims the single recovery owner after an acknowledged mutation.
     public func beginRecovery(workspaceID: MobileWorkspacePreview.ID) -> Bool {
-        guard refreshRequiredWorkspaceID == workspaceID, !isActive else { return false }
-        recoveryInFlight = true
+        guard refreshRequiredWorkspaceIDs.contains(workspaceID), !isActive else { return false }
+        recoveringWorkspaceID = workspaceID
         return true
     }
 
     /// Completes recovery, preserving the dirty state after another failure.
     public func finishRecovery(workspaceID: MobileWorkspacePreview.ID, succeeded: Bool) {
-        guard recoveryInFlight, refreshRequiredWorkspaceID == workspaceID else { return }
-        recoveryInFlight = false
+        guard recoveringWorkspaceID == workspaceID else { return }
+        recoveringWorkspaceID = nil
         if succeeded {
-            refreshRequiredWorkspaceID = nil
+            refreshRequiredWorkspaceIDs.remove(workspaceID)
         }
     }
 

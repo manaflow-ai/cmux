@@ -52,16 +52,16 @@ import Testing
         workspaces: MobileShellComposite.preview().workspaces
     )
     try installFreshRemoteClient(on: store, router: router)
-    await router.setHoldFirstWorkspaceList(true)
+    await router.workspaceListGate.setHoldFirst(true)
     let olderPull = Task { await store.refreshForegroundWorkspaceList() }
-    await router.awaitFirstWorkspaceListReached()
+    await router.workspaceListGate.waitUntilFirstReached()
 
     let mutationRefresh = Task { await store.refreshForegroundWorkspaceListAfterMutation() }
-    await router.releaseFirstWorkspaceList()
+    await router.workspaceListGate.releaseFirst()
 
     #expect(await olderPull.value)
     #expect(await mutationRefresh.value)
-    #expect(await router.recordedWorkspaceListCount() == 2)
+    #expect(await router.workspaceListGate.requestCount() == 2)
 }
 
 @MainActor
