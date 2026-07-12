@@ -74,6 +74,18 @@ struct MobileDiffTests {
         #expect(!patch.contains("+staged"))
     }
 
+    @Test func loaderIncludesFilesInUnbornSHA256Repository() async throws {
+        let repository = try makeRepository(named: "unborn-sha256", objectFormat: "sha256")
+        defer { try? FileManager.default.removeItem(at: repository) }
+        try Data("sha256\n".utf8).write(to: repository.appendingPathComponent("new.txt"))
+        try runGit(["add", "new.txt"], at: repository)
+
+        let document = try await MobileWorkingTreeDiffLoader().load(directory: repository.path, title: "Fixture")
+        let patch = try #require(document["patch"] as? String)
+        #expect(patch.contains("diff --git a/new.txt b/new.txt"))
+        #expect(patch.contains("+sha256"))
+    }
+
     @Test func loaderRejectsTruncatedUntrackedFileLists() async throws {
         let repository = try makeRepository(named: "many-files")
         defer { try? FileManager.default.removeItem(at: repository) }
@@ -124,11 +136,13 @@ struct MobileDiffTests {
         #expect(!cancellation.beginLaunch())
     }
 
-    private func makeRepository(named name: String) throws -> URL {
+    private func makeRepository(named name: String, objectFormat: String? = nil) throws -> URL {
         let repository = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-mobile-diff-\(name)-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: repository, withIntermediateDirectories: true)
-        try runGit(["init", "--quiet"], at: repository)
+        var arguments = ["init", "--quiet"]
+        if let objectFormat { arguments.append("--object-format=\(objectFormat)") }
+        try runGit(arguments, at: repository)
         return repository
     }
 
