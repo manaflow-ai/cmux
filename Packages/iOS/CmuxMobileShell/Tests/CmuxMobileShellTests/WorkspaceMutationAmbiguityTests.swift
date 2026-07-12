@@ -23,21 +23,22 @@ import Testing
 }
 
 @MainActor
-@Test func reconciledRejectedMutationPreservesDefiniteFailure() {
+@Test func rejectedMutationDispositionDistinguishesPolicyFromDivergence() {
     let store = MobileShellComposite.preview()
 
-    #expect(store.reconciledWorkspaceMutationFailure(
-        MobileShellConnectionError.rpcError("rejected", "Rejected"),
-        hostDisplayName: "Studio"
-    ) == .rejected(hostDisplayName: "Studio"))
-}
-
-@MainActor
-@Test func unreconciledRejectedMutationPreservesDefiniteFailure() {
-    let store = MobileShellComposite.preview()
-
-    #expect(store.unreconciledWorkspaceMutationFailure(
-        MobileShellConnectionError.rpcError("rejected", "Rejected"),
-        hostDisplayName: "Studio"
-    ) == .rejected(hostDisplayName: "Studio"))
+    #expect(store.workspaceMutationErrorDisposition(
+        MobileShellConnectionError.rpcError("protected", "Protected")
+    ) == .immediateRejection)
+    #expect(store.workspaceMutationErrorDisposition(
+        MobileShellConnectionError.rpcError("confirmation_required", "Confirm")
+    ) == .immediateRejection)
+    #expect(store.workspaceMutationErrorDisposition(
+        MobileShellConnectionError.rpcError("not_found", "Missing")
+    ) == .definiteDivergence)
+    #expect(store.workspaceMutationErrorDisposition(
+        MobileShellConnectionError.rpcError("rejected", "Rejected")
+    ) == .definiteDivergence)
+    #expect(store.workspaceMutationErrorDisposition(
+        MobileShellConnectionError.requestTimedOut
+    ) == .ambiguous)
 }
