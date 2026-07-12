@@ -492,4 +492,36 @@ import Testing
         #expect(connection.paneForegroundStates[4] != nil)
         #expect(connection.paneForegroundStates[5] == nil)
     }
+
+    /// `patchingLeafRects` is the step that swaps tmux's layout-string
+    /// geometry for the REAL rects a `list-panes` fetch reported: known
+    /// leaves take the fetched rect, unknown leaves and split nodes keep
+    /// their string geometry untouched.
+    @Test func patchingLeafRectsRewritesOnlyKnownLeaves() {
+        func node(
+            _ content: RemoteTmuxLayoutContent, w: Int, h: Int, x: Int = 0, y: Int = 0
+        ) -> RemoteTmuxLayoutNode {
+            RemoteTmuxLayoutNode(width: w, height: h, x: x, y: y, content: content)
+        }
+        let tree = node(.horizontal([
+            node(.pane(1), w: 50, h: 20, x: 0, y: 0),
+            node(.vertical([
+                node(.pane(2), w: 49, h: 9, x: 51, y: 0),
+                node(.pane(3), w: 49, h: 10, x: 51, y: 10),
+            ]), w: 49, h: 20, x: 51, y: 0),
+        ]), w: 100, h: 20)
+        let patched = tree.patchingLeafRects([
+            1: (x: 0, y: 1, width: 50, height: 19),
+            2: (x: 51, y: 1, width: 49, height: 8),
+        ])
+        guard case let .horizontal(top) = patched.content,
+              case let .vertical(right) = top[1].content else {
+            Issue.record("structure must be preserved"); return
+        }
+        #expect(top[0].y == 1 && top[0].height == 19)
+        #expect(right[0].y == 1 && right[0].height == 8)
+        #expect(right[1].y == 10 && right[1].height == 10) // unknown: untouched
+        #expect(top[1].width == 49 && top[1].y == 0) // split node: untouched
+        #expect(patched.width == 100)
+    }
 }

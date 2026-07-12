@@ -307,21 +307,6 @@ import Testing
         #expect(mirror.visibleLayout == nil)
     }
 
-    // MARK: render-mode selection
-
-    @Test func framesImposeOnlyWhenTheAssignmentMatchesF() {
-        let (mirror, _) = readyMirror(layout: reflow123)
-        // Assigned size (123×35) ≠ f for these pixels (100×34): transient mode (nil).
-        #expect(mirror.framesForRender(containerPt: CGSize(width: 800, height: 620)) == nil)
-        // A tmux layout matching f imposes.
-        let matching = node(.horizontal([
-            node(.pane(1), w: 33, h: 34), node(.pane(2), w: 33, h: 34), node(.pane(3), w: 32, h: 34),
-        ]), w: 100, h: 34)
-        mirror.reconcile(layout: matching)
-        let frames = mirror.framesForRender(containerPt: CGSize(width: 800, height: 620))
-        #expect(frames != nil)
-        #expect(frames?.paneFramesPt.count == 3)
-    }
 }
 
 /// Per-window sizing semantics on the CONNECTION: dedup per window, the

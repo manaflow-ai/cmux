@@ -17,13 +17,13 @@ import Observation
 ///
 /// SIZING IS FEED-FORWARD. The size pushed to tmux (``updateClientSize()``) is
 /// a pure function of the container's pixel size, the BASE layout tree's
-/// STRUCTURE, and measured render constants (``RemoteTmuxMirrorGeometry``) —
-/// never of tmux-assigned geometry or rendered grids. The render
-/// (``framesForRender(containerPt:)``) imposes tmux's assigned cells verbatim.
-/// Neither direction measures the other back, so tmux's `%layout-change` echo
-/// of our own push recomputes to the identical size and dedups to silence:
-/// there is no feedback loop to gate, budget, or pin against. Pane ratios are
-/// user state and are never written.
+/// STRUCTURE, and measured render constants — never of tmux-assigned geometry
+/// or rendered grids. The render side sets bonsplit divider fractions from
+/// tmux's assigned cells (``RemoteTmuxNativeSplitLayout`` via
+/// ``refreshDividerPositions()``). Neither direction measures the other back,
+/// so tmux's `%layout-change` echo of our own push recomputes to the identical
+/// size and dedups to silence: there is no feedback loop to gate, budget, or
+/// pin against. Pane ratios are user state and are never written.
 @MainActor
 @Observable
 final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
@@ -446,9 +446,8 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
 
     /// The measured render constants, or nil while no sample has arrived
     /// yet. A pure read of the stored snapshot (or the injected test
-    /// source), safe from view-body projection (`framesForRender`): the
-    /// render never touches live surfaces, so it can't observe half-applied
-    /// resize state.
+    /// source): consumers never touch live surfaces, so they can't observe
+    /// half-applied resize state.
     func currentGeometry() -> RemoteTmuxMirrorGeometry? {
         if let geometrySource { return geometrySource() }
         return geometrySnapshot
@@ -493,20 +492,6 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             rows: cells.rows
         )
         return true
-    }
-
-    /// The exact frames to impose for the current tmux layout, or `nil` when the
-    /// render should fall back to the proportional TRANSIENT mode: constants
-    /// still unknown, or tmux's layout doesn't match what f wants for the current
-    /// pixels (a push is in flight — drag mid-motion, attach settling, or a
-    /// co-attached client constraining the size). The transient mode always
-    /// fits by construction; imposition resumes on tmux's layout that matches.
-    func framesForRender(containerPt: CGSize) -> RemoteTmuxMirrorFrames? {
-        guard let geometry = currentGeometry(),
-              let cells = clientGrid(contentSize: containerPt),
-              layout.width == cells.columns,
-              layout.height == cells.rows else { return nil }
-        return geometry.frames(layout: visibleLayout ?? layout, containerPt: containerPt)
     }
 
     /// Records tmux's active pane as reported by the remote
