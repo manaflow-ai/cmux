@@ -4378,17 +4378,9 @@ struct CMUXCLI {
             )
 
         case "simulator":
-            try runSimulatorNamespace(
-                commandArgs: commandArgs, client: client, jsonOutput: jsonOutput,
-                idFormat: idFormat, windowOverride: windowId
-            )
-
+            try runSimulatorNamespace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
         case "ios":
-            try runIOSNamespace(
-                commandArgs: commandArgs, client: client, jsonOutput: jsonOutput,
-                idFormat: idFormat, windowOverride: windowId
-            )
-
+            try runIOSNamespace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
         case "workspace":
             try runWorkspaceNamespace(
                 commandArgs: commandArgs,

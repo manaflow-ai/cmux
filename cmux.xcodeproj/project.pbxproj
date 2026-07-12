@@ -1471,6 +1471,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE00000000000000000C78 /* TerminalController+ControlSidebarContextSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C77 /* TerminalController+ControlSidebarContextSupport.swift */; };
 		C51A7300000000000000000D /* TerminalController+ControlSimulatorCameraPayloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A7300000000000000000E /* TerminalController+ControlSimulatorCameraPayloads.swift */; };
 		C51A73000000000000000003 /* TerminalController+ControlSimulatorContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73000000000000000004 /* TerminalController+ControlSimulatorContext.swift */; };
+		C51A74000000000000000001 /* TerminalController+ControlSimulatorOperationPayloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A74000000000000000002 /* TerminalController+ControlSimulatorOperationPayloads.swift */; };
 		C51A7300000000000000000B /* TerminalController+ControlSimulatorOperations.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A7300000000000000000C /* TerminalController+ControlSimulatorOperations.swift */; };
 		C51A73000000000000000009 /* TerminalController+ControlSimulatorWebInspectorContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A7300000000000000000A /* TerminalController+ControlSimulatorWebInspectorContext.swift */; };
 		C0DE00000000000000000C64 /* TerminalController+ControlSurfaceContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C63 /* TerminalController+ControlSurfaceContext.swift */; };
@@ -3204,6 +3205,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE00000000000000000C77 /* TerminalController+ControlSidebarContextSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSidebarContextSupport.swift"; sourceTree = "<group>"; };
 		C51A7300000000000000000E /* TerminalController+ControlSimulatorCameraPayloads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSimulatorCameraPayloads.swift"; sourceTree = "<group>"; };
 		C51A73000000000000000004 /* TerminalController+ControlSimulatorContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSimulatorContext.swift"; sourceTree = "<group>"; };
+		C51A74000000000000000002 /* TerminalController+ControlSimulatorOperationPayloads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSimulatorOperationPayloads.swift"; sourceTree = "<group>"; };
 		C51A7300000000000000000C /* TerminalController+ControlSimulatorOperations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSimulatorOperations.swift"; sourceTree = "<group>"; };
 		C51A7300000000000000000A /* TerminalController+ControlSimulatorWebInspectorContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSimulatorWebInspectorContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C63 /* TerminalController+ControlSurfaceContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSurfaceContext.swift"; sourceTree = "<group>"; };
@@ -4766,6 +4768,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C51A73000000000000000004 /* TerminalController+ControlSimulatorContext.swift */,
 				C51A7300000000000000000A /* TerminalController+ControlSimulatorWebInspectorContext.swift */,
 				C51A7300000000000000000C /* TerminalController+ControlSimulatorOperations.swift */,
+				C51A74000000000000000002 /* TerminalController+ControlSimulatorOperationPayloads.swift */,
 				C51A7300000000000000000E /* TerminalController+ControlSimulatorCameraPayloads.swift */,
 				105D8421DF4E2E09D255D785 /* Auth */,
 				590E4F5F342E5B27010ECC8D /* Cloud */,
@@ -6643,6 +6646,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE00000000000000000C78 /* TerminalController+ControlSidebarContextSupport.swift in Sources */,
 				C51A7300000000000000000D /* TerminalController+ControlSimulatorCameraPayloads.swift in Sources */,
 				C51A73000000000000000003 /* TerminalController+ControlSimulatorContext.swift in Sources */,
+				C51A74000000000000000001 /* TerminalController+ControlSimulatorOperationPayloads.swift in Sources */,
 				C51A7300000000000000000B /* TerminalController+ControlSimulatorOperations.swift in Sources */,
 				C51A73000000000000000009 /* TerminalController+ControlSimulatorWebInspectorContext.swift in Sources */,
 				C0DE00000000000000000C64 /* TerminalController+ControlSurfaceContext.swift in Sources */,
