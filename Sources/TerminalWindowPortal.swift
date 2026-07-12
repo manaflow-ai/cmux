@@ -1151,7 +1151,10 @@ final class WindowTerminalPortal: NSObject {
                 "oldHosted=\(previousToken) newHosted=\(portalDebugToken(hostedView))"
             )
 #endif
-            detachHostedView(withId: previousHostedId)
+            retireAndDetachHostedView(
+                withId: previousHostedId,
+                reason: "portal.bind.replaceAnchor"
+            )
         }
 
         if let oldEntry = entriesByHostedId[hostedId],
