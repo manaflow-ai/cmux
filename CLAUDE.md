@@ -124,6 +124,29 @@ Before launching a new tagged run, clean up any older tags you started in this s
 
 For iOS dev auth, `ios/scripts/reload.sh` and `scripts/mobile-dev-launch.sh` auto-sign-in from `~/.secrets/cmuxterm-dev.env`. If the phone lands on the login screen or the helper reports missing dev sign-in credentials, do not ask the user to manually authenticate every build. Tell them to run `scripts/setup-team-dev.sh` once from any cmux checkout; it prompts for and verifies their Stack login, writes `~/.secrets/cmuxterm-dev.env` with chmod 600, and future agents can auto-auth iOS DEBUG reloads. Manual fallback: create that file with `CMUX_DOGFOOD_STACK_EMAIL=...` and `CMUX_DOGFOOD_STACK_PASSWORD=...`.
 
+## Installing a dev build as /Applications/cmux.app
+
+When the user asks to install the working tree as their real `/Applications/cmux.app` (production bundle id `com.cmuxterm.app`, name `cmux`), build Release and swap the bundle. Three workarounds are usually required on a dev machine (none affect runtime behavior):
+
+1. **Signing.** The Release config applies `Resources/cmux.entitlements` (`keychain-access-groups`), which Xcode's Automatic/Manual signing refuses to ad-hoc sign without a development cert/profile (blocked when the Apple dev account has a pending Program License Agreement). Pass `CODE_SIGN_ENTITLEMENTS=""` to strip it — same posture as any `reload.sh` Debug build, which carries no entitlements.
+2. **Ghostty CLI helper.** The build phase requires zig `0.15.2` exactly, which cannot link against recent macOS SDKs (e.g. 26.5: `undefined symbol: _exit/_fork/...`, even for a native slice). Build with `CMUX_SKIP_ZIG_BUILD=1`, which writes a Mach-O stub `Contents/Resources/bin/ghostty`. This is not a regression: normal local installs already ship that stub — real terminal functionality lives in the embedded GhosttyKit framework, not this helper.
+3. **Arch.** On Apple Silicon, build `ARCHS=arm64 ONLY_ACTIVE_ARCH=YES` (universal fails on the zig x86_64 cross-link anyway).
+
+Full recipe:
+
+```bash
+xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release \
+  -destination 'platform=macOS' -derivedDataPath /tmp/cmux-install-release \
+  CODE_SIGN_ENTITLEMENTS="" CMUX_SKIP_ZIG_BUILD=1 ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build
+NEW=/tmp/cmux-install-release/Build/Products/Release/cmux.app
+mv /Applications/cmux.app "/Applications/cmux.app.bak-$(date +%Y%m%d-%H%M%S)"  # running app keeps the moved inode
+ditto "$NEW" /Applications/cmux.app
+codesign --force --deep --sign - /Applications/cmux.app
+xattr -dr com.apple.quarantine /Applications/cmux.app
+```
+
+Notes: the running GUI instance (it hosts the terminal session) must not be killed — `mv` the old bundle aside instead of overwriting, and have the user ⌘Q + relaunch to pick up the new binary. Verify with `codesign --verify /Applications/cmux.app` and `Contents/Resources/bin/cmux --version` (should print the current `CMUXCommit`). Gatekeeper/`spctl` will reject the ad-hoc build; that's expected and quarantine-stripping lets it launch. Keep the `.bak-*` copy until the user confirms the new build runs, then delete it.
+
 ## Regression test commit policy
 
 When adding a regression test for a bug fix, use a two-commit structure so CI proves the test catches the bug:

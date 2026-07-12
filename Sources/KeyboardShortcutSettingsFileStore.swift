@@ -715,7 +715,6 @@ final class CmuxSettingsFileStore {
                 logInvalid("sidebar.branchLayout", sourcePath: sourcePath)
             }
         }
-        parseSidebarIndicatorPositionSettings(section, sourcePath: sourcePath, snapshot: &snapshot)
         if let value = jsonDouble(section[RightSidebarWidthSettings.jsonKey]), value > 0 {
             snapshot.managedUserDefaults[RightSidebarWidthSettings.maxWidthKey] = .double(
                 RightSidebarWidthSettings().clampedSettingsEditorMaximumWidth(value)

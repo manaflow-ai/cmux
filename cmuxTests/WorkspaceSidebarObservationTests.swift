@@ -256,7 +256,7 @@ struct WorkspaceSidebarObservationTests {
 
         #expect(
             workspace.sidebarAgentRuntimeObservation.changeGeneration > before,
-            "Agent lifecycle changes must notify sidebar rows so the loading spinner updates."
+            "Agent lifecycle changes must bump the runtime observation so sidebar rows refresh."
         )
     }
 
@@ -276,21 +276,13 @@ struct WorkspaceSidebarObservationTests {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         workspace.setAgentLifecycle(key: "manual", panelId: panelId, lifecycle: .running)
-        #expect(
-            SidebarAgentActivitySummary.activeCodingAgentCount(
-                statesByPanelId: workspace.agentLifecycleStatesByPanelId
-            ) == 1
-        )
+        #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["manual"] == .running)
 
         // The workspace-scoped `cmux workspace loading off` path clears with a
         // nil panel id; it must remove the key even though `on` targeted a
         // specific panel (the cross-surface off bug).
         #expect(workspace.clearAgentLifecycle(key: "manual", panelId: nil))
-        #expect(
-            SidebarAgentActivitySummary.activeCodingAgentCount(
-                statesByPanelId: workspace.agentLifecycleStatesByPanelId
-            ) == 0
-        )
+        #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["manual"] == nil)
     }
 
     @Test func runningLifecycleQueryIsScopedToOneLoaderKey() throws {
@@ -303,11 +295,6 @@ struct WorkspaceSidebarObservationTests {
         #expect(workspace.clearAgentLifecycle(key: "manual", panelId: nil))
         #expect(!workspace.hasRunningAgentLifecycle(key: "manual"))
         #expect(workspace.hasRunningAgentLifecycle(key: "codex"))
-        #expect(
-            SidebarAgentActivitySummary.activeCodingAgentCount(
-                statesByPanelId: workspace.agentLifecycleStatesByPanelId
-            ) == 1
-        )
     }
 
     @Test func clearAgentLifecycleStatesPreservesManualLoadersOnLivePanel() throws {
@@ -322,50 +309,6 @@ struct WorkspaceSidebarObservationTests {
 
         #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["codex"] == nil)
         #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["manual"] == .running)
-    }
-
-    @Test func activeCodingAgentCountOnlyCountsRunningAgents() {
-        let firstPanelId = UUID()
-        let secondPanelId = UUID()
-
-        let count = SidebarAgentActivitySummary.activeCodingAgentCount(
-            statesByPanelId: [
-                firstPanelId: [
-                    "codex": .running,
-                    "claude_code": .idle,
-                    "gemini": .needsInput,
-                ],
-                secondPanelId: [
-                    "opencode": .running,
-                    "kiro": .unknown,
-                ],
-            ]
-        )
-
-        #expect(count == 2)
-    }
-
-    @Test func visibleActiveCodingAgentCountReturnsZeroWhenSettingIsDisabled() {
-        let panelId = UUID()
-        let statesByPanelId = [
-            panelId: [
-                "codex": AgentHibernationLifecycleState.running,
-                "claude_code": AgentHibernationLifecycleState.running,
-            ],
-        ]
-
-        #expect(
-            SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
-                showsAgentActivity: false,
-                statesByPanelId: statesByPanelId
-            ) == 0
-        )
-        #expect(
-            SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
-                showsAgentActivity: true,
-                statesByPanelId: statesByPanelId
-            ) == 2
-        )
     }
 }
 

@@ -27,9 +27,6 @@ public struct SidebarSection: View {
     @State private var showPorts: DefaultsValueModel<Bool>
     @State private var showLog: DefaultsValueModel<Bool>
     @State private var showProgress: DefaultsValueModel<Bool>
-    @State var showAgentActivity: DefaultsValueModel<Bool>
-    @State var loadingSpinnerPosition: DefaultsValueModel<SidebarIndicatorPosition>
-    @State var notificationBadgePosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State private var showMetadata: DefaultsValueModel<Bool>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
@@ -55,9 +52,6 @@ public struct SidebarSection: View {
         _showPorts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPorts))
         _showLog = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showLog))
         _showProgress = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showProgress))
-        _showAgentActivity = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showAgentActivity))
-        _loadingSpinnerPosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.loadingSpinnerPosition))
-        _notificationBadgePosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationBadgePosition))
         _showMetadata = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata))
         _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
         _rememberedRightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rememberedRightMaxWidth))
@@ -91,9 +85,6 @@ public struct SidebarSection: View {
             showPorts,
             showLog,
             showProgress,
-            showAgentActivity,
-            loadingSpinnerPosition,
-            notificationBadgePosition,
             showMetadata,
             rightMaxWidth,
             rememberedRightMaxWidth,
@@ -469,8 +460,6 @@ public struct SidebarSection: View {
             }
             .disabled(hideAll.current)
             SettingsCardDivider()
-
-            agentActivityRows
 
             SettingsCardRow(
                 configurationReview: .json("sidebar.showCustomMetadata"),

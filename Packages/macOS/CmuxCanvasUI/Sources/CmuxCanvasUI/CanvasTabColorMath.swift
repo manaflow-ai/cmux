@@ -25,12 +25,26 @@ extension NSColor {
 
     /// The active (selected) tab fill for a bar of this background color.
     var cmuxCanvasActiveTabFill: NSColor {
-        cmuxCanvasIsLight ? cmuxCanvasDarken(by: 0.065) : cmuxCanvasLighten(by: 0.12)
+        if cmuxCanvasHexString == "#13141C" {
+            return NSColor(srgbRed: 25.0 / 255.0, green: 26.0 / 255.0, blue: 35.0 / 255.0, alpha: 1)
+        }
+        if cmuxCanvasHexString == "#F3F3F4" {
+            return NSColor(srgbRed: 252.0 / 255.0, green: 252.0 / 255.0, blue: 253.0 / 255.0, alpha: 1)
+        }
+        return cmuxCanvasIsLight ? cmuxCanvasDarken(by: 0.065) : cmuxCanvasLighten(by: 0.12)
     }
 
     /// The hovered (unselected) tab fill for a bar of this background color.
     var cmuxCanvasHoverTabFill: NSColor {
         let adjusted = cmuxCanvasIsLight ? cmuxCanvasDarken(by: 0.03) : cmuxCanvasLighten(by: 0.07)
         return adjusted.withAlphaComponent(0.78)
+    }
+
+    private var cmuxCanvasHexString: String? {
+        guard let rgb = usingColorSpace(.sRGB) else { return nil }
+        let red = Int((rgb.redComponent * 255).rounded())
+        let green = Int((rgb.greenComponent * 255).rounded())
+        let blue = Int((rgb.blueComponent * 255).rounded())
+        return String(format: "#%02X%02X%02X", red, green, blue)
     }
 }

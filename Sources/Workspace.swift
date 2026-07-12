@@ -2655,6 +2655,8 @@ final class Workspace: Identifiable, ObservableObject {
             return .init(
                 backgroundHex: surfaceHex,
                 tabBarBackgroundHex: SidebarChromeColors.tabBarBackgroundHex(for: colorScheme),
+                activeTabBackgroundHex: SidebarChromeColors.activeTabBackgroundHex(for: colorScheme),
+                activeTabIndicatorHex: "#00000000",
                 splitButtonBackdropHex: SidebarChromeColors.tabBarBackgroundHex(for: colorScheme),
                 paneBackgroundHex: "#00000000",
                 borderHex: borderHex
@@ -2673,6 +2675,8 @@ final class Workspace: Identifiable, ObservableObject {
         return .init(
             backgroundHex: surfaceHex,
             tabBarBackgroundHex: SidebarChromeColors.tabBarBackgroundHex(for: colorScheme),
+            activeTabBackgroundHex: SidebarChromeColors.activeTabBackgroundHex(for: colorScheme),
+            activeTabIndicatorHex: "#00000000",
             splitButtonBackdropHex: SidebarChromeColors.tabBarBackgroundHex(for: colorScheme),
             paneBackgroundHex: paneBackgroundHex,
             borderHex: borderHex
@@ -2698,6 +2702,8 @@ final class Workspace: Identifiable, ObservableObject {
             return .init(
                 backgroundHex: backgroundHex,
                 tabBarBackgroundHex: "#00000000",
+                activeTabBackgroundHex: SidebarChromeColors.activeTabBackgroundHex(for: colorScheme),
+                activeTabIndicatorHex: "#00000000",
                 splitButtonBackdropHex: "#00000000",
                 paneBackgroundHex: "#00000000",
                 borderHex: borderHex
@@ -2713,6 +2719,8 @@ final class Workspace: Identifiable, ObservableObject {
         return .init(
             backgroundHex: backgroundHex,
             tabBarBackgroundHex: SidebarChromeColors.tabBarBackgroundHex(for: colorScheme),
+            activeTabBackgroundHex: SidebarChromeColors.activeTabBackgroundHex(for: colorScheme),
+            activeTabIndicatorHex: "#00000000",
             splitButtonBackdropHex: SidebarChromeColors.tabBarBackgroundHex(for: colorScheme),
             paneBackgroundHex: paneBackgroundHex,
             borderHex: borderHex
@@ -2725,6 +2733,8 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> Bool {
         lhs.backgroundHex == rhs.backgroundHex &&
             lhs.tabBarBackgroundHex == rhs.tabBarBackgroundHex &&
+            lhs.activeTabBackgroundHex == rhs.activeTabBackgroundHex &&
+            lhs.activeTabIndicatorHex == rhs.activeTabIndicatorHex &&
             lhs.splitButtonBackdropHex == rhs.splitButtonBackdropHex &&
             lhs.paneBackgroundHex == rhs.paneBackgroundHex &&
             lhs.borderHex == rhs.borderHex
@@ -2735,6 +2745,8 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> String {
         "bg=\(colors.backgroundHex ?? "nil") " +
             "tabBarBg=\(colors.tabBarBackgroundHex ?? "nil") " +
+            "activeTabBg=\(colors.activeTabBackgroundHex ?? "nil") " +
+            "activeTabIndicator=\(colors.activeTabIndicatorHex ?? "nil") " +
             "splitBackdrop=\(colors.splitButtonBackdropHex ?? "nil") " +
             "paneBg=\(colors.paneBackgroundHex ?? "nil") " +
             "border=\(colors.borderHex ?? "nil")"
