@@ -18,7 +18,7 @@ extension Workspace {
         guard let sourcePaneId = paneId(forPanelId: panelId) else { return nil }
         clearSplitZoom()
 
-        let cefBrowserPanel = CEFBrowserPanel(initialURL: url)
+        let cefBrowserPanel = CEFBrowserPanel(workspaceId: id, initialURL: url)
         panels[cefBrowserPanel.id] = cefBrowserPanel
         panelTitles[cefBrowserPanel.id] = cefBrowserPanel.displayTitle
 

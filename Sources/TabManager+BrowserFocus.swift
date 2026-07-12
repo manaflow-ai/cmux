@@ -1,6 +1,14 @@
 import AppKit
 
 extension TabManager {
+    /// Returns the focused panel when it participates in the shared omnibar contract.
+    var focusedOmnibarHostingPanel: (any OmnibarHostingPanel)? {
+        if let focusedBrowserPanel { return focusedBrowserPanel }
+        guard let workspace = selectedWorkspace,
+              let panelID = workspace.focusedPanelId else { return nil }
+        return workspace.panels[panelID] as? any OmnibarHostingPanel
+    }
+
     /// Returns the focused panel if it is a main-area or Dock browser.
     var focusedBrowserPanel: BrowserPanel? {
         guard let tab = selectedWorkspace else { return nil }

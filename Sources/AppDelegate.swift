@@ -13964,7 +13964,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .focusBrowserAddressBar) {
-            if let focusedPanel = tabManager?.focusedBrowserPanel {
+            if let focusedPanel = tabManager?.focusedOmnibarHostingPanel {
                 focusBrowserAddressBar(in: focusedPanel)
                 return true
             }
@@ -14252,7 +14252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func focusBrowserAddressBar(panelId: UUID) -> Bool {
         guard let tabManager,
               let workspace = tabManager.selectedWorkspace,
-              let panel = workspace.browserPanel(for: panelId) else {
+              let panel = workspace.panels[panelId] as? any OmnibarHostingPanel else {
 #if DEBUG
             cmuxDebugLog(
                 "browser.focus.addressBar.route panel=\(panelId.uuidString.prefix(5)) " +
@@ -14345,7 +14345,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )?.id
     }
 
-    func focusBrowserAddressBar(in panel: BrowserPanel) {
+    func focusBrowserAddressBar(in panel: any OmnibarHostingPanel) {
 #if DEBUG
         let requestId = panel.requestAddressBarFocus(selectionIntent: .selectAll)
         cmuxDebugLog(

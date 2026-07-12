@@ -9591,7 +9591,7 @@ final class Workspace: Identifiable, ObservableObject {
             syncUnreadBadgeStateForAllPanels()
         }
 
-        if let browserPanel = panels[panelId] as? BrowserPanel {
+        if let browserPanel = panels[panelId] as? any OmnibarHostingPanel {
             maybeAutoFocusBrowserAddressBarOnPanelFocus(browserPanel, trigger: trigger)
         }
 
@@ -9605,13 +9605,13 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func maybeAutoFocusBrowserAddressBarOnPanelFocus(
-        _ browserPanel: BrowserPanel,
+        _ browserPanel: any OmnibarHostingPanel,
         trigger: FocusPanelTrigger
     ) {
         guard trigger == .standard else { return }
         guard !isCommandPaletteVisibleForWorkspaceWindow() else { return }
         guard !browserPanel.shouldSuppressOmnibarAutofocus() else { return }
-        guard browserPanel.isShowingNewTabPage || browserPanel.preferredURLStringForOmnibar() == nil else { return }
+        guard browserPanel.isContentBlankForOmnibar else { return }
 
         _ = browserPanel.requestAddressBarFocus()
         NotificationCenter.default.post(name: .browserFocusAddressBar, object: browserPanel.id)

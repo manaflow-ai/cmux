@@ -9394,7 +9394,7 @@ struct ContentView: View {
     }
 
     private func focusFocusedBrowserAddressBar() -> Bool {
-        guard let panel = tabManager.focusedBrowserPanel else { return false }
+        guard let panel = tabManager.focusedOmnibarHostingPanel else { return false }
         _ = panel.requestAddressBarFocus(selectionIntent: .selectAll)
         NotificationCenter.default.post(name: .browserFocusAddressBar, object: panel.id)
         return true

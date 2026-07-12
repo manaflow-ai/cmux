@@ -8,17 +8,24 @@ import Foundation
 /// delegate protocol predates actor annotations, so the conformance is imported
 /// with `@preconcurrency` while this panel remains main-actor isolated.
 @MainActor
-final class CEFBrowserPanel: Panel, ObservableObject, @preconcurrency CEFBrowserDelegate {
+final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrowserDelegate {
     let id: UUID
+    let workspaceId: UUID
+    let profileID: UUID
+    let historyStore: BrowserHistoryStore
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .cefBrowser
     let containerView: CEFBrowserContainerView
+    let hostView: CEFBrowserHostView
 
     @Published var currentURL: String
     @Published private(set) var title: String = ""
     @Published private(set) var isLoading = false
     @Published private(set) var canGoBack = false
     @Published private(set) var canGoForward = false
+    @Published private(set) var pendingAddressBarFocusRequestId: UUID?
+    private(set) var pendingAddressBarFocusSelectionIntent: BrowserAddressBarFocusSelectionIntent =
+        .preserveFieldEditorSelection
 
     private(set) var browser: CEFBrowser?
     private var hasStarted = false
@@ -45,11 +52,23 @@ final class CEFBrowserPanel: Panel, ObservableObject, @preconcurrency CEFBrowser
 
     var displayIcon: String? { "globe" }
 
-    init(id: UUID = UUID(), initialURL: String = "about:blank") {
+    init(
+        id: UUID = UUID(),
+        workspaceId: UUID,
+        profileID: UUID? = nil,
+        historyStore: BrowserHistoryStore? = nil,
+        initialURL: String = "about:blank"
+    ) {
+        let resolvedProfileID = profileID ?? BrowserProfileStore.shared.builtInDefaultProfileID
+        let containerView = CEFBrowserContainerView(frame: .zero)
         self.id = id
+        self.workspaceId = workspaceId
+        self.profileID = resolvedProfileID
+        self.historyStore = historyStore ?? BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
         self.currentURL = initialURL
         self.lastEmbeddedURL = initialURL
-        self.containerView = CEFBrowserContainerView(frame: .zero)
+        self.containerView = containerView
+        self.hostView = CEFBrowserHostView(containerView: containerView)
     }
 
     /// Starts the embedded browser after the process-wide CEF context is ready.
@@ -79,6 +98,7 @@ final class CEFBrowserPanel: Panel, ObservableObject, @preconcurrency CEFBrowser
     /// Navigates the embedded browser, or opens `chrome://` URLs in CEF's Chrome-style window.
     func navigate(to rawURL: String) {
         guard !isClosing, let normalizedURL = Self.normalizedURLString(rawURL) else { return }
+        historyStore.recordTypedNavigation(url: URL(string: normalizedURL))
 
         if URL(string: normalizedURL)?.scheme?.lowercased() == "chrome" {
             currentURL = lastEmbeddedURL
@@ -107,6 +127,24 @@ final class CEFBrowserPanel: Panel, ObservableObject, @preconcurrency CEFBrowser
 
     func reload() {
         browser?.reload()
+    }
+
+    func stopLoading() {
+        browser?.stopLoad()
+    }
+
+    func navigateSmart(_ input: String) {
+        navigate(to: input)
+    }
+
+    func resolveNavigableURL(from input: String) -> URL? {
+        Self.normalizedURLString(input).flatMap(URL.init(string:))
+    }
+
+    func preferredURLStringForOmnibar() -> String? {
+        let trimmed = currentURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "about:blank" else { return nil }
+        return trimmed
     }
 
     func close() {
@@ -152,6 +190,75 @@ final class CEFBrowserPanel: Panel, ObservableObject, @preconcurrency CEFBrowser
         }
     }
 
+    var omnibarDisplayURL: URL? {
+        preferredURLStringForOmnibar().flatMap(URL.init(string:))
+    }
+
+    var pageTitle: String { title }
+
+    var isOmnibarVisible: Bool { true }
+
+    var isContentBlankForOmnibar: Bool {
+        preferredURLStringForOmnibar() == nil
+    }
+
+    var isContentNavigationInFlight: Bool { isLoading }
+
+    var omnibarHostWindow: NSWindow? { containerView.window }
+
+    func beginSuppressContentFocusForAddressBar() {
+        setAddressFieldFocused(true)
+    }
+
+    func endSuppressContentFocusForAddressBar() {
+        setAddressFieldFocused(false)
+    }
+
+    func shouldSuppressContentFocus() -> Bool {
+        isAddressFieldFocused
+    }
+
+    func shouldSuppressOmnibarAutofocus() -> Bool { false }
+
+    func noteAddressBarFocused() {
+        setAddressFieldFocused(true)
+    }
+
+    @discardableResult
+    func requestAddressBarFocus(
+        selectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
+    ) -> UUID {
+        if let pendingAddressBarFocusRequestId {
+            if selectionIntent == .selectAll {
+                pendingAddressBarFocusSelectionIntent = .selectAll
+            }
+            return pendingAddressBarFocusRequestId
+        }
+        let requestID = UUID()
+        pendingAddressBarFocusSelectionIntent = selectionIntent
+        pendingAddressBarFocusRequestId = requestID
+        beginSuppressContentFocusForAddressBar()
+        return requestID
+    }
+
+    func acknowledgeAddressBarFocusRequest(_ requestID: UUID) {
+        guard pendingAddressBarFocusRequestId == requestID else { return }
+        pendingAddressBarFocusRequestId = nil
+        pendingAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
+    }
+
+    func performAddressBarExitFocusHandoff(
+        onComplete: @escaping @MainActor (Bool) -> Void
+    ) {
+        setAddressFieldFocused(false)
+        guard let browser else {
+            onComplete(false)
+            return
+        }
+        browser.setFocus(true)
+        onComplete(true)
+    }
+
     func browser(_ browser: CEFBrowser, didUpdateURL url: String) {
         guard browser === self.browser else { return }
         currentURL = url
@@ -170,9 +277,11 @@ final class CEFBrowserPanel: Panel, ObservableObject, @preconcurrency CEFBrowser
         canGoForward: Bool
     ) {
         guard browser === self.browser else { return }
-        self.isLoading = isLoading
-        self.canGoBack = canGoBack
-        self.canGoForward = canGoForward
+        applyLoadingState(
+            isLoading: isLoading,
+            canGoBack: canGoBack,
+            canGoForward: canGoForward
+        )
     }
 
     func browserDidClose(_ browser: CEFBrowser) {
@@ -225,6 +334,20 @@ final class CEFBrowserPanel: Panel, ObservableObject, @preconcurrency CEFBrowser
                 }
             }
             browser.setFocus(self.wantsFocus && !self.isAddressFieldFocused)
+        }
+    }
+
+    func applyLoadingState(
+        isLoading: Bool,
+        canGoBack: Bool,
+        canGoForward: Bool
+    ) {
+        let didFinishLoading = self.isLoading && !isLoading
+        self.isLoading = isLoading
+        self.canGoBack = canGoBack
+        self.canGoForward = canGoForward
+        if didFinishLoading {
+            historyStore.recordVisit(url: URL(string: currentURL), title: title)
         }
     }
 
