@@ -75,11 +75,6 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             && lhs.scrollbackOffsetFromBottomRows == rhs.scrollbackOffsetFromBottomRows
     }
 
-    var isRenderGrid: Bool {
-        if case .renderGrid = payload { return true }
-        return false
-    }
-
     var isViewportRepaint: Bool {
         replacementScope == .renderGridViewport || replacementScope == .byteViewport
     }

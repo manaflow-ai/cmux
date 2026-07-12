@@ -277,7 +277,9 @@ final class TerminalScrollSession {
         }
 
         if response.clientRevision == latestClientRevision {
-            pendingResponse = response
+            if pendingResponse?.renderGrid == nil || response.renderGrid != nil {
+                pendingResponse = response
+            }
         } else if response.renderGrid != nil,
                   var pending = remotePending,
                   pending.prefetchWindow == nil {
