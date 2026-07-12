@@ -44,7 +44,7 @@ struct MobileConnectionLifecycleStateMachine {
         let dwell = inactiveSince.map { date.timeIntervalSince($0) } ?? shortDwellThreshold
         inactiveSince = nil
         let shouldRequestForegroundRecovery = dwell >= shortDwellThreshold
-            || !health.hasHealthyEventStream
+            || !health.hasAttachedEventStream
 
         if activeEpisode != nil {
             guard shouldRequestForegroundRecovery else { return nil }

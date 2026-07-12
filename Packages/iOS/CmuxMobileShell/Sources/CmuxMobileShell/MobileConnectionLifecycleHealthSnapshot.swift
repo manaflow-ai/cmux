@@ -6,7 +6,10 @@ struct MobileConnectionLifecycleHealthSnapshot {
     var eventStreamFresh: Bool
     var canReconnectPersistedMac: Bool
 
-    var hasHealthyEventStream: Bool {
-        connected && hasClient && hasListener && eventStreamFresh
+    /// Whether the stream's connection topology is still attached.
+    /// Event silence is evaluated by the liveness probe, because an idle stream
+    /// can remain healthy without producing events.
+    var hasAttachedEventStream: Bool {
+        connected && hasClient && hasListener
     }
 }
