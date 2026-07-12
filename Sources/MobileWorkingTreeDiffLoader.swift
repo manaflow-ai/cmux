@@ -148,8 +148,9 @@ final class MobileWorkingTreeDiffLoader: Sendable {
         var overflowed = false
         var buffer = [UInt8](repeating: 0, count: 64 * 1024)
         while true {
+            let bufferCapacity = buffer.count
             let count = buffer.withUnsafeMutableBytes { pointer in
-                read(fileDescriptor, pointer.baseAddress, buffer.count)
+                read(fileDescriptor, pointer.baseAddress, bufferCapacity)
             }
             if count > 0 {
                 let retainedCount = min(count, max(0, maximumBytes - data.count))
