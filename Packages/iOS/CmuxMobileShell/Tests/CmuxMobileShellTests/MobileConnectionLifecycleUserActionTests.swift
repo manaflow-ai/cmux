@@ -423,6 +423,48 @@ import Testing
         #expect(resources.lifecycleWaiterCount == 0)
     }
 
+    @Test func teamChangesPreserveInactiveQueuedStoredMacReconnect() async throws {
+        let team = MutableTeamID("team-a")
+        let pairedMacStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [:],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedMacStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { await team.value }
+        )
+        store.suspendForegroundRefresh()
+        let oldReconnect = Task { @MainActor in
+            await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        #expect(try await pollUntil {
+            store.connectionLifecycle.resourceSnapshot.pendingRequestCount == 1
+                && store.connectionLifecycleRequestWaiters.count == 1
+        })
+
+        await team.set("team-b")
+        store.currentTeamDidChange()
+        #expect(await oldReconnect.value == false)
+        #expect(store.connectionLifecycle.resourceSnapshot.pendingRequestCount == 1)
+
+        await team.set("team-c")
+        store.currentTeamDidChange()
+        #expect(store.connectionLifecycle.resourceSnapshot.pendingRequestCount == 1)
+
+        store.resumeForegroundRefresh()
+
+        #expect(try await pollUntil {
+            await pairedMacStore.currentLoadStartCount(teamID: "team-c") == 1
+        })
+        #expect(await pairedMacStore.currentLoadStartCount(teamID: "team-b") == 0)
+        #expect(try await pollUntil {
+            store.connectionLifecycle.resourceSnapshot.activeEpisodeCount == 0
+                && store.connectionLifecycle.resourceSnapshot.pendingRequestCount == 0
+        })
+    }
+
     @Test func manualPairingClearsReconnectReplayQueuedBehindRetiredTask() async throws {
         let team = MutableTeamID("team-a")
         let pairedMacStore = DelayedTeamPairedMacStore(
