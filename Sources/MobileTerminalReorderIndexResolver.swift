@@ -2,6 +2,24 @@ import Foundation
 
 /// Converts a terminal-only final index into Bonsplit's all-panel insertion index.
 struct MobileTerminalReorderIndexResolver {
+    static func crossesPinnedBoundary(
+        panePanelIDs: [UUID],
+        terminalPanelIDs: Set<UUID>,
+        pinnedPanelIDs: Set<UUID>,
+        movingPanelID: UUID,
+        targetTerminalIndex: Int
+    ) -> Bool {
+        guard terminalPanelIDs.contains(movingPanelID) else { return false }
+        let terminalCount = panePanelIDs.lazy.filter(terminalPanelIDs.contains).count
+        guard targetTerminalIndex >= 0, targetTerminalIndex < terminalCount else { return false }
+        let pinnedTerminalCount = panePanelIDs.lazy.filter {
+            terminalPanelIDs.contains($0) && pinnedPanelIDs.contains($0)
+        }.count
+        return pinnedPanelIDs.contains(movingPanelID)
+            ? targetTerminalIndex >= pinnedTerminalCount
+            : targetTerminalIndex < pinnedTerminalCount
+    }
+
     static func destinationIndex(
         panePanelIDs: [UUID],
         terminalPanelIDs: Set<UUID>,
@@ -15,14 +33,13 @@ struct MobileTerminalReorderIndexResolver {
         }
         let terminalCount = panePanelIDs.lazy.filter(terminalPanelIDs.contains).count
         guard targetTerminalIndex >= 0, targetTerminalIndex < terminalCount else { return nil }
-        let pinnedTerminalCount = panePanelIDs.lazy.filter {
-            terminalPanelIDs.contains($0) && pinnedPanelIDs.contains($0)
-        }.count
-        if pinnedPanelIDs.contains(movingPanelID) {
-            guard targetTerminalIndex < pinnedTerminalCount else { return nil }
-        } else {
-            guard targetTerminalIndex >= pinnedTerminalCount else { return nil }
-        }
+        guard !crossesPinnedBoundary(
+            panePanelIDs: panePanelIDs,
+            terminalPanelIDs: terminalPanelIDs,
+            pinnedPanelIDs: pinnedPanelIDs,
+            movingPanelID: movingPanelID,
+            targetTerminalIndex: targetTerminalIndex
+        ) else { return nil }
 
         var remainingPanels = panePanelIDs
         remainingPanels.remove(at: sourceIndex)

@@ -158,7 +158,9 @@ extension WorkspaceShellView {
                 "mobile.workspaceAction.failure.reason.busy.generic",
                 defaultValue: "another workspace action is still finishing"
             )
-        case let .confirmationRequired(hostDisplayName), let .rejected(hostDisplayName):
+        case let .confirmationRequired(hostDisplayName),
+             let .protected(hostDisplayName),
+             let .rejected(hostDisplayName):
             if let hostDisplayName = trimmedWorkspaceActionHostDisplayName(hostDisplayName) {
                 return String.localizedStringWithFormat(
                     L10n.string(

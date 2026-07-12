@@ -76,6 +76,35 @@ struct MobileTerminalReorderIndexResolverTests {
         let unpinnedTerminal = UUID()
         let terminals: Set<UUID> = [pinnedTerminal, unpinnedTerminal]
 
+        #expect(MobileTerminalReorderIndexResolver.crossesPinnedBoundary(
+            panePanelIDs: [pinnedTerminal, unpinnedTerminal],
+            terminalPanelIDs: terminals,
+            pinnedPanelIDs: [pinnedTerminal],
+            movingPanelID: unpinnedTerminal,
+            targetTerminalIndex: 0
+        ))
+        #expect(MobileTerminalReorderIndexResolver.crossesPinnedBoundary(
+            panePanelIDs: [pinnedTerminal, unpinnedTerminal],
+            terminalPanelIDs: terminals,
+            pinnedPanelIDs: [pinnedTerminal],
+            movingPanelID: pinnedTerminal,
+            targetTerminalIndex: 1
+        ))
+        #expect(!MobileTerminalReorderIndexResolver.crossesPinnedBoundary(
+            panePanelIDs: [pinnedTerminal, unpinnedTerminal],
+            terminalPanelIDs: terminals,
+            pinnedPanelIDs: [pinnedTerminal],
+            movingPanelID: pinnedTerminal,
+            targetTerminalIndex: 0
+        ))
+        #expect(!MobileTerminalReorderIndexResolver.crossesPinnedBoundary(
+            panePanelIDs: [pinnedTerminal, unpinnedTerminal],
+            terminalPanelIDs: terminals,
+            pinnedPanelIDs: [pinnedTerminal],
+            movingPanelID: unpinnedTerminal,
+            targetTerminalIndex: 1
+        ))
+
         #expect(MobileTerminalReorderIndexResolver.destinationIndex(
             panePanelIDs: [pinnedTerminal, unpinnedTerminal],
             terminalPanelIDs: terminals,

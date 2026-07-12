@@ -427,6 +427,7 @@ extension MobileShellComposite {
             if normalizedCode == "confirmation_required" {
                 return .confirmationRequired(hostDisplayName: hostDisplayName)
             }
+            if normalizedCode == "protected" { return .protected(hostDisplayName: hostDisplayName) }
             if let normalizedCode,
                ["unauthorized", "forbidden", "invalid_token", "token_expired", "expired_token", "auth_required", "account_mismatch"].contains(normalizedCode) {
                 return .authorizationFailed(hostDisplayName: hostDisplayName)

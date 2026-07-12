@@ -220,17 +220,17 @@ import Testing
 }
 
 @MainActor
-@Test func newerWorkspaceFocusEventSurvivesOlderForegroundListResponse() async throws {
+@Test func newerWorkspaceFocusEventSurvivesOlderForegroundListResponseDuringConnectPromotion() async throws {
     let router = RoutingHostRouter()
     let store = try await makeRoutingConnectedStore(router: router)
     store.setWorkspaceStatesForTesting(
         [
-            "test-mac": MacWorkspaceState(
-                macDeviceID: "test-mac",
+            MobileShellComposite.foregroundAnonymousKey: MacWorkspaceState(
+                macDeviceID: MobileShellComposite.foregroundAnonymousKey,
                 workspaces: store.workspaces
             ),
         ],
-        foregroundMacDeviceID: "test-mac"
+        foregroundMacDeviceID: nil
     )
     await router.workspaceListGate.setHoldFirst(true)
     let refresh = try #require(store.scheduleWorkspaceListRefreshFromEvent())

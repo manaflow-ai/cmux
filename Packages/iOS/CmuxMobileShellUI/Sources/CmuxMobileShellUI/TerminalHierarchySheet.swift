@@ -27,6 +27,7 @@ struct TerminalHierarchySheet: View {
     @State private var pendingClose: TerminalHierarchyRowSnapshot?
     @State private var closeConfirmationIncludesRunningProcess = false
     @State private var mutationFailed = false
+    @State private var mutationProtected = false
     @State private var showRefreshAlert = false
     @State private var optimisticTerminalIDsByPane: [MobilePanePreview.ID: [MobileTerminalPreview.ID]] = [:]
 
@@ -119,6 +120,19 @@ struct TerminalHierarchySheet: View {
                     L10n.string(
                         "mobile.terminal.hierarchy.refreshMessage",
                         defaultValue: "The Mac applied the change, but this list could not refresh. Refresh before making another change."
+                    )
+                )
+            }
+            .alert(
+                L10n.string("mobile.terminal.hierarchy.protectedTitle", defaultValue: "Pinned Order Protected"),
+                isPresented: $mutationProtected
+            ) {
+                Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
+            } message: {
+                Text(
+                    L10n.string(
+                        "mobile.terminal.hierarchy.protectedMessage",
+                        defaultValue: "Pinned terminals stay before unpinned terminals. Move this terminal without crossing a pinned terminal."
                     )
                 )
             }
@@ -298,6 +312,8 @@ struct TerminalHierarchySheet: View {
                 if case .failure(.appliedNeedsRefresh) = result {
                     reorderGate.requireRefresh(workspaceID: snapshot.workspaceID)
                     showRefreshAlert = true
+                } else if case .failure(.protected) = result {
+                    mutationProtected = true
                 } else {
                     mutationFailed = true
                 }

@@ -37,7 +37,7 @@ extension MobileShellComposite {
         macID: String?,
         listStartedAtFocusRevision: UInt64
     ) {
-        let ownerKey = macID ?? Self.foregroundAnonymousKey
+        let ownerKey = workspaceFocusOwnerKey(macID: macID)
         let revision = workspaceFocusEventRevisionsByMac[ownerKey]?[workspace.rpcWorkspaceID.rawValue] ?? 0
         guard revision > listStartedAtFocusRevision else { return }
         workspace.preserveFocusSnapshot(from: existingWorkspace)
@@ -47,7 +47,7 @@ extension MobileShellComposite {
         macID: String?,
         retainingRemoteWorkspaceIDs: Set<String>
     ) {
-        let ownerKey = macID ?? Self.foregroundAnonymousKey
+        let ownerKey = workspaceFocusOwnerKey(macID: macID)
         workspaceFocusEventRevisionsByMac[ownerKey] =
             workspaceFocusEventRevisionsByMac[ownerKey]?.filter {
                 retainingRemoteWorkspaceIDs.contains($0.key)
@@ -62,9 +62,21 @@ extension MobileShellComposite {
         macID: String?
     ) {
         workspaceFocusEventRevision &+= 1
-        let ownerKey = macID ?? Self.foregroundAnonymousKey
+        let ownerKey = workspaceFocusOwnerKey(macID: macID)
         workspaceFocusEventRevisionsByMac[ownerKey, default: [:]][event.workspaceID] =
             workspaceFocusEventRevision
+    }
+
+    /// Resolves one stable focus-revision owner through foreground promotion.
+    /// During connect, the ticket identifies the Mac before the foreground state
+    /// is promoted, so every writer and reader must use the same fallback order.
+    func workspaceFocusOwnerKey(macID: String?) -> String {
+        if let macID, !macID.isEmpty { return macID }
+        if let foregroundMacDeviceID, !foregroundMacDeviceID.isEmpty { return foregroundMacDeviceID }
+        if let ticketMacDeviceID = activeTicket?.macDeviceID, !ticketMacDeviceID.isEmpty {
+            return ticketMacDeviceID
+        }
+        return Self.foregroundAnonymousKey
     }
 }
 

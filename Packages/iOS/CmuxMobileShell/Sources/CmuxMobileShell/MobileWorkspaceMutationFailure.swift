@@ -13,6 +13,8 @@ public enum MobileWorkspaceMutationFailure: Error, Equatable, Sendable {
     case busy(hostDisplayName: String?)
     /// The target Mac rejected the requested mutation.
     case rejected(hostDisplayName: String?)
+    /// The target is protected by a host policy, such as a pinned boundary.
+    case protected(hostDisplayName: String?)
     /// The target changed and now requires an explicit destructive confirmation.
     case confirmationRequired(hostDisplayName: String?)
     /// The current host does not support the requested mutation.

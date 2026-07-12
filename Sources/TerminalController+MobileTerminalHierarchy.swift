@@ -97,6 +97,19 @@ extension TerminalController {
             workspace.panelIdFromSurfaceId($0.id)
         }
         let terminalIDs = Set(panePanelIDs.filter { workspace.terminalPanel(for: $0) != nil })
+        guard !MobileTerminalReorderIndexResolver.crossesPinnedBoundary(
+            panePanelIDs: panePanelIDs,
+            terminalPanelIDs: terminalIDs,
+            pinnedPanelIDs: workspace.pinnedPanelIds,
+            movingPanelID: surfaceID,
+            targetTerminalIndex: targetIndex
+        ) else {
+            return .err(
+                code: "protected",
+                message: "Pinned terminals cannot cross the pinned boundary",
+                data: nil
+            )
+        }
         guard let destinationIndex = MobileTerminalReorderIndexResolver.destinationIndex(
             panePanelIDs: panePanelIDs,
             terminalPanelIDs: terminalIDs,

@@ -446,6 +446,7 @@ struct WorkspaceDetailView: View {
                 .frame(minWidth: 44, minHeight: 44)
         }
         .foregroundStyle(TerminalPalette.foreground)
+        .disabled(!canCreateTerminalFromHierarchy)
         .accessibilityHint(
             L10n.string(
                 "mobile.terminal.hierarchy.newHint",
@@ -657,12 +658,18 @@ struct WorkspaceDetailView: View {
     #endif
 
     private func createTerminalFromToolbar() {
+        guard canCreateTerminalFromHierarchy else { return }
         dismissTerminalKeyboardForChrome()
         // Creating a terminal from the (shared) chrome must surface it. If a
         // browser pane is up, close it so `body` leaves the browser branch and
         // shows the new terminal instead of staying on the browser.
         browserStore.closeBrowser(for: workspace.id.rawValue)
         createTerminal()
+    }
+
+    private var canCreateTerminalFromHierarchy: Bool {
+        connectionStatus == .connected
+            && store.terminalReorderGate.canMutate(workspaceID: workspace.id)
     }
 
     private func openBrowserFromToolbar() {
