@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import os
 
@@ -113,12 +114,21 @@ nonisolated final class MobileWorkspaceObserverMetrics: @unchecked Sendable {
     }
 
     private let state: OSAllocatedUnfairLock<State>
+    private let enabled: AtomicBooleanGate
+    private let monotonicNanoseconds: @Sendable () -> UInt64
 
-    init(enabled: Bool = false) {
+    init(
+        enabled: Bool = false,
+        monotonicNanoseconds: @escaping @Sendable () -> UInt64 = {
+            DispatchTime.now().uptimeNanoseconds
+        }
+    ) {
         let epoch: UInt64 = enabled ? 1 : 0
         self.state = OSAllocatedUnfairLock(
             initialState: State(epoch: epoch, enabled: enabled)
         )
+        self.enabled = AtomicBooleanGate(enabled)
+        self.monotonicNanoseconds = monotonicNanoseconds
     }
 
     func reset(enable: Bool) {
@@ -129,9 +139,11 @@ nonisolated final class MobileWorkspaceObserverMetrics: @unchecked Sendable {
             }
             state = State(epoch: nextEpoch, enabled: enable)
         }
+        enabled.storeRelease(enable)
     }
 
     func disable() {
+        enabled.storeRelease(false)
         state.withLock { state in
             state.enabled = false
             state.epoch &+= 1
@@ -173,6 +185,7 @@ nonisolated final class MobileWorkspaceObserverMetrics: @unchecked Sendable {
     }
 
     func recordInvalidationSubmitted(_ kind: MobileWorkspaceObserverInvalidationMetricKind) {
+        guard enabled.loadRelaxed() else { return }
         state.withLock { state in
             guard state.enabled else { return }
             switch kind {
@@ -189,40 +202,45 @@ nonisolated final class MobileWorkspaceObserverMetrics: @unchecked Sendable {
     }
 
     func batchDrainStarted(invalidationCount: Int) -> MobileWorkspaceObserverMetricToken? {
+        guard enabled.loadRelaxed() else { return nil }
         return state.withLock { state -> MobileWorkspaceObserverMetricToken? in
             guard state.enabled else { return nil }
             state.batchDrains += 1
             state.invalidationsDrained += max(0, invalidationCount)
-            return Self.token(.batchDrain, epoch: state.epoch)
+            return token(.batchDrain, epoch: state.epoch)
         }
     }
 
     func fullGraphRebuildStarted() -> MobileWorkspaceObserverMetricToken? {
+        guard enabled.loadRelaxed() else { return nil }
         return state.withLock { state -> MobileWorkspaceObserverMetricToken? in
             guard state.enabled else { return nil }
             state.fullGraphRebuilds += 1
-            return Self.token(.fullGraphRebuild, epoch: state.epoch)
+            return token(.fullGraphRebuild, epoch: state.epoch)
         }
     }
 
     func incrementalRefreshStarted() -> MobileWorkspaceObserverMetricToken? {
+        guard enabled.loadRelaxed() else { return nil }
         return state.withLock { state -> MobileWorkspaceObserverMetricToken? in
             guard state.enabled else { return nil }
-            return Self.token(.incrementalRefresh, epoch: state.epoch)
+            return token(.incrementalRefresh, epoch: state.epoch)
         }
     }
 
     func previewSignaturesStarted() -> MobileWorkspaceObserverMetricToken? {
+        guard enabled.loadRelaxed() else { return nil }
         return state.withLock { state -> MobileWorkspaceObserverMetricToken? in
             guard state.enabled else { return nil }
-            return Self.token(.previewSignatures, epoch: state.epoch)
+            return token(.previewSignatures, epoch: state.epoch)
         }
     }
 
     func summaryHashStarted() -> MobileWorkspaceObserverMetricToken? {
+        guard enabled.loadRelaxed() else { return nil }
         return state.withLock { state -> MobileWorkspaceObserverMetricToken? in
             guard state.enabled else { return nil }
-            return Self.token(.summaryHash, epoch: state.epoch)
+            return token(.summaryHash, epoch: state.epoch)
         }
     }
 
@@ -230,8 +248,8 @@ nonisolated final class MobileWorkspaceObserverMetrics: @unchecked Sendable {
         _ token: MobileWorkspaceObserverMetricToken?,
         workspacesRehashed: Int = 0
     ) {
-        guard let token else { return }
-        let duration = Self.elapsedMilliseconds(since: token.startedAtNanoseconds)
+        guard enabled.loadRelaxed(), let token else { return }
+        let duration = elapsedMilliseconds(since: token.startedAtNanoseconds)
         state.withLock { state in
             guard state.enabled, token.epoch == state.epoch else { return }
             state.workspacesRehashed += max(0, workspacesRehashed)
@@ -251,6 +269,7 @@ nonisolated final class MobileWorkspaceObserverMetrics: @unchecked Sendable {
     }
 
     func recordEmit() {
+        guard enabled.loadRelaxed() else { return }
         state.withLock { state in
             guard state.enabled else { return }
             state.emits += 1
@@ -258,25 +277,26 @@ nonisolated final class MobileWorkspaceObserverMetrics: @unchecked Sendable {
     }
 
     func recordSkip() {
+        guard enabled.loadRelaxed() else { return }
         state.withLock { state in
             guard state.enabled else { return }
             state.skips += 1
         }
     }
 
-    private static func token(
+    private func token(
         _ operation: MobileWorkspaceObserverMetricToken.Operation,
         epoch: UInt64
     ) -> MobileWorkspaceObserverMetricToken {
         MobileWorkspaceObserverMetricToken(
             operation: operation,
             epoch: epoch,
-            startedAtNanoseconds: DispatchTime.now().uptimeNanoseconds
+            startedAtNanoseconds: monotonicNanoseconds()
         )
     }
 
-    private static func elapsedMilliseconds(since start: UInt64) -> Double {
-        let end = DispatchTime.now().uptimeNanoseconds
+    private func elapsedMilliseconds(since start: UInt64) -> Double {
+        let end = monotonicNanoseconds()
         return Double(end >= start ? end - start : 0) / 1_000_000
     }
 

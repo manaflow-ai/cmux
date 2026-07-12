@@ -4,9 +4,12 @@ import Foundation
 private nonisolated let cmuxTopPIDPathBufferSize = 4096
 
 nonisolated extension CmuxTopProcessSnapshot {
-    static func allProcesses(includeProcessDetails: Bool, includeCMUXScope: Bool) -> [CmuxTopProcessInfo] {
+    static func allProcessesWithPerformanceProof(
+        includeProcessDetails: Bool,
+        includeCMUXScope: Bool
+    ) -> (processes: [CmuxTopProcessInfo], proof: ProcessPerformanceCaptureProof) {
         let sampledProcesses = allBSDProcesses()
-        guard !sampledProcesses.isEmpty else { return [] }
+        guard !sampledProcesses.isEmpty else { return ([], .libproc) }
 
         var scopeKeyByPID: [Int: CmuxTopProcessScopeCacheKey] = [:]
         scopeKeyByPID.reserveCapacity(sampledProcesses.count)
@@ -52,7 +55,17 @@ nonisolated extension CmuxTopProcessSnapshot {
         if includeCMUXScope {
             pruneCMUXScopeCache(activeKeys: activeScopeKeys)
         }
-        return processRecords.map(\.info)
+        return (processRecords.map(\.info), .libproc)
+    }
+
+    static func allProcesses(
+        includeProcessDetails: Bool,
+        includeCMUXScope: Bool
+    ) -> [CmuxTopProcessInfo] {
+        allProcessesWithPerformanceProof(
+            includeProcessDetails: includeProcessDetails,
+            includeCMUXScope: includeCMUXScope
+        ).processes
     }
 
     static func deviceIdentifier(forTTYName ttyName: String) -> Int64? {

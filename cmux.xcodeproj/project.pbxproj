@@ -1029,6 +1029,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DEA771000000000000000D /* PricingPlansScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA771000000000000000E /* PricingPlansScreen.swift */; };
 		C0DEA771000000000000000B /* ProBadgeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA771000000000000000C /* ProBadgeStyle.swift */; };
 		F0ACC0DE000000000000000D /* ProcessDetectedResumeIndexes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE000000000000000E /* ProcessDetectedResumeIndexes.swift */; };
+		C7A5FF000000000000000004 /* ProcessPerformanceCaptureProof.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A5FF000000000000000003 /* ProcessPerformanceCaptureProof.swift */; };
+		C7A5FF000000000000000006 /* ProcessPerformanceExerciseGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A5FF000000000000000005 /* ProcessPerformanceExerciseGate.swift */; };
 		C7A5FF000000000000000002 /* ProcessPerformanceMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A5FF000000000000000001 /* ProcessPerformanceMetrics.swift */; };
 		7863B0050000000000000002 /* ProcessPerformanceMetricsEpochTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7863B0050000000000000001 /* ProcessPerformanceMetricsEpochTests.swift */; };
 		C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */; };
@@ -2773,6 +2775,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DEA771000000000000000E /* PricingPlansScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PricingPlansScreen.swift; sourceTree = "<group>"; };
 		C0DEA771000000000000000C /* ProBadgeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProBadgeStyle.swift; sourceTree = "<group>"; };
 		F0ACC0DE000000000000000E /* ProcessDetectedResumeIndexes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessDetectedResumeIndexes.swift; sourceTree = "<group>"; };
+		C7A5FF000000000000000003 /* ProcessPerformanceCaptureProof.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessPerformanceCaptureProof.swift; sourceTree = "<group>"; };
+		C7A5FF000000000000000005 /* ProcessPerformanceExerciseGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessPerformanceExerciseGate.swift; sourceTree = "<group>"; };
 		C7A5FF000000000000000001 /* ProcessPerformanceMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessPerformanceMetrics.swift; sourceTree = "<group>"; };
 		7863B0050000000000000001 /* ProcessPerformanceMetricsEpochTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessPerformanceMetricsEpochTests.swift; sourceTree = "<group>"; };
 		C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessPipeReadCrashRegressionTests.swift; sourceTree = "<group>"; };
@@ -4213,6 +4217,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7A510000000000000000001 /* CmuxTopMemoryDiagnostics.swift */,
 				C7A511000000000000000001 /* CmuxTopProcessEnumeration.swift */,
 				C7A512000000000000000001 /* CmuxTopProcessSnapshotCache.swift */,
+				C7A5FF000000000000000003 /* ProcessPerformanceCaptureProof.swift */,
+				C7A5FF000000000000000005 /* ProcessPerformanceExerciseGate.swift */,
 				C7A5FF000000000000000001 /* ProcessPerformanceMetrics.swift */,
 				B35750000000000000000003 /* CmuxTopProcessArguments.swift */,
 				C7A508000000000000000001 /* CmuxTopSnapshotScopeCache.swift */,
@@ -6334,6 +6340,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DEA771000000000000000D /* PricingPlansScreen.swift in Sources */,
 				C0DEA771000000000000000B /* ProBadgeStyle.swift in Sources */,
 				F0ACC0DE000000000000000D /* ProcessDetectedResumeIndexes.swift in Sources */,
+				C7A5FF000000000000000004 /* ProcessPerformanceCaptureProof.swift in Sources */,
+				C7A5FF000000000000000006 /* ProcessPerformanceExerciseGate.swift in Sources */,
 				C7A5FF000000000000000002 /* ProcessPerformanceMetrics.swift in Sources */,
 				D75280010000000000000001 /* ProfilingSignposts.swift in Sources */,
 					A5C0DE0000000000000000BA /* ProjectBuildSettingsTabView.swift in Sources */,

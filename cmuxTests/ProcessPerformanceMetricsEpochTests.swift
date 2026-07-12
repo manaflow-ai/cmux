@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import Testing
+import os
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,7 +9,6 @@ import Testing
 @testable import cmux
 #endif
 
-#if DEBUG
 @Suite
 struct ProcessPerformanceMetricsEpochTests {
     @Test
@@ -41,7 +41,7 @@ struct ProcessPerformanceMetricsEpochTests {
 
     @Test
     func completionsFromBeforeResetDoNotEnterTheNewMeasurementEpoch() {
-        let metricsStore = ProcessPerformanceMetrics()
+        let metricsStore = ProcessPerformanceMetrics(enabled: true)
         let processToken = metricsStore.processSnapshotCaptureStarted(
             generation: 1,
             requirementsRawValue: 0
@@ -73,5 +73,49 @@ struct ProcessPerformanceMetricsEpochTests {
         #expect(metrics.lsof.reuse == ProcessPerformanceReuseMetrics())
         #expect(metrics.operations.isEmpty)
     }
+
+    @Test
+    func disabledFastPathDoesNotReadClockAcrossRecorderSurface() {
+        let clockReads = OSAllocatedUnfairLock(initialState: 0)
+        let metricsStore = ProcessPerformanceMetrics(
+            enabled: false,
+            monotonicNanoseconds: {
+                clockReads.withLock { reads in
+                    reads += 1
+                    return UInt64(reads)
+                }
+            }
+        )
+
+        for generation in 1...10_000 {
+            let capture = metricsStore.processSnapshotCaptureStarted(
+                generation: UInt64(generation),
+                requirementsRawValue: 3
+            )
+            metricsStore.recordProcessSnapshotRequest(consumer: .systemTop)
+            metricsStore.recordProcessSnapshotReuse(
+                consumer: .systemTop,
+                generation: UInt64(generation),
+                source: .cache,
+                token: capture
+            )
+            metricsStore.processSnapshotCaptureCompleted(
+                capture,
+                generation: UInt64(generation),
+                processCount: 3
+            )
+            let lsof = metricsStore.lsofStarted(pidCount: 3)
+            metricsStore.recordLsofReuse(.cache, token: lsof)
+            metricsStore.recordLsofCoalescedRequest(token: lsof)
+            metricsStore.lsofCompleted(lsof)
+            let operation = metricsStore.operationStarted(.portFilter, inputCount: 3)
+            metricsStore.operationCompleted(operation, outputCount: 1)
+            metricsStore.recordStaleRejection(.portPanelRevision)
+        }
+
+        #expect(clockReads.withLock { $0 } == 0)
+        #expect(metricsStore.snapshot().processSnapshots.captureStarted == 0)
+        #expect(metricsStore.snapshot().lsof.started == 0)
+        #expect(metricsStore.snapshot().operations.isEmpty)
+    }
 }
-#endif

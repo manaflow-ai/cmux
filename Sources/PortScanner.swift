@@ -86,7 +86,9 @@ final class PortScanner: @unchecked Sendable {
     // MARK: - State (all guarded by `queue`)
 
     private let queue = DispatchQueue(label: "com.cmux.port-scanner", qos: .utility)
-    private let portScanSnapshotStore = PortScanSnapshotStore()
+    private let portScanSnapshotStore = PortScanSnapshotStore(captureWithProof: { pids in
+        PortScanner.scanListeningPortsWithPerformanceProof(pids: pids)
+    })
     private let resultGenerationGate = ResultGenerationGate()
 
     /// TTY name per (workspace, panel).
@@ -176,6 +178,12 @@ final class PortScanner: @unchecked Sendable {
             trackedAgentScanningPaused = paused
             updateAgentScanTimerLocked()
         }
+    }
+
+    nonisolated func performanceMetricsExercise(
+        pids: Set<Int>
+    ) async -> (proof: ProcessPerformanceCaptureProof, sharedResult: Bool)? {
+        await portScanSnapshotStore.performanceMetricsExercise(pids: pids)
     }
 
     // MARK: - Coalesce + Burst

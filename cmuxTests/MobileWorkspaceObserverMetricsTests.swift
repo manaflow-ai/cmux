@@ -1,4 +1,5 @@
 import Testing
+import os
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -114,5 +115,34 @@ struct MobileWorkspaceObserverMetricsTests {
         #expect(!stoppedSnapshot.enabled)
         #expect(stoppedSnapshot.invalidationsSubmitted["summary"] == 1)
         #expect(stoppedSnapshot.emits == 1)
+    }
+
+    @Test func disabledFastPathDoesNotReadClockAcrossRecorderSurface() {
+        let clockReads = OSAllocatedUnfairLock(initialState: 0)
+        let metrics = MobileWorkspaceObserverMetrics(
+            enabled: false,
+            monotonicNanoseconds: {
+                clockReads.withLock { reads in
+                    reads += 1
+                    return UInt64(reads)
+                }
+            }
+        )
+
+        for _ in 0..<10_000 {
+            metrics.recordInvalidationSubmitted(.workspaceGraph)
+            metrics.operationCompleted(metrics.batchDrainStarted(invalidationCount: 3))
+            metrics.operationCompleted(metrics.fullGraphRebuildStarted(), workspacesRehashed: 3)
+            metrics.operationCompleted(metrics.incrementalRefreshStarted())
+            metrics.operationCompleted(metrics.previewSignaturesStarted())
+            metrics.operationCompleted(metrics.summaryHashStarted())
+            metrics.recordEmit()
+            metrics.recordSkip()
+        }
+
+        #expect(clockReads.withLock { $0 } == 0)
+        #expect(metrics.snapshot().batchDrains == 0)
+        #expect(metrics.snapshot().fullGraphRebuilds == 0)
+        #expect(metrics.snapshot().emits == 0)
     }
 }

@@ -98,8 +98,10 @@ extension PortScanner {
         return result
     }
 
-    static func scanListeningPorts(pids: Set<Int>) -> [Int: Set<Int>] {
-        guard !pids.isEmpty else { return [:] }
+    static func scanListeningPortsWithPerformanceProof(
+        pids: Set<Int>
+    ) -> (portsByPID: [Int: Set<Int>], proof: ProcessPerformanceCaptureProof) {
+        guard !pids.isEmpty else { return ([:], .libproc) }
         var result: [Int: Set<Int>] = [:]
         for pid in pids.sorted() where pid > 0 {
             let rawPID = pid_t(pid)
@@ -143,7 +145,11 @@ extension PortScanner {
                 result[pid, default: []].insert(port)
             }
         }
-        return result
+        return (result, .libproc)
+    }
+
+    static func scanListeningPorts(pids: Set<Int>) -> [Int: Set<Int>] {
+        scanListeningPortsWithPerformanceProof(pids: pids).portsByPID
     }
 
     static func listeningTCPPort(from socketInfo: socket_fdinfo) -> Int? {

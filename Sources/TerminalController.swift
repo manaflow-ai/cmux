@@ -1350,10 +1350,9 @@ class TerminalController {
             return v2Ok(id: request.id, result: ["pong": true])
         case "system.capabilities":
             return v2Ok(id: request.id, result: v2Capabilities())
-        case "system.top":
-            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) { await self.v2SystemTop(params: request.params) }
-        case "system.memory":
-            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) { await self.v2SystemMemory(params: request.params) }
+        case "system.top": return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) { await self.v2SystemTop(params: request.params) }
+        case "system.memory": return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) { await self.v2SystemMemory(params: request.params) }
+        case "performance.metrics.exercise_process": return v2AsyncResultCall(id: request.id, timeoutSeconds: 120) { await self.v2PerformanceMetricsExerciseProcess(params: request.params) }
         case "surface.read_text":
             return v2Result(id: request.id, v2SurfaceReadText(params: request.params))
         case "workspace.env":
@@ -2337,8 +2336,7 @@ class TerminalController {
             "system.identify",
             "system.tree",
             "sidebar.custom.open",
-            "system.top",
-            "system.memory",
+            "system.top", "system.memory", "performance.metrics.exercise_process",
             "mobile.host.status",
             "mobile.attach_ticket.create",
             "mobile.terminal.set_font",
@@ -2570,9 +2568,7 @@ class TerminalController {
             "browser.input_mouse",
             "browser.input_keyboard",
             "browser.input_touch",
-            "performance.metrics.read",
-            "performance.metrics.reset",
-            "performance.metrics.stop",
+            "performance.metrics.read", "performance.metrics.reset", "performance.metrics.stop",
         ]
 #if DEBUG
         methods.append(contentsOf: Self.v2DebugMethodNames)

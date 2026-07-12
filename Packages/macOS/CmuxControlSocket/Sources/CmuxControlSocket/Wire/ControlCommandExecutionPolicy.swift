@@ -97,6 +97,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "mobile.terminal.set_font",
         "system.top",
         "system.memory",
+        // Owner attribution performs a fresh process + listener capture and
+        // awaits utility tasks. It never touches UI state, so running it on the
+        // main actor would contaminate the latency path it exists to prove.
+        "performance.metrics.exercise_process",
         // `surface.read_text` reads a terminal's visible or full-scrollback
         // text and formats it (line tailing, candidate scoring, base64
         // encoding). On the main actor that formatting stalls the run loop

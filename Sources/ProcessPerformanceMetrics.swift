@@ -1,40 +1,6 @@
+import CmuxFoundation
 import Foundation
 import os
-
-nonisolated enum ProcessSnapshotConsumer: String, Sendable {
-    case memoryGuardrail = "memory_guardrail"
-    case portScannerAgent = "port_scanner.agent"
-    case portScannerPanel = "port_scanner.panel"
-    case processDetectedResume = "process_detected_resume"
-    case sentry = "sentry"
-    case sharedLiveAgentIndex = "shared_live_agent_index"
-    case systemTop = "system_top"
-    case unspecified
-}
-
-nonisolated enum ProcessStaleRejection: String, Sendable {
-    case portAgentAcknowledgement = "port_agent_acknowledgement"
-    case portAgentRevision = "port_agent_revision"
-    case portPanelRevision = "port_panel_revision"
-}
-
-nonisolated enum ProcessSnapshotReuseSource: String, Sendable {
-    case cache
-    case inFlight = "in_flight"
-}
-
-nonisolated enum ProcessLsofReuseSource: String, Sendable {
-    case cache
-    case inFlight = "in_flight"
-}
-
-nonisolated enum ProcessMeasuredOperation: String, Sendable {
-    case portApply = "port.apply"
-    case portFilter = "port.filter"
-    case restorableApply = "restorable.apply"
-    case restorableLoad = "restorable.load"
-    case vaultFilter = "vault.filter"
-}
 
 nonisolated struct ProcessPerformanceDurationMetrics: Sendable, Equatable {
     var count = 0
@@ -70,6 +36,8 @@ nonisolated struct ProcessPerformanceGenerationMetrics: Sendable, Equatable {
     var started = 0
     var completed = 0
     var processCount = 0
+    var backend = "pending"
+    var processLaunches = 0
     var duration = ProcessPerformanceDurationMetrics()
 }
 
@@ -82,6 +50,8 @@ nonisolated struct ProcessPerformanceLsofMetrics: Sendable, Equatable {
     var maximumInFlight = 0
     var pidCount = 0
     var coalescedRequests = 0
+    var backendCounts: [String: Int] = [:]
+    var processLaunches = 0
     var reuse = ProcessPerformanceReuseMetrics()
     var duration = ProcessPerformanceDurationMetrics()
 }
@@ -98,7 +68,7 @@ nonisolated struct ProcessPerformanceMetricsSnapshot: Sendable, Equatable {
     let operations: [String: ProcessPerformanceOperationMetrics]
 
     var foundationObject: [String: Any] {
-        [
+        return [
             "schema_version": 2,
             "enabled": enabled,
             "reset_at_unix_ms": NSNumber(value: resetAtUnixMilliseconds),
@@ -150,6 +120,8 @@ private nonisolated extension ProcessPerformanceGenerationMetrics {
             "started": started,
             "completed": completed,
             "process_count": processCount,
+            "backend": backend,
+            "process_launches": processLaunches,
             "duration_ms": duration.foundationObject,
         ]
     }
@@ -157,9 +129,18 @@ private nonisolated extension ProcessPerformanceGenerationMetrics {
 
 private nonisolated extension ProcessPerformanceLsofMetrics {
     var foundationObject: [String: Any] {
-        [
-            "backend": "libproc",
-            "process_launches": 0,
+        let backend: String
+        if backendCounts.isEmpty {
+            backend = "none"
+        } else if backendCounts.count == 1 {
+            backend = backendCounts.keys.first ?? "none"
+        } else {
+            backend = "mixed"
+        }
+        return [
+            "backend": backend,
+            "backend_counts": backendCounts,
+            "process_launches": processLaunches,
             "started": started,
             "completed": completed,
             "in_flight": inFlight,
@@ -187,7 +168,7 @@ private nonisolated extension ProcessPerformanceOperationMetrics {
 nonisolated struct ProcessPerformanceMetricToken: Sendable {
     fileprivate let key: String
     fileprivate let epoch: UInt64
-    fileprivate let startedAtNanoseconds: UInt64
+    fileprivate let startedAtNanoseconds: UInt64?
     fileprivate let inputCount: Int
 }
 
@@ -219,18 +200,29 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
     }
 
     private let state: OSAllocatedUnfairLock<State>
+    private let enabled: AtomicBooleanGate
+    private let monotonicNanoseconds: @Sendable () -> UInt64
 
-    init(enabled: Bool = _isDebugAssertConfiguration()) {
+    init(
+        enabled: Bool = _isDebugAssertConfiguration(),
+        monotonicNanoseconds: @escaping @Sendable () -> UInt64 = {
+            DispatchTime.now().uptimeNanoseconds
+        }
+    ) {
         state = OSAllocatedUnfairLock(initialState: State(enabled: enabled))
+        self.enabled = AtomicBooleanGate(enabled)
+        self.monotonicNanoseconds = monotonicNanoseconds
     }
 
     func reset(enable: Bool = true) {
         state.withLock { state in
             state = State(epoch: state.epoch &+ 1, enabled: enable)
         }
+        enabled.storeRelease(enable)
     }
 
     func disable() {
+        enabled.storeRelease(false)
         state.withLock { $0.enabled = false }
     }
 
@@ -251,6 +243,7 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
     }
 
     func recordProcessSnapshotRequest(consumer: ProcessSnapshotConsumer) {
+        guard enabled.loadRelaxed() else { return }
         state.withLock { state in
             guard state.enabled else { return }
             state.requestCountsByConsumer[consumer.rawValue, default: 0] += 1
@@ -258,7 +251,8 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
     }
 
     func nextSynchronousCaptureGeneration() -> UInt64 {
-        state.withLock { state in
+        guard enabled.loadRelaxed() else { return 0 }
+        return state.withLock { state -> UInt64 in
             guard state.enabled else { return 0 }
             state.synchronousCaptureGeneration &+= 1
             return (UInt64(1) << 63) | state.synchronousCaptureGeneration
@@ -269,9 +263,12 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
         generation: UInt64,
         requirementsRawValue: UInt8
     ) -> ProcessPerformanceMetricToken {
-        state.withLock { state in
+        guard enabled.loadRelaxed() else {
+            return disabledToken(key: String(generation), inputCount: 0)
+        }
+        return state.withLock { state in
             guard state.enabled else {
-                return Self.token(key: String(generation), inputCount: 0, epoch: state.epoch)
+                return disabledToken(key: String(generation), inputCount: 0)
             }
             state.processSnapshots.captureStarted += 1
             state.processSnapshots.inFlight += 1
@@ -283,7 +280,7 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
             state.generations[generation, default: ProcessPerformanceGenerationMetrics()]
                 .requirementsRawValue = requirementsRawValue
             state.generations[generation, default: ProcessPerformanceGenerationMetrics()].started += 1
-            return Self.token(
+            return token(
                 key: String(generation),
                 inputCount: 0,
                 epoch: state.epoch
@@ -294,16 +291,22 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
     func processSnapshotCaptureCompleted(
         _ token: ProcessPerformanceMetricToken,
         generation: UInt64,
-        processCount: Int
+        processCount: Int,
+        proof: ProcessPerformanceCaptureProof = .libproc
     ) {
-        let duration = Self.elapsedMilliseconds(since: token.startedAtNanoseconds)
-        state.withLock { state in
+        guard enabled.loadRelaxed(), let startedAt = token.startedAtNanoseconds else { return }
+        let duration = elapsedMilliseconds(since: startedAt)
+        return state.withLock { state in
             guard state.enabled, token.epoch == state.epoch else { return }
             state.processSnapshots.captureCompleted += 1
             state.processSnapshots.inFlight = max(0, state.processSnapshots.inFlight - 1)
             state.processSnapshots.duration.record(duration)
             state.generations[generation, default: ProcessPerformanceGenerationMetrics()].completed += 1
             state.generations[generation, default: ProcessPerformanceGenerationMetrics()].processCount = processCount
+            state.generations[generation, default: ProcessPerformanceGenerationMetrics()].backend =
+                proof.backend.rawValue
+            state.generations[generation, default: ProcessPerformanceGenerationMetrics()].processLaunches +=
+                max(0, proof.processLaunchCount)
             state.generations[generation, default: ProcessPerformanceGenerationMetrics()].duration.record(duration)
         }
     }
@@ -314,7 +317,8 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
         source: ProcessSnapshotReuseSource,
         token: ProcessPerformanceMetricToken
     ) {
-        state.withLock { state in
+        guard enabled.loadRelaxed(), token.startedAtNanoseconds != nil else { return }
+        return state.withLock { state in
             guard state.enabled, token.epoch == state.epoch else { return }
             var byGeneration = state.consumerGenerationReuse[consumer.rawValue, default: [:]]
             var metrics = byGeneration[generation, default: ProcessPerformanceReuseMetrics()]
@@ -328,15 +332,18 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
     }
 
     func lsofStarted(pidCount: Int) -> ProcessPerformanceMetricToken {
-        state.withLock { state in
+        guard enabled.loadRelaxed() else {
+            return disabledToken(key: "lsof", inputCount: pidCount)
+        }
+        return state.withLock { state in
             guard state.enabled else {
-                return Self.token(key: "lsof", inputCount: pidCount, epoch: state.epoch)
+                return disabledToken(key: "lsof", inputCount: pidCount)
             }
             state.lsof.started += 1
             state.lsof.inFlight += 1
             state.lsof.maximumInFlight = max(state.lsof.maximumInFlight, state.lsof.inFlight)
             state.lsof.pidCount += max(0, pidCount)
-            return Self.token(
+            return token(
                 key: "lsof",
                 inputCount: pidCount,
                 epoch: state.epoch
@@ -344,12 +351,18 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
         }
     }
 
-    func lsofCompleted(_ token: ProcessPerformanceMetricToken) {
-        let duration = Self.elapsedMilliseconds(since: token.startedAtNanoseconds)
+    func lsofCompleted(
+        _ token: ProcessPerformanceMetricToken,
+        proof: ProcessPerformanceCaptureProof = .libproc
+    ) {
+        guard enabled.loadRelaxed(), let startedAt = token.startedAtNanoseconds else { return }
+        let duration = elapsedMilliseconds(since: startedAt)
         state.withLock { state in
             guard state.enabled, token.epoch == state.epoch else { return }
             state.lsof.completed += 1
             state.lsof.inFlight = max(0, state.lsof.inFlight - 1)
+            state.lsof.backendCounts[proof.backend.rawValue, default: 0] += 1
+            state.lsof.processLaunches += max(0, proof.processLaunchCount)
             state.lsof.duration.record(duration)
         }
     }
@@ -358,6 +371,7 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
         _ source: ProcessLsofReuseSource,
         token: ProcessPerformanceMetricToken
     ) {
+        guard enabled.loadRelaxed(), token.startedAtNanoseconds != nil else { return }
         state.withLock { state in
             guard state.enabled, token.epoch == state.epoch else { return }
             switch source {
@@ -368,6 +382,7 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
     }
 
     func recordLsofCoalescedRequest(token: ProcessPerformanceMetricToken) {
+        guard enabled.loadRelaxed(), token.startedAtNanoseconds != nil else { return }
         state.withLock { state in
             guard state.enabled, token.epoch == state.epoch else { return }
             state.lsof.coalescedRequests += 1
@@ -375,6 +390,7 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
     }
 
     func recordStaleRejection(_ rejection: ProcessStaleRejection) {
+        guard enabled.loadRelaxed() else { return }
         state.withLock { state in
             guard state.enabled else { return }
             state.staleRejections[rejection.rawValue, default: 0] += 1
@@ -385,13 +401,16 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
         _ operation: ProcessMeasuredOperation,
         inputCount: Int
     ) -> ProcessPerformanceMetricToken {
-        state.withLock { state in
+        guard enabled.loadRelaxed() else {
+            return disabledToken(key: operation.rawValue, inputCount: inputCount)
+        }
+        return state.withLock { state in
             guard state.enabled else {
-                return Self.token(key: operation.rawValue, inputCount: inputCount, epoch: state.epoch)
+                return disabledToken(key: operation.rawValue, inputCount: inputCount)
             }
             state.operations[operation.rawValue, default: ProcessPerformanceOperationMetrics()].started += 1
             state.operations[operation.rawValue, default: ProcessPerformanceOperationMetrics()].inputCount += max(0, inputCount)
-            return Self.token(
+            return token(
                 key: operation.rawValue,
                 inputCount: inputCount,
                 epoch: state.epoch
@@ -403,7 +422,8 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
         _ token: ProcessPerformanceMetricToken,
         outputCount: Int
     ) {
-        let duration = Self.elapsedMilliseconds(since: token.startedAtNanoseconds)
+        guard enabled.loadRelaxed(), let startedAt = token.startedAtNanoseconds else { return }
+        let duration = elapsedMilliseconds(since: startedAt)
         state.withLock { state in
             guard state.enabled, token.epoch == state.epoch else { return }
             state.operations[token.key, default: ProcessPerformanceOperationMetrics()].completed += 1
@@ -412,7 +432,7 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
         }
     }
 
-    private static func token(
+    private func token(
         key: String,
         inputCount: Int,
         epoch: UInt64
@@ -420,13 +440,22 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
         ProcessPerformanceMetricToken(
             key: key,
             epoch: epoch,
-            startedAtNanoseconds: DispatchTime.now().uptimeNanoseconds,
+            startedAtNanoseconds: monotonicNanoseconds(),
             inputCount: inputCount
         )
     }
 
-    private static func elapsedMilliseconds(since start: UInt64) -> Double {
-        let end = DispatchTime.now().uptimeNanoseconds
+    private func disabledToken(key: String, inputCount: Int) -> ProcessPerformanceMetricToken {
+        ProcessPerformanceMetricToken(
+            key: key,
+            epoch: 0,
+            startedAtNanoseconds: nil,
+            inputCount: inputCount
+        )
+    }
+
+    private func elapsedMilliseconds(since start: UInt64) -> Double {
+        let end = monotonicNanoseconds()
         return Double(end >= start ? end - start : 0) / 1_000_000
     }
 

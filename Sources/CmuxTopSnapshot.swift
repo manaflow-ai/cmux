@@ -154,6 +154,25 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         )
     }
 
+    static func captureWithPerformanceProof(
+        includeProcessDetails: Bool = false,
+        includeCMUXScope: Bool = true
+    ) -> (snapshot: CmuxTopProcessSnapshot, proof: ProcessPerformanceCaptureProof) {
+        let capture = allProcessesWithPerformanceProof(
+            includeProcessDetails: includeProcessDetails,
+            includeCMUXScope: includeCMUXScope
+        )
+        return (
+            CmuxTopProcessSnapshot(
+                processes: capture.processes,
+                sampledAt: Date(),
+                includesProcessDetails: includeProcessDetails,
+                includesCMUXScope: includeCMUXScope
+            ),
+            capture.proof
+        )
+    }
+
     init(
         processes: [CmuxTopProcessInfo],
         sampledAt: Date,

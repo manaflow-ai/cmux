@@ -12,23 +12,14 @@ import Testing
 struct PortScanSnapshotStoreTests {
     @Test
     func concurrentCoveredRequestsShareOneLibprocCapture() async {
-#if DEBUG
-        let metricsStore = ProcessPerformanceMetrics()
-#endif
+        let metricsStore = ProcessPerformanceMetrics(enabled: true)
         let capturer = ControlledPortScanCapturer()
         let clock = PortScanTestClock(now: Date(timeIntervalSince1970: 100))
-#if DEBUG
         let store = PortScanSnapshotStore(
             now: { await clock.read() },
             capture: { pids in await capturer.capture(pids: pids) },
             metrics: metricsStore
         )
-#else
-        let store = PortScanSnapshotStore(
-            now: { await clock.read() },
-            capture: { pids in await capturer.capture(pids: pids) }
-        )
-#endif
 
         let first = Task {
             await store.snapshot(pids: [10, 20], maximumAge: 2)
@@ -37,14 +28,10 @@ struct PortScanSnapshotStoreTests {
         let covered = Task {
             await store.snapshot(pids: [20], maximumAge: 2)
         }
-#if DEBUG
         #expect(await waitForMetrics {
             let reuse = metricsStore.snapshot().lsof.reuse
             return reuse.cache + reuse.inFlight == 1
         })
-#else
-        await clock.waitForReadCount(2)
-#endif
         await capturer.releaseNext()
 
         let firstResult = await first.value
@@ -53,7 +40,6 @@ struct PortScanSnapshotStoreTests {
         #expect(coveredResult == firstResult)
         #expect(await capturer.callCount() == 1)
         #expect(await capturer.maximumConcurrentCaptures() == 1)
-#if DEBUG
         let metrics = metricsStore.snapshot()
         #expect(metrics.lsof.started == 1)
         #expect(metrics.lsof.completed == 1)
@@ -62,28 +48,18 @@ struct PortScanSnapshotStoreTests {
         let wireLsof = metrics.foundationObject["lsof"] as? [String: Any]
         #expect(wireLsof?["backend"] as? String == "libproc")
         #expect(wireLsof?["process_launches"] as? Int == 0)
-#endif
     }
 
     @Test
     func uncoveredRequestsCoalesceIntoOneBoundedFollowup() async {
-#if DEBUG
-        let metricsStore = ProcessPerformanceMetrics()
-#endif
+        let metricsStore = ProcessPerformanceMetrics(enabled: true)
         let capturer = ControlledPortScanCapturer()
         let clock = PortScanTestClock(now: Date(timeIntervalSince1970: 100))
-#if DEBUG
         let store = PortScanSnapshotStore(
             now: { await clock.read() },
             capture: { pids in await capturer.capture(pids: pids) },
             metrics: metricsStore
         )
-#else
-        let store = PortScanSnapshotStore(
-            now: { await clock.read() },
-            capture: { pids in await capturer.capture(pids: pids) }
-        )
-#endif
 
         let first = Task {
             await store.snapshot(pids: [10], maximumAge: 2)
@@ -95,13 +71,9 @@ struct PortScanSnapshotStoreTests {
         let third = Task {
             await store.snapshot(pids: [30], maximumAge: 2)
         }
-#if DEBUG
         #expect(await waitForMetrics {
             metricsStore.snapshot().lsof.coalescedRequests == 2
         })
-#else
-        await clock.waitForReadCount(3)
-#endif
 
         await capturer.releaseNext()
         await capturer.waitForCallCount(2)
@@ -118,23 +90,14 @@ struct PortScanSnapshotStoreTests {
 
     @Test
     func freshSupersetCacheServesSubsetsAndExpiryRefreshesListeners() async {
-#if DEBUG
-        let metricsStore = ProcessPerformanceMetrics()
-#endif
+        let metricsStore = ProcessPerformanceMetrics(enabled: true)
         let capturer = ControlledPortScanCapturer(autoRelease: true)
         let clock = PortScanTestClock(now: Date(timeIntervalSince1970: 100))
-#if DEBUG
         let store = PortScanSnapshotStore(
             now: { await clock.read() },
             capture: { pids in await capturer.capture(pids: pids) },
             metrics: metricsStore
         )
-#else
-        let store = PortScanSnapshotStore(
-            now: { await clock.read() },
-            capture: { pids in await capturer.capture(pids: pids) }
-        )
-#endif
 
         let first = await store.snapshot(pids: [10, 20], maximumAge: 2)
         let cached = await store.snapshot(pids: [20], maximumAge: 2)
@@ -146,10 +109,8 @@ struct PortScanSnapshotStoreTests {
         #expect(refreshed == [20: [1_020]])
         #expect(await capturer.callCount() == 2)
         #expect(await capturer.capturedPIDRequests() == [[10, 20], [20]])
-#if DEBUG
         let metrics = metricsStore.snapshot()
         #expect(metrics.lsof.reuse.cache == 1)
-#endif
     }
 
     @Test
@@ -222,5 +183,50 @@ struct PortScanSnapshotStoreTests {
             await Task.yield()
         }
         return predicate()
+    }
+
+    @Test
+    func captureProofSurfacesSubprocessBackendAndLaunchCount() async {
+        let metricsStore = ProcessPerformanceMetrics(enabled: true)
+        let store = PortScanSnapshotStore(
+            captureWithProof: { pids in
+                (
+                    Dictionary(uniqueKeysWithValues: pids.map { ($0, Set([8_000 + $0])) }),
+                    ProcessPerformanceCaptureProof(backend: .subprocess, processLaunchCount: 1)
+                )
+            },
+            metrics: metricsStore
+        )
+
+        _ = await store.snapshot(pids: [42], maximumAge: 0)
+        let metrics = metricsStore.snapshot()
+        let wireLsof = metrics.foundationObject["lsof"] as? [String: Any]
+
+        #expect(metrics.lsof.backendCounts == ["subprocess": 1])
+        #expect(metrics.lsof.processLaunches == 1)
+        #expect(wireLsof?["backend"] as? String == "subprocess")
+        #expect(wireLsof?["process_launches"] as? Int == 1)
+    }
+
+    @Test
+    func performanceExerciseUsesTwoRealSnapshotRequests() async {
+        let metricsStore = ProcessPerformanceMetrics(enabled: true)
+        let capturer = ControlledPortScanCapturer(autoRelease: true)
+        let store = PortScanSnapshotStore(
+            capture: { pids in await capturer.capture(pids: pids) },
+            metrics: metricsStore
+        )
+
+        _ = await store.snapshot(pids: [42], maximumAge: 10)
+        metricsStore.reset(enable: true)
+        let exercise = await store.performanceMetricsExercise(pids: [42])
+        let metrics = metricsStore.snapshot()
+
+        #expect(exercise?.proof == .libproc)
+        #expect(exercise?.sharedResult == true)
+        #expect(metrics.lsof.started == 1)
+        #expect(metrics.lsof.completed == 1)
+        #expect(metrics.lsof.reuse.inFlight == 1)
+        #expect(await capturer.callCount() == 2)
     }
 }

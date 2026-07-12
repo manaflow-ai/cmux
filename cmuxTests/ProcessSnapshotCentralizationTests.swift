@@ -53,21 +53,23 @@ struct ProcessSnapshotCentralizationTests {
         #expect(await capturer.capturedRequirements() == [[.processDetails, .cmuxScope]])
     }
 
-#if DEBUG
     @Test
     func synchronousCompatibilityCaptureIsIncludedInProofMetrics() {
-        let metrics = ProcessPerformanceMetrics()
+        let metrics = ProcessPerformanceMetrics(enabled: true)
 
         let snapshot = CmuxTopProcessSnapshot.captureSynchronouslyForCompatibility(
             includeProcessDetails: true,
             includeCMUXScope: true,
             metrics: metrics,
-            captureBody: { includeProcessDetails, includeCMUXScope in
-                CmuxTopProcessSnapshot(
-                    processes: [],
-                    sampledAt: Date(timeIntervalSince1970: 101),
-                    includesProcessDetails: includeProcessDetails,
-                    includesCMUXScope: includeCMUXScope
+            captureWithProof: { includeProcessDetails, includeCMUXScope in
+                (
+                    CmuxTopProcessSnapshot(
+                        processes: [],
+                        sampledAt: Date(timeIntervalSince1970: 101),
+                        includesProcessDetails: includeProcessDetails,
+                        includesCMUXScope: includeCMUXScope
+                    ),
+                    .libproc
                 )
             }
         )
@@ -79,7 +81,6 @@ struct ProcessSnapshotCentralizationTests {
         #expect(proof.inFlight == 0)
         #expect(proof.maximumInFlight == 1)
     }
-#endif
 }
 
 private actor CentralizedProcessSnapshotCapturer {
