@@ -45,87 +45,23 @@ public final class GhosttyRuntime {
 
     private static var backendInitialized = false
     private static var sharedResult: Result<GhosttyRuntime, Error>?
-    /// The theme value already baked into the live runtime's config. Guards
-    /// against redundant work when ``applyLiveThemeIfRunning()`` fires once per
-    /// mounted surface for a single theme change: only the first call for a new
-    /// theme value rebuilds the config and refreshes surfaces; the rest no-op.
-    /// Seeded in ``init()`` to the theme the config was first built from, so the
-    /// first mount after a change does not rebuild a config that already matches.
-    private static var lastAppliedTheme: TerminalTheme = .monokai
     private static var clipboardReader: @MainActor () -> String? = { UIPasteboard.general.string }
     private static var clipboardWriter: @MainActor (String?) -> Void = { UIPasteboard.general.string = $0 }
 
-    /// Replaces the theme used when the runtime builds its config and the theme
-    /// the surrounding terminal chrome blends with, then pushes the new colors to
-    /// the live runtime so an already-running app/surface recolors in place. Pass
-    /// `nil`, an invalid theme, or an incomplete palette to fall back to Monokai.
+    /// Applies a complete theme config to one embedded terminal surface.
     ///
-    /// Unlike a bare ``TerminalThemeStore`` write, this also rebuilds the shared
-    /// `ghostty_config_t` and calls `ghostty_app_update_config` /
-    /// `ghostty_surface_update_config`, so the Metal renderer's default
-    /// background/foreground/palette follow the new theme without recreating the
-    /// runtime. Safe to call before or after ``shared()`` is first built: before,
-    /// it just seeds the store; after, it live-applies.
-    public static func setTheme(_ theme: TerminalTheme?) {
-        TerminalThemeStore.set(theme)
-        applyLiveThemeIfRunning()
-    }
-
-    /// The theme the runtime will apply (or has applied) to its config.
-    public static var currentTheme: TerminalTheme { TerminalThemeStore.current }
-
-    /// The active theme's background as a `UIColor`, for the surrounding chrome
-    /// and the surface's own view background (the area behind/around the cells).
-    /// Sourcing the local background from the synced theme — not from the
-    /// once-built `ghostty_config_t` — is what lets a theme change recolor the
-    /// background of a running surface. Falls back to Monokai's background when
-    /// the stored theme's background cannot be parsed.
-    public static var currentBackgroundUIColor: UIColor {
-        backgroundUIColor(for: TerminalThemeStore.current)
-    }
-
-    /// Rebuilds the shared config from the current ``TerminalThemeStore`` and
-    /// pushes it to the live app and every registered surface, then refreshes the
-    /// local view background of each surface. No-op when the runtime has not been
-    /// built yet (the next ``shared()`` reads the store directly).
-    ///
-    /// Public so a consumer that updated the store through another path (the iOS
-    /// shell writes ``TerminalThemeStore`` directly to avoid linking GhosttyKit)
-    /// can drive the live recolor once it observes a theme change.
-    public static func applyLiveThemeIfRunning() {
-        guard case .success(let runtime)? = sharedResult else { return }
-        // One theme-generation bump drives an `updateUIView` on every mounted
-        // representable, so this can be called N times for a single change.
-        // rebuildConfigFromStore + refreshAllSurfacesForThemeChange already
-        // touch the whole app and every registered surface, so doing it once is
-        // enough; skip the redundant rebuilds by keying on the theme value.
-        let current = TerminalThemeStore.current
-        guard current != lastAppliedTheme else { return }
-        lastAppliedTheme = current
-        runtime.rebuildConfigFromStore()
-        GhosttySurfaceView.refreshAllSurfacesForThemeChange()
-    }
-
-    /// Rebuilds `self.config` from the current theme store and feeds it to the
-    /// live `ghostty_app_t` (and, transitively, the surfaces) so the renderer's
-    /// default colors and palette match the new theme. The old config is freed
-    /// after the app has adopted the new one.
-    func rebuildConfigFromStore() {
-        guard let app else { return }
-        let newConfig = ghostty_config_new()
-        Self.loadConfig(newConfig)
+    /// The Ghostty app is process-wide, but terminal themes are surface-scoped.
+    /// Updating only the target surface prevents another scene or terminal from
+    /// inheriting the selected surface's palette.
+    public static func applyTheme(_ theme: TerminalTheme, to surfaceView: GhosttySurfaceView) {
+        guard let surface = surfaceView.surface else { return }
+        let theme = theme.validatedOrDefault()
+        guard let newConfig = ghostty_config_new() else { return }
+        Self.loadConfig(newConfig, theme: theme)
         ghostty_config_finalize(newConfig)
-        ghostty_app_update_config(app, newConfig)
-        for box in GhosttySurfaceView.registeredSurfaceViews.values {
-            if let surface = box.value?.surface {
-                ghostty_surface_update_config(surface, newConfig)
-            }
-        }
-        let oldConfig = config
-        config = newConfig
-        if let oldConfig {
-            ghostty_config_free(oldConfig)
-        }
+        ghostty_surface_update_config(surface, newConfig)
+        surfaceView.applyThemeConfig(newConfig)
+        ghostty_config_free(newConfig)
     }
 
     // libghostty handles are opaque C pointers (typedef `void *`). They
@@ -214,10 +150,6 @@ public final class GhosttyRuntime {
 
         self.config = config
         self.app = app
-        // The config above was built from the current theme (loadConfig reads
-        // TerminalThemeStore), so record it as applied; a follow-up
-        // applyLiveThemeIfRunning for the same theme is then a no-op.
-        Self.lastAppliedTheme = TerminalThemeStore.current
     }
 
     deinit {
@@ -244,13 +176,16 @@ public final class GhosttyRuntime {
         backendInitialized = true
     }
 
-    private static func loadConfig(_ config: ghostty_config_t?) {
+    private static func loadConfig(
+        _ config: ghostty_config_t?,
+        theme: TerminalTheme = .monokai
+    ) {
         guard let config else { return }
         #if os(iOS)
         Self.setupiOSConfigEnvironment()
-        Self.ensureDefaultiOSConfig()
+        Self.ensureDefaultiOSConfig(theme: theme)
         ghostty_config_load_default_files(config)
-        Self.applyiOSDefaults(config)
+        Self.applyiOSDefaults(config, theme: theme)
         #else
         ghostty_config_load_default_files(config)
         #endif
@@ -265,7 +200,7 @@ public final class GhosttyRuntime {
         }
     }
 
-    private static func applyiOSDefaults(_ config: ghostty_config_t) {
+    private static func applyiOSDefaults(_ config: ghostty_config_t, theme: TerminalTheme) {
         // scrollback-limit: bound the mirror surface's local scrollback page
         // memory (ghostty defaults to 10MB per surface). On iOS the user-facing
         // scroll path forwards to the Mac's real surface, so local scrollback
@@ -281,7 +216,7 @@ public final class GhosttyRuntime {
         window-padding-y = 0
         cursor-style = bar
         cursor-style-blink = true
-        \(TerminalThemeStore.current.ghosttyColorDirectives)
+        \(theme.ghosttyColorDirectives)
         """
         let tmpFile = FileManager.default.temporaryDirectory.appendingPathComponent("ghostty-ios-config-\(ProcessInfo.processInfo.processIdentifier)")
         do {
@@ -300,7 +235,7 @@ public final class GhosttyRuntime {
         log.debug("applyiOSDefaults: bg get=\(hasBg, privacy: .public) r=\(bgColor.r, privacy: .public) g=\(bgColor.g, privacy: .public) b=\(bgColor.b, privacy: .public)")
     }
 
-    private static func ensureDefaultiOSConfig() {
+    private static func ensureDefaultiOSConfig(theme: TerminalTheme) {
         guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
         let configDir = appSupport.appendingPathComponent("ghostty", isDirectory: true)
         let configFile = configDir.appendingPathComponent("config", isDirectory: false)
@@ -313,7 +248,7 @@ public final class GhosttyRuntime {
         window-padding-y = 0
         cursor-style = bar
         cursor-style-blink = true
-        \(TerminalThemeStore.current.ghosttyColorDirectives)
+        \(theme.ghosttyColorDirectives)
         """
 
         do {

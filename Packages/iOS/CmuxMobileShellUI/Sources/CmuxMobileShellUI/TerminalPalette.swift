@@ -23,7 +23,7 @@ struct TerminalPalette {
     }
 
     static func colorScheme(for theme: TerminalTheme) -> ColorScheme {
-        relativeLuminance(theme.background) > 0.45 ? .light : .dark
+        prefersBlackForeground(on: theme.background) ? .light : .dark
     }
 
     private static func color(_ hex: String) -> Color {
@@ -36,7 +36,14 @@ struct TerminalPalette {
     }
 
     private static func readableColor(on background: String) -> Color {
-        relativeLuminance(background) > 0.45 ? .black : .white
+        prefersBlackForeground(on: background) ? .black : .white
+    }
+
+    private static func prefersBlackForeground(on background: String) -> Bool {
+        let luminance = relativeLuminance(background)
+        let whiteContrast = 1.05 / (luminance + 0.05)
+        let blackContrast = (luminance + 0.05) / 0.05
+        return blackContrast >= whiteContrast
     }
 
     private static func relativeLuminance(_ hex: String) -> Double {

@@ -113,23 +113,4 @@ import Testing
         #expect(!directives.contains("background = ff8000"))
     }
 
-    @MainActor
-    @Test func themeStoreSetAndFallback() {
-        defer { TerminalThemeStore.set(.monokai) }
-
-        let custom = TerminalTheme(
-            background: "#101010",
-            foreground: "#e0e0e0",
-            cursor: "#e0e0e0",
-            selectionBackground: "#303030",
-            selectionForeground: "#e0e0e0",
-            palette: Array(repeating: "#202020", count: TerminalTheme.paletteCount)
-        )
-        TerminalThemeStore.set(custom)
-        #expect(TerminalThemeStore.current == custom)
-
-        // nil and invalid both reset to Monokai.
-        TerminalThemeStore.set(nil)
-        #expect(TerminalThemeStore.current == .monokai)
-    }
 }

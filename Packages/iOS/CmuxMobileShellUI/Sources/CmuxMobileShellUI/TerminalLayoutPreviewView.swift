@@ -37,7 +37,7 @@ struct TerminalLayoutPreviewView: View {
         TerminalLayoutPreviewSurface()
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background {
-                TerminalPalette.background(for: TerminalThemeStore.current)
+                TerminalPalette.background(for: .monokai)
                     .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
             }
             .ignoresSafeArea(.container, edges: .bottom)

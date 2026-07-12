@@ -565,12 +565,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return inputProxy
     }()
 
-    public init(runtime: GhosttyRuntime, delegate: GhosttySurfaceViewDelegate, fontSize: Float32 = 10) {
+    /// Creates an embedded surface. `terminalTheme` is applied before its first visible frame.
+    public init(runtime: GhosttyRuntime, delegate: GhosttySurfaceViewDelegate,
+                fontSize: Float32 = 10, terminalTheme: TerminalTheme = .monokai) {
         self.runtime = runtime
         self.delegate = delegate
         self.fontSize = fontSize
         self.liveFontSize = fontSize
         self.userBaseFontSize = fontSize
+        self.terminalTheme = terminalTheme.validatedOrDefault()
         super.init(frame: CGRect(x: 0, y: 0, width: 402, height: 700))
         bridge.attach(to: self)
         // The local view background (the area behind/around the rendered cells,
@@ -2783,22 +2786,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         snapshotFallbackView.backgroundColor = themeBackground
         snapshotFallbackView.textColor = GhosttyRuntime.foregroundUIColor(for: terminalTheme)
         configBackgroundColor = themeBackground
-        if let config = runtime?.config {
-            applyBackgroundColorFromConfig(config)
-        }
+        configCursorColor = GhosttyRuntime.cursorUIColor(for: terminalTheme)
         inputProxy.terminalTheme = terminalTheme
         inputProxy.refreshThemeColors()
         updateCursorOverlay()
         needsDraw = true
     }
 
-    /// Recolors every registered surface from its own assigned theme.
-    @MainActor
-    static func refreshAllSurfacesForThemeChange() {
-        registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
-        for view in registeredSurfaceViews.values.compactMap(\.value) {
-            view.refreshThemeColors()
-        }
+    func applyThemeConfig(_ config: ghostty_config_t) {
+        applyBackgroundColorFromConfig(config)
+        inputProxy.terminalTheme = terminalTheme
+        inputProxy.refreshThemeColors()
+        updateCursorOverlay()
+        needsDraw = true
     }
 
     func setFocus(_ focused: Bool) {

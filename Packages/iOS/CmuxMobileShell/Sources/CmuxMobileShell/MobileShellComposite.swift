@@ -329,15 +329,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The selected terminal surface's theme, which is the source of truth for
     /// iOS terminal chrome and the embedded renderer configuration.
     public var activeTerminalTheme: TerminalTheme { terminalThemeState.activeTheme }
-    /// Bumped whenever the applied terminal theme actually changes (a connect
-    /// that reports a different theme than the one currently in
-    /// ``TerminalThemeStore``). The mounted terminal representable observes this
-    /// and drives a live recolor in place: it rebuilds the shared ghostty config
-    /// from the store and pushes the new colors to the running app and surfaces
-    /// (`ghostty_app_update_config` / `ghostty_surface_update_config`) plus the
-    /// SwiftUI/UIKit chrome, without remounting the surface, so scrollback is
-    /// preserved across a theme change. The counter only advances on a real
-    /// value change, so an unchanged theme on reconnect does no work.
+    /// Bumped whenever the selected surface's terminal theme actually changes.
+    /// The mounted representable observes this and updates only its Ghostty
+    /// surface plus SwiftUI/UIKit chrome without remounting, preserving
+    /// scrollback and other scenes' independent themes.
     public var terminalThemeGeneration: UInt64 { terminalThemeState.generation }
     /// The composer's live draft for the currently selected terminal.
     ///
@@ -1009,7 +1004,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalLiveFontTokensBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
-        TerminalThemeStore.set(activeTerminalTheme)
     }
 
     isolated deinit {
@@ -6224,8 +6218,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Adopt the Mac's resolved terminal theme. Older Macs omit the
             // field (`payload.theme == nil`), which the store resolves to the
             // built-in Monokai default. This funnels through the same
-            // `TerminalThemeStore` the embedded ghostty runtime reads, and bumps
-            // the remount generation only on a real change.
+            // the selected surface's authoritative state and bumps the live
+            // update generation only on a real change.
             applyTerminalTheme(payload.theme)
             updateForegroundWorkspaceActionCapabilities()
             await applyHostReportedIdentity(

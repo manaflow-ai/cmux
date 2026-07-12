@@ -69,26 +69,34 @@ extension TerminalTheme {
             useCache: false,
             globalFontMagnificationPercent: GlobalFontMagnification.storedPercent
         )
+        let resolvedConfigTheme = TerminalTheme(ghosttyConfig: config)
         return TerminalTheme(
             background: app.defaultBackgroundColor.hexString(),
             foreground: app.defaultForegroundColor.hexString(),
             cursor: app.defaultCursorColor.hexString(),
-            cursorText: nil,
+            cursorText: resolvedConfigTheme.cursorText,
             selectionBackground: app.defaultSelectionBackground.hexString(),
             selectionForeground: app.defaultSelectionForeground.hexString(),
-            palette: config.mobileTerminalThemePalette()
+            palette: resolvedConfigTheme.palette
         ).validatedOrDefault()
     }
-}
 
-extension GhosttyConfig {
-    func mobileTerminalThemePalette() -> [String] {
-        var resolved = TerminalTheme.monokai.palette
-        for index in 0..<TerminalTheme.paletteCount {
-            if let color = palette[index]?.hexString() {
-                resolved[index] = color
-            }
+    /// Returns this config-resolved theme with surface-effective OSC colors
+    /// exported by one render-grid frame.
+    func applyingSurfaceColors(from frame: MobileTerminalRenderGridFrame) -> TerminalTheme {
+        var resolved = self
+        if let background = frame.terminalBackground,
+           TerminalTheme.rgbComponents(background) != nil {
+            resolved.background = background
         }
-        return resolved
+        if let foreground = frame.terminalForeground,
+           TerminalTheme.rgbComponents(foreground) != nil {
+            resolved.foreground = foreground
+        }
+        if let cursor = frame.terminalCursorColor,
+           TerminalTheme.rgbComponents(cursor) != nil {
+            resolved.cursor = cursor
+        }
+        return resolved.validatedOrDefault()
     }
 }

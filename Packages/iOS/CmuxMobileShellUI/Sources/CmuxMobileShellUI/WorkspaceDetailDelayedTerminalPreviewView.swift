@@ -101,16 +101,28 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
     }
 
     private func runThemeParitySequence() async {
-        store.applyTerminalTheme(Self.theme(background: "#101522", foreground: "#e6edf3"))
+        applyRenderGridTheme(Self.theme(background: "#101522", foreground: "#e6edf3"), stateSeq: 1)
         themeStage = "dark"
         try? await ContinuousClock().sleep(for: .seconds(3))
         guard !Task.isCancelled else { return }
-        store.applyTerminalTheme(Self.theme(background: "#f4f0df", foreground: "#17212b"))
+        applyRenderGridTheme(Self.theme(background: "#f4f0df", foreground: "#17212b"), stateSeq: 2)
         themeStage = "light"
         try? await ContinuousClock().sleep(for: .seconds(3))
         guard !Task.isCancelled else { return }
-        store.applyTerminalTheme(Self.theme(background: "#063f46", foreground: "#fff2a8"))
+        applyRenderGridTheme(Self.theme(background: "#063f46", foreground: "#fff2a8"), stateSeq: 3)
         themeStage = "custom"
+    }
+
+    private func applyRenderGridTheme(_ theme: TerminalTheme, stateSeq: UInt64) {
+        guard let frame = try? MobileTerminalRenderGridFrame(
+            surfaceID: Self.terminalID.rawValue,
+            stateSeq: stateSeq,
+            columns: 48,
+            rows: 6,
+            rowSpans: [],
+            terminalTheme: theme
+        ) else { return }
+        store.debugRecordTerminalTheme(from: frame)
     }
 
     private static func theme(background: String, foreground: String) -> TerminalTheme {

@@ -16,6 +16,7 @@ final class MobileTerminalRenderObserver {
     private var hasPendingGlobalUpdate = false
     private var isEmitFlushScheduled = false
     private var renderGridStatesBySurfaceID: [UUID: MobileTerminalRenderGridEmissionState] = [:]
+    private var cachedTerminalTheme: TerminalTheme = .monokai
 
     private init() {}
 
@@ -63,9 +64,21 @@ final class MobileTerminalRenderObserver {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
+                self?.refreshTerminalTheme()
                 self?.enqueueTerminalUpdate(surfaceID: nil)
             }
         })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .ghosttyConfigDidReload,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.refreshTerminalTheme()
+                self?.enqueueTerminalUpdate(surfaceID: nil)
+            }
+        })
+        refreshTerminalTheme()
         refreshNotificationDemand()
     }
 
@@ -190,7 +203,7 @@ final class MobileTerminalRenderObserver {
         }
 
         var themedFrame = snapshot.frame
-        themedFrame.terminalTheme = TerminalTheme.currentMacTerminalThemeSnapshot()
+        themedFrame.terminalTheme = cachedTerminalTheme.applyingSurfaceColors(from: snapshot.frame)
         guard let emission = try? themedFrame.renderGridEmission(
             comparedTo: renderGridStatesBySurfaceID[surfaceID]
         ) else { return }
@@ -204,6 +217,10 @@ final class MobileTerminalRenderObserver {
                 "cleared=\(frame.clearedRows.count) spans=\(frame.rowSpans.count) seq=\(frame.stateSeq)"
         )
         #endif
+    }
+
+    private func refreshTerminalTheme() {
+        cachedTerminalTheme = TerminalTheme.currentMacTerminalThemeSnapshot()
     }
 
     #if DEBUG

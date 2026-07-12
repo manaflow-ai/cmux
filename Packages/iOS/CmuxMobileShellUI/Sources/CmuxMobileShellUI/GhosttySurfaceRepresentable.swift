@@ -38,11 +38,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     var isComposerActive: Bool = false
     /// Theme for this exact Mac terminal surface.
     var terminalTheme: TerminalTheme
-    /// The store's terminal-theme generation. The shell writes the synced theme
-    /// into `TerminalThemeStore` directly (it does not link GhosttyKit), so this
-    /// representable — which does — drives the live recolor: when the generation
-    /// advances, it rebuilds the runtime config and refreshes the mounted
-    /// surface's background/colors in place via `GhosttyRuntime.applyLiveThemeIfRunning()`.
+    /// The store's terminal-theme generation. This drives a surface-local
+    /// Ghostty config update without remounting or changing another scene.
     var themeGeneration: UInt64 = 0
 
     func makeCoordinator() -> Coordinator {
@@ -50,7 +47,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> UIView {
-        GhosttyRuntime.setTheme(terminalTheme)
         let runtime: GhosttyRuntime
         do {
             runtime = try GhosttyRuntime.shared()
@@ -68,9 +64,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         let view = GhosttySurfaceView(
             runtime: runtime,
             delegate: context.coordinator,
-            fontSize: fontSize
+            fontSize: fontSize,
+            terminalTheme: terminalTheme
         )
-        view.terminalTheme = terminalTheme
+        GhosttyRuntime.applyTheme(terminalTheme, to: view)
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         #if DEBUG
         // Hand the surface the structured diagnostic log so the composer-dock
@@ -89,15 +86,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // math reads this flag, so it must never depend on that ordering contract.
         view.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
-        // The shared runtime is a process singleton; its config can carry a stale
-        // theme from before this connect. A freshly built surface reads its local
-        // background from the (current) theme store, but the renderer's default
-        // colors come from the runtime config, so rebuild it to the current theme
-        // when a theme has been applied. Records the generation so updateUIView
-        // does not re-apply the same one.
-        if themeGeneration > 0 {
-            GhosttyRuntime.applyLiveThemeIfRunning()
-        }
         context.coordinator.lastAppliedThemeGeneration = themeGeneration
         return view
     }
@@ -114,14 +102,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         surfaceView.terminalTheme = terminalTheme
         surfaceView.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
-        // Live theme change: the shell bumped the generation after writing the new
-        // theme into TerminalThemeStore. Rebuild the runtime config and recolor
-        // the mounted surface(s) in place so the background follows the new theme
-        // even when the `.id()` remount reused this same view.
+        // Live theme change: apply a config only to this surface so other mounted
+        // terminals keep their own palettes.
         if themeGeneration != context.coordinator.lastAppliedThemeGeneration {
             context.coordinator.lastAppliedThemeGeneration = themeGeneration
-            GhosttyRuntime.setTheme(terminalTheme)
-            GhosttyRuntime.applyLiveThemeIfRunning()
+            GhosttyRuntime.applyTheme(terminalTheme, to: surfaceView)
         }
         // A width change (rotation) is not a text change, so the field-content trigger
         // misses it. Re-measure the open composer here so the band height tracks the new

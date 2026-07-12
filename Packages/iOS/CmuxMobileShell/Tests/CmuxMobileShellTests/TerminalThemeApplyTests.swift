@@ -5,7 +5,7 @@ import Testing
 @testable import CmuxMobileShell
 
 /// `applyTerminalTheme` is the consumer seam: a connect adopts the Mac's
-/// reported theme into the shell-owned active theme and its runtime projection,
+/// reported theme into the shell-owned active theme,
 /// then bumps the generation only when the resolved theme actually changes, so an
 /// unchanged reconnect does not needlessly recreate the surface (which would
 /// lose scrollback).
@@ -17,9 +17,7 @@ import Testing
         return theme
     }
 
-    @Test func applyingNewThemeBumpsGenerationAndUpdatesStore() {
-        defer { TerminalThemeStore.set(.monokai) }
-        TerminalThemeStore.set(.monokai)
+    @Test func applyingNewThemeBumpsGenerationAndUpdatesActiveTheme() {
         let store = MobileShellComposite()
         let start = store.terminalThemeGeneration
 
@@ -27,11 +25,10 @@ import Testing
         store.applyTerminalTheme(custom)
 
         #expect(store.terminalThemeGeneration == start &+ 1)
-        #expect(TerminalThemeStore.current == custom)
+        #expect(store.activeTerminalTheme == custom)
     }
 
     @Test func applyingSameThemeDoesNotBumpGeneration() {
-        defer { TerminalThemeStore.set(.monokai) }
         let custom = makeTheme(background: "#202020")
         let store = MobileShellComposite()
         store.applyTerminalTheme(custom)
@@ -42,11 +39,10 @@ import Testing
         store.applyTerminalTheme(custom)
 
         #expect(store.terminalThemeGeneration == start)
-        #expect(TerminalThemeStore.current == custom)
+        #expect(store.activeTerminalTheme == custom)
     }
 
     @Test func applyingNilThemeResolvesToMonokai() {
-        defer { TerminalThemeStore.set(.monokai) }
         let custom = makeTheme(background: "#303030")
         let store = MobileShellComposite()
         store.applyTerminalTheme(custom)
@@ -57,6 +53,6 @@ import Testing
         store.applyTerminalTheme(nil)
 
         #expect(store.terminalThemeGeneration == start &+ 1)
-        #expect(TerminalThemeStore.current == .monokai)
+        #expect(store.activeTerminalTheme == .monokai)
     }
 }

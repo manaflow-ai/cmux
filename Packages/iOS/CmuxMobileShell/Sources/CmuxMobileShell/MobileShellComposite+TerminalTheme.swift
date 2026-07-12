@@ -32,13 +32,21 @@ extension MobileShellComposite {
 
     func resetTerminalThemes() {
         terminalThemeState = MobileTerminalThemeState()
-        TerminalThemeStore.set(.monokai)
     }
 
     private func setActiveTerminalTheme(_ theme: TerminalTheme) {
-        guard terminalThemeState.activeTheme != theme || TerminalThemeStore.current != theme else { return }
+        guard terminalThemeState.activeTheme != theme else { return }
         terminalThemeState.activeTheme = theme
-        TerminalThemeStore.set(theme)
         terminalThemeState.generation &+= 1
     }
+
+    #if DEBUG
+    /// Feeds a full render-grid frame into the production per-surface theme
+    /// recorder for simulator artifact tests. This symbol is absent in release
+    /// builds; production frames reach the same recorder through terminal output
+    /// delivery.
+    public func debugRecordTerminalTheme(from frame: MobileTerminalRenderGridFrame) {
+        recordTerminalTheme(frame)
+    }
+    #endif
 }
