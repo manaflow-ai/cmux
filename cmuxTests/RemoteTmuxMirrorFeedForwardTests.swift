@@ -1,3 +1,4 @@
+import AppKit
 import Bonsplit
 import Foundation
 import Testing
@@ -202,10 +203,13 @@ import Testing
         let (mirror, _) = readyMirror(layout: reflow123)
         mirror.isVisibleForSizing = true
         mirror.reconcile(layout: reflow123)
+        // Triggers only schedule; the coalesced pass does the work.
+        mirror.performSizingPassNow()
         let before = Self.imposedExtents(of: mirror.bonsplitController.treeSnapshot())
-        #expect(!before.isEmpty, "reconcile must impose exact extents")
+        #expect(!before.isEmpty, "the sizing pass must impose exact extents")
         // Shrink far below the layout's ideal width: extents must rescale.
         mirror.noteContainerSize(pointSize: CGSize(width: 400, height: 620), scale: 2)
+        mirror.performSizingPassNow()
         let after = Self.imposedExtents(of: mirror.bonsplitController.treeSnapshot())
         #expect(Set(before.keys) == Set(after.keys))
         for (id, extent) in after {
@@ -257,11 +261,12 @@ import Testing
         let (mirror, connection) = readyMirror(layout: reflow123)
         mirror.isVisibleForSizing = false
         mirror.reconcile(layout: reflow123)
+        mirror.performSizingPassNow()
         #expect(Self.imposedExtents(of: mirror.bonsplitController.treeSnapshot()).isEmpty)
         // Inflated portal-limbo bounds arrive while hidden: not recorded.
         mirror.noteContainerSize(pointSize: CGSize(width: 224_000, height: 620), scale: 2)
         mirror.isVisibleForSizing = true
-        mirror.refreshDividerPositions()
+        mirror.performSizingPassNow()
         #expect(!Self.imposedExtents(of: mirror.bonsplitController.treeSnapshot()).isEmpty)
         #expect(mirror.updateClientSize())
         // The claim reflects the frozen 800pt container, not limbo bounds.

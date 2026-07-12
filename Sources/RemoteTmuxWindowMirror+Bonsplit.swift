@@ -23,12 +23,11 @@ extension RemoteTmuxWindowMirror {
     ) {
         let treeReady = bonsplitTreeMatches(layout: previousLayout)
         if newLayout == previousLayout, treeReady {
-            refreshDividerPositions()
+            setNeedsSizingPass()
         } else if treeReady, Self.sameShapeAndPaneIds(previousLayout, newLayout) {
-            refreshDividerPositions()
+            setNeedsSizingPass()
         } else if treeReady, applyTargetedStructureChange(from: previousLayout, to: newLayout) {
-            lastPlanInputs = nil
-            refreshDividerPositions()
+            setNeedsSizingPassIgnoringInputs()
         } else {
             rebuildBonsplitTree()
         }
@@ -37,11 +36,6 @@ extension RemoteTmuxWindowMirror {
     func rebuildBonsplitTree() {
         isApplyingRemoteLayout = true
         defer { isApplyingRemoteLayout = false }
-        // A rebuilt tree has fresh split states: the last imposition pass's
-        // inputs no longer describe what is on screen, so the idempotence
-        // gate must not skip the next pass (a new split can also be imposed
-        // before its view exists — the follow-up pass is its recovery).
-        lastPlanInputs = nil
         resetToSingleEmptyPane()
         tabIdByPaneId.removeAll()
         paneIdByPaneId.removeAll()
@@ -49,7 +43,7 @@ extension RemoteTmuxWindowMirror {
         paneIdByTabId.removeAll()
         guard let rootPane = bonsplitController.allPaneIds.first else { return }
         build(renderedLayout, inPane: rootPane)
-        refreshDividerPositions()
+        setNeedsSizingPassIgnoringInputs()
     }
 
     func resetToSingleEmptyPane() {
@@ -105,30 +99,14 @@ extension RemoteTmuxWindowMirror {
         return pane
     }
 
-    func refreshDividerPositions() {
-        // Never impose while hidden. A hidden tab's tree lives in a portal
-        // host with no window clamping its bounds, and moving a divider to
-        // an absolute point extent there GROWS the container instead of
-        // shrinking the second child — the next pass then plans against the
-        // grown container, and the feedback compounds without bound
-        // (observed live: a hidden window's host at 224k points claiming
-        // 27,984 columns). Fractions never fed back this way because they
-        // are relative to the container. The visibility flip re-imposes, so
-        // a shown tab always plans against real, window-clamped bounds.
-        guard isVisibleForSizing else { return }
-        // Idempotence by INPUTS: a pass with the same layout, container,
-        // and metrics as the last completed pass imposes the same extents,
-        // and each apply's layout re-emits sizing samples whose handlers
-        // land back here — without this gate that echo sustains a
-        // full-CPU replan loop. Anything that actually changes sizing
-        // changes one of these inputs; view recreation re-applies from the
-        // split state itself, so skipping identical passes loses nothing.
-        let inputs = (renderedLayout, containerSizePt, nativeLayoutMetrics())
-        if let last = lastPlanInputs,
-           last.0 == inputs.0, last.1 == inputs.1, last.2 == inputs.2 {
-            return
-        }
-        lastPlanInputs = inputs
+    /// The plan-and-apply half of the sizing transaction. Called ONLY from
+    /// ``performSizingPassNow()``, which owns visibility gating, coalescing, and
+    /// the fixed-point settled check — nothing here needs to defend against
+    /// re-entry or duplicate triggers, because triggers cannot reach this
+    /// function directly. (Hidden tabs never get here: their portal hosts
+    /// have no window clamping them, and imposing absolute extents into an
+    /// unclamped host once inflated it without bound.)
+    func imposeDividerPlan() {
         lastDividerPositions.removeAll()
         let treeNode = bonsplitController.treeSnapshot()
         let splitTree = RemoteTmuxNativeSplitTree(layout: renderedLayout)

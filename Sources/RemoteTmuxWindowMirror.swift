@@ -20,7 +20,8 @@ import Observation
 /// STRUCTURE, and measured render constants — never of tmux-assigned geometry
 /// or rendered grids. The render side sets bonsplit divider fractions from
 /// tmux's assigned cells (``RemoteTmuxNativeSplitLayout`` via
-/// ``refreshDividerPositions()``). Neither direction measures the other back,
+/// ``imposeDividerPlan()``, driven by the sizing pass). Neither
+/// direction measures the other back,
 /// so tmux's `%layout-change` echo of our own push recomputes to the identical
 /// size and dedups to silence: there is no feedback loop to gate, budget, or
 /// pin against. Pane ratios are user state and are never written.
@@ -108,9 +109,6 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     @ObservationIgnored var isApplyingRemoteLayout = false
     @ObservationIgnored var isApplyingTmuxFocus = false
     @ObservationIgnored var lastDividerPositions: [UUID: CGFloat] = [:]
-    /// The (layout, container, metrics) of the last completed imposition
-    /// pass — see refreshDividerPositions for why identical inputs skip.
-    @ObservationIgnored var lastPlanInputs: (RemoteTmuxLayoutNode, CGSize?, RemoteTmuxNativeLayoutMetrics?)?
     /// Last grid each pane's surface reported (from sizing samples) — the
     /// live half of the settled/mismatch probe.
     @ObservationIgnored var lastRenderedGrids: [Int: (cols: Int, rows: Int)] = [:]
@@ -268,12 +266,9 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         let titleRows = connection?.windowTitleRowsVisible[windowId] ?? false
         if tmuxTitleRowsVisible != titleRows {
             tmuxTitleRowsVisible = titleRows
-            // Title rows are part of the claim's chrome (one cell per pane
-            // when active): flipping pane-border-status changes how many
-            // rows fit, so the claim must re-push, not just the dividers.
-            _ = updateClientSize()
         }
         reconcileBonsplitTree(from: previousRenderedLayout, to: renderedLayout)
+        setNeedsSizingPass()
         // Adopt tmux's known active pane when this mirror has none yet: on
         // first attach the rects reply emits the active-pane event BEFORE the
         // topology publish creates this mirror, so the event-driven path
@@ -335,36 +330,26 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         // Hidden tabs keep their last visible geometry. A hidden tab's
         // portal-hosted views have no window clamping them, so their
         // reported bounds are not the size anything renders at — and once
-        // impositions inflate a hidden host (see refreshDividerPositions),
+        // impositions inflate a hidden host (see imposeDividerPlan),
         // recording those bounds would poison the claim tmux hears when a
         // reconnect lets every window claim again. The one exception is the
         // very first measurement: a never-shown mirror must still record
         // its attach-time size so the initial claim can keep tmux off its
         // 80×24 default.
         guard isVisibleForSizing || containerSizePt == nil else { return }
-        // Nothing larger than the hosting window can be displayed, so no
-        // honest container is larger either. SwiftUI can hand this callback
-        // a content-derived size when some ancestor adopts a layout ideal —
-        // and recording it would feed the claim, grow tmux's assignments,
-        // grow the layout, and hand back a bigger size next pass, without
-        // bound. Clamping at this boundary breaks that loop no matter which
-        // view leaks an ideal.
+        // Nothing displayable exceeds an attached display, so no honest
+        // container does either. SwiftUI can hand this callback a
+        // content-derived size when some ancestor adopts a layout ideal —
+        // recording it would feed the claim, grow tmux's assignments, grow
+        // the layout, and hand back a bigger size next pass, without bound.
+        // Clamping to the largest display breaks that loop no matter which
+        // view leaks an ideal, and depends on nothing but the hardware.
         var pointSize = pointSize
-        if let window = panelsByPaneId.values.first?.hostedView.window,
-           window.isVisible {
-            let bound = window.contentLayoutRect.size
-            if bound.width > 1, bound.height > 1 {
-                pointSize.width = min(pointSize.width, bound.width)
-                pointSize.height = min(pointSize.height, bound.height)
-            }
-        } else if containerSizePt != nil {
-            // No visible window to validate against means the panes are
-            // parked (portal limbo) and this callback's size is not
-            // evidence of anything on screen — recording it is how limbo
-            // geometry reached the claim. Only the very first measurement
-            // may pass unvalidated: it is the attach-time size the initial
-            // claim needs, delivered before the panes enter a window.
-            return
+        let widths = NSScreen.screens.map(\.visibleFrame.width)
+        let heights = NSScreen.screens.map(\.visibleFrame.height)
+        if let maxW = widths.max(), let maxH = heights.max(), maxW > 1, maxH > 1 {
+            pointSize.width = min(pointSize.width, maxW)
+            pointSize.height = min(pointSize.height, maxH)
         }
         #if DEBUG
         if pointSize.width > 3000 || pointSize.height > 3000 {
@@ -377,12 +362,9 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             )
         }
         #endif
-        let sizeChanged = containerSizePt != pointSize
         containerSizePt = pointSize
         containerScale = scale
-        if sizeChanged {
-            refreshDividerPositions()
-        }
+        setNeedsSizingPass()
     }
 
     /// Ingests one sizing sample into the min-tracked pad constants.
@@ -408,10 +390,77 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         )
         if geometrySnapshot != geometry {
             geometrySnapshot = geometry
-            // The first measured cell size, and later scale/font changes, alter
-            // the exact native fraction that represents tmux's cell geometry.
-            refreshDividerPositions()
+            setNeedsSizingPass()
         }
+    }
+
+    // MARK: The sizing transaction
+
+    /// Everything a sizing pass depends on, snapshotted for the fixed-point
+    /// check. When a completed pass's inputs equal the current inputs, the
+    /// mirror is settled and a pass would be a no-op.
+    struct SizingInputs: Equatable {
+        var layout: RemoteTmuxLayoutNode
+        var container: CGSize?
+        var scale: CGFloat?
+        var geometry: RemoteTmuxMirrorGeometry?
+        var titleRows: Bool
+        var visible: Bool
+    }
+
+    @ObservationIgnored private var sizingPassScheduled = false
+    @ObservationIgnored private var lastCompletedSizingInputs: SizingInputs?
+
+    private func currentSizingInputs() -> SizingInputs {
+        SizingInputs(
+            layout: renderedLayout,
+            container: containerSizePt,
+            scale: containerScale,
+            geometry: geometrySnapshot,
+            titleRows: tmuxTitleRowsVisible,
+            visible: isVisibleForSizing
+        )
+    }
+
+    /// The ONLY way sizing work is requested. Every trigger — container
+    /// geometry, tmux layouts, calibration samples, visibility, title rows —
+    /// updates its data and calls this; nothing runs layout directly. One
+    /// coalesced pass drains on the next runloop turn, so a burst of events
+    /// costs one pass, and an event that changes nothing costs none.
+    func setNeedsSizingPass() {
+        guard !sizingPassScheduled else { return }
+        sizingPassScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            self?.performSizingPassNow()
+        }
+    }
+
+    /// One transaction: claim, then plan and apply, exactly once, against a
+    /// snapshot of the inputs. Events that fire DURING the pass (samples and
+    /// geometry callbacks from our own applies included) can only update
+    /// data and re-call setNeedsSizingPass — the flag is cleared before the
+    /// work so they schedule a follow-up turn instead of re-entering. The
+    /// follow-up compares inputs and stops when nothing changed: feedback
+    /// converges by fixed point, bounded by real input changes, with no
+    /// retry budgets and no event dedup anywhere.
+    func performSizingPassNow() {
+        sizingPassScheduled = false
+        let inputs = currentSizingInputs()
+        if inputs == lastCompletedSizingInputs { return }
+        lastCompletedSizingInputs = inputs
+        _ = updateClientSize()
+        if inputs.visible {
+            imposeDividerPlan()
+        }
+    }
+
+    /// Marks the mirror unsettled so the next pass runs even with identical
+    /// inputs — for triggers that replace the bonsplit tree itself (rebuilds,
+    /// structural edits, tab re-shows): fresh split views do not hold the
+    /// previous plan even though the plan's inputs are unchanged.
+    func setNeedsSizingPassIgnoringInputs() {
+        lastCompletedSizingInputs = nil
+        setNeedsSizingPass()
     }
 
     #if DEBUG
@@ -458,7 +507,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             )
         }
         #endif
-        _ = updateClientSize()
+        setNeedsSizingPass()
     }
 
     /// Sweeps every pane's current sizing sample through ``ingest(sample:)``

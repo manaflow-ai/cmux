@@ -87,19 +87,13 @@ struct RemoteTmuxWindowMirrorSplitView: View {
         mirror.isVisibleForSizing = isVisibleInUI
         guard pointSize.width > 0, pointSize.height > 0 else { return }
         mirror.noteContainerSize(pointSize: pointSize, scale: displayScale)
-        _ = mirror.updateClientSize()
     }
 
-    /// Impositions and container tracking are suspended while hidden (see
-    /// ``RemoteTmuxWindowMirror/refreshDividerPositions()``), so a tab that
-    /// becomes visible must both re-claim and re-impose: tmux layouts that
-    /// arrived while it was hidden were applied to the tree but never
-    /// planned into divider extents.
+    /// A tab shown again may have had its views recreated while hidden, so
+    /// identical sizing inputs do not mean the fresh views hold the plan —
+    /// request the pass that ignores the settled check.
     private func becameVisible() {
         pushClientSize(pointSize: containerSize)
-        // The tab's views may have been recreated while hidden; identical
-        // plan inputs do not mean the fresh views hold the plan.
-        mirror.lastPlanInputs = nil
-        mirror.refreshDividerPositions()
+        mirror.setNeedsSizingPassIgnoringInputs()
     }
 }
