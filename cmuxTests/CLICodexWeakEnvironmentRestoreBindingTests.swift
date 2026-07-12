@@ -76,6 +76,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
             "weak env-only Codex captures must not become durable restore bindings: \(commands)"
         )
+        XCTAssertFalse(
+            commands.contains { self.jsonObject($0)?["method"] as? String == "feed.push" },
+            "missing terminal identity must not publish through inherited ambient state: \(commands)"
+        )
     }
 
     func testCodexWeakCurrentCapturePreservesDurableMappedResumeBinding() throws {

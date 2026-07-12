@@ -2,7 +2,7 @@ import Darwin
 import XCTest
 
 extension CLINotifyProcessIntegrationRegressionTests {
-    func testPreUpgradeClaudeHookWritesThroughInheritedBundleScope() throws {
+    func testPreUpgradeClaudeHookMigratesLegacyStateBeforeWritingBundleScope() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("claude-inherited-scope")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -13,6 +13,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let bundleIdentifier = "com.cmuxterm.app.nightly"
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let legacyDirectory = root.appendingPathComponent(".cmuxterm", isDirectory: true)
+        let legacyStore = legacyDirectory.appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
+        try FileManager.default.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: [
+            "version": 1,
+            "sessions": [
+                "legacy-session": [
+                    "sessionId": "legacy-session",
+                    "workspaceId": workspaceId,
+                    "surfaceId": surfaceId,
+                    "startedAt": 1,
+                    "updatedAt": 1,
+                ],
+            ],
+        ]).write(to: legacyStore, options: .atomic)
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -73,8 +88,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .appendingPathComponent(bundleIdentifier, isDirectory: true)
             .appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
         XCTAssertTrue(FileManager.default.fileExists(atPath: scopedStore.path), scopedStore.path)
-        XCTAssertFalse(FileManager.default.fileExists(
-            atPath: root.appendingPathComponent(".cmuxterm/claude-hook-sessions.json").path
-        ))
+        let rootObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: scopedStore)) as? [String: Any]
+        )
+        let sessions = try XCTUnwrap(rootObject["sessions"] as? [String: Any])
+        XCTAssertNotNil(sessions["legacy-session"])
+        XCTAssertNotNil(sessions["pre-upgrade-session"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyStore.path))
     }
 }
