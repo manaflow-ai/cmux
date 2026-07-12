@@ -28,15 +28,17 @@ import Testing
     )
 
     #expect(gate.reserve(workspaceID: "workspace", paneID: "pane-right") == nil)
-    gate.requireRefresh()
+    gate.requireRefresh(workspaceID: "workspace")
     gate.finish(closeReservation)
-    #expect(!gate.canMutate)
+    #expect(!gate.canMutate(workspaceID: "workspace"))
+    #expect(gate.canMutate(workspaceID: "other-workspace"))
 
-    #expect(gate.beginRecovery())
-    gate.finishRecovery(succeeded: false)
-    #expect(!gate.canMutate)
+    #expect(!gate.beginRecovery(workspaceID: "other-workspace"))
+    #expect(gate.beginRecovery(workspaceID: "workspace"))
+    gate.finishRecovery(workspaceID: "workspace", succeeded: false)
+    #expect(!gate.canMutate(workspaceID: "workspace"))
 
-    #expect(gate.beginRecovery())
-    gate.finishRecovery(succeeded: true)
-    #expect(gate.canMutate)
+    #expect(gate.beginRecovery(workspaceID: "workspace"))
+    gate.finishRecovery(workspaceID: "workspace", succeeded: true)
+    #expect(gate.canMutate(workspaceID: "workspace"))
 }

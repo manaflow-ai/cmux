@@ -53,6 +53,11 @@ actor RoutingHostRouter {
     private var workspaceCreateCount = 0
     private var rejectWorkspaceCreate = false
     private var rejectWorkspaceList = false
+    private var workspaceListCount = 0
+    private var holdFirstWorkspaceList = false
+    private var firstWorkspaceListHeld = false
+    private var firstWorkspaceListContinuation: CheckedContinuation<Void, Never>?
+    private var firstWorkspaceListReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var holdFirstWorkspaceCreate = false
     private var firstWorkspaceCreateHeld = false
     private var firstWorkspaceCreateContinuation: CheckedContinuation<Void, Never>?
@@ -103,6 +108,22 @@ actor RoutingHostRouter {
         rejectWorkspaceList = reject
     }
 
+    func setHoldFirstWorkspaceList(_ hold: Bool) {
+        holdFirstWorkspaceList = hold
+    }
+
+    func awaitFirstWorkspaceListReached() async {
+        if firstWorkspaceListHeld { return }
+        await withCheckedContinuation { firstWorkspaceListReachedWaiters.append($0) }
+    }
+
+    func releaseFirstWorkspaceList() {
+        firstWorkspaceListContinuation?.resume()
+        firstWorkspaceListContinuation = nil
+    }
+
+    func recordedWorkspaceListCount() -> Int { workspaceListCount }
+
     func setHoldFirstWorkspaceCreate(_ hold: Bool) {
         holdFirstWorkspaceCreate = hold
     }
@@ -143,6 +164,14 @@ actor RoutingHostRouter {
         let id = info.id
         switch method {
         case "workspace.list", "mobile.workspace.list":
+            workspaceListCount += 1
+            if workspaceListCount == 1, holdFirstWorkspaceList {
+                firstWorkspaceListHeld = true
+                let waiters = firstWorkspaceListReachedWaiters
+                firstWorkspaceListReachedWaiters = []
+                for waiter in waiters { waiter.resume() }
+                await withCheckedContinuation { firstWorkspaceListContinuation = $0 }
+            }
             if rejectWorkspaceList {
                 return try? Self.errorFrame(id: id, message: "workspace.list rejected")
             }

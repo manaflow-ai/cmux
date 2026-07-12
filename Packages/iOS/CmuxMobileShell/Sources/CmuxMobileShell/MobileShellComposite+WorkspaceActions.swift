@@ -373,7 +373,10 @@ extension MobileShellComposite {
                 markMacConnectionUnavailableIfNeeded(after: error)
             }
             mobileShellLog.error("workspace mutation failed action=\(actionName, privacy: .public) id=\(logID, privacy: .public) error=\(String(describing: error), privacy: .public)")
-            _ = await refreshAfterWorkspaceMutation(target)
+            let reconciled = await refreshAfterWorkspaceMutation(target)
+            if !reconciled, workspaceMutationMayHaveApplied(error) {
+                return .failure(.appliedNeedsRefresh(hostDisplayName: hostDisplayName))
+            }
             return .failure(workspaceMutationFailure(error, hostDisplayName: hostDisplayName))
         }
         // Re-sync the authoritative list for the Mac we actually mutated.
@@ -434,6 +437,17 @@ extension MobileShellComposite {
             return .rejected(hostDisplayName: hostDisplayName)
         case .invalidResponse:
             return .rejected(hostDisplayName: hostDisplayName)
+        }
+    }
+
+    private func workspaceMutationMayHaveApplied(_ error: any Error) -> Bool {
+        guard let connectionError = error as? MobileShellConnectionError else { return true }
+        switch connectionError {
+        case .connectionClosed, .requestTimedOut, .invalidResponse:
+            return true
+        case .attachTicketExpired, .authorizationFailed, .accountMismatch,
+             .insecureManualRoute, .rpcError:
+            return false
         }
     }
 

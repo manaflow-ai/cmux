@@ -45,6 +45,26 @@ import Testing
 }
 
 @MainActor
+@Test func foregroundMutationRefreshStartsAfterOlderPullCompletes() async throws {
+    let router = RoutingHostRouter()
+    let store = MobileShellComposite(
+        connectionState: .connected,
+        workspaces: MobileShellComposite.preview().workspaces
+    )
+    try installFreshRemoteClient(on: store, router: router)
+    await router.setHoldFirstWorkspaceList(true)
+    let olderPull = Task { await store.refreshForegroundWorkspaceList() }
+    await router.awaitFirstWorkspaceListReached()
+
+    let mutationRefresh = Task { await store.refreshForegroundWorkspaceListAfterMutation() }
+    await router.releaseFirstWorkspaceList()
+
+    #expect(await olderPull.value)
+    #expect(await mutationRefresh.value)
+    #expect(await router.recordedWorkspaceListCount() == 2)
+}
+
+@MainActor
 @Test func workspaceFocusEventUpdatesOnlyItsWorkspaceSnapshot() throws {
     let workspace = MobileWorkspacePreview(
         id: "ws-focus",

@@ -45,7 +45,7 @@ struct TerminalHierarchySheet: View {
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("MobileTerminalHierarchyConnection")
                     }
-                    if reorderGate.requiresRefresh {
+                    if reorderGate.requiresRefresh(workspaceID: snapshot.workspaceID) {
                         Button(action: recoverHierarchy) {
                             Label(
                                 L10n.string(
@@ -148,7 +148,7 @@ struct TerminalHierarchySheet: View {
                         snapshot: row,
                         select: { select(row) },
                         requestClose: { requestClose(row) },
-                        closeEnabled: reorderGate.canMutate,
+                        closeEnabled: reorderGate.canMutate(workspaceID: snapshot.workspaceID),
                         moveEarlier: reorderAction(
                             rowIndex: rowIndex,
                             destination: rowIndex - 1,
@@ -161,7 +161,8 @@ struct TerminalHierarchySheet: View {
                         )
                     )
                 }
-                .onMove(perform: snapshot.canReorder && reorderGate.canMutate ? { source, destination in
+                .onMove(perform: snapshot.canReorder
+                    && reorderGate.canMutate(workspaceID: snapshot.workspaceID) ? { source, destination in
                     move(source: source, destination: destination, in: pane)
                 } : nil)
             }
@@ -201,7 +202,7 @@ struct TerminalHierarchySheet: View {
         ToolbarItemGroup(placement: .primaryAction) {
             if snapshot.canReorder, snapshot.panes.contains(where: { $0.rows.count > 1 }) {
                 EditButton()
-                    .disabled(!reorderGate.canMutate)
+                    .disabled(!reorderGate.canMutate(workspaceID: snapshot.workspaceID))
                     .accessibilityIdentifier("MobileTerminalHierarchyEdit")
             }
             Button(action: createAndAnnounce) {
@@ -212,7 +213,10 @@ struct TerminalHierarchySheet: View {
                 .labelStyle(.iconOnly)
                 .frame(minWidth: 44, minHeight: 44)
             }
-            .disabled(snapshot.connectionStatus != .connected || !reorderGate.canMutate)
+            .disabled(
+                snapshot.connectionStatus != .connected
+                    || !reorderGate.canMutate(workspaceID: snapshot.workspaceID)
+            )
             .accessibilityIdentifier("MobileTerminalHierarchyNewTerminal")
         }
     }
@@ -245,7 +249,7 @@ struct TerminalHierarchySheet: View {
     }
 
     private func createAndAnnounce() {
-        guard reorderGate.canMutate else { return }
+        guard reorderGate.canMutate(workspaceID: snapshot.workspaceID) else { return }
         createTerminal()
         announce(L10n.string("mobile.terminal.hierarchy.createdAnnouncement", defaultValue: "Creating terminal"))
     }
@@ -288,7 +292,7 @@ struct TerminalHierarchySheet: View {
             guard case .success = result else {
                 optimisticTerminalIDsByPane[pane.id] = nil
                 if case .failure(.appliedNeedsRefresh) = result {
-                    reorderGate.requireRefresh()
+                    reorderGate.requireRefresh(workspaceID: snapshot.workspaceID)
                     showRefreshAlert = true
                 } else {
                     mutationFailed = true
@@ -318,7 +322,7 @@ struct TerminalHierarchySheet: View {
         in pane: TerminalHierarchyPaneSnapshot
     ) -> (() -> Void)? {
         guard snapshot.canReorder,
-              reorderGate.canMutate,
+              reorderGate.canMutate(workspaceID: snapshot.workspaceID),
               let rowIndex,
               let destination,
               destination >= 0,
@@ -350,7 +354,7 @@ struct TerminalHierarchySheet: View {
                 self.pendingClose = pendingClose
                 closeConfirmationIncludesRunningProcess = true
             case .failure(.appliedNeedsRefresh):
-                reorderGate.requireRefresh()
+                reorderGate.requireRefresh(workspaceID: snapshot.workspaceID)
                 showRefreshAlert = true
             case .failure:
                 mutationFailed = true
@@ -359,7 +363,7 @@ struct TerminalHierarchySheet: View {
     }
 
     private func requestClose(_ row: TerminalHierarchyRowSnapshot) {
-        guard reorderGate.canMutate else { return }
+        guard reorderGate.canMutate(workspaceID: snapshot.workspaceID) else { return }
         pendingClose = row
         closeConfirmationIncludesRunningProcess = row.requiresCloseConfirmation
     }
@@ -370,10 +374,10 @@ struct TerminalHierarchySheet: View {
     }
 
     private func recoverHierarchy() {
-        guard reorderGate.beginRecovery() else { return }
+        guard reorderGate.beginRecovery(workspaceID: snapshot.workspaceID) else { return }
         Task { @MainActor in
             let succeeded = await refreshTerminals()
-            reorderGate.finishRecovery(succeeded: succeeded)
+            reorderGate.finishRecovery(workspaceID: snapshot.workspaceID, succeeded: succeeded)
             showRefreshAlert = !succeeded
         }
     }

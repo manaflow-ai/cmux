@@ -288,7 +288,7 @@ final class MobileWorkspaceListObserver {
     }
 
     /// Stable hash of the iOS-facing shape: workspace ids + titles + their
-    /// panels grouped by pane + focused pane/terminal + each panel's displayed
+    /// panels grouped by pane + each panel's displayed
     /// (custom-aware) title and directory. Mutations that don't show up on the
     /// mobile list (pane geometry and scrollback content) don't trip the event.
     ///
@@ -341,8 +341,6 @@ final class MobileWorkspaceListObserver {
             hasher.combine(panelIDs)
             let paneIDs = workspace.bonsplitController.allPaneIds
             hasher.combine(paneIDs.count)
-            hasher.combine(workspace.bonsplitController.focusedPaneId?.id)
-            hasher.combine(workspace.focusedTerminalPanel?.id)
             for paneID in paneIDs {
                 hasher.combine(paneID.id)
                 let terminalIDs: [UUID] = workspace.bonsplitController.tabs(inPane: paneID).compactMap { tab -> UUID? in
@@ -353,10 +351,6 @@ final class MobileWorkspaceListObserver {
                     return panelID
                 }
                 hasher.combine(terminalIDs)
-                let selectedTerminalID: UUID? = workspace.bonsplitController.selectedTab(inPane: paneID)
-                    .flatMap { workspace.panelIdFromSurfaceId($0.id) }
-                    .flatMap { workspace.terminalPanel(for: $0)?.id }
-                hasher.combine(selectedTerminalID)
             }
             for id in panelIDs {
                 hasher.combine(workspace.panelTitle(panelId: id))

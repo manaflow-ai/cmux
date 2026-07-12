@@ -30,7 +30,7 @@ struct MobileWorkspacePaneHierarchyFidelityTests {
         return (workspace, [first, second.id])
     }
 
-    @Test func focusingAnotherPaneChangesObserverHash() throws {
+    @Test func focusingAnotherPaneChangesOnlyScopedFocusSignature() throws {
         let (workspace, ordered) = try makeWorkspaceWithSplitTerminals()
         let before = MobileWorkspaceListObserver.summaryHashForTesting(
             tabs: [workspace],
@@ -50,7 +50,7 @@ struct MobileWorkspacePaneHierarchyFidelityTests {
         let focusedAfter = MobileWorkspaceListObserver.focusedHierarchySignatureForTesting(
             workspace: workspace
         )
-        #expect(before != after, "focused pane and selected terminal are mobile payload state")
+        #expect(before == after, "generic list updates must not duplicate scoped focus events")
         #expect(focusedBefore != focusedAfter, "focus events recompute only the affected workspace")
     }
 
