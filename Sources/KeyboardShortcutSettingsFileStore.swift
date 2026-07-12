@@ -481,6 +481,12 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["keepWorkspaceOpenWhenClosingLastSurface"]) {
             snapshot.managedUserDefaults[SettingCatalog().app.keepWorkspaceOpenWhenClosingLastSurface.userDefaultsKey] = .bool(!value)
         }
+        if let value = jsonString(section["terminalEditorCommand"]) {
+            snapshot.managedUserDefaults[CmdClickTerminalEditorRouteSettings.commandKey] = .string(value)
+        }
+        if let value = jsonString(section["terminalEditorExtensions"]) {
+            snapshot.managedUserDefaults[CmdClickTerminalEditorRouteSettings.extensionsKey] = .string(value)
+        }
         var parsedConfirmQuitMode: ConfirmQuitMode?
         let confirmQuitKey = AppCatalogSection().confirmQuitMode.userDefaultsKey
         let warnBeforeQuitKey = AppCatalogSection().warnBeforeQuit.userDefaultsKey

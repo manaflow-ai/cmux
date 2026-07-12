@@ -5,7 +5,8 @@ import Foundation
 enum CommandClickFileOpenRouter {
     nonisolated static func shouldRouteInCmux(path: String) -> Bool {
         let store = FileRouteSettingsStore(defaults: .standard)
-        return store.shouldRouteMarkdown(path: path)
+        return CmdClickTerminalEditorRouteSettings.shouldRoute(path: path)
+            || store.shouldRouteMarkdown(path: path)
             || store.shouldRouteSupportedFile(path: path)
     }
 
@@ -15,6 +16,15 @@ enum CommandClickFileOpenRouter {
         sourcePanelId: UUID,
         filePath: String
     ) -> Bool {
+        // Checked first: an extension listed in `terminalEditorExtensions` is an
+        // explicit user override that wins over the markdown/file-preview routes
+        // (so listing "md" opens nvim instead of the markdown viewer). The route
+        // is inert until the user lists extensions, so defaults are unchanged.
+        // Shared with the Files sidebar via Workspace.openTerminalEditorIfRouted.
+        if workspace.openTerminalEditorIfRouted(filePath: filePath, sourcePanelId: sourcePanelId) != nil {
+            return true
+        }
+
         let store = FileRouteSettingsStore(defaults: .standard)
         if store.shouldRouteMarkdown(path: filePath),
            workspace.openOrFocusMarkdownSplit(from: sourcePanelId, filePath: filePath) != nil {
@@ -29,26 +39,15 @@ enum CommandClickFileOpenRouter {
 
     /// Resolve the working directory for a terminal surface, preferring the
     /// per-panel directory, then the panel's requested working directory,
-    /// then the workspace-level directory.
+    /// then the workspace-level directory. Delegates to the shared
+    /// `Workspace.resolvedTerminalWorkingDirectory(forPanelId:)` so the
+    /// command-click router and the terminal-editor opener stay in sync.
     @MainActor
     static func resolveWorkingDirectory(
         workspace: Workspace,
         surfaceId: UUID
     ) -> String? {
-        if let dir = workspace.panelDirectories[surfaceId]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !dir.isEmpty {
-            return dir
-        }
-        if let dir = workspace.terminalPanel(for: surfaceId)?
-            .requestedWorkingDirectory?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !dir.isEmpty {
-            return dir
-        }
-        let dir = workspace.currentDirectory
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return dir.isEmpty ? nil : dir
+        workspace.resolvedTerminalWorkingDirectory(forPanelId: surfaceId)
     }
 
     /// Schedule a file open in cmux, deferred to the next runloop tick.

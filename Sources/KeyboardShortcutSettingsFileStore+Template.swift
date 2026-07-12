@@ -71,6 +71,8 @@ extension CmuxSettingsFileStore {
                     "preferredEditor": "",
                     "openSupportedFilesInCmux": AppCatalogSection().openSupportedFilesInCmux.defaultValue,
                     "openMarkdownInCmuxViewer": AppCatalogSection().openMarkdownInCmuxViewer.defaultValue,
+                    "terminalEditorCommand": CmdClickTerminalEditorRouteSettings.defaultCommand,
+                    "terminalEditorExtensions": "",
                     "reorderOnNotification": SettingCatalog().app.reorderOnNotification.defaultValue,
                     "iMessageMode": IMessageModeSettings.defaultValue,
                     "sendAnonymousTelemetry": AppCatalogSection().sendAnonymousTelemetry.defaultValue,

@@ -7245,7 +7245,8 @@ final class Workspace: Identifiable, ObservableObject {
         restoredSurfaceId: UUID? = nil,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true,
+        waitAfterCommandOverride: Bool? = nil
     ) -> TerminalPanel? {
         return newTerminalSurfaceOutcome(
             inPane: paneId,
@@ -7263,7 +7264,8 @@ final class Workspace: Identifiable, ObservableObject {
             restoredSurfaceId: restoredSurfaceId,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            waitAfterCommandOverride: waitAfterCommandOverride
         ).panel
     }
 
@@ -7286,7 +7288,8 @@ final class Workspace: Identifiable, ObservableObject {
         restoredSurfaceId: UUID? = nil,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true,
+        waitAfterCommandOverride: Bool? = nil
     ) -> TerminalPanelCreationOutcome {
         // In a remote tmux mirror, a new tab means "create a tmux window"; never
         // create a local orphan the mirror can't reconcile. Dead mirrors are
@@ -7334,7 +7337,8 @@ final class Workspace: Identifiable, ObservableObject {
             restoredSurfaceId: restoredSurfaceId,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            waitAfterCommandOverride: waitAfterCommandOverride
         ) else { return .failed }
         return .created(panel)
     }
@@ -7355,7 +7359,8 @@ final class Workspace: Identifiable, ObservableObject {
         restoredSurfaceId: UUID?,
         inheritWorkingDirectoryFallback: Bool,
         workingDirectoryFallbackSourcePanelId: UUID?,
-        allowTextBoxFocusDefault: Bool
+        allowTextBoxFocusDefault: Bool,
+        waitAfterCommandOverride: Bool?
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -7383,10 +7388,11 @@ final class Workspace: Identifiable, ObservableObject {
         )
         // See the comment at the other call site: hold the PTY open after the remote
         // command exits so the user sees the error rather than a silently-respawned
-        // local login shell.
+        // local login shell. Callers may override this — e.g. the terminal-editor
+        // route wants the tab to close when the editor exits.
         if startupCommand != nil {
             var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
+            template.waitAfterCommand = waitAfterCommandOverride ?? true
             inheritedConfig = template
         }
         let fallbackSourcePanelId = workingDirectoryFallbackSourcePanelId
@@ -11008,6 +11014,74 @@ final class Workspace: Identifiable, ObservableObject {
             insertFirst: insertFirst,
             filePath: filePath
         )
+    }
+
+    /// Single shared entry point for terminal-editor routing, reused by every UI
+    /// surface that opens a file (the terminal Cmd-click router and the Files
+    /// sidebar). When `filePath`'s extension is configured for the terminal-editor
+    /// route, opens it in a new full-pane terminal tab and returns the new panel;
+    /// otherwise returns nil so the caller falls back to its default open behavior.
+    /// Provide the target `paneId` directly, or a `sourcePanelId` to resolve the
+    /// pane from (the panel's pane is found via `paneId(forPanelId:)`).
+    @discardableResult
+    func openTerminalEditorIfRouted(
+        filePath: String,
+        inPane paneId: PaneID? = nil,
+        sourcePanelId: UUID? = nil
+    ) -> TerminalPanel? {
+        guard CmdClickTerminalEditorRouteSettings.shouldRoute(path: filePath) else { return nil }
+        guard let targetPane = paneId ?? sourcePanelId.flatMap({ self.paneId(forPanelId: $0) }) else {
+            return nil
+        }
+        return openTerminalEditorTab(inPane: targetPane, sourcePanelId: sourcePanelId, filePath: filePath)
+    }
+
+    /// Core terminal-editor opener shared by the terminal Cmd-click router and the
+    /// Files-sidebar open path. `sourcePanelId`, when present, supplies the working
+    /// directory; otherwise the workspace directory is used.
+    @discardableResult
+    func openTerminalEditorTab(inPane paneId: PaneID, sourcePanelId: UUID?, filePath: String) -> TerminalPanel? {
+        guard let invocation = CmdClickTerminalEditorRouteSettings.editorInvocation(forFile: filePath) else {
+            return nil
+        }
+
+        // Open the editor with the right project context (shared resolver).
+        let workingDirectory = resolvedTerminalWorkingDirectory(forPanelId: sourcePanelId)
+
+        // Run the editor as the surface's primary process (via Ghostty's
+        // `command`, which macOS executes through `login(1)` — a real login
+        // shell, so the user's PATH resolves the editor). This opens the editor
+        // directly without echoing the command, and `waitAfterCommand: false`
+        // lets the tab close when the editor exits.
+        return newTerminalSurface(
+            inPane: paneId,
+            focus: true,
+            workingDirectory: workingDirectory,
+            initialCommand: invocation,
+            waitAfterCommandOverride: false
+        )
+    }
+
+    /// Resolves the working directory for a new surface derived from `panelId`:
+    /// the panel's reported cwd, then its requested startup cwd, then the
+    /// workspace directory. Shared by the command-click file-open router and the
+    /// terminal-editor opener so both stay in sync. A nil `panelId` skips the
+    /// per-panel lookups and uses the workspace directory.
+    func resolvedTerminalWorkingDirectory(forPanelId panelId: UUID?) -> String? {
+        if let panelId {
+            if let dir = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !dir.isEmpty {
+                return dir
+            }
+            if let dir = terminalPanel(for: panelId)?
+                .requestedWorkingDirectory?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !dir.isEmpty {
+                return dir
+            }
+        }
+        let dir = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        return dir.isEmpty ? nil : dir
     }
 
     /// Split `paneId` and place a brand-new terminal in the resulting pane.
