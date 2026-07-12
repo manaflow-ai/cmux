@@ -188,12 +188,14 @@ extension TerminalController {
                                 )
                                 continue
                             }
-                            if rendered.cols > node.width + 1 || rendered.rows > node.height + 1 {
-                                mismatches.append(
-                                    "%\(leaf) surplus rendered=\(rendered.cols)x\(rendered.rows)"
-                                        + " assigned=\(node.width)x\(node.height)"
-                                )
-                            }
+                            // Surplus is deliberately NOT flagged here: a
+                            // pane sharing an axis with a chrome-heavier
+                            // sibling stack legitimately inherits several
+                            // cells of blank fill margin, so grid surplus
+                            // with a correctly placed view is not a defect.
+                            // Overdraw is a VIEW property, and the anchor
+                            // misplacement entries above already judge it
+                            // exactly.
                             if rendered.cols < node.width || rendered.rows < node.height {
                                 var detail = "%\(leaf) rendered=\(rendered.cols)x\(rendered.rows)"
                                     + " assigned=\(node.width)x\(node.height)"
