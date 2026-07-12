@@ -24569,25 +24569,18 @@ struct CMUXCLI {
                     currentAgentPID: forkClaudePid,
                     env: ProcessInfo.processInfo.environment
                 )
+                // Resolve through the live target resolver so the cleanup
+                // follows the fork pane even after a pane move (live pid
+                // probe, then legacy chain, then identity-surface re-home).
                 if !suppressForkVisibleMutations,
-                   let forkWorkspaceId = try? resolvePreferredWorkspaceIdForClaudeHook(
-                       preferred: nil,
-                       fallback: workspaceArg,
-                       preferCallerTTYOverFallback: preferCallerTTYRouting,
-                       callerTerminalBinding: callerTTYBindingProvider,
+                   let forkTarget = try? resolveClaudeHookDeliveryTarget(
+                       mappedSession: nil,
+                       routing: hookRouting,
                        client: client
                    ),
-                   let forkSurface = try? resolvePreferredSurfaceForClaudeHookDetailed(
-                       preferred: nil,
-                       fallback: surfaceArg,
-                       fallbackIsExplicit: hookSurfaceFlag != nil,
-                       workspaceId: forkWorkspaceId,
-                       callerTerminalBinding: callerTTYBindingProvider,
-                       client: client
-                   ),
-                   forkSurface.isAuthoritative {
+                   forkTarget.isAuthoritative {
                     _ = try? sendV1Command(
-                        "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(forkWorkspaceId)\(socketPanelOption(forkSurface.surfaceId)) --clear-status",
+                        "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(forkTarget.workspaceId)\(socketPanelOption(forkTarget.surfaceId)) --clear-status",
                         client: client
                     )
                 }
@@ -24599,24 +24592,20 @@ struct CMUXCLI {
             // If Stop already consumed the session, consumedSession is nil and we skip
             // to avoid wiping the completion notification that Stop just delivered.
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-            let fallbackWorkspaceId = try? resolvePreferredWorkspaceIdForClaudeHook(
-                preferred: mappedSession?.workspaceId,
-                fallback: workspaceArg,
-                preferCallerTTYOverFallback: preferCallerTTYRouting,
-                callerTerminalBinding: callerTTYBindingProvider,
+            // Resolve the pane's CURRENT owner before consuming the record:
+            // SessionEnd can be the only hook after a pane move (Ctrl-C exit
+            // with no later Stop/Notification to heal the record), and cleanup
+            // must clear status/notifications where the pane lives NOW.
+            // Clearing the record's stale workspace instead leaves the moved
+            // pane stuck and `clear_notifications --tab=` would wipe unrelated
+            // panes' notifications in the old workspace.
+            let liveEndTarget = try? resolveClaudeHookDeliveryTarget(
+                mappedSession: mappedSession,
+                routing: hookRouting,
                 client: client
             )
-            let fallbackSurfaceId: String? = {
-                guard let fallbackWorkspaceId else { return nil }
-                return try? resolvePreferredSurfaceIdForClaudeHook(
-                    preferred: mappedSession?.surfaceId,
-                    fallback: surfaceArg,
-                    fallbackIsExplicit: hookSurfaceFlag != nil,
-                    workspaceId: fallbackWorkspaceId,
-                    callerTerminalBinding: callerTTYBindingProvider,
-                    client: client
-                )
-            }()
+            let fallbackWorkspaceId = liveEndTarget?.workspaceId
+            let fallbackSurfaceId = liveEndTarget?.surfaceId
             let consumedSession = try? sessionStore.consume(
                 sessionId: parsedInput.sessionId,
                 workspaceId: fallbackWorkspaceId,
@@ -24627,19 +24616,31 @@ struct CMUXCLI {
             // consumedSession, so isCurrent can treat consumedSession.sessionId
             // as current only when the consumed session was the active one.
             if let consumedSession {
-                let workspaceId = consumedSession.workspaceId
+                // App-visible cleanup targets the live owner of the session's
+                // pane when the resolver answered authoritatively; the
+                // consumed record's address is the fallback. Store-side calls
+                // keep the record's own address.
+                let workspaceId: String
+                let cleanupSurfaceId: String
+                if let liveEndTarget, liveEndTarget.isAuthoritative {
+                    workspaceId = liveEndTarget.workspaceId
+                    cleanupSurfaceId = liveEndTarget.surfaceId
+                } else {
+                    workspaceId = consumedSession.workspaceId
+                    cleanupSurfaceId = consumedSession.surfaceId
+                }
                 clearAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: consumedSession.surfaceId,
                     sessionId: consumedSession.sessionId
                 )
-                sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: consumedSession.surfaceId)
+                sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: cleanupSurfaceId)
                 let shouldClearVisibleState = shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
                     sessionId: consumedSession.sessionId,
                     turnId: parsedInput.turnId,
-                    workspaceId: workspaceId,
+                    workspaceId: consumedSession.workspaceId,
                     surfaceId: consumedSession.surfaceId,
                     telemetry: telemetry
                 )
@@ -24650,12 +24651,12 @@ struct CMUXCLI {
                 )
                 if shouldClearVisibleState, !suppressVisibleMutations {
                     _ = try? sendV1Command(
-                        "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(workspaceId)\(socketPanelOption(consumedSession.surfaceId)) --clear-status",
+                        "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(workspaceId)\(socketPanelOption(cleanupSurfaceId)) --clear-status",
                         client: client
                     )
                     try? sessionStore.clearAgentLifecycleIfPresent(
                         sessionId: consumedSession.sessionId,
-                        workspaceId: workspaceId,
+                        workspaceId: consumedSession.workspaceId,
                         surfaceId: consumedSession.surfaceId
                     )
                     _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
@@ -24677,8 +24678,12 @@ struct CMUXCLI {
             // Clears "Needs input" status and notification when Claude resumes work
             // (e.g. after permission grant). Runs async so it doesn't block tool execution.
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            // Skip only the pid/tty scan per tool call; the cheap
+            // `{surface_id}` re-home probe stays enabled so a mid-turn pane
+            // move cannot make this hook mutate (and re-record) the old
+            // workspace's focused pane.
             var preToolUseRouting = hookRouting
-            preToolUseRouting.allowsLiveProbe = false
+            preToolUseRouting.allowsPidProbe = false
             guard let resolvedTarget = try resolveClaudeHookDeliveryTarget(
                 mappedSession: mappedSession,
                 routing: preToolUseRouting,

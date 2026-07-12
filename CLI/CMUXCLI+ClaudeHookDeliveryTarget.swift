@@ -8,7 +8,8 @@
 //   1. live agent-pid target (`agent.resolve_delivery_target {pid}`) — the
 //      surface that owns the agent process RIGHT NOW; wins over a polluted
 //      session record (#7391 resume/tty drift) and heals it via the caller's
-//      subsequent upsert.
+//      subsequent upsert. Local direct-socket hooks only: a relay-backed
+//      connection carries a remote host's pid namespace.
 //   2. the legacy chain (session record → caller tty → spawn env), each
 //      validated against a live workspace (unchanged from #7228).
 //   3. identity-surface re-home (`agent.resolve_delivery_target
@@ -43,9 +44,13 @@ extension CMUXCLI {
         let preferCallerTTYRouting: Bool
         let callerTerminalBinding: (() -> CallerTerminalBinding?)?
         let agentPid: Int?
-        /// Frequent, low-stakes events (per-tool PreToolUse) skip the live
-        /// probes and rely on records healed by the turn-level hooks.
-        var allowsLiveProbe: Bool = true
+        /// Frequent events (per-tool PreToolUse) skip the pid/tty scan and
+        /// rely on records healed by the turn-level hooks. This does NOT gate
+        /// the cheap `{surface_id}` re-home probe: that probe only fires when
+        /// the resolved surface was a non-authoritative guess, and disabling
+        /// it would let a stale record mutate (and, via upsert, re-record) the
+        /// wrong pane mid-turn.
+        var allowsPidProbe: Bool = true
     }
 
     func resolveClaudeHookDeliveryTarget(
@@ -53,8 +58,9 @@ extension CMUXCLI {
         routing: ClaudeHookRoutingContext,
         client: SocketClient
     ) throws -> ClaudeHookDeliveryTarget? {
-        let probesAllowed = routing.allowsLiveProbe && routing.preferCallerTTYRouting
-        if probesAllowed,
+        let pidProbeAllowed = routing.allowsPidProbe && routing.preferCallerTTYRouting
+        let rehomeAllowed = routing.preferCallerTTYRouting
+        if pidProbeAllowed,
            let live = liveAgentPidDeliveryTarget(
                pid: routing.agentPid ?? mappedSession?.pid,
                client: client
@@ -71,7 +77,7 @@ extension CMUXCLI {
             // Every workspace claim is dead (e.g. the recorded workspace was
             // closed after its pane moved out): follow the identity surface to
             // whichever workspace owns it now, else stay a no-op.
-            guard probesAllowed else { return nil }
+            guard rehomeAllowed else { return nil }
             return rehomedClaudeHookDeliveryTarget(
                 surfaceId: mappedSession?.surfaceId,
                 claimedWorkspaceId: mappedSession?.workspaceId,
@@ -90,7 +96,7 @@ extension CMUXCLI {
             callerTerminalBinding: routing.callerTerminalBinding,
             client: client
         )
-        if !resolvedSurface.isAuthoritative, probesAllowed {
+        if !resolvedSurface.isAuthoritative, rehomeAllowed {
             // The legacy chain fell back to a focused-surface guess: the
             // identity surface was not in the resolved workspace's listing.
             // If the app confirms which workspace currently owns the identity
@@ -125,7 +131,14 @@ extension CMUXCLI {
         pid: Int?,
         client: SocketClient
     ) -> ClaudeHookDeliveryTarget? {
-        guard let pid, pid > 0,
+        // A relay-backed connection means this hook is not running in the
+        // app's process namespace (SSH/cloud host): its CMUX_CLAUDE_PID is a
+        // REMOTE pid, and resolving that number against the Mac's local
+        // process table could match an unrelated local process attached to
+        // some other pane. Surface/workspace UUIDs are machine-independent,
+        // so the legacy chain and the {surface_id} re-home probe still apply.
+        guard !client.isRelayBacked,
+              let pid, pid > 0,
               let payload = try? client.sendV2(
                   method: "agent.resolve_delivery_target",
                   params: ["pid": pid],

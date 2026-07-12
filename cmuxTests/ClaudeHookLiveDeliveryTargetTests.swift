@@ -250,6 +250,128 @@ struct ClaudeHookLiveDeliveryTargetTests {
         #expect(record?["surfaceId"] as? String == Self.liveSurfaceId)
     }
 
+    /// SessionEnd is the only hook after a pane move (Ctrl-C exit): its
+    /// cleanup must clear status and notifications on the workspace that owns
+    /// the pane NOW, not the consumed record's stale workspace — clearing the
+    /// old workspace would leave the moved pane stuck and wipe unrelated
+    /// panes' notifications there.
+    @Test func sessionEndCleanupFollowsMovedPane() throws {
+        let context = try Harness.makeContext(name: "session-end-moved-pane")
+        defer { context.cleanup() }
+        let sessionId = "session-end-moved-pane-session"
+        let newWorkspaceId = "88888888-8888-8888-8888-888888888888"
+
+        try Harness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: sessionId,
+            workspaceId: Self.liveWorkspaceId,
+            surfaceId: Self.liveSurfaceId,
+            cwd: context.root.path
+        )
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [
+                Self.liveWorkspaceId: [Self.fallbackSurfaceId],
+                newWorkspaceId: [Self.liveSurfaceId],
+            ],
+            pidTarget: nil,
+            surfaceTargets: [Self.liveSurfaceId: newWorkspaceId]
+        )
+
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        environment["CMUX_CLAUDE_PID"] = "43215"
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-end"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"SessionEnd","cwd":"\#(context.root.path)"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let commands = context.state.snapshot()
+        #expect(
+            commands.contains {
+                $0.hasPrefix("clear_agent_pid claude_code ")
+                    && $0.contains("--tab=\(newWorkspaceId)")
+                    && $0.contains("--panel=\(Self.liveSurfaceId)")
+            },
+            "SessionEnd must clear agent pid/status on the pane's current workspace; saw \(commands)"
+        )
+        #expect(
+            commands.contains("clear_notifications --tab=\(newWorkspaceId)"),
+            "SessionEnd must clear notifications on the pane's current workspace; saw \(commands)"
+        )
+        #expect(
+            !commands.contains { $0.hasPrefix("clear_notifications --tab=\(Self.liveWorkspaceId)") },
+            "SessionEnd must not wipe the stale workspace's notifications; saw \(commands)"
+        )
+    }
+
+    /// A pane moves mid-turn: the next PreToolUse (which skips the pid/tty
+    /// scan for frequency) must still re-home via the cheap `{surface_id}`
+    /// probe instead of mutating — and re-recording via upsert — the old
+    /// workspace's focused pane.
+    @Test func preToolUseFollowsMovedPaneWithoutPidProbe() throws {
+        let context = try Harness.makeContext(name: "pre-tool-use-rehome")
+        defer { context.cleanup() }
+        let sessionId = "pre-tool-use-rehome-session"
+        let newWorkspaceId = "99999999-9999-9999-9999-999999999999"
+
+        try Harness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: sessionId,
+            workspaceId: Self.liveWorkspaceId,
+            surfaceId: Self.liveSurfaceId,
+            cwd: context.root.path
+        )
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [
+                Self.liveWorkspaceId: [Self.fallbackSurfaceId],
+                newWorkspaceId: [Self.liveSurfaceId],
+            ],
+            pidTarget: nil,
+            surfaceTargets: [Self.liveSurfaceId: newWorkspaceId]
+        )
+
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        environment["CMUX_CLAUDE_PID"] = "43216"
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"\#(context.root.path)"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let commands = context.state.snapshot()
+        #expect(
+            commands.contains {
+                $0.hasPrefix("set_status claude_code Running ")
+                    && $0.contains("--tab=\(newWorkspaceId)")
+                    && $0.contains("--panel=\(Self.liveSurfaceId)")
+            },
+            "PreToolUse status must follow the moved pane; saw \(commands)"
+        )
+        #expect(
+            !commands.contains { $0.contains("--panel=\(Self.fallbackSurfaceId)") },
+            "PreToolUse must not mutate the old workspace's focused pane; saw \(commands)"
+        )
+        let record = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        #expect(record?["workspaceId"] as? String == newWorkspaceId, "Session record must re-home, not re-pollute")
+        #expect(record?["surfaceId"] as? String == Self.liveSurfaceId)
+    }
+
     /// Older app without `agent.resolve_delivery_target`: the legacy chain
     /// (session record validated against live workspaces) keeps working.
     @Test func stopWithoutResolverMethodKeepsLegacyRouting() throws {

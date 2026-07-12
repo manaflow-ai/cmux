@@ -77,7 +77,7 @@ extension AppDelegate {
             // Bounded: one fast `stat` per live surface (the same per-surface
             // scan `WorkspaceConfigActionCapture` performs), and only at
             // turn-level hook frequency — per-tool PreToolUse hooks set
-            // `allowsLiveProbe = false` on the CLI side. The env probe below
+            // `allowsPidProbe = false` on the CLI side. The env probe below
             // is cached per process start-time key (positive hits are
             // permanent), so it does not re-read procargs per hook.
             var bindings: [(workspaceId: UUID, surfaceId: UUID, ttyDevice: Int64)] = []
