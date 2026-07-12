@@ -285,6 +285,38 @@ struct RemoteProxyBrokerPTYLifecycleRestartTests {
         #expect(registry.take(RemotePTYLifecycleKey(sessionID: "session-265", lifecycleID: "generation-265")) != nil)
     }
 
+    @Test("newer ended attachment generation supersedes its predecessor")
+    func newerEndedAttachmentGenerationSupersedesPredecessor() throws {
+        let provider = FakeTunnelProvider()
+        let broker = RemoteProxyBroker(tunnelProvider: provider, clock: ManualRetryClock())
+        let configuration = makeConfiguration()
+        let lease = broker.acquire(configuration: configuration, remotePath: "/r/p") { _ in }
+        defer { lease.release() }
+        let tunnel = try #require(provider.tunnels.first)
+
+        for lifecycleID in ["old-generation", "new-generation"] {
+            _ = try broker.startPTYBridge(
+                configuration: configuration,
+                sessionID: "session",
+                lifecycleID: lifecycleID,
+                attachmentID: "surface",
+                command: nil,
+                requireExisting: true
+            )
+            tunnel.reportLifecycleEnded(sessionID: "session", lifecycleID: lifecycleID)
+            _ = try broker.listPTY(configuration: configuration)
+        }
+
+        #expect(!broker.acknowledgePTYLifecycleAfterWrapperEnd(
+            sessionID: "session",
+            lifecycleID: "old-generation"
+        ))
+        #expect(broker.acknowledgePTYLifecycleAfterWrapperEnd(
+            sessionID: "session",
+            lifecycleID: "new-generation"
+        ))
+    }
+
     @Test("forced local proxy port is used verbatim")
     func forcedLocalProxyPort() throws {
         let provider = FakeTunnelProvider()
