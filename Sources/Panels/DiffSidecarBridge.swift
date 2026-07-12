@@ -27,6 +27,16 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
     // Longer than the sidecar's 120-second branch regeneration limit.
     private nonisolated static let requestTimeout: TimeInterval = 130
 
+    /// Faults the Rust executable and its dynamic dependencies into the OS cache
+    /// during app startup. The handshake uses stdio and exits; it never binds a
+    /// port or leaves a sidecar process running.
+    nonisolated static func prewarm() {
+        Task.detached(priority: .utility) {
+            let request = Data(#"{"id":"prewarm","version":1,"method":"protocolHandshake"}"#.utf8)
+            _ = try? await runSidecar(request: request)
+        }
+    }
+
     static func installIfNeeded(on userContentController: WKUserContentController) {
         guard objc_getAssociatedObject(userContentController, &handlerInstalledKey) == nil else {
             return
@@ -93,8 +103,7 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
             throw CocoaError(.fileNoSuchFile)
         }
 
-        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
-            .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
+        let root = try prepareRootDirectory()
         let process = Process()
         process.executableURL = sidecar
         process.arguments = ["rpc", "--root", root.path, "--cmux", cmux.path]
@@ -175,6 +184,18 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
             throw CocoaError(.fileReadCorruptFile)
         }
         return outputData
+    }
+
+    nonisolated private static func prepareRootDirectory() throws -> URL {
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
+        return root
     }
 
     private static func failureResponse(body: Any, code: String, message: String) -> [String: Any] {

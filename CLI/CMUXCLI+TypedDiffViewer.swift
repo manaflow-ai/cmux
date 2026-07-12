@@ -192,4 +192,42 @@ extension CMUXCLI {
             allowedFiles: allowedFiles
         )
     }
+
+    /// Writes the first paint without loading or hashing the web application.
+    /// The host can register and open this document immediately, then navigate
+    /// the same surface after the typed session document is ready.
+    func writeDiffViewerOpeningHTML(
+        to viewerURL: URL,
+        title: String,
+        message: String,
+        appearance: DiffViewerAppearance
+    ) throws {
+        let escapedTitle = htmlEscaped(title)
+        let escapedMessage = htmlEscaped(message)
+        let html = """
+        <!doctype html>
+        <html data-cmux-diff-pending="true">
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>\(escapedTitle)</title>
+          \(diffViewerPrepaintStyle(appearance: appearance))
+          <style>
+            body { margin: 0; color: var(--cmux-diff-fg); font: 13px -apple-system, BlinkMacSystemFont, sans-serif; }
+            .loading { display: flex; align-items: center; gap: 10px; margin: 20px 16px; opacity: .72; }
+            .spinner { width: 16px; height: 16px; border: 3px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
+            .skeleton { margin: 38px 20px; display: grid; gap: 20px; opacity: .12; }
+            .skeleton i { display: block; height: 14px; border-radius: 6px; background: currentColor; }
+            .skeleton i:nth-child(2n) { width: 72%; }
+            @keyframes spin { to { transform: rotate(360deg); } }
+          </style>
+        </head>
+        <body>
+          <div class="loading"><span class="spinner"></span><span>\(escapedMessage)</span></div>
+          <div class="skeleton"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        </body>
+        </html>
+        """
+        try html.write(to: viewerURL, atomically: true, encoding: .utf8)
+    }
 }

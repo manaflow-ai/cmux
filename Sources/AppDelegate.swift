@@ -1264,6 +1264,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationDidFinishLaunching(_ notification: Notification) {
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
+        if !isRunningUnderXCTest {
+            DiffSidecarBridge.prewarm()
+        }
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
         StartupBreadcrumbLog.append(
             "appDelegate.didFinish.begin",

@@ -4053,29 +4053,13 @@ extension CMUXCLI {
         let sourceLabel = "git \(selectedSource.slug)"
         let title = titleOverride ?? selectedSource.title
         let message = diffViewerLoadingDiffMessage(selectedSource.menuLabel)
-        try writeDiffViewerStatusHTML(
+        try writeDiffViewerOpeningHTML(
             to: openingFileURL,
             title: title,
-            sourceLabel: sourceLabel,
             message: message,
-            isError: false,
-            pollForReplacement: true,
-            layout: layout,
-            layoutSource: layoutSource,
             appearance: appearance,
-            sourceOptions: [],
-            repoOptions: [],
-            baseOptions: [],
-            repoRoot: repoRoot,
-            branchBaseRef: selectedSource == .branch ? context.branchBaseRef : nil,
-            runtime: target.runtime
         )
-        let assets = try ensureDiffViewerAssets(nextTo: openingFileURL, runtime: target.runtime)
-        let allowedFiles = try diffViewerAllowedFiles(
-            pageURLs: [openingFileURL],
-            assets: assets,
-            mapper: mapper
-        )
+        let allowedFiles = [try mapper.allowedFile(fileURL: openingFileURL, mimeType: "text/html")]
         try writeDiffViewerHTTPManifest(
             token: mapper.token,
             files: allowedFiles,
@@ -7588,7 +7572,7 @@ extension CMUXCLI {
         try html.write(to: viewerURL, atomically: true, encoding: .utf8)
     }
 
-    private func diffViewerPrepaintStyle(appearance: DiffViewerAppearance) -> String {
+    func diffViewerPrepaintStyle(appearance: DiffViewerAppearance) -> String {
         let lightForeground = diffViewerCSSColor(appearance.lightTheme.foreground)
         let darkForeground = diffViewerCSSColor(appearance.darkTheme.foreground)
         return """
@@ -7826,7 +7810,7 @@ extension CMUXCLI {
         return text.replacingOccurrences(of: "</", with: "<\\/")
     }
 
-    private func htmlEscaped(_ raw: String) -> String {
+    func htmlEscaped(_ raw: String) -> String {
         raw
             .replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
