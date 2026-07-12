@@ -67,6 +67,18 @@ struct RemoteDisconnectLifecycleTests {
         #expect(workspace.remoteDisconnectPlaceholderPanelIds == Set([first.id, second.id]))
     }
 
+    @Test func changedConfigurationClearsPendingExitOwnership() throws {
+        let workspace = Workspace()
+        workspace.configureRemoteConnection(Self.remoteConfiguration(), autoConnect: false)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panel.id, relayPort: 64007)
+        #expect(workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(panel.id))
+
+        workspace.configureRemoteConnection(Self.remoteConfiguration(port: 2222), autoConnect: false)
+
+        #expect(!workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(panel.id))
+    }
+
     @Test func wrapperCreationFailurePreservesOriginalDeadSurface() throws {
         let workspace = Workspace()
         workspace.configureRemoteConnection(Self.remoteConfiguration(), autoConnect: false)
@@ -213,10 +225,10 @@ struct RemoteDisconnectLifecycleTests {
         #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(replacement.id))
     }
 
-    private static func remoteConfiguration() -> WorkspaceRemoteConfiguration {
+    private static func remoteConfiguration(port: Int? = nil) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
-            port: nil,
+            port: port,
             identityFile: nil,
             sshOptions: [],
             localProxyPort: nil,
