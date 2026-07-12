@@ -8,6 +8,7 @@ final class MobileWorkingTreeDiffLoader: Sendable {
     private let maximumUntrackedFiles = 200
     private let maximumPathListBytes = 1024 * 1024
     private let maximumErrorBytes = 64 * 1024
+    private let processTimeout = Duration.seconds(15)
 
     func load(directory: String, title: String) async throws -> [String: Any] {
         let repoResult = try await runGit(
@@ -56,6 +57,7 @@ final class MobileWorkingTreeDiffLoader: Sendable {
         }
         for pathData in paths {
             guard let path = String(data: Data(pathData), encoding: .utf8), !path.isEmpty else { continue }
+            guard Self.isDiffableUntrackedFile(path, repositoryRoot: repositoryRoot) else { continue }
             let result = try await runGit(
                 ["diff", "--no-index", "--no-textconv", "--binary", "--", "/dev/null", path],
                 directory: repositoryRoot,
@@ -92,6 +94,12 @@ final class MobileWorkingTreeDiffLoader: Sendable {
         process.standardInput = FileHandle.nullDevice
 
         let cancellation = MobileDiffProcessCancellation(process: process)
+        let timeout = processTimeout
+        let timeoutTask = Task.detached {
+            try await Task.sleep(for: timeout)
+            cancellation.cancel()
+        }
+        defer { timeoutTask.cancel() }
         let stdoutFD = stdout.fileHandleForReading.fileDescriptor
         let stderrFD = stderr.fileHandleForReading.fileDescriptor
         let stdoutRead = Task.detached {
@@ -135,6 +143,14 @@ final class MobileWorkingTreeDiffLoader: Sendable {
         let output = await stdoutRead.value
         _ = await stderrRead.value
         return (status, output.data, output.overflowed)
+    }
+
+    private static func isDiffableUntrackedFile(_ path: String, repositoryRoot: String) -> Bool {
+        var metadata = stat()
+        let fullPath = URL(fileURLWithPath: repositoryRoot).appendingPathComponent(path).path
+        guard lstat(fullPath, &metadata) == 0 else { return false }
+        let kind = metadata.st_mode & S_IFMT
+        return kind == S_IFREG || kind == S_IFLNK
     }
 
     /// Drains a pipe to EOF while retaining only the caller's bounded prefix.

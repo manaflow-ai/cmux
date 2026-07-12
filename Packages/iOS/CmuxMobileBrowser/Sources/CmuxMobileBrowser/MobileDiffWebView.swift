@@ -120,10 +120,16 @@ public struct MobileDiffWebView: UIViewRepresentable {
         public func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             guard message.name == Self.messageHandlerName,
                   let body = message.body as? [String: Any],
-                  body["type"] as? String == "files",
                   let generation = body["generation"] as? Int,
                   generation == state.generation,
-                  let rawFiles = body["files"] else { return }
+                  let type = body["type"] as? String else { return }
+            if type == "selection" {
+                if let selectedFileID = body["selectedItemId"] as? String {
+                    state.selectFile(id: selectedFileID)
+                }
+                return
+            }
+            guard type == "files", let rawFiles = body["files"] else { return }
             do {
                 let data = try JSONSerialization.data(withJSONObject: rawFiles)
                 let files = try JSONDecoder().decode([MobileDiffFile].self, from: data)

@@ -11,8 +11,13 @@ export type MobileDiffFile = {
 export type MobileDiffFilesMessage = {
   files: MobileDiffFile[];
   generation: number | null;
-  selectedItemId: string;
   type: "files";
+};
+
+export type MobileDiffSelectionMessage = {
+  generation: number | null;
+  selectedItemId: string;
+  type: "selection";
 };
 
 type MobileDiffMessageHandler = {
@@ -51,20 +56,23 @@ export function mobileDiffFiles(source: FileTreeSource | null): MobileDiffFile[]
 
 export function mobileDiffMessage(
   source: FileTreeSource | null,
-  selectedItemId: string,
   generation: number | null,
 ): MobileDiffFilesMessage {
   return {
     type: "files",
     files: mobileDiffFiles(source),
     generation,
-    selectedItemId,
   };
 }
 
-export function installMobileDiffBridge(
-  source: FileTreeSource | null,
+export function mobileDiffSelectionMessage(
   selectedItemId: string,
+  generation: number | null,
+): MobileDiffSelectionMessage {
+  return { type: "selection", generation, selectedItemId };
+}
+
+export function installMobileDiffBridge(
   generation: number | null,
   selectFile: (itemId: string) => void,
 ): () => void {
@@ -75,9 +83,6 @@ export function installMobileDiffBridge(
   }
   const bridge = { selectFile };
   bridgeWindow.__cmuxMobileDiff = bridge;
-  messageHandler.postMessage(
-    mobileDiffMessage(source, selectedItemId, generation),
-  );
   return () => {
     if (bridgeWindow.__cmuxMobileDiff === bridge) {
       delete bridgeWindow.__cmuxMobileDiff;
@@ -89,10 +94,23 @@ export function useMobileDiffBridge(
   source: FileTreeSource | null,
   selectedItemId: string,
   generation: number | null,
+  streamComplete: boolean,
   selectFile: (itemId: string) => void,
 ): void {
   useEffect(
-    () => installMobileDiffBridge(source, selectedItemId, generation, selectFile),
-    [source, selectedItemId, generation, selectFile],
+    () => installMobileDiffBridge(generation, selectFile),
+    [generation, selectFile],
   );
+  useEffect(() => {
+    const messageHandler = (window as MobileDiffBridgeWindow).webkit?.messageHandlers?.cmuxMobileDiff;
+    if (generation !== null && streamComplete && messageHandler) {
+      messageHandler.postMessage(mobileDiffMessage(source, generation));
+    }
+  }, [source, generation, streamComplete]);
+  useEffect(() => {
+    const messageHandler = (window as MobileDiffBridgeWindow).webkit?.messageHandlers?.cmuxMobileDiff;
+    if (generation !== null && messageHandler) {
+      messageHandler.postMessage(mobileDiffSelectionMessage(selectedItemId, generation));
+    }
+  }, [selectedItemId, generation]);
 }

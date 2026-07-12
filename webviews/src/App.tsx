@@ -330,7 +330,13 @@ export function App({ config, initialStatus }: ConfigProps) {
   const mobileDiffGeneration = Number.isInteger(payload.mobileDiffGeneration)
     ? payload.mobileDiffGeneration as number
     : null;
-  useMobileDiffBridge(state.treeSource, state.activeItemId, mobileDiffGeneration, scrollToItem);
+  useMobileDiffBridge(
+    state.treeSource,
+    state.activeItemId,
+    mobileDiffGeneration,
+    diffStreamComplete,
+    scrollToItem,
+  );
   const setStatus = (status: DiffViewerStatus) => {
     applyDiffViewerStatusToDocument(status);
     dispatch({ type: "set-status", status });
