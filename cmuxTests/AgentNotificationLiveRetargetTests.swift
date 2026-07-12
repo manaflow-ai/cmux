@@ -207,6 +207,31 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
         )
     }
 
+    func testAsyncSurfaceScopedClearDiscardsStaleKeyedPendingNotification() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+
+        // Same resurrection race as the store-clear test, via the async
+        // `clear_notifications --tab --panel` socket path.
+        TerminalMutationBus.shared.enqueueNotification(
+            tabId: fixture.claimedWorkspace.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Stale queued"
+        )
+        TerminalMutationBus.shared.enqueueClearNotifications(
+            forTabId: fixture.owningWorkspace.id,
+            surfaceId: fixture.panelId
+        )
+        TerminalMutationBus.shared.drainForTesting()
+
+        XCTAssertTrue(
+            fixture.store.notifications.filter { $0.title == "Claude Code" }.isEmpty,
+            "An async surface-scoped clear must discard the stale-keyed pending entry, not let it re-deliver"
+        )
+    }
+
     func testCreateForCallerFollowsMovedPreferredSurface() throws {
         let fixture = try makeFixture()
         defer { fixture.restore() }

@@ -88,8 +88,9 @@ final class TerminalMutationBus: @unchecked Sendable {
     }
 
     nonisolated func enqueueClearNotifications(forTabId tabId: UUID, surfaceId: UUID) {
+        // Canonical surface identity: a stale-keyed entry would retarget here at drain.
         enqueueClear(.clearNotificationsForSurface(tabId, surfaceId)) { notification in
-            notification.key.tabId == tabId && notification.key.surfaceId == surfaceId
+            notification.key.surfaceId == surfaceId
         }
     }
 

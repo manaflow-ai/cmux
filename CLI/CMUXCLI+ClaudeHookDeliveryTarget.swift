@@ -88,6 +88,21 @@ extension CMUXCLI {
                 client: client
             )
         }
+        // The record's workspace died (the legacy chain resolved a DIFFERENT
+        // workspace than the session recorded): the record surface's current
+        // owner outranks whatever the caller-tty fallback would pick, which
+        // can be an unrelated pane via a stale tty row. Only if the record
+        // surface is gone too does the legacy fallback proceed.
+        if rehomeAllowed,
+           let recordedWorkspaceId = nonEmptyClaudeHookIdentifier(mappedSession?.workspaceId),
+           recordedWorkspaceId != workspaceId,
+           let rehomed = rehomedClaudeHookDeliveryTarget(
+               surfaceId: mappedSession?.surfaceId,
+               claimedWorkspaceId: nil,
+               client: client
+           ) {
+            return rehomed
+        }
         let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
             preferred: mappedSession?.surfaceId,
             fallback: routing.surfaceArg,
