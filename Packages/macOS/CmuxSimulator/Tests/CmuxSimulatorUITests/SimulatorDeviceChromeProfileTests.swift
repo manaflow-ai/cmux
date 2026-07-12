@@ -6,6 +6,25 @@ import Testing
 
 @Suite("DeviceKit chrome geometry")
 struct SimulatorDeviceChromeProfileTests {
+    @Test("Distinguishes tablet and phone screen proportions")
+    func deviceProportions() {
+        let phone = profileFixture()
+        let tablet = SimulatorDeviceChromeProfile(
+            screenWidth: 1_032,
+            screenHeight: 1_376,
+            insets: .init(top: 18, leading: 18, bottom: 18, trailing: 18),
+            devicePadding: .zero,
+            cornerRadius: 22,
+            screenCornerRadius: 18,
+            assets: [:],
+            compositeURL: nil,
+            buttons: []
+        )
+
+        #expect(!phone.isTablet)
+        #expect(tablet.isTablet)
+    }
+
     @Test("Maps the exact portrait screen opening")
     func portraitScreenOpening() {
         let profile = profileFixture()
