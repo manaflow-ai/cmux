@@ -116,7 +116,6 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
 class TerminalController {
     static let shared = TerminalController()
     let mobileWorkingTreeDiffCoordinator = MobileWorkingTreeDiffCoordinator()
-
     private nonisolated let remotePTYControllerAvailabilityCondition = NSCondition()
     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
     var tabManager: TabManager?
