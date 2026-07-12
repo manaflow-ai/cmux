@@ -6,9 +6,7 @@ import Foundation
 /// Native iOS chrome around the shared web diff renderer.
 public struct MobileDiffPane: View {
     @State private var state: MobileDiffState
-    @State private var showsFiles = false
-    @State private var fileListFiles: [MobileDiffFile] = []
-    @State private var fileListSelectedFileID: String?
+    @State private var fileListContext: MobileDiffFileListContext?
     private let onClose: () -> Void
     private let onReload: () -> Void
 
@@ -32,9 +30,10 @@ public struct MobileDiffPane: View {
                 canSelectPrevious: state.canSelectPrevious,
                 canSelectNext: state.canSelectNext,
                 showFiles: {
-                    fileListFiles = state.files
-                    fileListSelectedFileID = state.selectedFileID
-                    showsFiles = true
+                    fileListContext = MobileDiffFileListContext(
+                        files: state.files,
+                        selectedFileID: state.selectedFileID
+                    )
                 },
                 selectPrevious: state.selectPrevious,
                 selectNext: state.selectNext,
@@ -45,14 +44,20 @@ public struct MobileDiffPane: View {
             MobileDiffContent(state: state, reload: onReload)
         }
         .background(Color(.systemBackground))
-        .sheet(isPresented: $showsFiles) {
+        .sheet(item: $fileListContext) { context in
             MobileDiffFileList(
-                files: fileListFiles,
-                selectedFileID: fileListSelectedFileID,
+                files: context.files,
+                selectedFileID: context.selectedFileID,
                 selectFile: { state.selectFile(id: $0) },
-                dismiss: { showsFiles = false }
+                dismiss: { fileListContext = nil }
             )
         }
     }
+}
+
+private struct MobileDiffFileListContext: Identifiable {
+    let id = UUID()
+    let files: [MobileDiffFile]
+    let selectedFileID: String?
 }
 #endif
