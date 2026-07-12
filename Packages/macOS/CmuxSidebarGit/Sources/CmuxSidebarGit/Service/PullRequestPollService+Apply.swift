@@ -74,6 +74,7 @@ extension PullRequestPollService {
 
             if let requestedSource = requestedSourceByKey[key],
                workspacePullRequestSourceByKey[key] != requestedSource {
+                CmuxSidebarGitRuntimeMetrics.recordStaleApply()
                 if let currentSource = workspacePullRequestSourceByKey[key] {
                     if PullRequestProbeService.shouldSkipLookup(branch: currentSource.branch) {
                         clearWorkspacePullRequestTracking(for: key, preservingSource: true)

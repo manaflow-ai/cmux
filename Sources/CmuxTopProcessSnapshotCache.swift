@@ -19,31 +19,24 @@ actor CmuxTopProcessSnapshotStore {
         let snapshot: CmuxTopProcessSnapshot
         let requirements: CmuxTopProcessSnapshotRequirements
         let storedAt: Date
-#if DEBUG
         let generation: UInt64
         let metricsToken: ProcessPerformanceMetricToken
-#endif
     }
 
     private struct InFlightCapture {
         let id: UInt64
         let requirements: CmuxTopProcessSnapshotRequirements
         let task: Task<CmuxTopProcessSnapshot, Never>
-#if DEBUG
         let metricsToken: ProcessPerformanceMetricToken
-#endif
     }
 
     private let now: Now
     private let capture: Capture
-#if DEBUG
     private let metrics: ProcessPerformanceMetrics
-#endif
     private var cached: CachedSnapshot?
     private var inFlight: InFlightCapture?
     private var nextCaptureID: UInt64 = 0
 
-#if DEBUG
     init(
         now: @escaping Now = { Date() },
         capture: @escaping Capture = { requirements in
@@ -58,43 +51,25 @@ actor CmuxTopProcessSnapshotStore {
         self.capture = capture
         self.metrics = metrics
     }
-#else
-    init(
-        now: @escaping Now = { Date() },
-        capture: @escaping Capture = { requirements in
-            CmuxTopProcessSnapshot.capture(
-                includeProcessDetails: requirements.contains(.processDetails),
-                includeCMUXScope: requirements.contains(.cmuxScope)
-            )
-        }
-    ) {
-        self.now = now
-        self.capture = capture
-    }
-#endif
 
     func snapshot(
         requirements: CmuxTopProcessSnapshotRequirements,
         maximumAge: TimeInterval,
         consumer: ProcessSnapshotConsumer = .unspecified
     ) async -> CmuxTopProcessSnapshot {
-#if DEBUG
         metrics.recordProcessSnapshotRequest(consumer: consumer)
-#endif
         let requestedAt = await now()
         if let cached = validCachedSnapshot(
             requirements: requirements,
             maximumAge: maximumAge,
             now: requestedAt
         ) {
-#if DEBUG
             metrics.recordProcessSnapshotReuse(
                 consumer: consumer,
                 generation: cached.generation,
                 source: .cache,
                 token: cached.metricsToken
             )
-#endif
             return cached.snapshot
         }
 
@@ -103,14 +78,12 @@ actor CmuxTopProcessSnapshotStore {
                 let snapshot = await inFlight.task.value
                 await finishCapture(inFlight, snapshot: snapshot)
                 if inFlight.requirements.isSuperset(of: requirements) {
-#if DEBUG
                     metrics.recordProcessSnapshotReuse(
                         consumer: consumer,
                         generation: inFlight.id,
                         source: .inFlight,
                         token: inFlight.metricsToken
                     )
-#endif
                     return snapshot
                 }
                 let now = await now()
@@ -119,14 +92,12 @@ actor CmuxTopProcessSnapshotStore {
                     maximumAge: maximumAge,
                     now: now
                 ) {
-#if DEBUG
                     metrics.recordProcessSnapshotReuse(
                         consumer: consumer,
                         generation: cached.generation,
                         source: .cache,
                         token: cached.metricsToken
                     )
-#endif
                     return cached.snapshot
                 }
                 continue
@@ -135,29 +106,19 @@ actor CmuxTopProcessSnapshotStore {
             nextCaptureID &+= 1
             let id = nextCaptureID
             let capture = self.capture
-#if DEBUG
             let metricsToken = metrics.processSnapshotCaptureStarted(
                 generation: id,
                 requirementsRawValue: requirements.rawValue
             )
-#endif
             let task = Task.detached(priority: .utility) {
                 await capture(requirements)
             }
-#if DEBUG
             let started = InFlightCapture(
                 id: id,
                 requirements: requirements,
                 task: task,
                 metricsToken: metricsToken
             )
-#else
-            let started = InFlightCapture(
-                id: id,
-                requirements: requirements,
-                task: task
-            )
-#endif
             inFlight = started
             let snapshot = await task.value
             await finishCapture(started, snapshot: snapshot)
@@ -171,7 +132,6 @@ actor CmuxTopProcessSnapshotStore {
     ) async {
         let storedAt = await now()
         guard inFlight?.id == completed.id else { return }
-#if DEBUG
         cached = CachedSnapshot(
             snapshot: snapshot,
             requirements: completed.requirements,
@@ -179,21 +139,12 @@ actor CmuxTopProcessSnapshotStore {
             generation: completed.id,
             metricsToken: completed.metricsToken
         )
-#else
-        cached = CachedSnapshot(
-            snapshot: snapshot,
-            requirements: completed.requirements,
-            storedAt: storedAt
-        )
-#endif
         inFlight = nil
-#if DEBUG
         metrics.processSnapshotCaptureCompleted(
             completed.metricsToken,
             generation: completed.id,
             processCount: snapshot.processesByPID.count
         )
-#endif
     }
 
     private func validCachedSnapshot(
@@ -213,7 +164,6 @@ actor CmuxTopProcessSnapshotStore {
 nonisolated extension CmuxTopProcessSnapshot {
     /// Measured escape hatch for lifecycle and compatibility code that cannot await
     /// ``CmuxTopProcessSnapshotStore``. Live and periodic consumers must use the actor.
-#if DEBUG
     static func captureSynchronouslyForCompatibility(
         includeProcessDetails: Bool = false,
         includeCMUXScope: Bool = true,
@@ -241,18 +191,4 @@ nonisolated extension CmuxTopProcessSnapshot {
         )
         return snapshot
     }
-#else
-    static func captureSynchronouslyForCompatibility(
-        includeProcessDetails: Bool = false,
-        includeCMUXScope: Bool = true,
-        captureBody: (Bool, Bool) -> CmuxTopProcessSnapshot = { includeProcessDetails, includeCMUXScope in
-            CmuxTopProcessSnapshot.capture(
-                includeProcessDetails: includeProcessDetails,
-                includeCMUXScope: includeCMUXScope
-            )
-        }
-    ) -> CmuxTopProcessSnapshot {
-        captureBody(includeProcessDetails, includeCMUXScope)
-    }
-#endif
 }

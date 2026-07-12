@@ -2570,6 +2570,9 @@ class TerminalController {
             "browser.input_mouse",
             "browser.input_keyboard",
             "browser.input_touch",
+            "performance.metrics.read",
+            "performance.metrics.reset",
+            "performance.metrics.stop",
         ]
 #if DEBUG
         methods.append(contentsOf: Self.v2DebugMethodNames)

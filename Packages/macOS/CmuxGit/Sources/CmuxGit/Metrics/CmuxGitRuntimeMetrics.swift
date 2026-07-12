@@ -1,0 +1,130 @@
+import os
+
+/// Process-wide counters for the tracked-status scan coordination path.
+///
+/// The snapshot contains aggregate counts only. It never records repository
+/// paths, cache keys, or other user data, so it is safe to collect in Release
+/// builds. Collection defaults off; a disabled record site performs one relaxed
+/// atomic load and does not take the counter lock. Enabled counter updates hold
+/// an unfair lock only long enough to increment a fixed-width integer.
+public struct CmuxGitRuntimeMetricsSnapshot: Codable, Equatable, Sendable {
+    public let schemaVersion: UInt64
+    public let enabled: Bool
+    public let rawTrackedStatusScanCount: UInt64
+    public let trackedStatusCacheHitCount: UInt64
+    public let trackedStatusInFlightJoinCount: UInt64
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case enabled
+        case rawTrackedStatusScanCount
+        case trackedStatusCacheHitCount
+        case trackedStatusInFlightJoinCount
+    }
+}
+
+/// Thread-safe access to process-wide ``CmuxGitRuntimeMetricsSnapshot`` values.
+public enum CmuxGitRuntimeMetrics {
+    private static let recorder = CmuxGitRuntimeMetricsRecorder()
+
+    /// Returns the current counters without changing them.
+    public static func snapshot() -> CmuxGitRuntimeMetricsSnapshot {
+        recorder.snapshot()
+    }
+
+    /// Clears all counters and selects whether subsequent events are recorded.
+    public static func reset(enable: Bool) {
+        recorder.reset(enable: enable)
+    }
+
+    /// Stops recording while preserving the counters already collected.
+    public static func disable() {
+        recorder.disable()
+    }
+
+    /// Returns the current counters and clears them in the same critical section.
+    public static func snapshotAndReset() -> CmuxGitRuntimeMetricsSnapshot {
+        recorder.snapshotAndReset()
+    }
+
+    @inline(__always)
+    static func recordRawTrackedStatusScan() {
+        recorder.recordRawTrackedStatusScan()
+    }
+
+    @inline(__always)
+    static func recordTrackedStatusCacheHit() {
+        recorder.recordTrackedStatusCacheHit()
+    }
+
+    @inline(__always)
+    static func recordTrackedStatusInFlightJoin() {
+        recorder.recordTrackedStatusInFlightJoin()
+    }
+}
+
+/// An instance-scoped recorder keeps tests independent from live package work.
+final class CmuxGitRuntimeMetricsRecorder: Sendable {
+    private struct State {
+        var enabled = false
+        var rawTrackedStatusScanCount: UInt64 = 0
+        var trackedStatusCacheHitCount: UInt64 = 0
+        var trackedStatusInFlightJoinCount: UInt64 = 0
+
+        var snapshot: CmuxGitRuntimeMetricsSnapshot {
+            CmuxGitRuntimeMetricsSnapshot(
+                schemaVersion: 1,
+                enabled: enabled,
+                rawTrackedStatusScanCount: rawTrackedStatusScanCount,
+                trackedStatusCacheHitCount: trackedStatusCacheHitCount,
+                trackedStatusInFlightJoinCount: trackedStatusInFlightJoinCount
+            )
+        }
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    func snapshot() -> CmuxGitRuntimeMetricsSnapshot {
+        state.withLock { $0.snapshot }
+    }
+
+    func reset(enable: Bool) {
+        state.withLock { $0 = State(enabled: enable) }
+    }
+
+    func disable() {
+        state.withLock { $0.enabled = false }
+    }
+
+    func snapshotAndReset() -> CmuxGitRuntimeMetricsSnapshot {
+        state.withLock { state in
+            let snapshot = state.snapshot
+            state = State(enabled: state.enabled)
+            return snapshot
+        }
+    }
+
+    @inline(__always)
+    func recordRawTrackedStatusScan() {
+        state.withLock { state in
+            guard state.enabled else { return }
+            state.rawTrackedStatusScanCount &+= 1
+        }
+    }
+
+    @inline(__always)
+    func recordTrackedStatusCacheHit() {
+        state.withLock { state in
+            guard state.enabled else { return }
+            state.trackedStatusCacheHitCount &+= 1
+        }
+    }
+
+    @inline(__always)
+    func recordTrackedStatusInFlightJoin() {
+        state.withLock { state in
+            guard state.enabled else { return }
+            state.trackedStatusInFlightJoinCount &+= 1
+        }
+    }
+}

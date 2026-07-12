@@ -11,6 +11,15 @@ private enum MobileWorkspaceInvalidation: Hashable {
     case workspace(UUID)
     case preview
     case summary
+
+    var metricKind: MobileWorkspaceObserverInvalidationMetricKind {
+        switch self {
+        case .workspaceGraph: .workspaceGraph
+        case .workspace: .workspace
+        case .preview: .preview
+        case .summary: .summary
+        }
+    }
 }
 
 /// Watches `TabManager.tabs` (and each workspace's panels publisher) and emits
@@ -58,11 +67,16 @@ final class MobileWorkspaceListObserver {
         // Initial snapshot. Every observer's first emit is unconditional so
         // freshly-paired clients see the current state without waiting for
         // the first mutation.
+        let graphToken = MobileWorkspaceObserverMetrics.shared.fullGraphRebuildStarted()
         let initialPreviewSignatures = currentPreviewSignatures(for: tabManager.tabs)
         lastPreviewSignatures = initialPreviewSignatures
         workspaceSummaryHashes = Self.workspaceSummaryHashes(
             for: tabManager.tabs,
             previewSignatures: initialPreviewSignatures
+        )
+        MobileWorkspaceObserverMetrics.shared.operationCompleted(
+            graphToken,
+            workspacesRehashed: tabManager.tabs.count
         )
         let initial = Self.summaryHash(
             workspaceHashes: workspaceSummaryHashes,
@@ -150,6 +164,8 @@ final class MobileWorkspaceListObserver {
         for tabs: [Workspace],
         notificationStore: TerminalNotificationStore?
     ) -> [UUID: Int] {
+        let metricsToken = MobileWorkspaceObserverMetrics.shared.previewSignaturesStarted()
+        defer { MobileWorkspaceObserverMetrics.shared.operationCompleted(metricsToken) }
         let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-preview-signatures", "workspaces=\(tabs.count) hasStore=\(notificationStore != nil)"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
         guard let notificationStore else { return [:] }
         var signatures: [UUID: Int] = [:]
@@ -214,8 +230,13 @@ final class MobileWorkspaceListObserver {
     }
 
     private func scheduleInvalidation(_ invalidation: MobileWorkspaceInvalidation) {
+        MobileWorkspaceObserverMetrics.shared.recordInvalidationSubmitted(invalidation.metricKind)
         invalidationBatcher.submit(true, for: invalidation) { [weak self] invalidations in
             guard let self, let tabManager = self.tabManager else { return }
+            let batchToken = MobileWorkspaceObserverMetrics.shared.batchDrainStarted(
+                invalidationCount: invalidations.count
+            )
+            defer { MobileWorkspaceObserverMetrics.shared.operationCompleted(batchToken) }
             if invalidations[.workspaceGraph] == true {
                 self.refreshPerWorkspaceSubscriptions(tabs: tabManager.tabs)
             }
@@ -232,14 +253,21 @@ final class MobileWorkspaceListObserver {
         tabs: [Workspace]
     ) {
         if invalidations.contains(.workspaceGraph) {
+            let metricsToken = MobileWorkspaceObserverMetrics.shared.fullGraphRebuildStarted()
             let previews = currentPreviewSignatures(for: tabs)
             lastPreviewSignatures = previews
             workspaceSummaryHashes = Self.workspaceSummaryHashes(
                 for: tabs,
                 previewSignatures: previews
             )
+            MobileWorkspaceObserverMetrics.shared.operationCompleted(
+                metricsToken,
+                workspacesRehashed: tabs.count
+            )
             return
         }
+
+        let metricsToken = MobileWorkspaceObserverMetrics.shared.incrementalRefreshStarted()
 
         let workspacesByID = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
         var workspaceIDs = Set(invalidations.compactMap { invalidation -> UUID? in
@@ -256,16 +284,22 @@ final class MobileWorkspaceListObserver {
             lastPreviewSignatures = previews
         }
 
+        var rehashedWorkspaceCount = 0
         for id in workspaceIDs {
             guard let workspace = workspacesByID[id] else {
                 workspaceSummaryHashes.removeValue(forKey: id)
                 continue
             }
+            rehashedWorkspaceCount += 1
             workspaceSummaryHashes[id] = Self.workspaceSummaryHash(
                 for: workspace,
                 previewSignature: lastPreviewSignatures[id]
             )
         }
+        MobileWorkspaceObserverMetrics.shared.operationCompleted(
+            metricsToken,
+            workspacesRehashed: rehashedWorkspaceCount
+        )
     }
 
     private func emitIfNeeded(force: Bool) {
@@ -278,12 +312,14 @@ final class MobileWorkspaceListObserver {
             selectedTabID: tabManager.selectedTabId
         )
         if !force, hash == lastSummaryHash {
+            MobileWorkspaceObserverMetrics.shared.recordSkip()
             #if DEBUG
             cmuxDebugLog("mobile.observer skip: hash unchanged=\(hash) tabs=\(tabManager.tabs.count)")
             #endif
             return
         }
         lastSummaryHash = hash
+        MobileWorkspaceObserverMetrics.shared.recordEmit()
         mobileWorkspaceObserverLog.debug("emitting workspace.updated (hash=\(hash, privacy: .public))")
         #if DEBUG
         cmuxDebugLog("mobile.observer EMIT workspace.updated hash=\(hash) tabs=\(tabManager.tabs.count) force=\(force)")
@@ -312,6 +348,8 @@ final class MobileWorkspaceListObserver {
         groups: [WorkspaceGroup],
         selectedTabID: UUID?
     ) -> Int {
+        let metricsToken = MobileWorkspaceObserverMetrics.shared.summaryHashStarted()
+        defer { MobileWorkspaceObserverMetrics.shared.operationCompleted(metricsToken) }
         let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-summary-hash", "workspaces=\(orderedWorkspaceIDs.count) groups=\(groups.count) selected=\(selectedTabID.map { String($0.uuidString.prefix(5)) } ?? "nil")"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
         var hasher = Hasher()
         hasher.combine(orderedWorkspaceIDs.count)

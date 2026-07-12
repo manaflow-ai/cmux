@@ -12,6 +12,34 @@ import Testing
 @Suite
 struct ProcessPerformanceMetricsEpochTests {
     @Test
+    func disabledCollectionDoesNotAccumulateUntilExplicitReset() {
+        let metricsStore = ProcessPerformanceMetrics(enabled: false)
+        let token = metricsStore.processSnapshotCaptureStarted(
+            generation: 1,
+            requirementsRawValue: 0
+        )
+        metricsStore.processSnapshotCaptureCompleted(token, generation: 1, processCount: 3)
+
+        #expect(metricsStore.snapshot().enabled == false)
+        #expect(metricsStore.snapshot().processSnapshots.captureStarted == 0)
+        #expect(metricsStore.snapshot().foundationObject["schema_version"] as? Int == 2)
+        #expect(metricsStore.snapshot().foundationObject["enabled"] as? Bool == false)
+
+        metricsStore.reset(enable: true)
+        let enabledToken = metricsStore.processSnapshotCaptureStarted(
+            generation: 2,
+            requirementsRawValue: 0
+        )
+        metricsStore.processSnapshotCaptureCompleted(enabledToken, generation: 2, processCount: 3)
+
+        #expect(metricsStore.snapshot().enabled == true)
+        #expect(metricsStore.snapshot().processSnapshots.captureStarted == 1)
+
+        metricsStore.disable()
+        #expect(metricsStore.snapshot().enabled == false)
+    }
+
+    @Test
     func completionsFromBeforeResetDoNotEnterTheNewMeasurementEpoch() {
         let metricsStore = ProcessPerformanceMetrics()
         let processToken = metricsStore.processSnapshotCaptureStarted(
