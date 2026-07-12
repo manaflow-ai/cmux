@@ -55,9 +55,4 @@ public struct MobileDiffPane: View {
     }
 }
 
-private struct MobileDiffFileListContext: Identifiable {
-    let id = UUID()
-    let files: [MobileDiffFile]
-    let selectedFileID: String?
-}
 #endif
