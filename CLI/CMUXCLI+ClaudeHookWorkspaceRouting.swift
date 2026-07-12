@@ -160,14 +160,20 @@ extension CMUXCLI {
         allowDiagnosticFallback: Bool = true
     ) -> CallerTerminalBindingResolution {
         let ttyName = resolveCallerTTYName(includeAmbientTTY: includeAmbientTTY)
+        // Relay-backed hooks carry a PID from the remote host's namespace. It
+        // cannot prove ownership in the local process table, so remote routing
+        // relies on the relay-reported TTY/ambient binding instead.
+        let locallyResolvablePID = client.isRelayBacked ? nil : pid
         var targetedParams: [String: Any] = [:]
         if let ttyName { targetedParams["tty_name"] = ttyName }
-        if let pid, pid > 0 { targetedParams["pid"] = pid }
+        if let locallyResolvablePID, locallyResolvablePID > 0 {
+            targetedParams["pid"] = locallyResolvablePID
+        }
         if !targetedParams.isEmpty,
            let payload = try? client.sendV2(method: "system.resolve_terminal", params: targetedParams) {
             if let resolution = targetedCallerTerminalBindingResolution(
                 payload,
-                requirePIDBinding: pid != nil
+                requirePIDBinding: locallyResolvablePID != nil
             ) {
                 return resolution
             }
@@ -199,6 +205,16 @@ extension CMUXCLI {
         }
         guard matched.allSatisfy({ $0.workspaceId == first.workspaceId && $0.surfaceId == first.surfaceId }) else {
             return CallerTerminalBindingResolution(binding: nil, isAmbiguous: true)
+        }
+        if let locallyResolvablePID {
+            guard let pidBinding = resolveAgentProcessTerminalBinding(
+                pid: locallyResolvablePID,
+                client: client
+            ),
+                  normalizedHandleValue(pidBinding.workspaceId) == normalizedHandleValue(first.workspaceId),
+                  normalizedHandleValue(pidBinding.surfaceId) == normalizedHandleValue(first.surfaceId) else {
+                return CallerTerminalBindingResolution(binding: nil, isAmbiguous: true)
+            }
         }
         return CallerTerminalBindingResolution(binding: first, isAmbiguous: false)
     }
@@ -271,7 +287,7 @@ extension CMUXCLI {
         }
         return CallerTerminalBindingResolution(
             binding: pidBinding,
-            isAmbiguous: false,
+            isAmbiguous: requirePIDBinding && pidBinding == nil,
             usedTargetedResolver: true
         )
     }

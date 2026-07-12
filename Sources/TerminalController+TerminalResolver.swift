@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 private nonisolated struct TerminalResolverProcessIdentity: Sendable {
@@ -114,9 +115,10 @@ private nonisolated let terminalResolverBindingCache = TerminalResolverBindingCa
 
 extension TerminalController {
     /// Resolves one hook caller without constructing `debug.terminals` or a
-    /// `system.top` process tree. Process and UI identity snapshots are shared
-    /// for two seconds across hook storms; candidates are still live-validated
-    /// by the CLI before any mutation.
+    /// `system.top` process tree. UI terminal bindings are shared for two
+    /// seconds across hook storms and invalidated when TTY ownership changes.
+    /// Requested PID identity is captured fresh because process creation and
+    /// PID reuse are correctness boundaries, not cacheable presentation state.
     nonisolated func v2SystemResolveTerminal(params: [String: Any]) -> V2CallResult {
         let ttyName = v2NonEmptyString(v2String(params, "tty_name")).map(Self.terminalResolverTTYName)
         let pid: Int?
@@ -132,14 +134,8 @@ extension TerminalController {
             return .err(code: "invalid_params", message: "tty_name or pid is required", data: nil)
         }
 
-        let processIdentity: TerminalResolverProcessIdentity? = pid.map { pid in
-            Self.terminalResolverProcessIdentity(
-                pid: pid,
-                snapshot: CmuxTopProcessSnapshot.captureCached(
-                    includeProcessDetails: false,
-                    maximumAge: 2
-                )
-            )
+        let processIdentity: TerminalResolverProcessIdentity? = pid.flatMap { pid in
+            Self.terminalResolverProcessIdentity(pid: pid)
         }
         let bindings = cachedLiveTerminalResolverBindings(maximumAge: 2)
         let ttyBindings = ttyName.map { requestedTTY in
@@ -209,30 +205,61 @@ extension TerminalController {
     }
 
     private nonisolated static func terminalResolverProcessIdentity(
-        pid: Int,
-        snapshot: CmuxTopProcessSnapshot
-    ) -> TerminalResolverProcessIdentity {
+        pid: Int
+    ) -> TerminalResolverProcessIdentity? {
+        guard pid > 0,
+              pid <= Int(Int32.max),
+              let initialIdentity = AgentPIDProcessIdentity(pid: pid_t(pid)) else {
+            return nil
+        }
         var currentPID = pid
         var visited: Set<Int> = []
         var ttyDevice: Int64?
         var workspaceID: UUID?
         var surfaceID: UUID?
-        while currentPID > 0, visited.insert(currentPID).inserted,
-              let process = snapshot.process(pid: currentPID) {
-            ttyDevice = ttyDevice ?? process.ttyDevice
-            if workspaceID == nil, surfaceID == nil,
-               let processWorkspaceID = process.cmuxWorkspaceID,
-               let processSurfaceID = process.cmuxSurfaceID {
-                workspaceID = processWorkspaceID
-                surfaceID = processSurfaceID
+        while currentPID > 0,
+              visited.insert(currentPID).inserted,
+              let process = terminalResolverBSDInfo(pid: currentPID) {
+            let rawTTYDevice = Int64(process.e_tdev)
+            if ttyDevice == nil, rawTTYDevice > 0 {
+                ttyDevice = rawTTYDevice
             }
-            currentPID = process.parentPID
+            if workspaceID == nil, surfaceID == nil,
+               let processArguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: currentPID),
+               let scope = CmuxTopProcessSnapshot.cmuxScope(
+                   arguments: processArguments.arguments,
+                   environment: processArguments.environment
+               ),
+               let scopedWorkspaceID = scope.workspaceID,
+               let scopedSurfaceID = scope.surfaceID {
+                workspaceID = scopedWorkspaceID
+                surfaceID = scopedSurfaceID
+            }
+            if ttyDevice != nil, workspaceID != nil, surfaceID != nil { break }
+            currentPID = Int(process.pbi_ppid)
+        }
+        guard AgentPIDProcessIdentity(pid: pid_t(pid)) == initialIdentity else {
+            return nil
         }
         return TerminalResolverProcessIdentity(
             ttyDevice: ttyDevice,
             workspaceID: workspaceID,
             surfaceID: surfaceID
         )
+    }
+
+    private nonisolated static func terminalResolverBSDInfo(pid: Int) -> proc_bsdinfo? {
+        guard pid > 0, pid <= Int(Int32.max) else { return nil }
+        var info = proc_bsdinfo()
+        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+        let size = proc_pidinfo(
+            pid_t(pid),
+            PROC_PIDTBSDINFO,
+            0,
+            &info,
+            Int32(expectedSize)
+        )
+        return size == expectedSize ? info : nil
     }
 
     @MainActor
