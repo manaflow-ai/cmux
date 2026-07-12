@@ -456,6 +456,44 @@ import Testing
         #expect(!store.connectionLifecycleReconnectPendingAfterRetirement)
         #expect(store.connectionLifecycle.activeEpisode == nil)
     }
+
+    @Test func directPairingURLSupersedesOwnedStoredMacReconnect() async throws {
+        let pairedMacStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [:],
+            blockedTeams: [""]
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedMacStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1")
+        )
+        let result = ReconnectResultProbe()
+        let reconnect = Task { @MainActor in
+            let connected = await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+            await result.record(connected)
+            return connected
+        }
+        await pairedMacStore.waitUntilLoadStarted(teamID: nil)
+
+        #expect(await store.connectPairingURLResult("invalid-pairing-url") == .failed)
+        #expect(try await pollUntil { await result.value() == false })
+        #expect(store.connectionLifecycleRequestWaiters.isEmpty)
+        #expect(store.connectionLifecycle.activeEpisode == nil)
+
+        store.prepareForManualPairing()
+        await pairedMacStore.release(teamID: nil)
+        #expect(await reconnect.value == false)
+    }
+
+    @Test func manualPairingClearsStoredReconnectTimeoutCopy() {
+        let store = MobileShellComposite.preview()
+        store.applyStoredMacReconnectDeadlineFailure()
+
+        store.prepareForManualPairing()
+
+        #expect(store.connectionError == nil)
+        #expect(store.connectionErrorGuidance == nil)
+    }
 }
 
 private func storedMac(
