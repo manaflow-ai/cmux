@@ -229,6 +229,18 @@ extension MobileShellComposite {
         } else if pruned != workspacesByMac {
             workspacesByMac = pruned
         }
+        if let anonymousState = pruned[Self.foregroundAnonymousKey] {
+            let retainedRemoteWorkspaceIDs = Set(anonymousState.workspaces.map {
+                $0.rpcWorkspaceID.rawValue
+            })
+            workspaceFocusEventRevisionsByMac[Self.foregroundAnonymousKey] =
+                workspaceFocusEventRevisionsByMac[Self.foregroundAnonymousKey]?.filter {
+                    retainedRemoteWorkspaceIDs.contains($0.key)
+                }
+            if workspaceFocusEventRevisionsByMac[Self.foregroundAnonymousKey]?.isEmpty == true {
+                workspaceFocusEventRevisionsByMac[Self.foregroundAnonymousKey] = nil
+            }
+        }
         for ownerKey in removedOwnerKeys {
             removeWorkspaceFocusRevisions(ownerKey: ownerKey)
         }

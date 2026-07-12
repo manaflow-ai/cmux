@@ -257,7 +257,7 @@ actor RoutingHostRouter {
             terminalCreateCount += 1
             terminalHasBeenCreated = true
             selectedHostWorkspaceID = info.workspaceID ?? Self.workspaceID
-            if holdFirstTerminalCreate {
+            if terminalCreateCount == 1 && holdFirstTerminalCreate {
                 heldTerminalCreateCount += 1
                 firstTerminalCreateHeld = true
                 let reachedWaiters = firstTerminalCreateReachedWaiters

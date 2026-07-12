@@ -196,7 +196,10 @@ struct MobileWorkspaceHierarchyProjectionTests {
         let workspace = try #require(manager.selectedWorkspace)
         let paneID = try #require(workspace.bonsplitController.focusedPaneId)
         let terminalID = try #require(workspace.focusedTerminalPanel?.id)
-        let terminalSignature = MobileWorkspaceListObserver.focusedHierarchySignature(for: workspace)
+        let terminalFocus = MobileWorkspaceHierarchyProjection.FocusValue(workspace: workspace)
+        var terminalHasher = Hasher()
+        terminalHasher.combine(terminalFocus)
+        let terminalSignature = terminalHasher.finalize()
         let browser = try #require(workspace.newBrowserSurface(
             inPane: paneID,
             focus: true,
@@ -211,8 +214,9 @@ struct MobileWorkspaceHierarchyProjectionTests {
         #expect(directBrowserFocus.selectedTerminalID == nil)
         #expect(browserProjection.focus.selectedTerminalID == nil)
         #expect(directBrowserFocus.eventPayload["selected_terminal_id"] is NSNull)
-        let browserSignature = MobileWorkspaceListObserver.focusedHierarchySignature(for: workspace)
-        #expect(browserSignature != terminalSignature, "browser selection must change the scoped focus value")
+        var browserHasher = Hasher()
+        browserHasher.combine(directBrowserFocus)
+        #expect(browserHasher.finalize() != terminalSignature, "browser selection must change the scoped focus value")
 
         let payload = TerminalController.shared.mobileWorkspacePayload(
             workspace: workspace,

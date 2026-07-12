@@ -236,12 +236,6 @@ final class MobileWorkspaceListObserver {
         MobileHostService.shared.emitEvent(topic: "workspace.focused", payload: projection.eventPayload)
     }
 
-    static func focusedHierarchySignature(for workspace: Workspace) -> Int {
-        var hasher = Hasher()
-        hasher.combine(MobileWorkspaceHierarchyProjection.FocusValue(workspace: workspace))
-        return hasher.finalize()
-    }
-
     private func emitIfNeeded(force: Bool) {
         let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-emit-if-needed", "force=\(force)"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
         guard let tabManager else { return }

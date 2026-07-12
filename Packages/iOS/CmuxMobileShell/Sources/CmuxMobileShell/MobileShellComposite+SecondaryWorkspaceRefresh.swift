@@ -3,7 +3,7 @@ internal import CmuxMobileShellModel
 internal import Foundation
 internal import OSLog
 
-private let secondaryWorkspaceRefreshLog = Logger(
+nonisolated private let secondaryWorkspaceRefreshLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
     category: "mobile-shell"
 )

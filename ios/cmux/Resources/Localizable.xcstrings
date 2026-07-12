@@ -9399,6 +9399,18 @@
         "ja": { "stringUnit": { "state": "translated", "value": "Mac では以前のターミナル状態が維持されています。接続を確認してもう一度お試しください。" } }
       }
     },
+    "mobile.terminal.hierarchy.moveUnavailableTitle": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal Move Unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルを移動できません" } }
+      }
+    },
+    "mobile.terminal.hierarchy.moveUnavailableMessage": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Another terminal change started first. Wait for it to finish, then try moving this terminal again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "別のターミナル変更が先に開始されました。完了するまで待ってから、もう一度ターミナルを移動してください。" } }
+      }
+    },
     "mobile.terminal.hierarchy.protectedTitle": {
       "extractionState": "manual", "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Pinned Order Protected" } },

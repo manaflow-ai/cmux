@@ -38,7 +38,7 @@ struct MobileWorkspacePaneHierarchyFidelityTests {
             selectedTabID: workspace.id,
             previewSignatures: [:]
         )
-        let focusedBefore = MobileWorkspaceListObserver.focusedHierarchySignature(for: workspace)
+        let focusedBefore = MobileWorkspaceHierarchyProjection.FocusValue(workspace: workspace)
 
         workspace.focusPanel(ordered[1])
 
@@ -49,7 +49,7 @@ struct MobileWorkspacePaneHierarchyFidelityTests {
             selectedTabID: workspace.id,
             previewSignatures: [:]
         )
-        let focusedAfter = MobileWorkspaceListObserver.focusedHierarchySignature(for: workspace)
+        let focusedAfter = MobileWorkspaceHierarchyProjection.FocusValue(workspace: workspace)
         #expect(before == after, "generic list updates must not duplicate scoped focus events")
         #expect(focusedBefore != focusedAfter, "focus events recompute only the affected workspace")
     }

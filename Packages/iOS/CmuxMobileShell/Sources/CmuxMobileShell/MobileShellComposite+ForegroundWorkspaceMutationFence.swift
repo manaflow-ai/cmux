@@ -2,7 +2,7 @@ internal import CmuxMobileRPC
 internal import Foundation
 internal import OSLog
 
-private let foregroundWorkspaceMutationLog = Logger(
+nonisolated private let foregroundWorkspaceMutationLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
     category: "mobile-shell"
 )

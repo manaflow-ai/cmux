@@ -2410,12 +2410,12 @@ private func installTerminalHierarchyWorkspace(
 
 @MainActor
 private func waitForTerminalHierarchyCapabilities(_ store: CMUXMobileShellStore) async -> Bool {
-    for _ in 0..<1_000 {
+    for _ in 0..<200 {
         if store.workspaces.first?.actionCapabilities.supportsTerminalCreateInPane == true,
            store.workspaces.first?.actionCapabilities.supportsTerminalCloseActions == true {
             return true
         }
-        await Task.yield()
+        try? await Task.sleep(for: .milliseconds(10))
     }
     return false
 }
@@ -2425,11 +2425,11 @@ private func waitForSelectedTerminal(
     _ terminalID: String,
     in store: CMUXMobileShellStore
 ) async -> Bool {
-    for _ in 0..<1_000 {
+    for _ in 0..<200 {
         if store.selectedTerminalID?.rawValue == terminalID {
             return true
         }
-        await Task.yield()
+        try? await Task.sleep(for: .milliseconds(10))
     }
     return false
 }

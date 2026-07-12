@@ -31,6 +31,7 @@ struct TerminalHierarchySheet: View {
     @State private var closeProtected = false
     @State private var mutationResultUnknownRefreshed = false
     @State private var closeUnavailable = false
+    @State private var moveUnavailable = false
     @State private var showRefreshAlert = false
     @State private var refreshResultIsUnknown = false
     @State private var optimisticTerminalIDsByPane: [MobilePanePreview.ID: [MobileTerminalPreview.ID]] = [:]
@@ -158,6 +159,24 @@ struct TerminalHierarchySheet: View {
             }
             .terminalHierarchyResultUnknownRefreshedAlert(isPresented: $mutationResultUnknownRefreshed)
             .terminalHierarchyCloseUnavailableAlert(isPresented: $closeUnavailable)
+            .alert(
+                L10n.string(
+                    "mobile.terminal.hierarchy.moveUnavailableTitle",
+                    defaultValue: "Terminal Move Unavailable"
+                ),
+                isPresented: $moveUnavailable
+            ) {
+                Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
+                    .accessibilityIdentifier("MobileTerminalHierarchyMoveUnavailableOK")
+            } message: {
+                Text(
+                    L10n.string(
+                        "mobile.terminal.hierarchy.moveUnavailableMessage",
+                        defaultValue: "Another terminal change started first. Wait for it to finish, then try moving this terminal again."
+                    )
+                )
+                .accessibilityIdentifier("MobileTerminalHierarchyMoveUnavailableMessage")
+            }
         }
         .accessibilityIdentifier("MobileTerminalHierarchySheet")
     }
@@ -330,10 +349,15 @@ struct TerminalHierarchySheet: View {
             mutationFailed = true
             return
         }
-        guard let reservation = reorderGate.reserve(
+        let reservationDecision = TerminalHierarchyMoveReservationDecision(
             workspaceID: snapshot.workspaceID,
-            paneID: pane.id
-        ) else { return }
+            paneID: pane.id,
+            reorderGate: reorderGate
+        )
+        guard case .reserved(let reservation) = reservationDecision else {
+            moveUnavailable = true
+            return
+        }
         guard let optimisticOrder = intent.applying(to: pane.rows.map(\.id)) else {
             reorderGate.finish(reservation)
             mutationFailed = true
