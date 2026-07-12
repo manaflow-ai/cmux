@@ -52,7 +52,7 @@ extension WorkspaceDetailView {
             case "too_many_files":
                 return L10n.string(
                     "mobile.diff.tooManyFiles",
-                    defaultValue: "This workspace has too many untracked files to view on this phone."
+                    defaultValue: "This workspace has too many changed files to view on this phone."
                 )
             case "invalid_data":
                 return L10n.string(

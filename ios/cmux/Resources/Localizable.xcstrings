@@ -2478,8 +2478,8 @@
     "mobile.diff.tooManyFiles": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "This workspace has too many untracked files to view on this phone." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "このワークスペースには未追跡ファイルが多すぎるため、この電話では表示できません。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "This workspace has too many changed files to view on this phone." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このワークスペースには変更されたファイルが多すぎるため、この電話では表示できません。" } }
       }
     },
     "mobile.diff.loading": {
