@@ -43,6 +43,8 @@ function sessionState(sessionId) {
       lastUserMessage: null,
       assistantPreamble: null,
       cwd: null,
+      started: false,
+      activeTurn: false,
       updatedAt: Date.now(),
     });
   }
@@ -95,8 +97,7 @@ function sessionIdFor(event) {
     props.session_id,
     props.session && props.session.id,
     event && event.sessionID,
-    event && event.sessionId,
-    event && event.id
+    event && event.sessionId
   );
 }
 
@@ -264,6 +265,33 @@ function sendHook(subcommand, ctx, event, extra = {}) {
   } catch (_) {}
 }
 
+function sendStartOnce(ctx, event) {
+  const sessionId = sessionIdFor(event);
+  if (!sessionId) return;
+  const state = sessionState(sessionId);
+  if (state.started) return;
+  state.started = true;
+  sendHook("session-start", ctx, event);
+}
+
+function sendPromptSubmitOnce(ctx, event) {
+  const sessionId = sessionIdFor(event);
+  if (!sessionId) return;
+  const state = sessionState(sessionId);
+  if (state.activeTurn) return;
+  state.activeTurn = true;
+  sendHook("prompt-submit", ctx, event);
+}
+
+function sendStopIfActive(ctx, event) {
+  const sessionId = sessionIdFor(event);
+  if (!sessionId) return;
+  const state = sessionState(sessionId);
+  if (!state.activeTurn) return;
+  state.activeTurn = false;
+  sendHook("stop", ctx, event);
+}
+
 function trackMessage(event) {
   const props = eventProperties(event);
   if (event && event.type === "message.updated") {
@@ -304,30 +332,31 @@ const CMUXSessionRestore = async (ctx) => {
       const props = eventProperties(event);
       switch (event && event.type) {
         case "session.created":
-          sendHook("session-start", ctx, event);
+          sendStartOnce(ctx, event);
           break;
         case "session.updated":
           if (props.info && props.info.time && props.info.time.archived) {
+            sendStopIfActive(ctx, event);
             sendHook("session-end", ctx, event);
             dropSession(sessionIdFor(event));
           } else {
-            sendHook("session-start", ctx, event);
+            sendStartOnce(ctx, event);
           }
           break;
         case "session.status":
           if (isIdleStatus(openCodeStatusType(event))) {
-            sendHook("stop", ctx, event);
+            sendStopIfActive(ctx, event);
           } else if (isRetryingStatus(openCodeStatusType(event))) {
             sendHook("notification", ctx, event, {
               cmux_status: "retrying",
               reason: "retrying",
             });
           } else if (isRunningStatus(openCodeStatusType(event))) {
-            sendHook("prompt-submit", ctx, event);
+            sendPromptSubmitOnce(ctx, event);
           }
           break;
         case "session.idle":
-          sendHook("stop", ctx, event);
+          sendStopIfActive(ctx, event);
           break;
         case "permission.asked":
           sendHook("notification", ctx, event, {
@@ -346,8 +375,10 @@ const CMUXSessionRestore = async (ctx) => {
             message: openCodeEventMessage(event),
             reason: "error",
           });
+          sendStopIfActive(ctx, event);
           break;
         case "session.deleted":
+          sendStopIfActive(ctx, event);
           sendHook("session-end", ctx, event);
           dropSession(sessionIdFor(event));
           break;

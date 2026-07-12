@@ -235,6 +235,26 @@ await hooks.event({
     type: "session.status",
     properties: {
       sessionID: "opencode-session-test",
+      status: { type: "streaming" }
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "session.updated",
+    properties: {
+      info: {
+        id: "opencode-session-test",
+        title: "Updated title"
+      }
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "session.status",
+    properties: {
+      sessionID: "opencode-session-test",
       status: { type: "retrying" }
     }
   }
@@ -299,6 +319,12 @@ await hooks.event({
             return 1
         if args_log.count("hooks opencode session-start") != 1:
             print(f"FAIL: plugin invoked duplicate session-start hooks, got {args_log!r}")
+            return 1
+        if args_log.count("hooks opencode prompt-submit") != 1:
+            print(f"FAIL: plugin invoked duplicate prompt-submit hooks, got {args_log!r}")
+            return 1
+        if args_log.count("hooks opencode stop") != 1:
+            print(f"FAIL: plugin should stop once after the error closes the active turn, got {args_log!r}")
             return 1
         for expected in [
             "hooks opencode prompt-submit",
