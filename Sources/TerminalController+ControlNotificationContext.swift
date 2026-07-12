@@ -48,27 +48,36 @@ extension TerminalController: ControlNotificationContext {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
+        // Moved pane (issue #7939): a pane keeps its surface id across
+        // workspace moves, so resolve the surface's CURRENT owner before
+        // rejecting a claim the routing selectors no longer satisfy — whether
+        // the surface left the claimed workspace or that workspace was closed.
+        // `notification.create_for_surface` is NOT relay-reachable (the cloud
+        // tunnel forwards only create/create_for_caller/create_for_target), so
+        // this global lookup serves trusted local callers only.
+        func rehomedDelivery() -> ControlNotificationTargetedDeliveryResolution? {
+            guard let owner = AppDelegate.shared?.workspaceContainingPanel(panelId: surfaceID) else {
+                return nil
+            }
+            deliverNotificationSynchronously(
+                tabId: owner.workspace.id,
+                surfaceId: surfaceID,
+                title: title,
+                subtitle: subtitle,
+                body: body
+            )
+            return .delivered(
+                workspaceID: owner.workspace.id,
+                surfaceID: surfaceID,
+                windowID: AppDelegate.shared?.windowId(for: owner.tabManager)
+            )
+        }
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else {
+            if let rehomed = rehomedDelivery() { return rehomed }
             return .workspaceNotFound(workspaceID: nil)
         }
         guard ws.panels[surfaceID] != nil else {
-            // Moved pane (issue #7939): a pane keeps its surface id across
-            // workspace moves, so resolve the surface's CURRENT owner before
-            // rejecting a claim the routing selectors no longer satisfy.
-            if let owner = AppDelegate.shared?.workspaceContainingPanel(panelId: surfaceID) {
-                deliverNotificationSynchronously(
-                    tabId: owner.workspace.id,
-                    surfaceId: surfaceID,
-                    title: title,
-                    subtitle: subtitle,
-                    body: body
-                )
-                return .delivered(
-                    workspaceID: owner.workspace.id,
-                    surfaceID: surfaceID,
-                    windowID: AppDelegate.shared?.windowId(for: owner.tabManager)
-                )
-            }
+            if let rehomed = rehomedDelivery() { return rehomed }
             return .surfaceNotFound(surfaceID)
         }
         deliverNotificationSynchronously(
@@ -96,34 +105,20 @@ extension TerminalController: ControlNotificationContext {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        // Moved pane (issue #7939): the surface id is the pane's stable
-        // identity, so when the claimed workspace no longer owns it (or was
-        // closed), deliver to the workspace that owns the surface NOW instead
-        // of rejecting the stale claim.
-        func rehomedDelivery() -> ControlNotificationTargetedDeliveryResolution? {
-            guard let owner = AppDelegate.shared?.workspaceContainingPanel(
-                panelId: surfaceID,
-                preferredWorkspaceId: workspaceID
-            ), owner.workspace.id != workspaceID else { return nil }
-            deliverNotificationSynchronously(
-                tabId: owner.workspace.id,
-                surfaceId: surfaceID,
-                title: title,
-                subtitle: subtitle,
-                body: body
-            )
-            return .delivered(
-                workspaceID: owner.workspace.id,
-                surfaceID: surfaceID,
-                windowID: AppDelegate.shared?.windowId(for: owner.tabManager)
-            )
-        }
+        // SECURITY: no live re-homing here. `notification.create_for_target`
+        // is reachable through the cloud relay (`RemoteDaemonProxyTunnel`),
+        // whose authorization only checks that the supplied workspace_id
+        // equals the relay's owner workspace — this membership guard is what
+        // actually confines a VM's deliveries to its authorized workspace. A
+        // global surface lookup would let a relay caller inject notifications
+        // into any workspace from a leaked pane UUID. Moved-pane re-homing
+        // for relayed notifications needs a trusted surface binding from the
+        // relay (follow-up); trusted local callers get it via
+        // `create_for_caller`/`create_for_surface`.
         guard let ws = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
-            if let rehomed = rehomedDelivery() { return rehomed }
             return .workspaceNotFound(workspaceID: workspaceID)
         }
         guard ws.panels[surfaceID] != nil else {
-            if let rehomed = rehomedDelivery() { return rehomed }
             return .surfaceNotFound(surfaceID)
         }
         deliverNotificationSynchronously(

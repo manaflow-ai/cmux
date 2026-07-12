@@ -231,10 +231,16 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
         XCTAssertEqual(recorded.first?.surfaceId, fixture.panelId)
     }
 
-    func testCreateForTargetFollowsMovedSurface() throws {
+    func testCreateForTargetRejectsSurfaceOutsideClaimedWorkspace() throws {
         let fixture = try makeFixture()
         defer { fixture.restore() }
 
+        // SECURITY boundary: `notification.create_for_target` is reachable
+        // through the cloud relay, whose authorization only pins workspace_id
+        // to the relay's owner workspace. The membership guard here is what
+        // confines a relay caller to that workspace — it must NOT re-home a
+        // surface owned by another workspace (a leaked pane UUID would allow
+        // cross-workspace injection).
         let routing = ControlRoutingSelectors(
             hasWindowIDParam: false,
             windowID: nil,
@@ -251,12 +257,72 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
             subtitle: "",
             body: "Body"
         )
+        XCTAssertEqual(
+            resolution,
+            .surfaceNotFound(fixture.panelId),
+            "create_for_target must stay confined to the claimed workspace (relay authorization boundary)"
+        )
+        XCTAssertTrue(fixture.store.notifications.filter { $0.title == "Target notify" }.isEmpty)
+    }
+
+    func testCreateForSurfaceFollowsMovedSurface() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+
+        // `notification.create_for_surface` is local-only (not relay-
+        // reachable), so a moved surface follows its live owner — including
+        // when the claimed routing workspace no longer lists it.
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: false,
+            windowID: nil,
+            groupID: nil,
+            workspaceID: fixture.claimedWorkspace.id,
+            surfaceID: nil,
+            paneID: nil
+        )
+        let resolution = TerminalController.shared.controlNotificationCreateForSurface(
+            routing: routing,
+            surfaceID: fixture.panelId,
+            title: "Surface notify",
+            subtitle: "",
+            body: "Body"
+        )
         guard case .delivered(let workspaceID, let surfaceID, _) = resolution else {
             return XCTFail("A moved surface must be re-homed, not rejected; got \(resolution)")
         }
         XCTAssertEqual(workspaceID, fixture.owningWorkspace.id)
         XCTAssertEqual(surfaceID, fixture.panelId)
-        let recorded = fixture.store.notifications.filter { $0.title == "Target notify" }
+        let recorded = fixture.store.notifications.filter { $0.title == "Surface notify" }
+        XCTAssertEqual(recorded.map(\.tabId), [fixture.owningWorkspace.id])
+    }
+
+    func testRebindKeepsNewerDestinationKeyedPendingNotification() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+
+        // Mid-move race: the destination already owns the surface and a hook
+        // enqueues a valid notification under the destination key BEFORE
+        // rebind runs. Rebind's source-scoped discard must not drop it.
+        TerminalMutationBus.shared.enqueueNotification(
+            tabId: fixture.owningWorkspace.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Destination queued"
+        )
+        fixture.store.rebindSurfaceNotifications(
+            fromTabId: fixture.claimedWorkspace.id,
+            toTabId: fixture.owningWorkspace.id,
+            surfaceId: fixture.panelId
+        )
+        TerminalMutationBus.shared.drainForTesting()
+
+        let recorded = fixture.store.notifications.filter { $0.title == "Claude Code" }
+        XCTAssertEqual(
+            recorded.map(\.body),
+            ["Destination queued"],
+            "Rebind must discard only source-keyed pending entries, not a newer destination-keyed one"
+        )
         XCTAssertEqual(recorded.map(\.tabId), [fixture.owningWorkspace.id])
     }
 

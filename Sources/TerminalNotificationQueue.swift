@@ -129,26 +129,29 @@ final class TerminalMutationBus: @unchecked Sendable {
         }
     }
 
+    /// Exact enqueue-key discard. Use for source-scoped operations like
+    /// `rebindSurfaceNotifications`, where a surface-wide discard could drop a
+    /// newer entry legitimately queued under the destination key mid-move.
     nonisolated func discardPendingNotifications(forTabId tabId: UUID, surfaceId: UUID?) {
-        // Surface-scoped discards use the canonical surface identity (below);
-        // matching the enqueue-time claimed key would let a stale-keyed entry
-        // outlive a clear for the live pane and resurrect the notification.
-        guard let surfaceId else {
-            discardPendingNotifications { notification, _ in
-                notification.key.tabId == tabId && notification.key.surfaceId == nil
-            }
-            return
+        discardPendingNotifications { notification, _ in
+            notification.key.tabId == tabId && notification.key.surfaceId == surfaceId
         }
-        discardPendingNotifications(forSurfaceId: surfaceId)
     }
 
-    /// Pending entries are keyed by their enqueue-time (claimed) workspace but
-    /// DELIVER to the surface's live owner (#7939), so the surface alone is
-    /// the canonical identity for discarding, superseding, and clearing.
+    /// Canonical-identity discard for clears and supersedes: pending entries
+    /// are keyed by their enqueue-time (claimed) workspace but DELIVER to the
+    /// surface's live owner (#7939), so a clear that matched only the claimed
+    /// key would let a stale-keyed entry resurrect the notification at drain.
     nonisolated func discardPendingNotifications(forSurfaceId surfaceId: UUID) {
         discardPendingNotifications { notification, _ in
             notification.key.surfaceId == surfaceId
         }
+    }
+
+    /// Clear-scoped discard: canonical surface identity when surface-scoped.
+    nonisolated func discardPendingNotificationsForClear(tabId: UUID, surfaceId: UUID?) {
+        if let surfaceId { discardPendingNotifications(forSurfaceId: surfaceId) }
+        else { discardPendingNotifications(forTabId: tabId, surfaceId: nil) }
     }
 
     private func enqueueNotification(_ notification: QueuedTerminalNotification, coalesces: Bool) {
