@@ -30159,7 +30159,6 @@ export default CMUXSessionRestore;
         var processBindingCache: CallerTerminalBinding?
         var didResolveProcessBinding = false
         var processBindingBlockedByAmbiguousTTY = false
-        var processBindingAllowsRemoteAmbientFallback = false
         func processBinding() -> CallerTerminalBinding? {
             if !didResolveProcessBinding {
                 didResolveProcessBinding = true
@@ -30168,18 +30167,14 @@ export default CMUXSessionRestore;
                 // were present, which made a leaked/stale CMUX_SURFACE_ID impossible to correct — the
                 // codex jumble class, where a session routes to the wrong surface and the no-pid-gate
                 // resume binding persists it across reload. resolveAgentHookTarget now uses this
-                // binding to OVERRIDE a disagreeing ambient-env surface; the binding stays nil (env
-                // trusted) under remote/SSH where no local TTY maps to a surface.
+                // binding to OVERRIDE a disagreeing ambient-env surface. A missing binding leaves
+                // implicit ambient routing disabled; explicit hook flags retain operator intent.
                 let ttyResolution = callerTerminalBindingResolutionByTTY(
                     client: client,
                     pid: inferredPID
                 )
                 processBindingCache = ttyResolution.binding ?? resolveAgentProcessTerminalBinding(pid: inferredPID, client: client)
                 processBindingBlockedByAmbiguousTTY = ttyResolution.isAmbiguous && ttyResolution.binding == nil && processBindingCache == nil
-                processBindingAllowsRemoteAmbientFallback = ttyResolution.usedTargetedResolver
-                    && !ttyResolution.isAmbiguous
-                    && ttyResolution.binding == nil
-                    && processBindingCache == nil
             }
             return processBindingCache
         }
@@ -30409,7 +30404,7 @@ export default CMUXSessionRestore;
             func ambientDirectWorkspaceAgreesWithProcessBinding(_ workspaceId: String) -> Bool {
                 guard hookWsFlag == nil, explicitSurfaceFlag == nil else { return true }
                 guard let processWorkspaceId = resolveAccessibleWorkspaceId(processBinding()?.workspaceId) else {
-                    return processBindingAllowsRemoteAmbientFallback
+                    return false
                 }
                 return processWorkspaceId == workspaceId
             }
@@ -30420,8 +30415,8 @@ export default CMUXSessionRestore;
             // (or PID) is bound to a DIFFERENT, accessible surface inside this same workspace, that
             // binding is ground truth — prefer it. Returns the env surface unchanged when there is no
             // env surface to correct, when it came from an explicit --surface flag (operator intent),
-            // or when the TTY/PID binding is unavailable (remote/SSH) or already agrees. Stays within
-            // the env workspace so a flaky binding can never cross-route to a different workspace.
+            // or when the TTY/PID binding already agrees. Stays within the env workspace so a flaky
+            // binding can never cross-route to a different workspace.
             func correctedDirectSurfaceId(workspaceId: String) -> String? {
                 guard let envSurface = resolvedDirectSurfaceArg else { return nil }
                 guard hookWsFlag == nil, explicitSurfaceFlag == nil else { return envSurface }
