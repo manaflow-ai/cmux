@@ -99,6 +99,89 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testClaudeRelayHookWithoutTTYBindingFailsClosed() throws {
+        let cliPath = try bundledCLIPath()
+        let relay = try bindLoopbackTCP()
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-claude-relay-missing-identity-\(UUID().uuidString)", isDirectory: true
+        )
+        let relayID = "claude-relay-missing-identity"
+        let relayToken = String(repeating: "cd", count: 32)
+        let ttyName = "ttys-claude-relay-missing"
+        let staleWorkspaceID = "33333333-3333-3333-3333-333333333333"
+        let staleSurfaceID = "44444444-4444-4444-4444-444444444444"
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(relay.fd)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let resolverHandled = startHookIdentityRelayServer(
+            listenerFD: relay.fd,
+            state: state,
+            relayID: relayID
+        ) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else { return "OK" }
+            switch method {
+            case "system.resolve_terminal":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["tty_bindings": [], "pid_binding": NSNull()]
+                )
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: staleSurfaceID)
+            case "surface.resume.set", "surface.resume.clear", "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(id: id, ok: true, result: [:])
+            }
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "claude", "notification"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "127.0.0.1:\(relay.port)",
+                "CMUX_RELAY_ID": relayID,
+                "CMUX_RELAY_TOKEN": relayToken,
+                "CMUX_CLI_TTY_NAME": ttyName,
+                "CMUX_WORKSPACE_ID": staleWorkspaceID,
+                "CMUX_SURFACE_ID": staleSurfaceID,
+                "CMUX_CLAUDE_PID": "42424",
+                "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("claude-hook-sessions.json").path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+                "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+            ],
+            standardInput: #"{"session_id":"relay-missing-session","hook_event_name":"Notification","message":"Claude needs input"}"#,
+            timeout: 10
+        )
+
+        wait(for: [resolverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let requests = state.snapshot().compactMap { self.jsonObject($0) }
+        let resolverParams = try XCTUnwrap(requests.first(where: {
+            $0["method"] as? String == "system.resolve_terminal"
+        })?["params"] as? [String: Any])
+        XCTAssertEqual(resolverParams["tty_name"] as? String, ttyName)
+        XCTAssertNil(resolverParams["pid"])
+        XCTAssertFalse(
+            state.snapshot().contains { command in
+                command.hasPrefix("set_status ")
+                    || command.hasPrefix("notify_target")
+                    || self.jsonObject(command)?["method"] as? String == "surface.resume.set"
+                    || self.jsonObject(command)?["method"] as? String == "feed.push"
+            },
+            "A relay hook without a live TTY binding must not use ambient identity: \(state.snapshot())"
+        )
+    }
+
     func testClaudeTargetedResolverFailureWithLocalIdentityFailsClosed() throws {
         let outcome = try runClaudeTargetedResolverScenario(response: .failure)
         XCTAssertFalse(outcome.result.timedOut, outcome.result.stderr)
