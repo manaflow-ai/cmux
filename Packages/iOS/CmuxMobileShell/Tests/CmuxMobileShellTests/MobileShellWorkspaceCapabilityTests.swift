@@ -105,7 +105,9 @@ import Testing
         let workspaceID = try #require(connected.store.workspaces.first?.id)
         #expect(connected.store.supportsDiffReview(for: workspaceID))
 
-        connected.store.workspaces[0].isDiffReviewEligible = false
+        var remoteWorkspace = try #require(connected.store.workspaces.first)
+        remoteWorkspace.isDiffReviewEligible = false
+        connected.store.replaceForegroundWorkspaceState([remoteWorkspace])
 
         #expect(!connected.store.supportsDiffReview(for: workspaceID))
     }

@@ -82,8 +82,8 @@ final class DiffReviewSession {
         if let selectedPath,
            let selectedIndex = self.files.firstIndex(where: { $0.path == selectedPath }) {
             currentFileIndex = selectedIndex
-        } else if currentFileIndex >= self.files.count {
-            currentFileIndex = self.files.count - 1
+        } else {
+            currentFileIndex = min(currentFileIndex, self.files.count - 1)
             currentHunkIndex = 0
             pendingSeekToLastHunk = false
         }

@@ -9760,6 +9760,23 @@
         }
       }
     },
+    "mobile.diff.renameFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ → %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ → %2$@"
+          }
+        }
+      }
+    },
     "mobile.diff.truncated": {
       "extractionState": "manual",
       "localizations": {

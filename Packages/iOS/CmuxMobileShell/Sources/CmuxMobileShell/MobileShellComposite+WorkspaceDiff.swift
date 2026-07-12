@@ -10,7 +10,9 @@ extension MobileShellComposite {
     /// to the owning Mac (foreground or secondary), whose capability set can
     /// differ from the foreground's.
     public func supportsDiffReview(for workspaceID: MobileWorkspacePreview.ID) -> Bool {
-        let owner = workspaces.first(where: { $0.id == workspaceID })?.macDeviceID
+        guard let workspace = workspaces.first(where: { $0.id == workspaceID }),
+              workspace.isDiffReviewEligible else { return false }
+        let owner = workspace.macDeviceID
         if owner == nil || owner == foregroundMacDeviceID || owner == Self.foregroundAnonymousKey {
             return supportedHostCapabilities.contains(Self.workspaceDiffCapability)
         }

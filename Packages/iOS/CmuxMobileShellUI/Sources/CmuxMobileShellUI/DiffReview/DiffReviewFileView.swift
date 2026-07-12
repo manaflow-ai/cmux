@@ -108,12 +108,26 @@ struct DiffReviewFileView: View {
                     )
                 }
             } else {
-                ContentUnavailableView(
-                    L10n.string("mobile.diff.noHunks", defaultValue: "No diff hunks"),
-                    systemImage: "doc.text"
-                )
-                .contentShape(.rect)
-                .gesture(hunkSwipeGesture)
+                if let file = session.currentFile,
+                   let rename = DiffReviewRenamePresentation(file: file) {
+                    ContentUnavailableView {
+                        Label(
+                            L10n.string("mobile.diff.status.renamed", defaultValue: "Renamed"),
+                            systemImage: "arrow.right"
+                        )
+                    } description: {
+                        Text(rename.text)
+                    }
+                    .contentShape(.rect)
+                    .gesture(hunkSwipeGesture)
+                } else {
+                    ContentUnavailableView(
+                        L10n.string("mobile.diff.noHunks", defaultValue: "No diff hunks"),
+                        systemImage: "doc.text"
+                    )
+                    .contentShape(.rect)
+                    .gesture(hunkSwipeGesture)
+                }
             }
         }
     }

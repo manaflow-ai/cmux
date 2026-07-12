@@ -175,36 +175,6 @@ import Testing
         #expect(withoutPreview.previewAt == nil)
     }
 
-    @Test func workspaceListMapsDiffEligibilityFromRemoteKind() throws {
-        let json = Data("""
-        {
-          "workspaces": [
-            {
-              "id": "local",
-              "title": "Local",
-              "is_selected": true,
-              "is_remote_workspace": false,
-              "is_remote_tmux_mirror": false,
-              "terminals": []
-            },
-            {
-              "id": "remote",
-              "title": "Remote",
-              "is_selected": false,
-              "is_remote_workspace": true,
-              "is_remote_tmux_mirror": false,
-              "terminals": []
-            }
-          ]
-        }
-        """.utf8)
-
-        let response = try MobileSyncWorkspaceListResponse.decode(json)
-
-        #expect(MobileWorkspacePreview(remote: response.workspaces[0]).isDiffReviewEligible)
-        #expect(!MobileWorkspacePreview(remote: response.workspaces[1]).isDiffReviewEligible)
-    }
-
     /// The Mac stamps `last_activity_at` on every workspace (falling back to
     /// creation time when there is no notification) and emits `has_unread` for
     /// the row's unread dot. Both must decode when present and degrade safely

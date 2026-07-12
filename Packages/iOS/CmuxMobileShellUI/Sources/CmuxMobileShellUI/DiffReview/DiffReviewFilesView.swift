@@ -50,7 +50,7 @@ struct DiffReviewFilesView: View {
         }
         .navigationTitle(L10n.string("mobile.diff.reviewChanges", defaultValue: "Review Changes"))
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await reload() }
+        .refreshable { _ = await reload() }
         .task { await reloadIfNeeded() }
         .overlay {
             if isLoading, session.files.isEmpty {
@@ -60,17 +60,19 @@ struct DiffReviewFilesView: View {
         .navigationDestination(isPresented: $isFilePresented) {
             DiffReviewFileView(
                 session: session,
-                fetchFile: { path, oldPath in try await fetchFile(path, oldPath, repoRoot) }
+                fetchFile: { path, oldPath in
+                    try await fetchFileWithRepositoryRecovery(path: path, oldPath: oldPath)
+                }
             )
         }
     }
 
     private func reloadIfNeeded() async {
         guard session.files.isEmpty else { return }
-        await reload()
+        _ = await reload()
     }
 
-    private func reload() async {
+    private func reload() async -> Bool {
         statusLoadGeneration &+= 1
         let generation = statusLoadGeneration
         isLoading = true
@@ -82,15 +84,27 @@ struct DiffReviewFilesView: View {
         }
         do {
             let response = try await fetchStatus()
-            guard statusLoadGeneration == generation, !Task.isCancelled else { return }
+            guard statusLoadGeneration == generation, !Task.isCancelled else { return false }
             session.setFiles(response.files)
             repoRoot = response.repoRoot
             isListTruncated = response.truncated
+            return true
         } catch is CancellationError {
-            return
+            return false
         } catch {
-            guard statusLoadGeneration == generation, !Task.isCancelled else { return }
+            guard statusLoadGeneration == generation, !Task.isCancelled else { return false }
             errorMessage = DiffReviewErrorPresentation(error: error).message
+            return false
+        }
+    }
+
+    private func fetchFileWithRepositoryRecovery(
+        path: String,
+        oldPath: String?
+    ) async throws -> MobileWorkspaceDiffFileResponse {
+        let retry = DiffReviewRepositoryRetry(reloadStatus: reload)
+        return try await retry.run {
+            try await fetchFile(path, oldPath, repoRoot)
         }
     }
 }
