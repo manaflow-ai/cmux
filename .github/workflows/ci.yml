@@ -643,6 +643,25 @@ jobs:
             -only-testing:cmuxTests/RemoteTmuxMirrorLayoutIdentityTests \
             test
 
+      - name: Run terminal portal anchor reuse regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # The tolerant full-suite step can accept an earlier XCTest summary
+          # after Swift Testing failures. Keep portal authority regressions in a
+          # non-tolerant invocation so host-reuse failures cannot be skipped.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/TerminalWindowPortalAnchorReuseTests \
+            test
+
       - name: Run shared live agent index invalidation regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
