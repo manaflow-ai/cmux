@@ -3074,117 +3074,86 @@ class TerminalController {
         index: Int,
         selected: Bool
     ) -> [String: Any] {
-        var paneByPanelId: [UUID: UUID] = [:]
-        var indexInPaneByPanelId: [UUID: Int] = [:]
-        var selectedInPaneByPanelId: [UUID: Bool] = [:]
-
-        let paneIds = workspace.bonsplitController.allPaneIds
-        for paneId in paneIds {
-            let tabs = workspace.bonsplitController.tabs(inPane: paneId)
-            let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
-            for (tabIndex, tab) in tabs.enumerated() {
-                guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { continue }
-                paneByPanelId[panelId] = paneId.id
-                indexInPaneByPanelId[panelId] = tabIndex
-                selectedInPaneByPanelId[panelId] = (tab.id == selectedTab?.id)
-            }
-        }
-
-        var surfacesByPane: [UUID: [[String: Any]]] = [:]
-        let focusedSurfaceId = workspace.focusedPanelId
-        for (surfaceIndex, panel) in orderedPanels(in: workspace).enumerated() {
-            let paneUUID = paneByPanelId[panel.id]
-            let selectedInPane = selectedInPaneByPanelId[panel.id] ?? false
-
-            var item: [String: Any] = [
-                "kind": "surface",
-                "id": panel.id.uuidString,
-                "ref": v2Ref(kind: .surface, uuid: panel.id),
-                "index": surfaceIndex,
-                "type": panel.panelType.rawValue,
-                "title": workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle,
-                "focused": panel.id == focusedSurfaceId,
-                "selected": selectedInPane,
-                "selected_in_pane": v2OrNull(selectedInPaneByPanelId[panel.id]),
-                "pane_id": v2OrNull(paneUUID?.uuidString),
-                "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
-                "index_in_pane": v2OrNull(indexInPaneByPanelId[panel.id]),
-                "tty": v2OrNull(workspace.surfaceTTYNames[panel.id]),
-                "webviews": []
-            ]
-
-            if panel.panelType == .browser, let browserPanel = panel as? BrowserPanel {
-                let webContentPID = CmuxWebContentProcessIdentifier.pid(for: browserPanel.webView)
-                let url = browserPanel.currentURL?.absoluteString ?? ""
-                let webViewLifecycle = browserPanel.webViewLifecycleTopPayload()
-                item["url"] = url
-                item["browser_web_content_pid"] = v2OrNull(webContentPID)
-                item["browser_webview_lifecycle_state"] = browserPanel.webViewLifecycleState.rawValue
-                item["webviews"] = [
-                    [
-                        "kind": "webview",
-                        "id": "\(panel.id.uuidString):webview",
-                        "ref": "\(v2Ref(kind: .surface, uuid: panel.id)):webview",
-                        "index": 0,
-                        "surface_id": panel.id.uuidString,
-                        "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
-                        "title": browserPanel.displayTitle,
-                        "url": url,
-                        "pid": v2OrNull(webContentPID),
-                        "lifecycle": webViewLifecycle
-                    ] as [String: Any]
-                ]
-            } else {
-                item["url"] = NSNull()
-                item["browser_web_content_pid"] = NSNull()
-            }
-            if let paneUUID {
-                surfacesByPane[paneUUID, default: []].append(item)
-            }
-        }
-
-        for paneUUID in surfacesByPane.keys {
-            surfacesByPane[paneUUID]?.sort {
-                let lhs = ($0["index_in_pane"] as? Int) ?? ($0["index"] as? Int) ?? Int.max
-                let rhs = ($1["index_in_pane"] as? Int) ?? ($1["index"] as? Int) ?? Int.max
-                return lhs < rhs
-            }
-        }
-
-        let focusedPaneId = workspace.bonsplitController.focusedPaneId
-        let panes: [[String: Any]] = paneIds.enumerated().map { paneIndex, paneId in
-            let tabs = workspace.bonsplitController.tabs(inPane: paneId)
-            let surfaceUUIDs: [UUID] = tabs.compactMap { workspace.panelIdFromSurfaceId($0.id) }
-            let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
-            let selectedSurfaceUUID = selectedTab.flatMap { workspace.panelIdFromSurfaceId($0.id) }
-
+        let topology = controlSystemTreeWorkspaceNode(
+            workspace: workspace,
+            index: index,
+            selected: selected
+        )
+        let panes = topology.panes.map { pane in
             return [
                 "kind": "pane",
-                "id": paneId.id.uuidString,
-                "ref": v2Ref(kind: .pane, uuid: paneId.id),
-                "index": paneIndex,
-                "focused": paneId == focusedPaneId,
-                "surface_ids": surfaceUUIDs.map { $0.uuidString },
-                "surface_refs": surfaceUUIDs.map { v2Ref(kind: .surface, uuid: $0) },
-                "selected_surface_id": v2OrNull(selectedSurfaceUUID?.uuidString),
-                "selected_surface_ref": v2Ref(kind: .surface, uuid: selectedSurfaceUUID),
-                "surface_count": surfaceUUIDs.count,
-                "surfaces": surfacesByPane[paneId.id] ?? []
+                "id": pane.paneID.uuidString,
+                "ref": v2Ref(kind: .pane, uuid: pane.paneID),
+                "index": pane.index,
+                "focused": pane.isFocused,
+                "surface_ids": pane.surfaceIDs.map(\.uuidString),
+                "surface_refs": pane.surfaceIDs.map { v2Ref(kind: .surface, uuid: $0) },
+                "selected_surface_id": v2OrNull(pane.selectedSurfaceID?.uuidString),
+                "selected_surface_ref": v2Ref(kind: .surface, uuid: pane.selectedSurfaceID),
+                "surface_count": pane.surfaceIDs.count,
+                "surfaces": pane.surfaces.map { v2TopSurfaceNode($0, workspace: workspace) }
             ]
         }
 
         return [
             "kind": "workspace",
-            "id": workspace.id.uuidString,
-            "ref": v2Ref(kind: .workspace, uuid: workspace.id),
-            "index": index,
-            "title": workspace.title,
-            "description": v2OrNull(workspace.customDescription),
-            "selected": selected,
-            "pinned": workspace.isPinned,
+            "id": topology.workspaceID.uuidString,
+            "ref": v2Ref(kind: .workspace, uuid: topology.workspaceID),
+            "index": topology.index,
+            "title": topology.title,
+            "description": v2OrNull(topology.description),
+            "selected": topology.isSelected,
+            "pinned": topology.isPinned,
             "panes": panes,
             "tags": v2TopTagNodes(for: workspace)
         ]
+    }
+
+    private func v2TopSurfaceNode(
+        _ surface: ControlSystemTreeSurfaceNode,
+        workspace: Workspace
+    ) -> [String: Any] {
+        var item: [String: Any] = [
+            "kind": "surface",
+            "id": surface.surfaceID.uuidString,
+            "ref": v2Ref(kind: .surface, uuid: surface.surfaceID),
+            "index": surface.index,
+            "type": surface.typeRawValue,
+            "title": surface.title,
+            "focused": surface.isFocused,
+            "selected": surface.isSelected,
+            "selected_in_pane": v2OrNull(surface.selectedInPane),
+            "pane_id": v2OrNull(surface.paneID?.uuidString),
+            "pane_ref": v2Ref(kind: .pane, uuid: surface.paneID),
+            "index_in_pane": v2OrNull(surface.indexInPane),
+            "tty": v2OrNull(surface.tty),
+            "webviews": []
+        ]
+
+        guard let browserPanel = workspace.controlSurfaceTarget(for: surface.surfaceID)?.panel as? BrowserPanel else {
+            item["url"] = surface.isBrowser ? (surface.url ?? "") : NSNull()
+            item["browser_web_content_pid"] = NSNull()
+            return item
+        }
+
+        let webContentPID = CmuxWebContentProcessIdentifier.pid(for: browserPanel.webView)
+        let url = browserPanel.currentURL?.absoluteString ?? ""
+        item["url"] = url
+        item["browser_web_content_pid"] = v2OrNull(webContentPID)
+        item["browser_webview_lifecycle_state"] = browserPanel.webViewLifecycleState.rawValue
+        item["webviews"] = [[
+            "kind": "webview",
+            "id": "\(surface.surfaceID.uuidString):webview",
+            "ref": "\(v2Ref(kind: .surface, uuid: surface.surfaceID)):webview",
+            "index": 0,
+            "surface_id": surface.surfaceID.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: surface.surfaceID),
+            "title": browserPanel.displayTitle,
+            "url": url,
+            "pid": v2OrNull(webContentPID),
+            "lifecycle": browserPanel.webViewLifecycleTopPayload()
+        ] as [String: Any]]
+        return item
     }
 
     private func v2TopTagNodes(for workspace: Workspace) -> [[String: Any]] {

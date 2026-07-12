@@ -335,8 +335,10 @@ import Testing
     }
 }
 
+private typealias Harness = RemoteTmuxSessionMirrorLayoutHarness
+
 @MainActor
-private final class Harness {
+final class RemoteTmuxSessionMirrorLayoutHarness {
     struct LayoutUpdate {
         let windowID: Int
         let layout: String
