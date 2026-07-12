@@ -104,37 +104,35 @@ extension RemoteTmuxWindowMirror {
         let treeNode = bonsplitController.treeSnapshot()
         let splitTree = RemoteTmuxNativeSplitTree(layout: renderedLayout)
         if let metrics = nativeLayoutMetrics() {
-            applyDividerPositions(
-                tmuxTree: RemoteTmuxNativeMeasuredSplitTree(
+            let plan = RemoteTmuxNativeSplitLayout.plan(
+                tree: RemoteTmuxNativeMeasuredSplitTree(
                     tree: splitTree,
                     metrics: metrics
                 ),
-                treeNode: treeNode,
-                metrics: metrics
+                metrics: metrics,
+                parentSize: containerSizePt
             )
+            applyDividerPositions(plan: plan, treeNode: treeNode)
         } else {
             applyFallbackDividerPositions(tmuxTree: splitTree, treeNode: treeNode)
         }
     }
 
+    /// Applies a computed divider plan (``RemoteTmuxNativeSplitLayout``) to
+    /// the bonsplit tree — position-by-position, so the plan's shape must
+    /// match the snapshot it was computed against.
     func applyDividerPositions(
-        tmuxTree: RemoteTmuxNativeMeasuredSplitTree,
-        treeNode: ExternalTreeNode,
-        metrics: RemoteTmuxNativeLayoutMetrics
+        plan: RemoteTmuxNativeSplitLayout.Plan,
+        treeNode: ExternalTreeNode
     ) {
         guard case .split(let split) = treeNode,
-              case .split(_, _, let orientation, let firstTree, let secondTree) = tmuxTree,
+              case .split(let orientation, let fraction, let firstPlan, let secondPlan) = plan,
               split.orientation == (orientation == .horizontal ? "horizontal" : "vertical"),
               let splitId = UUID(uuidString: split.id) else { return }
-        let fraction = metrics.dividerFraction(
-            first: firstTree,
-            second: secondTree,
-            orientation: orientation
-        )
         _ = bonsplitController.setDividerPosition(fraction, forSplit: splitId, fromExternal: true)
         lastDividerPositions[splitId] = fraction
-        applyDividerPositions(tmuxTree: firstTree, treeNode: split.first, metrics: metrics)
-        applyDividerPositions(tmuxTree: secondTree, treeNode: split.second, metrics: metrics)
+        applyDividerPositions(plan: firstPlan, treeNode: split.first)
+        applyDividerPositions(plan: secondPlan, treeNode: split.second)
     }
 
     func applyFallbackDividerPositions(
