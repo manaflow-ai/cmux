@@ -151,7 +151,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "CMUX_SOCKET_PATH": "127.0.0.1:\(relay.port)",
                 "CMUX_RELAY_ID": relayID,
                 "CMUX_RELAY_TOKEN": relayToken,
-                "CMUX_CLI_TTY_NAME": ttyName,
+                "SSH_TTY": "/dev/\(ttyName)",
                 "CMUX_WORKSPACE_ID": staleWorkspaceID,
                 "CMUX_SURFACE_ID": staleSurfaceID,
                 "CMUX_CLAUDE_PID": "42424",
