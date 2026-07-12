@@ -97,10 +97,13 @@ test("direct viewer actions reset their smooth target after manual input", () =>
 
   CmuxViewerNavigation.performAction("diffViewerScrollDown", viewer);
   viewer.scrollTop = 600;
+  dom.window.document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { bubbles: true, key: "PageDown" }));
+  CmuxViewerNavigation.performAction("diffViewerScrollDown", viewer);
+  viewer.scrollTop = 900;
   dom.window.document.dispatchEvent(new dom.window.WheelEvent("wheel", { bubbles: true }));
   CmuxViewerNavigation.performAction("diffViewerScrollDown", viewer);
 
-  expect(tops).toEqual([72, 672]);
+  expect(tops).toEqual([72, 672, 972]);
   dispose();
 });
 

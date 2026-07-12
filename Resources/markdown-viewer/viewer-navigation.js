@@ -50,6 +50,11 @@
     return Boolean(element && element.closest("input, textarea, select, [contenteditable='true']"));
   }
 
+  function isNativeScrollKey(event) {
+    if (event.metaKey || event.ctrlKey || event.altKey || isEditableTarget(event.target)) { return false; }
+    return ['arrowdown', 'arrowup', 'pagedown', 'pageup', 'home', 'end', 'space'].indexOf(eventKey(event)) >= 0;
+  }
+
   function viewportHeight(scroller) {
     var height = Number(scroller && scroller.clientHeight);
     if (Number.isFinite(height) && height > 0) { return height; }
@@ -96,10 +101,16 @@
       if (scroller) { smoothTargets.delete(scroller); }
     }
 
+    function clearForNativeScrollKey(event) {
+      if (isNativeScrollKey(event)) { clearSmoothTarget(); }
+    }
+
+    target.addEventListener('keydown', clearForNativeScrollKey, true);
     target.addEventListener('wheel', clearSmoothTarget, true);
     target.addEventListener('touchstart', clearSmoothTarget, true);
     target.addEventListener('pointerdown', clearSmoothTarget, true);
     return function() {
+      target.removeEventListener('keydown', clearForNativeScrollKey, true);
       target.removeEventListener('wheel', clearSmoothTarget, true);
       target.removeEventListener('touchstart', clearSmoothTarget, true);
       target.removeEventListener('pointerdown', clearSmoothTarget, true);
