@@ -96,10 +96,18 @@ extension GhosttySurfaceView {
         }
         guard TerminalRowCapacityFit.shouldRefit(renderedRows: renderedRows, effectiveRows: eff.rows),
               let target = fit.fitFontSize(forEffectiveRows: eff.rows) else { return }
-        let horizontalLimit = fit.maximumFontSize(
-            forEffectiveColumns: eff.cols,
-            atBaseFontSize: userBaseFontSize
-        )
+        // The horizontal cap only makes sense when the mac genuinely grants
+        // fewer columns than the phone's base capacity. When the granted
+        // columns equal the phone's own capacity (a rows-only constraint),
+        // the cap collapses to within floor slack of the base font (< 1.6%)
+        // and would forbid every row stretch, parking a dead letterbox band
+        // instead — the exact artifact the fit exists to remove.
+        let horizontalLimit: Float32? = eff.cols < baseColumns
+            ? fit.maximumFontSize(
+                forEffectiveColumns: eff.cols,
+                atBaseFontSize: userBaseFontSize
+            )
+            : nil
         let maximum = max(
             userBaseFontSize,
             horizontalLimit ?? MobileTerminalFontPreference.maximumSize
