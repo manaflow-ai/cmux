@@ -100,7 +100,7 @@ final class MobileWorkingTreeDiffLoader: Sendable {
             guard indexed.status == 0 else {
                 throw MobileWorkingTreeDiffLoadError(code: "git_error", message: "Could not list indexed files")
             }
-            individualPaths = indexed.stdout.split(separator: 0).map(Data.init)
+            individualPaths = indexed.stdout.split(separator: UInt8(0)).map { Data($0) }
         }
 
         let untracked = try await runGit(
@@ -108,7 +108,7 @@ final class MobileWorkingTreeDiffLoader: Sendable {
             directory: repositoryRoot,
             maximumStdoutBytes: maximumPathListBytes
         )
-        let untrackedPaths = untracked.stdout.split(separator: 0).map(Data.init)
+        let untrackedPaths = untracked.stdout.split(separator: UInt8(0)).map { Data($0) }
         guard !untracked.stdoutOverflowed,
               individualPaths.count + untrackedPaths.count <= maximumUntrackedFiles else {
             throw MobileWorkingTreeDiffLoadError(code: "too_many_files", message: "Workspace has too many files to display")
