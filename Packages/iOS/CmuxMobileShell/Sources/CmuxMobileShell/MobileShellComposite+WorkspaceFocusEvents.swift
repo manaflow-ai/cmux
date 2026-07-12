@@ -9,7 +9,7 @@ extension MobileShellComposite {
                   let index = state.workspaces.firstIndex(where: {
                       $0.rpcWorkspaceID.rawValue == event.workspaceID
                   }) else { return }
-            applyFocusSnapshot(event, to: &state.workspaces[index])
+            state.workspaces[index].applyFocusSnapshot(event)
             workspacesByMac[macID] = state
             return
         }
@@ -17,23 +17,22 @@ extension MobileShellComposite {
             guard let index = workspaces.firstIndex(where: {
                 $0.rpcWorkspaceID.rawValue == event.workspaceID
             }) else { return }
-            applyFocusSnapshot(event, to: &workspaces[index])
+            workspaces[index].applyFocusSnapshot(event)
         }
     }
 }
 
-private func applyFocusSnapshot(
-    _ event: MobileWorkspaceFocusEvent,
-    to workspace: inout MobileWorkspacePreview
-) {
-    let paneID = event.focusedPaneID.map(MobilePanePreview.ID.init(rawValue:))
-    let terminalID = event.selectedTerminalID.map(MobileTerminalPreview.ID.init(rawValue:))
-    workspace.focusedPaneID = paneID
-    workspace.selectedTerminalID = terminalID
-    for index in workspace.panes.indices {
-        workspace.panes[index].isFocused = workspace.panes[index].id == paneID
-    }
-    for index in workspace.terminals.indices {
-        workspace.terminals[index].isFocused = workspace.terminals[index].id == terminalID
+private extension MobileWorkspacePreview {
+    mutating func applyFocusSnapshot(_ event: MobileWorkspaceFocusEvent) {
+        let paneID = event.focusedPaneID.map(MobilePanePreview.ID.init(rawValue:))
+        let terminalID = event.selectedTerminalID.map(MobileTerminalPreview.ID.init(rawValue:))
+        focusedPaneID = paneID
+        selectedTerminalID = terminalID
+        for index in panes.indices {
+            panes[index].isFocused = panes[index].id == paneID
+        }
+        for index in terminals.indices {
+            terminals[index].isFocused = terminals[index].id == terminalID
+        }
     }
 }
