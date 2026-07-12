@@ -6,7 +6,6 @@ import Foundation
 extension MobileShellComposite {
     var hasStoredMacReconnectDemand: Bool {
         connectionLifecycle.isReconnectingStoredMac
-            || connectionLifecycleRetiredTask != nil
             || connectionLifecycleReconnectPendingAfterRetirement
     }
 
