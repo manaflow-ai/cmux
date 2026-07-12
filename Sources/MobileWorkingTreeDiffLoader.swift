@@ -138,7 +138,15 @@ final class MobileWorkingTreeDiffLoader: Sendable {
                 throw MobileWorkingTreeDiffLoadError(code: "invalid_data", message: "Workspace contains a file path that is not valid UTF-8")
             }
             guard !path.isEmpty else { continue }
-            guard Self.isDiffableFile(path, repositoryRoot: repositoryRoot) else { continue }
+            guard let fileKind = Self.diffableFileKind(path, repositoryRoot: repositoryRoot) else { continue }
+            if fileKind == .symbolicLink {
+                let symlinkPatch = try Self.symlinkPatch(path: path, repositoryRoot: repositoryRoot)
+                guard patch.count + symlinkPatch.count <= maximumPatchBytes else {
+                    throw MobileWorkingTreeDiffLoadError(code: "too_large", message: "Workspace diff is too large to send to this phone")
+                }
+                patch.append(symlinkPatch)
+                continue
+            }
             let result = try await runGit(
                 ["diff", "--no-index", "--no-ext-diff", "--no-textconv", "--binary", "--", "/dev/null", path],
                 directory: repositoryRoot,
@@ -234,14 +242,64 @@ final class MobileWorkingTreeDiffLoader: Sendable {
         return sanitized
     }
 
-    private static func isDiffableFile(_ path: String, repositoryRoot: String) -> Bool {
+    private enum DiffableFileKind: Equatable {
+        case regular
+        case symbolicLink
+    }
+
+    private static func diffableFileKind(_ path: String, repositoryRoot: String) -> DiffableFileKind? {
         var metadata = stat()
         let fullPath = URL(fileURLWithPath: repositoryRoot).appendingPathComponent(path).path
-        guard lstat(fullPath, &metadata) == 0 else { return false }
+        guard lstat(fullPath, &metadata) == 0 else { return nil }
         let kind = metadata.st_mode & S_IFMT
-        if kind == S_IFREG { return true }
-        guard kind == S_IFLNK, stat(fullPath, &metadata) == 0 else { return false }
-        return metadata.st_mode & S_IFMT == S_IFREG
+        if kind == S_IFREG { return .regular }
+        guard kind == S_IFLNK else { return nil }
+        if stat(fullPath, &metadata) == 0 {
+            let targetKind = metadata.st_mode & S_IFMT
+            guard targetKind == S_IFREG || targetKind == S_IFDIR else { return nil }
+        }
+        return .symbolicLink
+    }
+
+    private static func symlinkPatch(path: String, repositoryRoot: String) throws -> Data {
+        let fullPath = URL(fileURLWithPath: repositoryRoot).appendingPathComponent(path).path
+        let target: String
+        do {
+            target = try FileManager.default.destinationOfSymbolicLink(atPath: fullPath)
+        } catch {
+            throw MobileWorkingTreeDiffLoadError(code: "invalid_data", message: "Could not read a symbolic link")
+        }
+        let oldPath = gitPatchPath("a/\(path)")
+        let newPath = gitPatchPath("b/\(path)")
+        var lines = target.components(separatedBy: "\n")
+        let endsWithNewline = target.hasSuffix("\n")
+        if endsWithNewline { lines.removeLast() }
+        var text = "diff --git \(oldPath) \(newPath)\nnew file mode 120000\n--- /dev/null\n+++ \(newPath)\n@@ -0,0 +1,\(max(1, lines.count)) @@\n"
+        for line in lines { text += "+\(line)\n" }
+        if !endsWithNewline { text += "\\ No newline at end of file\n" }
+        guard let data = text.data(using: .utf8) else {
+            throw MobileWorkingTreeDiffLoadError(code: "invalid_data", message: "Symbolic link target is not valid UTF-8")
+        }
+        return data
+    }
+
+    private static func gitPatchPath(_ path: String) -> String {
+        let requiresQuotes = path.unicodeScalars.contains { scalar in
+            scalar.value < 0x20 || scalar.value == 0x7f || scalar == "\\" || scalar == "\""
+        }
+        guard requiresQuotes else { return path }
+        var result = "\""
+        for scalar in path.unicodeScalars {
+            switch scalar {
+            case "\\": result += "\\\\"
+            case "\"": result += "\\\""
+            case "\n": result += "\\n"
+            case "\r": result += "\\r"
+            case "\t": result += "\\t"
+            default: result.unicodeScalars.append(scalar)
+            }
+        }
+        return result + "\""
     }
 
     /// Drains a pipe to EOF while retaining only the caller's bounded prefix.
