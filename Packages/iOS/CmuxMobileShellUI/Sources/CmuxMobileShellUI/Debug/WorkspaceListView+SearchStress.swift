@@ -1,6 +1,7 @@
 #if canImport(UIKit) && DEBUG
 import CmuxMobileShellModel
 import SwiftUI
+import UIKit
 
 extension WorkspaceListView {
     /// Exercises live workspace snapshot replacement only after the preview's
@@ -10,7 +11,6 @@ extension WorkspaceListView {
     ) -> some View {
         modifier(
             WorkspaceSearchStressScenario(
-                searchText: searchText,
                 workspaces: workspaces
             )
         )
@@ -18,7 +18,6 @@ extension WorkspaceListView {
 }
 
 private struct WorkspaceSearchStressScenario: ViewModifier {
-    let searchText: String
     @Binding var workspaces: [MobileWorkspacePreview]
     @State private var isComplete = false
 
@@ -31,10 +30,16 @@ private struct WorkspaceSearchStressScenario: ViewModifier {
                         .accessibilityIdentifier("MobileWorkspaceSearchStressComplete")
                 }
             }
-            .task(id: searchText) {
-                guard !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    isComplete = false
-                    return
+            .task {
+                for await notification in NotificationCenter.default.notifications(
+                    named: UITextField.textDidChangeNotification
+                ) {
+                    guard let field = notification.object as? UISearchTextField,
+                          field.accessibilityIdentifier == "MobileWorkspaceSearchField",
+                          let text = field.text,
+                          !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    else { continue }
+                    break
                 }
 
                 isComplete = false
