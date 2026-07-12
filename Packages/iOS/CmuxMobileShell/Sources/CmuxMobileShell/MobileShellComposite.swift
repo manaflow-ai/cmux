@@ -125,7 +125,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             evaluatePresenceSubscription()
         }
     }
-    public private(set) var connectionState: MobileConnectionState {
+    public internal(set) var connectionState: MobileConnectionState {
         didSet {
             // Collapse the ~15 `connectionState = .disconnected/.connected` sites
             // into one analytics edge: emit at most one `ios_connection_lost` per
@@ -165,7 +165,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
     }
-    public private(set) var macConnectionStatus: MobileMacConnectionStatus
+    public internal(set) var macConnectionStatus: MobileMacConnectionStatus
     public private(set) var connectedHostName: String
     public private(set) var connectionError: String?
     /// Actionable next-step line shown beneath ``connectionError`` (for example
@@ -602,7 +602,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private let presence: (any PresenceSubscribing)?
     let identityProvider: (any MobileIdentityProviding)?
     let teamIDProvider: @Sendable () async -> String?
-    private let reachability: any ReachabilityProviding
+    let reachability: any ReachabilityProviding
     // Internal (not private): used by the dismiss-sync extension file.
     let deliveredNotificationClearer: any DeliveredNotificationClearing
     /// Durable outbox for phone→Mac dismissals.
@@ -1392,10 +1392,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// True while an automatic reconnect is in progress after a network change
     /// or drop.
-    public private(set) var isRecoveringConnection: Bool = false
+    public internal(set) var isRecoveringConnection: Bool = false
     /// True when automatic recovery could not restore the connection; the UI
     /// surfaces a manual Retry control in this state.
-    public private(set) var connectionRecoveryFailed: Bool = false {
+    public internal(set) var connectionRecoveryFailed: Bool = false {
         didSet {
             // Fire once on the false→true edge ("stuck disconnected, Retry is
             // dead"): the recovery-rate denominator.
@@ -1415,15 +1415,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// the user-facing reason.
     public private(set) var connectionRequiresReauth: Bool = false
 
-    private var networkPathObservationStarted = false
-    private var networkPathObservationTask: Task<Void, Never>?
-    private var recoveryInFlight = false
-    private var recoveryTask: Task<Void, Never>?
-    private var foregroundConnectionRecoveryTask: Task<Void, Never>?
-    private var foregroundConnectionRecoveryID: UUID?
-    private var lastReconnectStackUserID: String?
+    var networkPathObservationStarted = false
+    var networkPathObservationTask: Task<Void, Never>?
+    var recoveryInFlight = false
+    var recoveryTask: Task<Void, Never>?
+    var foregroundConnectionRecoveryTask: Task<Void, Never>?
+    var foregroundConnectionRecoveryID: UUID?
+    var lastReconnectStackUserID: String?
 
-    private enum RecoveryTrigger: CustomStringConvertible {
+    enum RecoveryTrigger: CustomStringConvertible {
         case networkChange
         case manual
         case presencePush
@@ -1442,22 +1442,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Begin observing meaningful network path changes (Wi-Fi<->cellular,
     /// offline->online) so a live terminal recovers when the network moves out
     /// from under it. Idempotent; only the first call arms the observation.
-    func startObservingNetworkPathChanges() {
-        guard !networkPathObservationStarted else { return }
-        networkPathObservationStarted = true
-        let reachability = reachability
-        networkPathObservationTask = Task { @MainActor [weak self] in
-            // Each yield marks a meaningful path change (offline->online or a
-            // primary-interface switch while online); recover the live
-            // connection so a moving network repaints instead of going stale.
-            for await _ in reachability.pathChanges() {
-                guard let self, !Task.isCancelled else { return }
-                self.recoverMobileConnection(trigger: .networkChange)
-            }
-        }
-    }
-
-    /// User-initiated reconnect from the Retry control.
     public func retryMobileConnection() {
         connectionRecoveryFailed = false
         recoverMobileConnection(trigger: .manual)
@@ -1470,91 +1454,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// tears down only the exact client/generation it tested, then reconnects
     /// through the persisted route policy, which keeps Iroh-capable Macs pinned
     /// to Iroh rather than falling back to raw Tailscale.
-    func recoverForegroundConnectionIfNeeded() {
-        // Scene notifications can repeat while the first foreground probe is
-        // still redialing. Coalesce them so a later notification cannot cancel
-        // the task after it has torn down the old client but before it installs
-        // the replacement.
-        guard foregroundConnectionRecoveryTask == nil else { return }
-        guard connectionState == .connected,
-              let client = remoteClient,
-              pairedMacStore != nil else { return }
-        let recoveryID = UUID()
-        let generation = connectionGeneration
-        let stackUserID = lastReconnectStackUserID ?? identityProvider?.currentUserID
-        foregroundConnectionRecoveryID = recoveryID
-        foregroundConnectionRecoveryTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer {
-                if self.foregroundConnectionRecoveryID == recoveryID {
-                    self.foregroundConnectionRecoveryTask = nil
-                    self.foregroundConnectionRecoveryID = nil
-                }
-            }
-            let healthy = await self.reloadWorkspaceListFromMac(
-                timeoutNanoseconds: self.runtime?.livenessProbeTimeoutNanoseconds
-            )
-            guard !Task.isCancelled,
-                  self.foregroundConnectionRecoveryID == recoveryID,
-                  self.connectionGeneration == generation,
-                  self.remoteClient === client else { return }
-            if healthy {
-                self.markMacConnectionHealthy()
-                return
-            }
-            guard !self.connectionRequiresReauth, !self.recoveryInFlight else { return }
-            self.recoveryInFlight = true
-            self.isRecoveringConnection = true
-            self.connectionRecoveryFailed = false
-            self.connectionState = .disconnected
-            self.macConnectionStatus = .unavailable
-            self.clearRemoteConnectionContext()
-            let reconnected = await self.reconnectActiveMacIfAvailable(
-                stackUserID: stackUserID
-            )
-            if !reconnected, !Task.isCancelled {
-                self.connectionRecoveryFailed = true
-            }
-            self.recoveryInFlight = false
-            self.isRecoveringConnection = false
-        }
-    }
-
-    /// Single guarded recovery entry for every trigger (network change, manual
-    /// Retry). When still connected, a network move usually only broke the event
-    /// stream while input keeps flowing over the surviving connection, so a
-    /// resync re-subscribes and requests a render-grid replay to repaint.
-    /// Otherwise the connection dropped, so reconnect once; on failure the UI
-    /// shows Retry and the next network change re-attempts automatically.
-    private func recoverMobileConnection(trigger: RecoveryTrigger) {
-        guard remoteClient != nil || pairedMacStore != nil else { return }
-        if connectionState == .connected, remoteClient != nil {
-            markMacConnectionReconnecting()
-            resyncTerminalOutput(reason: "networkRecovery.\(trigger)", restartEventStream: true)
-            if multiMacAggregationEnabled, trigger.reschedulesSecondaryAggregation {
-                scheduleSecondaryAggregation()
-            }
-            return
-        }
-        guard !recoveryInFlight else { return }
-        recoveryInFlight = true
-        isRecoveringConnection = true
-        connectionRecoveryFailed = false
-        let stackUserID = lastReconnectStackUserID
-        recoveryTask?.cancel()
-        recoveryTask = Task { @MainActor [weak self] in
-            defer {
-                self?.recoveryInFlight = false
-                self?.isRecoveringConnection = false
-            }
-            guard let self, self.connectionState != .connected else { return }
-            let reconnected = await self.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
-            if !reconnected, !Task.isCancelled {
-                self.connectionRecoveryFailed = true
-            }
-        }
-    }
-
     public func connectPreviewHost() {
         let trimmedCode = pairingCode.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCode.isEmpty else {
@@ -1608,7 +1507,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
-    private func connectStoredMacHost(
+    func connectStoredMacHost(
         name: String,
         host: String,
         port: Int,
@@ -1625,131 +1524,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
-    private static func storedMacTicket(
-        name: String,
-        routes: [CmxAttachRoute],
-        pairedMacDeviceID: String
-    ) throws -> CmxAttachTicket {
-        try CmxAttachTicket(
-            workspaceID: "stored-workspace",
-            terminalID: nil,
-            macDeviceID: pairedMacDeviceID,
-            macDisplayName: name,
-            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
-            routes: routes
-        )
-    }
-
-    /// Reconnects an already-paired Mac through its full route set.
-    ///
-    /// This path is used only when the set contains an authenticated Iroh peer
-    /// route. `connect(ticket:)` pins the pairing to Iroh, so an admission or
-    /// revocation failure cannot downgrade to raw Tailscale/custom-network RPC.
-    /// The synthetic ticket names the already-paired device; it is never used to
-    /// discover or create a new pairing.
-    private func connectStoredMacRoutes(
-        name: String,
-        routes: [CmxAttachRoute],
-        pairedMacDeviceID: String,
-        ifStillCurrent: (() -> Bool)? = nil
-    ) async {
-        let ticket: CmxAttachTicket
-        do {
-            ticket = try Self.storedMacTicket(
-                name: name,
-                routes: routes,
-                pairedMacDeviceID: pairedMacDeviceID
-            )
-            _ = try await connect(
-                ticket: ticket,
-                pairedMacDeviceID: pairedMacDeviceID,
-                ifStillCurrent: ifStillCurrent
-            )
-        } catch {
-            guard ifStillCurrent?() ?? true else { return }
-            mobileShellLog.warning(
-                "stored route reconnect failed mac=\(pairedMacDeviceID, privacy: .public) error=\(String(describing: error), privacy: .private)"
-            )
-            if disconnectForAuthorizationFailureIfNeeded(error) { return }
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
-        }
-    }
-
-    /// Connects an existing pairing through its strongest supported transport.
-    /// A supported Iroh identity pins the attempt to Iroh. Raw Tailscale/custom
-    /// host routes remain available only for legacy pairings without Iroh.
-    @discardableResult
-    private func connectStoredMac(
-        name: String,
-        routes: [CmxAttachRoute],
-        pairedMacDeviceID: String,
-        recordsPairingAttempt: Bool = false,
-        ifStillCurrent: (() -> Bool)? = nil
-    ) async -> Bool {
-        guard ifStillCurrent?() ?? true else { return false }
-        let supportedKinds = runtime?.supportedRouteKinds ?? []
-        let pinnedRoutes = Self.storedReconnectRoutes(
-            routes,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
-        )
-        guard let firstRoute = pinnedRoutes.first else { return false }
-
-        if firstRoute.kind == .iroh {
-            await connectStoredMacRoutes(
-                name: name,
-                routes: pinnedRoutes,
-                pairedMacDeviceID: pairedMacDeviceID,
-                ifStillCurrent: ifStillCurrent
-            )
-        } else {
-            let candidates = Self.reconnectHostPortRoutes(
-                pinnedRoutes,
-                supportedKinds: supportedKinds,
-                preferNonLoopback: Self.prefersNonLoopbackRoutes
-            ).filter { MobileShellRouteAuthPolicy.normalizedManualHost($0.host) != nil }
-            for route in candidates {
-                guard ifStillCurrent?() ?? true else { return false }
-                if recordsPairingAttempt {
-                    await connectManualHost(
-                        name: name,
-                        host: route.host,
-                        port: route.port,
-                        pairedMacDeviceID: pairedMacDeviceID,
-                        recordsPairingAttempt: true,
-                        ifStillCurrent: ifStillCurrent
-                    )
-                } else {
-                    await connectStoredMacHost(
-                        name: name,
-                        host: route.host,
-                        port: route.port,
-                        pairedMacDeviceID: pairedMacDeviceID,
-                        ifStillCurrent: ifStillCurrent
-                    )
-                }
-                if connectionState == .connected,
-                   remoteClient != nil,
-                   foregroundMacDeviceID == pairedMacDeviceID {
-                    break
-                }
-            }
-        }
-
-        return (ifStillCurrent?() ?? true)
-            && connectionState == .connected
-            && remoteClient != nil
-            && foregroundMacDeviceID == pairedMacDeviceID
-    }
-
-    /// - Parameter pairedMacDeviceID: the REAL paired-Mac device id when the caller
-    ///   knows it (switch/reconnect/device-row paths). A manual host whose Mac lacks
-    ///   `mobile.attach_ticket.create` connects via a synthetic `manual-…` ticket;
-    ///   passing the real id keys the foreground aggregate state under it instead of
-    ///   the synthetic id. `nil` for a genuinely manual/unknown host.
-    private func connectManualHost(
+    func connectManualHost(
         name: String,
         host: String,
         port: Int,
@@ -5159,7 +4934,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// when it returned without connecting and without throwing
     /// (`.noSupportedRoute`), so callers record the matching analytics reason.
     @discardableResult
-    private func connect(
+    func connect(
         ticket: CmxAttachTicket,
         allowsStackAuthFallback: Bool? = nil,
         pairedMacDeviceID: String? = nil,
@@ -5471,7 +5246,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectedHostName = ""
     }
 
-    private func clearRemoteConnectionContext(preservingOtherMacWorkspaceState: Bool = false) {
+    func clearRemoteConnectionContext(preservingOtherMacWorkspaceState: Bool = false) {
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
         cancelRemoteOperationTasks()
@@ -5881,7 +5656,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             && isSignedIn
     }
 
-    private func markMacConnectionHealthy() {
+    func markMacConnectionHealthy() {
         guard connectionState == .connected else {
             macConnectionStatus = .unavailable
             return
@@ -5892,7 +5667,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionRequiresReauth = false
     }
 
-    private func markMacConnectionReconnecting() {
+    func markMacConnectionReconnecting() {
         guard connectionState == .connected, remoteClient != nil else {
             macConnectionStatus = .unavailable
             return

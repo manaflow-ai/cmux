@@ -1,0 +1,241 @@
+import CMUXMobileCore
+import CmuxAuthRuntime
+import CmuxIrohTransport
+import Foundation
+
+extension MobileHostIrohRuntime {
+    func configure(auth: AuthCoordinator) {
+        self.auth = auth
+        authObservationTask?.cancel()
+        authObservationTask = Task { @MainActor [weak self] in
+            await auth.awaitBootstrapped()
+            guard !Task.isCancelled, let self else { return }
+            let states = self.authObserver.states(for: auth)
+            for await state in states {
+                guard !Task.isCancelled else { return }
+                let previousAccountID = self.observedAccountID
+                self.observedAccountID = state.accountID
+                if self.signOutIntentActive {
+                    if state.accountID == nil {
+                        self.signOutIntentActive = false
+                        self.signOutPreparationTask = nil
+                    }
+                    continue
+                }
+                guard state.accountID != nil
+                        || previousAccountID != nil
+                        || self.activeAccountID != nil
+                        || self.runtime != nil else { continue }
+                self.scheduleReconcile(
+                    eraseAccountState: (state.accountID == nil
+                        && (previousAccountID != nil
+                            || self.activeAccountID != nil
+                            || self.runtime != nil))
+                        || (previousAccountID != nil
+                            && previousAccountID != state.accountID)
+                        || (self.activeAccountID != nil
+                            && self.activeAccountID != state.accountID)
+                        || self.preparedSignOut?.wasPersisted == false
+                )
+            }
+        }
+    }
+
+    func setDesiredActive(_ desired: Bool) {
+        guard desiredActive != desired else {
+            if desired { retryIfNeeded() }
+            return
+        }
+        desiredActive = desired
+        guard !signOutIntentActive else { return }
+        scheduleReconcile(eraseAccountState: false)
+    }
+
+    func retryIfNeeded() {
+        guard !signOutIntentActive,
+              desiredActive,
+              observedAccountID != nil else { return }
+        if preparedSignOut?.wasPersisted == false {
+            scheduleReconcile(eraseAccountState: true)
+            return
+        }
+        if runtime != nil {
+            let revision = lifecycleRevision
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.desiredActive,
+                      self.runtime != nil,
+                      revision == self.lifecycleRevision else { return }
+                await self.lanPublisher.permissionMayHaveChanged()
+            }
+            return
+        }
+        scheduleReconcile(eraseAccountState: false)
+    }
+
+    /// Stops the endpoint and durably quarantines its binding before auth clears tokens.
+    func quarantineForSignOut() async {
+        let preparation: CmxIrohHostSignOutPreparation
+        if let runtime {
+            preparation = await runtime.deactivateForSignOut()
+        } else {
+            preparation = await prepareWithoutRuntime()
+        }
+        preparedSignOut = preparation
+        await lanPublisher.stop()
+        if preparation.wasPersisted {
+            await wipePersistedAccountState(after: preparation)
+        } else {
+            mobileHostIrohLog.error(
+                "Iroh binding quarantine persistence failed; account state retained"
+            )
+        }
+    }
+
+    func prepareWithoutRuntime() async -> CmxIrohHostSignOutPreparation {
+        let pending: CmxIrohPendingRevocation?
+        if preparedSignOut?.wasPersisted == false {
+            pending = preparedSignOut?.pendingRevocation
+        } else {
+            pending = currentPendingRevocation()
+                ?? preparedSignOut?.pendingRevocation
+        }
+        var wasPersisted = pending == nil || preparedSignOut?.wasPersisted == true
+        if let pending, !wasPersisted {
+            do {
+                try await pendingRevocations.enqueue(pending)
+                wasPersisted = true
+            } catch {
+                mobileHostIrohLog.error(
+                    "Iroh binding quarantine persistence failed: \(String(describing: error), privacy: .private)"
+                )
+            }
+        }
+        return CmxIrohHostSignOutPreparation(
+            pendingRevocation: pending,
+            wasPersisted: wasPersisted
+        )
+    }
+
+    func retryPersistingQuarantinedPreparation(
+        _ preparation: CmxIrohHostSignOutPreparation
+    ) async -> CmxIrohHostSignOutPreparation {
+        guard !preparation.wasPersisted else { return preparation }
+        let retried: CmxIrohHostSignOutPreparation
+        if let runtime {
+            retried = await runtime.deactivateForSignOut()
+        } else {
+            retried = await prepareWithoutRuntime()
+        }
+        guard retried.pendingRevocation == preparation.pendingRevocation else {
+            mobileHostIrohLog.error(
+                "Iroh binding quarantine retry returned a different binding"
+            )
+            return preparation
+        }
+        preparedSignOut = retried
+        if retried.wasPersisted {
+            await wipePersistedAccountState(after: retried)
+        }
+        return retried
+    }
+
+    func wipePersistedAccountState(
+        after preparation: CmxIrohHostSignOutPreparation
+    ) async {
+        guard preparation.wasPersisted else { return }
+        do {
+            try await hostPolicies.deactivate()
+        } catch {
+            mobileHostIrohLog.error(
+                "Iroh offline policy deletion failed: \(String(describing: error), privacy: .private)"
+            )
+        }
+        do {
+            try await brokerCredentials.deactivate()
+        } catch {
+            mobileHostIrohLog.error(
+                "Iroh broker credential deletion failed: \(String(describing: error), privacy: .private)"
+            )
+        }
+        do {
+            try await identities.deactivate()
+        } catch {
+            mobileHostIrohLog.error(
+                "Iroh identity deletion failed: \(String(describing: error), privacy: .private)"
+            )
+        }
+        await appInstances.deactivate()
+        runtime = nil
+        activeAccountID = nil
+        activeAppInstanceID = nil
+        lastKnownBindingID = nil
+        lastKnownAccountID = nil
+        lastKnownTag = nil
+    }
+
+    func currentPendingRevocation() -> CmxIrohPendingRevocation? {
+        guard let accountID = lastKnownAccountID ?? activeAccountID,
+              let tag = lastKnownTag,
+              let bindingID = lastKnownBindingID else { return nil }
+        return try? CmxIrohPendingRevocation(
+            accountID: accountID,
+            tag: tag,
+            bindingID: bindingID
+        )
+    }
+
+    #if DEBUG
+    static func developmentStoreDirectory(service: String) -> URL {
+        let rawBundleScope = Bundle.main.bundleIdentifier
+            ?? "com.cmuxterm.app.debug"
+        let bundleScope = String(rawBundleScope.map { character in
+            character.isASCII
+                && (character.isLetter
+                    || character.isNumber
+                    || ["-", ".", "_"].contains(character))
+                ? character
+                : "_"
+        })
+        let applicationSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0]
+        return applicationSupport
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("iroh-debug", isDirectory: true)
+            .appendingPathComponent(bundleScope, isDirectory: true)
+            .appendingPathComponent(service, isDirectory: true)
+    }
+    #endif
+
+    static func currentTag(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier
+    ) -> String {
+        if let raw = environment["CMUX_TAG"],
+           let normalized = safeTag(raw) {
+            return normalized
+        }
+        if bundleIdentifier == "com.cmuxterm.app.nightly" { return "nightly" }
+        #if DEBUG
+        return "dev"
+        #else
+        return "stable"
+        #endif
+    }
+
+    static func safeTag(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let normalized = String(trimmed.prefix(64)).lowercased().map { character in
+            character.isASCII && (character.isLetter || character.isNumber)
+                ? character
+                : "-"
+        }
+        let value = String(normalized)
+            .split(separator: "-", omittingEmptySubsequences: true)
+            .joined(separator: "-")
+        return value.isEmpty ? nil : value
+    }
+}

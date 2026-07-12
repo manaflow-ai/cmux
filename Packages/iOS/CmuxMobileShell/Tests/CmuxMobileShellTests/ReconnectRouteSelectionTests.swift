@@ -128,16 +128,6 @@ import Testing
         #expect(candidates.first?.routeID == "duplicate")
     }
 
-    @Test func storedReconnectPinsIrohAndExcludesRawFallbacks() throws {
-        let routes = MobileShellComposite.storedReconnectRoutes(
-            [try loopback(), try tailscale(), try iroh()],
-            supportedKinds: [.iroh, .tailscale, .debugLoopback],
-            preferNonLoopback: true
-        )
-
-        #expect(routes.map(\.kind) == [.iroh])
-    }
-
     @Test func rawReconnectCandidatesAreUnavailableForIrohCapablePairing() throws {
         let candidates = MobileShellComposite.reconnectHostPortRoutes(
             [try tailscale(), try iroh()],

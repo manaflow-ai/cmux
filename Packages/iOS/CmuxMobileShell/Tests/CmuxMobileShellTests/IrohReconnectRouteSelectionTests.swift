@@ -114,4 +114,14 @@ extension ReconnectRouteSelectionTests {
         #expect(recovered)
         #expect(store.activeRoute?.kind == .iroh)
     }
+
+    @Test func storedReconnectPinsIrohAndExcludesRawFallbacks() throws {
+        let routes = MobileShellComposite.storedReconnectRoutes(
+            [try loopback(), try tailscale(), try iroh()],
+            supportedKinds: [.iroh, .tailscale, .debugLoopback],
+            preferNonLoopback: true
+        )
+
+        #expect(routes.map(\.kind) == [.iroh])
+    }
 }
