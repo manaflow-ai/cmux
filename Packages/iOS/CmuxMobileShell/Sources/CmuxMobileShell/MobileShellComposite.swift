@@ -1019,6 +1019,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             continuation.resume()
         }
         connectionLifecycleTask?.cancel()
+        connectionLifecycleRetiredTask?.cancel()
         connectionLifecycleDeadlineTask?.cancel()
         presenceTask?.cancel()
         networkPathObservationTask?.cancel()
@@ -1417,6 +1418,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private(set) var networkPathObservationTask: Task<Void, Never>?
     var connectionLifecycle = MobileConnectionLifecycleStateMachine()
     var connectionLifecycleTask: Task<Void, Never>?
+    var connectionLifecycleRetiredTask: Task<Void, Never>?
+    var connectionLifecycleRetiredTaskGeneration: UInt64 = 0
     var connectionLifecycleDeadlineTask: Task<Void, Never>?
     var connectionLifecycleRequestWaiters: [UInt64: CheckedContinuation<Void, Never>] = [:]
 
@@ -2900,6 +2903,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let ticketDisplayName = ticket.macDisplayName
         await performSerializedPairedMacWrite(ifStillCurrent: ifStillCurrent) { [weak self] in
             guard let self else { return }
+            guard ifStillCurrent?() ?? true else { return }
             if let scope {
                 guard await self.isScopeCurrent(scope) else { return }
             }
@@ -2922,6 +2926,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )) ?? []
                 storedRoutes = scopedMacs.first { $0.macDeviceID == ticket.macDeviceID }?.routes ?? []
             }
+            guard ifStillCurrent?() ?? true else {
+                await self.removePersistedMacIfForgotten(
+                    ticket.macDeviceID,
+                    scope: scope,
+                    store: pairedMacStore
+                )
+                return
+            }
+            if let scope {
+                guard await self.isScopeCurrent(scope) else { return }
+            }
             // A fresh re-pair can also carry one route; merging here is bounded
             // and preserves known fallbacks instead of eroding the route set.
             let routesToPersist = ticket.routes.count == 1 && !storedRoutes.isEmpty
@@ -2937,7 +2952,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     teamID: scope?.teamID,
                     now: Date()
                 )
+                guard ifStillCurrent?() ?? true else {
+                    await self.removePersistedMacIfForgotten(
+                        ticket.macDeviceID,
+                        scope: scope,
+                        store: pairedMacStore
+                    )
+                    return
+                }
+                if let scope {
+                    guard await self.isScopeCurrent(scope) else { return }
+                }
                 await self.clearForgottenMacDeviceID(ticket.macDeviceID, scope: scope)
+                guard ifStillCurrent?() ?? true else { return }
                 // A real, reconnectable Mac is now the active paired Mac: record
                 // the persisted hint so the next launch shows RestoringSessionView
                 // during the reconnect window instead of the empty add-device sheet.
@@ -2945,6 +2972,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             } catch {
                 mobileShellLog.error("paired mac store upsert failed: \(String(describing: error), privacy: .public)")
             }
+        }
+    }
+
+    /// Removes a stale reconnect write only when a concurrent Forget already
+    /// established a tombstone for the same captured owner scope.
+    private func removePersistedMacIfForgotten(
+        _ macDeviceID: String,
+        scope: MobileShellScopeSnapshot?,
+        store: any MobilePairedMacStoring
+    ) async {
+        guard let scope,
+              await isForgottenMacDeviceID(macDeviceID, scope: scope) else { return }
+        do {
+            try await store.remove(
+                macDeviceID: macDeviceID,
+                stackUserID: scope.userID,
+                teamID: scope.teamID
+            )
+        } catch {
+            mobileShellLog.error("stale paired mac cleanup failed mac=\(macDeviceID, privacy: .private) error=\(String(describing: error), privacy: .public)")
         }
     }
 
@@ -3083,6 +3130,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let stackUserID = identityProvider?.currentUserID
         let scope = await currentScopeSnapshot(userID: stackUserID)
         await performSerializedPairedMacWrite(ifStillCurrent: ifStillCurrent) {
+            guard ifStillCurrent?() ?? true else { return }
             if let scope {
                 guard await self.isScopeCurrent(scope) else { return }
             }
@@ -3096,6 +3144,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     teamID: scope?.teamID,
                     now: Date()
                 )
+                guard ifStillCurrent?() ?? true else {
+                    await self.removePersistedMacIfForgotten(
+                        ticket.macDeviceID,
+                        scope: scope,
+                        store: pairedMacStore
+                    )
+                    return
+                }
+                if let scope {
+                    guard await self.isScopeCurrent(scope) else { return }
+                }
                 await self.clearForgottenMacDeviceID(ticket.macDeviceID, scope: scope)
             } catch {
                 mobileShellLog.error("paired mac display-name upsert failed: \(String(describing: error), privacy: .public)")

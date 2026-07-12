@@ -126,6 +126,19 @@ extension MobileShellComposite {
     ) async {
         guard !macDeviceIDs.isEmpty else { return }
         let targetIDSet = Set(macDeviceIDs)
+        let forgetsReconnectTarget = connectionLifecycle.activeEpisode?.kind == .reconnect
+            && storedMacReconnectTargetDeviceID.map(targetIDSet.contains) == true
+        let forgetsKnownMac = pairedMacsForIdentityMatching.contains {
+            targetIDSet.contains($0.macDeviceID)
+        }
+        if forgetsReconnectTarget {
+            // Revoke reconnect ownership before the first suspension. A store or
+            // tombstone write may ignore task cancellation, so generation checks
+            // must already fail when that stale work resumes.
+            resetConnectionLifecycle()
+        } else if forgetsKnownMac {
+            invalidateStoredMacReconnectAttempt()
+        }
         let teamlessLegacyIDs = Set(pairedMacsForIdentityMatching
             .filter { targetIDSet.contains($0.macDeviceID) && $0.teamID == nil }
             .map(\.macDeviceID))
@@ -147,18 +160,10 @@ extension MobileShellComposite {
         let isActiveMac = pairedMacsForIdentityMatching.contains {
             targetIDSet.contains($0.macDeviceID) && $0.isActive
         }
-        let forgetsKnownMac = pairedMacsForIdentityMatching.contains {
-            targetIDSet.contains($0.macDeviceID)
-        }
-        let forgetsReconnectTarget = connectionLifecycle.activeEpisode?.kind == .reconnect
-            && storedMacReconnectTargetDeviceID.map(targetIDSet.contains) == true
-        if forgetsKnownMac || forgetsReconnectTarget {
-            invalidateStoredMacReconnectAttempt()
-        }
-        if isActiveMac {
+        let isLiveForegroundMac = connectionState == .connected
+            && foregroundMacDeviceID.map(targetIDSet.contains) == true
+        if isActiveMac || isLiveForegroundMac {
             disconnectLiveConnection(preservingOtherMacWorkspaceState: true)
-        } else if forgetsReconnectTarget {
-            resetConnectionLifecycle()
         }
         for id in macDeviceIDs {
             if let subscription = secondaryMacSubscriptions[id] {

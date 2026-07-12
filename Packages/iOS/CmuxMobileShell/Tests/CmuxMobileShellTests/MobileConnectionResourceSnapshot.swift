@@ -8,6 +8,7 @@ extension MobileShellComposite {
             activeEpisodeCount: lifecycle.activeEpisodeCount,
             pendingRequestCount: lifecycle.pendingRequestCount,
             lifecycleTaskCount: connectionLifecycleTask == nil ? 0 : 1,
+            retiredLifecycleTaskCount: connectionLifecycleRetiredTask == nil ? 0 : 1,
             lifecycleWaiterCount: connectionLifecycleRequestWaiters.count,
             networkObserverCount: networkPathObservationTask == nil ? 0 : 1,
             primaryTransportCount: remoteClient == nil ? 0 : 1,
@@ -27,6 +28,7 @@ struct MobileConnectionResourceSnapshot: Equatable {
     let activeEpisodeCount: Int
     let pendingRequestCount: Int
     let lifecycleTaskCount: Int
+    let retiredLifecycleTaskCount: Int
     let lifecycleWaiterCount: Int
     let networkObserverCount: Int
     let primaryTransportCount: Int

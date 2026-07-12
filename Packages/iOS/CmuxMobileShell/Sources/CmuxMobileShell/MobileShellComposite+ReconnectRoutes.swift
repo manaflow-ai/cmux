@@ -89,12 +89,18 @@ extension MobileShellComposite {
     }
 
     func resetConnectionLifecycle() {
-        let canceledStreamRepair = connectionLifecycle.activeEpisode?.kind == .streamRepair
+        let canceledKind = connectionLifecycle.activeEpisode?.kind
+        let canceledStreamRepair = canceledKind == .streamRepair
+        let canceledOperation = connectionLifecycleTask
         connectionLifecycle.reset()
         resumeCompletedConnectionLifecycleRequests()
         invalidateStoredMacReconnectAttempt()
-        connectionLifecycleTask?.cancel()
         connectionLifecycleTask = nil
+        if canceledKind == .reconnect {
+            retireConnectionLifecycleTask(canceledOperation)
+        } else {
+            canceledOperation?.cancel()
+        }
         connectionLifecycleDeadlineTask?.cancel()
         connectionLifecycleDeadlineTask = nil
         reconcileMacConnectionStatusAfterLifecycleReset(
@@ -139,6 +145,13 @@ extension MobileShellComposite {
         _ effect: MobileConnectionLifecycleEffect?
     ) {
         guard case .start(let episode) = effect else { return }
+        if episode.kind == .reconnect, connectionLifecycleRetiredTask != nil {
+            // A cancellation-insensitive reconnect still owns the underlying
+            // dependency. Fail replacement demand instead of stacking another
+            // task behind the same wedged store or transport.
+            finishConnectionLifecycleEpisode(id: episode.id, succeeded: false)
+            return
+        }
         connectionLifecycleTask?.cancel()
         connectionLifecycleDeadlineTask?.cancel()
         connectionLifecycleTask = Task { @MainActor [weak self] in
@@ -197,10 +210,27 @@ extension MobileShellComposite {
         let operation = connectionLifecycleTask
         connectionLifecycleTask = nil
         connectionLifecycleDeadlineTask = nil
-        operation?.cancel()
+        retireConnectionLifecycleTask(operation)
         invalidateStoredMacReconnectAttempt()
         applyStoredMacReconnectDeadlineFailure()
         finishConnectionLifecycleEpisode(id: id, succeeded: false)
+    }
+
+    /// Retains at most one cancellation-insensitive reconnect until it actually
+    /// exits. Replacement lifecycle episodes fail while this slot is occupied,
+    /// which bounds suspended store/transport work across repeated Retry taps.
+    private func retireConnectionLifecycleTask(_ operation: Task<Void, Never>?) {
+        guard let operation else { return }
+        operation.cancel()
+        guard connectionLifecycleRetiredTask == nil else { return }
+        connectionLifecycleRetiredTaskGeneration &+= 1
+        let generation = connectionLifecycleRetiredTaskGeneration
+        connectionLifecycleRetiredTask = Task { @MainActor [weak self] in
+            await operation.value
+            guard let self,
+                  self.connectionLifecycleRetiredTaskGeneration == generation else { return }
+            self.connectionLifecycleRetiredTask = nil
+        }
     }
 
     func finishConnectionLifecycleEpisode(id: UInt64, succeeded: Bool = true) {
