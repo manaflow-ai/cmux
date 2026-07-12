@@ -13,7 +13,8 @@ extension TerminalController {
             return .failed(failure)
         case let .panel(panel):
             let coordinator = panel.coordinator
-            guard operation == .recover || coordinator.status == .streaming else {
+            guard operation == .recover || operation.isDeviceSelection
+                    || coordinator.status == .streaming else {
                 return .unavailable(String(
                     localized: "cli.simulator.error.notStreaming",
                     defaultValue: "The selected Simulator is not streaming"
@@ -74,6 +75,12 @@ extension TerminalController {
                     values["display_scale"] = .double(display.scale)
                 }
                 payload = .object(values)
+            case let .selectDevice(deviceID):
+                try await coordinator.selectDeviceAndWait(id: deviceID)
+                payload = .object([
+                    "completed": .bool(true),
+                    "simulator_id": .string(deviceID),
+                ])
             case .recover:
                 try await coordinator.recoverAndWait()
                 payload = .object(["completed": .bool(true)])
@@ -228,6 +235,7 @@ extension TerminalController {
     ) -> SimulatorCapability? {
         switch operation {
         case .context: nil
+        case .selectDevice: nil
         case .recover: nil
         case let .gesture(events): events.contains(where: { $0.secondX != nil }) ? .multiTouch : .touch
         case .hardwareButton: .hardwareButtons
@@ -396,4 +404,11 @@ extension TerminalController {
         return .object(payload)
     }
 
+}
+
+private extension ControlSimulatorOperation {
+    var isDeviceSelection: Bool {
+        if case .selectDevice = self { return true }
+        return false
+    }
 }

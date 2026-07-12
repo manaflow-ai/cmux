@@ -10,6 +10,11 @@ extension CMUXCLI {
             throw simulatorArgumentsError(subcommand)
         }
         switch subcommand {
+        case "select", "select-device":
+            guard let value = oneSimulatorValue(arguments) else {
+                throw simulatorArgumentsError(subcommand)
+            }
+            return request("simulator.select_device", ["device_id": value], timeout: 140)
         case "tap":
             guard !arguments.readsStandardInput, arguments.file == nil,
                   values.count == 2 || values.count == 4 else { throw simulatorArgumentsError(subcommand) }

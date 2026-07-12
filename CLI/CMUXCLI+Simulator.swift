@@ -78,6 +78,7 @@ extension CMUXCLI {
             Additional subcommands:
               list [--workspace <ref>]            List Simulator panes and device identifiers
               context [--udid]                    Print one selected Simulator identity
+              select <device-udid>                Bind a pane to an iPhone or iPad Simulator
               screenshot [--out <path>]           Capture one or many selected Simulators
 
             Examples:

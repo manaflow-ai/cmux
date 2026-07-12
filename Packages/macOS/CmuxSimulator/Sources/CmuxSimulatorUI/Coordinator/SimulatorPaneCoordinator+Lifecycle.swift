@@ -165,6 +165,34 @@ extension SimulatorPaneCoordinator {
         }
     }
 
+    /// Selects one discovered device and waits for its attachment to finish.
+    public func selectDeviceAndWait(id: String) async throws {
+        await reloadDevices()
+        guard devices.contains(where: { $0.id == id }) else {
+            throw SimulatorFailure(
+                code: "simulator_device_not_found",
+                message: String(
+                    localized: "cli.ios.error.deviceNotFound",
+                    defaultValue: "The requested iOS Simulator device was not found"
+                ),
+                isRecoverable: false
+            )
+        }
+        selectDevice(id: id)
+        let selectionTask = activationTask
+        _ = await selectionTask?.value
+        guard selectedDeviceID == id, status == .streaming else {
+            throw failure ?? SimulatorFailure(
+                code: "simulator_device_selection_failed",
+                message: String(
+                    localized: "cli.ios.error.deviceSelectionFailed",
+                    defaultValue: "The requested iOS Simulator device did not start streaming"
+                ),
+                isRecoverable: true
+            )
+        }
+    }
+
     /// Reboots the worker connection for the selected device.
     public func recover() {
         Task { @MainActor [weak self] in

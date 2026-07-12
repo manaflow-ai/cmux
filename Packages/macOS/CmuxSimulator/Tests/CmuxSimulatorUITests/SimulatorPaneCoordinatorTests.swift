@@ -97,6 +97,22 @@ struct SimulatorPaneCoordinatorTests {
         #expect(await client.activations().map(\.id) == ["phone"])
     }
 
+    @Test("Explicit device selection waits for the requested iPad")
+    func explicitDeviceSelection() async throws {
+        let client = SimulatorPaneClientSpy(devices: [
+            Self.device(id: "phone", family: .iPhone, state: .booted),
+            Self.device(id: "pad", family: .iPad, state: .shutdown),
+        ])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.reloadDevices()
+
+        try await coordinator.selectDeviceAndWait(id: "pad")
+
+        #expect(coordinator.selectedDeviceID == "pad")
+        #expect(coordinator.status == .streaming)
+        #expect(await client.activations().last?.id == "pad")
+    }
+
     @Test("Swipe commands stay ordered on one outbox")
     func swipeOrdering() async {
         let client = SimulatorPaneClientSpy(devices: [])

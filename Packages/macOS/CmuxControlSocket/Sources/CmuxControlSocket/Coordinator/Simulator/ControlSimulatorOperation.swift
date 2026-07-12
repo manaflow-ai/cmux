@@ -2,6 +2,8 @@
 public enum ControlSimulatorOperation: Sendable, Equatable {
     /// Reads the selected device and display identity for external tooling.
     case context
+    /// Selects and attaches a device in the resolved Simulator pane.
+    case selectDevice(String)
     /// Restarts a failed or crash-fused Simulator worker for the selected device.
     case recover
     /// Sends an ordered sequence of normalized touch events.

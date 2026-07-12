@@ -9,6 +9,7 @@ extension ControlCommandExecutionPolicy {
         "simulator.web_inspector.highlight",
         "simulator.web_inspector.release",
         "simulator.context",
+        "simulator.select_device",
         "simulator.recover",
         "simulator.gesture",
         "simulator.multi_touch",

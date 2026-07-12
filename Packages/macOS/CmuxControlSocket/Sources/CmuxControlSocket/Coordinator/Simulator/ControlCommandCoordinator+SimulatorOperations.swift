@@ -9,6 +9,11 @@ extension ControlCommandCoordinator {
         switch request.method {
         case "simulator.context":
             operation = .context
+        case "simulator.select_device":
+            guard let deviceID = string(request.params, "device_id") else {
+                return invalidSimulatorOperation("device_id is required")
+            }
+            operation = .selectDevice(deviceID)
         case "simulator.recover":
             operation = .recover
         case "simulator.gesture", "simulator.multi_touch":
