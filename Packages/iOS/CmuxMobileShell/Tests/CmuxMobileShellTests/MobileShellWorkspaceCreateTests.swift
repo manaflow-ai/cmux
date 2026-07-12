@@ -114,4 +114,75 @@ import Testing
 
         #expect(store.foregroundWorkspaceListAppliedMutationEpoch < laterMutationEpoch)
     }
+
+    @Test func staleCreateResponseReconcilesWithoutOverwritingNewerAuthoritativeHierarchy() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstWorkspaceCreate(true)
+        await router.workspaceListGate.setUsesOrdinalTitles(true)
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            connectionState: .connected
+        )
+
+        let create = Task { @MainActor in
+            await store.createWorkspaceRequest()
+        }
+        await router.awaitFirstWorkspaceCreateReached()
+
+        #expect(await store.refreshForegroundWorkspaceListAfterMutation())
+        #expect(store.workspaces.first(where: { $0.rpcWorkspaceID.rawValue == RoutingHostRouter.workspaceID })?.name == "Stale Workspace")
+
+        await router.releaseFirstWorkspaceCreate()
+        let createResult = await create.value
+        guard case .success = createResult else {
+            return #expect(Bool(false), "workspace create should succeed: \(createResult)")
+        }
+
+        #expect(await router.workspaceListGate.requestCount() == 2)
+        #expect(store.workspaces.first(where: { $0.rpcWorkspaceID.rawValue == RoutingHostRouter.workspaceID })?.name == "Fresh Workspace")
+        #expect(store.workspaces.contains(where: { $0.rpcWorkspaceID.rawValue == "workspace-created" }))
+        #expect(store.selectedWorkspace?.rpcWorkspaceID.rawValue == "workspace-created")
+        #expect(store.selectedTerminalID?.rawValue == "terminal-created")
+    }
+
+    @Test func olderWorkspaceCreateResponseCannotOverwriteNewerTerminalCreate() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstWorkspaceCreate(true)
+        await router.setHoldFirstTerminalCreate(true)
+        await router.workspaceListGate.setUsesOrdinalTitles(true)
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            connectionState: .connected
+        )
+        let workspaceID = try #require(store.workspaces.first?.id)
+
+        let workspaceCreate = Task { @MainActor in
+            await store.createWorkspaceRequest()
+        }
+        await router.awaitFirstWorkspaceCreateReached()
+        let terminalCreate = Task { @MainActor in
+            await store.createRemoteTerminal(in: workspaceID)
+        }
+        await router.awaitFirstTerminalCreateReached()
+
+        await router.releaseFirstTerminalCreate()
+        await terminalCreate.value
+        #expect(store.selectedWorkspaceID == workspaceID)
+        #expect(store.selectedTerminalID?.rawValue == "terminal-route-created")
+
+        await router.releaseFirstWorkspaceCreate()
+        let workspaceResult = await workspaceCreate.value
+        guard case .success = workspaceResult else {
+            return #expect(Bool(false), "workspace create should succeed: \(workspaceResult)")
+        }
+
+        #expect(await router.workspaceListGate.requestCount() == 1)
+        #expect(store.workspaces.first(where: { $0.id == workspaceID })?.name == "Stale Workspace")
+        #expect(store.workspaces.first(where: { $0.id == workspaceID })?.terminals.contains(where: {
+            $0.id.rawValue == "terminal-route-created"
+        }) == true)
+        #expect(store.workspaces.contains(where: { $0.rpcWorkspaceID.rawValue == "workspace-created" }))
+        #expect(store.selectedWorkspaceID == workspaceID)
+        #expect(store.selectedTerminalID?.rawValue == "terminal-route-created")
+    }
 }

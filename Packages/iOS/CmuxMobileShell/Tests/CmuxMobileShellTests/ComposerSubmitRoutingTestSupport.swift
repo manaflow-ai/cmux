@@ -52,6 +52,9 @@ actor RoutingHostRouter {
     private var firstPasteImageContinuation: CheckedContinuation<Void, Never>?
     private var firstPasteImageReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var workspaceCreateCount = 0
+    private var workspaceHasBeenCreated = false
+    private var terminalHasBeenCreated = false
+    private var selectedHostWorkspaceID = "ws-route"
     private var rejectWorkspaceCreate = false
     private var rejectWorkspaceList = false
     private var terminalCloseErrorCode: String?
@@ -62,6 +65,10 @@ actor RoutingHostRouter {
     private var firstWorkspaceCreateHeld = false
     private var firstWorkspaceCreateContinuation: CheckedContinuation<Void, Never>?
     private var firstWorkspaceCreateReachedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var holdFirstTerminalCreate = false
+    private var firstTerminalCreateHeld = false
+    private var firstTerminalCreateContinuation: CheckedContinuation<Void, Never>?
+    private var firstTerminalCreateReachedWaiters: [CheckedContinuation<Void, Never>] = []
 
     static let workspaceID = "ws-route"
     static let terminalA = "term-route-a"
@@ -136,6 +143,21 @@ actor RoutingHostRouter {
         continuation?.resume()
     }
 
+    func setHoldFirstTerminalCreate(_ hold: Bool) {
+        holdFirstTerminalCreate = hold
+    }
+
+    func awaitFirstTerminalCreateReached() async {
+        if firstTerminalCreateHeld { return }
+        await withCheckedContinuation { firstTerminalCreateReachedWaiters.append($0) }
+    }
+
+    func releaseFirstTerminalCreate() {
+        let continuation = firstTerminalCreateContinuation
+        firstTerminalCreateContinuation = nil
+        continuation?.resume()
+    }
+
     func recordedWorkspaceCreateCount() -> Int { workspaceCreateCount }
     func recordedWorkspaceCreateGroupIDs() -> [String?] { workspaceCreateGroupIDs }
     func recordedTerminalCloseCount() -> Int { terminalCloseCount }
@@ -155,6 +177,7 @@ actor RoutingHostRouter {
         var notificationIDs: [String]?
         var clientID: String?
         var groupID: String?
+        var workspaceID: String?
     }
 
     func response(_ info: RequestInfo) async -> Data? {
@@ -166,31 +189,18 @@ actor RoutingHostRouter {
             if rejectWorkspaceList {
                 return try? Self.errorFrame(id: id, message: "workspace.list rejected")
             }
+            var workspaces: [[String: Any]] = [Self.routingWorkspacePayload(
+                title: workspaceTitle,
+                isSelected: selectedHostWorkspaceID == Self.workspaceID,
+                includesCreatedTerminal: terminalHasBeenCreated
+            )]
+            if workspaceHasBeenCreated {
+                workspaces.append(Self.createdWorkspacePayload(
+                    isSelected: selectedHostWorkspaceID == "workspace-created"
+                ))
+            }
             return try? Self.resultFrame(id: id, result: [
-                "workspaces": [
-                    [
-                        "id": Self.workspaceID,
-                        "title": workspaceTitle,
-                        "current_directory": "/tmp/route",
-                        "is_selected": true,
-                        "terminals": [
-                            [
-                                "id": Self.terminalA,
-                                "title": "A",
-                                "current_directory": "/tmp/route",
-                                "is_ready": true,
-                                "is_focused": true,
-                            ],
-                            [
-                                "id": Self.terminalB,
-                                "title": "B",
-                                "current_directory": "/tmp/route",
-                                "is_ready": true,
-                                "is_focused": false,
-                            ],
-                        ],
-                    ],
-                ],
+                "workspaces": workspaces,
             ])
         case "mobile.host.status":
             return try? Self.resultFrame(id: id, result: [
@@ -211,6 +221,8 @@ actor RoutingHostRouter {
         case "workspace.create":
             workspaceCreateCount += 1
             workspaceCreateGroupIDs.append(info.groupID)
+            workspaceHasBeenCreated = true
+            selectedHostWorkspaceID = "workspace-created"
             if workspaceCreateCount == 1 && holdFirstWorkspaceCreate {
                 firstWorkspaceCreateHeld = true
                 let reachedWaiters = firstWorkspaceCreateReachedWaiters
@@ -229,22 +241,32 @@ actor RoutingHostRouter {
                         "is_selected": false,
                         "terminals": [],
                     ],
-                    [
-                        "id": "workspace-created",
-                        "title": "Created Workspace",
-                        "is_selected": true,
-                        "terminals": [
-                            [
-                                "id": "terminal-created",
-                                "title": "Created",
-                                "is_focused": true,
-                                "is_ready": true,
-                            ],
-                        ],
-                    ],
+                    Self.createdWorkspacePayload(isSelected: true),
                 ],
                 "created_workspace_id": "workspace-created",
                 "created_terminal_id": "terminal-created",
+            ])
+        case "terminal.create":
+            terminalHasBeenCreated = true
+            selectedHostWorkspaceID = info.workspaceID ?? Self.workspaceID
+            if holdFirstTerminalCreate {
+                firstTerminalCreateHeld = true
+                let reachedWaiters = firstTerminalCreateReachedWaiters
+                firstTerminalCreateReachedWaiters = []
+                for waiter in reachedWaiters { waiter.resume() }
+                await withCheckedContinuation { firstTerminalCreateContinuation = $0 }
+            }
+            var workspaces: [[String: Any]] = [Self.routingWorkspacePayload(
+                title: "Terminal Response Workspace",
+                isSelected: true,
+                includesCreatedTerminal: true
+            )]
+            if workspaceHasBeenCreated {
+                workspaces.append(Self.createdWorkspacePayload(isSelected: false))
+            }
+            return try? Self.resultFrame(id: id, result: [
+                "workspaces": workspaces,
+                "created_terminal_id": "terminal-route-created",
             ])
         case "terminal.close":
             terminalCloseCount += 1
@@ -292,6 +314,61 @@ actor RoutingHostRouter {
         default:
             return try? Self.errorFrame(id: id, message: "Unexpected method \(method ?? "nil")")
         }
+    }
+
+    private static func routingWorkspacePayload(
+        title: String,
+        isSelected: Bool,
+        includesCreatedTerminal: Bool
+    ) -> [String: Any] {
+        var terminals: [[String: Any]] = [
+            [
+                "id": terminalA,
+                "title": "A",
+                "current_directory": "/tmp/route",
+                "is_ready": true,
+                "is_focused": !includesCreatedTerminal,
+            ],
+            [
+                "id": terminalB,
+                "title": "B",
+                "current_directory": "/tmp/route",
+                "is_ready": true,
+                "is_focused": false,
+            ],
+        ]
+        if includesCreatedTerminal {
+            terminals.append([
+                "id": "terminal-route-created",
+                "title": "Created terminal",
+                "current_directory": "/tmp/route",
+                "is_ready": true,
+                "is_focused": true,
+            ])
+        }
+        return [
+            "id": workspaceID,
+            "title": title,
+            "current_directory": "/tmp/route",
+            "is_selected": isSelected,
+            "terminals": terminals,
+        ]
+    }
+
+    private static func createdWorkspacePayload(isSelected: Bool) -> [String: Any] {
+        [
+            "id": "workspace-created",
+            "title": "Created Workspace",
+            "is_selected": isSelected,
+            "terminals": [
+                [
+                    "id": "terminal-created",
+                    "title": "Created",
+                    "is_focused": true,
+                    "is_ready": true,
+                ],
+            ],
+        ]
     }
 
 }

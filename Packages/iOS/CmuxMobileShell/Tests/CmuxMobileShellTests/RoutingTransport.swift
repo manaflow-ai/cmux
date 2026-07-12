@@ -45,7 +45,8 @@ private actor RoutingTransport: CmxByteTransport {
                 text: params?["text"] as? String,
                 notificationIDs: params?["notification_ids"] as? [String],
                 clientID: params?["client_id"] as? String,
-                groupID: params?["group_id"] as? String
+                groupID: params?["group_id"] as? String,
+                workspaceID: params?["workspace_id"] as? String
             )
             Task { [router, weak self] in
                 guard let response = await router.response(info) else { return }
