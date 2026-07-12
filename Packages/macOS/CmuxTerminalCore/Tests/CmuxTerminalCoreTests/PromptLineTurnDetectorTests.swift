@@ -138,6 +138,81 @@ struct PromptLineTurnDetectorTests {
         #expect(detector.confirm(confirmation) == 1)
     }
 
+    @Test("A pasted submission longer than the storage cap still starts a turn")
+    func oversizedPastedSubmissionStartsTurn() throws {
+        var detector = readyDetector()
+
+        detector.consume(Data((String(repeating: "a", count: 5_000) + "\r\n").utf8))
+        #expect(detector.submissionCount == 1)
+
+        detector.consume(Data("output\r\n>>> ".utf8))
+        let confirmation = try #require(detector.pendingConfirmation)
+        #expect(detector.confirm(confirmation) == 1)
+    }
+
+    @Test("An oversized response line still counts as observed output")
+    func oversizedOutputLineMarksObservedOutput() throws {
+        var detector = readyDetector()
+        detector.consume(Data("ask\r\n".utf8))
+
+        detector.consume(Data(String(repeating: "x", count: 5_000).utf8))
+        detector.consume(Data("\r\n>>> ".utf8))
+
+        let confirmation = try #require(detector.pendingConfirmation)
+        #expect(detector.confirm(confirmation) == 1)
+    }
+
+    @Test("A long preamble line does not affect initial prompt detection")
+    func longPreambleLineStillDetectsPrompt() throws {
+        var detector = PromptLineTurnDetector(configuration: configuration)
+
+        detector.consume(Data((String(repeating: "log ", count: 2_000) + "\r\n").utf8))
+        detector.consume(Data(">>> ".utf8))
+        detector.consume(Data("hi\r\nanswer\r\n>>> ".utf8))
+
+        let confirmation = try #require(detector.pendingConfirmation)
+        #expect(detector.confirm(confirmation) == 1)
+    }
+
+    @Test("Backspaces across skipped bytes keep line editing exact")
+    func backspacesAcrossSkippedBytesStayExact() throws {
+        var detector = readyDetector()
+
+        detector.consume(Data("hello".utf8))
+        detector.consume(Data(String(repeating: "\u{7F}", count: 5).utf8))
+        detector.consume(Data("ok\r\n".utf8))
+        #expect(detector.submissionCount == 1)
+
+        detector.consume(Data("out\r\n>>> ".utf8))
+        let confirmation = try #require(detector.pendingConfirmation)
+        #expect(detector.confirm(confirmation) == 1)
+    }
+
+    @Test("A submission padded past the cap with spaces still starts a turn")
+    func overflowedPaddedSubmissionStartsTurn() throws {
+        var detector = readyDetector()
+
+        detector.consume(Data(String(repeating: " ", count: 5_000).utf8))
+        detector.consume(Data("hello\r\n".utf8))
+        #expect(detector.submissionCount == 1)
+
+        detector.consume(Data("output\r\n>>> ".utf8))
+        let confirmation = try #require(detector.pendingConfirmation)
+        #expect(detector.confirm(confirmation) == 1)
+    }
+
+    @Test("Visible output after an invisible overflow still completes the turn")
+    func visibleOutputAfterInvisibleOverflowCompletesTurn() throws {
+        var detector = readyDetector()
+        detector.consume(Data("ask\r\n".utf8))
+
+        detector.consume(Data(String(repeating: " ", count: 5_000).utf8))
+        detector.consume(Data("done\r\n>>> ".utf8))
+
+        let confirmation = try #require(detector.pendingConfirmation)
+        #expect(detector.confirm(confirmation) == 1)
+    }
+
     private func readyDetector() -> PromptLineTurnDetector {
         var detector = PromptLineTurnDetector(configuration: configuration)
         detector.consume(Data(">>> ".utf8))

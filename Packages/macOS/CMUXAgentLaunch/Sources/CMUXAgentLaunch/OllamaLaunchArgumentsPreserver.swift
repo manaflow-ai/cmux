@@ -84,17 +84,13 @@ struct OllamaLaunchArgumentsPreserver {
                 return true
             }
 
+            // Upstream registers --think with an optional value
+            // (NoOptDefVal), so a bare --think never consumes the next
+            // token; explicit levels only bind in the --think=<level> form.
+            // A following token is Ollama's positional model or one-shot
+            // prompt and is handled by the positional scan.
             result.append(argument)
-            guard index + 1 < arguments.count,
-                  !arguments[index + 1].hasPrefix("-") else {
-                index += 1
-                return true
-            }
-            guard Self.thinkingLevels.contains(arguments[index + 1].lowercased()) else {
-                return false
-            }
-            result.append(arguments[index + 1])
-            index += 2
+            index += 1
             return true
         }
         if Self.flagOptions.contains(option) {

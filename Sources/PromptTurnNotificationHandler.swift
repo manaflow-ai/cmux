@@ -9,6 +9,7 @@ actor PromptTurnNotificationHandler {
     private var latestRevisionByAgentID: [String: UInt64] = [:]
     private var latestSubmissionCountByAgentID: [String: UInt64] = [:]
     private var turnForegroundPIDByAgentID: [String: Int] = [:]
+    private var deliveredConfirmationIdentifierByAgentID: [String: UInt64] = [:]
     private var debounceTasksByAgentID: [String: Task<Void, Never>] = [:]
 
     private var cachedForegroundPID: Int?
@@ -35,7 +36,8 @@ actor PromptTurnNotificationHandler {
         submissionCount: UInt64,
         revision: UInt64,
         confirmation: PromptLineTurnConfirmation?,
-        deadline: ContinuousClock.Instant?
+        deadline: ContinuousClock.Instant?,
+        locallyConfirmed: PromptLineTurnConfirmation?
     ) async {
         if submissionCount > latestSubmissionCountByAgentID[agentID, default: 0] {
             latestSubmissionCountByAgentID[agentID] = submissionCount
@@ -46,6 +48,16 @@ actor PromptTurnNotificationHandler {
             turnForegroundPIDByAgentID[agentID] = await Self.foregroundProcessID(
                 workspaceID: workspaceID,
                 surfaceID: surfaceID
+            )
+        }
+        if let locallyConfirmed {
+            // The detector already confirmed this turn synchronously at its
+            // deadline. Deliver it here so a delayed debounce task cannot be
+            // cancelled out of the completion it was about to report.
+            await deliverVerifiedTurn(
+                agentID: agentID,
+                confirmation: locallyConfirmed,
+                requiredRevision: nil
             )
         }
         guard revision > latestRevisionByAgentID[agentID, default: 0] else { return }
@@ -77,7 +89,20 @@ actor PromptTurnNotificationHandler {
     ) async {
         guard latestRevisionByAgentID[agentID] == revision else { return }
         debounceTasksByAgentID.removeValue(forKey: agentID)
+        await deliverVerifiedTurn(
+            agentID: agentID,
+            confirmation: confirmation,
+            requiredRevision: revision
+        )
+    }
+
+    private func deliverVerifiedTurn(
+        agentID: String,
+        confirmation: PromptLineTurnConfirmation,
+        requiredRevision: UInt64?
+    ) async {
         guard confirmation.confirmedTurnCount > 0,
+              deliveredConfirmationIdentifierByAgentID[agentID, default: 0] < confirmation.identifier,
               let turnPID = turnForegroundPIDByAgentID[agentID],
               let foregroundPID = await Self.foregroundProcessID(
                   workspaceID: workspaceID,
@@ -91,10 +116,18 @@ actor PromptTurnNotificationHandler {
               await Self.foregroundProcessID(
                   workspaceID: workspaceID,
                   surfaceID: surfaceID
-              ) == foregroundPID,
-              latestRevisionByAgentID[agentID] == revision else {
+              ) == foregroundPID else {
             return
         }
+        if let requiredRevision, latestRevisionByAgentID[agentID] != requiredRevision {
+            return
+        }
+        // Re-check after the suspension points above so concurrent local and
+        // timer confirmations of the same candidate deliver exactly once.
+        guard deliveredConfirmationIdentifierByAgentID[agentID, default: 0] < confirmation.identifier else {
+            return
+        }
+        deliveredConfirmationIdentifierByAgentID[agentID] = confirmation.identifier
 
         AgentNotificationDelivery().enqueue(
             workspaceID: workspaceID,

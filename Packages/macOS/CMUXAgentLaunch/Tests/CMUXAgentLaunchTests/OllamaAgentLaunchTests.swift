@@ -11,7 +11,7 @@ struct OllamaAgentLaunchTests {
                 "run",
                 "qwen3:8b",
                 "--keepalive", "10m",
-                "--think", "high",
+                "--think=high",
                 "--verbose",
             ],
             launcher: "",
@@ -21,7 +21,7 @@ struct OllamaAgentLaunchTests {
             "run",
             "qwen3:8b",
             "--keepalive", "10m",
-            "--think", "high",
+            "--think=high",
             "--verbose",
         ])
     }
@@ -48,13 +48,8 @@ struct OllamaAgentLaunchTests {
         ) == nil)
     }
 
-    @Test("Invalid thinking levels cannot be mistaken for the model")
+    @Test("Invalid explicit thinking levels are not restorable")
     func sanitizerRejectsInvalidThinkingLevels() {
-        #expect(AgentLaunchSanitizer.sanitizedLaunchArguments(
-            ["ollama", "run", "--think", "extreme", "qwen3"],
-            launcher: "",
-            fallbackKind: "ollama"
-        ) == nil)
         #expect(AgentLaunchSanitizer.sanitizedLaunchArguments(
             ["ollama", "run", "qwen3", "--think=extreme"],
             launcher: "",
@@ -62,13 +57,26 @@ struct OllamaAgentLaunchTests {
         ) == nil)
     }
 
-    @Test("Sanitization preserves Ollama maximum thinking level forms")
-    func sanitizerPreservesMaximumThinkingLevel() {
+    @Test("Bare --think never consumes the next token")
+    func sanitizerTreatsBareThinkAsValueless() {
+        // Upstream registers --think with an optional value (NoOptDefVal),
+        // so "high" here is Ollama's one-shot prompt, not a level, and must
+        // not be replayed on restore.
         #expect(AgentLaunchSanitizer.sanitizedLaunchArguments(
-            ["ollama", "run", "qwen3", "--think", "max"],
+            ["ollama", "run", "qwen3", "--think", "high", "--verbose"],
             launcher: "",
             fallbackKind: "ollama"
-        ) == ["ollama", "run", "qwen3", "--think", "max"])
+        ) == ["ollama", "run", "qwen3", "--think"])
+        // Before the model, the token after a bare --think is the model.
+        #expect(AgentLaunchSanitizer.sanitizedLaunchArguments(
+            ["ollama", "run", "--think", "qwen3"],
+            launcher: "",
+            fallbackKind: "ollama"
+        ) == ["ollama", "run", "--think", "qwen3"])
+    }
+
+    @Test("Sanitization preserves the explicit maximum thinking level")
+    func sanitizerPreservesMaximumThinkingLevel() {
         #expect(AgentLaunchSanitizer.sanitizedLaunchArguments(
             ["ollama", "run", "qwen3", "--think=max"],
             launcher: "",

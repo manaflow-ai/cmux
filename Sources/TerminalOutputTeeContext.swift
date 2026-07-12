@@ -14,6 +14,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         var forwardedRevision: UInt64 = 0
         var forwardedSubmissionCount: UInt64 = 0
         var confirmationDeadline: ContinuousClock.Instant?
+        var unforwardedLocalConfirmation: PromptLineTurnConfirmation?
     }
 
     /// The latest detector state queued for the notification actor.
@@ -23,6 +24,10 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         let revision: UInt64
         let confirmation: PromptLineTurnConfirmation?
         let deadline: ContinuousClock.Instant?
+        /// A turn the detector confirmed synchronously at its deadline. The
+        /// notification owner delivers it exactly once by identifier, so a
+        /// slow delivery timer cannot lose the completion.
+        let locallyConfirmed: PromptLineTurnConfirmation?
     }
 
     private struct ForwardQueue {
@@ -64,7 +69,9 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
             if let confirmation = detectors[index].detector.pendingConfirmation,
                let deadline = detectors[index].confirmationDeadline,
                now >= deadline {
-                _ = detectors[index].detector.confirm(confirmation)
+                if detectors[index].detector.confirm(confirmation) > 0 {
+                    detectors[index].unforwardedLocalConfirmation = confirmation
+                }
                 detectors[index].confirmationDeadline = nil
             }
 
@@ -79,12 +86,15 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     ) {
         let revision = detectors[index].detector.confirmationRevision
         let submissionCount = detectors[index].detector.submissionCount
+        let locallyConfirmed = detectors[index].unforwardedLocalConfirmation
         guard revision != detectors[index].forwardedRevision ||
-            submissionCount != detectors[index].forwardedSubmissionCount else {
+            submissionCount != detectors[index].forwardedSubmissionCount ||
+            locallyConfirmed != nil else {
             return
         }
         detectors[index].forwardedRevision = revision
         detectors[index].forwardedSubmissionCount = submissionCount
+        detectors[index].unforwardedLocalConfirmation = nil
 
         let confirmation = detectors[index].detector.pendingConfirmation
         let deadline = confirmation.map {
@@ -96,7 +106,8 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
             submissionCount: submissionCount,
             revision: revision,
             confirmation: confirmation,
-            deadline: deadline
+            deadline: deadline,
+            locallyConfirmed: locallyConfirmed
         ))
     }
 
@@ -107,7 +118,17 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     private func enqueue(_ forward: AgentForward) {
         let startDrain = forwardQueue.withLock { state in
             if let existing = state.pending.firstIndex(where: { $0.agentID == forward.agentID }) {
-                state.pending[existing] = forward
+                // Coalesce to the latest state but never drop an undelivered
+                // local confirmation.
+                state.pending[existing] = AgentForward(
+                    agentID: forward.agentID,
+                    submissionCount: forward.submissionCount,
+                    revision: forward.revision,
+                    confirmation: forward.confirmation,
+                    deadline: forward.deadline,
+                    locallyConfirmed: forward.locallyConfirmed
+                        ?? state.pending[existing].locallyConfirmed
+                )
             } else {
                 state.pending.append(forward)
             }
@@ -133,7 +154,8 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
                     submissionCount: next.submissionCount,
                     revision: next.revision,
                     confirmation: next.confirmation,
-                    deadline: next.deadline
+                    deadline: next.deadline,
+                    locallyConfirmed: next.locallyConfirmed
                 )
             }
         }
