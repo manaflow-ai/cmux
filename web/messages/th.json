@@ -819,6 +819,7 @@
     "workspaceGroups": {
       "metaTitle": "กลุ่มเวิร์กสเปซ",
       "metaDescription": "จัดเวิร์กสเปซให้ซ้อนอยู่ในส่วนที่มีชื่อและยุบได้ในแถบด้านข้างของ cmux ครอบคลุมโมเดลแองเคอร์ วิธีสร้างและจัดการกลุ่ม และ CLI ของ workspace-group",
+      "metaDescriptionShort": "Workspace Groups จัดเวิร์กสเปซเป็นส่วนที่ยุบได้ในแถบข้าง พร้อมการปักหมุด จัดลำดับ และใช้ CLI.",
       "title": "กลุ่มเวิร์กสเปซ",
       "intro": "กลุ่มเวิร์กสเปซช่วยให้คุณซ้อนเวิร์กสเปซเป็นส่วนที่มีชื่อและยุบ-ขยายได้ในแถบด้านข้าง แต่ละกลุ่มมีเวิร์กสเปซแองเคอร์โดยปริยาย มีปุ่ม + ที่ปรับแต่งได้สำหรับสร้างเวิร์กสเปซใหม่ภายในกลุ่ม และมีการกระทำจากการคลิกขวาสำหรับเปลี่ยนชื่อ ปักหมุด ยกเลิกการจัดกลุ่ม และแก้ไขการตั้งค่าของกลุ่ม",
       "concepts": "แนวคิด",
@@ -968,6 +969,7 @@
       "title": "คำสั่งที่กำหนดเอง",
       "metaTitle": "คำสั่งที่กำหนดเอง",
       "metaDescription": "กำหนด actions, custom commands และเลย์เอาต์ workspace ใน cmux.json รองรับการตั้งค่าแบบต่อโปรเจกต์และแบบ global พร้อมการ reload อย่างชัดเจน",
+      "metaDescriptionShort": "กำหนด actions, custom commands และเลย์เอาต์ workspace ใน cmux.json สำหรับทั้งโปรเจกต์และ global.",
       "intro": "กำหนดคำสั่งที่กำหนดเองและเลย์เอาต์ workspace โดยเพิ่มไฟล์ cmux.json ลงในรากโปรเจกต์หรือ ~/.config/cmux/ คำสั่งจะปรากฏในแผงคำสั่ง",
       "fileLocations": "ตำแหน่งไฟล์",
       "fileLocationsDesc": "cmux ค้นหาการตั้งค่าจากสองที่:",
@@ -1134,6 +1136,7 @@
     "api": {
       "title": "เอกสาร CLI",
       "metaDescription": "เอกสาร cmux CLI และ Unix socket API การจัดการ workspace, แยกหน้าจอ, ควบคุม input, แจ้งเตือน, metadata แถบข้าง, ตัวแปรสภาพแวดล้อม และวิธีตรวจจับ",
+      "metaDescriptionShort": "ใช้ cmux CLI และ Unix socket เพื่อจัดการ workspace แยกหน้าจอ ควบคุม input แจ้งเตือน และตรวจจับสถานะ.",
       "intro": "cmux มีทั้งเครื่องมือ CLI และ Unix socket สำหรับการควบคุมแบบโปรแกรม ทุกคำสั่งพร้อมใช้งานผ่านทั้งสองอินเทอร์เฟซ",
       "socket": "Socket",
       "buildHeader": "Build",
@@ -1278,6 +1281,7 @@
     "browserAutomation": {
       "title": "Browser Automation",
       "metaDescription": "เอกสารคำสั่ง cmux browser สำหรับ navigation, DOM interaction, waiting, inspection, JavaScript evaluation, แท็บ, dialog, frame, download และสถานะเบราว์เซอร์",
+      "metaDescriptionShort": "ใช้ cmux browser เพื่อนำทาง DOM รอ ตรวจสอบ รัน JavaScript จัดการแท็บ dialog frame download และสถานะเบราว์เซอร์.",
       "intro": "กลุ่มคำสั่ง cmux browser ให้ browser automation กับ cmux browser surface ใช้สำหรับ navigate, โต้ตอบกับ DOM element, ตรวจสอบสถานะหน้าเว็บ, evaluate JavaScript และจัดการข้อมูลเซสชันเบราว์เซอร์",
       "commandIndex": "ดัชนีคำสั่ง",
       "categoryHeader": "หมวดหมู่",
@@ -1319,6 +1323,7 @@
       "title": "ทักษะ",
       "metaTitle": "ทักษะ",
       "metaDescription": "ติดตั้งและใช้ทักษะของ agent สำหรับ cmux เพื่อควบคุม CLI หลัก ทำงานอัตโนมัติในเบราว์เซอร์ ใช้พาเนล Markdown หน้าต่าง debug และงาน release",
+      "metaDescriptionShort": "ติดตั้งทักษะ agent ของ cmux เพื่อควบคุม CLI ทำงานกับเบราว์เซอร์ พาเนล Markdown การ debug และ release.",
       "intro": "cmux มาพร้อมทักษะที่สอน coding agents ให้ใช้การควบคุม cmux CLI, พื้นผิวเบราว์เซอร์, พาเนล Markdown, หน้าต่าง debug และ workflow สำหรับ release",
       "installTitle": "ติดตั้ง",
       "installIntro": "รัน <code>skills.sh</code> เพื่อติดตั้งทักษะที่อยู่ใน repo ลงในไดเรกทอรีทักษะของ Codex",
@@ -1386,8 +1391,9 @@
       "ios": "แอป iOS"
     },
     "dock": {
-      "metaTitle": "Dock",
+      "metaTitle": "Dock สำหรับ workspace และเอเจนต์ใน cmux",
       "metaDescription": "เพิ่มคอนโทรล TUI แบบกำหนดเองไปยังแถบด้านขวาของ cmux ด้วย Dock JSON",
+      "metaDescriptionShort": "เพิ่มคอนโทรล TUI ในแถบขวาของ cmux ด้วย Dock JSON สำหรับฟีด ล็อก คิว และการโต้ตอบ.",
       "title": "Dock",
       "intro": "Dock ช่วยให้คุณเพิ่มคอนโทรล TUI ไปยังแถบด้านขวาได้ คอนโทรลแต่ละรายการคือคำสั่งจาก JSON และแสดงในส่วนเทอร์มินัลของตัวเองที่ใช้ Ghostty เป็นฐาน ใช้สำหรับ feed, logs, queues, git status, dev servers หรือ TUI ใดก็ตามที่ทีมอยากให้อยู่ข้าง workspace ทุกอัน",
       "configTitle": "การตั้งค่า",
@@ -1464,8 +1470,9 @@
     },
     "ssh": {
       "title": "SSH",
-      "metaTitle": "SSH",
+      "metaTitle": "SSH สำหรับเอเจนต์เขียนโค้ดใน cmux",
       "metaDescription": "เชื่อมต่อกับเครื่องระยะไกลด้วย cmux ssh บานหน้าต่างเบราว์เซอร์กำหนดเส้นทางผ่านเครือข่ายระยะไกล รูปภาพลากและวางผ่าน scp และการแจ้งเตือนของตัวแทนกลับมาที่บ้าน",
+      "metaDescriptionShort": "cmux ssh เปิดเทอร์มินัลระยะไกล อัปโหลดด้วย scp และส่งการแจ้งเตือนกลับไปยัง Mac ของคุณ.",
       "intro": "cmux ssh สร้างพื้นที่ทำงานสำหรับเครื่องระยะไกล บานหน้าต่างเบราว์เซอร์กำหนดเส้นทางผ่านเครือข่ายระยะไกล ไฟล์ลากและวางผ่าน scp เอเจนต์การเข้ารหัสส่งการแจ้งเตือนไปยังแถบด้านข้างในเครื่องของคุณ และเซสชันเชื่อมต่อใหม่เมื่อดรอป",
       "usage": "การใช้งาน",
       "usageDesc": "cmux ssh อ่าน ~/.ssh/config ของคุณสำหรับชื่อแทนโฮสต์ ไฟล์ข้อมูลระบุตัวตน และการตั้งค่าพร็อกซี ธงทั้งหมดสะท้อนเทียบเท่า ssh",
@@ -1535,11 +1542,12 @@
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode แบบหลายเอเจนต์ใน cmux",
-      "metaDescription": "oh-my-opencode (cmux omo) รัน OpenCode CLI พร้อมปลั๊กอิน oh-my-openagent ภายใน cmux จัดการ Claude, GPT, Gemini และ Grok เป็นเอเจนต์แบบขนาน แต่ละตัวอยู่ในการแยกหน้าจอแบบเนทีฟของ cmux"
+      "metaDescription": "cmux omo รัน OpenCode พร้อม oh-my-openagent ให้ Claude, GPT, Gemini และ Grok ทำงานขนานกันในหน้าจอแยก cmux แบบเนทีฟ."
     },
     "ios": {
       "metaTitle": "แอป iOS",
       "metaDescription": "ตั้งค่าแอปคู่หู cmux สำหรับ iOS: การเข้าถึงผ่าน TestFlight, การใช้เครือข่ายของคุณเองด้วย Tailscale หรือ WireGuard, การจับคู่, การแจ้งเตือน และข้อมูลที่ cmux จัดเก็บ",
+      "metaDescriptionShort": "แอป cmux บน iOS เชื่อมต่อ Mac ผ่านเครือข่ายส่วนตัว พร้อมการจับคู่และการแจ้งเตือน.",
       "title": "แอป iOS",
       "intro": "แอป cmux สำหรับ iOS เป็นแอปคู่หูของ Mac ของคุณ จับคู่ iPhone หรือ iPad ของคุณกับ Mac ที่รัน cmux แล้วเชื่อมต่อกับเทอร์มินัลของคุณจากโทรศัพท์ พร้อมตัวเลือกในการส่งต่อการแจ้งเตือนของเทอร์มินัล",
       "betaNote": "แอป iOS อยู่ในช่วงเบต้า โดยเผยแพร่บน TestFlight ในชื่อ cmux BETA",
