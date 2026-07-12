@@ -173,6 +173,19 @@ impl Terminal {
         }
     }
 
+    /// Effective foreground, background, and cursor colors.
+    ///
+    /// Each value includes any active OSC 10/11/12 override and is `None`
+    /// when neither the embedder nor the terminal application set it.
+    pub fn effective_colors(&self) -> (Option<Rgb>, Option<Rgb>, Option<Rgb>) {
+        let color = |data| self.get::<sys::GhosttyColorRgb>(data).ok().map(Rgb::from);
+        (
+            color(sys::GHOSTTY_TERMINAL_DATA_COLOR_FOREGROUND),
+            color(sys::GHOSTTY_TERMINAL_DATA_COLOR_BACKGROUND),
+            color(sys::GHOSTTY_TERMINAL_DATA_COLOR_CURSOR),
+        )
+    }
+
     pub fn resize(
         &mut self,
         cols: u16,

@@ -696,7 +696,13 @@ impl Mux {
     }
 
     pub fn set_default_colors(&self, colors: DefaultColors) {
-        *self.default_colors.lock().unwrap() = colors;
+        {
+            let mut current = self.default_colors.lock().unwrap();
+            if *current == colors {
+                return;
+            }
+            *current = colors;
+        }
         let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
         for surface in surfaces {
             surface.set_default_colors(colors);

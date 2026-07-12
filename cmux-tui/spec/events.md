@@ -8,7 +8,7 @@ Implemented event lines can appear on two stream types:
 | --- | --- | --- |
 | Subscribe stream | `subscribe` command | `tree-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-exited`, `title-changed`, `bell`, `notification`, `config-reload-requested`, `window-title-requested`, `empty` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached` |
-| Attach stream v6 | `attach-surface` command | `vt-state`, `resized`, `output`, `scroll-changed`, `detached` |
+| Attach stream v6 | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `scroll-changed`, `detached` |
 
 Events and command responses share one full-duplex connection. Each event or response is a complete transport message: a JSON line on Unix or a text frame on WebSocket. Clients must route messages by checking for `event`. If `event` is absent, the message is a command response and should be matched by `id`.
 
@@ -24,7 +24,7 @@ For a single subscription, events are delivered in the order the mux broadcasts 
 
 `attach-surface` has a stronger ordering contract. The server takes the VT replay snapshot and registers the live output tap under the same terminal lock. The attach stream therefore has no gap and no duplicated bytes between the `vt-state` replay and subsequent `output` chunks. In v5, the `vt-state` event is sent before the `attach-surface` command response.
 
-Protocol v6 attach streams are ordered as `vt-state -> (resized | output)* -> detached`. The v6 `resized` event carries a fresh replay, and attach clients must replace their mirror terminal from that replay before applying later `output` chunks. Clients that support only protocol 5 or older must refuse protocol v6 attach streams. The field name `replay` on the v6 `resized` event could not be verified against this branch's code.
+Protocol v6 attach streams are ordered as `vt-state -> (resized | output | colors-changed)* -> detached`. The v6 `resized` event carries a fresh replay, and attach clients must replace their mirror terminal from that replay before applying later `output` chunks. `colors-changed` is ordered with `resized` and `output` for its attached surface. Clients that support only protocol 5 or older must refuse protocol v6 attach streams. The field name `replay` on the v6 `resized` event could not be verified against this branch's code.
 
 When a surface exits, the mux removes it from the tree itself. Subscribe streams normally receive `tree-changed` and possibly `empty` before `surface-exited` for that surface. By the time `surface-exited` is observed, frontends should consider the surface reaped from authoritative tree state.
 
@@ -305,19 +305,33 @@ Example:
 | event | `vt-state` |
 | status | implemented |
 | since | protocol 5 |
+| `colors` field | protocol 6 additive extension |
 
 Payload:
 
 ```text
-object{event:"vt-state",surface:Id,cols:uint16,rows:uint16,data:Base64}
+object{
+  event:"vt-state",
+  surface:Id,
+  cols:uint16,
+  rows:uint16,
+  data:Base64,
+  colors:object{
+    fg:ColorHex|null,
+    bg:ColorHex|null,
+    cursor:ColorHex|null,
+    selection_bg:ColorHex|null,
+    selection_fg:ColorHex|null
+  }
+}
 ```
 
-Meaning: Initial VT replay for an attached PTY surface. Replaying `data` into a fresh Ghostty VT terminal with the supplied cell size reproduces current state.
+Meaning: Initial VT replay for an attached PTY surface. Replaying `data` into a fresh Ghostty VT terminal with the supplied cell size reproduces current state. `colors` is captured with the replay and reports the surface's effective foreground, background, and cursor colors, including active OSC 10/11/12 overrides. A field is `null` when the server cannot determine it; the current server does not track selection colors, so `selection_bg` and `selection_fg` are `null`.
 
 Example:
 
 ```json
-{"event":"vt-state","surface":1,"cols":80,"rows":24,"data":"G1s/bA=="}
+{"event":"vt-state","surface":1,"cols":80,"rows":24,"data":"G1s/bA==","colors":{"fg":"#d8d9da","bg":"#131415","cursor":null,"selection_bg":null,"selection_fg":null}}
 ```
 
 ### output
@@ -362,6 +376,35 @@ Example:
 
 ```json
 {"event":"resized","surface":1,"cols":100,"rows":30,"replay":"G1s/bA=="}
+```
+
+### colors-changed
+
+| Field | Value |
+| --- | --- |
+| event | `colors-changed` |
+| status | implemented in protocol 6 attach stream |
+| since | protocol 6 additive extension |
+
+Payload:
+
+```text
+object{
+  event:"colors-changed",
+  fg:ColorHex|null,
+  bg:ColorHex|null,
+  cursor:ColorHex|null,
+  selection_bg:ColorHex|null,
+  selection_fg:ColorHex|null
+}
+```
+
+Meaning: The session defaults changed through `set-default-colors`. Each live PTY attach stream receives the effective colors for its surface after applying the merged defaults. Active per-surface OSC 10/11/12 overrides remain authoritative. The attach stream already identifies the surface, so this event has no `surface` field. The current server emits `null` for both selection fields because it cannot query the terminal's OSC 17/19 selection-color state.
+
+Example:
+
+```json
+{"event":"colors-changed","fg":"#d8d9da","bg":"#131415","cursor":null,"selection_bg":null,"selection_fg":null}
 ```
 
 ### detached

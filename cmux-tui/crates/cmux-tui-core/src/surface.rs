@@ -86,6 +86,23 @@ pub struct DefaultColors {
     pub bg: Option<Rgb>,
 }
 
+/// Effective colors exposed to attached terminal clients.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TerminalColors {
+    pub fg: Option<Rgb>,
+    pub bg: Option<Rgb>,
+    pub cursor: Option<Rgb>,
+    pub selection_bg: Option<Rgb>,
+    pub selection_fg: Option<Rgb>,
+}
+
+impl TerminalColors {
+    fn from_terminal(term: &Terminal) -> Self {
+        let (fg, bg, cursor) = term.effective_colors();
+        TerminalColors { fg, bg, cursor, selection_bg: None, selection_fg: None }
+    }
+}
+
 /// Everything an attaching frontend needs to adopt a PTY surface: its
 /// size, a VT replay of the current state, and a live stream of every pty
 /// byte applied after the replay snapshot.
@@ -93,6 +110,7 @@ pub struct AttachStream {
     pub cols: u16,
     pub rows: u16,
     pub replay: Vec<u8>,
+    pub colors: TerminalColors,
     pub stream: std::sync::mpsc::Receiver<AttachFrame>,
 }
 
@@ -100,6 +118,7 @@ pub struct AttachStream {
 pub enum AttachFrame {
     Output(Vec<u8>),
     Resized { cols: u16, rows: u16, replay: Vec<u8> },
+    ColorsChanged(TerminalColors),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -479,7 +498,13 @@ impl Surface {
 
     pub fn set_default_colors(&self, colors: DefaultColors) {
         if let Some(pty) = self.as_pty() {
-            pty.term.lock().unwrap().set_default_colors(colors.fg, colors.bg);
+            let mut term = pty.term.lock().unwrap();
+            term.set_default_colors(colors.fg, colors.bg);
+            let colors = TerminalColors::from_terminal(&term);
+            let mut taps = pty.taps.lock().unwrap();
+            if !taps.is_empty() {
+                taps.retain(|tap| tap.send(AttachFrame::ColorsChanged(colors)).is_ok());
+            }
             pty.dirty.store(true, Ordering::Release);
         }
     }
@@ -585,8 +610,9 @@ impl Surface {
         // the reader thread cannot apply bytes between the two.
         let replay = term.vt_replay()?;
         let (cols, rows) = (term.cols(), term.rows());
+        let colors = TerminalColors::from_terminal(&term);
         pty.taps.lock().unwrap().push(tx);
-        Ok(AttachStream { cols, rows, replay, stream: rx })
+        Ok(AttachStream { cols, rows, replay, colors, stream: rx })
     }
 
     pub fn kill(&self) {

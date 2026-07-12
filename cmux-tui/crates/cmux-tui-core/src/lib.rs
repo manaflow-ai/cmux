@@ -32,7 +32,7 @@ pub use mux::{
 pub use short_id::assign_short_ids;
 pub use surface::{
     AttachFrame, AttachStream, BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserSource,
-    BrowserStatus, DefaultColors, Surface, SurfaceKind, SurfaceOptions,
+    BrowserStatus, DefaultColors, Surface, SurfaceKind, SurfaceOptions, TerminalColors,
 };
 
 pub use ghostty_vt::Rgb;

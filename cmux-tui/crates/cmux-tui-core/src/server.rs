@@ -42,7 +42,8 @@ use crate::platform::{self, transport};
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction, LayoutLeafSpec,
     LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PaneId, Rgb, ScreenId, SidebarPluginStatus,
-    SplitDir, SurfaceId, SurfaceKind, SurfaceNotification, WorkspaceId, ZoomMode, assign_short_ids,
+    SplitDir, SurfaceId, SurfaceKind, SurfaceNotification, TerminalColors, WorkspaceId, ZoomMode,
+    assign_short_ids,
 };
 
 pub const PROTOCOL_VERSION: u32 = 6;
@@ -1014,6 +1015,20 @@ fn parse_hex_color(value: &str) -> anyhow::Result<Rgb> {
     Ok(Rgb { r: hex(1)?, g: hex(3)?, b: hex(5)? })
 }
 
+fn color_hex(color: Option<Rgb>) -> Option<String> {
+    color.map(|color| format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b))
+}
+
+fn terminal_colors_json(colors: TerminalColors) -> Value {
+    json!({
+        "fg": color_hex(colors.fg),
+        "bg": color_hex(colors.bg),
+        "cursor": color_hex(colors.cursor),
+        "selection_bg": color_hex(colors.selection_bg),
+        "selection_fg": color_hex(colors.selection_fg),
+    })
+}
+
 fn browser_state_json(
     surface: SurfaceId,
     state: &crate::BrowserAttachState,
@@ -1693,6 +1708,7 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &MessageWriter) -> anyho
                 "cols": attach.cols,
                 "rows": attach.rows,
                 "data": base64::engine::general_purpose::STANDARD.encode(attach.replay),
+                "colors": terminal_colors_json(attach.colors),
             }))?;
             let writer = writer.clone();
             std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
@@ -1715,6 +1731,11 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &MessageWriter) -> anyho
                             "rows": rows,
                             "data": base64::engine::general_purpose::STANDARD.encode(replay),
                         }),
+                        AttachFrame::ColorsChanged(colors) => {
+                            let mut value = terminal_colors_json(colors);
+                            value["event"] = json!("colors-changed");
+                            value
+                        }
                     };
                     if writer.send(&value).is_err() {
                         break;
