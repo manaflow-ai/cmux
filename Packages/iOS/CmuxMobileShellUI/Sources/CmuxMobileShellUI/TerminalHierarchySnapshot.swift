@@ -5,12 +5,15 @@ struct TerminalHierarchySnapshot: Equatable {
     let workspaceName: String
     let panes: [TerminalHierarchyPaneSnapshot]
     let canReorder: Bool
+    let requiresReorderRefresh: Bool
     let connectionStatus: MobileMacConnectionStatus
 
     init(workspace: MobileWorkspacePreview, selectedTerminalID: MobileTerminalPreview.ID?) {
         workspaceID = workspace.id
         workspaceName = workspace.name
-        canReorder = workspace.actionCapabilities.supportsTerminalReorderActions
+        let supportsReorder = workspace.actionCapabilities.supportsTerminalReorderActions
+        requiresReorderRefresh = supportsReorder && !workspace.hasCoherentTerminalReorderMembership
+        canReorder = supportsReorder && !requiresReorderRefresh
         connectionStatus = workspace.macConnectionStatus ?? .unavailable
         let titleCounts = Dictionary(grouping: workspace.terminals, by: \.name).mapValues(\.count)
         var titleOrdinals: [String: Int] = [:]

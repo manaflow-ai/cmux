@@ -68,6 +68,7 @@ extension MobileShellComposite {
         }
         guard let workspace = workspaces.first(where: { $0.id == workspaceID }),
               workspace.actionCapabilities.supportsTerminalReorderActions,
+              workspace.hasCoherentTerminalReorderMembership,
               let pane = workspace.resolvedPanes.first(where: { $0.id == intent.paneID }),
               pane.terminalIDs.contains(intent.terminalID) else {
             return .failure(.rejected(hostDisplayName: workspaceHostDisplayName(for: workspaceID)))

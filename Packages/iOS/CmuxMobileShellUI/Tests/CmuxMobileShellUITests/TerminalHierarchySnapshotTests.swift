@@ -245,10 +245,12 @@ import Testing
     let malformed = TerminalHierarchySnapshot(workspace: workspace, selectedTerminalID: nil)
     #expect(malformed.panes.first?.rows.map(\.id) == ["terminal-a", "terminal-b", "terminal-d"])
     #expect(!malformed.canReorder)
+    #expect(malformed.requiresReorderRefresh)
 
     workspace.panes[0].terminalIDs = ["terminal-a", "terminal-b", "terminal-d"]
     let refreshed = TerminalHierarchySnapshot(workspace: workspace, selectedTerminalID: nil)
     #expect(refreshed.canReorder)
+    #expect(!refreshed.requiresReorderRefresh)
 }
 
 @Test func hierarchySnapshotDisablesReorderForDuplicateBeforeVisibleSource() {
@@ -275,6 +277,7 @@ import Testing
     let snapshot = TerminalHierarchySnapshot(workspace: workspace, selectedTerminalID: nil)
     #expect(snapshot.panes.first?.rows.map(\.id) == ["terminal-a", "terminal-b", "terminal-d"])
     #expect(!snapshot.canReorder)
+    #expect(snapshot.requiresReorderRefresh)
 }
 
 @Test func hierarchySnapshotDisablesReorderForCrossPaneMembership() {
@@ -304,4 +307,5 @@ import Testing
 
     let snapshot = TerminalHierarchySnapshot(workspace: workspace, selectedTerminalID: nil)
     #expect(!snapshot.canReorder)
+    #expect(snapshot.requiresReorderRefresh)
 }

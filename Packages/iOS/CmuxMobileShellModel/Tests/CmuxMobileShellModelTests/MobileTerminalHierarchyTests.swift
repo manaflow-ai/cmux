@@ -28,6 +28,22 @@ import Testing
     #expect(workspace.resolvedPanes.count == 1)
     #expect(workspace.resolvedPanes[0].id.rawValue == "workspace-legacy-pane")
     #expect(workspace.resolvedPanes[0].terminalIDs == [terminal.id])
+    #expect(workspace.hasCoherentTerminalReorderMembership)
+}
+
+@Test func flatPayloadWithExplicitPaneOwnershipRequiresRefreshBeforeReorder() {
+    let terminal = MobileTerminalPreview(
+        id: "terminal-a",
+        name: "shell",
+        paneID: "pane-not-reported"
+    )
+    let workspace = MobileWorkspacePreview(
+        id: "workspace",
+        name: "Project",
+        terminals: [terminal]
+    )
+
+    #expect(!workspace.hasCoherentTerminalReorderMembership)
 }
 
 @Test func reorderIntentRejectsCrossPaneAndStaleSourceIdentity() {

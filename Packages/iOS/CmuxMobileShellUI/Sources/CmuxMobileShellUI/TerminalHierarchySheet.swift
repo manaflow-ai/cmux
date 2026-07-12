@@ -53,7 +53,8 @@ struct TerminalHierarchySheet: View {
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("MobileTerminalHierarchyConnection")
                     }
-                    if reorderGate.requiresRefresh(workspaceID: snapshot.workspaceID) {
+                    if snapshot.requiresReorderRefresh
+                        || reorderGate.requiresRefresh(workspaceID: snapshot.workspaceID) {
                         Button(action: recoverHierarchy) {
                             Label(
                                 L10n.string(
@@ -448,6 +449,9 @@ struct TerminalHierarchySheet: View {
     }
 
     private func recoverHierarchy() {
+        if snapshot.requiresReorderRefresh {
+            reorderGate.requireRefresh(workspaceID: snapshot.workspaceID)
+        }
         guard reorderGate.beginRecovery(workspaceID: snapshot.workspaceID) else { return }
         Task { @MainActor in
             let succeeded = await refreshTerminals()
