@@ -2857,6 +2857,10 @@
       "title": "ガイド",
       "intro": "cmuxの比較・背景・ユースケースのガイドです。製品ドキュメントについてはドキュメントをご覧ください。"
     },
+    "remoteTmux": {
+      "title": "リモート tmux",
+      "metaDescription": "別のマシンで動く tmux を、cmux からネイティブ macOS フロントエンドとして使えます。"
+    },
     "compare": {
       "metaTitle": "cmux と AI コーディング端末およびエージェント ワークスペースを比較する",
       "metaDescription": "cmux を、Superset、Conductor、Cursor、Devin、VS Code、Zed、Warp、Ghostty、iTerm2、Kitty、Alacritty、WezTerm、Herdr、および Claude Code、Codex、OpenCode、およびコーディング エージェントを実行するためのその他のツールと比較します。",
@@ -4374,6 +4378,7 @@
       "cursorCli": "Cursor CLI のためのターミナル",
       "keyboardShortcuts": "キーボードショートカット",
       "browserAutomation": "ブラウザ自動化",
+      "remoteTmux": "リモート tmux",
       "compare": "cmuxを比較"
     },
     "agents": {
