@@ -1,6 +1,12 @@
 public import CmuxMobileShellModel
 internal import CmuxMobileSupport
 
+enum MobileTerminalCreationMutationClaim {
+    case blocked
+    case unreserved
+    case reserved(MobileTerminalReorderReservation)
+}
+
 extension MobileShellComposite {
     /// Resolves a real host pane for a remote create. Compatibility panes are
     /// presentation-only and must never be sent to the host as stable IDs.
@@ -13,6 +19,32 @@ extension MobileShellComposite {
         if let explicitPaneID { return explicitPaneID }
         guard !workspace.panes.isEmpty else { return nil }
         return workspace.terminalCreationPaneID
+    }
+
+    /// Enrolls modern terminal creation in the same hierarchy mutation owner as
+    /// close and reorder, so full-list responses cannot apply out of order.
+    func claimTerminalCreationMutation(
+        in workspace: MobileWorkspacePreview?,
+        paneID: MobilePanePreview.ID?
+    ) -> MobileTerminalCreationMutationClaim {
+        guard let workspace,
+              workspace.actionCapabilities.supportsTerminalCloseActions
+                || workspace.actionCapabilities.supportsTerminalReorderActions else {
+            return .unreserved
+        }
+        guard let paneID,
+              let reservation = terminalReorderGate.reserve(
+                  workspaceID: workspace.id,
+                  paneID: paneID
+              ) else {
+            return .blocked
+        }
+        return .reserved(reservation)
+    }
+
+    func finishTerminalCreationMutation(_ claim: MobileTerminalCreationMutationClaim) {
+        guard case let .reserved(reservation) = claim else { return }
+        terminalReorderGate.finish(reservation)
     }
 
     /// Creates and selects a preview/local terminal in one exact pane.

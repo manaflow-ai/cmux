@@ -4104,13 +4104,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // so a second "+" on another workspace can't strand the UI on that
             // workspace with no new terminal while the earlier RPC still runs.
             guard createTerminalTask == nil else { return }
+            let mutationClaim = claimTerminalCreationMutation(
+                in: targetWorkspace, paneID: targetPaneID ?? targetWorkspace?.terminalCreationPaneID
+            )
+            if case .blocked = mutationClaim { return }
             // Pin selection to the target so the async create + the resulting
             // terminal selection stay on the workspace the caller intended.
             if let targetWorkspaceID { selectedWorkspaceID = targetWorkspaceID }
             let taskID = UUID()
             createTerminalTaskID = taskID
             createTerminalTask = Task { @MainActor [weak self] in
-                defer { self?.clearCreateTerminalTask(id: taskID) }
+                defer {
+                    self?.clearCreateTerminalTask(id: taskID)
+                    self?.finishTerminalCreationMutation(mutationClaim)
+                }
                 guard let self else { return }
                 await self.createRemoteTerminal(in: targetWorkspaceID, paneID: targetPaneID)
             }

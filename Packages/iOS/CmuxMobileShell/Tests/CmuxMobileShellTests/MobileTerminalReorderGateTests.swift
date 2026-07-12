@@ -66,6 +66,32 @@ import Testing
 }
 
 @MainActor
+@Test func remoteTerminalCreationSerializesWithCloseAndReorder() throws {
+    let store = MobileShellComposite.preview()
+    var workspace = try #require(store.workspaces.first)
+    let paneID = MobilePanePreview.ID(rawValue: "pane-create")
+    workspace.panes = [
+        MobilePanePreview(
+            id: paneID,
+            spatialIndex: 0,
+            terminalIDs: workspace.terminals.map(\.id)
+        ),
+    ]
+    workspace.actionCapabilities = MobileWorkspaceActionCapabilities(
+        supportsTerminalCloseActions: true,
+        supportsTerminalCreateInPane: true,
+        supportsTerminalReorderActions: true
+    )
+
+    let claim = store.claimTerminalCreationMutation(in: workspace, paneID: paneID)
+
+    #expect(store.terminalReorderGate.isActive)
+    #expect(store.terminalReorderGate.reserve(workspaceID: workspace.id, paneID: paneID) == nil)
+    store.finishTerminalCreationMutation(claim)
+    #expect(store.terminalReorderGate.canMutate(workspaceID: workspace.id))
+}
+
+@MainActor
 @Test func rejectedReorderReleasesItsReservation() async throws {
     let store = MobileShellComposite.preview()
     let pane = MobilePanePreview(
