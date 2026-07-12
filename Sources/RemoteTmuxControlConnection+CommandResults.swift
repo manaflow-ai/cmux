@@ -11,10 +11,10 @@ extension RemoteTmuxControlConnection {
         let kind = pendingCommands.removeFirst()
         #if DEBUG
         switch kind {
-        case .paneRects, .listWindows:
+        case .paneRects, .listWindows, .perWindowSize:
             cmuxDebugLog(
                 "remote.fifo.dequeue \(kind) depth=\(pendingCommands.count)"
-                    + " err=\(isError ? 1 : 0) firstLine=\(lines.first.map { String($0.prefix(40)) } ?? "-")"
+                    + " err=\(isError ? 1 : 0) firstLine=\(lines.first.map { String($0.prefix(60)) } ?? "-")"
             )
         default:
             break
