@@ -20,3 +20,23 @@ import Testing
     #expect(!refreshed)
     #expect(subscription.refreshCompletedGeneration == 0)
 }
+
+@MainActor
+@Test func failedForegroundFetchIsNotAnAuthoritativeMutationRefresh() async throws {
+    let router = RoutingHostRouter()
+    let store = MobileShellComposite(
+        connectionState: .connected,
+        workspaces: MobileShellComposite.preview().workspaces
+    )
+    try installFreshRemoteClient(on: store, router: router)
+    await router.setRejectWorkspaceList(true)
+    let target = WorkspaceMutationTarget(
+        client: store.remoteClient,
+        isForeground: true,
+        macDeviceID: "test-mac-2"
+    )
+
+    let refreshed = await store.refreshAfterWorkspaceMutation(target)
+
+    #expect(!refreshed)
+}
