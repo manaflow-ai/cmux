@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import {
+  fallbackContentLocales,
   featureWorkflowContentLocales,
   remoteTmuxDocsLocales,
 } from "../i18n/locale-availability";
@@ -18,7 +19,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   }> = [
     { path: "", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 1 },
     { path: "/ios", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.8 },
-    { path: "/pricing", lastModified: "2026-07-01", changeFrequency: "monthly" as const, priority: 0.9 },
+    { path: "/pricing", lastModified: "2026-07-01", changeFrequency: "monthly" as const, priority: 0.9, locales: fallbackContentLocales },
     { path: "/enterprise", lastModified: "2026-07-04", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/blog", lastModified: "2026-07-04", changeFrequency: "weekly" as const, priority: 0.8 },
     { path: "/blog/claude-code-best-worktree-manager", lastModified: "2026-07-04", changeFrequency: "monthly" as const, priority: 0.7 },
@@ -61,7 +62,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/docs/agent-integrations/claude-code-teams", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/agent-integrations/oh-my-opencode", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/agent-integrations/oh-my-codex", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
-    { path: "/docs/agent-integrations/oh-my-pi", lastModified: "2026-07-07", changeFrequency: "monthly" as const, priority: 0.7 },
+    { path: "/docs/agent-integrations/oh-my-pi", lastModified: "2026-07-07", changeFrequency: "monthly" as const, priority: 0.7, locales: fallbackContentLocales },
     { path: "/docs/agent-integrations/oh-my-claudecode", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/changelog", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 0.5 },
     { path: "/community", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.5 },

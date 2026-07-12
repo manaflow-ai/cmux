@@ -2,6 +2,7 @@ import { locales } from "../../i18n/routing";
 import { comparePages, comparePath } from "./compare-pages";
 import type { ComparePageKey } from "./compare-pages";
 import {
+  fallbackContentLocales,
   featureWorkflowContentLocales,
   remoteTmuxDocsLocales,
 } from "../../i18n/locale-availability";
@@ -109,7 +110,7 @@ const agentReadableComparePages = comparePages.map((page) => ({
 export const agentReadablePages = [
   { path: "/", title: "Home" },
   { path: "/ios", title: "cmux iOS" },
-  { path: "/pricing", title: "Pricing" },
+  { path: "/pricing", title: "Pricing", locales: fallbackContentLocales },
   { path: "/enterprise", title: "Enterprise" },
   { path: "/blog", title: "Blog" },
   {
@@ -174,6 +175,7 @@ export const agentReadablePages = [
   {
     path: "/docs/agent-integrations/oh-my-pi",
     title: "oh-my-pi",
+    locales: fallbackContentLocales,
   },
   {
     path: "/docs/agent-integrations/oh-my-claudecode",

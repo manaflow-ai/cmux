@@ -21,7 +21,7 @@ A sidebar plugin is an executable terminal program. The mux server starts it ins
 }
 ```
 
-When `sidebar.plugin` is absent, the built-in workspace sidebar is used. When present, the plugin replaces the built-in sidebar. In a local TUI session, `reload-config` applies this key through the existing config reload path. A headless server or attached-client setup may require restarting the server process so the server, not the attach client, picks up the plugin command.
+When `sidebar.plugin` is absent, the built-in view selected by `sidebar.view` is used (`files` by default, or `workspaces`). When present, the plugin replaces either built-in view. In a local TUI session, `reload-config` applies this key through the existing config reload path. A headless server or attached-client setup may require restarting the server process so the server, not the attach client, picks up the plugin command.
 
 The sidebar content PTY is sized to the sidebar content cells. The host TUI keeps one separator/focus-border column at the right edge. Resizes use normal PTY resizing (`TIOCSWINSZ` on Unix), so plugins observe the standard terminal resize behavior and `SIGWINCH`; there is no plugin-specific resize protocol.
 
@@ -46,7 +46,7 @@ If the plugin exits or fails to start, the TUI renders a visible error message i
 
 ### Focus And Input
 
-`focus-sidebar` is the keyboard action for focusing the sidebar plugin. The default binding is `prefix S`.
+When a plugin is configured, `focus-sidebar` focuses its PTY. The default binding is `prefix S`.
 
 While the sidebar is focused, key and paste input are forwarded as PTY bytes using the same key encoder and terminal-mode state as pane PTYs. The global prefix chord is the escape hatch back to cmux:
 
