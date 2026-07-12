@@ -19,4 +19,16 @@ struct TerminalSelectionRevisionTests {
         store.selectedWorkspaceID = "workspace-docs"
         #expect(store.userTerminalSelectionRevision == initialRevision + 1)
     }
+
+    @Test func terminalCreationCountsAsExplicitSelectionIntent() throws {
+        let store = MobileShellComposite.preview()
+        let workspaceID = try #require(store.selectedWorkspaceID)
+        let initialRevision = store.userTerminalSelectionRevision
+        let previousTerminalID = store.selectedTerminalID
+
+        store.createTerminal(in: workspaceID)
+
+        #expect(store.selectedTerminalID != previousTerminalID)
+        #expect(store.userTerminalSelectionRevision == initialRevision + 1)
+    }
 }
