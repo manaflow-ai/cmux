@@ -14,7 +14,6 @@ public struct WorkspaceListLayoutPreviewView: View {
     @State private var selectedWorkspaceID: MobileWorkspacePreview.ID?
     @State private var macSelection: WorkspaceMacSelection = .all
     @State private var workspaces = Self.initialWorkspaces
-    @State private var searchStressComplete = false
 
     public init() {}
 
@@ -74,22 +73,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                     createWorkspace: {},
                     macSelection: $macSelection
                 )
-            }
-            .overlay(alignment: .bottomTrailing) {
-                if searchStressComplete {
-                    Text("MobileWorkspaceSearchStressComplete")
-                        .font(.caption2)
-                        .accessibilityIdentifier("MobileWorkspaceSearchStressComplete")
-                }
-            }
-            .task {
-                guard UITestConfig.workspaceListSearchStressEnabled else { return }
-                for revision in 0..<400 {
-                    guard !Task.isCancelled else { return }
-                    workspaces[0].previewText = "Build output revision \(revision)"
-                    await Task.yield()
-                }
-                searchStressComplete = true
+                .workspaceSearchStressScenario(workspaces: $workspaces)
             }
         }
     }

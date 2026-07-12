@@ -97,16 +97,6 @@ public struct UITestConfig {
         #endif
     }
 
-    /// Whether the workspace-list preview should continuously replace row
-    /// snapshots while UI tests keep its search field focused.
-    public static var workspaceListSearchStressEnabled: Bool {
-        #if DEBUG
-        return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_LIST_SEARCH_STRESS"] == "1"
-        #else
-        return false
-        #endif
-    }
-
     /// Whether the workspace detail delayed-terminal lifecycle preview is enabled.
     ///
     /// When `CMUX_UITEST_WORKSPACE_DETAIL_DELAYED_TERMINAL=1`, the root view renders

@@ -97,7 +97,7 @@ struct WorkspaceListView: View {
     var isInitialConnectionLoading = false
     var initialConnectionTimedOut = false
     var retryInitialConnection: (() -> Void)?
-    @State private var searchText = ""
+    @State var searchText = ""
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
     @State private var showingDeviceTree = false

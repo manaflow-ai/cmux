@@ -128,7 +128,6 @@ final class cmuxUITests: XCTestCase {
     func testWorkspaceSearchSurvivesLiveSnapshotUpdates() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
-            "CMUX_UITEST_WORKSPACE_LIST_SEARCH_STRESS": "1",
         ])
         defer { app.terminate() }
 
