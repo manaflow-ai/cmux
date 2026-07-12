@@ -14,8 +14,8 @@ final class MobileDiffPatchSchemeHandler: NSObject, WKURLSchemeHandler {
 
     private let store = MobileDiffPatchStore()
 
-    func configure(generation: Int, html: Data, patch: Data) {
-        store.configure(generation: generation, html: html, patch: patch)
+    func configure(generation: Int, html: Data, patch: Data) async {
+        await store.configure(generation: generation, html: html, patch: patch)
     }
 
     func webView(_ webView: WKWebView, start urlSchemeTask: any WKURLSchemeTask) {
