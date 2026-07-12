@@ -22,6 +22,6 @@ extension MobileShellComposite {
             ]
         )
         let data = try await client.sendRequest(request)
-        return try MobileDiffDocument.decode(data)
+        return try MobileDiffDocument(decoding: data)
     }
 }

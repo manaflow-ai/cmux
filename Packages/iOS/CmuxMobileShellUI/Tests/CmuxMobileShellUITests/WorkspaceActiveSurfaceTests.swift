@@ -3,7 +3,7 @@ import Testing
 
 @Suite struct WorkspaceActiveSurfaceTests {
     @Test func chatTakesPrecedenceOverBrowserWhenSessionIsChosen() {
-        #expect(WorkspaceActiveSurface.derive(
+        #expect(WorkspaceActiveSurface(
             isChatMode: true,
             hasChosenChatSession: true,
             hasActiveBrowser: true
@@ -11,7 +11,7 @@ import Testing
     }
 
     @Test func browserTakesPrecedenceWhenChatHasNoChosenSession() {
-        #expect(WorkspaceActiveSurface.derive(
+        #expect(WorkspaceActiveSurface(
             isChatMode: true,
             hasChosenChatSession: false,
             hasActiveBrowser: true
@@ -19,7 +19,7 @@ import Testing
     }
 
     @Test func terminalIsDefaultSurface() {
-        #expect(WorkspaceActiveSurface.derive(
+        #expect(WorkspaceActiveSurface(
             isChatMode: false,
             hasChosenChatSession: false,
             hasActiveBrowser: false
@@ -27,7 +27,7 @@ import Testing
     }
 
     @Test func diffTakesPrecedenceOverBrowser() {
-        #expect(WorkspaceActiveSurface.derive(
+        #expect(WorkspaceActiveSurface(
             isChatMode: false,
             hasChosenChatSession: false,
             hasActiveBrowser: true,

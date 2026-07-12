@@ -79,7 +79,7 @@ struct WorkspaceDetailView: View {
     }
     #if os(iOS)
     var activeSurface: WorkspaceActiveSurface {
-        WorkspaceActiveSurface.derive(
+        WorkspaceActiveSurface(
             isChatMode: isChatMode,
             hasChosenChatSession: chosenChatSession != nil,
             hasActiveBrowser: activeBrowser != nil,
