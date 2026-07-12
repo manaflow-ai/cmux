@@ -142,15 +142,18 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.buttons["MobileTerminalHierarchyClose-terminal-agent-2"].waitForExistence(timeout: 3))
 
         app.buttons["MobileTerminalHierarchyClose-terminal-agent-2"].tap()
-        XCTAssertTrue(app.buttons["Cancel"].waitForExistence(timeout: 3))
-        app.buttons["Cancel"].tap()
+        let dismissConfirmation = app.otherElements["PopoverDismissRegion"]
+        XCTAssertTrue(dismissConfirmation.waitForExistence(timeout: 3))
+        dismissConfirmation.tap()
         XCTAssertTrue(
             app.buttons["MobileTerminalHierarchyRow-terminal-agent-2"].exists,
             "Cancel must preserve the exact stable terminal identity"
         )
 
         app.buttons["MobileTerminalHierarchyClose-terminal-agent-2"].tap()
-        let confirmClose = app.buttons["MobileTerminalHierarchyCloseConfirm-terminal-agent-2"]
+        let confirmClose = app.buttons.matching(
+            identifier: "MobileTerminalHierarchyCloseConfirm-terminal-agent-2"
+        ).firstMatch
         XCTAssertTrue(confirmClose.waitForExistence(timeout: 3))
         confirmClose.tap()
         XCTAssertFalse(

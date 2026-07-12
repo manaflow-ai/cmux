@@ -82,6 +82,41 @@ import Testing
     #expect(previous == ["terminal-a", "terminal-b", "terminal-c"])
 }
 
+@Test func closeConfirmationActionRetainsExactPayloadAfterDialogDismissal() throws {
+    let workspace = MobileWorkspacePreview(
+        id: "workspace-close-confirmation",
+        name: "Close confirmation",
+        terminals: [
+            MobileTerminalPreview(
+                id: "terminal-stable-id",
+                name: "Agent",
+                requiresCloseConfirmation: true
+            ),
+        ]
+    )
+    let row = try #require(
+        TerminalHierarchySnapshot(
+            workspace: workspace,
+            selectedTerminalID: "terminal-stable-id"
+        ).panes.first?.rows.first
+    )
+    var pendingConfirmation: TerminalHierarchyCloseConfirmation? = .init(
+        row: row,
+        confirmed: true
+    )
+    var capturedConfirmation: TerminalHierarchyCloseConfirmation?
+    let action = try #require(pendingConfirmation).action {
+        capturedConfirmation = $0
+    }
+
+    pendingConfirmation = nil
+    action()
+
+    #expect(pendingConfirmation == nil)
+    #expect(capturedConfirmation?.row.id == "terminal-stable-id")
+    #expect(capturedConfirmation?.confirmed == true)
+}
+
 @Test func hierarchySnapshotHandlesEmptyAndSingleTerminalWorkspaces() {
     let empty = MobileWorkspacePreview(id: "empty", name: "Empty", terminals: [])
     #expect(TerminalHierarchySnapshot(workspace: empty, selectedTerminalID: nil).panes.isEmpty)
