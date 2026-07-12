@@ -929,6 +929,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C9CFB398DF94D6DDEAF42D67 /* MobileTerminalRenderObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */; };
 		A8F800000000000000000004 /* MobileTerminalReorderIndexResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F800000000000000000003 /* MobileTerminalReorderIndexResolver.swift */; };
 		A8F800000000000000000006 /* MobileTerminalReorderIndexResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F800000000000000000005 /* MobileTerminalReorderIndexResolverTests.swift */; };
+		A8F801000000000000000002 /* MobileWorkspaceHierarchyProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F801000000000000000001 /* MobileWorkspaceHierarchyProjection.swift */; };
+		A8F801000000000000000004 /* MobileWorkspaceHierarchyProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F801000000000000000003 /* MobileWorkspaceHierarchyProjectionTests.swift */; };
 		F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86544CEFA1CA33CA9225FB6E /* MobileWorkspaceListFidelityTests.swift */; };
 		00C3AA443F6DA8D94E28CE17 /* MobileWorkspaceListObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */; };
 		D75280030000000000000001 /* MobileWorkspaceObserverSignposts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D75280030000000000000002 /* MobileWorkspaceObserverSignposts.swift */; };
@@ -2656,6 +2658,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalRenderObserver.swift; sourceTree = "<group>"; };
 		A8F800000000000000000003 /* MobileTerminalReorderIndexResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTerminalReorderIndexResolver.swift; sourceTree = "<group>"; };
 		A8F800000000000000000005 /* MobileTerminalReorderIndexResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTerminalReorderIndexResolverTests.swift; sourceTree = "<group>"; };
+		A8F801000000000000000001 /* MobileWorkspaceHierarchyProjection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceHierarchyProjection.swift; sourceTree = "<group>"; };
+		A8F801000000000000000003 /* MobileWorkspaceHierarchyProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceHierarchyProjectionTests.swift; sourceTree = "<group>"; };
 		86544CEFA1CA33CA9225FB6E /* MobileWorkspaceListFidelityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceListFidelityTests.swift; sourceTree = "<group>"; };
 		C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceListObserver.swift; sourceTree = "<group>"; };
 		D75280030000000000000002 /* MobileWorkspaceObserverSignposts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceObserverSignposts.swift; sourceTree = "<group>"; };
@@ -3663,6 +3667,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F9BC53FA4991A6EBFB930EDF /* MobilePairingView.swift */,
 				5AE701F43A0B49F08835191C /* MobilePairingWindowController.swift */,
 				C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */,
+				A8F801000000000000000001 /* MobileWorkspaceHierarchyProjection.swift */,
 				D75280030000000000000002 /* MobileWorkspaceObserverSignposts.swift */,
 				F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */,
 				4F05EBBC2FE0D5CB2F662B8A /* MobileTerminalByteTee.swift */,
@@ -5107,6 +5112,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B37A0000000000000000000C /* FileExplorerStateModePersistenceTests.swift */,
 				BC39DE4B96D1931C52AF7D68 /* SidebarOrderingTests.swift */,
 				86544CEFA1CA33CA9225FB6E /* MobileWorkspaceListFidelityTests.swift */,
+				A8F801000000000000000003 /* MobileWorkspaceHierarchyProjectionTests.swift */,
 				D8EEFCBE0D4137D01A1B4AC7 /* MobileWorkspacePaneHierarchyFidelityTests.swift */,
 				DB5B468D09754EA18A6ACCD3 /* MobileWorkspacePanePayloadTests.swift */,
 				645645000000000000000001 /* NumberedShortcutSwapTests.swift */,
@@ -6217,6 +6223,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				AB57F0C27BECE8EDFC6B2B97 /* MobileTerminalByteTee.swift in Sources */,
 				C9CFB398DF94D6DDEAF42D67 /* MobileTerminalRenderObserver.swift in Sources */,
 				A8F800000000000000000004 /* MobileTerminalReorderIndexResolver.swift in Sources */,
+				A8F801000000000000000002 /* MobileWorkspaceHierarchyProjection.swift in Sources */,
 				00C3AA443F6DA8D94E28CE17 /* MobileWorkspaceListObserver.swift in Sources */,
 				D75280030000000000000001 /* MobileWorkspaceObserverSignposts.swift in Sources */,
 					C75740020000000000000001 /* MouseDownMenuItemView.swift in Sources */,
@@ -7150,6 +7157,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE73840000000000000001 /* MobileHostWorkspaceTicketAuthorizationTests.swift in Sources */,
 				9B08F916D7FF7626C6820727 /* MobilePairingConnectionTransitionTests.swift in Sources */,
 				A8F800000000000000000006 /* MobileTerminalReorderIndexResolverTests.swift in Sources */,
+				A8F801000000000000000004 /* MobileWorkspaceHierarchyProjectionTests.swift in Sources */,
 				F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */,
 				90C33E5A98704D86832E3734 /* MobileWorkspacePaneHierarchyFidelityTests.swift in Sources */,
 				2B8B633A97054416BC2B3978 /* MobileWorkspacePanePayloadTests.swift in Sources */,
