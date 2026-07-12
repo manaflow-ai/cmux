@@ -85,6 +85,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     private var lifecycleRevision: UInt64 = 0
     private var signOutPhase = SignOutPhase.idle
     private var signOutObservedAuthClear = false
+    private var signOutAuthRevisionAtPreparation: UInt64?
 
     /// Creates the production iOS Iroh composition with device-only persistence.
     ///
@@ -327,6 +328,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         }
 
         signOutObservedAuthClear = false
+        signOutAuthRevisionAtPreparation = auth?.signOutRevision
         let operation = Task { @MainActor [weak self] in
             guard let self else {
                 return CmxIrohClientSignOutPreparation(
@@ -497,14 +499,23 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         if accountID == nil, !signOutPhase.allowsLifecycle {
             signOutObservedAuthClear = true
         }
+        if !signOutPhase.allowsLifecycle,
+           let signOutAuthRevisionAtPreparation,
+           let auth,
+           auth.signOutRevision != signOutAuthRevisionAtPreparation {
+            signOutObservedAuthClear = true
+        }
         switch signOutPhase {
         case .idle:
             return true
         case let .preparing(operation):
             _ = await operation.value
             return await prepareForAuthReconcile(accountID: accountID)
-        case let .recovering(_, operation):
-            _ = await waitForRecovery(operation)
+        case let .recovering(preparation, operation):
+            guard await completeSignOutRecovery(
+                preparation,
+                operation: operation
+            ) else { return false }
             return await prepareForAuthReconcile(accountID: accountID)
         case let .awaitingRemote(preparation):
             // The nil state is auth's local-first clear and must not overtake
@@ -584,6 +595,21 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
             }
             signOutPhase = .recovering(preparation, operation)
         }
+        return await completeSignOutRecovery(
+            preparation,
+            operation: operation
+        )
+    }
+
+    /// Completes one shared recovery exactly once on the MainActor.
+    ///
+    /// Any auth or sign-out waiter may resume first after the detached broker
+    /// work. Letting that first waiter finalize the phase prevents an
+    /// already-complete task from becoming a recursive MainActor livelock.
+    private func completeSignOutRecovery(
+        _ preparation: CmxIrohClientSignOutPreparation,
+        operation: Task<SignOutRecoveryOutcome, Never>
+    ) async -> Bool {
         let outcome = await waitForRecovery(operation)
         guard case let .recovering(current, _) = signOutPhase,
               current == preparation else {
@@ -644,6 +670,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
             clearLastKnownBinding()
         }
         signOutObservedAuthClear = false
+        signOutAuthRevisionAtPreparation = nil
         signOutPhase = .idle
     }
 
