@@ -114,6 +114,28 @@ fi
 WINDOW_ID="${CMUX_FUZZ_WINDOW_ID:-$(printf '%s' "$CONNECT_OUT" | sed -n 's/.*window=\([A-F0-9-]*\).*/\1/p')}"
 sleep "$SETTLE"
 
+# Attach barrier: the gate judges STEADY-STATE churn, so iteration 1 must
+# not begin until the initial claim/layout handshake has settled once.
+# Back-to-back seeds (teardown then reconnect) can take tens of seconds to
+# converge; that latency is real and printed here as its own measurement,
+# but it is attach convergence, not the sizing invariant this harness
+# gates. A connect that never settles at all still fails iteration 1.
+if [ "$DRY" != 1 ]; then
+  attach_start=$SECONDS
+  tries=0
+  while [ "$tries" -lt 30 ]; do
+    aj=$(timeout 8 "$CLI" rpc remote.tmux.sizing_settled 2>/dev/null)
+    if printf '%s' "$aj" | grep -q '"windows"' \
+       && ! printf '%s' "$aj" | grep -q '"settled" : false' \
+       && ! printf '%s' "$aj" | grep -q 'no-sample'; then
+      break
+    fi
+    tries=$((tries + 1))
+    sleep 2
+  done
+  echo "attach settled in $((SECONDS - attach_start))s (polls=$tries)"
+fi
+
 check_iter() {
   local iter=$1 mark=$2
   # Hang detector: if the app stops answering the socket, that IS the bug.
@@ -182,13 +204,21 @@ check_iter() {
     local first
     first=$(t capture-pane -p -J -t "$pane" 2>/dev/null | grep -m1 "^[0-9]*x[0-9]* 01" | wc -c | tr -d ' ')
     if [ -n "$first" ] && [ "$first" -gt 1 ] && [ $((first - 1)) -ne "$got" ]; then
-      # The ruler redraws every 2s; confirm with a second read before
-      # calling it a failure, and tolerate the pane dying mid-check.
-      sleep 3
-      got=$(t display -t "$pane" -p '#{pane_width}' 2>/dev/null) || continue
-      first=$(t capture-pane -p -J -t "$pane" 2>/dev/null | grep -m1 "^[0-9]*x[0-9]* 01" | wc -c | tr -d ' ')
-      if [ -n "$first" ] && [ "$first" -gt 1 ] && [ -n "$got" ] && [ $((first - 1)) -ne "$got" ]; then
-        note_fail "$iter" "pane $pane tmux-side ruler ${first}c != width ${got} after confirm"
+      # The ruler redraws every 2s and lags further under multi-window
+      # load; confirm with two spaced re-reads before calling it a
+      # failure, and tolerate the pane dying mid-check.
+      confirmed=1
+      for _ in 1 2; do
+        sleep 3
+        got=$(t display -t "$pane" -p '#{pane_width}' 2>/dev/null) || { confirmed=0; break; }
+        first=$(t capture-pane -p -J -t "$pane" 2>/dev/null | grep -m1 "^[0-9]*x[0-9]* 01" | wc -c | tr -d ' ')
+        if [ -z "$first" ] || [ "$first" -le 1 ] || [ -z "$got" ] || [ $((first - 1)) -eq "$got" ]; then
+          confirmed=0
+          break
+        fi
+      done
+      if [ "$confirmed" = 1 ]; then
+        note_fail "$iter" "pane $pane tmux-side ruler ${first}c != width ${got} after two confirms"
       fi
     fi
   done
