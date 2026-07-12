@@ -127,7 +127,7 @@ struct WorkspaceDetailView: View {
                     reorderTerminal: reorderTerminal,
                     closeTerminal: closeTerminal,
                     refreshTerminals: {
-                        _ = await store.refreshTerminalHierarchy(workspaceID: workspace.id)
+                        await store.refreshTerminalHierarchy(workspaceID: workspace.id)
                     }
                 )
             }

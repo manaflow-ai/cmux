@@ -6,6 +6,7 @@ struct TerminalHierarchyRow: View {
     let snapshot: TerminalHierarchyRowSnapshot
     let select: () -> Void
     let requestClose: () -> Void
+    let closeEnabled: Bool
     let moveEarlier: (() -> Void)?
     let moveLater: (() -> Void)?
 
@@ -45,6 +46,7 @@ struct TerminalHierarchyRow: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(snapshot.closeAccessibilityLabel)
                 .accessibilityIdentifier("MobileTerminalHierarchyClose-\(snapshot.id.rawValue)")
+                .disabled(!closeEnabled)
             }
         }
         .accessibilityAction(named: L10n.string("mobile.terminal.hierarchy.switch", defaultValue: "Switch to Terminal"), select)
@@ -61,12 +63,12 @@ struct TerminalHierarchyRow: View {
                     action: moveLater
                 )
             }
-            if snapshot.canClose {
+            if snapshot.canClose, closeEnabled {
                 Button(snapshot.closeAccessibilityLabel, role: .destructive, action: requestClose)
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            if snapshot.canClose {
+            if snapshot.canClose, closeEnabled {
                 Button(role: .destructive, action: requestClose) {
                     Label(snapshot.closeAccessibilityLabel, systemImage: "trash")
                 }

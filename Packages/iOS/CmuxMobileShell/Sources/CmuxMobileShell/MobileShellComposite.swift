@@ -726,6 +726,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
     private var pullToRefreshTask: Task<Bool, Never>?
+    private var aggregateWorkspaceRefreshTask: Task<Void, Never>?
     var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?
     var connectionGeneration: UUID
@@ -973,6 +974,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.createTerminalTask = nil
         self.workspaceListRefreshTask = nil
         self.pullToRefreshTask = nil
+        self.aggregateWorkspaceRefreshTask = nil
         self.createWorkspaceTaskID = nil
         self.createTerminalTaskID = nil
         self.connectionGeneration = UUID()
@@ -1031,6 +1033,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createTerminalTask?.cancel()
         workspaceListRefreshTask?.cancel()
         pullToRefreshTask?.cancel()
+        aggregateWorkspaceRefreshTask?.cancel()
         cancelAllTerminalReplayTasks()
         teardownSecondaryMacSubscriptions()
         if let remoteClient {
@@ -5270,6 +5273,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceListRefreshTask = nil
         pullToRefreshTask?.cancel()
         pullToRefreshTask = nil
+        aggregateWorkspaceRefreshTask?.cancel()
+        aggregateWorkspaceRefreshTask = nil
         cancelAllTerminalReplayTasks()
     }
 
@@ -7434,6 +7439,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func refreshComputersScreen() async {
         await loadPairedMacs()
         guard connectionState == .connected, remoteClient != nil else { return }
+        if let inFlight = aggregateWorkspaceRefreshTask {
+            await inFlight.value
+            return
+        }
         if let inFlight = pullToRefreshTask {
             _ = await inFlight.value
             return
@@ -7459,13 +7468,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Refresh the foreground Mac workspace list and re-aggregate secondary Macs.
     public func refreshWorkspaces() async {
-        _ = await refreshForegroundWorkspaceList()
-        // Re-aggregate the other Macs too, so pull-to-refresh surfaces
-        // workspaces created on a secondary Mac since the last fetch (the
-        // read-only secondary list is a snapshot, not a live subscription).
-        if multiMacAggregationEnabled {
-            await refreshSecondaryMacWorkspaces()
+        if let inFlight = aggregateWorkspaceRefreshTask {
+            await inFlight.value
+            return
         }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.aggregateWorkspaceRefreshTask = nil }
+            _ = await self.refreshForegroundWorkspaceList()
+            // Re-aggregate the other Macs too, so pull-to-refresh surfaces
+            // workspaces created on a secondary Mac since the last fetch.
+            if self.multiMacAggregationEnabled {
+                await self.refreshSecondaryMacWorkspaces()
+            }
+        }
+        aggregateWorkspaceRefreshTask = task
+        await task.value
     }
 
     private func stopTerminalRefreshPolling() {

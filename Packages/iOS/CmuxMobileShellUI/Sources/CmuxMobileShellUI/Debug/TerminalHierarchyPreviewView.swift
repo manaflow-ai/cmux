@@ -60,7 +60,7 @@ public struct TerminalHierarchyPreviewView: View {
             reorderGate: reorderGate,
             reorderTerminal: reorderTerminal,
             closeTerminal: closeTerminal,
-            refreshTerminals: {}
+            refreshTerminals: { true }
         )
     }
 

@@ -19,3 +19,24 @@ import Testing
     reopenedSheetGate.finish(reservation)
     #expect(!firstSheetGate.isActive)
 }
+
+@MainActor
+@Test func hierarchyMutationGateStaysClosedUntilRecoverySucceeds() throws {
+    let gate = MobileTerminalReorderGate()
+    let closeReservation = try #require(
+        gate.reserve(workspaceID: "workspace", paneID: "pane-left")
+    )
+
+    #expect(gate.reserve(workspaceID: "workspace", paneID: "pane-right") == nil)
+    gate.requireRefresh()
+    gate.finish(closeReservation)
+    #expect(!gate.canMutate)
+
+    #expect(gate.beginRecovery())
+    gate.finishRecovery(succeeded: false)
+    #expect(!gate.canMutate)
+
+    #expect(gate.beginRecovery())
+    gate.finishRecovery(succeeded: true)
+    #expect(gate.canMutate)
+}

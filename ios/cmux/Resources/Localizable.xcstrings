@@ -9373,6 +9373,12 @@
         "ja": { "stringUnit": { "state": "translated", "value": "Mac では変更が適用されましたが、このリストを更新できませんでした。別の変更を行う前に更新してください。" } }
       }
     },
+    "mobile.terminal.hierarchy.refreshAction": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refresh Terminal List" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルリストを更新" } }
+      }
+    },
     "mobile.terminal.hierarchy.emptyTitle": {
       "extractionState": "manual", "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "No Terminals" } },
