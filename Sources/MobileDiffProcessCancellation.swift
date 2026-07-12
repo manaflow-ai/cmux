@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Cancellation token for one locally owned Git process.
@@ -9,7 +10,12 @@ final class MobileDiffProcessCancellation: @unchecked Sendable {
     // Process launch/cancel are synchronous Foundation boundaries, so this
     // condition protects the cancellation latch without exposing mutable state.
     private let condition = NSCondition()
+    private let clock = ContinuousClock()
+    private let forceKillDelay = Duration.milliseconds(500)
     private let process: Process
+    private var activeProcessIdentifier: pid_t?
+    private var forceKillTask: Task<Void, Never>?
+    private var hasExited = false
     private var isCancelled = false
 
     init(process: Process) {
@@ -24,16 +30,53 @@ final class MobileDiffProcessCancellation: @unchecked Sendable {
 
     func didLaunch() {
         condition.lock()
-        let shouldTerminate = isCancelled && process.isRunning
+        let processIdentifier = process.processIdentifier
+        if !hasExited { activeProcessIdentifier = processIdentifier }
+        let shouldTerminate = isCancelled && !hasExited
         condition.unlock()
-        if shouldTerminate { process.terminate() }
+        if shouldTerminate { requestTermination(processIdentifier) }
+    }
+
+    func didExit() {
+        condition.lock()
+        hasExited = true
+        activeProcessIdentifier = nil
+        let task = forceKillTask
+        forceKillTask = nil
+        condition.unlock()
+        task?.cancel()
     }
 
     func cancel() {
         condition.lock()
         isCancelled = true
-        let shouldTerminate = process.isRunning
+        let processIdentifier = activeProcessIdentifier
         condition.unlock()
-        if shouldTerminate { process.terminate() }
+        if let processIdentifier { requestTermination(processIdentifier) }
+    }
+
+    private func requestTermination(_ processIdentifier: pid_t) {
+        _ = Darwin.kill(processIdentifier, SIGTERM)
+        condition.lock()
+        if activeProcessIdentifier == processIdentifier, forceKillTask == nil {
+            let clock = clock
+            let delay = forceKillDelay
+            forceKillTask = Task.detached { [weak self] in
+                do {
+                    try await clock.sleep(for: delay)
+                } catch {
+                    return
+                }
+                self?.forceKillIfActive(processIdentifier)
+            }
+        }
+        condition.unlock()
+    }
+
+    private func forceKillIfActive(_ processIdentifier: pid_t) {
+        condition.lock()
+        let shouldKill = activeProcessIdentifier == processIdentifier
+        condition.unlock()
+        if shouldKill { _ = Darwin.kill(processIdentifier, SIGKILL) }
     }
 }

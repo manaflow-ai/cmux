@@ -3,7 +3,6 @@ import Foundation
 
 /// Builds a bounded Git working-tree patch for transport to a mobile client.
 final class MobileWorkingTreeDiffLoader: Sendable {
-    private let emptyTreeHash = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
     private let maximumPatchBytes = 6 * 1024 * 1024
     private let maximumUntrackedFiles = 200
     private let maximumPathListBytes = 1024 * 1024
@@ -53,7 +52,23 @@ final class MobileWorkingTreeDiffLoader: Sendable {
             maximumStdoutBytes: 1024
         )).status == 0
         var patch = Data()
-        let trackedBase = hasHead ? "HEAD" : emptyTreeHash
+        let trackedBase: String
+        if hasHead {
+            trackedBase = "HEAD"
+        } else {
+            let emptyTree = try await runGit(
+                ["hash-object", "-t", "tree", "--stdin"],
+                directory: repositoryRoot,
+                maximumStdoutBytes: 256
+            )
+            guard emptyTree.status == 0,
+                  let hash = String(data: emptyTree.stdout, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !hash.isEmpty else {
+                throw MobileWorkingTreeDiffLoadError(code: "git_error", message: "Could not identify the empty Git tree")
+            }
+            trackedBase = hash
+        }
         let tracked = try await runGit(
             ["diff", "--no-ext-diff", "--no-textconv", "--binary", trackedBase, "--"],
             directory: repositoryRoot,
@@ -136,6 +151,7 @@ final class MobileWorkingTreeDiffLoader: Sendable {
             status = try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { continuation in
                     process.terminationHandler = { process in
+                        cancellation.didExit()
                         continuation.resume(returning: process.terminationStatus)
                     }
                     do {
