@@ -217,4 +217,22 @@ import Testing
         }
         #expect(hostDisplayName == store.connectedHostName)
     }
+
+    @Test func hostDirectoryValidationTimeoutMapsToRetryableTimeoutFailure() async throws {
+        let router = RoutingHostRouter()
+        await router.setWorkspaceCreateError(
+            code: "request_timeout",
+            message: "working_directory validation timed out"
+        )
+        let store = try await makeRoutingConnectedStore(router: router)
+
+        let result = await store.createWorkspaceRequest(
+            spec: MobileWorkspaceCreateSpec(workingDirectory: "/slow")
+        )
+
+        guard case let .failure(.requestTimedOut(hostDisplayName)) = result else {
+            return #expect(Bool(false), "directory validation timeout should remain retryable")
+        }
+        #expect(hostDisplayName == store.connectedHostName)
+    }
 }

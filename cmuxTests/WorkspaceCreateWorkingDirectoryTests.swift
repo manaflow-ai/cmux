@@ -224,6 +224,68 @@ import Testing
         #expect(Set(manager.tabs.map(\.id)) == baselineIDs)
     }
 
+    @Test func initialAndRetryMobileResponsesBothDecodeAsWorkspaceLists() async throws {
+        let manager = TabManager()
+        let operationID = UUID()
+        let params: [String: Any] = [
+            "operation_id": operationID.uuidString,
+            "title": "Retry Shape",
+        ]
+
+        let initial = await TerminalController.shared.v2MobileWorkspaceCreate(
+            params: params,
+            tabManager: manager
+        )
+        let retry = await TerminalController.shared.v2MobileWorkspaceCreate(
+            params: params,
+            tabManager: manager
+        )
+        let initialResponse = try Self.decodeMobileWorkspaceList(initial)
+        let retryResponse = try Self.decodeMobileWorkspaceList(retry)
+
+        #expect(initialResponse.createdWorkspaceID != nil)
+        #expect(retryResponse.createdWorkspaceID == initialResponse.createdWorkspaceID)
+        #expect(retryResponse.workspaces.map(\.id) == initialResponse.workspaces.map(\.id))
+    }
+
+    @Test func concurrentMobileRequestsWithSameOperationCreateExactlyOnce() async throws {
+        let manager = TabManager()
+        let baselineIDs = Set(manager.tabs.map(\.id))
+        let operationID = UUID()
+        let gate = ConcurrentWorkspaceCreateValidationGate()
+        let params: [String: Any] = [
+            "operation_id": operationID.uuidString,
+            "working_directory": "/tmp",
+            "initial_command": "must-run-once",
+        ]
+        let first = Task { @MainActor in
+            await TerminalController.shared.v2MobileWorkspaceCreate(
+                params: params,
+                workingDirectoryValidator: { rawValue, _ in await gate.validate(rawValue) },
+                tabManager: manager
+            )
+        }
+        let second = Task { @MainActor in
+            await TerminalController.shared.v2MobileWorkspaceCreate(
+                params: params,
+                workingDirectoryValidator: { rawValue, _ in await gate.validate(rawValue) },
+                tabManager: manager
+            )
+        }
+        await gate.waitForStarts(2)
+
+        await gate.releaseAll()
+        let firstResponse = try Self.decodeMobileWorkspaceList(await first.value)
+        let secondResponse = try Self.decodeMobileWorkspaceList(await second.value)
+        let created = try #require(manager.tabs.first { !baselineIDs.contains($0.id) })
+        let initialCommands = created.panels.values.compactMap { ($0 as? TerminalPanel)?.surface.debugInitialCommand() }
+
+        #expect(Set(manager.tabs.map(\.id)).subtracting(baselineIDs).count == 1)
+        #expect(initialCommands.filter { $0 == "must-run-once" }.count == 1)
+        #expect(firstResponse.createdWorkspaceID == created.id.uuidString)
+        #expect(secondResponse.createdWorkspaceID == created.id.uuidString)
+    }
+
     @Test func idempotencyCacheEvictsSuccessfulResultsInFIFOOrder() {
         let cache = TerminalController.WorkspaceCreateIdempotencyCache(capacity: 2)
         let firstID = UUID()
@@ -265,6 +327,34 @@ import Testing
         }
         return UUID(uuidString: rawID)
     }
+
+    private static func decodeMobileWorkspaceList(
+        _ result: TerminalController.V2CallResult
+    ) throws -> DecodedMobileWorkspaceListResponse {
+        guard case let .ok(payload) = result else {
+            throw MobileWorkspaceListDecodeError.notSuccess
+        }
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        return try JSONDecoder().decode(DecodedMobileWorkspaceListResponse.self, from: data)
+    }
+}
+
+private struct DecodedMobileWorkspaceListResponse: Decodable {
+    struct Workspace: Decodable {
+        let id: String
+    }
+
+    let workspaces: [Workspace]
+    let createdWorkspaceID: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case workspaces
+        case createdWorkspaceID = "created_workspace_id"
+    }
+}
+
+private enum MobileWorkspaceListDecodeError: Error {
+    case notSuccess
 }
 
 private actor WorkspaceCreateValidationGate {
@@ -292,5 +382,35 @@ private actor WorkspaceCreateValidationGate {
     func release() {
         releaseContinuation?.resume()
         releaseContinuation = nil
+    }
+}
+
+private actor ConcurrentWorkspaceCreateValidationGate {
+    private var starts = 0
+    private var startWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func validate(_ rawValue: String?) async -> TerminalController.WorkspaceCreateWorkingDirectoryValidation {
+        starts += 1
+        resumeStartWaiters()
+        await withCheckedContinuation { releaseWaiters.append($0) }
+        return .valid(rawValue ?? "/tmp")
+    }
+
+    func waitForStarts(_ count: Int) async {
+        if starts >= count { return }
+        await withCheckedContinuation { startWaiters.append((count, $0)) }
+    }
+
+    func releaseAll() {
+        let waiters = releaseWaiters
+        releaseWaiters = []
+        for waiter in waiters { waiter.resume() }
+    }
+
+    private func resumeStartWaiters() {
+        let ready = startWaiters.filter { starts >= $0.count }
+        startWaiters.removeAll { starts >= $0.count }
+        for waiter in ready { waiter.continuation.resume() }
     }
 }
