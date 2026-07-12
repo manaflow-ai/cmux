@@ -182,6 +182,29 @@ struct MobileDiffTests {
         #expect(!patch.contains("blocking-pipe"))
     }
 
+    @Test func loaderRejectsNonUTF8UntrackedPaths() async throws {
+        let repository = try makeRepository(named: "non-utf8-path")
+        defer { try? FileManager.default.removeItem(at: repository) }
+        let directoryFD = open(repository.path, O_RDONLY)
+        #expect(directoryFD >= 0)
+        defer { if directoryFD >= 0 { close(directoryFD) } }
+        var filename = Array("invalid-".utf8).map(CChar.init)
+        filename.append(-1)
+        filename.append(0)
+        let fileFD = filename.withUnsafeBufferPointer { pointer in
+            openat(directoryFD, pointer.baseAddress, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR)
+        }
+        #expect(fileFD >= 0)
+        if fileFD >= 0 { close(fileFD) }
+
+        do {
+            _ = try await MobileWorkingTreeDiffLoader().load(directory: repository.path, title: "Fixture")
+            Issue.record("Expected a non-UTF-8 path to fail")
+        } catch let error as MobileWorkingTreeDiffLoadError {
+            #expect(error.code == "invalid_data")
+        }
+    }
+
     @Test func processCancellationLatchesBeforeLaunch() {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/true")
