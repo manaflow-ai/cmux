@@ -79,7 +79,7 @@ final class MobileWorkingTreeDiffLoader: Sendable {
             trackedBase = "HEAD"
         } else {
             let emptyTree = try await runGit(
-                ["hash-object", "-t", "tree", "--stdin"],
+                ["hash-object", "-w", "-t", "tree", "--stdin"],
                 directory: repositoryRoot,
                 maximumStdoutBytes: 256
             )
