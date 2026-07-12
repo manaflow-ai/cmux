@@ -241,6 +241,16 @@ extension Workspace {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
+            } else {
+                // Replace failed: keep placeholder and type setup/command so work is not lost.
+                if let name = surface.name { setPanelCustomTitle(panelId: panelId, title: name) }
+                if surface.focus == true { focusPanelId = panelId }
+                if let input = Self.dequeueInitialTerminalInput(
+                    pendingSetup: &pendingSetup,
+                    command: surface.command
+                ), let terminal = terminalPanel(for: panelId) {
+                    sendInputWhenReady(input, to: terminal)
+                }
             }
 
         case .terminal:
@@ -263,6 +273,17 @@ extension Workspace {
                     _ = closePanel(panelId, force: true)
                     if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                     if surface.focus == true { focusPanelId = panel.id }
+                } else {
+                    // Process replace failed: fall back to typed input on the placeholder
+                    // so single-pane layouts do not silently drop setup/command.
+                    if let name = surface.name { setPanelCustomTitle(panelId: panelId, title: name) }
+                    if surface.focus == true { focusPanelId = panelId }
+                    if let input = Self.dequeueInitialTerminalInput(
+                        pendingSetup: &pendingSetup,
+                        command: surface.command
+                    ), let terminal = terminalPanel(for: panelId) {
+                        sendInputWhenReady(input, to: terminal)
+                    }
                 }
             } else {
                 if let name = surface.name { setPanelCustomTitle(panelId: panelId, title: name) }
