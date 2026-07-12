@@ -628,7 +628,7 @@
       ]
     },
     "sessionRestore": {
-      "metaDescription": "cmux ile yeniden başlatma veya terminal çökmesinden sonra Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI ve diğer kodlama agent oturumlarını geri yükleme.",
+      "metaDescription": "cmux, yeniden başlatma veya terminal çökmesinden sonra Claude Code, Codex, OpenCode ve diğer kodlama ajanlarının düzenlerini ve oturumlarını geri yükler.",
       "metaKeywords": [
         "cmux",
         "oturum geri yükleme",
@@ -1535,11 +1535,12 @@
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: cmux içinde OpenCode çoklu ajan",
-      "metaDescription": "oh-my-opencode (cmux omo), OpenCode CLI'yi oh-my-openagent eklentisiyle cmux içinde çalıştırır. Claude, GPT, Gemini ve Grok'u paralel ajanlar olarak, her biri yerel bir cmux bölmesinde olacak şekilde orkestre edin."
+      "metaDescription": "cmux omo, OpenCode’u oh-my-openagent ile cmux içinde çalıştırır. Claude, GPT, Gemini ve Grok’u yerel cmux bölmelerinde paralel ajanlar olarak orkestre eder."
     },
     "ios": {
       "metaTitle": "iOS Uygulaması",
       "metaDescription": "cmux iOS yardımcı uygulamasını kurun: TestFlight erişimi, Tailscale veya WireGuard ile kendi ağınızı kullanma, eşleştirme, bildirimler ve cmux'un hangi verileri sakladığı.",
+      "metaDescriptionShort": "cmux iOS uygulamasını TestFlight, Tailscale veya WireGuard ağı, Mac eşleştirmesi, bildirimler ve veri denetimiyle kurun.",
       "title": "iOS Uygulaması",
       "intro": "cmux iOS uygulaması, Mac'iniz için bir yardımcıdır. iPhone veya iPad'inizi cmux çalıştıran bir Mac ile eşleştirin ve terminallerinize telefonunuzdan bağlanın; isteğe bağlı olarak terminal bildirimlerini iletebilirsiniz.",
       "betaNote": "iOS uygulaması beta aşamasındadır. TestFlight'ta cmux BETA olarak yayınlanır.",
