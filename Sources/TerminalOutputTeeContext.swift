@@ -70,12 +70,6 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         }
         detectors[index].confirmationDeadline = deadline
         let agentID = detectors[index].agentID
-#if DEBUG
-        cmuxDebugLog(
-            "agent.prompt.candidate surface=\(surfaceID.uuidString.prefix(8)) " +
-            "agent=\(agentID) revision=\(revision) pending=\(confirmation == nil ? 0 : 1)"
-        )
-#endif
         let notificationHandler = notificationHandler
         Task {
             await notificationHandler.update(

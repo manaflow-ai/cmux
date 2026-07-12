@@ -61,66 +61,26 @@ actor PromptTurnNotificationHandler {
         revision: UInt64,
         confirmation: PromptLineTurnConfirmation
     ) async {
-#if DEBUG
-        cmuxDebugLog(
-            "agent.prompt.deadline surface=\(surfaceID.uuidString.prefix(8)) " +
-            "agent=\(agentID) revision=\(revision)"
-        )
-#endif
-        guard latestRevisionByAgentID[agentID] == revision else {
-#if DEBUG
-            cmuxDebugLog("agent.prompt.drop reason=stale-before-pid agent=\(agentID) revision=\(revision)")
-#endif
-            return
-        }
+        guard latestRevisionByAgentID[agentID] == revision else { return }
         debounceTasksByAgentID.removeValue(forKey: agentID)
-        guard confirmation.confirmedTurnCount > 0 else {
-#if DEBUG
-            cmuxDebugLog("agent.prompt.drop reason=no-completed-turn agent=\(agentID) revision=\(revision)")
-#endif
-            return
-        }
-        guard let foregroundPID = await Self.foregroundProcessID(
-            workspaceID: workspaceID,
-            surfaceID: surfaceID
-        ) else {
-#if DEBUG
-            cmuxDebugLog("agent.prompt.drop reason=no-foreground-pid agent=\(agentID) revision=\(revision)")
-#endif
-            return
-        }
-#if DEBUG
-        cmuxDebugLog("agent.prompt.pid agent=\(agentID) revision=\(revision) pid=\(foregroundPID)")
-#endif
-        guard let definition = await verifiedDefinition(
-            foregroundPID: foregroundPID,
-            agentID: agentID
-        ) else {
-#if DEBUG
-            cmuxDebugLog(
-                "agent.prompt.drop reason=identity-mismatch agent=\(agentID) " +
-                "revision=\(revision) pid=\(foregroundPID)"
-            )
-#endif
-            return
-        }
-        guard await Self.foregroundProcessID(
-            workspaceID: workspaceID,
-            surfaceID: surfaceID
-        ) == foregroundPID else {
-#if DEBUG
-            cmuxDebugLog("agent.prompt.drop reason=foreground-changed agent=\(agentID) revision=\(revision)")
-#endif
-            return
-        }
-        guard latestRevisionByAgentID[agentID] == revision else {
-#if DEBUG
-            cmuxDebugLog("agent.prompt.drop reason=stale-after-pid agent=\(agentID) revision=\(revision)")
-#endif
+        guard confirmation.confirmedTurnCount > 0,
+              let foregroundPID = await Self.foregroundProcessID(
+                  workspaceID: workspaceID,
+                  surfaceID: surfaceID
+              ),
+              let definition = await verifiedDefinition(
+                  foregroundPID: foregroundPID,
+                  agentID: agentID
+              ),
+              await Self.foregroundProcessID(
+                  workspaceID: workspaceID,
+                  surfaceID: surfaceID
+              ) == foregroundPID,
+              latestRevisionByAgentID[agentID] == revision else {
             return
         }
 
-        let delivered = AgentNotificationDelivery().enqueue(
+        AgentNotificationDelivery().enqueue(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
             title: definition.displayName,
@@ -135,12 +95,6 @@ actor PromptTurnNotificationHandler {
             category: .turnComplete,
             pending: false
         )
-#if DEBUG
-        cmuxDebugLog(
-            "agent.prompt.enqueue surface=\(surfaceID.uuidString.prefix(8)) " +
-            "agent=\(agentID) revision=\(revision) delivered=\(delivered ? 1 : 0)"
-        )
-#endif
     }
 
     private func verifiedDefinition(
@@ -148,12 +102,6 @@ actor PromptTurnNotificationHandler {
         agentID: String
     ) async -> CmuxTaskManagerCodingAgentDefinition? {
         if hasCachedIdentity, cachedForegroundPID == foregroundPID {
-#if DEBUG
-            cmuxDebugLog(
-                "agent.prompt.identity pid=\(foregroundPID) requested=\(agentID) " +
-                "detected=\(cachedDefinition?.id ?? "none") cached=1"
-            )
-#endif
             return cachedDefinition?.id == agentID ? cachedDefinition : nil
         }
 
@@ -177,12 +125,6 @@ actor PromptTurnNotificationHandler {
             cachedDefinition = definition
             hasCachedIdentity = true
         }
-#if DEBUG
-        cmuxDebugLog(
-            "agent.prompt.identity pid=\(foregroundPID) requested=\(agentID) " +
-            "detected=\(definition?.id ?? "none") cached=0"
-        )
-#endif
         return definition?.id == agentID ? definition : nil
     }
 
