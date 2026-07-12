@@ -223,6 +223,28 @@ struct MobileDiffTests {
         #expect(!patch.contains("blocking-link"))
     }
 
+    @Test func loaderIncludesSafeUntrackedSymlinks() async throws {
+        let repository = try makeRepository(named: "safe-symlinks")
+        defer { try? FileManager.default.removeItem(at: repository) }
+        try FileManager.default.createDirectory(at: repository.appendingPathComponent("folder"), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            atPath: repository.appendingPathComponent("folder-link").path,
+            withDestinationPath: "folder"
+        )
+        try FileManager.default.createSymbolicLink(
+            atPath: repository.appendingPathComponent("dangling-link").path,
+            withDestinationPath: "missing"
+        )
+
+        let document = try await MobileWorkingTreeDiffLoader().load(directory: repository.path, title: "Fixture")
+        let patch = try #require(document["patch"] as? String)
+        #expect(patch.contains("diff --git a/folder-link b/folder-link"))
+        #expect(patch.contains("+folder"))
+        #expect(patch.contains("diff --git a/dangling-link b/dangling-link"))
+        #expect(patch.contains("+missing"))
+        #expect(patch.components(separatedBy: "new file mode 120000").count == 3)
+    }
+
     @Test func loaderRejectsNonUTF8UntrackedPaths() async throws {
         let repository = try makeRepository(named: "non-utf8-path")
         defer { try? FileManager.default.removeItem(at: repository) }
