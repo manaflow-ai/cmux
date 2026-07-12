@@ -38,6 +38,10 @@ struct TitlebarInteractiveControlTests {
         return event
     }
 
+    private static func descendants(of view: NSView) -> [NSView] {
+        view.subviews + view.subviews.flatMap(descendants(of:))
+    }
+
     /// `titlebarInteractiveControl()` registers the control's region (without
     /// reparenting it). The explicit `WindowDragHandleView` must yield to that
     /// registered region so a click toggles the control instead of starting a
@@ -235,6 +239,62 @@ struct TitlebarInteractiveControlTests {
         #expect(
             !hitView.mouseDownCanMoveWindow,
             "Registered SwiftUI titlebar controls must not degrade into hosting-view drag hits."
+        )
+    }
+
+    @Test func accessoryButtonRoutingSurvivesLostSwiftUIMarkerRegistration() throws {
+        _ = NSApplication.shared
+
+        let window = RecordingDragWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 48),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let controller = TitlebarControlsAccessoryViewController(
+            notificationStore: TerminalNotificationStore.shared,
+            settingsRuntime: nil
+        )
+        let container = controller.view
+        let contentSize = TitlebarControlsLayoutMetrics.contentSize(
+            config: TitlebarControlsStyle.stored().config
+        )
+        container.frame = NSRect(origin: .zero, size: contentSize)
+        window.contentView = container
+
+        let hostingView = try #require(
+            container.subviews.compactMap { $0 as? NonDraggableHostingView<AnyView> }.first
+        )
+        hostingView.frame = container.bounds
+        window.makeKeyAndOrderFront(nil)
+        container.layoutSubtreeIfNeeded()
+        hostingView.layoutSubtreeIfNeeded()
+
+        let markers = Self.descendants(of: hostingView)
+            .compactMap { $0 as? TitlebarInteractiveControlRegion.RegisteredView }
+            .filter { !$0.bounds.isEmpty }
+        let marker = try #require(markers.first)
+        let buttonPoint = container.convert(
+            NSPoint(x: marker.bounds.midX, y: marker.bounds.midY),
+            from: marker
+        )
+
+        markers.forEach(MinimalModeTitlebarControlHitRegionRegistry.unregister)
+
+        let buttonHit = try #require(container.hitTest(buttonPoint))
+        #expect(
+            buttonHit !== container,
+            "A visible titlebar button must keep the mouse-down instead of degrading into the accessory's window-drag path."
+        )
+
+        let trailingPoint = NSPoint(x: hostingView.bounds.maxX - 1, y: hostingView.bounds.midY)
+        let markerFrames = markers.map { hostingView.convert($0.bounds, from: $0) }
+        #expect(!markerFrames.contains { $0.contains(trailingPoint) })
+        #expect(
+            container.hitTest(container.convert(trailingPoint, from: hostingView)) === container,
+            "Empty trailing titlebar chrome must remain on the explicit window-drag path."
         )
     }
 }
