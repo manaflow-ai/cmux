@@ -41,6 +41,44 @@ struct RemoteProxyBrokerCloseIsolationTests {
         #expect(closeFinished.wait(timeout: .now() + 2) == .success)
     }
 
+    @Test("a blocked broker RPC does not block wrapper lifecycle claiming")
+    func blockedBrokerRPCDoesNotBlockLifecycleClaim() throws {
+        let tunnel = BlockingCloseProxyTunnel(blocksList: true)
+        let broker = RemoteProxyBroker(
+            tunnelProvider: BlockingCloseTunnelProvider(tunnel: tunnel)
+        )
+        let configuration = Self.configuration()
+        let lease = broker.acquire(configuration: configuration, remotePath: "/remote/cmuxd") { _ in }
+        defer {
+            tunnel.releaseList()
+            lease.release()
+        }
+        _ = try broker.startPTYBridge(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "generation",
+            attachmentID: "surface",
+            command: nil,
+            requireExisting: true
+        )
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = try? broker.listPTY(configuration: configuration)
+        }
+        #expect(tunnel.waitForList() == .success)
+
+        let claimFinished = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = broker.acknowledgePTYLifecycleAfterWrapperEnd(
+                sessionID: "session",
+                lifecycleID: "generation"
+            )
+            claimFinished.signal()
+        }
+
+        #expect(claimFinished.wait(timeout: .now() + 2) == .success)
+    }
+
     private static func configuration() -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "user@example.test",
