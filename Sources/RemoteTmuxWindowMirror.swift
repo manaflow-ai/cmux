@@ -345,19 +345,42 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
            pointSize.width <= 1 || pointSize.height <= 1 {
             return
         }
-        // Nothing displayable exceeds an attached display, so no honest
-        // container does either. SwiftUI can hand this callback a
-        // content-derived size when some ancestor adopts a layout ideal —
-        // recording it would feed the claim, grow tmux's assignments, grow
-        // the layout, and hand back a bigger size next pass, without bound.
-        // Clamping to the largest display breaks that loop no matter which
-        // view leaks an ideal, and depends on nothing but the hardware.
+        // A mirror's container cannot exceed the content area of the window
+        // hosting it — that is a physical invariant, not a heuristic.
+        // SwiftUI can hand this callback a content-derived size when some
+        // ancestor briefly adopts a layout ideal (seen at fresh connect
+        // with a starved pane: the container read the full DISPLAY width
+        // while the app window was a third of it, so the claim spiked to
+        // the display ceiling and tmux — correctly sizing to the real
+        // window — never matched it, wedging forever). Clamp to the hosting
+        // window's content width when a visible window holds the panes; a
+        // parked or not-yet-windowed mirror has no tighter truth than the
+        // largest display, so fall back to that.
         var pointSize = pointSize
-        let widths = NSScreen.screens.map(\.visibleFrame.width)
-        let heights = NSScreen.screens.map(\.visibleFrame.height)
-        if let maxW = widths.max(), let maxH = heights.max(), maxW > 1, maxH > 1 {
-            pointSize.width = min(pointSize.width, maxW)
-            pointSize.height = min(pointSize.height, maxH)
+        let windowContent = panelsByPaneId.values.first?.hostedView.window
+            .flatMap { $0.isVisible ? $0.contentLayoutRect.size : nil }
+        if let bound = windowContent, bound.width > 1, bound.height > 1 {
+            pointSize.width = min(pointSize.width, bound.width)
+            pointSize.height = min(pointSize.height, bound.height)
+        } else if containerSizePt != nil {
+            // No visible hosting window to bound this reading against. During
+            // fresh connect the first geometry callback can arrive while the
+            // window is still ordering in, carrying a stale full-display
+            // width; banking it claims the display ceiling and tmux — sized
+            // to the real window — never matches, wedging until something
+            // else nudges a re-measure. Once a size is on record, defer to
+            // the next callback that has a visible window rather than record
+            // an unvalidated one. (The first-ever measurement still falls
+            // through below, clamped to the display, so an attach that never
+            // has a window yet is not starved of its initial claim.)
+            return
+        } else {
+            let widths = NSScreen.screens.map(\.visibleFrame.width)
+            let heights = NSScreen.screens.map(\.visibleFrame.height)
+            if let maxW = widths.max(), let maxH = heights.max(), maxW > 1, maxH > 1 {
+                pointSize.width = min(pointSize.width, maxW)
+                pointSize.height = min(pointSize.height, maxH)
+            }
         }
         #if DEBUG
         if pointSize.width > 3000 || pointSize.height > 3000 {
