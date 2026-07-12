@@ -93,7 +93,8 @@ button { color: inherit; touch-action: manipulation; }
 .new-workspace { flex: 0 0 34px; width: 100%; padding: 0 10px; border: 0; border-top: 1px solid #1c1c1c; background: transparent; color: var(--sidebar-dim); text-align: left; cursor: pointer; }
 .new-workspace:hover { color: var(--status-active-fg); background: var(--sidebar-active-bg); }
 
-.pane-layout { grid-area: 1 / 2; min-width: 0; min-height: 0; overflow: hidden; }
+.pane-layout { display: flex; grid-area: 1 / 2; min-width: 0; min-height: 0; overflow: hidden; }
+.pane-layout > .pane-leaf, .pane-layout > .pane-group { flex: 1 1 auto; min-width: 0; min-height: 0; }
 .pane-group { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; gap: 1px; background: var(--border-inactive); }
 .pane-group.row { flex-direction: row; }
 .pane-group.column { flex-direction: column; }

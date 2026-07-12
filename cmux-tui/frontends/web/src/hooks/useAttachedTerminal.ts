@@ -51,8 +51,13 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     host.addEventListener("focusout", handleFocusOut);
     host.addEventListener("touchend", focusOnTouch, { passive: true });
 
+    // tmux window-size=latest: false after a foreign size is applied, so the
+    // next local keystroke claims the surface back to this pane's fit. The
+    // flag makes the claim one applyFit per divergence, not one per key.
+    let sizeClaimed = true;
     const applyFit = () => {
       if (cancelled) return;
+      sizeClaimed = true;
       const next = nextFitSize({ cols: terminal.cols, rows: terminal.rows }, fit.proposeDimensions());
       if (!next) return;
       terminal.resize(next.cols, next.rows);
@@ -64,7 +69,10 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     window.visualViewport?.addEventListener("resize", sendResize);
     window.visualViewport?.addEventListener("scroll", sendResize);
     sendResize();
-    const input = terminal.onData((text) => void client.send(surface, { text }).catch(onError));
+    const input = terminal.onData((text) => {
+      if (!sizeClaimed) applyFit();
+      void client.send(surface, { text }).catch(onError);
+    });
     let stream: Awaited<ReturnType<CmuxClient["attachSurface"]>> | null = null;
 
     void (async () => {
@@ -101,6 +109,8 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
             terminal.reset();
             terminal.resize(resized.cols, resized.rows);
             terminal.write(resized.data);
+            // Could be our own echo; applyFit no-ops in that case.
+            sizeClaimed = false;
           }
         }
       } catch (error) {
