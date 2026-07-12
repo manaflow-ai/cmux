@@ -736,39 +736,46 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
-        func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
-            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-                guard let payload = self.jsonObject(line) else {
-                    return "OK"
-                }
-                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
-                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
-                }
-                switch method {
-                case "surface.list":
-                    return self.surfaceListResponse(id: id, surfaceId: liveTarget.withLock { $0.surfaceId })
-                case "system.resolve_terminal":
-                    let target = liveTarget.withLock { $0 }
-                    return self.terminalResolverResponse(
-                        id: id,
-                        workspaceId: target.workspaceId,
-                        surfaceId: target.surfaceId
-                    )
-                case "feed.push":
-                    return self.v2Response(id: id, ok: true, result: [:])
-                default:
-                    return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
-                }
+        // A hook keeps its request connection open and may also open a one-way
+        // feed connection. Share a pool of acceptors across all four hook
+        // processes so a queued feed connection cannot steal the next hook's
+        // only acceptor and make the process time out before target resolution.
+        let serverHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: 8
+        ) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
             }
-            let result = runProcess(
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: liveTarget.withLock { $0.surfaceId })
+            case "system.resolve_terminal":
+                let target = liveTarget.withLock { $0 }
+                return self.terminalResolverResponse(
+                    id: id,
+                    workspaceId: target.workspaceId,
+                    surfaceId: target.surfaceId
+                )
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "hermes-agent", subcommand],
                 environment: environment,
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
-            return result
         }
 
         func storedHermesSessionIfPresent() throws -> [String: Any]? {
@@ -788,6 +795,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
         XCTAssertFalse(start.timedOut, start.stderr)
         XCTAssertEqual(start.status, 0, start.stderr)
+        wait(for: [serverHandled], timeout: 5)
 
         // Finish a turn so a restorable record exists for the session.
         let stop = runHermesHook(
