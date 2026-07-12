@@ -4632,11 +4632,18 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceResumeBindingsByPanelId[panelId]
     }
 
-    func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
-        Self.resolveCloseConfirmation(
-            shellActivityState: panelShellActivityStates[panelId],
-            fallbackNeedsConfirmClose: fallbackNeedsConfirmClose
-        )
+    func panelNeedsConfirmClose(
+        panelId: UUID,
+        fallbackNeedsConfirmClose: @autoclosure () -> Bool
+    ) -> Bool {
+        switch panelShellActivityStates[panelId] ?? .unknown {
+        case .promptIdle:
+            return false
+        case .commandRunning:
+            return true
+        case .unknown:
+            return fallbackNeedsConfirmClose()
+        }
     }
 
     func panelNeedsConfirmClose(panelId: UUID) -> Bool {

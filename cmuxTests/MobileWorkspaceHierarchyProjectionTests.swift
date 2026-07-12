@@ -11,6 +11,74 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct MobileWorkspaceHierarchyProjectionTests {
+    @Test func closeConfirmationFallbackIsLazyForKnownShellActivity() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelID = try #require(workspace.focusedPanelId)
+        var evaluations = 0
+        let fallback = {
+            evaluations += 1
+            return false
+        }
+
+        workspace.updatePanelShellActivityState(panelId: panelID, state: .promptIdle)
+        let promptIdleNeedsConfirmation = workspace.panelNeedsConfirmClose(
+            panelId: panelID,
+            fallbackNeedsConfirmClose: fallback()
+        )
+        #expect(!promptIdleNeedsConfirmation)
+        workspace.updatePanelShellActivityState(panelId: panelID, state: .commandRunning)
+        let commandRunningNeedsConfirmation = workspace.panelNeedsConfirmClose(
+            panelId: panelID,
+            fallbackNeedsConfirmClose: fallback()
+        )
+        #expect(commandRunningNeedsConfirmation)
+        #expect(evaluations == 0)
+
+        workspace.updatePanelShellActivityState(panelId: panelID, state: .unknown)
+        let unknownNeedsConfirmation = workspace.panelNeedsConfirmClose(
+            panelId: panelID,
+            fallbackNeedsConfirmClose: fallback()
+        )
+        #expect(!unknownNeedsConfirmation)
+        #expect(evaluations == 1)
+    }
+
+    @Test func observerDigestIgnoresUnpublishedCloseConfirmationFallback() {
+        let workspaceID = UUID()
+        let terminalID = UUID()
+        func digest(requiresCloseConfirmation: Bool) -> Int {
+            let list = MobileWorkspaceHierarchyProjection.ListValue(
+                schemaVersion: MobileWorkspaceHierarchyProjection.schemaVersion,
+                id: workspaceID,
+                title: "Workspace",
+                isPinned: false,
+                groupID: nil,
+                previewSignature: nil,
+                orderedPanelIDs: [terminalID],
+                pinnedPanelIDs: [],
+                panes: [],
+                terminals: [.init(
+                    id: terminalID,
+                    title: "Terminal",
+                    currentDirectory: nil,
+                    paneID: nil,
+                    canClose: true,
+                    requiresCloseConfirmation: requiresCloseConfirmation,
+                    isReady: true
+                )],
+                surfaces: [],
+                currentDirectory: nil,
+                panelDirectories: []
+            )
+            var hasher = Hasher()
+            list.hashObserverIdentity(into: &hasher)
+            return hasher.finalize()
+        }
+
+        #expect(digest(requiresCloseConfirmation: false) == digest(requiresCloseConfirmation: true))
+    }
+
     @Test func directTerminalFocusSampleMatchesFullProjection() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
