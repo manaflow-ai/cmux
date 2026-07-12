@@ -404,15 +404,20 @@ print("prefix-S returns focus to the pane ok")
 with open(config_path, "w", encoding="utf-8") as f:
     json.dump({"sidebar": {"width": 22}}, f)
 assert rpc({"id": 31, "cmd": "reload-config"})["ok"]
-# The cwd follow runs on a 2s cadence; wait event-driven rather than a fixed drain.
-wait_render_contains(sidebar_marker)
-print("sidebar plugin config reload falls back to default files sidebar ok")
+wait_render_contains("workspaces")
+print("sidebar plugin config reload falls back to default workspaces sidebar ok")
 os.write(fd, b"\x02S")
 drain(0.4)
 os.write(fd, b"\t")
+# The files view roots at the pane spawn cwd (HOME=tmpdir); the cwd follow
+# runs on a 2s cadence, so wait event-driven for the seeded marker.
+wait_render_contains(sidebar_marker)
+print("focused sidebar Tab toggles workspaces to files ok")
+os.write(fd, b"\t")
 drain(0.5)
 assert "workspaces" in render_text_snapshot(output), output[-1200:]
-print("focused sidebar Tab toggles files to workspaces ok")
+os.write(fd, b"\x02S")
+drain(0.4)
 
 # Prefix-B creates a browser tab immediately and focuses its in-pane
 # omnibar. The dead CDP endpoint keeps this Chrome-free and fast.

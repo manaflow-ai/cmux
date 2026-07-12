@@ -36,11 +36,11 @@ Tabs are numbered by default. A recognized agent program can appear after the nu
 
 ## Sidebar
 
-The built-in sidebar now defaults to the file browser. To preserve the previous workspace-list default, set `"sidebar": {"view": "workspaces"}`. `Tab` toggles the built-in view while the sidebar is focused, and the configurable `toggle-sidebar-view` action toggles it from anywhere. A configured `sidebar.plugin` still replaces either built-in view.
+The built-in sidebar defaults to the workspace list. Set `"sidebar": {"view": "files"}` for the yazi-style file browser. `Tab` toggles the built-in view while the sidebar is focused, and the configurable `toggle-sidebar-view` action toggles it from anywhere. A configured `sidebar.plugin` still replaces either built-in view.
 
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
-| `sidebar.view` | `"files"` or `"workspaces"` | `"files"` | Built-in sidebar view when `sidebar.plugin` is unset |
+| `sidebar.view` | `"files"` or `"workspaces"` | `"workspaces"` | Built-in sidebar view when `sidebar.plugin` is unset |
 | `sidebar.width` | integer | `22` | Sidebar width, clamped to 10 through 60 on load |
 | `sidebar.max_width` | integer | `0` | Maximum live drag width; `0` means no configured maximum |
 | `sidebar.plugin.command` | array of strings | unset | External sidebar plugin argv; when set, the sidebar hosts this program in a PTY instead of the built-in list |
