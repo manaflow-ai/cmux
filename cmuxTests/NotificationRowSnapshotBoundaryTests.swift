@@ -1,3 +1,4 @@
+import CmuxTerminal
 import CmuxTerminalCore
 import Foundation
 import SwiftUI
@@ -9,24 +10,9 @@ import Testing
 @testable import cmux
 #endif
 
-/// Regression coverage for https://github.com/manaflow-ai/cmux/issues/5794.
-///
-/// The notification surfaces (`NotificationsPage` and the titlebar
-/// `NotificationPopoverRow` list) render
-/// `ScrollView { LazyVStack { ForEach { ... } } }` over the notification
-/// store. Before this fix the row views were not `Equatable` and the call
-/// sites did not apply `.equatable()`, so every `TerminalNotificationStore`
-/// publish (a new notification, a read/unread toggle, a clear) re-evaluated
-/// the body of *every* row and re-laid out the whole lazy stack. With many
-/// notifications accumulated and agents publishing continuously, that is the
-/// same `AttributeGraph` relayout thrash documented for the sidebar/sessions
-/// lists in `repo/CLAUDE.md` (issues #2586 / #5752).
-///
-/// The invariant that keeps the lazy layout cache stable: each row view must
-/// be `Equatable`, and `==` must depend only on the value snapshot the row
-/// renders — never on the closures/bindings the parent rebuilds every render.
-/// If `==` returned false for two rows carrying the same payload, `.equatable()`
-/// could not suppress body re-evaluation and the thrash returns.
+/// Regression coverage for notification list snapshots and activation.
+/// Notification rows must compare immutable rendered values, never rebuilt
+/// closure or binding identity, so lazy layout caches remain stable (#5794).
 @MainActor
 @Suite("Notification row snapshot boundary", .serialized)
 struct NotificationRowSnapshotBoundaryTests {
@@ -443,6 +429,26 @@ struct NotificationRowSnapshotBoundaryTests {
         )
 
         #expect(surfaceView.performedBindingActions == ["scroll_to_bottom"])
+    }
+
+    /// Verifies that keyboard navigation supersedes a deferred restore.
+    @Test func keyboardInputCancelsPendingNotificationRestore() throws {
+        let terminal = TerminalSurface(
+            tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil, workingDirectory: nil
+        )
+        defer { terminal.releaseSurfaceForTesting() }
+        let hostedView = terminal.hostedView
+        hostedView.pendingNotificationScrollPosition = .init(row: 0, totalRows: 400)
+        hostedView.pendingNotificationScrollRestoreAttemptsRemaining = 2
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: .shift,
+            timestamp: 1, windowNumber: 0, context: nil,
+            characters: "", charactersIgnoringModifiers: "",
+            isARepeat: false, keyCode: 116
+        ))
+        hostedView.surfaceView.keyDown(with: event)
+        #expect(hostedView.pendingNotificationScrollPosition == nil)
     }
 
     /// Verifies that legacy positions without a captured row count preserve
