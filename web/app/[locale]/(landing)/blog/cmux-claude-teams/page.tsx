@@ -1,13 +1,18 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
+import { englishFallbackContentLocales } from "@/i18n/locale-availability";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "@/i18n/navigation";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "blog.cmuxClaudeTeams" });
-  const alternates = buildAlternates(locale, "/blog/cmux-claude-teams");
+  const alternates = buildAlternates(
+    locale,
+    "/blog/cmux-claude-teams",
+    englishFallbackContentLocales,
+  );
   const title = t("metaTitle");
   const description = seoDescription(locale, t("metaDescription"));
   return {
