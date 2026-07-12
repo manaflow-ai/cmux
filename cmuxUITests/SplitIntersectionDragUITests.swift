@@ -8,7 +8,7 @@ final class SplitIntersectionDragUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    func testIntersectionDragResizesBothAxes() {
+    func testIntersectionDragResizesBothAxes() throws {
         let app = XCUIApplication()
         // Debug launches outside reload.sh need a tag or XCUIApplication
         // fails with "does not have a process ID" on CI runners, and UI-test
@@ -36,6 +36,13 @@ final class SplitIntersectionDragUITests: XCTestCase {
 
         typeKeyForegrounded(app, "d", modifierFlags: [.command, .shift])
         XCTAssertTrue(waitForTerminalPaneCount(app, 3, timeout: 10.0), "Expected split-down to add a third pane")
+
+        // The corner-drag claim lives in the terminal portal host, which only
+        // installs when the Ghostty renderer realizes (requires Metal). On
+        // software-rendered CI VMs the portal never binds and dividers stay
+        // native single-axis NSSplitView drags, so the feature under test
+        // does not exist there.
+        try skipUnlessPortalHostingActive(tag: launchTag)
 
         guard let before = paneGeometry(app) else {
             XCTFail("Could not derive divider geometry from pane frames")
@@ -133,6 +140,19 @@ final class SplitIntersectionDragUITests: XCTestCase {
     private func typeKeyForegrounded(_ app: XCUIApplication, _ key: String, modifierFlags: XCUIElement.KeyModifierFlags) {
         reforeground(app)
         app.typeKey(key, modifierFlags: modifierFlags)
+    }
+
+    private func skipUnlessPortalHostingActive(tag: String) throws {
+        let candidates = ["/tmp/cmux-debug-\(tag.uppercased()).log", "/tmp/cmux-debug-\(tag).log"]
+        let deadline = Date().addingTimeInterval(10.0)
+        while Date() < deadline {
+            if let content = candidates.lazy.compactMap({ try? String(contentsOfFile: $0, encoding: .utf8) }).first,
+               content.contains("portal.sync") || content.contains("portal.bind") {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        }
+        throw XCTSkip("Terminal portal hosting is inactive (no Metal renderer on this runner); the corner drag claim cannot exist here.")
     }
 
     /// CI runners discard the app's tagged debug log; surface the divider
