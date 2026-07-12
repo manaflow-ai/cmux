@@ -53,6 +53,22 @@ import Testing
         "the cold replay response must settle before testing subscribe buffering"
     )
 
+    let resources = store.connectionResourceSnapshotForTesting()
+    #expect(resources.activeEpisodeCount == 0)
+    #expect(resources.pendingRequestCount == 0)
+    #expect(resources.lifecycleTaskCount == 0)
+    #expect(resources.lifecycleWaiterCount == 0)
+    #expect(resources.networkObserverCount <= 1)
+    #expect(resources.primaryTransportCount == 1)
+    #expect(resources.secondaryTransportCount == 0)
+    #expect(resources.listenerTaskCount == 1)
+    #expect(resources.subscriptionTaskCount == 1)
+    #expect(resources.livenessProbeCount == 0)
+    #expect(resources.livenessTimerCount == 1)
+    #expect(resources.replayTaskCount <= 1)
+    #expect(resources.byteContinuationCount == 1)
+    #expect(resources.liveFontContinuationCount == 0)
+
     // The Mac pushes a live render-grid event while the subscribe ack is
     // still pending (the server-side subscription from a previous generation
     // keeps pushing across re-subscribes; the ack is an enable handshake,

@@ -9,6 +9,23 @@ struct MobileConnectionLifecycleStateMachine {
     private var requestGeneration: UInt64 = 0
     private var pendingRequests: [MobileConnectionLifecyclePendingRequest] = []
     private var completedRequestIDs: Set<UInt64> = []
+    private(set) var recoveryFailed = false
+    private(set) var didFinishStoredMacReconnectAttempt = false
+
+    var isRecovering: Bool {
+        activeEpisode != nil
+    }
+
+    var isReconnectingStoredMac: Bool {
+        activeEpisode?.kind == .reconnect
+    }
+
+    var resourceSnapshot: MobileConnectionLifecycleResourceSnapshot {
+        MobileConnectionLifecycleResourceSnapshot(
+            activeEpisodeCount: activeEpisode == nil ? 0 : 1,
+            pendingRequestCount: pendingRequests.count
+        )
+    }
 
     mutating func becameInactive(at date: Date) {
         guard isForegroundActive else { return }
@@ -59,6 +76,7 @@ struct MobileConnectionLifecycleStateMachine {
         stackUserID: String?,
         health: MobileConnectionLifecycleHealthSnapshot
     ) -> MobileConnectionLifecycleOwnedRequest {
+        didFinishStoredMacReconnectAttempt = false
         requestGeneration &+= 1
         let requestID = requestGeneration
         let effect = enqueue(
@@ -103,13 +121,26 @@ struct MobileConnectionLifecycleStateMachine {
 
     mutating func complete(
         id: UInt64,
-        health: MobileConnectionLifecycleHealthSnapshot
+        health: MobileConnectionLifecycleHealthSnapshot,
+        succeeded: Bool = true
     ) -> MobileConnectionLifecycleEffect? {
         guard activeEpisode?.id == id else { return nil }
+        if activeEpisode?.kind == .reconnect {
+            didFinishStoredMacReconnectAttempt = true
+        }
         completedRequestIDs.formUnion(activeEpisode?.requestIDs ?? [])
         activeEpisode = nil
+        recoveryFailed = !succeeded
         guard isForegroundActive else { return nil }
         return startNextPendingEpisode(health: health)
+    }
+
+    mutating func markHealthy() {
+        recoveryFailed = false
+    }
+
+    mutating func markRecoveryFailed() {
+        recoveryFailed = true
     }
 
     mutating func reset() {
@@ -118,6 +149,12 @@ struct MobileConnectionLifecycleStateMachine {
         generation &+= 1
         activeEpisode = nil
         pendingRequests.removeAll()
+        recoveryFailed = false
+        didFinishStoredMacReconnectAttempt = true
+    }
+
+    mutating func prepareForStoredMacReconnect() {
+        didFinishStoredMacReconnectAttempt = false
     }
 
     mutating func drainCompletedRequestIDs() -> Set<UInt64> {
@@ -181,6 +218,7 @@ struct MobileConnectionLifecycleStateMachine {
             reconnectStackUserID: selectedStackUserID
         )
         activeEpisode = episode
+        recoveryFailed = false
         return .start(episode)
     }
 
@@ -214,6 +252,11 @@ struct MobileConnectionLifecycleStateMachine {
         ]
         return priority.first(where: triggers.contains)
     }
+}
+
+struct MobileConnectionLifecycleResourceSnapshot: Equatable {
+    let activeEpisodeCount: Int
+    let pendingRequestCount: Int
 }
 
 private extension MobileConnectionLifecycleEpisode {

@@ -76,14 +76,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static let hasKnownPairedMacDefaultsKey = "cmux.mobile.hasKnownPairedMac"
 
-    /// Max seconds the launch reconnect may keep the restoring gate
-    /// (``RestoringSessionView``) on screen before resolving to the
-    /// disconnected/add-device UI. A stored Mac whose route went stale makes the
-    /// connect hang on a slow timeout; this caps the visible "Restoring session…"
-    /// window so a returning user is never stuck on it. The connect keeps trying
-    /// in the background, so a later success still flips to the workspaces.
-    private static let storedMacReconnectRestoringDeadlineSeconds: Double = 6
-
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let terminalBytesCapability = "terminal.bytes.v1"
     static let terminalReplayCapability = "terminal.replay.v1"
@@ -177,20 +169,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var activeTicket: CmxAttachTicket?
     public private(set) var activeRoute: CmxAttachRoute?
 
-    /// True only while an actually-found stored Mac is mid-reconnect.
-    ///
-    /// Set just before awaiting the connect for a Mac resolved from the paired-Mac
-    /// store on launch (or network recovery), and cleared once that attempt
-    /// resolves. Drives the root scene's choice to show ``RestoringSessionView``
-    /// during the reconnect window instead of the empty add-device sheet.
-    public internal(set) var isReconnectingStoredMac: Bool = false
+    /// Lifecycle-owned projection used by the root scene while a persisted-Mac
+    /// reconnect episode is active.
+    public var isReconnectingStoredMac: Bool {
+        connectionLifecycle.isReconnectingStoredMac
+    }
 
-    /// True once the first launch reconnect attempt has resolved.
-    ///
-    /// A failed or offline reconnect sets this so the root scene falls through to
-    /// the disconnected/add-device view instead of spinning on
-    /// ``RestoringSessionView`` forever.
-    public internal(set) var didFinishStoredMacReconnectAttempt: Bool = false
+    /// Lifecycle-owned terminal result for the initial persisted-Mac attempt.
+    public var didFinishStoredMacReconnectAttempt: Bool {
+        connectionLifecycle.didFinishStoredMacReconnectAttempt
+    }
 
     /// Persisted hint that this device has previously paired a Mac.
     ///
@@ -215,10 +203,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var pairedMacHintUndetermined: Bool
 
     /// Monotonically-increasing token identifying the latest stored-Mac reconnect
-    /// attempt. Overlapping reconnects (multiple launch paths, network recovery,
+    /// operation. Overlapping reconnects (multiple launch paths, network recovery,
     /// sign-out, forget) each claim a generation; only the current generation may
-    /// resolve the restoring-gate flags, so a superseded older attempt can't clear
-    /// the gate while a newer reconnect is still in progress.
+    /// write paired-Mac state, while the lifecycle reducer owns presentation phase.
     var storedMacReconnectGeneration = 0
     /// Whether the current attach ticket has a non-empty auth token and has not expired.
     public var hasActiveUnexpiredAttachTicket: Bool {
@@ -1136,10 +1123,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Reset the in-memory restoring flags; hasKnownPairedMac stays driven by
         // the forget path. On a real account switch the next reconnect's no-mac
         // branch clears the hint. Bump the reconnect generation so any in-flight
-        // reconnect is superseded and can't re-set these flags after sign-out.
+        // reconnect is superseded and cannot write paired-Mac state after sign-out.
         storedMacReconnectGeneration &+= 1
-        isReconnectingStoredMac = false
-        didFinishStoredMacReconnectAttempt = false
+        connectionLifecycle.prepareForStoredMacReconnect()
         replaceRemoteClient(with: nil)
         cancelRemoteOperationTasks()
         // Tear down secondary-Mac aggregation at the account boundary: cancel any
@@ -1395,23 +1381,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     // MARK: - Network recovery
 
-    /// True while an automatic reconnect is in progress after a network change
-    /// or drop.
-    public internal(set) var isRecoveringConnection: Bool = false
-    /// True when automatic recovery could not restore the connection; the UI
-    /// surfaces a manual Retry control in this state.
-    public internal(set) var connectionRecoveryFailed: Bool = false {
-        didSet {
-            // Fire once on the false→true edge ("stuck disconnected, Retry is
-            // dead"): the recovery-rate denominator.
-            guard !oldValue, connectionRecoveryFailed else { return }
-            var props: [String: AnalyticsValue] = [:]
-            if let startedAt = connectionOutageStartedAt {
-                let ms = Int(((runtime?.now() ?? Date()).timeIntervalSince(startedAt)) * 1000)
-                props["outage_duration_ms"] = .int(max(0, ms))
-            }
-            analytics.capture("ios_connection_recovery_failed", props)
-        }
+    /// The lifecycle reducer is the sole owner of whether a recovery episode is
+    /// active. Views only project this value and never run their own deadlines.
+    public var isRecoveringConnection: Bool {
+        connectionLifecycle.isRecovering
+    }
+    /// The lifecycle reducer records the terminal result of the last completed
+    /// episode. Starting a new episode or observing a healthy connection clears it.
+    public var connectionRecoveryFailed: Bool {
+        connectionLifecycle.recoveryFailed
     }
     /// True when the host rejected this device on authorization grounds (the Mac
     /// is signed in to a different account, or the token could not be verified).
@@ -1446,8 +1424,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// User-initiated reconnect from the Retry control.
     public func retryMobileConnection() {
-        connectionRecoveryFailed = false
         requestConnectionLifecycleRecovery(.manualRetry)
+    }
+
+    func captureConnectionRecoveryFailureIfNeeded(wasFailed: Bool) {
+        guard !wasFailed, connectionLifecycle.recoveryFailed else { return }
+        var props: [String: AnalyticsValue] = [:]
+        if let startedAt = connectionOutageStartedAt {
+            let ms = Int(((runtime?.now() ?? Date()).timeIntervalSince(startedAt)) * 1000)
+            props["outage_duration_ms"] = .int(max(0, ms))
+        }
+        analytics.capture("ios_connection_recovery_failed", props)
     }
 
     public func connectPreviewHost() {
@@ -1621,21 +1608,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @discardableResult
     func performStoredMacReconnect(stackUserID: String?) async -> Bool {
         startObservingNetworkPathChanges()
-        // Claim this attempt's generation. Only the current generation may resolve
-        // the restoring-gate flags, so an older superseded attempt can't clear the
-        // gate (or clobber the hint) while a newer reconnect is still running.
+        // Claim this operation's generation. Only the current generation may
+        // update the paired-Mac hint; the lifecycle reducer owns reconnect phase.
         storedMacReconnectGeneration &+= 1
         let generation = storedMacReconnectGeneration
-        // No store / not signed in: can't determine a stored Mac here. Resolve the
-        // restoring gate (so a returning user doesn't spin on RestoringSessionView)
-        // but leave the persisted hint intact for a future attempt.
+        // No store / not signed in: the owning lifecycle episode resolves after
+        // this method returns, while the persisted hint remains available to a
+        // future attempt.
         guard let pairedMacStore else {
-            finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
         guard isSignedIn,
               let scope = await currentScopeSnapshot(userID: stackUserID) else {
-            finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
         // Pull the authoritative per-user backup first so saved-Mac routes are
@@ -1646,7 +1630,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
             await refresher.refreshFromBackup(stackUserID: scope.userID)
         }
-        guard await isScopeCurrent(scope) else { finishStoredMacReconnectAttempt(generation: generation); return false }
+        guard await isScopeCurrent(scope) else { return false }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         func reachableRoutes(_ mac: MobilePairedMac) -> [(host: String, port: Int, routeID: String)] {
             Self.reconnectHostPortRoutes(
@@ -1665,13 +1649,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // A read failure means "couldn't determine," not "no mac": keep the
             // hint so a transient SQLite error doesn't erase a returning user's
             // paired state.
-            finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
-        guard await isScopeCurrent(scope) else { finishStoredMacReconnectAttempt(generation: generation); return false }
+        guard await isScopeCurrent(scope) else { return false }
         let forgottenIDs = await forgottenMacDeviceIDs(scope: scope)
         guard await isScopeCurrent(scope) else {
-            finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
         let activeMac = loadedActiveMac.flatMap { forgottenIDs.contains($0.macDeviceID) ? nil : $0 }
@@ -1699,32 +1681,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // the add-device sheet comes up cleanly; otherwise keep it so a Retry
             // or network change can reconnect once a Mac comes back.
             setHasKnownPairedMac(!allMacs.isEmpty, generation: generation)
-            finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
         // A newer attempt may have started while we awaited the store read; if so,
         // let it own the flags rather than marking ourselves the active reconnect.
         guard generation == storedMacReconnectGeneration else { return false }
         setHasKnownPairedMac(true, generation: generation)
-        isReconnectingStoredMac = true
-        // Cap how long the restoring gate stays up: a stored Mac whose route went
-        // stale (Tailscale address changed, or it's offline) makes connectManualHost
-        // hang on a slow connect timeout, and the gate shows RestoringSessionView for
-        // that whole time. After the deadline, resolve the gate so the list shows
-        // quickly; the connect loop keeps trying, so a later success still flips
-        // connectionState to .connected and shows the workspaces.
-        let restoringDeadline = Task { [weak self] in
-            // Bounded, cancellable deadline (not a poll) — cancelled the instant the
-            // connect resolves; only caps the restoring-gate window.
-            try? await ContinuousClock().sleep(
-                for: .seconds(Self.storedMacReconnectRestoringDeadlineSeconds)
-            )
-            guard let self, !Task.isCancelled,
-                  generation == self.storedMacReconnectGeneration,
-                  self.connectionState != .connected else { return }
-            self.isReconnectingStoredMac = false
-            self.didFinishStoredMacReconnectAttempt = true
-        }
         // Try each candidate until one connects, so a single offline Mac never
         // blocks the others.
         for mac in candidates {
@@ -1765,11 +1727,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             if connectionState == .connected { break }
         }
-        restoringDeadline.cancel()
-        // A newer attempt may have started during the connect; it now owns the flags.
+        // A newer attempt may have started during the connect; it now owns the result.
         guard generation == storedMacReconnectGeneration else { return false }
-        isReconnectingStoredMac = false
-        didFinishStoredMacReconnectAttempt = true
         return connectionState == .connected
     }
 
@@ -2741,8 +2700,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard pairedMacs.isEmpty else { return }
         storedMacReconnectGeneration &+= 1
         hasKnownPairedMac = false
-        isReconnectingStoredMac = false
-        didFinishStoredMacReconnectAttempt = false
+        connectionLifecycle.prepareForStoredMacReconnect()
     }
 
     /// Whether route selection should avoid loopback routes. A loopback route
@@ -3334,11 +3292,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Forgetting the active Mac clears the restoring hint so the next launch
         // (and the current disconnected view) shows add-device immediately. Bump
         // the reconnect generation first so an in-flight reconnect can't re-set the
-        // hint or the gate flags after the user forgot the Mac.
+        // paired-Mac state after the user forgot the Mac.
         storedMacReconnectGeneration &+= 1
         hasKnownPairedMac = false
-        isReconnectingStoredMac = false
-        didFinishStoredMacReconnectAttempt = false
+        connectionLifecycle.prepareForStoredMacReconnect()
         if let pairedMacStore, let macID = staleMacID {
             // Fire-and-forget: forgetting the persisted mac is cleanup that must
             // not block the synchronous disconnect UI state update above.
@@ -3995,6 +3952,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     func foregroundMacDeviceIDForTesting() -> String? { foregroundMacDeviceID }
     func storedMacReconnectGenerationForTesting() -> Int { storedMacReconnectGeneration }
+
+    func connectionResourceSnapshotForTesting() -> MobileConnectionResourceSnapshot {
+        let lifecycle = connectionLifecycle.resourceSnapshot
+        return MobileConnectionResourceSnapshot(
+            activeEpisodeCount: lifecycle.activeEpisodeCount,
+            pendingRequestCount: lifecycle.pendingRequestCount,
+            lifecycleTaskCount: connectionLifecycleTask == nil ? 0 : 1,
+            lifecycleWaiterCount: connectionLifecycleRequestWaiters.count,
+            networkObserverCount: networkPathObservationTask == nil ? 0 : 1,
+            primaryTransportCount: remoteClient == nil ? 0 : 1,
+            secondaryTransportCount: secondaryMacSubscriptions.count,
+            listenerTaskCount: terminalEventListenerTask == nil ? 0 : 1,
+            subscriptionTaskCount: terminalSubscriptionStartTask == nil ? 0 : 1,
+            livenessProbeCount: renderGridLivenessProbeTask == nil ? 0 : 1,
+            livenessTimerCount: renderGridLivenessTimer == nil ? 0 : 1,
+            replayTaskCount: terminalReplayTasksBySurfaceID.count,
+            byteContinuationCount: terminalByteContinuationsBySurfaceID.count,
+            liveFontContinuationCount: terminalLiveFontContinuationsBySurfaceID.count
+        )
+    }
     #endif
 
     func invalidateStoredMacReconnectAttempt() { storedMacReconnectGeneration &+= 1 }
@@ -5633,8 +5610,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         macConnectionStatus = .connected
-        isRecoveringConnection = false
-        connectionRecoveryFailed = false
+        connectionLifecycle.markHealthy()
         connectionRequiresReauth = false
         completeStreamRepairLifecycleEpisodeIfNeeded()
     }
@@ -5645,8 +5621,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         macConnectionStatus = .reconnecting
-        isRecoveringConnection = true
-        connectionRecoveryFailed = false
     }
 
     func markMacConnectionUnavailable() {
@@ -5655,9 +5629,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         macConnectionStatus = .unavailable
-        isRecoveringConnection = false
-        connectionRecoveryFailed = true
-        failConnectionLifecycleEpisodeIfNeeded()
+        if connectionLifecycle.activeEpisode == nil {
+            recordConnectionRecoveryFailureWithoutEpisode()
+        } else {
+            failConnectionLifecycleEpisodeIfNeeded()
+        }
     }
 
     func markMacConnectionUnavailableIfNeeded(after error: any Error) {
@@ -7627,6 +7603,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         selectedTerminalID = workspaces.first?.terminals.first?.id
     }
 }
+
+#if DEBUG
+struct MobileConnectionResourceSnapshot: Equatable {
+    let activeEpisodeCount: Int
+    let pendingRequestCount: Int
+    let lifecycleTaskCount: Int
+    let lifecycleWaiterCount: Int
+    let networkObserverCount: Int
+    let primaryTransportCount: Int
+    let secondaryTransportCount: Int
+    let listenerTaskCount: Int
+    let subscriptionTaskCount: Int
+    let livenessProbeCount: Int
+    let livenessTimerCount: Int
+    let replayTaskCount: Int
+    let byteContinuationCount: Int
+    let liveFontContinuationCount: Int
+}
+#endif
 
 private extension MobileWorkspacePreview {
     var preferredTerminal: MobileTerminalPreview? {

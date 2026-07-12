@@ -91,9 +91,6 @@ extension MobileShellComposite {
         storedMacReconnectGeneration &+= 1
         connectionLifecycleTask?.cancel()
         connectionLifecycleTask = nil
-        isRecoveringConnection = false
-        isReconnectingStoredMac = false
-        didFinishStoredMacReconnectAttempt = true
     }
 
     func completeStreamRepairLifecycleEpisodeIfNeeded() {
@@ -104,7 +101,7 @@ extension MobileShellComposite {
 
     func failConnectionLifecycleEpisodeIfNeeded() {
         guard let episode = connectionLifecycle.activeEpisode else { return }
-        finishConnectionLifecycleEpisode(id: episode.id)
+        finishConnectionLifecycleEpisode(id: episode.id, succeeded: false)
     }
 
     private func connectionLifecycleHealth(at now: Date) -> MobileConnectionLifecycleHealthSnapshot {
@@ -129,7 +126,7 @@ extension MobileShellComposite {
             case .streamRepair:
                 guard self.connectionState == .connected,
                       self.remoteClient != nil else {
-                    self.finishConnectionLifecycleEpisode(id: episode.id)
+                    self.finishConnectionLifecycleEpisode(id: episode.id, succeeded: false)
                     return
                 }
                 self.markMacConnectionReconnecting()
@@ -141,20 +138,18 @@ extension MobileShellComposite {
                     self.scheduleSecondaryAggregation()
                 }
                 if self.terminalEventListenerTask == nil {
-                    self.finishConnectionLifecycleEpisode(id: episode.id)
+                    self.finishConnectionLifecycleEpisode(id: episode.id, succeeded: false)
                 }
             case .reconnect:
-                self.isRecoveringConnection = true
-                self.connectionRecoveryFailed = false
                 let reconnected = await self.performStoredMacReconnect(
                     stackUserID: episode.reconnectStackUserID
                 )
                 guard !Task.isCancelled,
                       self.connectionLifecycle.ownsEpisode(episode.id) else { return }
-                if !reconnected {
-                    self.connectionRecoveryFailed = true
-                }
-                self.finishConnectionLifecycleEpisode(id: episode.id)
+                self.finishConnectionLifecycleEpisode(
+                    id: episode.id,
+                    succeeded: reconnected
+                )
             }
             if self.connectionLifecycle.ownsEpisode(episode.id), episode.kind == .streamRepair {
                 self.connectionLifecycleTask = nil
@@ -162,21 +157,27 @@ extension MobileShellComposite {
         }
     }
 
-    func finishConnectionLifecycleEpisode(id: UInt64) {
+    func finishConnectionLifecycleEpisode(id: UInt64, succeeded: Bool = true) {
         guard connectionLifecycle.ownsEpisode(id) else { return }
+        let recoveryWasFailed = connectionLifecycle.recoveryFailed
         let effect = connectionLifecycle.complete(
             id: id,
-            health: connectionLifecycleHealth(at: runtime?.now() ?? Date())
+            health: connectionLifecycleHealth(at: runtime?.now() ?? Date()),
+            succeeded: succeeded
         )
+        captureConnectionRecoveryFailureIfNeeded(wasFailed: recoveryWasFailed)
         resumeCompletedConnectionLifecycleRequests()
         if connectionLifecycleTask != nil,
            connectionLifecycle.activeEpisode?.id != id {
             connectionLifecycleTask = nil
         }
-        if connectionLifecycle.activeEpisode == nil {
-            isRecoveringConnection = false
-        }
         applyConnectionLifecycleEffect(effect)
+    }
+
+    func recordConnectionRecoveryFailureWithoutEpisode() {
+        let recoveryWasFailed = connectionLifecycle.recoveryFailed
+        connectionLifecycle.markRecoveryFailed()
+        captureConnectionRecoveryFailureIfNeeded(wasFailed: recoveryWasFailed)
     }
 
     private func resumeCompletedConnectionLifecycleRequests() {
@@ -217,13 +218,6 @@ extension MobileShellComposite {
     func setHasKnownPairedMac(_ value: Bool, generation: Int) {
         guard generation == storedMacReconnectGeneration else { return }
         hasKnownPairedMac = value
-    }
-
-    /// Mark the stored-Mac reconnect attempt resolved only for the current generation.
-    func finishStoredMacReconnectAttempt(generation: Int) {
-        guard generation == storedMacReconnectGeneration else { return }
-        isReconnectingStoredMac = false
-        didFinishStoredMacReconnectAttempt = true
     }
 
     /// Ordered host/port reconnect candidates for a Mac, preserving the single-route

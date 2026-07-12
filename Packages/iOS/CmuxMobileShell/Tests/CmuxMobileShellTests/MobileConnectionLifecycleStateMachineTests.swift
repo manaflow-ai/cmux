@@ -289,8 +289,13 @@ import Testing
     @MainActor
     @Test func lifecycleResetResolvesTheStoredMacRestoringGate() {
         let store = MobileShellComposite.preview()
-        store.isReconnectingStoredMac = true
-        store.didFinishStoredMacReconnectAttempt = false
+        _ = store.connectionLifecycle.requestStoredMacReconnect(
+            stackUserID: "user-1",
+            health: .disconnected
+        )
+
+        #expect(store.isReconnectingStoredMac)
+        #expect(!store.didFinishStoredMacReconnectAttempt)
 
         store.resetConnectionLifecycle()
 

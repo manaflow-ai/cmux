@@ -94,9 +94,7 @@ struct WorkspaceListView: View {
     /// disclosure indicator. Grouped rendering itself is gated on `groups`, not
     /// on this closure.
     var toggleGroupCollapsed: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)?
-    var isInitialConnectionLoading = false
-    var initialConnectionTimedOut = false
-    var retryInitialConnection: (() -> Void)?
+    var isRestoringStoredMac = false
     @State private var searchText = ""
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
@@ -249,18 +247,11 @@ struct WorkspaceListView: View {
                     MobileMacConnectionStatusRow(
                         host: host,
                         status: connectionStatus,
-                        showsSpinner: isInitialConnectionLoading,
-                        titleOverride: initialConnectionTimedOut
-                            ? L10n.string("mobile.loading.timeout.title", defaultValue: "Still loading")
-                            : nil,
-                        descriptionOverride: initialConnectionTimedOut
-                            ? L10n.string(
-                                "mobile.loading.timeout.message",
-                                defaultValue: "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry or add this computer again."
-                            )
-                            : nil,
-                        retry: initialConnectionTimedOut ? retryInitialConnection : nil,
-                        addDevice: initialConnectionTimedOut ? showAddDevice : nil,
+                        showsSpinner: isRestoringStoredMac,
+                        titleOverride: nil,
+                        descriptionOverride: nil,
+                        retry: nil,
+                        addDevice: nil,
                         reconnect: reconnect
                     )
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
