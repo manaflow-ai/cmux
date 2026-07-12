@@ -725,7 +725,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var foregroundWorkspaceListMutationEpoch: UInt64 = 0
     var foregroundWorkspaceListAppliedMutationEpoch: UInt64 = 0
     @ObservationIgnored var workspaceFocusEventRevision: UInt64 = 0
-    @ObservationIgnored var workspaceFocusEventRevisionsByMac: [String: [String: UInt64]] = [:]
+    @ObservationIgnored var workspaceFocusEventRevisionsByMac: [
+        String: [String: MobileWorkspaceFocusDimensionRevisions]
+    ] = [:]
     var foregroundWorkspaceMutationRefreshTask: Task<ForegroundWorkspaceMutationRefreshResult, Never>?
     var foregroundWorkspaceMutationRefreshTaskID: UUID?
     /// The user pull-to-refresh round-trip, kept on its own handle so the

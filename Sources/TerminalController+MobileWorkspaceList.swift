@@ -192,51 +192,28 @@ extension TerminalController {
         requestedTerminalID: UUID?,
         notificationStore: TerminalNotificationStore? = nil
     ) -> [String: Any] {
-        let focusedPaneID = workspace.bonsplitController.focusedPaneId
-        let panePayloads: [[String: Any]] = workspace.bonsplitController.allPaneIds.enumerated().map { spatialIndex, paneID in
-            let terminalIDs: [String] = workspace.bonsplitController.tabs(inPane: paneID).compactMap { tab -> String? in
-                guard let panelID = workspace.panelIdFromSurfaceId(tab.id),
-                      workspace.terminalPanel(for: panelID) != nil else {
-                    return nil
-                }
-                return panelID.uuidString
-            }
+        let projection = MobileWorkspaceHierarchyProjection(workspace: workspace)
+        let panePayloads: [[String: Any]] = projection.panes.map { pane in
             return [
-                "id": paneID.id.uuidString,
-                "spatial_index": spatialIndex,
-                "is_focused": paneID == focusedPaneID,
-                "terminal_ids": terminalIDs,
+                "id": pane.id.uuidString,
+                "spatial_index": pane.spatialIndex,
+                "is_focused": pane.isFocused,
+                "terminal_ids": pane.terminalIDs.map(\.uuidString),
             ]
         }
-        let paneIDByTerminalID: [UUID: String] = Dictionary(
-            workspace.bonsplitController.allPaneIds.flatMap { paneID in
-                workspace.bonsplitController.tabs(inPane: paneID).compactMap { tab -> (UUID, String)? in
-                    guard let panelID = workspace.panelIdFromSurfaceId(tab.id),
-                          workspace.terminalPanel(for: panelID) != nil else {
-                        return nil
-                    }
-                    return (panelID, paneID.id.uuidString)
-                }
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let terminals = mobileTerminalPanels(in: workspace).compactMap { terminal -> [String: Any]? in
-            if let requestedTerminalID, terminal.id != requestedTerminalID {
+        let terminals = projection.terminals.compactMap { terminal -> [String: Any]? in
+            if let requestedTerminalID, terminal.list.id != requestedTerminalID {
                 return nil
             }
-            let terminalDirectory = workspace.effectivePanelDirectory(
-                panelId: terminal.id,
-                localFallback: mobileNonEmpty(terminal.directory) ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
-            )
             return [
-                "id": terminal.id.uuidString,
-                "title": workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
-                "current_directory": v2OrNull(terminalDirectory),
-                "pane_id": v2OrNull(paneIDByTerminalID[terminal.id]),
-                "can_close": workspace.panels.count > 1 && !workspace.pinnedPanelIds.contains(terminal.id),
-                "requires_close_confirmation": workspace.panelNeedsConfirmClose(panelId: terminal.id),
-                "is_ready": terminal.surface.surface != nil,
-                "is_focused": terminal.id == workspace.focusedPanelId
+                "id": terminal.list.id.uuidString,
+                "title": terminal.list.title,
+                "current_directory": v2OrNull(terminal.list.currentDirectory),
+                "pane_id": v2OrNull(terminal.list.paneID?.uuidString),
+                "can_close": terminal.list.canClose,
+                "requires_close_confirmation": terminal.list.requiresCloseConfirmation,
+                "is_ready": terminal.list.isReady,
+                "is_focused": terminal.isFocused,
             ]
         }
 
@@ -247,7 +224,7 @@ extension TerminalController {
             "id": workspace.id.uuidString,
             "window_id": v2OrNull(windowID?.uuidString),
             "title": workspace.title,
-            "current_directory": v2OrNull(workspace.presentedCurrentDirectory),
+            "current_directory": v2OrNull(projection.list.currentDirectory),
             "is_selected": isSelected,
             "is_pinned": workspace.isPinned,
             // Group membership so the phone can fold contiguous same-group
@@ -270,8 +247,8 @@ extension TerminalController {
             "has_unread": store?.workspaceIsUnread(forTabId: workspace.id) ?? false,
             "terminals": terminals,
             "panes": panePayloads,
-            "focused_pane_id": v2OrNull(focusedPaneID?.id.uuidString),
-            "selected_terminal_id": v2OrNull(workspace.focusedTerminalPanel?.id.uuidString),
+            "focused_pane_id": v2OrNull(projection.focus.focusedPaneID?.uuidString),
+            "selected_terminal_id": v2OrNull(projection.focus.selectedTerminalID?.uuidString),
         ]
     }
 

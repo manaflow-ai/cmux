@@ -109,6 +109,10 @@ struct MobileWorkspaceListFidelityTests {
             for: [workspace], groups: [],
             selectedTabID: workspace.id, previewSignatures: [:]
         )
+        let projectionBefore = MobileWorkspaceListProjection(
+            tabs: [workspace], groups: [],
+            selectedTabID: workspace.id, previewSignatures: [:]
+        )
         let payloadBefore = TerminalController.shared.mobileWorkspacePayload(
             workspace: workspace,
             isSelected: true,
@@ -130,6 +134,12 @@ struct MobileWorkspaceListFidelityTests {
             for: [workspace], groups: [],
             selectedTabID: workspace.id, previewSignatures: [:]
         )
+        let projectionAfter = MobileWorkspaceListProjection(
+            tabs: [workspace], groups: [],
+            selectedTabID: workspace.id, previewSignatures: [:]
+        )
+        #expect(projectionAfter != projectionBefore)
+        #expect(projectionAfter.schemaVersion == MobileWorkspaceHierarchyProjection.schemaVersion)
         #expect(hashAfter != hashBefore, "pinning changes terminal closeability and must change the projection")
         let payloadAfter = TerminalController.shared.mobileWorkspacePayload(
             workspace: workspace,

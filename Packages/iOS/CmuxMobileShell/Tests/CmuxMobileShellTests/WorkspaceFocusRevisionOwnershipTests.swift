@@ -23,14 +23,16 @@ import Testing
         foregroundMacDeviceID: foregroundMacID
     )
     store.workspaceFocusEventRevisionsByMac = [
-        foregroundMacID: ["foreground-workspace": 3],
-        secondaryMacID: ["secondary-workspace": 4],
+        foregroundMacID: ["foreground-workspace": .init(pane: 3, terminal: 3)],
+        secondaryMacID: ["secondary-workspace": .init(pane: 4, terminal: 4)],
     ]
     store.workspaceFocusEventRevision = 4
 
     store.currentTeamDidChange()
 
-    #expect(store.workspaceFocusEventRevisionsByMac[foregroundMacID] == ["foreground-workspace": 3])
+    #expect(store.workspaceFocusEventRevisionsByMac[foregroundMacID] == [
+        "foreground-workspace": .init(pane: 3, terminal: 3),
+    ])
     #expect(store.workspaceFocusEventRevisionsByMac[secondaryMacID] == nil)
     #expect(store.workspaceFocusEventRevision == 4)
 }
@@ -42,7 +44,9 @@ import Testing
     let store = makeRoutingMultiMacStore(router: router, pairedMacStore: pairedMacStore)
     let secondaryMacID = "vanished-secondary"
     try installSecondaryClient(on: store, macDeviceID: secondaryMacID, router: router)
-    store.workspaceFocusEventRevisionsByMac[secondaryMacID] = ["workspace-old": 7]
+    store.workspaceFocusEventRevisionsByMac[secondaryMacID] = [
+        "workspace-old": .init(pane: 7, terminal: 7),
+    ]
     store.workspaceFocusEventRevision = 7
 
     await store.refreshSecondaryMacWorkspaces()
@@ -72,17 +76,23 @@ import Testing
     )
     store.workspaceFocusEventRevision = 11
     store.workspaceFocusEventRevisionsByMac = [
-        oldOwner: ["workspace-shared": 5, "workspace-old-only": 7],
-        adoptedOwner: ["workspace-shared": 9, "workspace-target-only": 4],
+        oldOwner: [
+            "workspace-shared": .init(pane: 5, terminal: 10),
+            "workspace-old-only": .init(pane: 7, terminal: 7),
+        ],
+        adoptedOwner: [
+            "workspace-shared": .init(pane: 9, terminal: 4),
+            "workspace-target-only": .init(pane: 4, terminal: 4),
+        ],
     ]
 
     store.adoptForegroundMacIdentity(adoptedOwner)
 
     #expect(store.workspaceFocusEventRevisionsByMac[oldOwner] == nil)
     #expect(store.workspaceFocusEventRevisionsByMac[adoptedOwner] == [
-        "workspace-shared": 9,
-        "workspace-old-only": 7,
-        "workspace-target-only": 4,
+        "workspace-shared": .init(pane: 9, terminal: 10),
+        "workspace-old-only": .init(pane: 7, terminal: 7),
+        "workspace-target-only": .init(pane: 4, terminal: 4),
     ])
     #expect(store.workspaceFocusEventRevision == 11)
 }
@@ -118,6 +128,7 @@ import Testing
     {"kind":"focus","workspace_id":"workspace-after-close","focused_pane_id":"pane-closed","selected_terminal_id":"terminal-closed"}
     """.utf8)))
 
+    let revisionBefore = store.workspaceFocusRevisionSnapshot()
     store.applyWorkspaceFocusEvent(lateEvent, macID: nil)
 
     let updated = try #require(store.workspaces.first)
@@ -125,6 +136,7 @@ import Testing
     #expect(updated.selectedTerminalID == survivorID)
     #expect(updated.panes.first?.isFocused == true)
     #expect(updated.terminals.first?.isFocused == true)
+    #expect(store.workspaceFocusRevisionSnapshot() == revisionBefore)
 }
 
 @MainActor
@@ -148,6 +160,9 @@ import Testing
     {"kind":"focus","workspace_id":"workspace-mixed-focus","focused_pane_id":null,"selected_terminal_id":"terminal-b"}
     """.utf8)))
 
+    var directlyApplied = workspace
+    let dimensions = directlyApplied.applyFocusSnapshot(event)
+    #expect(dimensions == .init(pane: true, terminal: true))
     store.applyWorkspaceFocusEvent(event, macID: nil)
 
     let applied = try #require(store.workspaces.first)

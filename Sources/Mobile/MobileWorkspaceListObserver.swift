@@ -5,6 +5,229 @@ import OSLog
 
 private let mobileWorkspaceObserverLog = Logger(subsystem: "dev.cmux", category: "mobile-workspace-observer")
 
+/// Immutable, versioned value sampled from the Mac hierarchy on the main actor.
+/// Publishers and focus notifications only request a new sample. They are never
+/// treated as the state carried by an event, which avoids mixing `willSet`
+/// values with later live reads from other hierarchy dimensions.
+struct MobileWorkspaceHierarchyProjection {
+    static let schemaVersion = 1
+
+    struct PaneListValue: Hashable {
+        let id: UUID
+        let spatialIndex: Int
+        let terminalIDs: [UUID]
+    }
+
+    struct PanePayloadValue: Hashable {
+        let id: UUID
+        let spatialIndex: Int
+        let isFocused: Bool
+        let terminalIDs: [UUID]
+    }
+
+    struct TerminalListValue: Hashable {
+        let id: UUID
+        let title: String
+        let currentDirectory: String?
+        let paneID: UUID?
+        let canClose: Bool
+        let requiresCloseConfirmation: Bool
+        let isReady: Bool
+    }
+
+    struct TerminalPayloadValue: Hashable {
+        let list: TerminalListValue
+        let isFocused: Bool
+    }
+
+    struct SurfaceListValue: Hashable {
+        let id: UUID
+        let title: String?
+        let reportedDirectory: String?
+    }
+
+    struct PanelDirectoryValue: Hashable {
+        let id: UUID
+        let directory: String?
+    }
+
+    struct ListValue: Hashable {
+        let schemaVersion: Int
+        let id: UUID
+        let title: String
+        let isPinned: Bool
+        let groupID: UUID?
+        let previewSignature: Int?
+        let orderedPanelIDs: [UUID]
+        let pinnedPanelIDs: [UUID]
+        let panes: [PaneListValue]
+        let terminals: [TerminalListValue]
+        let surfaces: [SurfaceListValue]
+        let currentDirectory: String?
+        let panelDirectories: [PanelDirectoryValue]
+    }
+
+    struct PaneFocusValue: Hashable {
+        let id: UUID
+        let selectedTerminalID: UUID?
+    }
+
+    struct FocusValue: Hashable {
+        let schemaVersion: Int
+        let workspaceID: UUID
+        let focusedPaneID: UUID?
+        let selectedTerminalID: UUID?
+        let paneSelections: [PaneFocusValue]
+
+        var eventPayload: [String: Any] {
+            [
+                "kind": "focus",
+                "workspace_id": workspaceID.uuidString,
+                "focused_pane_id": focusedPaneID?.uuidString ?? NSNull(),
+                "selected_terminal_id": selectedTerminalID?.uuidString ?? NSNull(),
+            ]
+        }
+    }
+
+    let list: ListValue
+    let focus: FocusValue
+    let panes: [PanePayloadValue]
+    let terminals: [TerminalPayloadValue]
+
+    @MainActor
+    init(workspace: Workspace, previewSignature: Int? = nil) {
+        let paneIDs = workspace.bonsplitController.allPaneIds
+        let focusedPaneID = workspace.bonsplitController.focusedPaneId?.id
+        var paneIDByTerminalID: [UUID: UUID] = [:]
+        var paneListValues: [PaneListValue] = []
+        var panePayloadValues: [PanePayloadValue] = []
+        var paneFocusValues: [PaneFocusValue] = []
+        for (spatialIndex, paneID) in paneIDs.enumerated() {
+            let terminalIDs = workspace.bonsplitController.tabs(inPane: paneID).compactMap { tab -> UUID? in
+                guard let panelID = workspace.panelIdFromSurfaceId(tab.id),
+                      workspace.terminalPanel(for: panelID) != nil else {
+                    return nil
+                }
+                paneIDByTerminalID[panelID] = paneID.id
+                return panelID
+            }
+            let selectedTerminalID = workspace.bonsplitController.selectedTab(inPane: paneID)
+                .flatMap { workspace.panelIdFromSurfaceId($0.id) }
+                .flatMap { workspace.terminalPanel(for: $0)?.id }
+            paneListValues.append(.init(id: paneID.id, spatialIndex: spatialIndex, terminalIDs: terminalIDs))
+            panePayloadValues.append(.init(
+                id: paneID.id,
+                spatialIndex: spatialIndex,
+                isFocused: paneID.id == focusedPaneID,
+                terminalIDs: terminalIDs
+            ))
+            paneFocusValues.append(.init(id: paneID.id, selectedTerminalID: selectedTerminalID))
+        }
+
+        let orderedPanelIDs = workspace.orderedPanelIds
+        let terminalValues = orderedPanelIDs.compactMap { panelID -> TerminalPayloadValue? in
+            guard let terminal = workspace.terminalPanel(for: panelID) else { return nil }
+            let localDirectory = [terminal.directory, terminal.requestedWorkingDirectory]
+                .compactMap { raw -> String? in
+                    guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+                    return raw
+                }
+                .first
+            let directory = workspace.effectivePanelDirectory(
+                panelId: terminal.id,
+                localFallback: localDirectory
+            )
+            return .init(
+                list: .init(
+                    id: terminal.id,
+                    title: workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
+                    currentDirectory: directory,
+                    paneID: paneIDByTerminalID[terminal.id],
+                    canClose: workspace.panels.count > 1 && !workspace.pinnedPanelIds.contains(terminal.id),
+                    requiresCloseConfirmation: workspace.panelNeedsConfirmClose(panelId: terminal.id),
+                    isReady: terminal.surface.surface != nil
+                ),
+                isFocused: terminal.id == workspace.focusedPanelId
+            )
+        }
+        let surfaces = orderedPanelIDs.map {
+            SurfaceListValue(
+                id: $0,
+                title: workspace.panelTitle(panelId: $0),
+                reportedDirectory: workspace.reportedPanelDirectory(panelId: $0)
+            )
+        }
+        let panelDirectories = workspace.panelDirectories.keys
+            .sorted { $0.uuidString < $1.uuidString }
+            .map { PanelDirectoryValue(id: $0, directory: workspace.panelDirectories[$0]) }
+        list = .init(
+            schemaVersion: Self.schemaVersion,
+            id: workspace.id,
+            title: workspace.title,
+            isPinned: workspace.isPinned,
+            groupID: workspace.groupId,
+            previewSignature: previewSignature,
+            orderedPanelIDs: orderedPanelIDs,
+            pinnedPanelIDs: workspace.pinnedPanelIds.sorted { $0.uuidString < $1.uuidString },
+            panes: paneListValues,
+            terminals: terminalValues.map(\.list),
+            surfaces: surfaces,
+            currentDirectory: workspace.presentedCurrentDirectory,
+            panelDirectories: panelDirectories
+        )
+        focus = .init(
+            schemaVersion: Self.schemaVersion,
+            workspaceID: workspace.id,
+            focusedPaneID: focusedPaneID,
+            selectedTerminalID: workspace.focusedTerminalPanel?.id,
+            paneSelections: paneFocusValues
+        )
+        panes = panePayloadValues
+        terminals = terminalValues
+    }
+}
+
+struct MobileWorkspaceListProjection: Hashable {
+    struct GroupValue: Hashable {
+        let id: UUID
+        let name: String
+        let isCollapsed: Bool
+        let isPinned: Bool
+        let anchorWorkspaceID: UUID?
+    }
+
+    let schemaVersion: Int
+    let selectedTabID: UUID?
+    let groups: [GroupValue]
+    let workspaces: [MobileWorkspaceHierarchyProjection.ListValue]
+
+    @MainActor
+    init(
+        tabs: [Workspace],
+        groups: [WorkspaceGroup],
+        selectedTabID: UUID?,
+        previewSignatures: [UUID: Int]
+    ) {
+        schemaVersion = MobileWorkspaceHierarchyProjection.schemaVersion
+        self.selectedTabID = selectedTabID
+        self.groups = groups.map {
+            .init(
+                id: $0.id,
+                name: $0.name,
+                isCollapsed: $0.isCollapsed,
+                isPinned: $0.isPinned,
+                anchorWorkspaceID: $0.anchorWorkspaceId
+            )
+        }
+        workspaces = tabs.map {
+            MobileWorkspaceHierarchyProjection(
+                workspace: $0,
+                previewSignature: previewSignatures[$0.id]
+            ).list
+        }
+    }
+}
+
 /// Watches `TabManager.tabs` (and each workspace's panels publisher) and emits
 /// `workspace.updated` to subscribed mobile clients whenever the iOS-facing
 /// shape of the workspace list materially changes. Replaces per-RPC emit hooks
@@ -26,8 +249,8 @@ final class MobileWorkspaceListObserver {
     private var notificationsCancellable: AnyCancellable?
     private var unreadIndicatorsCancellable: AnyCancellable?
     private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
-    private var focusedHierarchySignatures: [UUID: Int] = [:]
-    private var lastSummaryHash: Int = 0
+    private var focusedHierarchyProjections: [UUID: MobileWorkspaceHierarchyProjection.FocusValue] = [:]
+    private var lastListProjection: MobileWorkspaceListProjection?
     /// Throttle window with `latest: true`. First event in a burst emits
     /// immediately (iPhone gets the change in milliseconds), subsequent
     /// events within the window collapse to one trailing emit carrying the
@@ -52,26 +275,19 @@ final class MobileWorkspaceListObserver {
         // Initial snapshot. Every observer's first emit is unconditional so
         // freshly-paired clients see the current state without waiting for
         // the first mutation.
-        let initial = Self.summaryHash(
-            for: tabManager.tabs,
-            groups: tabManager.workspaceGroups,
-            selectedTabID: tabManager.selectedTabId,
-            previewSignatures: currentPreviewSignatures(for: tabManager.tabs)
-        )
-        lastSummaryHash = initial
-        focusedHierarchySignatures = Dictionary(uniqueKeysWithValues: tabManager.tabs.map {
-            ($0.id, Self.focusedHierarchySignature(for: $0))
+        focusedHierarchyProjections = Dictionary(uniqueKeysWithValues: tabManager.tabs.map {
+            ($0.id, MobileWorkspaceHierarchyProjection(workspace: $0).focus)
         })
         emitIfNeeded(force: true)
 
         tabsCancellable = tabManager.tabsPublisher
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
-            .sink { [weak self] tabs in
-                guard let self else { return }
+            .sink { [weak self] _ in
+                guard let self, let tabManager = self.tabManager else { return }
                 #if DEBUG
-                cmuxDebugLog("mobile.observer tabs sink fired count=\(tabs.count)")
+                cmuxDebugLog("mobile.observer tabs sink fired count=\(tabManager.tabs.count)")
                 #endif
-                self.refreshPerWorkspaceSubscriptions(tabs: tabs)
+                self.refreshPerWorkspaceSubscriptions(tabs: tabManager.tabs)
                 self.emitIfNeeded(force: false)
             }
         // Selection changes (Mac user clicks a different sidebar tab) need
@@ -184,14 +400,14 @@ final class MobileWorkspaceListObserver {
         // Drop subscriptions for workspaces that vanished.
         for id in perWorkspaceCancellables.keys where !currentIDs.contains(id) {
             perWorkspaceCancellables.removeValue(forKey: id)
-            focusedHierarchySignatures.removeValue(forKey: id)
+            focusedHierarchyProjections.removeValue(forKey: id)
         }
         // Merge the per-workspace publishers behind the mobile workspace
         // list: terminal set, terminal titles, workspace title, and displayed
         // directory fields. Directory changes can arrive from shell prompt
         // updates without changing the terminal set.
         for workspace in tabs where perWorkspaceCancellables[workspace.id] == nil {
-            focusedHierarchySignatures[workspace.id] = Self.focusedHierarchySignature(for: workspace)
+            focusedHierarchyProjections[workspace.id] = MobileWorkspaceHierarchyProjection(workspace: workspace).focus
             let publishers: [AnyPublisher<Void, Never>] = [
                 workspace.panelsPublisher.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$panelTitles.map { _ in () }.eraseToAnyPublisher(),
@@ -203,6 +419,9 @@ final class MobileWorkspaceListObserver {
                 // a pure pin toggle need not change the panel set or title, so
                 // without this the phone never learns the workspace was pinned.
                 workspace.$isPinned.map { _ in () }.eraseToAnyPublisher(),
+                // Pinning an individual surface changes its closeability without
+                // necessarily changing order, panel membership, or workspace pin.
+                workspace.$pinnedPanelIds.map { _ in () }.eraseToAnyPublisher(),
                 // Group membership is iOS-facing (the phone nests members under
                 // their group header). Moving a workspace into or out of a group
                 // mutates only this workspace's `groupId`; it need not change the
@@ -229,63 +448,40 @@ final class MobileWorkspaceListObserver {
     }
 
     private func emitFocusedHierarchyUpdateIfNeeded(for workspace: Workspace) {
-        let signature = Self.focusedHierarchySignature(for: workspace)
-        guard focusedHierarchySignatures[workspace.id] != signature else { return }
-        focusedHierarchySignatures[workspace.id] = signature
+        let projection = MobileWorkspaceHierarchyProjection(workspace: workspace).focus
+        guard focusedHierarchyProjections[workspace.id] != projection else { return }
+        focusedHierarchyProjections[workspace.id] = projection
         mobileWorkspaceObserverLog.debug(
             "emitting workspace.focused hierarchy workspace=\(workspace.id, privacy: .public)"
         )
-        var payload: [String: Any] = [
-            "kind": "focus",
-            "workspace_id": workspace.id.uuidString,
-        ]
-        if let focusedPaneID = workspace.bonsplitController.focusedPaneId?.id.uuidString {
-            payload["focused_pane_id"] = focusedPaneID
-        } else {
-            payload["focused_pane_id"] = NSNull()
-        }
-        if let selectedTerminalID = workspace.focusedTerminalPanel?.id.uuidString {
-            payload["selected_terminal_id"] = selectedTerminalID
-        } else {
-            payload["selected_terminal_id"] = NSNull()
-        }
-        MobileHostService.shared.emitEvent(topic: "workspace.focused", payload: payload)
+        MobileHostService.shared.emitEvent(topic: "workspace.focused", payload: projection.eventPayload)
     }
 
     static func focusedHierarchySignature(for workspace: Workspace) -> Int {
         var hasher = Hasher()
-        let paneIDs = workspace.bonsplitController.allPaneIds
-        hasher.combine(workspace.bonsplitController.focusedPaneId?.id)
-        hasher.combine(workspace.focusedTerminalPanel?.id)
-        for paneID in paneIDs {
-            hasher.combine(paneID.id)
-            let selectedTerminalID: UUID? = workspace.bonsplitController.selectedTab(inPane: paneID)
-                .flatMap { workspace.panelIdFromSurfaceId($0.id) }
-                .flatMap { workspace.terminalPanel(for: $0)?.id }
-            hasher.combine(selectedTerminalID)
-        }
+        hasher.combine(MobileWorkspaceHierarchyProjection(workspace: workspace).focus)
         return hasher.finalize()
     }
 
     private func emitIfNeeded(force: Bool) {
         let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-emit-if-needed", "force=\(force)"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
         guard let tabManager else { return }
-        let hash = Self.summaryHash(
-            for: tabManager.tabs,
+        let projection = MobileWorkspaceListProjection(
+            tabs: tabManager.tabs,
             groups: tabManager.workspaceGroups,
             selectedTabID: tabManager.selectedTabId,
             previewSignatures: currentPreviewSignatures(for: tabManager.tabs)
         )
-        if !force, hash == lastSummaryHash {
+        if !force, projection == lastListProjection {
             #if DEBUG
-            cmuxDebugLog("mobile.observer skip: hash unchanged=\(hash) tabs=\(tabManager.tabs.count)")
+            cmuxDebugLog("mobile.observer skip: projection unchanged tabs=\(tabManager.tabs.count)")
             #endif
             return
         }
-        lastSummaryHash = hash
-        mobileWorkspaceObserverLog.debug("emitting workspace.updated (hash=\(hash, privacy: .public))")
+        lastListProjection = projection
+        mobileWorkspaceObserverLog.debug("emitting workspace.updated")
         #if DEBUG
-        cmuxDebugLog("mobile.observer EMIT workspace.updated hash=\(hash) tabs=\(tabManager.tabs.count) force=\(force)")
+        cmuxDebugLog("mobile.observer EMIT workspace.updated tabs=\(tabManager.tabs.count) force=\(force)")
         #endif
         MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
     }
@@ -311,65 +507,14 @@ final class MobileWorkspaceListObserver {
         previewSignatures: [UUID: Int]
     ) -> Int {
         let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-summary-hash", "workspaces=\(tabs.count) groups=\(groups.count) previews=\(previewSignatures.count) selected=\(selectedTabID.map { String($0.uuidString.prefix(5)) } ?? "nil")"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
+        let projection = MobileWorkspaceListProjection(
+            tabs: tabs,
+            groups: groups,
+            selectedTabID: selectedTabID,
+            previewSignatures: previewSignatures
+        )
         var hasher = Hasher()
-        hasher.combine(tabs.count)
-        hasher.combine(selectedTabID)
-        // Group sections are iOS-facing. Hash group order + the fields the phone
-        // renders (name, collapse, pin, anchor) so a pure collapse/expand, rename,
-        // or reorder re-emits to the phone. Membership is already covered by each
-        // workspace's `groupId`, hashed in the per-workspace loop below.
-        hasher.combine(groups.count)
-        for group in groups {
-            hasher.combine(group.id)
-            hasher.combine(group.name)
-            hasher.combine(group.isCollapsed)
-            hasher.combine(group.isPinned)
-            hasher.combine(group.anchorWorkspaceId)
-        }
-        for workspace in tabs {
-            hasher.combine(workspace.id)
-            hasher.combine(workspace.title)
-            hasher.combine(workspace.isPinned)
-            // Group membership is iOS-facing (the phone nests members under the
-            // group header), and a pure move-into/out-of-group need not change the
-            // panel set or title, so hash it here.
-            hasher.combine(workspace.groupId)
-            // Last-activity preview line + timestamp shown on each row. Sourced
-            // from the notification store (not the TabManager graph), so it is
-            // folded in here as a precomputed signature.
-            hasher.combine(previewSignatures[workspace.id])
-            // Spatial order is significant: hash the ordered id sequence so a
-            // reorder of the same panel set changes the hash.
-            let panelIDs = workspace.orderedPanelIds
-            hasher.combine(panelIDs)
-            let paneIDs = workspace.bonsplitController.allPaneIds
-            hasher.combine(paneIDs.count)
-            for paneID in paneIDs {
-                hasher.combine(paneID.id)
-                let terminalIDs: [UUID] = workspace.bonsplitController.tabs(inPane: paneID).compactMap { tab -> UUID? in
-                    guard let panelID = workspace.panelIdFromSurfaceId(tab.id),
-                          workspace.terminalPanel(for: panelID) != nil else {
-                        return nil
-                    }
-                    return panelID
-                }
-                hasher.combine(terminalIDs)
-            }
-            for id in panelIDs {
-                hasher.combine(workspace.panelTitle(panelId: id))
-                hasher.combine(workspace.reportedPanelDirectory(panelId: id))
-            }
-            hasher.combine(workspace.presentedCurrentDirectory)
-            // Hash every panelDirectories entry (including ids not yet in
-            // `panels`) so a directory update is detected even before its panel
-            // registers. The ordered loop above already covers in-panel
-            // directories; this preserves the pre-existing behavior the mobile
-            // hash test relies on.
-            for id in workspace.panelDirectories.keys.sorted() {
-                hasher.combine(id)
-                hasher.combine(workspace.panelDirectories[id])
-            }
-        }
+        hasher.combine(projection)
         return hasher.finalize()
     }
 

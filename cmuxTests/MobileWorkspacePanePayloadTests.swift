@@ -53,6 +53,9 @@ struct MobileWorkspacePanePayloadTests {
 
         #expect(workspace.focusedPanelId == browser.id)
         #expect(workspace.focusedTerminalPanel == nil)
+        let browserProjection = MobileWorkspaceHierarchyProjection(workspace: workspace)
+        #expect(browserProjection.focus.selectedTerminalID == nil)
+        #expect(browserProjection.focus.eventPayload["selected_terminal_id"] is NSNull)
         let browserSignature = MobileWorkspaceListObserver.focusedHierarchySignature(for: workspace)
         #expect(browserSignature != terminalSignature, "browser selection must change the scoped focus value")
 

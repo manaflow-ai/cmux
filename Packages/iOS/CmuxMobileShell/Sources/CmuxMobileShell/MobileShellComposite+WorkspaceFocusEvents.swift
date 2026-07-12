@@ -1,6 +1,28 @@
 internal import CmuxMobileRPC
 internal import CmuxMobileShellModel
 
+struct MobileWorkspaceFocusDimensionRevisions: Equatable, Sendable {
+    var pane: UInt64 = 0
+    var terminal: UInt64 = 0
+
+    mutating func record(_ dimensions: MobileWorkspaceFocusAppliedDimensions, at revision: UInt64) {
+        if dimensions.pane { pane = revision }
+        if dimensions.terminal { terminal = revision }
+    }
+
+    func maxMerged(with other: Self) -> Self {
+        Self(pane: max(pane, other.pane), terminal: max(terminal, other.terminal))
+    }
+}
+
+struct MobileWorkspaceFocusAppliedDimensions: Equatable, Sendable {
+    var pane: Bool
+    var terminal: Bool
+
+    static let all = Self(pane: true, terminal: true)
+    var isEmpty: Bool { !pane && !terminal }
+}
+
 extension MobileShellComposite {
     /// Applies a focus-only event without fetching or decoding the full list.
     func applyWorkspaceFocusEvent(_ event: MobileWorkspaceFocusEvent, macID: String?) {
@@ -9,21 +31,24 @@ extension MobileShellComposite {
                   let index = state.workspaces.firstIndex(where: {
                       $0.rpcWorkspaceID.rawValue == event.workspaceID
                   }) else { return }
-            state.workspaces[index].applyFocusSnapshot(event)
+            let dimensions = state.workspaces[index].applyFocusSnapshot(event)
             workspacesByMac[macID] = state
-            recordWorkspaceFocusEvent(event, macID: macID)
+            recordWorkspaceFocusEvent(event, dimensions: dimensions, macID: macID)
             return
         }
-        var applied = false
+        var appliedDimensions: MobileWorkspaceFocusAppliedDimensions?
         mutateForegroundWorkspaces { workspaces in
             guard let index = workspaces.firstIndex(where: {
                 $0.rpcWorkspaceID.rawValue == event.workspaceID
             }) else { return }
-            workspaces[index].applyFocusSnapshot(event)
-            applied = true
+            appliedDimensions = workspaces[index].applyFocusSnapshot(event)
         }
-        if applied {
-            recordWorkspaceFocusEvent(event, macID: foregroundMacDeviceID)
+        if let appliedDimensions {
+            recordWorkspaceFocusEvent(
+                event,
+                dimensions: appliedDimensions,
+                macID: foregroundMacDeviceID
+            )
         }
     }
 
@@ -38,9 +63,14 @@ extension MobileShellComposite {
         listStartedAtFocusRevision: UInt64
     ) {
         let ownerKey = workspaceFocusOwnerKey(macID: macID)
-        let revision = workspaceFocusEventRevisionsByMac[ownerKey]?[workspace.rpcWorkspaceID.rawValue] ?? 0
-        guard revision > listStartedAtFocusRevision else { return }
-        workspace.preserveFocusSnapshot(from: existingWorkspace)
+        let revisions = workspaceFocusEventRevisionsByMac[ownerKey]?[workspace.rpcWorkspaceID.rawValue]
+            ?? MobileWorkspaceFocusDimensionRevisions()
+        let dimensions = MobileWorkspaceFocusAppliedDimensions(
+            pane: revisions.pane > listStartedAtFocusRevision,
+            terminal: revisions.terminal > listStartedAtFocusRevision
+        )
+        guard !dimensions.isEmpty else { return }
+        workspace.preserveFocusSnapshot(from: existingWorkspace, dimensions: dimensions)
     }
 
     func pruneWorkspaceFocusRevisions(
@@ -73,8 +103,8 @@ extension MobileShellComposite {
             return
         }
         var merged = workspaceFocusEventRevisionsByMac[newOwnerKey] ?? [:]
-        for (workspaceID, revision) in oldRevisions {
-            merged[workspaceID] = max(merged[workspaceID] ?? 0, revision)
+        for (workspaceID, revisions) in oldRevisions {
+            merged[workspaceID] = (merged[workspaceID] ?? .init()).maxMerged(with: revisions)
         }
         if !merged.isEmpty {
             workspaceFocusEventRevisionsByMac[newOwnerKey] = merged
@@ -127,12 +157,14 @@ extension MobileShellComposite {
 
     private func recordWorkspaceFocusEvent(
         _ event: MobileWorkspaceFocusEvent,
+        dimensions: MobileWorkspaceFocusAppliedDimensions,
         macID: String?
     ) {
+        guard !dimensions.isEmpty else { return }
         workspaceFocusEventRevision &+= 1
         let ownerKey = workspaceFocusOwnerKey(macID: macID)
-        workspaceFocusEventRevisionsByMac[ownerKey, default: [:]][event.workspaceID] =
-            workspaceFocusEventRevision
+        workspaceFocusEventRevisionsByMac[ownerKey, default: [:]][event.workspaceID, default: .init()]
+            .record(dimensions, at: workspaceFocusEventRevision)
     }
 
     /// Resolves one stable focus-revision owner through foreground promotion.
@@ -149,59 +181,78 @@ extension MobileShellComposite {
 }
 
 extension MobileWorkspacePreview {
-    mutating func applyFocusSnapshot(_ event: MobileWorkspaceFocusEvent) {
+    @discardableResult
+    mutating func applyFocusSnapshot(
+        _ event: MobileWorkspaceFocusEvent
+    ) -> MobileWorkspaceFocusAppliedDimensions {
         applyValidatedFocusSnapshot(
             paneID: event.focusedPaneID.map(MobilePanePreview.ID.init(rawValue:)),
             terminalID: event.selectedTerminalID.map(MobileTerminalPreview.ID.init(rawValue:))
         )
     }
 
-    mutating func preserveFocusSnapshot(from existing: MobileWorkspacePreview) {
-        applyValidatedFocusSnapshot(
+    mutating func preserveFocusSnapshot(
+        from existing: MobileWorkspacePreview,
+        dimensions: MobileWorkspaceFocusAppliedDimensions = .all
+    ) {
+        _ = applyValidatedFocusSnapshot(
             paneID: existing.focusedPaneID,
-            terminalID: existing.selectedTerminalID
+            terminalID: existing.selectedTerminalID,
+            dimensions: dimensions
         )
     }
 
-    private mutating func applyValidatedFocusSnapshot(
+    @discardableResult
+    mutating func applyValidatedFocusSnapshot(
         paneID: MobilePanePreview.ID?,
-        terminalID: MobileTerminalPreview.ID?
-    ) {
-        switch ValidatedFocusDimension(
-            requestedID: paneID,
-            isAvailable: { requestedID in panes.contains(where: { $0.id == requestedID }) }
-        ) {
-        case .clear:
-            focusedPaneID = nil
-            for index in panes.indices {
-                panes[index].isFocused = false
+        terminalID: MobileTerminalPreview.ID?,
+        dimensions: MobileWorkspaceFocusAppliedDimensions = .all
+    ) -> MobileWorkspaceFocusAppliedDimensions {
+        var applied = MobileWorkspaceFocusAppliedDimensions(pane: false, terminal: false)
+        if dimensions.pane {
+            switch ValidatedFocusDimension(
+                requestedID: paneID,
+                isAvailable: { requestedID in panes.contains(where: { $0.id == requestedID }) }
+            ) {
+            case .clear:
+                focusedPaneID = nil
+                for index in panes.indices {
+                    panes[index].isFocused = false
+                }
+                applied.pane = true
+            case .apply(let appliedPaneID):
+                focusedPaneID = appliedPaneID
+                for index in panes.indices {
+                    panes[index].isFocused = panes[index].id == appliedPaneID
+                }
+                applied.pane = true
+            case .unchanged:
+                break
             }
-        case .apply(let appliedPaneID):
-            focusedPaneID = appliedPaneID
-            for index in panes.indices {
-                panes[index].isFocused = panes[index].id == appliedPaneID
-            }
-        case .unchanged:
-            break
         }
 
-        switch ValidatedFocusDimension(
-            requestedID: terminalID,
-            isAvailable: { requestedID in terminals.contains(where: { $0.id == requestedID }) }
-        ) {
-        case .clear:
-            selectedTerminalID = nil
-            for index in terminals.indices {
-                terminals[index].isFocused = false
+        if dimensions.terminal {
+            switch ValidatedFocusDimension(
+                requestedID: terminalID,
+                isAvailable: { requestedID in terminals.contains(where: { $0.id == requestedID }) }
+            ) {
+            case .clear:
+                selectedTerminalID = nil
+                for index in terminals.indices {
+                    terminals[index].isFocused = false
+                }
+                applied.terminal = true
+            case .apply(let appliedTerminalID):
+                selectedTerminalID = appliedTerminalID
+                for index in terminals.indices {
+                    terminals[index].isFocused = terminals[index].id == appliedTerminalID
+                }
+                applied.terminal = true
+            case .unchanged:
+                break
             }
-        case .apply(let appliedTerminalID):
-            selectedTerminalID = appliedTerminalID
-            for index in terminals.indices {
-                terminals[index].isFocused = terminals[index].id == appliedTerminalID
-            }
-        case .unchanged:
-            break
         }
+        return applied
     }
 }
 
