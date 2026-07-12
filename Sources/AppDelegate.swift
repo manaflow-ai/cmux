@@ -9250,12 +9250,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return windowForMainWindowId(windowId)
         }()
         guard let window else { return false }
-        return mainWindowVisibilityController.focus(
+        guard mainWindowVisibilityController.focus(
             window,
             reason: .notification,
-            activation: .runningApplication([.activateAllWindows]),
+            activation: .none,
             respectActivationSuppression: false
-        )
+        ) else {
+            return false
+        }
+        activateApplicationForIncomingNotificationFocus()
+        return true
     }
 
     @discardableResult

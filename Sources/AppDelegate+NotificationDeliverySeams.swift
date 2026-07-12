@@ -32,14 +32,25 @@ final class NotificationDeliverySeamAdapter:
     }
 
     func focusIncomingNotification(_ target: IncomingNotificationFocusTarget) -> Bool {
-        owner?.notificationNavigation.open(
+        guard let owner else { return false }
+        guard owner.notificationNavigation.open(
             tabId: target.workspaceId,
             surfaceId: target.surfaceId,
             panelId: target.panelId,
             notificationId: nil,
             scrollRow: nil,
             scrollTotalRows: nil
-        ) ?? false
+        ) else {
+            return false
+        }
+
+        // Notification navigation normally follows an explicit user action, so
+        // its regular window-ordering path does not need to steal focus from
+        // another app. This opt-in automatic route does: AppKit's
+        // NSRunningApplication activation can be ignored while another app is
+        // active, even after makeKeyAndOrderFront succeeds.
+        owner.activateApplicationForIncomingNotificationFocus()
+        return true
     }
 
     func activateApplicationForIncomingNotification() -> Bool {
@@ -48,6 +59,10 @@ final class NotificationDeliverySeamAdapter:
 }
 
 extension AppDelegate {
+    func activateApplicationForIncomingNotificationFocus() {
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     func notificationDeliveryDeliverFeedReply(requestId: String, decision: NotificationFeedDecision) {
         FeedCoordinator.shared.deliverReply(
             requestId: requestId,
