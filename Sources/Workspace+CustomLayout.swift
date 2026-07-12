@@ -35,9 +35,12 @@ extension Workspace {
         }
     }
 
-    /// Sends a config-defined workspace `setup` command to the first terminal
-    /// panel. Used by workspace actions/commands that define no custom layout.
+    /// Runs a config-defined workspace `setup` command as the first terminal's
+    /// process when possible; falls back to typed input only if the panel already
+    /// has a startup command of its own.
     func sendConfigSetupCommand(_ command: String) {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
         let firstTerminal: TerminalPanel? = focusedTerminalPanel ?? {
             for paneId in bonsplitController.allPaneIds {
                 for tab in bonsplitController.tabs(inPane: paneId) {
@@ -50,7 +53,24 @@ extension Workspace {
             return nil
         }()
         guard let firstTerminal else { return }
-        sendInputWhenReady(command + "\n", to: firstTerminal)
+        // Prefer process-as-command when the initial terminal has no command yet.
+        if firstTerminal.surface.initialCommand == nil {
+            let processCommand = "/bin/sh -c " + TerminalStartupShellQuoting.singleQuoted(trimmed)
+            let cwd = firstTerminal.requestedWorkingDirectory
+            if let paneId = bonsplitController.focusedPaneId
+                ?? bonsplitController.allPaneIds.first,
+               let panel = newTerminalSurface(
+                    inPane: paneId,
+                    focus: false,
+                    workingDirectory: cwd,
+                    initialCommand: processCommand
+               ) {
+                _ = closePanel(firstTerminal.id, force: true)
+                focusPanel(panel.id)
+                return
+            }
+        }
+        sendInputWhenReady(trimmed + "\n", to: firstTerminal)
     }
 
     private func buildCustomLayoutTree(
@@ -135,6 +155,8 @@ extension Workspace {
 
     /// Consumes the workspace-level setup command on the first terminal surface it
     /// reaches, sequencing it ahead of that surface's own `command`.
+    /// Returns keystroke-oriented input (legacy); prefer ``dequeueInitialProcessCommand``
+    /// for process-as-command launches.
     private static func dequeueInitialTerminalInput(
         pendingSetup: inout String?,
         command: String?
@@ -151,6 +173,26 @@ extension Workspace {
         return lines.map { $0 + "\n" }.joined()
     }
 
+    /// Builds a portable process-as-command for layout terminal surfaces.
+    /// Runs via `/bin/sh -c` so setup + surface commands execute as the PTY process
+    /// without racing an interactive login shell (.zshrc / neofetch / shell-init).
+    private static func dequeueInitialProcessCommand(
+        pendingSetup: inout String?,
+        command: String?
+    ) -> String? {
+        var parts: [String] = []
+        if let setup = pendingSetup?.trimmingCharacters(in: .whitespacesAndNewlines), !setup.isEmpty {
+            parts.append(setup)
+            pendingSetup = nil
+        }
+        if let command = command?.trimmingCharacters(in: .whitespacesAndNewlines), !command.isEmpty {
+            parts.append(command)
+        }
+        guard !parts.isEmpty else { return nil }
+        let script = parts.joined(separator: "; ")
+        return "/bin/sh -c " + TerminalStartupShellQuoting.singleQuoted(script)
+    }
+
     private func configureExistingSurface(
         panelId: UUID,
         inPane paneId: PaneID,
@@ -163,26 +205,45 @@ extension Workspace {
         case .terminal where surface.cwd != nil || surface.env != nil:
             // Placeholder can't change cwd/env — replace it
             let resolvedCwd = CmuxConfigStore.resolveCwd(surface.cwd, relativeTo: baseCwd)
+            let processCommand = Self.dequeueInitialProcessCommand(
+                pendingSetup: &pendingSetup,
+                command: surface.command
+            )
             if let panel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
                 workingDirectory: resolvedCwd,
+                initialCommand: processCommand,
                 startupEnvironment: surface.env ?? [:]
             ) {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
-                if let input = Self.dequeueInitialTerminalInput(pendingSetup: &pendingSetup, command: surface.command) {
-                    sendInputWhenReady(input, to: panel)
-                }
             }
 
         case .terminal:
-            if let name = surface.name { setPanelCustomTitle(panelId: panelId, title: name) }
-            if surface.focus == true { focusPanelId = panelId }
-            if let input = Self.dequeueInitialTerminalInput(pendingSetup: &pendingSetup, command: surface.command),
-               let terminal = terminalPanel(for: panelId) {
-                sendInputWhenReady(input, to: terminal)
+            let processCommand = Self.dequeueInitialProcessCommand(
+                pendingSetup: &pendingSetup,
+                command: surface.command
+            )
+            if let processCommand {
+                // Replace placeholder with a process-as-command terminal so layout
+                // `command` does not race interactive shell startup.
+                let resolvedCwd = CmuxConfigStore.resolveCwd(surface.cwd, relativeTo: baseCwd)
+                if let panel = newTerminalSurface(
+                    inPane: paneId,
+                    focus: false,
+                    workingDirectory: resolvedCwd,
+                    initialCommand: processCommand,
+                    startupEnvironment: surface.env ?? [:]
+                ) {
+                    _ = closePanel(panelId, force: true)
+                    if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+                    if surface.focus == true { focusPanelId = panel.id }
+                }
+            } else {
+                if let name = surface.name { setPanelCustomTitle(panelId: panelId, title: name) }
+                if surface.focus == true { focusPanelId = panelId }
             }
 
         case .browser:
@@ -221,17 +282,19 @@ extension Workspace {
         switch surface.type {
         case .terminal:
             let resolvedCwd = CmuxConfigStore.resolveCwd(surface.cwd, relativeTo: baseCwd)
+            let processCommand = Self.dequeueInitialProcessCommand(
+                pendingSetup: &pendingSetup,
+                command: surface.command
+            )
             if let panel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
                 workingDirectory: resolvedCwd,
+                initialCommand: processCommand,
                 startupEnvironment: surface.env ?? [:]
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
-                if let input = Self.dequeueInitialTerminalInput(pendingSetup: &pendingSetup, command: surface.command) {
-                    sendInputWhenReady(input, to: panel)
-                }
             }
 
         case .browser:

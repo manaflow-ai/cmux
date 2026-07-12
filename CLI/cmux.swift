@@ -7494,6 +7494,17 @@ struct CMUXCLI {
             params["layout"] = layoutObj
         }
         try applyFocusOption(focusOpt, defaultValue: false, to: &params)
+        // Process-as-command: pass initial_command into workspace.create so Ghostty
+        // runs the command as the terminal process. Do NOT surface.send_text after
+        // create — that races interactive shell startup (.zshrc/neofetch/shell-init)
+        // and is not portable across shells. /bin/sh -c is shell-agnostic and does
+        // not source the user's interactive login rc.
+        if layoutOpt == nil, let commandText = commandOpt {
+            let trimmed = commandText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                params["initial_command"] = Self.workspaceCreateProcessCommand(trimmed)
+            }
+        }
         let response = try client.sendV2(method: "workspace.create", params: params)
         let wsId = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
         if jsonOutput && honorJSONOutput {
@@ -7501,14 +7512,28 @@ struct CMUXCLI {
         } else {
             print("OK \(wsId)")
         }
-        if layoutOpt == nil, let commandText = commandOpt, !wsId.isEmpty {
-            let text = unescapeSendText(commandText + "\\n")
-            let sendParams: [String: Any] = [
-                "text": text,
-                "workspace_id": wsId
-            ]
-            _ = try client.sendV2(method: "surface.send_text", params: sendParams)
+    }
+
+    /// Wrap a user `--command` string so Ghostty runs it as the surface process via
+    /// `/bin/sh -c`, without an interactive login shell (no zshrc/neofetch race).
+    /// Multi-word commands and shell metacharacters are handled portably.
+    ///
+    /// A minimal PATH is injected so tools like `kpm` / Homebrew CLIs resolve without
+    /// sourcing the user's interactive rc. This does **not** run shell-init or neofetch.
+    private static func workspaceCreateProcessCommand(_ command: String) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Already a posix process wrapper — leave intact (resume scripts, dock scripts, etc.).
+        if trimmed.hasPrefix("/bin/sh -c ")
+            || trimmed.hasPrefix("/bin/bash -c ")
+            || trimmed.hasPrefix("/usr/bin/env ")
+            || (trimmed.hasPrefix("/") && !trimmed.contains(" ") && !trimmed.contains("'")) {
+            return trimmed
         }
+        // Portable bootstrap: common user/Homebrew paths first, then existing PATH.
+        let bootstrap = #"""
+        export PATH="${HOME}/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin${PATH:+:$PATH}"; \
+        """#
+        return "/bin/sh -c " + shellSingleQuote(bootstrap + trimmed)
     }
 
     /// Parses repeatable `--env KEY=VALUE` / `--env=KEY=VALUE` and
@@ -15744,7 +15769,9 @@ struct CMUXCLI {
               --name <title>       Set a custom name for the new workspace
               --description <text> Set a custom description for the new workspace
               --cwd <path>         Set the working directory for the new workspace
-              --command <text>     Send text+Enter to the new workspace after creation
+              --command <text>     Run as the initial terminal process (process-as-command
+                                   via /bin/sh -c; not typed into an interactive shell).
+                                   Pane stays open after the command exits (wait-after-command).
               --env KEY=VALUE      Set a workspace environment variable. Repeatable.
                                    Reserved CMUX_* variables cannot be overridden.
               --env-file <path>    Load KEY=VALUE lines from a file. Repeatable.
