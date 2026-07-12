@@ -205,6 +205,21 @@ struct MobileDiffTests {
         }
     }
 
+    @Test func loaderDoesNotRunExternalDiffHelpersForUntrackedFiles() async throws {
+        let repository = try makeRepository(named: "external-diff")
+        defer { try? FileManager.default.removeItem(at: repository) }
+        let marker = repository.appendingPathComponent("external-helper-ran")
+        let helper = repository.appendingPathComponent("external-helper.sh")
+        try Data("#!/bin/sh\ntouch \"\(marker.path)\"\nexit 0\n".utf8).write(to: helper)
+        #expect(chmod(helper.path, S_IRUSR | S_IWUSR | S_IXUSR) == 0)
+        try runGit(["config", "diff.external", helper.path], at: repository)
+        try Data("new\n".utf8).write(to: repository.appendingPathComponent("untracked.txt"))
+
+        _ = try await MobileWorkingTreeDiffLoader().load(directory: repository.path, title: "Fixture")
+
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+    }
+
     @Test func processCancellationLatchesBeforeLaunch() {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/true")
