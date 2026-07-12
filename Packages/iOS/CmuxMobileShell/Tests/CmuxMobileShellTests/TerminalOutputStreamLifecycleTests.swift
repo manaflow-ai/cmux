@@ -35,3 +35,31 @@ import Testing
         #expect(String(data: chunk.data, encoding: .utf8) == "replacement-live")
     }
 }
+
+@MainActor
+@Test func surfaceRemountPreservesMonotonicInteractionEpoch() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "remounted-terminal"
+    let consumer = Task { @MainActor in
+        for await _ in store.terminalOutputStream(surfaceID: surfaceID) {}
+    }
+    let registered = try await pollUntil {
+        store.terminalOutputStreamTokensBySurfaceID[surfaceID] != nil
+    }
+    #expect(registered)
+    _ = store.mountTerminalScrollSession(surfaceID: surfaceID, cancelLocal: {})
+    let inputEpoch = try #require(store.invalidateTerminalScrollForInput(surfaceID: surfaceID))
+
+    consumer.cancel()
+    await consumer.value
+    let unmounted = try await pollUntil {
+        store.terminalScrollSessionsBySurfaceID[surfaceID] == nil
+            && store.terminalOutputStreamTokensBySurfaceID[surfaceID] == nil
+    }
+    #expect(unmounted)
+
+    _ = store.mountTerminalScrollSession(surfaceID: surfaceID, cancelLocal: {})
+    let remountedEpoch = try #require(store.currentTerminalInteractionEpoch(surfaceID: surfaceID))
+
+    #expect(remountedEpoch > inputEpoch)
+}

@@ -12,11 +12,11 @@ func authoritativeReplayRequestsLargeBidirectionalHistory() async throws {
     let surfaceID = "live-terminal"
     await router.enqueueReplayTexts(["cold-replay"])
 
-    let scrollToken = store.mountTerminalScrollSession(
+    let mount = store.mountTerminalSurfaceOutput(
         surfaceID: surfaceID,
         cancelLocal: {}
     )
-    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    var iterator = mount.output.makeAsyncIterator()
     let replayRequested = await router.waitForCount(
         of: "mobile.terminal.replay",
         atLeast: 1
@@ -32,5 +32,5 @@ func authoritativeReplayRequestsLargeBidirectionalHistory() async throws {
 
     let chunk = try #require(await iterator.next())
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: chunk.streamToken)
-    store.unmountTerminalScrollSession(surfaceID: surfaceID, token: scrollToken)
+    store.unmountTerminalScrollSession(surfaceID: surfaceID, token: mount.scrollSessionToken)
 }

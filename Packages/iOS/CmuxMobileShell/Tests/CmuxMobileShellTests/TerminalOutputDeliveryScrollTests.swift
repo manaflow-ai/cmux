@@ -21,6 +21,71 @@ import Testing
 }
 
 @MainActor
+@Test func clickPreservesDeferredLiveFrameThroughGridlessReconciliation() async throws {
+    let router = RoutingHostRouter()
+    await router.setHoldFirstTerminalScroll(true)
+    let store = try await makeRoutingConnectedStore(router: router)
+    let surfaceID = RoutingHostRouter.terminalA
+    let token = store.mountTerminalScrollSession(surfaceID: surfaceID, cancelLocal: {})
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+
+    store.scrollTerminal(surfaceID: surfaceID, lines: -5, col: 2, row: 3)
+    let local = try #require(await iterator.next())
+    guard case .localScroll = local.mutation else {
+        Issue.record("expected optimistic local scroll")
+        return
+    }
+    #expect(store.terminalOutputWillProcess(
+        surfaceID: surfaceID,
+        streamToken: local.streamToken,
+        deliveryID: local.deliveryID
+    ))
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: local.streamToken)
+    await router.awaitFirstTerminalScrollReached()
+
+    let live = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 10,
+        renderRevision: 2,
+        columns: 12,
+        rows: 2,
+        text: "live-row-a\nlive-row-b"
+    )
+    #expect(!store.deliverAuthoritativeTerminalRenderGrid(live, source: "event"))
+    await store.clickTerminal(surfaceID: surfaceID, col: 4, row: 1)
+    #expect(store.deferredTerminalRenderGridEventsBySurfaceID[surfaceID]?.frame == live)
+
+    await router.releaseFirstTerminalScroll()
+    let frameDelivered = try await pollUntil {
+        store.terminalOutputQueuesBySurfaceID[surfaceID]?.currentInFlight?.bytes == live.vtPatchBytes()
+    }
+    #expect(frameDelivered)
+    guard frameDelivered else { return }
+    let frame = try #require(await iterator.next())
+    #expect(frame.data == live.vtPatchBytes())
+    #expect(store.terminalOutputWillProcess(
+        surfaceID: surfaceID,
+        streamToken: frame.streamToken,
+        deliveryID: frame.deliveryID
+    ))
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: frame.streamToken)
+
+    let barrier = try #require(await iterator.next())
+    #expect(barrier.mutation == .barrier)
+    #expect(store.terminalOutputWillProcess(
+        surfaceID: surfaceID,
+        streamToken: barrier.streamToken,
+        deliveryID: barrier.deliveryID
+    ))
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: barrier.streamToken)
+    let clickSent = try await pollUntil {
+        await router.recordedTerminalInteractions().map(\.method).contains("mobile.terminal.mouse")
+    }
+    #expect(clickSent)
+    store.unmountTerminalScrollSession(surfaceID: surfaceID, token: token)
+}
+
+@MainActor
 @Test func terminalOutputQueueCoalescesRenderGridFramesBeforeSynthesizingBytes() throws {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
