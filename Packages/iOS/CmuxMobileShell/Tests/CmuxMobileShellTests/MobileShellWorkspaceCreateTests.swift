@@ -24,6 +24,16 @@ import Testing
             try await Task.sleep(for: .milliseconds(1))
         }
 
+        let requestCount = await router.recordedTerminalCreateCount()
+        #expect(requestCount == 2)
+        guard requestCount == 2 else {
+            await router.releaseFirstTerminalCreate()
+            first.cancel()
+            second.cancel()
+            _ = await first.value
+            _ = await second.value
+            return
+        }
         let heldCount = await router.recordedHeldTerminalCreateCount()
         await router.releaseFirstTerminalCreate()
         await router.releaseFirstTerminalCreate()

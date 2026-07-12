@@ -232,6 +232,27 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Couldn't Update Terminals"].exists)
     }
 
+    @MainActor
+    func testTerminalHierarchyMoveUnavailableExplainsCompetingMutation() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TERMINAL_HIERARCHY_PREVIEW": "1",
+            "CMUX_UITEST_TERMINAL_HIERARCHY_SCENARIO": "move-unavailable",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.otherElements["MobileTerminalHierarchySheet"].waitForExistence(timeout: 8))
+        let moveLater = app.buttons["MobileTerminalHierarchyPreviewMoveLater"]
+        XCTAssertTrue(moveLater.waitForExistence(timeout: 3))
+        moveLater.tap()
+
+        XCTAssertTrue(app.staticTexts["Terminal Move Unavailable"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts[
+            "Another terminal change started first. Wait for it to finish, then try moving this terminal again."
+        ].exists)
+        XCTAssertTrue(app.buttons["MobileTerminalHierarchyMoveUnavailableOK"].exists)
+        XCTAssertFalse(app.staticTexts["Couldn't Update Terminals"].exists)
+    }
+
     /// Regression: fast pinch-zoom must not hang the main thread (the
     /// scene-update watchdog `0x8BADF00D` was killing the app because
     /// libghostty surface calls block on the main thread) and must not
