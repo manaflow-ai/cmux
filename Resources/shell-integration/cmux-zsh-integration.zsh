@@ -365,6 +365,7 @@ _cmux_install_cli_wrapper() {
 }
 _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
 _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
+_cmux_install_cli_wrapper opencode _CMUX_OPENCODE_WRAPPER cmux-opencode-wrapper
 
 _cmux_normalize_claude_config_dir() {
     [[ -n "${CLAUDE_CONFIG_DIR:-}" && -n "${HOME:-}" ]] || return 0
@@ -1906,6 +1907,7 @@ _cmux_fix_path() {
     fi
     _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
     _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
+    _cmux_install_cli_wrapper opencode _CMUX_OPENCODE_WRAPPER cmux-opencode-wrapper
     add-zsh-hook -d precmd _cmux_fix_path
 }
 

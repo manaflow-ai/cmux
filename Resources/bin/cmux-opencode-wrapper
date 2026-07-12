@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# cmux opencode wrapper - installs cmux's OpenCode plugin when inside cmux.
+#
+# Outside cmux, or when hooks are disabled, this wrapper passes through to the
+# real opencode binary unchanged. Inside a live cmux terminal it best-effort
+# installs the bundled OpenCode plugin so OpenCode lifecycle events can update
+# cmux sidebar status.
+
+cmux_opencode_wrapper_is_self_or_shim() {
+    local candidate="$1"
+    [[ -n "$candidate" ]] || return 1
+    if [[ -e "$candidate" && "$candidate" -ef "$0" ]]; then
+        return 0
+    fi
+    case "$candidate" in
+        */cmux-cli-shims/*/opencode|*/cmux-cli-shims/opencode)
+            return 0
+            ;;
+        */Contents/Resources/bin/opencode|*/Resources/bin/opencode|*/cmux-opencode-wrapper)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+find_real_opencode() {
+    local custom="${CMUX_CUSTOM_OPENCODE_PATH:-}"
+    custom="${custom#"${custom%%[![:space:]]*}"}"
+    custom="${custom%"${custom##*[![:space:]]}"}"
+    if [[ -n "$custom" && -f "$custom" && -x "$custom" ]]; then
+        if ! cmux_opencode_wrapper_is_self_or_shim "$custom"; then
+            printf '%s' "$custom"
+            return 0
+        fi
+    fi
+
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local IFS=:
+    for d in $PATH; do
+        [[ "$d" == "$self_dir" ]] && continue
+        local candidate="$d/opencode"
+        cmux_opencode_wrapper_is_self_or_shim "$candidate" && continue
+        [[ -x "$candidate" ]] && printf '%s' "$candidate" && return 0
+    done
+    return 1
+}
+
+resolve_hook_cmux_bin() {
+    local self_dir bundled_cli
+    bundled_cli="${CMUX_BUNDLED_CLI_PATH:-}"
+    if [[ -n "$bundled_cli" && -x "$bundled_cli" ]]; then
+        printf '%s' "$bundled_cli"
+        return 0
+    fi
+
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    bundled_cli="$self_dir/cmux"
+    if [[ -x "$bundled_cli" ]]; then
+        printf '%s' "$bundled_cli"
+        return 0
+    fi
+
+    bundled_cli="$(command -v cmux 2>/dev/null || true)"
+    if [[ -n "$bundled_cli" ]]; then
+        printf '%s' "$bundled_cli"
+        return 0
+    fi
+
+    printf '%s' "cmux"
+}
+
+cmux_socket_available() {
+    local socket="${CMUX_SOCKET_PATH:-}"
+    [[ -n "$socket" && -S "$socket" ]] || return 1
+
+    local cmux_bin
+    cmux_bin="$(resolve_hook_cmux_bin)"
+    [[ -n "$cmux_bin" ]] || return 1
+
+    CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
+        "$cmux_bin" --socket "$socket" ping >/dev/null 2>&1
+}
+
+REAL_OPENCODE="$(find_real_opencode || true)"
+if [[ -z "$REAL_OPENCODE" ]]; then
+    exec opencode "$@"
+fi
+
+if [[ "${CMUX_OPENCODE_HOOKS_DISABLED:-}" != "1" &&
+      -n "${CMUX_SURFACE_ID:-}" &&
+      -n "${CMUX_SOCKET_PATH:-}" ]] && cmux_socket_available; then
+    CMUX_BIN="$(resolve_hook_cmux_bin)"
+    export CMUX_OPENCODE_CMUX_BIN="$CMUX_BIN"
+    "$CMUX_BIN" hooks opencode install --yes >/dev/null 2>&1 || true
+fi
+
+exec "$REAL_OPENCODE" "$@"

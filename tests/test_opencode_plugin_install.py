@@ -108,12 +108,31 @@ def main() -> int:
 
         opencode = shutil.which("opencode")
         if opencode is not None:
+            debug_config_dir = root / "opencode-debug"
+            debug_config_dir.mkdir(parents=True, exist_ok=True)
+            debug_env = env.copy()
+            debug_env["OPENCODE_CONFIG_DIR"] = str(debug_config_dir)
+            debug_install = subprocess.run(
+                [cli_path, "hooks", "opencode", "install", "--yes"],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=debug_env,
+                timeout=20,
+            )
+            if debug_install.returncode != 0:
+                print("FAIL: opencode plugin debug install failed")
+                print(f"exit={debug_install.returncode}")
+                print(f"stdout={debug_install.stdout.strip()}")
+                print(f"stderr={debug_install.stderr.strip()}")
+                return 1
+            debug_plugin_path = debug_config_dir / "plugins" / "cmux-session.js"
             debug = subprocess.run(
                 [opencode, "--print-logs", "--log-level", "DEBUG", "debug", "config"],
                 capture_output=True,
                 text=True,
                 check=False,
-                env=env,
+                env=debug_env,
                 timeout=30,
             )
             debug_output = debug.stdout + "\n" + debug.stderr
@@ -126,7 +145,11 @@ def main() -> int:
                 print("FAIL: opencode tried to resolve cmux-session as a package")
                 print(debug_output[-4000:])
                 return 1
-            if f"file://{plugin_path}" not in debug_output:
+            plugin_urls = {
+                f"file://{debug_plugin_path}",
+                f"file://{debug_plugin_path.resolve()}",
+            }
+            if not any(url in debug_output for url in plugin_urls):
                 print("FAIL: opencode did not auto-load cmux session plugin file")
                 print(debug_output[-4000:])
                 return 1
@@ -198,6 +221,59 @@ await hooks.event({
     }
   }
 });
+await hooks.event({
+  event: {
+    type: "session.status",
+    properties: {
+      sessionID: "opencode-session-test",
+      status: { type: "running" }
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "session.status",
+    properties: {
+      sessionID: "opencode-session-test",
+      status: { type: "retrying" }
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "permission.asked",
+    properties: {
+      sessionID: "opencode-session-test",
+      message: "Allow shell command?"
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "question.asked",
+    properties: {
+      sessionID: "opencode-session-test",
+      question: { question: "Which model?" }
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "session.error",
+    properties: {
+      sessionID: "opencode-session-test",
+      error: { message: "provider failed" }
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "session.idle",
+    properties: {
+      sessionID: "opencode-session-test"
+    }
+  }
+});
 """
         check = subprocess.run(
             [bun, "--eval", check_source],
@@ -224,9 +300,29 @@ await hooks.event({
         if args_log.count("hooks opencode session-start") != 1:
             print(f"FAIL: plugin invoked duplicate session-start hooks, got {args_log!r}")
             return 1
+        for expected in [
+            "hooks opencode prompt-submit",
+            "hooks opencode notification",
+            "hooks opencode stop",
+        ]:
+            if expected not in args_log:
+                print(f"FAIL: plugin did not invoke {expected}, got {args_log!r}")
+                return 1
+        if args_log.count("hooks opencode notification") != 4:
+            print(f"FAIL: plugin should notify for retry, permission, question, and error events; got {args_log!r}")
+            return 1
         if '"session_id":"opencode-session-test"' not in stdin_log or '"/tmp/opencode-project"' not in stdin_log:
             print(f"FAIL: plugin did not pass expected session payload, got {stdin_log!r}")
             return 1
+        for expected in [
+            '"cmux_status":"retrying"',
+            '"reason":"permission_prompt"',
+            '"reason":"question answer"',
+            '"reason":"error"',
+        ]:
+            if expected not in stdin_log:
+                print(f"FAIL: plugin did not pass expected status payload {expected}, got {stdin_log!r}")
+                return 1
         if "kind=opencode" not in env_log or "cwd=/tmp/opencode-project" not in env_log or "argv=" not in env_log:
             print(f"FAIL: plugin did not pass launch metadata environment, got {env_log!r}")
             return 1
