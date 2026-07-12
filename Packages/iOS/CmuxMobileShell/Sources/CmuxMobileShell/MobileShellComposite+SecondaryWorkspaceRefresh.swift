@@ -144,18 +144,19 @@ extension MobileShellComposite {
     /// Coalesced full-list refresh for a secondary Mac driven by
     /// `workspace.updated` pushes. Each task performs at most one leading and
     /// one trailing pass, then hands any newer request to a fresh bounded task.
+    @discardableResult
     func scheduleSecondaryRefresh(
         macID: String,
         client: MobileCoreRPCClient,
         displayName: String?
-    ) {
+    ) -> Task<Void, Never>? {
         guard let subscription = secondaryMacSubscriptions[macID],
-              subscription.client === client else { return }
-        guard subscription.refreshTask == nil else {
+              subscription.client === client else { return nil }
+        if let refreshTask = subscription.refreshTask {
             subscription.refreshPending = true
-            return
+            return refreshTask
         }
-        subscription.refreshTask = Task { @MainActor [weak self, weak subscription] in
+        let refreshTask = Task { @MainActor [weak self, weak subscription] in
             guard let self, let subscription else { return }
             for _ in 0..<2 {
                 subscription.refreshPending = false
@@ -189,5 +190,7 @@ extension MobileShellComposite {
                 )
             }
         }
+        subscription.refreshTask = refreshTask
+        return refreshTask
     }
 }
