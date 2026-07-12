@@ -212,6 +212,7 @@ final class MobileDiffPatchSchemeHandler: NSObject, WKURLSchemeHandler, @uncheck
     }
 
     private let store = MobileDiffPatchStore()
+    private let taskLifetime = MobileDiffSchemeTaskLifetime()
 
     func configure(generation: Int, html: Data, patch: Data) async {
         await store.configure(generation: generation, html: html, patch: patch)
@@ -225,29 +226,30 @@ final class MobileDiffPatchSchemeHandler: NSObject, WKURLSchemeHandler, @uncheck
         }
         let requestID = ObjectIdentifier(urlSchemeTask as AnyObject)
         let pendingTask = MobileDiffPendingSchemeTask(urlSchemeTask)
-        Task { [store] in
-            guard await store.beginRequest(requestID) else { return }
+        taskLifetime.register(requestID)
+        Task { [store, taskLifetime] in
             guard let content = await store.content(for: url.path) else {
-                await store.failRequest(requestID, task: pendingTask, error: URLError(.badURL))
+                _ = taskLifetime.performCallback(requestID) {
+                    pendingTask.fail(with: URLError(.badURL))
+                }
+                taskLifetime.finish(requestID)
                 return
             }
-            await store.finishRequest(requestID, task: pendingTask, url: url, content: content)
+            _ = taskLifetime.performCallback(requestID) {
+                pendingTask.finish(url: url, content: content)
+            }
+            taskLifetime.finish(requestID)
         }
     }
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {
         let requestID = ObjectIdentifier(urlSchemeTask as AnyObject)
-        Task { [store] in
-            await store.stopRequest(requestID)
-        }
+        taskLifetime.stop(requestID)
     }
 }
 
 private actor MobileDiffPatchStore {
     private var payloads: [Int: MobileDiffPatchPayload] = [:]
-    private var activeRequests: Set<ObjectIdentifier> = []
-    private var stoppedRequests: Set<ObjectIdentifier> = []
-    private var stoppedRequestOrder: [ObjectIdentifier] = []
 
     func configure(generation: Int, html: Data, patch: Data) {
         payloads[generation] = MobileDiffPatchPayload(html: html, patch: patch)
@@ -273,39 +275,6 @@ private actor MobileDiffPatchStore {
         guard fileURL.path.hasPrefix(resourceRoot.path + "/"),
               let data = try? Data(contentsOf: fileURL) else { return nil }
         return MobileDiffPatchContent(data: data, mimeType: "text/javascript")
-    }
-
-    func beginRequest(_ requestID: ObjectIdentifier) -> Bool {
-        guard stoppedRequests.remove(requestID) == nil else {
-            stoppedRequestOrder.removeAll { $0 == requestID }
-            return false
-        }
-        activeRequests.insert(requestID)
-        return true
-    }
-
-    func stopRequest(_ requestID: ObjectIdentifier) {
-        guard activeRequests.remove(requestID) == nil,
-              stoppedRequests.insert(requestID).inserted else { return }
-        stoppedRequestOrder.append(requestID)
-        if stoppedRequestOrder.count > 64 {
-            stoppedRequests.remove(stoppedRequestOrder.removeFirst())
-        }
-    }
-
-    func failRequest(_ requestID: ObjectIdentifier, task: MobileDiffPendingSchemeTask, error: any Error) {
-        guard activeRequests.remove(requestID) != nil else { return }
-        task.fail(with: error)
-    }
-
-    func finishRequest(
-        _ requestID: ObjectIdentifier,
-        task: MobileDiffPendingSchemeTask,
-        url: URL,
-        content: MobileDiffPatchContent
-    ) {
-        guard activeRequests.remove(requestID) != nil else { return }
-        task.finish(url: url, content: content)
     }
 
     private func generation(in path: Substring, prefix: String, suffix: String) -> Int? {

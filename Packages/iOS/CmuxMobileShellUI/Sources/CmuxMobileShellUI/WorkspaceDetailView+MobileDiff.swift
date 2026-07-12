@@ -24,10 +24,7 @@ extension WorkspaceDetailView {
                 state.load(document)
             } catch {
                 guard !Task.isCancelled, mobileDiffState === state else { return }
-                state.fail(message: L10n.string(
-                    "mobile.diff.loadFailedDescription",
-                    defaultValue: "Refresh and try loading the changes again."
-                ))
+                state.fail(message: mobileDiffLoadFailureMessage(error))
             }
         }
     }
@@ -37,5 +34,38 @@ extension WorkspaceDetailView {
         mobileDiffLoadTask = nil
         mobileDiffState = nil
     }
+}
+
+private func mobileDiffLoadFailureMessage(_ error: any Error) -> String {
+    if case let MobileShellConnectionError.rpcError(code, _) = error {
+        switch code {
+        case "not_found":
+            return L10n.string(
+                "mobile.diff.notGitRepository",
+                defaultValue: "This workspace isn’t inside a Git repository."
+            )
+        case "too_large":
+            return L10n.string(
+                "mobile.diff.tooLarge",
+                defaultValue: "This diff is too large to view on this phone."
+            )
+        case "too_many_files":
+            return L10n.string(
+                "mobile.diff.tooManyFiles",
+                defaultValue: "This workspace has too many untracked files to view on this phone."
+            )
+        case "invalid_data":
+            return L10n.string(
+                "mobile.diff.invalidData",
+                defaultValue: "This diff contains text the mobile viewer can’t display."
+            )
+        default:
+            break
+        }
+    }
+    return L10n.string(
+        "mobile.diff.loadFailedDescription",
+        defaultValue: "Refresh and try loading the changes again."
+    )
 }
 #endif

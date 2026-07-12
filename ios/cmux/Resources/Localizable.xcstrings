@@ -2454,6 +2454,34 @@
         "ja": { "stringUnit": { "state": "translated", "value": "更新して、変更をもう一度読み込んでください。" } }
       }
     },
+    "mobile.diff.invalidData": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This diff contains text the mobile viewer can’t display." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この差分にはモバイルビューアで表示できないテキストが含まれています。" } }
+      }
+    },
+    "mobile.diff.notGitRepository": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This workspace isn’t inside a Git repository." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このワークスペースは Git リポジトリ内にありません。" } }
+      }
+    },
+    "mobile.diff.tooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This diff is too large to view on this phone." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この差分は大きすぎるため、この電話では表示できません。" } }
+      }
+    },
+    "mobile.diff.tooManyFiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This workspace has too many untracked files to view on this phone." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このワークスペースには未追跡ファイルが多すぎるため、この電話では表示できません。" } }
+      }
+    },
     "mobile.diff.loading": {
       "extractionState": "manual",
       "localizations": {

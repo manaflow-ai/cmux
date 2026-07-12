@@ -139,7 +139,13 @@ final class MobileWorkingTreeDiffLoader: Sendable {
                         continuation.resume(returning: process.terminationStatus)
                     }
                     do {
+                        guard cancellation.beginLaunch() else {
+                            process.terminationHandler = nil
+                            continuation.resume(throwing: CancellationError())
+                            return
+                        }
                         try process.run()
+                        cancellation.didLaunch()
                     } catch {
                         process.terminationHandler = nil
                         continuation.resume(throwing: error)
