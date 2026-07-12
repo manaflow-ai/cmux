@@ -108,7 +108,7 @@ extension RestorableAgentSessionIndex {
         environment: [String: String]
     ) -> (executablePath: String, arguments: [String])? {
         guard environmentLaunchKind(environment) == "claudeteams" else { return nil }
-        let launchArguments = decodedNULSeparatedBase64(environment["CMUX_AGENT_LAUNCH_ARGV_B64"])
+        let launchArguments = decodedNULSeparatedLaunchArguments(environment["CMUX_AGENT_LAUNCH_ARGV_B64"])
             ?? [normalizedWrapperValue(environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]) ?? "cmux", "claude-teams"] + Array(liveArguments.dropFirst())
         guard launchArguments.count >= 2,
               launchArguments[1] == "claude-teams" else {
@@ -124,7 +124,7 @@ extension RestorableAgentSessionIndex {
         return (executable, [executable, "claude-teams"] + preserved)
     }
 
-    private static func decodedNULSeparatedBase64(_ rawValue: String?) -> [String]? {
+    static func decodedNULSeparatedLaunchArguments(_ rawValue: String?) -> [String]? {
         guard let rawValue,
               let data = Data(base64Encoded: rawValue) else {
             return nil

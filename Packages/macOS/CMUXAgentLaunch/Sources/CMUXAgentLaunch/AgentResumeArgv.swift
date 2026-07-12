@@ -184,58 +184,6 @@ public struct AgentResumeArgv: Sendable, Equatable {
         }
     }
 
-    /// Wraps a rendered codex resume command so it parses in any login shell.
-    ///
-    /// Mirror of ``portableClaudeResumeShellCommand(posixCommand:)`` for codex:
-    /// ``codexWrapperShellExecutableToken`` is POSIX-only command substitution,
-    /// but the rendered codex resume command is dispatched through the user's
-    /// `$SHELL` by the restore launcher and copy-pasted into the user's
-    /// interactive shell (fish/csh included), so wrapping it in
-    /// `/bin/sh -c '<command>'` makes every dispatching shell parse it
-    /// identically while `sh` still inherits `CMUX_CODEX_WRAPPER_SHIM` from the
-    /// managed terminal environment (and falls back to bare `codex` when unset).
-    public static func portableCodexResumeShellCommand(posixCommand: String) -> String {
-        "/bin/sh -c " + posixSingleQuoted(posixCommand)
-    }
-
-    /// Renders codex command `parts` through ``renderingCodexWrapperExecutable(parts:quote:)``
-    /// and joins them, wrapping via ``portableCodexResumeShellCommand(posixCommand:)`` only
-    /// when the wrapper token was actually substituted.
-    ///
-    /// The `/bin/sh -c` layer exists solely to make the POSIX-only token parse in
-    /// non-POSIX shells, so it is applied exactly when the token is present; a
-    /// codex resume that emitted no bare `codex` executable stays unwrapped.
-    public static func renderedPortableCodexResumeShellCommand(
-        parts: [String],
-        quote: (String) -> String
-    ) -> String {
-        let rendered = renderingCodexWrapperExecutable(parts: parts, quote: quote)
-        let joined = rendered.joined(separator: " ")
-        guard rendered.contains(codexWrapperShellExecutableToken) else { return joined }
-        return portableCodexResumeShellCommand(posixCommand: joined)
-    }
-
-    /// Renders shell command `parts` to quoted tokens, substituting
-    /// ``codexWrapperShellExecutableToken`` for the first bare `codex` executable token.
-    ///
-    /// Mirror of ``renderingClaudeWrapperExecutable(parts:quote:)`` for codex: only
-    /// the first element equal to `codex` — a logical wrapper executable emitted
-    /// by the codex resume builder — is replaced; every other token is quoted normally.
-    /// Call only for the codex kind. https://github.com/manaflow-ai/cmux/issues/5639
-    public static func renderingCodexWrapperExecutable(
-        parts: [String],
-        quote: (String) -> String
-    ) -> [String] {
-        var replaced = false
-        return parts.map { part in
-            if !replaced, part == "codex" {
-                replaced = true
-                return codexWrapperShellExecutableToken
-            }
-            return quote(part)
-        }
-    }
-
     /// The result of resolving a cmux wrapper launcher (the `claude-teams` / `codex-teams` / `omo`
     /// style launchers cmux injects), checked before the per-kind verb.
     public enum LauncherResolution: Sendable, Equatable {
@@ -435,6 +383,6 @@ public struct AgentResumeArgv: Sendable, Equatable {
 }
 
 /// Single-quotes `value` as one POSIX `sh` word, escaping embedded quotes as `'\''`.
-private func posixSingleQuoted(_ value: String) -> String {
+func posixSingleQuoted(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }

@@ -1,5 +1,20 @@
 import Foundation
 
+extension RestorableAgentSessionIndex {
+    static func processLooksLikeOpenCode(
+        processName: String,
+        processPath: String?,
+        arguments: [String]
+    ) -> Bool {
+        VaultObservedAgentProcess(
+            processName: processName,
+            processPath: processPath,
+            arguments: arguments,
+            environment: [:]
+        ).isOpenCodeProcess
+    }
+}
+
 extension CmuxVaultAgentRegistration {
     func processDetectedSnapshotIsRestorable(for process: VaultObservedAgentProcess) -> Bool {
         guard id == "campfire" else { return true }
