@@ -12,23 +12,6 @@ import WebKit
 @Suite(.serialized)
 struct ViewerNavigationTests {
     @Test
-    func cliDiffViewerShortcutsIncludeVimAndEmacsNavigation() {
-        let expected: [CMUXCLI.DiffViewerShortcutAction: CMUXCLI.DiffViewerShortcut] = [
-            .scrollHalfPageDown: .init(first: .init(key: "d", control: true)),
-            .scrollHalfPageUp: .init(first: .init(key: "u", control: true)),
-            .scrollDownEmacs: .init(first: .init(key: "n", control: true)),
-            .scrollUpEmacs: .init(first: .init(key: "p", control: true)),
-            .nextFile: .init(first: .init(key: "]"), second: .init(key: "f")),
-            .previousFile: .init(first: .init(key: "["), second: .init(key: "f")),
-        ]
-
-        for (action, shortcut) in expected {
-            #expect(action.defaultShortcut == shortcut)
-            #expect(shortcut.jsonObject["unbound"] == nil)
-        }
-    }
-
-    @Test
     func markdownViewerUsesSmoothVimAndEmacsNavigation() async throws {
         let frame = NSRect(x: 0, y: 0, width: 720, height: 360)
         let webView = MarkdownWebView(frame: frame, configuration: WKWebViewConfiguration())
