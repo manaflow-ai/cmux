@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import Darwin
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -100,6 +101,17 @@ struct MobileDiffTests {
         } catch let error as MobileWorkingTreeDiffLoadError {
             #expect(error.code == "too_large")
         }
+    }
+
+    @Test func loaderSkipsUntrackedFIFOs() async throws {
+        let repository = try makeRepository(named: "fifo")
+        defer { try? FileManager.default.removeItem(at: repository) }
+        let fifoPath = repository.appendingPathComponent("blocking-pipe").path
+        #expect(mkfifo(fifoPath, S_IRUSR | S_IWUSR) == 0)
+
+        let document = try await MobileWorkingTreeDiffLoader().load(directory: repository.path, title: "Fixture")
+        let patch = try #require(document["patch"] as? String)
+        #expect(!patch.contains("blocking-pipe"))
     }
 
     private func makeRepository(named name: String) throws -> URL {

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mobileDiffFiles, mobileDiffMessage } from "../src/mobile-diff-bridge";
+import { mobileDiffFiles, mobileDiffMessage, mobileDiffSelectionMessage } from "../src/mobile-diff-bridge";
 
 test("mobile diff bridge preserves file order and stats", () => {
   const source = {
@@ -21,10 +21,14 @@ test("mobile diff bridge preserves file order and stats", () => {
 });
 
 test("mobile diff messages carry the renderer generation", () => {
-  expect(mobileDiffMessage(null, "item-1", 7)).toEqual({
+  expect(mobileDiffMessage(null, 7)).toEqual({
     type: "files",
     files: [],
     generation: 7,
-    selectedItemId: "item-1",
+  });
+  expect(mobileDiffSelectionMessage("item-2", 7)).toEqual({
+    type: "selection",
+    generation: 7,
+    selectedItemId: "item-2",
   });
 });
