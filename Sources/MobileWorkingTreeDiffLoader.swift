@@ -139,7 +139,7 @@ final class MobileWorkingTreeDiffLoader: Sendable {
             }
             guard !path.isEmpty else { continue }
             guard let fileKind = Self.diffableFileKind(path, repositoryRoot: repositoryRoot) else { continue }
-            if fileKind == .symbolicLink {
+            if fileKind == S_IFLNK {
                 let symlinkPatch = try Self.symlinkPatch(path: path, repositoryRoot: repositoryRoot)
                 guard patch.count + symlinkPatch.count <= maximumPatchBytes else {
                     throw MobileWorkingTreeDiffLoadError(code: "too_large", message: "Workspace diff is too large to send to this phone")
@@ -242,23 +242,18 @@ final class MobileWorkingTreeDiffLoader: Sendable {
         return sanitized
     }
 
-    private enum DiffableFileKind: Equatable {
-        case regular
-        case symbolicLink
-    }
-
-    private static func diffableFileKind(_ path: String, repositoryRoot: String) -> DiffableFileKind? {
+    private static func diffableFileKind(_ path: String, repositoryRoot: String) -> mode_t? {
         var metadata = stat()
         let fullPath = URL(fileURLWithPath: repositoryRoot).appendingPathComponent(path).path
         guard lstat(fullPath, &metadata) == 0 else { return nil }
         let kind = metadata.st_mode & S_IFMT
-        if kind == S_IFREG { return .regular }
+        if kind == S_IFREG { return S_IFREG }
         guard kind == S_IFLNK else { return nil }
         if stat(fullPath, &metadata) == 0 {
             let targetKind = metadata.st_mode & S_IFMT
             guard targetKind == S_IFREG || targetKind == S_IFDIR else { return nil }
         }
-        return .symbolicLink
+        return S_IFLNK
     }
 
     private static func symlinkPatch(path: String, repositoryRoot: String) throws -> Data {
