@@ -30231,20 +30231,24 @@ export default CMUXSessionRestore;
         // `session-end` and the dedicated `session-finalize` action: consume the
         // restore record, clear the surface resume binding, and clear PID routing.
         func performAgentSessionTeardown() {
-            guard let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) else { return }
-            sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
+            guard let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)),
+                  let target = resolveAgentHookTarget(mapped: mapped) else {
+                didSendFeedTelemetry = true
+                return
+            }
+            sendAgentFeedTelemetry(workspaceId: target.workspaceId, surfaceId: target.surfaceId)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: mapped.pid, env: env)
             if suppressVisibleMutations {
                 telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
             } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
                 clearAgentSurfaceResumeBinding(
                     client: client,
-                    workspaceId: consumed.workspaceId,
-                    surfaceId: consumed.surfaceId,
+                    workspaceId: target.workspaceId,
+                    surfaceId: target.surfaceId,
                     sessionId: consumed.sessionId
                 )
                 _ = try? sendV1Command(
-                    "clear_agent_pid \(pidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status",
+                    "clear_agent_pid \(pidKey) --tab=\(target.workspaceId)\(socketPanelOption(target.surfaceId)) --clear-status",
                     client: client
                 )
             }
@@ -31620,12 +31624,13 @@ export default CMUXSessionRestore;
                 retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
             }
             if def.sessionEndIsTurnBoundary {
-                if let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
-                    sendAgentFeedTelemetry(workspaceId: mapped.workspaceId, surfaceId: mapped.surfaceId)
+                if let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)),
+                   let target = resolveAgentHookTarget(mapped: mapped) {
+                    sendAgentFeedTelemetry(workspaceId: target.workspaceId, surfaceId: target.surfaceId)
                     _ = try? store.recordPromptStop(
                         sessionId: sessionId,
-                        workspaceId: mapped.workspaceId,
-                        surfaceId: mapped.surfaceId,
+                        workspaceId: target.workspaceId,
+                        surfaceId: target.surfaceId,
                         cwd: hookCwd ?? mapped.cwd,
                         transcriptPath: input.transcriptPath ?? mapped.transcriptPath,
                         pid: mapped.pid,
@@ -31636,9 +31641,11 @@ export default CMUXSessionRestore;
                             for: def,
                             parsedInput: input,
                             client: client,
-                            workspaceId: mapped.workspaceId
+                            workspaceId: target.workspaceId
                         )
                     )
+                } else {
+                    didSendFeedTelemetry = true
                 }
 #if DEBUG
                 agentHookDebugLog(
