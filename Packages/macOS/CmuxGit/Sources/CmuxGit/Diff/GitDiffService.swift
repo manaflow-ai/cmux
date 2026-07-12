@@ -182,37 +182,6 @@ public struct GitDiffService: Sendable {
                 return .timedOut
             }
         }
-        let untracked: Bool
-        switch isUntracked(repoRoot: repoRoot, path: path, maxOutputBytes: maxOutputBytes) {
-        case .success(let value):
-            untracked = value
-        case .notFound:
-            return .notFound
-        case .failed:
-            return .failed
-        case .timedOut:
-            return .timedOut
-        }
-        if untracked {
-            // In `--no-index` mode a bare `-` names stdin even after `--`.
-            // Prefix only the git-side spelling while preserving the API path.
-            let gitPath = path == "-" ? "./-" : path
-            let result = runGit(
-                in: repoRoot,
-                // `--no-ext-diff --no-textconv`: this output feeds a
-                // machine parser, so repo/user-configured `diff.external`
-                // or textconv drivers must neither execute nor replace the
-                // unified format.
-                arguments: ["diff", "--no-index", "--no-ext-diff", "--no-textconv", "--no-color", "--", "/dev/null", gitPath],
-                acceptedTerminationStatuses: [0, 1],
-                maxOutputBytes: maxOutputBytes
-            )
-            if let failure: GitDiffQueryResult<GitFileDiff> = queryFailure(from: result) {
-                return failure
-            }
-            guard let output = result.successOutput else { return .failed }
-            return .success(GitFileDiff(path: path, unifiedDiff: output, truncated: result.capped))
-        }
         let baseline: String
         switch diffBaselineResult(in: repoRoot) {
         case .success(let value):
@@ -245,6 +214,37 @@ public struct GitDiffService: Sendable {
             // exact file or gitlink. A missing baseline tree is a directory-
             // shaped request and must not widen to all of its descendants.
             guard requestedBaselineEntry == .file else { return .notFound }
+        }
+        let untracked: Bool
+        switch isUntracked(repoRoot: repoRoot, path: path, maxOutputBytes: maxOutputBytes) {
+        case .success(let value):
+            untracked = value
+        case .notFound:
+            return .notFound
+        case .failed:
+            return .failed
+        case .timedOut:
+            return .timedOut
+        }
+        if untracked, requestedBaselineEntry == .missing {
+            // In `--no-index` mode a bare `-` names stdin even after `--`.
+            // Prefix only the git-side spelling while preserving the API path.
+            let gitPath = path == "-" ? "./-" : path
+            let result = runGit(
+                in: repoRoot,
+                // `--no-ext-diff --no-textconv`: this output feeds a
+                // machine parser, so repo/user-configured `diff.external`
+                // or textconv drivers must neither execute nor replace the
+                // unified format.
+                arguments: ["diff", "--no-index", "--no-ext-diff", "--no-textconv", "--no-color", "--", "/dev/null", gitPath],
+                acceptedTerminationStatuses: [0, 1],
+                maxOutputBytes: maxOutputBytes
+            )
+            if let failure: GitDiffQueryResult<GitFileDiff> = queryFailure(from: result) {
+                return failure
+            }
+            guard let output = result.successOutput else { return .failed }
+            return .success(GitFileDiff(path: path, unifiedDiff: output, truncated: result.capped))
         }
         if let oldPath {
             guard !oldPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {

@@ -41,6 +41,14 @@ public struct UnifiedDiffParser: Sendable {
                 break
             }
             let rawLine = String(rawLineSlice)
+            if rawLine.hasPrefix("diff --git ") {
+                if let completedHunk = current {
+                    hunks.append(completedHunk.build())
+                }
+                current = nil
+                currentHunkLineCount = 0
+                continue
+            }
             if let header = HunkHeader(rawLine: rawLine) {
                 if let current {
                     hunks.append(current.build())
