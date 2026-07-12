@@ -24647,12 +24647,15 @@ struct CMUXCLI {
                     )
                 }
                 sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: cleanupSurfaceId)
+                // Staleness is judged on the pane being CLEANED: gating on a
+                // polluted record surface (#7391) could false-skip cleanup of
+                // the real pane, stranding its ring/status after exit.
                 let shouldClearVisibleState = shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
                     sessionId: consumedSession.sessionId,
                     turnId: parsedInput.turnId,
-                    workspaceId: consumedSession.workspaceId,
-                    surfaceId: consumedSession.surfaceId,
+                    workspaceId: workspaceId,
+                    surfaceId: cleanupSurfaceId,
                     telemetry: telemetry
                 )
                 let claudePid = consumedSession.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
