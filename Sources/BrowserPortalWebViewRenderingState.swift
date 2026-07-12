@@ -121,6 +121,7 @@ extension WKWebView {
         let startsInHiddenWindow = window.map { $0.alphaValue <= 0.01 } ?? false
         guard window == nil ||
             startsInHiddenWindow ||
+            isHiddenOrHasHiddenAncestor ||
             !frame.size.width.isFinite ||
             !frame.size.height.isFinite ||
             frame.width <= 1 ||
