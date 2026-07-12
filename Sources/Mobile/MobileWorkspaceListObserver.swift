@@ -27,7 +27,7 @@ final class MobileWorkspaceListObserver {
     private var unreadIndicatorsCancellable: AnyCancellable?
     private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
     private var focusedHierarchyProjections: [UUID: MobileWorkspaceHierarchyProjection.FocusValue] = [:]
-    private var lastListProjection: MobileWorkspaceListProjection?
+    private var lastListDigest: Int?
     /// Throttle window with `latest: true`. First event in a burst emits
     /// immediately (iPhone gets the change in milliseconds), subsequent
     /// events within the window collapse to one trailing emit carrying the
@@ -53,7 +53,7 @@ final class MobileWorkspaceListObserver {
         // freshly-paired clients see the current state without waiting for
         // the first mutation.
         focusedHierarchyProjections = Dictionary(uniqueKeysWithValues: tabManager.tabs.map {
-            ($0.id, MobileWorkspaceHierarchyProjection(workspace: $0).focus)
+            ($0.id, MobileWorkspaceHierarchyProjection.FocusValue(workspace: $0))
         })
         emitIfNeeded(force: true)
 
@@ -184,7 +184,9 @@ final class MobileWorkspaceListObserver {
         // directory fields. Directory changes can arrive from shell prompt
         // updates without changing the terminal set.
         for workspace in tabs where perWorkspaceCancellables[workspace.id] == nil {
-            focusedHierarchyProjections[workspace.id] = MobileWorkspaceHierarchyProjection(workspace: workspace).focus
+            focusedHierarchyProjections[workspace.id] = MobileWorkspaceHierarchyProjection.FocusValue(
+                workspace: workspace
+            )
             let publishers: [AnyPublisher<Void, Never>] = [
                 workspace.panelsPublisher.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$panelTitles.map { _ in () }.eraseToAnyPublisher(),
@@ -225,7 +227,7 @@ final class MobileWorkspaceListObserver {
     }
 
     private func emitFocusedHierarchyUpdateIfNeeded(for workspace: Workspace) {
-        let projection = MobileWorkspaceHierarchyProjection(workspace: workspace).focus
+        let projection = MobileWorkspaceHierarchyProjection.FocusValue(workspace: workspace)
         guard focusedHierarchyProjections[workspace.id] != projection else { return }
         focusedHierarchyProjections[workspace.id] = projection
         mobileWorkspaceObserverLog.debug(
@@ -236,26 +238,26 @@ final class MobileWorkspaceListObserver {
 
     static func focusedHierarchySignature(for workspace: Workspace) -> Int {
         var hasher = Hasher()
-        hasher.combine(MobileWorkspaceHierarchyProjection(workspace: workspace).focus)
+        hasher.combine(MobileWorkspaceHierarchyProjection.FocusValue(workspace: workspace))
         return hasher.finalize()
     }
 
     private func emitIfNeeded(force: Bool) {
         let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-emit-if-needed", "force=\(force)"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
         guard let tabManager else { return }
-        let projection = MobileWorkspaceListProjection(
-            tabs: tabManager.tabs,
+        let digest = Self.summaryHash(
+            for: tabManager.tabs,
             groups: tabManager.workspaceGroups,
             selectedTabID: tabManager.selectedTabId,
             previewSignatures: currentPreviewSignatures(for: tabManager.tabs)
         )
-        if !force, projection == lastListProjection {
+        if !force, digest == lastListDigest {
             #if DEBUG
             cmuxDebugLog("mobile.observer skip: projection unchanged tabs=\(tabManager.tabs.count)")
             #endif
             return
         }
-        lastListProjection = projection
+        lastListDigest = digest
         mobileWorkspaceObserverLog.debug("emitting workspace.updated")
         #if DEBUG
         cmuxDebugLog("mobile.observer EMIT workspace.updated tabs=\(tabManager.tabs.count) force=\(force)")
@@ -284,15 +286,12 @@ final class MobileWorkspaceListObserver {
         previewSignatures: [UUID: Int]
     ) -> Int {
         let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-summary-hash", "workspaces=\(tabs.count) groups=\(groups.count) previews=\(previewSignatures.count) selected=\(selectedTabID.map { String($0.uuidString.prefix(5)) } ?? "nil")"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
-        let projection = MobileWorkspaceListProjection(
+        return MobileWorkspaceListProjection.digest(
             tabs: tabs,
             groups: groups,
             selectedTabID: selectedTabID,
             previewSignatures: previewSignatures
         )
-        var hasher = Hasher()
-        hasher.combine(projection)
-        return hasher.finalize()
     }
 
 }

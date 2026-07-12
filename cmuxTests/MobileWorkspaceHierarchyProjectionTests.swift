@@ -11,6 +11,17 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct MobileWorkspaceHierarchyProjectionTests {
+    @Test func directTerminalFocusSampleMatchesFullProjection() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+
+        let directFocus = MobileWorkspaceHierarchyProjection.FocusValue(workspace: workspace)
+        let fullFocus = MobileWorkspaceHierarchyProjection(workspace: workspace).focus
+
+        #expect(directFocus == fullFocus)
+        #expect(directFocus.selectedTerminalID == workspace.focusedTerminalPanel?.id)
+    }
+
     @Test func pinningTerminalInStableOrderChangesProjectionAndCloseability() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
@@ -77,8 +88,11 @@ struct MobileWorkspaceHierarchyProjectionTests {
         #expect(workspace.focusedPanelId == browser.id)
         #expect(workspace.focusedTerminalPanel == nil)
         let browserProjection = MobileWorkspaceHierarchyProjection(workspace: workspace)
+        let directBrowserFocus = MobileWorkspaceHierarchyProjection.FocusValue(workspace: workspace)
+        #expect(directBrowserFocus == browserProjection.focus)
+        #expect(directBrowserFocus.selectedTerminalID == nil)
         #expect(browserProjection.focus.selectedTerminalID == nil)
-        #expect(browserProjection.focus.eventPayload["selected_terminal_id"] is NSNull)
+        #expect(directBrowserFocus.eventPayload["selected_terminal_id"] is NSNull)
         let browserSignature = MobileWorkspaceListObserver.focusedHierarchySignature(for: workspace)
         #expect(browserSignature != terminalSignature, "browser selection must change the scoped focus value")
 

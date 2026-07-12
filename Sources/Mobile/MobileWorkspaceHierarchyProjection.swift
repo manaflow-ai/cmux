@@ -75,6 +75,23 @@ struct MobileWorkspaceHierarchyProjection {
         let selectedTerminalID: UUID?
         let paneSelections: [PaneFocusValue]
 
+        /// Samples only focus dimensions. This is the always-on focus-event hot
+        /// path, so it must not touch titles, directories, pin state, or payload
+        /// terminal allocation.
+        @MainActor
+        init(workspace: Workspace) {
+            workspaceID = workspace.id
+            focusedPaneID = workspace.bonsplitController.focusedPaneId?.id
+            selectedTerminalID = workspace.focusedTerminalPanel?.id
+            paneSelections = workspace.bonsplitController.allPaneIds.map { paneID in
+                let terminalID = workspace.bonsplitController.selectedTab(inPane: paneID)
+                    .flatMap { workspace.panelIdFromSurfaceId($0.id) }
+                    .flatMap { workspace.terminalPanel(for: $0)?.id }
+                return PaneFocusValue(id: paneID.id, selectedTerminalID: terminalID)
+            }
+            schemaVersion = MobileWorkspaceHierarchyProjection.schemaVersion
+        }
+
         var eventPayload: [String: Any] {
             [
                 "kind": "focus",
@@ -92,12 +109,11 @@ struct MobileWorkspaceHierarchyProjection {
 
     @MainActor
     init(workspace: Workspace, previewSignature: Int? = nil) {
+        let focusValue = FocusValue(workspace: workspace)
         let paneIDs = workspace.bonsplitController.allPaneIds
-        let focusedPaneID = workspace.bonsplitController.focusedPaneId?.id
         var paneIDByTerminalID: [UUID: UUID] = [:]
         var paneListValues: [PaneListValue] = []
         var panePayloadValues: [PanePayloadValue] = []
-        var paneFocusValues: [PaneFocusValue] = []
         for (spatialIndex, paneID) in paneIDs.enumerated() {
             let terminalIDs = workspace.bonsplitController.tabs(inPane: paneID).compactMap { tab -> UUID? in
                 guard let panelID = workspace.panelIdFromSurfaceId(tab.id),
@@ -107,17 +123,13 @@ struct MobileWorkspaceHierarchyProjection {
                 paneIDByTerminalID[panelID] = paneID.id
                 return panelID
             }
-            let selectedTerminalID = workspace.bonsplitController.selectedTab(inPane: paneID)
-                .flatMap { workspace.panelIdFromSurfaceId($0.id) }
-                .flatMap { workspace.terminalPanel(for: $0)?.id }
             paneListValues.append(.init(id: paneID.id, spatialIndex: spatialIndex, terminalIDs: terminalIDs))
             panePayloadValues.append(.init(
                 id: paneID.id,
                 spatialIndex: spatialIndex,
-                isFocused: paneID.id == focusedPaneID,
+                isFocused: paneID.id == focusValue.focusedPaneID,
                 terminalIDs: terminalIDs
             ))
-            paneFocusValues.append(.init(id: paneID.id, selectedTerminalID: selectedTerminalID))
         }
 
         let orderedPanelIDs = workspace.orderedPanelIds
@@ -171,13 +183,7 @@ struct MobileWorkspaceHierarchyProjection {
             currentDirectory: workspace.presentedCurrentDirectory,
             panelDirectories: panelDirectories
         )
-        focus = .init(
-            schemaVersion: Self.schemaVersion,
-            workspaceID: workspace.id,
-            focusedPaneID: focusedPaneID,
-            selectedTerminalID: workspace.focusedTerminalPanel?.id,
-            paneSelections: paneFocusValues
-        )
+        focus = focusValue
         panes = panePayloadValues
         terminals = terminalValues
     }
@@ -221,5 +227,38 @@ struct MobileWorkspaceListProjection: Hashable {
                 previewSignature: previewSignatures[$0.id]
             ).list
         }
+    }
+
+    /// Computes the list identity without retaining arrays for the previous
+    /// snapshot. Each workspace value is hashed and released before sampling the
+    /// next workspace.
+    @MainActor
+    static func digest(
+        tabs: [Workspace],
+        groups: [WorkspaceGroup],
+        selectedTabID: UUID?,
+        previewSignatures: [UUID: Int]
+    ) -> Int {
+        var hasher = Hasher()
+        hasher.combine(MobileWorkspaceHierarchyProjection.schemaVersion)
+        hasher.combine(selectedTabID)
+        hasher.combine(groups.count)
+        for group in groups {
+            hasher.combine(GroupValue(
+                id: group.id,
+                name: group.name,
+                isCollapsed: group.isCollapsed,
+                isPinned: group.isPinned,
+                anchorWorkspaceID: group.anchorWorkspaceId
+            ))
+        }
+        hasher.combine(tabs.count)
+        for workspace in tabs {
+            hasher.combine(MobileWorkspaceHierarchyProjection(
+                workspace: workspace,
+                previewSignature: previewSignatures[workspace.id]
+            ).list)
+        }
+        return hasher.finalize()
     }
 }
