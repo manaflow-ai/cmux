@@ -65,7 +65,7 @@ struct ResizableHSplit: View {
         .frame(width: handleWidth)
         .contentShape(Rectangle())
         .onHover { inside in
-            if inside { CmuxResizeCursors.leftRight.set() } else { NSCursor.arrow.set() }
+            if inside { NSCursor.cmuxResizeLeftRight.set() } else { NSCursor.arrow.set() }
         }
         .gesture(
             DragGesture()

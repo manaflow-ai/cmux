@@ -13,7 +13,7 @@ final class ResizeGripperNSView: NSView {
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        addCursorRect(bounds, cursor: CmuxResizeCursors.diagonalNWSE)
+        addCursorRect(bounds, cursor: NSCursor.cmuxResizeDiagonalNWSE)
     }
 
     override func mouseDown(with event: NSEvent) {

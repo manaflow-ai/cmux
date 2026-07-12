@@ -6,7 +6,7 @@ import CmuxAppKitSupportUI
 /// Shared by the portal host views and the hosted web-inspector divider.
 /// `.both` marks the intersection square where a vertical and a horizontal
 /// divider band overlap and a drag resizes along both axes. Cursors come
-/// from the drawn `CmuxResizeCursors` family so every resize affordance in
+/// from the drawn NSCursor.cmuxResize* family so every resize affordance in
 /// the app reads as one visual set.
 enum PortalDividerCursorKind: Equatable {
     case vertical
@@ -16,9 +16,9 @@ enum PortalDividerCursorKind: Equatable {
     @MainActor
     var cursor: NSCursor {
         switch self {
-        case .vertical: return CmuxResizeCursors.leftRight
-        case .horizontal: return CmuxResizeCursors.upDown
-        case .both: return CmuxResizeCursors.allAxes
+        case .vertical: return NSCursor.cmuxResizeLeftRight
+        case .horizontal: return NSCursor.cmuxResizeUpDown
+        case .both: return NSCursor.cmuxResizeAllAxes
         }
     }
 
@@ -29,8 +29,8 @@ enum PortalDividerCursorKind: Equatable {
     @MainActor
     static func injectBonsplitDividerCursors() {
         guard BonsplitDividerCursors.vertical == nil else { return }
-        BonsplitDividerCursors.vertical = CmuxResizeCursors.leftRight
-        BonsplitDividerCursors.horizontal = CmuxResizeCursors.upDown
+        BonsplitDividerCursors.vertical = NSCursor.cmuxResizeLeftRight
+        BonsplitDividerCursors.horizontal = NSCursor.cmuxResizeUpDown
     }
 
     /// Pointer-hover event types that the portal hosts claim inside the

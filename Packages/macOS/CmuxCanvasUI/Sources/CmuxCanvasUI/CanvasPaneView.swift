@@ -393,19 +393,19 @@ final class CanvasPaneView: NSView {
 
         addCursorRect(
             CGRect(x: 0, y: band, width: band, height: height - band * 2),
-            cursor: CmuxResizeCursors.leftRight
+            cursor: NSCursor.cmuxResizeLeftRight
         )
         addCursorRect(
             CGRect(x: width - band, y: band, width: band, height: height - band * 2),
-            cursor: CmuxResizeCursors.leftRight
+            cursor: NSCursor.cmuxResizeLeftRight
         )
         addCursorRect(
             CGRect(x: band, y: 0, width: width - band * 2, height: band),
-            cursor: CmuxResizeCursors.upDown
+            cursor: NSCursor.cmuxResizeUpDown
         )
         addCursorRect(
             CGRect(x: band, y: height - band, width: width - band * 2, height: band),
-            cursor: CmuxResizeCursors.upDown
+            cursor: NSCursor.cmuxResizeUpDown
         )
 
         // Corner bands resize both axes, so they get the diagonal cursors.
@@ -419,6 +419,6 @@ final class CanvasPaneView: NSView {
 
     // MARK: Diagonal resize cursors
 
-    private static let diagonalCursorNWSE = CmuxResizeCursors.diagonalNWSE
-    private static let diagonalCursorNESW = CmuxResizeCursors.diagonalNESW
+    private static let diagonalCursorNWSE = NSCursor.cmuxResizeDiagonalNWSE
+    private static let diagonalCursorNESW = NSCursor.cmuxResizeDiagonalNESW
 }
