@@ -30118,9 +30118,9 @@ export default CMUXSessionRestore;
             return
         }
 
-        // Workspace/surface resolution: prefer --workspace/--surface flags,
-        // then env, then the caller process. Grok strips CMUX_* from hook
-        // subprocesses, so PID attribution is the only reliable live binding.
+        // Explicit --workspace/--surface flags carry operator intent. Every
+        // implicit target must be proven by the caller process's live terminal
+        // binding; inherited env and saved session records are hints, not proof.
         let inferredPID = agentPIDFromHookEnvironment(agentName: def.name, env: env) ?? inferredAgentPID()
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let directWorkspaceArg = hookWsFlag ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
@@ -30166,9 +30166,9 @@ export default CMUXSessionRestore;
                 // when env supplies both ids. Historically this was suppressed whenever both env ids
                 // were present, which made a leaked/stale CMUX_SURFACE_ID impossible to correct — the
                 // codex jumble class, where a session routes to the wrong surface and the no-pid-gate
-                // resume binding persists it across reload. resolveAgentHookTarget now uses this
-                // binding to OVERRIDE a disagreeing ambient-env surface. A missing binding leaves
-                // implicit ambient routing disabled; explicit hook flags retain operator intent.
+                // resume binding persists it across reload. Implicit routing consumes only this live
+                // binding. A missing binding disables implicit routing; explicit hook flags retain
+                // operator intent.
                 let ttyResolution = callerTerminalBindingResolutionByTTY(
                     client: client,
                     pid: inferredPID
@@ -30371,8 +30371,7 @@ export default CMUXSessionRestore;
             func resolveTarget(
                 workspaceId: String,
                 preferredSurfaceId: String?,
-                mapped: ClaudeHookSessionRecord?,
-                allowDefaultSurfaceFallback: Bool = true
+                mapped: ClaudeHookSessionRecord?
             ) -> (workspaceId: String, surfaceId: String)? {
                 if let preferredSurfaceId = nonEmptyClaudeHookIdentifier(preferredSurfaceId),
                    let surfaceId = resolveAccessibleSurfaceId(preferredSurfaceId, workspaceId: workspaceId) {
@@ -30384,69 +30383,24 @@ export default CMUXSessionRestore;
                     return (workspaceId, surfaceId)
                 }
 
-                if !allowDefaultSurfaceFallback { return nil }
                 guard let surfaceId = resolveDefaultSurfaceId(workspaceId: workspaceId) else {
                     return nil
                 }
                 return (workspaceId, surfaceId)
             }
 
-            func ambientDirectBindingIsBlocked() -> Bool {
-                guard hookWsFlag == nil, explicitSurfaceFlag == nil else { return false }
-                _ = processBinding()
-                return processBindingBlockedByAmbiguousTTY
-            }
-
-            func allowsDefaultSurfaceFallback() -> Bool {
-                !ambientDirectBindingIsBlocked()
-            }
-
-            func ambientDirectWorkspaceAgreesWithProcessBinding(_ workspaceId: String) -> Bool {
-                guard hookWsFlag == nil, explicitSurfaceFlag == nil else { return true }
-                guard let processWorkspaceId = resolveAccessibleWorkspaceId(processBinding()?.workspaceId) else {
-                    return false
-                }
-                return processWorkspaceId == workspaceId
-            }
-
-            // G3 (codex jumble defense-in-depth): the surface id can arrive from the ambient env
-            // (CMUX_SURFACE_ID), which a launcher or an inherited subprocess can leak as the operator's
-            // FOCUSED pane rather than the agent's own pane. When the agent process's controlling TTY
-            // (or PID) is bound to a DIFFERENT, accessible surface inside this same workspace, that
-            // binding is ground truth — prefer it. Returns the env surface unchanged when there is no
-            // env surface to correct, when it came from an explicit --surface flag (operator intent),
-            // or when the TTY/PID binding already agrees. Stays within the env workspace so a flaky
-            // binding can never cross-route to a different workspace.
-            func correctedDirectSurfaceId(workspaceId: String) -> String? {
-                guard let envSurface = resolvedDirectSurfaceArg else { return nil }
-                guard hookWsFlag == nil, explicitSurfaceFlag == nil else { return envSurface }
-                guard let binding = processBinding(),
-                      let boundSurfaceRaw = nonEmptyClaudeHookIdentifier(binding.surfaceId),
-                      let boundWorkspaceRaw = nonEmptyClaudeHookIdentifier(binding.workspaceId),
-                      resolveAccessibleWorkspaceId(boundWorkspaceRaw) == workspaceId,
-                      let boundSurface = resolveAccessibleSurfaceId(boundSurfaceRaw, workspaceId: workspaceId),
-                      boundSurface != envSurface else {
-                    return envSurface
-                }
-#if DEBUG
-                agentHookDebugLog(
-                    "agentHook.surface.correct agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) env=\(agentHookDebugShort(envSurface)) tty=\(agentHookDebugShort(boundSurface))",
-                    socketPath: client.socketPath,
-                    env: env
+            let hasExplicitTarget = hookWsFlag != nil || explicitSurfaceFlag != nil
+            if hasExplicitTarget,
+               let workspaceId = resolvedDirectWorkspaceArg
+                    ?? resolveAccessibleWorkspaceId(processBinding()?.workspaceId) {
+                let target = resolveTarget(
+                    workspaceId: workspaceId,
+                    preferredSurfaceId: resolvedDirectSurfaceArg,
+                    mapped: mapped
                 )
-#endif
-                return boundSurface
-            }
-
-            if let workspaceId = resolvedDirectWorkspaceArg,
-               !ambientDirectBindingIsBlocked(),
-               ambientDirectWorkspaceAgreesWithProcessBinding(workspaceId) {
-                let preferredSurfaceId = correctedDirectSurfaceId(workspaceId: workspaceId)
-                    ?? (hookWsFlag == nil ? processBinding()?.surfaceId : nil)
-                let target = resolveTarget(workspaceId: workspaceId, preferredSurfaceId: preferredSurfaceId, mapped: mapped, allowDefaultSurfaceFallback: allowsDefaultSurfaceFallback())
 #if DEBUG
                 agentHookDebugLog(
-                    "agentHook.target.\(target == nil ? "nil" : "resolved") agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=direct workspace=\(agentHookDebugShort(target?.workspaceId ?? workspaceId)) surface=\(agentHookDebugShort(target?.surfaceId)) mapped=\(mapped == nil ? 0 : 1)",
+                    "agentHook.target.\(target == nil ? "nil" : "resolved") agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=explicit workspace=\(agentHookDebugShort(target?.workspaceId ?? workspaceId)) surface=\(agentHookDebugShort(target?.surfaceId)) mapped=\(mapped == nil ? 0 : 1)",
                     socketPath: client.socketPath,
                     env: env
                 )
@@ -30454,40 +30408,31 @@ export default CMUXSessionRestore;
                 return target
             }
 
-            let binding = processBinding() ?? (processBindingBlockedByAmbiguousTTY
-                ? independentlyValidatedMappedTerminalBinding(mapped, client: client)
-                : nil)
+            // One proof boundary for implicit hooks: use the current process's
+            // live binding, or a saved PID only after it resolves live to the
+            // exact saved workspace and surface. Do not substitute ambient,
+            // mapped, focused, or default surfaces after this point.
+            let binding = processBinding()
+                ?? independentlyValidatedMappedTerminalBinding(mapped, client: client)
             if let workspaceId = resolveAccessibleWorkspaceId(binding?.workspaceId),
-               let target = resolveTarget(workspaceId: workspaceId, preferredSurfaceId: binding?.surfaceId, mapped: mapped, allowDefaultSurfaceFallback: allowsDefaultSurfaceFallback()) {
+               let surfaceId = resolveAccessibleSurfaceId(binding?.surfaceId, workspaceId: workspaceId) {
 #if DEBUG
                 agentHookDebugLog(
-                    "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=process workspace=\(agentHookDebugShort(target.workspaceId)) surface=\(agentHookDebugShort(target.surfaceId)) mapped=\(mapped == nil ? 0 : 1)",
+                    "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=verifiedProcess workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId)) mapped=\(mapped == nil ? 0 : 1)",
                     socketPath: client.socketPath,
                     env: env
                 )
 #endif
-                return target
+                return (workspaceId, surfaceId)
             }
-            guard !ambientDirectBindingIsBlocked() else { return nil }
-            guard let workspaceId = resolveAccessibleWorkspaceId(mapped?.workspaceId) else {
-#if DEBUG
-                agentHookDebugLog(
-                    "agentHook.target.nil agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) reason=noWorkspace mapped=\(mapped == nil ? 0 : 1)",
-                    socketPath: client.socketPath,
-                    env: env
-                )
-#endif
-                return nil
-            }
-            let target = resolveTarget(workspaceId: workspaceId, preferredSurfaceId: nil, mapped: mapped, allowDefaultSurfaceFallback: allowsDefaultSurfaceFallback())
 #if DEBUG
             agentHookDebugLog(
-                "agentHook.target.\(target == nil ? "nil" : "resolved") agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=mapped workspace=\(agentHookDebugShort(target?.workspaceId ?? workspaceId)) surface=\(agentHookDebugShort(target?.surfaceId)) mapped=\(mapped == nil ? 0 : 1)",
+                "agentHook.target.nil agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) reason=noVerifiedIdentity mapped=\(mapped == nil ? 0 : 1)",
                 socketPath: client.socketPath,
                 env: env
             )
 #endif
-            return target
+            return nil
         }
         defer {
             if !didSendFeedTelemetry, !shouldSuppressGenericFeedTelemetry() {
