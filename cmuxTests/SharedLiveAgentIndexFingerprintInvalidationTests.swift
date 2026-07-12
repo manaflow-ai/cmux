@@ -323,4 +323,81 @@ struct SharedLiveAgentIndexFingerprintInvalidationTests {
         releaseSecondLoad.signal()
         await timeoutWaiter.cancelAll()
     }
+
+    @Test
+    func warmCacheValidationReturnsUnavailableWhenFingerprintScanStalls() async {
+        let timeoutGate = TimeoutGate()
+        let fingerprintStarted = DispatchSemaphore(value: 0)
+        let releaseFingerprint = DispatchSemaphore(value: 0)
+        let readCompleted = DispatchSemaphore(value: 0)
+        defer { releaseFingerprint.signal() }
+        let now = Date()
+        let hookDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-stalled-cache-validation-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: hookDirectory) }
+        let cachedResult: SharedLiveAgentIndex.LoadResult = (
+            index: .empty,
+            surfaceResumeBindingIndex: .empty,
+            liveAgentProcessFingerprint: [],
+            processScopeFingerprint: ["scope"],
+            forkValidatedPanels: []
+        )
+        let sharedIndex = SharedLiveAgentIndex(
+            processScopeFingerprintProvider: {
+                fingerprintStarted.signal()
+                releaseFingerprint.wait()
+                return ["scope"]
+            },
+            generationTimeoutWaiter: {
+                await timeoutGate.wait()
+                return true
+            },
+            hookStoreDirectoryProvider: { hookDirectory.path },
+            dateProvider: { now }
+        )
+        sharedIndex.latestCompletedLoadResult = cachedResult
+        sharedIndex.latestCompletedAt = now
+
+        let read = Task { @MainActor in
+            let result = await sharedIndex.resumeIndexesRefreshingIfNeeded(maximumAge: 60)
+            readCompleted.signal()
+            return result
+        }
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: fingerprintStarted))
+        await timeoutGate.open()
+        let returnedBeforeFingerprint = await SharedLiveAgentIndexLoadCoalescingTests.wait(
+            for: readCompleted,
+            timeout: 1
+        )
+        #expect(
+            returnedBeforeFingerprint,
+            "A stalled fingerprint scan must resolve through the generation deadline."
+        )
+
+        releaseFingerprint.signal()
+        let result = await read.value
+        #expect(result == nil)
+        #expect(sharedIndex.cachedResumeIndexes() == nil)
+    }
+
+    private actor TimeoutGate {
+        private var isOpen = false
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+
+        func wait() async {
+            guard !isOpen else { return }
+            await withCheckedContinuation { continuation in
+                waiters.append(continuation)
+            }
+        }
+
+        func open() {
+            isOpen = true
+            let waiters = self.waiters
+            self.waiters.removeAll()
+            for waiter in waiters {
+                waiter.resume()
+            }
+        }
+    }
 }
