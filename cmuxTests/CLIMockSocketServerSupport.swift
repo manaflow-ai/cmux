@@ -355,6 +355,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         surfaceId: String,
         cwd: String,
         transcriptPath: String? = nil,
+        pid: Int? = nil,
         launchCommand: [String: Any]?
     ) throws {
         var session: [String: Any] = [
@@ -366,6 +367,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "updatedAt": Date().timeIntervalSince1970,
         ]
         if let transcriptPath { session["transcriptPath"] = transcriptPath }
+        if let pid { session["pid"] = pid }
         if let launchCommand { session["launchCommand"] = launchCommand }
         let store: [String: Any] = [
             "version": 1,

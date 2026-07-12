@@ -143,6 +143,141 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
         XCTAssertNil(workspace.surfaceResumeBinding(panelId: splitPanel.id))
     }
 
+    func testSurfaceResumeGloballyLocatesStableSurfaceIdAcrossWindows() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let previousActiveManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let activeWindowId = UUID()
+        let targetWindowId = UUID()
+        let activeWindow = makeMainWindow(id: activeWindowId)
+        let targetWindow = makeMainWindow(id: targetWindowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousActiveManager)
+            app.unregisterMainWindowContextForTesting(windowId: activeWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: targetWindowId)
+            activeWindow.orderOut(nil)
+            targetWindow.orderOut(nil)
+        }
+
+        let activeManager = TabManager(autoWelcomeIfNeeded: false)
+        let targetManager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            activeWindow,
+            windowId: activeWindowId,
+            tabManager: activeManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        app.registerMainWindow(
+            targetWindow,
+            windowId: targetWindowId,
+            tabManager: targetManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(activeManager)
+
+        let activeWorkspace = try XCTUnwrap(activeManager.selectedWorkspace)
+        let activePanelId = try XCTUnwrap(activeWorkspace.focusedPanelId)
+        let targetWorkspace = try XCTUnwrap(targetManager.selectedWorkspace)
+        let targetPanel = try XCTUnwrap(targetWorkspace.focusedTerminalPanel)
+        XCTAssertNotEqual(targetPanel.stableSurfaceId, targetPanel.id)
+
+        let setResult = try v2Result(method: "surface.resume.set", params: [
+            "surface_id": targetPanel.stableSurfaceId.uuidString,
+            "kind": "codex",
+            "source": "agent-hook",
+            "auto_resume": true,
+            "command": "codex resume cross-window-stable-target",
+            "checkpoint_id": "cross-window-stable-target",
+        ])
+
+        XCTAssertEqual(setResult["surface_id"] as? String, targetPanel.id.uuidString)
+        XCTAssertNil(activeWorkspace.surfaceResumeBinding(panelId: activePanelId))
+        XCTAssertEqual(
+            targetWorkspace.surfaceResumeBinding(panelId: targetPanel.id)?.command,
+            "codex resume cross-window-stable-target"
+        )
+
+        let getResult = try v2Result(method: "surface.resume.get", params: [
+            "surface_id": targetPanel.stableSurfaceId.uuidString,
+        ])
+        XCTAssertEqual(getResult["surface_id"] as? String, targetPanel.id.uuidString)
+        let getBinding = try XCTUnwrap(getResult["resume_binding"] as? [String: Any])
+        XCTAssertEqual(getBinding["checkpoint_id"] as? String, "cross-window-stable-target")
+
+        let clearResult = try v2Result(method: "surface.resume.clear", params: [
+            "surface_id": targetPanel.stableSurfaceId.uuidString,
+            "checkpoint_id": "cross-window-stable-target",
+        ])
+        XCTAssertEqual(clearResult["surface_id"] as? String, targetPanel.id.uuidString)
+        XCTAssertEqual(clearResult["cleared"] as? Bool, true)
+        XCTAssertNil(targetWorkspace.surfaceResumeBinding(panelId: targetPanel.id))
+    }
+
+    func testSystemResolveTerminalRejectsInheritedScopeWithoutUniqueLiveTTY() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let manager = TabManager()
+        AppDelegate.shared = appDelegate
+
+        let workspace = manager.addWorkspace(select: true)
+        let surfaceID = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.surfaceTTYNames[surfaceID] = "cmux-missing-tty-\(UUID().uuidString)"
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        TerminalController.invalidateTerminalResolverBindingCaches()
+        defer {
+            TerminalController.invalidateTerminalResolverBindingCaches()
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["30"]
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_WORKSPACE_ID"] = workspace.id.uuidString
+        environment["CMUX_SURFACE_ID"] = surfaceID.uuidString
+        process.environment = environment
+        try process.run()
+        defer {
+            if process.isRunning {
+                process.terminate()
+                process.waitUntilExit()
+            }
+        }
+
+        let processContext = try XCTUnwrap(
+            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(
+                for: Int(process.processIdentifier)
+            )
+        )
+        XCTAssertEqual(processContext.environment["CMUX_WORKSPACE_ID"], workspace.id.uuidString)
+        XCTAssertEqual(processContext.environment["CMUX_SURFACE_ID"], surfaceID.uuidString)
+
+        let response = TerminalController.shared.v2SystemResolveTerminal(params: [
+            "pid": Int(process.processIdentifier),
+        ])
+        guard case .ok(let rawPayload) = response else {
+            XCTFail("Expected terminal resolver success")
+            return
+        }
+        let payload = try XCTUnwrap(rawPayload as? [String: Any])
+
+        XCTAssertTrue(
+            payload["pid_binding"] is NSNull,
+            "Inherited CMUX scope must not become an authoritative PID binding: \(payload)"
+        )
+    }
+
     private func makeMainWindow(id: UUID) -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),

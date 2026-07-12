@@ -13,6 +13,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-stale-mapped-workspace-session"
+        let savedPID = 42_424
 
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
         try writeCodexHookStore(
@@ -21,6 +22,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             cwd: repo.path,
+            pid: savedPID,
             launchCommand: nil
         )
         defer {
@@ -29,7 +31,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try? FileManager.default.removeItem(at: root)
         }
 
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        let serverHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            fulfillWhen: { $0.contains(#""method":"system.resolve_terminal""#) }
+        ) { line in
             guard let payload = self.jsonObject(line) else { return "OK" }
             guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
@@ -40,7 +46,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "system.resolve_terminal":
                 return self.v2Response(id: id, ok: true, result: ["tty_bindings": [], "pid_binding": NSNull()])
             case "system.top":
-                return self.v2Response(id: id, ok: true, result: ["windows": []])
+                let systemTopRequestCount = state.snapshot().compactMap { command in
+                    self.jsonObject(command)?["method"] as? String
+                }.filter { $0 == "system.top" }.count
+                if systemTopRequestCount == 1 {
+                    return self.v2Response(id: id, ok: true, result: ["windows": []])
+                }
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["windows": [["workspaces": [[
+                        "id": workspaceId,
+                        "panes": [["surfaces": [[
+                            "id": surfaceId,
+                            "top_level_pids": [savedPID],
+                            "processes": [],
+                        ]]]],
+                    ]]]]]
+                )
             case "debug.terminals":
                 return self.v2Response(id: id, ok: true, result: ["terminals": []])
             case "surface.resume.set", "surface.resume.clear", "feed.push":
@@ -64,6 +87,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_WORKSPACE_ID",
             "CMUX_SURFACE_ID",
             "CMUX_CLI_TTY_NAME",
+            "CMUX_CODEX_PID",
             "ANTHROPIC_BASE_URL",
             "CLAUDE_CONFIG_DIR",
             "CODEX_HOME",
@@ -88,6 +112,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertFalse(methods.contains("system.top"), "saved agent PIDs must not be retried as live identity: \(methods)")
         XCTAssertFalse(methods.contains("surface.resume.set"), "stale saved state must not create a live binding: \(methods)")
         XCTAssertFalse(methods.contains("feed.push"), "stale saved state must not route a hook event: \(methods)")
     }
@@ -211,7 +236,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(resume["surface_id"] as? String, processSurfaceId)
     }
 
-    func testCodexHookCrossChecksRecycledTTYWithAgentPID() throws {
+    func testCodexHookUsesLiveHookProcessPIDToOverrideRecycledTTY() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-recycled-tty-pid")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -256,6 +281,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "system.resolve_terminal":
                 let params = payload["params"] as? [String: Any]
                 let requestedPID = (params?["pid"] as? NSNumber)?.intValue
+                let hasLiveHookProcessPID = requestedPID.map { $0 > 0 && $0 != agentPID } == true
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -264,24 +290,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
                             "workspace_id": staleWorkspaceId,
                             "surface_id": staleSurfaceId,
                         ]],
-                        "pid_binding": requestedPID == agentPID
+                        "pid_binding": hasLiveHookProcessPID
                             ? ["workspace_id": processWorkspaceId, "surface_id": processSurfaceId]
                             : NSNull(),
                     ]
                 )
             case "system.top":
-                return self.v2Response(
-                    id: id,
-                    ok: true,
-                    result: ["windows": [["workspaces": [[
-                        "id": processWorkspaceId,
-                        "panes": [["surfaces": [[
-                            "id": processSurfaceId,
-                            "top_level_pids": [agentPID],
-                            "processes": [],
-                        ]]]],
-                    ]]]]]
-                )
+                return self.v2Response(id: id, ok: true, result: ["windows": []])
             case "surface.resume.set", "surface.resume.clear":
                 return self.v2Response(id: id, ok: true, result: ["ok": true])
             case "feed.push":
@@ -337,5 +352,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let resume = try XCTUnwrap(resumeRequests.last)
         XCTAssertEqual(resume["workspace_id"] as? String, processWorkspaceId)
         XCTAssertEqual(resume["surface_id"] as? String, processSurfaceId)
+        let resolverParams = try XCTUnwrap(state.snapshot().compactMap { command -> [String: Any]? in
+            guard let payload = self.jsonObject(command),
+                  payload["method"] as? String == "system.resolve_terminal" else { return nil }
+            return payload["params"] as? [String: Any]
+        }.first)
+        let resolverPID = try XCTUnwrap((resolverParams["pid"] as? NSNumber)?.intValue)
+        XCTAssertGreaterThan(resolverPID, 0)
+        XCTAssertNotEqual(resolverPID, agentPID, "routing identity must be the live hook CLI, not CMUX_CODEX_PID")
+        let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertFalse(methods.contains("system.top"), "the targeted live hook PID should resolve without a bare-PID retry: \(methods)")
     }
 }

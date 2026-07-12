@@ -436,4 +436,19 @@ struct StartupBreadcrumbLogTests {
         #expect(bounded.count <= 19)
         #expect(String(decoding: bounded, as: UTF8.self) == "old-3\nnew-1\nnew-2\n")
     }
+
+    @Test
+    func cappedAppendReplacesUnterminatedTailWithNewestCompleteLine() {
+        let maximumByteCount = 4 * 1024 * 1024
+        let existing = Data(repeating: 0x78, count: maximumByteCount)
+        let appended = Data("{\"event\":\"new\"}\n".utf8)
+
+        let replacement = StartupBreadcrumbLog.boundedJSONLTail(
+            existingTail: existing,
+            appending: appended,
+            maximumByteCount: maximumByteCount
+        )
+
+        #expect(replacement == appended)
+    }
 }

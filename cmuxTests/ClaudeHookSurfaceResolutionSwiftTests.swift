@@ -145,7 +145,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
     }
 
-    @Test func claudeSessionStartOverridesLeakedEnvWithClaudePIDBindingWhenTTYMissing() throws {
+    @Test func claudeSessionStartOverridesLeakedEnvWithLiveHookProcessBindingWhenTTYMissing() throws {
         let context = try makeClaudeHookContext(name: "claude-pid-surface")
         defer { context.cleanup() }
 
@@ -166,7 +166,6 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
                 leakedWorkspaceId: [(leakedSurfaceId, "surface:1", true)],
                 pidWorkspaceId: [(pidSurfaceId, "surface:2", false)],
             ],
-            agentPID: claudePID,
             agentPIDWorkspaceId: pidWorkspaceId,
             agentPIDSurfaceId: pidSurfaceId,
             requiredSocketPassword: socketPassword
@@ -206,19 +205,19 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
         #expect(
             request["workspace_id"] as? String == pidWorkspaceId,
-            "Claude PID binding must beat leaked ambient CMUX_WORKSPACE_ID when no TTY marker exists; params=\(request)"
+            "The live hook process binding must beat leaked ambient CMUX_WORKSPACE_ID when no TTY marker exists; params=\(request)"
         )
         #expect(
             request["surface_id"] as? String == pidSurfaceId,
-            "Claude PID binding must beat leaked ambient CMUX_SURFACE_ID when no TTY marker exists; params=\(request)"
+            "The live hook process binding must beat leaked ambient CMUX_SURFACE_ID when no TTY marker exists; params=\(request)"
         )
         #expect(
             context.state.snapshot().contains("auth \(socketPassword)"),
-            "Claude PID probe must authenticate before reading system.top on password-protected sockets"
+            "The targeted hook-process resolver must authenticate on password-protected sockets"
         )
     }
 
-    @Test func claudeSessionStartFallsBackToClaudePIDWhenTTYBindingIsStale() throws {
+    @Test func claudeSessionStartUsesLiveHookProcessWhenTTYBindingIsStale() throws {
         let context = try makeClaudeHookContext(name: "claude-stale-tty-pid")
         defer { context.cleanup() }
 
@@ -245,7 +244,6 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
                 staleTTYWorkspaceId: [(staleTTYWorkspaceFocusedSurfaceId, "surface:2", true)],
                 pidWorkspaceId: [(pidSurfaceId, "surface:3", false)],
             ],
-            agentPID: claudePID,
             agentPIDWorkspaceId: pidWorkspaceId,
             agentPIDSurfaceId: pidSurfaceId,
             requiredSocketPassword: socketPassword
@@ -286,19 +284,19 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
         #expect(
             request["workspace_id"] as? String == pidWorkspaceId,
-            "Stale TTY binding must fall through to the Claude PID workspace, not leaked ambient env; params=\(request)"
+            "Stale TTY binding must yield to the live hook process workspace, not leaked ambient env; params=\(request)"
         )
         #expect(
             request["surface_id"] as? String == pidSurfaceId,
-            "Stale TTY binding must fall through to the Claude PID surface, not leaked ambient env; params=\(request)"
+            "Stale TTY binding must yield to the live hook process surface, not leaked ambient env; params=\(request)"
         )
         #expect(
-            context.state.snapshot().contains { $0.contains(#""method":"system.top""#) },
-            "Stale TTY binding must not suppress the Claude PID process lookup; saw \(context.state.snapshot())"
+            !context.state.snapshot().contains { $0.contains(#""method":"system.top""#) },
+            "The targeted live hook process lookup must not retry a bare PID through system.top; saw \(context.state.snapshot())"
         )
         #expect(
             context.state.snapshot().contains("auth \(socketPassword)"),
-            "Claude PID fallback must authenticate before reading system.top on password-protected sockets"
+            "The targeted hook-process resolver must authenticate on password-protected sockets"
         )
     }
 
@@ -604,7 +602,6 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         ttySurfaceId: String,
         ttyWorkspaceId: String? = nil,
         surfacesByWorkspace: [String: [SurfaceFixture]]? = nil,
-        agentPID: Int? = nil,
         agentPIDWorkspaceId: String? = nil,
         agentPIDSurfaceId: String? = nil,
         requiredSocketPassword: String? = nil
@@ -627,6 +624,28 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
                 let listedSurfaces = workspaceId.flatMap { surfacesByWorkspace?[$0] } ?? surfaces
                 let surfacePayload: [[String: Any]] = listedSurfaces.map { ["id": $0.id, "ref": $0.ref, "focused": $0.focused] }
                 return v2Response(id: id, ok: true, result: ["surfaces": surfacePayload])
+            case "system.resolve_terminal":
+                let params = payload["params"] as? [String: Any]
+                let requestedTTY = params?["tty_name"] as? String
+                let requestedPID = (params?["pid"] as? NSNumber)?.intValue
+                let pidWorkspaceId = agentPIDWorkspaceId ?? resolvedTTYWorkspaceId
+                let pidSurfaceId = agentPIDSurfaceId ?? ttySurfaceId
+                let pidBinding: Any
+                if requestedPID != nil {
+                    pidBinding = ["workspace_id": pidWorkspaceId, "surface_id": pidSurfaceId]
+                } else {
+                    pidBinding = NSNull()
+                }
+                return v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "tty_bindings": requestedTTY == ttyName
+                            ? [["workspace_id": resolvedTTYWorkspaceId, "surface_id": ttySurfaceId]]
+                            : [],
+                        "pid_binding": pidBinding,
+                    ]
+                )
             case "debug.terminals":
                 return v2Response(
                     id: id,
@@ -635,27 +654,6 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
                         "tty": ttyName,
                         "workspace_id": resolvedTTYWorkspaceId,
                         "surface_id": ttySurfaceId,
-                    ]]]
-                )
-            case "system.top":
-                guard let agentPID else {
-                    return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
-                }
-                let workspaceId = agentPIDWorkspaceId ?? context.workspaceId
-                let surfaceId = agentPIDSurfaceId ?? context.surfaceId
-                return v2Response(
-                    id: id,
-                    ok: true,
-                    result: ["windows": [[
-                        "workspaces": [[
-                            "id": workspaceId,
-                            "panes": [[
-                                "surfaces": [[
-                                    "id": surfaceId,
-                                    "top_level_pids": [agentPID],
-                                ]],
-                            ]],
-                        ]],
                     ]]]
                 )
             case "feed.push":

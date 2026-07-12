@@ -213,15 +213,31 @@ nonisolated enum StartupBreadcrumbLog {
             try handle.seek(toOffset: currentSize - UInt64(readCount))
             combined = try handle.read(upToCount: readCount) ?? Data()
         }
-        combined.append(boundedAppend)
-        let boundedCombined = boundedJSONLTail(combined, maximumByteCount: maxLogByteCount)
+        let replacement = boundedJSONLTail(
+            existingTail: combined,
+            appending: boundedAppend,
+            maximumByteCount: maxLogByteCount
+        )
 
         guard ftruncate(handle.fileDescriptor, 0) == 0 else {
             let code = POSIXErrorCode(rawValue: errno) ?? .EIO
             throw POSIXError(code)
         }
         try handle.seek(toOffset: 0)
-        try handle.write(contentsOf: boundedCombined)
+        try handle.write(contentsOf: replacement)
+    }
+
+    static func boundedJSONLTail(
+        existingTail: Data,
+        appending data: Data,
+        maximumByteCount: Int
+    ) -> Data {
+        let boundedAppend = boundedJSONLTail(data, maximumByteCount: maximumByteCount)
+        guard !boundedAppend.isEmpty else { return Data() }
+        var combined = existingTail
+        combined.append(boundedAppend)
+        let boundedCombined = boundedJSONLTail(combined, maximumByteCount: maximumByteCount)
+        return boundedCombined
     }
 
     static func boundedJSONLTail(_ data: Data, maximumByteCount: Int) -> Data {
