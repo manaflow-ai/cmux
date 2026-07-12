@@ -247,14 +247,20 @@ extension TerminalController {
         }
         let col = (params["col"] as? NSNumber)?.intValue ?? 0
         let row = (params["row"] as? NSNumber)?.intValue ?? 0
+        guard recordMobileInteractionEpoch(
+            params: params,
+            surfaceID: surfaceId,
+            rejectOlder: true
+        ) else {
+            return .ok(mobileTerminalScrollRejectedPayload(
+                workspaceID: resolved.workspace.id,
+                surfaceID: surfaceId,
+                params: params
+            ))
+        }
         guard applyClick(terminalPanel, max(0, col), max(0, row)) else {
             return .err(code: "unavailable", message: "Terminal surface is unavailable", data: nil)
         }
-        _ = recordMobileInteractionEpoch(
-            params: params,
-            surfaceID: surfaceId,
-            rejectOlder: false
-        )
         MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: terminalPanel.id)
         var payload: [String: Any] = [
             "workspace_id": resolved.workspace.id.uuidString,

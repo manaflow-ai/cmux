@@ -14465,11 +14465,21 @@ class TerminalController {
             surfaceID: surfaceId,
             rejectOlder: false
         )
-        let hasViewportReportFields = params["client_id"] != nil || params["viewport_columns"] != nil || params["viewport_rows"] != nil
-        if hasViewportReportFields, v2String(params, "client_id") == nil || v2Int(params, "viewport_columns") == nil || v2Int(params, "viewport_rows") == nil {
-            return .err(code: "invalid_params", message: "Invalid mobile viewport report", data: nil)
+        let hasViewportReportFields = params["viewport_columns"] != nil
+            || params["viewport_rows"] != nil
+            || params["viewport_generation"] != nil
+        if hasViewportReportFields {
+            guard v2String(params, "client_id") != nil,
+                  v2Int(params, "viewport_columns") != nil,
+                  v2Int(params, "viewport_rows") != nil else {
+                return .err(code: "invalid_params", message: "Invalid mobile viewport report", data: nil)
+            }
+            _ = applyMobileViewportReport(
+                params: params,
+                terminalPanel: terminalPanel,
+                reason: "mobile.terminal.replay"
+            )
         }
-        _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel, reason: "mobile.terminal.replay")
         let state = MobileTerminalByteTee.shared.replayState(surfaceID: surfaceId)
         let seq = state?.seq ?? 0
         let prefetchWindow = mobileScrollPrefetchWindow(

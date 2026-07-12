@@ -87,6 +87,7 @@ actor LivenessHostRouter {
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
     private var replayPayloads: [(text: String?, sequence: UInt64?, renderGrid: MobileTerminalRenderGridFrame?)] = []
+    private var nextReplayRenderRevision: UInt64 = 1
     private var replayTexts: [String] = []
     private var replayFailuresRemaining = 0
     private var emptyReplayResponsesRemaining = 0; private var viewportEffectiveGridOverride: LivenessViewportReport?; private var emptyViewportResponsesRemaining = 0
@@ -209,7 +210,13 @@ actor LivenessHostRouter {
     }
 
     func enqueueReplayRenderGrid(_ renderGrid: MobileTerminalRenderGridFrame) {
-        replayPayloads.append((text: nil, sequence: nil, renderGrid: renderGrid))
+        var stamped = renderGrid
+        if stamped.renderRevision == nil {
+            stamped.renderRevision = nextReplayRenderRevision
+            nextReplayRenderRevision &+= 1
+            if nextReplayRenderRevision == 0 { nextReplayRenderRevision = 1 }
+        }
+        replayPayloads.append((text: nil, sequence: nil, renderGrid: stamped))
     }
 
     func enqueueReplayRenderGridFrames(_ frames: [MobileTerminalRenderGridFrame]) {

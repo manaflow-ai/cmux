@@ -92,7 +92,8 @@ extension MobileShellComposite {
         // still deliver.
         let deliveredSeqValue = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID] ?? 0
         let preBarrierFloorSeq = terminalPreBarrierDeliveredEndSeqBySurfaceID[renderGrid.surfaceID]
-        if source != "replay",
+        let hasRevisionOrderedReplay = source == "replay" && renderGrid.renderRevision != nil
+        if !hasRevisionOrderedReplay,
            deliveredSeqValue > renderGrid.stateSeq
             || preBarrierFloorSeq.map({ $0 >= renderGrid.stateSeq }) ?? false {
             MobileDebugLog.anchormux(
