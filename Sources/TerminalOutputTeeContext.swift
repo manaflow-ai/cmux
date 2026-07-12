@@ -14,7 +14,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         var forwardedRevision: UInt64 = 0
         var forwardedSubmissionCount: UInt64 = 0
         var confirmationDeadline: ContinuousClock.Instant?
-        var unforwardedLocalConfirmation: PromptLineTurnConfirmation?
+        var unforwardedLocalConfirmations: [PromptLineTurnConfirmation] = []
     }
 
     /// The latest detector state queued for the notification actor.
@@ -24,16 +24,22 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         let revision: UInt64
         let confirmation: PromptLineTurnConfirmation?
         let deadline: ContinuousClock.Instant?
-        /// A turn the detector confirmed synchronously at its deadline. The
-        /// notification owner delivers it exactly once by identifier, so a
-        /// slow delivery timer cannot lose the completion.
-        let locallyConfirmed: PromptLineTurnConfirmation?
+        /// Turns the detector confirmed synchronously at their deadlines, in
+        /// identifier order. The notification owner delivers each exactly
+        /// once by identifier, so a slow delivery timer cannot lose a
+        /// completion and coalescing cannot drop one.
+        let locallyConfirmed: [PromptLineTurnConfirmation]
     }
 
     private struct ForwardQueue {
         var pending: [AgentForward] = []
         var draining = false
     }
+
+    /// Confirmed turns arrive at most once per confirmation delay, so this
+    /// cap can only trim a drain task that has been starved for many
+    /// seconds; the newest completions win.
+    private static let maximumBufferedLocalConfirmations = 8
 
     let workspaceID: UUID
     let surfaceID: UUID
@@ -70,7 +76,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
                let deadline = detectors[index].confirmationDeadline,
                now >= deadline {
                 if detectors[index].detector.confirm(confirmation) > 0 {
-                    detectors[index].unforwardedLocalConfirmation = confirmation
+                    detectors[index].unforwardedLocalConfirmations.append(confirmation)
                 }
                 detectors[index].confirmationDeadline = nil
             }
@@ -86,15 +92,15 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     ) {
         let revision = detectors[index].detector.confirmationRevision
         let submissionCount = detectors[index].detector.submissionCount
-        let locallyConfirmed = detectors[index].unforwardedLocalConfirmation
+        let locallyConfirmed = detectors[index].unforwardedLocalConfirmations
         guard revision != detectors[index].forwardedRevision ||
             submissionCount != detectors[index].forwardedSubmissionCount ||
-            locallyConfirmed != nil else {
+            !locallyConfirmed.isEmpty else {
             return
         }
         detectors[index].forwardedRevision = revision
         detectors[index].forwardedSubmissionCount = submissionCount
-        detectors[index].unforwardedLocalConfirmation = nil
+        detectors[index].unforwardedLocalConfirmations = []
 
         let confirmation = detectors[index].detector.pendingConfirmation
         let deadline = confirmation.map {
@@ -118,16 +124,17 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     private func enqueue(_ forward: AgentForward) {
         let startDrain = forwardQueue.withLock { state in
             if let existing = state.pending.firstIndex(where: { $0.agentID == forward.agentID }) {
-                // Coalesce to the latest state but never drop an undelivered
-                // local confirmation.
+                // Coalesce to the latest state but never drop undelivered
+                // local confirmations.
+                let merged = (state.pending[existing].locallyConfirmed + forward.locallyConfirmed)
+                    .suffix(Self.maximumBufferedLocalConfirmations)
                 state.pending[existing] = AgentForward(
                     agentID: forward.agentID,
                     submissionCount: forward.submissionCount,
                     revision: forward.revision,
                     confirmation: forward.confirmation,
                     deadline: forward.deadline,
-                    locallyConfirmed: forward.locallyConfirmed
-                        ?? state.pending[existing].locallyConfirmed
+                    locallyConfirmed: Array(merged)
                 )
             } else {
                 state.pending.append(forward)

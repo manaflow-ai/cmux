@@ -12,9 +12,6 @@ actor PromptTurnNotificationHandler {
     private var deliveredConfirmationIdentifierByAgentID: [String: UInt64] = [:]
     private var debounceTasksByAgentID: [String: Task<Void, Never>] = [:]
 
-    private var cachedForegroundPID: Int?
-    private var cachedDefinition: CmuxTaskManagerCodingAgentDefinition?
-    private var hasCachedIdentity = false
     private var inFlightPID: Int?
     private var inFlightVerification: Task<CmuxTaskManagerCodingAgentDefinition?, Never>?
 
@@ -37,7 +34,7 @@ actor PromptTurnNotificationHandler {
         revision: UInt64,
         confirmation: PromptLineTurnConfirmation?,
         deadline: ContinuousClock.Instant?,
-        locallyConfirmed: PromptLineTurnConfirmation?
+        locallyConfirmed: [PromptLineTurnConfirmation]
     ) async {
         if submissionCount > latestSubmissionCountByAgentID[agentID, default: 0] {
             latestSubmissionCountByAgentID[agentID] = submissionCount
@@ -50,13 +47,13 @@ actor PromptTurnNotificationHandler {
                 preferredWorkspaceID: workspaceID
             )?.foregroundPID
         }
-        if let locallyConfirmed {
-            // The detector already confirmed this turn synchronously at its
-            // deadline. Deliver it here so a delayed debounce task cannot be
-            // cancelled out of the completion it was about to report.
+        for confirmed in locallyConfirmed {
+            // The detector already confirmed these turns synchronously at
+            // their deadlines. Deliver them here so a delayed debounce task
+            // cannot be cancelled out of a completion it was about to report.
             await deliverVerifiedTurn(
                 agentID: agentID,
-                confirmation: locallyConfirmed,
+                confirmation: confirmed,
                 requiredRevision: nil
             )
         }
@@ -147,14 +144,14 @@ actor PromptTurnNotificationHandler {
         )
     }
 
+    /// Verifies process identity fresh for every delivery. Deliveries happen
+    /// at most once per completed turn, so re-reading the process argv is a
+    /// single bounded lookup; caching identity across turns would let a
+    /// reused PID or an exec'd replacement impersonate the agent.
     private func verifiedDefinition(
         foregroundPID: Int,
         agentID: String
     ) async -> CmuxTaskManagerCodingAgentDefinition? {
-        if hasCachedIdentity, cachedForegroundPID == foregroundPID {
-            return cachedDefinition?.id == agentID ? cachedDefinition : nil
-        }
-
         let task: Task<CmuxTaskManagerCodingAgentDefinition?, Never>
         if inFlightPID == foregroundPID, let inFlightVerification {
             task = inFlightVerification
@@ -171,15 +168,6 @@ actor PromptTurnNotificationHandler {
         if inFlightPID == foregroundPID {
             inFlightPID = nil
             inFlightVerification = nil
-            // Cache positive identifications only. A nil result can be a
-            // transient inspection failure (for example a race with exec);
-            // caching it would suppress notifications for the rest of that
-            // process's lifetime.
-            if let definition {
-                cachedForegroundPID = foregroundPID
-                cachedDefinition = definition
-                hasCachedIdentity = true
-            }
         }
         return definition?.id == agentID ? definition : nil
     }
