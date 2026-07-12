@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import Darwin
 import Foundation
+import os
 import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -56,6 +57,22 @@ struct MobileDiffTests {
         #expect(patch.contains("diff --git a/untracked.txt b/untracked.txt"))
         #expect(patch.contains("+after"))
         #expect(patch.contains("+new"))
+    }
+
+    @Test func coordinatorCoalescesConcurrentLoadsForOneWorkspace() async throws {
+        let callCount = OSAllocatedUnfairLock(initialState: 0)
+        let coordinator = MobileWorkingTreeDiffCoordinator(maximumConcurrentLoads: 2) { directory, title in
+            callCount.withLock { $0 += 1 }
+            try await ContinuousClock().sleep(for: .milliseconds(25))
+            return MobileWorkingTreeDiffPayload(patch: "patch", repositoryRoot: directory, title: title)
+        }
+
+        async let first = coordinator.load(directory: "/tmp/repository", title: "First")
+        async let second = coordinator.load(directory: "/tmp/repository", title: "Second")
+        let (firstResult, secondResult) = try await (first, second)
+
+        #expect(callCount.withLock { $0 } == 1)
+        #expect(firstResult.patch == secondResult.patch)
     }
 
     @Test func loaderIgnoresInheritedRepositorySelectionEnvironment() async throws {
