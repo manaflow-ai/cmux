@@ -16,6 +16,7 @@ import Testing
         let state = makeState(initialURL: url)
         #expect(state.addressText == "https://example.com")
         #expect(state.currentURL == url)
+        #expect(state.securityIndicatorURL == nil)
         #expect(state.isLoading)
         #expect(state.consumeLoadRequest() == url)
         // Consumed exactly once.
@@ -100,27 +101,46 @@ import Testing
 
     @Test func navigationLifecycleTransitions() {
         let state = makeState()
+        let committedURL = URL(string: "https://example.com/committed")!
 
         state.navigationDidStart()
         #expect(state.isLoading)
         #expect(state.estimatedProgress == 0)
         #expect(state.lastErrorMessage == nil)
+        #expect(state.securityIndicatorURL == nil)
+
+        state.navigationDidCommit(url: committedURL)
+        #expect(state.securityIndicatorURL == committedURL)
 
         state.estimatedProgress = 0.5
-        state.navigationDidFinish()
+        state.navigationDidFinish(url: committedURL)
         #expect(state.isLoading == false)
         #expect(state.estimatedProgress == 1)
+        #expect(state.securityIndicatorURL == committedURL)
     }
 
     @Test func navigationFailureSurfacesMessageAndStopsLoading() {
         let state = makeState()
         state.navigationDidStart()
         let failedURL = URL(string: "https://unreachable.invalid")!
+        state.navigationDidCommit(url: failedURL)
         state.navigationDidFail(message: "no network", url: failedURL)
         #expect(state.isLoading == false)
         #expect(state.estimatedProgress == 0)
         #expect(state.lastErrorMessage == "no network")
         #expect(state.lastFailedURL == failedURL)
+        #expect(state.securityIndicatorURL == nil)
+    }
+
+    @Test func securityIndicatorNeverUsesUncommittedOrFailedDestination() {
+        let state = makeState(initialURL: URL(string: "https://initial.example")!)
+        let failedURL = URL(string: "http://failed.example")!
+
+        #expect(state.securityIndicatorURL == nil)
+        state.navigationDidStart()
+        #expect(state.securityIndicatorURL == nil)
+        state.navigationDidFail(message: "offline", url: failedURL, wasProvisional: true)
+        #expect(state.securityIndicatorURL == nil)
     }
 
     @Test func retryFailureQueuesExactDestinationAndClearsError() {

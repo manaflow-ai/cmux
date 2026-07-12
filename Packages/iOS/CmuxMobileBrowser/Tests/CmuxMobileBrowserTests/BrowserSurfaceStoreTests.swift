@@ -143,6 +143,21 @@ import Testing
         #expect(store.browser(for: "shared") == nil)
     }
 
+    @Test func canonicalRawIdentityWinsOverAnotherWorkspacesMigrationAlias() {
+        let store = makeStore()
+        let anonymousBrowser = store.openBrowser(for: "shared")
+        let anonymousIdentity = BrowserWorkspaceIdentity(rawValue: "shared")
+        let scopedIdentity = BrowserWorkspaceIdentity(
+            rawValue: "5:mac-b:shared",
+            aliases: ["shared"]
+        )
+
+        store.reconcileWorkspaces([anonymousIdentity, scopedIdentity])
+
+        #expect(store.browser(for: anonymousIdentity) === anonymousBrowser)
+        #expect(store.browser(for: scopedIdentity) == nil)
+    }
+
     @Test func identicalRemoteWorkspaceIDsRemainScopedToTheirOwningMacs() {
         let store = makeStore()
         let firstIdentity = BrowserWorkspaceIdentity(rawValue: "5:mac-a:shared")
