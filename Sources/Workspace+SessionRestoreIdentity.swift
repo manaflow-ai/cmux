@@ -351,16 +351,34 @@ extension Workspace {
     }
 }
 
+struct SurfaceResumeTargetLocation {
+    let windowId: UUID
+    let workspaceId: UUID
+    let surfaceId: UUID
+    let tabManager: TabManager
+}
+
+enum SurfaceResumeTargetLookup {
+    case found(SurfaceResumeTargetLocation)
+    case missing
+    case ambiguous
+}
+
 extension AppDelegate {
     /// Locates a terminal globally by runtime panel id first, then restart-stable surface id.
     func locateSurfaceResumeTarget(
         surfaceId targetId: UUID
-    ) -> (windowId: UUID, workspaceId: UUID, surfaceId: UUID, tabManager: TabManager)? {
+    ) -> SurfaceResumeTargetLookup {
         if let located = locateSurface(surfaceId: targetId) {
-            return (located.windowId, located.workspaceId, targetId, located.tabManager)
+            return .found(SurfaceResumeTargetLocation(
+                windowId: located.windowId,
+                workspaceId: located.workspaceId,
+                surfaceId: targetId,
+                tabManager: located.tabManager
+            ))
         }
 
-        var match: (windowId: UUID, workspaceId: UUID, surfaceId: UUID, tabManager: TabManager)?
+        var match: SurfaceResumeTargetLocation?
         var isAmbiguous = false
         var visitedManagers = Set<ObjectIdentifier>()
 
@@ -377,7 +395,12 @@ extension AppDelegate {
                     isAmbiguous = true
                     return
                 }
-                match = (windowId, workspace.id, surfaceId, tabManager)
+                match = SurfaceResumeTargetLocation(
+                    windowId: windowId,
+                    workspaceId: workspace.id,
+                    surfaceId: surfaceId,
+                    tabManager: tabManager
+                )
             }
         }
 
@@ -389,6 +412,8 @@ extension AppDelegate {
             inspect(windowId: route.windowId, tabManager: tabManager)
         }
 
-        return isAmbiguous ? nil : match
+        if isAmbiguous { return .ambiguous }
+        guard let match else { return .missing }
+        return .found(match)
     }
 }
