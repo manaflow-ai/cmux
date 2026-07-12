@@ -16,6 +16,9 @@ struct WorkspaceListView: View {
     let selectedWorkspaceID: MobileWorkspacePreview.ID?
     let host: String
     let connectionStatus: MobileMacConnectionStatus
+    var macUpdateHint: MobileMacUpdateHint? = nil
+    var macUpdateHintMacName: String? = nil
+    var dismissMacUpdateHint: (() -> Void)? = nil
     let navigationStyle: WorkspaceNavigationStyle
     var showsNavigationToolbar = true
     /// Whether workspace-row titles wrap (multi-line) instead of truncating to a
@@ -266,6 +269,18 @@ struct WorkspaceListView: View {
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                         .listRowSeparator(.hidden)
                 }
+            case .macUpdateHint:
+                if let macUpdateHint {
+                    Section {
+                        MobileMacUpdateHintBanner(
+                            hint: macUpdateHint,
+                            macDisplayName: macUpdateHintMacName,
+                            dismiss: dismissMacUpdateHint ?? {}
+                        )
+                        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                        .listRowSeparator(.hidden)
+                    }
+                }
             case .none:
                 EmptyView()
             }
@@ -486,7 +501,8 @@ struct WorkspaceListView: View {
             connectionRequiresReauth: store?.connectionRequiresReauth ?? false,
             connectionRecoveryFailed: store?.connectionRecoveryFailed ?? false,
             isRecoveringConnection: store?.isRecoveringConnection ?? false,
-            connectionStatus: connectionStatus
+            connectionStatus: connectionStatus,
+            hasMacUpdateHint: macUpdateHint != nil
         )
     }
 

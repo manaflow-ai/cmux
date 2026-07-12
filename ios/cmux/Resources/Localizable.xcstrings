@@ -3843,6 +3843,210 @@
         }
       }
     },
+    "mobile.macUpdateHint.bodyFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is on cmux %2$@. Updating to %3$@ or later adds: %4$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@はcmux %2$@を実行中です。%3$@以降に更新すると次の機能が使えます：%4$@"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.dismiss": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don't show again for this version"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このバージョンでは再表示しない"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.feature.workspaceActions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename and pin workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの名前変更とピン留め"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.feature.workspaceClose": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じる"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.feature.workspaceCreateInGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create workspaces inside groups"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ内にワークスペースを作成"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.feature.workspaceGroupActions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move and group workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの移動とグループ化"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.feature.workspaceGroupCreate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create workspace groups"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースグループの作成"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.feature.workspaceGroups": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace groups"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースグループ"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.feature.workspaceMove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reorder workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの並べ替え"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.feature.workspaceReadState": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark workspaces read or unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの既読・未読の切り替え"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.genericMacName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "お使いのMac"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac update adds features"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macの更新で機能が追加されます"
+          }
+        }
+      }
+    },
     "mobile.recovery.accountMismatch": {
       "extractionState": "manual",
       "localizations": {

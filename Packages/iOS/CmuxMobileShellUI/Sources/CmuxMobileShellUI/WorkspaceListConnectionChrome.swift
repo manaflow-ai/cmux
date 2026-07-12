@@ -6,12 +6,13 @@ import CmuxMobileShellModel
 ///
 /// Reauth renders the banner first because Sign Out is the only useful action.
 /// Otherwise a non-connected Mac status renders the status row with host-scoped
-/// actions. Store-level recovery only renders the banner while the aggregate
-/// list status is still connected.
+/// actions. Store-level recovery renders next while the aggregate list status is
+/// still connected, followed by the non-disruptive Mac-update hint.
 enum WorkspaceListConnectionChrome: Equatable {
     case none
     case recoveryBanner
     case macStatusRow
+    case macUpdateHint
 
     /// Chooses exactly one connection surface when store recovery and Mac status
     /// updates overlap during the same real connection drop.
@@ -20,7 +21,8 @@ enum WorkspaceListConnectionChrome: Equatable {
         connectionRequiresReauth: Bool,
         connectionRecoveryFailed: Bool,
         isRecoveringConnection: Bool,
-        connectionStatus: MobileMacConnectionStatus
+        connectionStatus: MobileMacConnectionStatus,
+        hasMacUpdateHint: Bool
     ) {
         if hasStore && connectionRequiresReauth {
             self = .recoveryBanner
@@ -28,6 +30,8 @@ enum WorkspaceListConnectionChrome: Equatable {
             self = .macStatusRow
         } else if hasStore && (connectionRecoveryFailed || isRecoveringConnection) {
             self = .recoveryBanner
+        } else if hasMacUpdateHint {
+            self = .macUpdateHint
         } else {
             self = .none
         }
