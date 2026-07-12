@@ -2,9 +2,148 @@ import AppKit
 import UniformTypeIdentifiers
 import WebKit
 
+final class CmuxAgentSessionURLSchemeHandler: NSObject, WKURLSchemeHandler {
+    static let scheme = "cmux-agent-session"
+    static let host = "app"
+    static let shellURL = URL(string: "\(scheme)://\(host)/agent-session.html")!
+
+    struct Asset {
+        let fileURL: URL
+        let mimeType: String
+        let isDeflated: Bool
+    }
+
+    private let assetRootURL: URL
+
+    init(resourceDirectoryURL: URL) {
+        assetRootURL = resourceDirectoryURL
+            .appendingPathComponent("markdown-viewer", isDirectory: true)
+            .appendingPathComponent("webviews-app", isDirectory: true)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        super.init()
+    }
+
+    func asset(for url: URL) -> Asset? {
+        guard url.scheme == Self.scheme,
+              url.host == Self.host,
+              url.user == nil,
+              url.password == nil,
+              url.port == nil,
+              url.query == nil,
+              url.fragment == nil,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+
+        let encodedPath = components.percentEncodedPath
+        guard encodedPath.hasPrefix("/"),
+              let decodedPath = encodedPath.removingPercentEncoding,
+              decodedPath == url.path,
+              !decodedPath.contains("\\"),
+              !decodedPath.split(separator: "/", omittingEmptySubsequences: false).contains("..") else {
+            return nil
+        }
+
+        let requestPath = String(decodedPath.dropFirst())
+        guard !requestPath.isEmpty,
+              let mimeType = Self.mimeType(for: requestPath) else {
+            return nil
+        }
+
+        let candidate = assetRootURL
+            .appendingPathComponent(requestPath, isDirectory: false)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        guard candidate.path.hasPrefix(assetRootURL.path + "/") else {
+            return nil
+        }
+
+        if Self.isReadableFile(candidate) {
+            return Asset(fileURL: candidate, mimeType: mimeType, isDeflated: false)
+        }
+        let compressedCandidate = candidate.appendingPathExtension("deflate")
+        if Self.isReadableFile(compressedCandidate) {
+            return Asset(fileURL: compressedCandidate, mimeType: mimeType, isDeflated: true)
+        }
+        return nil
+    }
+
+    func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+        guard let requestURL = urlSchemeTask.request.url,
+              let asset = asset(for: requestURL) else {
+            urlSchemeTask.didFailWithError(
+                NSError(domain: NSURLErrorDomain, code: NSURLErrorFileDoesNotExist)
+            )
+            return
+        }
+
+        do {
+            let data = try Data(contentsOf: asset.fileURL, options: .mappedIfSafe)
+            var headers = [
+                "Content-Type": "\(asset.mimeType); charset=utf-8",
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+                "Cross-Origin-Resource-Policy": "same-origin"
+            ]
+            if asset.isDeflated {
+                headers["Content-Encoding"] = "deflate"
+            }
+            if asset.mimeType == "text/html" {
+                headers["Content-Security-Policy"] = [
+                    "default-src 'none'",
+                    "script-src 'self' 'wasm-unsafe-eval'",
+                    "style-src 'unsafe-inline'",
+                    "img-src 'self' data:",
+                    "connect-src 'none'",
+                    "font-src 'none'",
+                    "object-src 'none'",
+                    "base-uri 'none'",
+                    "form-action 'none'"
+                ].joined(separator: "; ")
+            }
+            let response = HTTPURLResponse(
+                url: requestURL,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: headers
+            ) ?? URLResponse(
+                url: requestURL,
+                mimeType: asset.mimeType,
+                expectedContentLength: data.count,
+                textEncodingName: "utf-8"
+            )
+            urlSchemeTask.didReceive(response)
+            urlSchemeTask.didReceive(data)
+            urlSchemeTask.didFinish()
+        } catch {
+            urlSchemeTask.didFailWithError(error)
+        }
+    }
+
+    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
+
+    private static func isReadableFile(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            && !isDirectory.boolValue
+            && FileManager.default.isReadableFile(atPath: url.path)
+    }
+
+    private static func mimeType(for path: String) -> String? {
+        switch URL(fileURLWithPath: path).pathExtension.lowercased() {
+        case "html": "text/html"
+        case "mjs", "js": "text/javascript"
+        case "css": "text/css"
+        default: nil
+        }
+    }
+}
+
 @MainActor
 final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandlerWithReply {
     var webView: AgentSessionWebView?
+    private var assetSchemeHandler: CmuxAgentSessionURLSchemeHandler?
     private var panelId = UUID()
     private var workspaceId = UUID()
     private var rendererKind: AgentSessionRendererKind = .react
@@ -72,6 +211,11 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
 
         let configuration = WKWebViewConfiguration()
         configuration.suppressesIncrementalRendering = false
+        if let resourceDirectoryURL = Bundle.main.resourceURL {
+            let handler = CmuxAgentSessionURLSchemeHandler(resourceDirectoryURL: resourceDirectoryURL)
+            configuration.setURLSchemeHandler(handler, forURLScheme: CmuxAgentSessionURLSchemeHandler.scheme)
+            assetSchemeHandler = handler
+        }
         configuration.userContentController.addScriptMessageHandler(
             self,
             contentWorld: .page,
@@ -103,21 +247,15 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         guard let webView, webView.window != nil else {
             return
         }
-        guard let resourceDirectoryURL = Bundle.main.resourceURL else {
-            return
-        }
-        let indexURL = Self.shellURL(
-            rendererKind: rendererKind,
-            resourceDirectoryURL: resourceDirectoryURL
-        )
-        trustedShellURL = Self.normalizedTrustedFileURL(indexURL)
+        let indexURL = CmuxAgentSessionURLSchemeHandler.shellURL
+        trustedShellURL = indexURL
 #if DEBUG
         cmuxDebugLog(
             "agentSession.web.load renderer=\(rendererKind.rawValue) " +
-            "index=\(indexURL.path)"
+            "index=\(indexURL.absoluteString)"
         )
 #endif
-        webView.loadFileURL(indexURL, allowingReadAccessTo: Bundle.main.resourceURL ?? resourceDirectoryURL)
+        webView.load(URLRequest(url: indexURL))
         loadedRendererKind = rendererKind
         hasFinishedNavigation = false
         hasCompletedVisiblePaintFlush = false
@@ -152,6 +290,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             webView.onPointerDown = nil
         }
         webView = nil
+        assetSchemeHandler = nil
         loadedRendererKind = nil
         trustedShellURL = nil
         hasFinishedNavigation = false
@@ -316,28 +455,19 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         return Self.isTrustedShellURL(frameInfo.request.url, expected: trustedShellURL)
     }
 
-    nonisolated static func shellURL(
-        rendererKind: AgentSessionRendererKind,
-        resourceDirectoryURL: URL
-    ) -> URL {
-        rendererKind.resourceHTMLPathComponents.reduce(resourceDirectoryURL) {
-            $0.appendingPathComponent($1, isDirectory: false)
-        }
-    }
-
     nonisolated static func isTrustedShellURL(_ candidate: URL?, expected: URL?) -> Bool {
-        guard let candidate = normalizedTrustedFileURL(candidate),
-              let expected = normalizedTrustedFileURL(expected) else {
+        guard let candidate,
+              let expected,
+              candidate.scheme == CmuxAgentSessionURLSchemeHandler.scheme,
+              candidate.host == CmuxAgentSessionURLSchemeHandler.host,
+              candidate.user == nil,
+              candidate.password == nil,
+              candidate.port == nil,
+              candidate.query == nil,
+              candidate.fragment == nil else {
             return false
         }
         return candidate == expected
-    }
-
-    nonisolated static func normalizedTrustedFileURL(_ url: URL?) -> URL? {
-        guard let url, url.isFileURL else {
-            return nil
-        }
-        return url.standardizedFileURL.resolvingSymlinksInPath()
     }
 
     private func handle(_ request: AgentSessionBridgeRequest) async throws -> Any {
