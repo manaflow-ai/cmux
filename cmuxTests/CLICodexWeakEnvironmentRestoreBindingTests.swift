@@ -13,14 +13,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-weak-env-session"
-
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
         }
-
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line) else { return "OK" }
             guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
@@ -29,6 +27,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "surface.list":
                 return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "system.resolve_terminal":
+                return self.v2Response(id: id, ok: true, result: ["tty_bindings": [], "pid_binding": NSNull()])
+            case "system.top":
+                return self.v2Response(id: id, ok: true, result: ["windows": []])
             case "debug.terminals":
                 return self.v2Response(id: id, ok: true, result: ["terminals": []])
             case "surface.resume.set", "surface.resume.clear":
@@ -42,7 +44,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 )
             }
         }
-
         var environment = ProcessInfo.processInfo.environment
         environment["HOME"] = root.path
         environment["PWD"] = workspace.path
@@ -58,7 +59,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         for key in ["CMUX_AGENT_LAUNCH_KIND", "CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD"] {
             environment.removeValue(forKey: key)
         }
-
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "prompt-submit"],
