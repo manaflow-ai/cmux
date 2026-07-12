@@ -74,4 +74,17 @@ struct AgentSessionWebRendererTests {
             }
         }
     }
+
+    @MainActor
+    @Test func initialAgentSessionRegistersItsWorkingDirectory() throws {
+        let directory = FileManager.default.temporaryDirectory.path
+        let workspace = Workspace(
+            workingDirectory: "  \(directory)  ",
+            initialSurface: .agentSession
+        )
+        let panel = try #require(workspace.panels.values.first as? AgentSessionPanel)
+
+        #expect(panel.workingDirectory == directory)
+        #expect(workspace.panelDirectories[panel.id] == directory)
+    }
 }

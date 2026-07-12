@@ -4,14 +4,19 @@ import CmuxWorkspaces
 
 extension Workspace {
     func createInitialAgentSessionPanel(workingDirectory: String?) -> TabID? {
+        let trimmedDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let directory = trimmedDirectory?.isEmpty == false ? trimmedDirectory : nil
         let panel = AgentSessionPanel(
             workspaceId: id,
             rendererKind: .react,
             initialProviderID: .codex,
-            workingDirectory: workingDirectory
+            workingDirectory: directory
         )
         panels[panel.id] = panel
         panelTitles[panel.id] = panel.displayTitle
+        if let directory {
+            panelDirectories[panel.id] = directory
+        }
 
         let tabId = bonsplitController.createTab(
             title: panel.displayTitle,
