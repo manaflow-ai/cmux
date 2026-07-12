@@ -4,6 +4,7 @@ import type { SelectedLineRange } from "@pierre/diffs";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import "../../Resources/markdown-viewer/viewer-navigation.js";
 import { copyGitApplyCommand, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
 import { BranchBasePicker, type BranchPickerPayload } from "./BranchBasePicker";
@@ -264,7 +265,8 @@ export function App({ config, initialStatus }: ConfigProps) {
   usePendingReplacement(payload, label, dispatch);
   useRenderDiff(config, label, dispatch, latestState);
   useCommentsBootstrap(bridgeAvailable ? repoRoot : null, comments.onLoaded);
-  useKeyboardShortcuts(payload.shortcuts ?? {}, viewerContainerRef, dispatch);
+  useViewerNavigation(payload.shortcuts ?? {}, viewerContainerRef);
+  useKeyboardShortcuts(payload.shortcuts ?? {}, dispatch);
   useOptionsDismiss(state.optionsOpen, dispatch);
 
   const renderCommentAnnotation = (annotation: CommentAnnotation, item: DiffItem) => {
@@ -1470,72 +1472,35 @@ function usePageDataAttributes(state: AppState) {
 
 function useKeyboardShortcuts(
   shortcuts: any,
-  viewerRef: React.MutableRefObject<HTMLDivElement | null>,
   dispatch: React.Dispatch<AppAction>,
 ) {
   useEffect(() => {
-    const scrollDownShortcut = normalizeShortcut(shortcuts.diffViewerScrollDown);
-    const scrollUpShortcut = normalizeShortcut(shortcuts.diffViewerScrollUp);
-    const scrollBottomShortcut = normalizeShortcut(shortcuts.diffViewerScrollToBottom);
-    const scrollTopShortcut = normalizeShortcut(shortcuts.diffViewerScrollToTop);
     const fileSearchShortcut = normalizeShortcut(shortcuts.diffViewerOpenFileSearch);
-    let pendingChord: PendingChord | null = null;
-    let chordTimeout = 0;
-    const clearPendingChord = () => {
-      pendingChord = null;
-      if (chordTimeout !== 0) {
-        window.clearTimeout(chordTimeout);
-        chordTimeout = 0;
-      }
-    };
     const listener = (event: KeyboardEvent) => {
       if (event.defaultPrevented || isTypingShortcutTarget(event.target)) {
-        return;
-      }
-      if (pendingChord && !shortcutStrokeMatchesEvent(pendingChord.shortcut.second, event)) {
-        clearPendingChord();
-      }
-      if (pendingChord && shortcutStrokeMatchesEvent(pendingChord.shortcut.second, event)) {
-        event.preventDefault();
-        pendingChord.action();
-        clearPendingChord();
-        return;
-      }
-      if (shortcutMatchesEvent(scrollDownShortcut, event)) {
-        event.preventDefault();
-        scrollViewerBy(viewerRef.current, 1);
-        return;
-      }
-      if (shortcutMatchesEvent(scrollUpShortcut, event)) {
-        event.preventDefault();
-        scrollViewerBy(viewerRef.current, -1);
-        return;
-      }
-      if (shortcutMatchesEvent(scrollBottomShortcut, event)) {
-        event.preventDefault();
-        viewerRef.current?.scrollTo({ top: viewerRef.current.scrollHeight, behavior: "auto" });
         return;
       }
       if (shortcutMatchesEvent(fileSearchShortcut, event)) {
         event.preventDefault();
         dispatch({ type: "set-file-search-open", open: true });
-        return;
-      }
-      if (scrollTopShortcut && shortcutStartsChord(scrollTopShortcut, event)) {
-        event.preventDefault();
-        pendingChord = {
-          shortcut: scrollTopShortcut,
-          action: () => viewerRef.current?.scrollTo({ top: 0, behavior: "auto" }),
-        };
-        chordTimeout = window.setTimeout(clearPendingChord, 700);
       }
     };
     document.addEventListener("keydown", listener);
     return () => {
-      clearPendingChord();
       document.removeEventListener("keydown", listener);
     };
-  }, [dispatch, shortcuts, viewerRef]);
+  }, [dispatch, shortcuts]);
+}
+
+function useViewerNavigation(
+  shortcuts: Record<string, unknown>,
+  viewerRef: React.MutableRefObject<HTMLDivElement | null>,
+) {
+  useEffect(() => CmuxViewerNavigation.install({
+    target: document,
+    getScroller: () => viewerRef.current!,
+    shortcuts,
+  }), [shortcuts, viewerRef]);
 }
 
 function useOptionsDismiss(optionsOpen: boolean, dispatch: React.Dispatch<AppAction>) {
@@ -1576,11 +1541,6 @@ type ShortcutBinding = {
   second: ShortcutStroke | null;
 };
 
-type PendingChord = {
-  action: () => void;
-  shortcut: ShortcutBinding;
-};
-
 function normalizeShortcut(rawShortcut: any): ShortcutBinding | null {
   if (!rawShortcut || rawShortcut.unbound === true || !rawShortcut.first) {
     return null;
@@ -1603,10 +1563,6 @@ function normalizeShortcutStroke(rawStroke: any): ShortcutStroke {
 
 function shortcutMatchesEvent(shortcut: ShortcutBinding | null, event: KeyboardEvent): boolean {
   return Boolean(shortcut && !shortcut.second && shortcutStrokeMatchesEvent(shortcut.first, event));
-}
-
-function shortcutStartsChord(shortcut: ShortcutBinding, event: KeyboardEvent): boolean {
-  return Boolean(shortcut.second && shortcutStrokeMatchesEvent(shortcut.first, event));
 }
 
 function shortcutStrokeMatchesEvent(stroke: ShortcutStroke | null, event: KeyboardEvent): boolean {
@@ -1632,14 +1588,6 @@ function normalizedShortcutEventKey(event: KeyboardEvent): string {
 function isTypingShortcutTarget(target: EventTarget | null): boolean {
   const element = target instanceof Element ? target : null;
   return Boolean(element?.closest("input, textarea, select, [contenteditable='true']"));
-}
-
-function scrollViewerBy(viewer: HTMLDivElement | null, direction: number): void {
-  if (!viewer) {
-    return;
-  }
-  const amount = Math.max(80, Math.floor(viewer.clientHeight * 0.38));
-  viewer.scrollBy({ top: direction * amount, behavior: "auto" });
 }
 
 function scrollTargetForItem(itemId: string, items: DiffItem[]): string {

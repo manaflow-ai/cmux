@@ -417,14 +417,38 @@ export const shortcutCategories: ShortcutCategory[] = [
       {
         id: "diffViewerScrollDown",
         combos: [["J"]],
-        description: { en: "Scroll diff down", ja: "差分を下にスクロール" },
-        note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
+        description: { en: "Scroll viewer down one line", ja: "ビューアを1行下にスクロール" },
+        note: { en: "focused diff or Markdown viewer", ja: "フォーカス中の差分またはMarkdownビューア" },
       },
       {
         id: "diffViewerScrollUp",
         combos: [["K"]],
-        description: { en: "Scroll diff up", ja: "差分を上にスクロール" },
-        note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
+        description: { en: "Scroll viewer up one line", ja: "ビューアを1行上にスクロール" },
+        note: { en: "focused diff or Markdown viewer", ja: "フォーカス中の差分またはMarkdownビューア" },
+      },
+      {
+        id: "diffViewerScrollHalfPageDown",
+        combos: [["⌃", "D"]],
+        description: { en: "Scroll viewer down half a page", ja: "ビューアを半ページ下にスクロール" },
+        note: { en: "focused diff or Markdown viewer", ja: "フォーカス中の差分またはMarkdownビューア" },
+      },
+      {
+        id: "diffViewerScrollHalfPageUp",
+        combos: [["⌃", "U"]],
+        description: { en: "Scroll viewer up half a page", ja: "ビューアを半ページ上にスクロール" },
+        note: { en: "focused diff or Markdown viewer", ja: "フォーカス中の差分またはMarkdownビューア" },
+      },
+      {
+        id: "diffViewerScrollDownEmacs",
+        combos: [["⌃", "N"]],
+        description: { en: "Scroll viewer down one line (Emacs)", ja: "ビューアを1行下にスクロール（Emacs）" },
+        note: { en: "focused diff or Markdown viewer", ja: "フォーカス中の差分またはMarkdownビューア" },
+      },
+      {
+        id: "diffViewerScrollUpEmacs",
+        combos: [["⌃", "P"]],
+        description: { en: "Scroll viewer up one line (Emacs)", ja: "ビューアを1行上にスクロール（Emacs）" },
+        note: { en: "focused diff or Markdown viewer", ja: "フォーカス中の差分またはMarkdownビューア" },
       },
       {
         id: "diffViewerScrollToBottom",

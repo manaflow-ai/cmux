@@ -666,6 +666,54 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(after["top"] ?? .greatestFiniteMagnitude, before["top"] ?? 0, accuracy: 6)
     }
 
+    func testMarkdownViewerUsesSmoothVimAndEmacsNavigation() async throws {
+        let frame = NSRect(x: 0, y: 0, width: 720, height: 360)
+        let webView = WKWebView(frame: frame, configuration: WKWebViewConfiguration())
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = webView
+        window.orderFrontRegardless()
+        defer {
+            webView.navigationDelegate = nil
+            window.close()
+        }
+
+        let loaded = expectation(description: "markdown shell loaded")
+        let loadDelegate = MarkdownShellLoadDelegate(expectation: loaded)
+        webView.navigationDelegate = loadDelegate
+        webView.loadHTMLString(
+            MarkdownViewerAssets.shared.shellHTML(isDark: true),
+            baseURL: FileManager.default.temporaryDirectory.appendingPathComponent("navigation.md")
+        )
+        await fulfillment(of: [loaded], timeout: 5)
+        if let error = loadDelegate.error {
+            throw error
+        }
+        try await renderMarkdown(scrollSmokeMarkdown(extraBeforeSection20: false), in: webView)
+
+        let result = try await webView.evaluateJavaScript(
+            """
+            (function() {
+              var scroller = document.scrollingElement || document.documentElement;
+              var calls = [];
+              scroller.scrollTo = function(options) { calls.push({ type: 'to', top: options.top, behavior: options.behavior }); };
+              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', bubbles: true }));
+              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, bubbles: true }));
+              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', ctrlKey: true, bubbles: true }));
+              return calls;
+            })();
+            """
+        )
+        let calls = try XCTUnwrap(result as? [[String: Any]])
+        XCTAssertEqual(calls.count, 3)
+        XCTAssertEqual(calls.map { $0["behavior"] as? String }, ["smooth", "smooth", "smooth"])
+        XCTAssertEqual((calls[0]["top"] as? NSNumber)?.doubleValue, 24)
+        XCTAssertGreaterThan((calls[1]["top"] as? NSNumber)?.doubleValue ?? 0, 100)
+        XCTAssertLessThan(
+            (calls[2]["top"] as? NSNumber)?.doubleValue ?? .greatestFiniteMagnitude,
+            (calls[1]["top"] as? NSNumber)?.doubleValue ?? 0
+        )
+    }
+
     func testMarkdownRenderHandlesLocalImageSources() async throws {
         let fileManager = FileManager.default
         let rootURL = fileManager.temporaryDirectory

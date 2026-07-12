@@ -13,6 +13,7 @@ final class MarkdownViewerAssets {
     private let highlightLightCSS: String
     private let highlightDarkCSS: String
     private let githubMarkdownCSS: String
+    private let viewerNavigationJS: String
     private let shellTemplate: String
     private let localizedStringsJSON: String
 
@@ -24,6 +25,7 @@ final class MarkdownViewerAssets {
         highlightLightCSS = MarkdownViewerAssets.loadAsset(name: "highlight-github", ext: "css")
         highlightDarkCSS = MarkdownViewerAssets.loadAsset(name: "highlight-github-dark", ext: "css")
         githubMarkdownCSS = MarkdownViewerAssets.loadAsset(name: "github-markdown", ext: "css")
+        viewerNavigationJS = MarkdownViewerAssets.loadAsset(name: "viewer-navigation", ext: "js")
         shellTemplate = MarkdownViewerAssets.loadAsset(name: "shell", ext: "html")
         localizedStringsJSON = MarkdownViewerAssets.localizedStringsJSON()
     }
@@ -36,7 +38,52 @@ final class MarkdownViewerAssets {
             .replacingOccurrences(of: "{{highlightDarkCSS}}", with: highlightDarkCSS)
             .replacingOccurrences(of: "{{markedJS}}", with: markedJS)
             .replacingOccurrences(of: "{{highlightJS}}", with: highlightJS)
+            .replacingOccurrences(of: "{{viewerNavigationJS}}", with: viewerNavigationJS)
+            .replacingOccurrences(of: "{{viewerShortcutsJSON}}", with: Self.viewerShortcutsJSON())
             .replacingOccurrences(of: "{{localizedStringsJSON}}", with: localizedStringsJSON)
+    }
+
+    private static let viewerNavigationActions: [KeyboardShortcutSettings.Action] = [
+        .diffViewerScrollDown,
+        .diffViewerScrollUp,
+        .diffViewerScrollHalfPageDown,
+        .diffViewerScrollHalfPageUp,
+        .diffViewerScrollDownEmacs,
+        .diffViewerScrollUpEmacs,
+        .diffViewerScrollToBottom,
+        .diffViewerScrollToTop,
+    ]
+
+    private static func viewerShortcutsJSON() -> String {
+        let shortcuts = Dictionary(uniqueKeysWithValues: viewerNavigationActions.map { action in
+            (action.rawValue, viewerShortcutJSONObject(KeyboardShortcutSettings.shortcut(for: action)))
+        })
+        guard let data = try? JSONSerialization.data(withJSONObject: shortcuts),
+              let json = String(data: data, encoding: .utf8) else {
+            return "{}"
+        }
+        return json
+            .replacingOccurrences(of: "</script", with: "<\\/script", options: .caseInsensitive)
+            .replacingOccurrences(of: "<!--", with: "<\\!--")
+    }
+
+    private static func viewerShortcutJSONObject(_ shortcut: StoredShortcut) -> [String: Any] {
+        guard !shortcut.isUnbound else { return ["unbound": true] }
+        var object: [String: Any] = ["first": viewerShortcutStrokeJSONObject(shortcut.firstStroke)]
+        if let secondStroke = shortcut.secondStroke {
+            object["second"] = viewerShortcutStrokeJSONObject(secondStroke)
+        }
+        return object
+    }
+
+    private static func viewerShortcutStrokeJSONObject(_ stroke: ShortcutStroke) -> [String: Any] {
+        [
+            "key": stroke.key,
+            "command": stroke.command,
+            "shift": stroke.shift,
+            "option": stroke.option,
+            "control": stroke.control,
+        ]
     }
 
     /// Load and cache a bundled JS asset on demand.

@@ -181,6 +181,10 @@ enum KeyboardShortcutSettings {
         case openDiffViewer
         case diffViewerScrollDown
         case diffViewerScrollUp
+        case diffViewerScrollHalfPageDown
+        case diffViewerScrollHalfPageUp
+        case diffViewerScrollDownEmacs
+        case diffViewerScrollUpEmacs
         case diffViewerScrollToBottom
         case diffViewerScrollToTop
         case diffViewerOpenFileSearch
@@ -297,10 +301,14 @@ enum KeyboardShortcutSettings {
             case .toggleBrowserFocusMode: return String(localized: "shortcut.toggleBrowserFocusMode.label", defaultValue: "Enter Browser Focus Mode")
             case .toggleReactGrab: return String(localized: "shortcut.toggleReactGrab.label", defaultValue: "Toggle React Grab")
             case .openDiffViewer: return String(localized: "shortcut.openDiffViewer.label", defaultValue: "Open Diff Viewer")
-            case .diffViewerScrollDown: return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Diff Viewer: Scroll Down")
-            case .diffViewerScrollUp: return String(localized: "shortcut.diffViewerScrollUp.label", defaultValue: "Diff Viewer: Scroll Up")
-            case .diffViewerScrollToBottom: return String(localized: "shortcut.diffViewerScrollToBottom.label", defaultValue: "Diff Viewer: Scroll to Bottom")
-            case .diffViewerScrollToTop: return String(localized: "shortcut.diffViewerScrollToTop.label", defaultValue: "Diff Viewer: Scroll to Top")
+            case .diffViewerScrollDown: return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Viewers: Scroll Down")
+            case .diffViewerScrollUp: return String(localized: "shortcut.diffViewerScrollUp.label", defaultValue: "Viewers: Scroll Up")
+            case .diffViewerScrollHalfPageDown: return String(localized: "shortcut.diffViewerScrollHalfPageDown.label", defaultValue: "Viewers: Scroll Half Page Down")
+            case .diffViewerScrollHalfPageUp: return String(localized: "shortcut.diffViewerScrollHalfPageUp.label", defaultValue: "Viewers: Scroll Half Page Up")
+            case .diffViewerScrollDownEmacs: return String(localized: "shortcut.diffViewerScrollDownEmacs.label", defaultValue: "Viewers: Scroll Down (Emacs)")
+            case .diffViewerScrollUpEmacs: return String(localized: "shortcut.diffViewerScrollUpEmacs.label", defaultValue: "Viewers: Scroll Up (Emacs)")
+            case .diffViewerScrollToBottom: return String(localized: "shortcut.diffViewerScrollToBottom.label", defaultValue: "Viewers: Scroll to Bottom")
+            case .diffViewerScrollToTop: return String(localized: "shortcut.diffViewerScrollToTop.label", defaultValue: "Viewers: Scroll to Top")
             case .diffViewerOpenFileSearch: return String(localized: "shortcut.diffViewerOpenFileSearch.label", defaultValue: "Diff Viewer: Open File Search")
             }
         }
@@ -570,6 +578,14 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "j", command: false, shift: false, option: false, control: false)
             case .diffViewerScrollUp:
                 return StoredShortcut(key: "k", command: false, shift: false, option: false, control: false)
+            case .diffViewerScrollHalfPageDown:
+                return StoredShortcut(key: "d", command: false, shift: false, option: false, control: true)
+            case .diffViewerScrollHalfPageUp:
+                return StoredShortcut(key: "u", command: false, shift: false, option: false, control: true)
+            case .diffViewerScrollDownEmacs:
+                return StoredShortcut(key: "n", command: false, shift: false, option: false, control: true)
+            case .diffViewerScrollUpEmacs:
+                return StoredShortcut(key: "p", command: false, shift: false, option: false, control: true)
             case .diffViewerScrollToBottom:
                 return StoredShortcut(key: "g", command: false, shift: true, option: false, control: false)
             case .diffViewerScrollToTop:
@@ -599,6 +615,10 @@ enum KeyboardShortcutSettings {
             switch self {
             case .diffViewerScrollDown,
                  .diffViewerScrollUp,
+                 .diffViewerScrollHalfPageDown,
+                 .diffViewerScrollHalfPageUp,
+                 .diffViewerScrollDownEmacs,
+                 .diffViewerScrollUpEmacs,
                  .diffViewerScrollToBottom,
                  .diffViewerScrollToTop,
                  .diffViewerOpenFileSearch,
@@ -618,6 +638,10 @@ enum KeyboardShortcutSettings {
             switch self {
             case .diffViewerScrollDown,
                  .diffViewerScrollUp,
+                 .diffViewerScrollHalfPageDown,
+                 .diffViewerScrollHalfPageUp,
+                 .diffViewerScrollDownEmacs,
+                 .diffViewerScrollUpEmacs,
                  .diffViewerScrollToBottom,
                  .diffViewerScrollToTop,
                  .diffViewerOpenFileSearch:

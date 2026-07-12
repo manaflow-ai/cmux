@@ -39,6 +39,10 @@ struct ShortcutActionNumberedDigitTests {
         let bareFirstStrokeActions: Set<ShortcutAction> = [
             .diffViewerScrollDown,
             .diffViewerScrollUp,
+            .diffViewerScrollHalfPageDown,
+            .diffViewerScrollHalfPageUp,
+            .diffViewerScrollDownEmacs,
+            .diffViewerScrollUpEmacs,
             .diffViewerScrollToBottom,
             .diffViewerScrollToTop,
             .diffViewerOpenFileSearch,

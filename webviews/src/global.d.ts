@@ -1,6 +1,14 @@
 export {};
 
 declare global {
+  var CmuxViewerNavigation: {
+    install(options: {
+      target: Document | HTMLElement;
+      getScroller: () => HTMLElement;
+      shortcuts: Record<string, unknown>;
+    }): () => void;
+  };
+
   interface Window {
     __cmuxDiffViewer?: {
       codeView?: unknown;
