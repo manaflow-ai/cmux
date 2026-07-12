@@ -125,7 +125,10 @@ struct WorkspaceDetailView: View {
                     selectTerminal: selectTerminalFromPicker,
                     reorderGate: store.terminalReorderGate,
                     reorderTerminal: reorderTerminal,
-                    closeTerminal: closeTerminal
+                    closeTerminal: closeTerminal,
+                    refreshTerminals: {
+                        _ = await store.refreshTerminalHierarchy(workspaceID: workspace.id)
+                    }
                 )
             }
             .workspaceRenameDialog(

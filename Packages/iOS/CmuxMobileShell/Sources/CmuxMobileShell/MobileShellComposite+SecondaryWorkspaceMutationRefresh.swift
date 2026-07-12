@@ -1,6 +1,13 @@
-internal import CmuxMobileShellModel
+public import CmuxMobileShellModel
 
 extension MobileShellComposite {
+    /// Reconciles the terminal hierarchy for one workspace after an acknowledged
+    /// mutation could not refresh automatically.
+    @discardableResult
+    public func refreshTerminalHierarchy(workspaceID: MobileWorkspacePreview.ID) async -> Bool {
+        await refreshAfterWorkspaceMutation(workspaceMutationTarget(for: workspaceID))
+    }
+
     /// Re-syncs one mutation target before the caller clears optimistic state.
     func refreshAfterWorkspaceMutation(_ target: WorkspaceMutationTarget) async -> Bool {
         if target.isForeground {

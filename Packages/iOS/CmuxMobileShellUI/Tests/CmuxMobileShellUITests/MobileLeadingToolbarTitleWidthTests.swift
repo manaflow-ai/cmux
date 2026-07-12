@@ -30,6 +30,7 @@ import Testing
             - MobileLeadingToolbarTitleWidth.backButtonReserve
             - MobileLeadingToolbarTitleWidth.trailingReserveBase
             - MobileLeadingToolbarTitleWidth.chatToggleReserve
+            - MobileLeadingToolbarTitleWidth.terminalAddReserve
             - MobileLeadingToolbarTitleWidth.barMarginsAndSpacing
         )
 
@@ -46,7 +47,7 @@ import Testing
     }
 
     @Test func titleGainsRoomWithoutBackButton() {
-        #expect(cap(260, hasBackButton: false) > cap(260, hasBackButton: true))
+        #expect(cap(320, hasBackButton: false) > cap(320, hasBackButton: true))
     }
 
     @Test func noTrailingClusterDoesNotReserveChatToggle() {

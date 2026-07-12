@@ -44,7 +44,13 @@ extension WorkspaceShellView {
         action: WorkspaceActionToastAction,
         failure: MobileWorkspaceMutationFailure
     ) -> String {
-        String.localizedStringWithFormat(
+        if case .appliedNeedsRefresh = failure {
+            return L10n.string(
+                "mobile.workspaceAction.failure.appliedNeedsRefresh",
+                defaultValue: "Change applied. Refresh to load the latest state."
+            )
+        }
+        return String.localizedStringWithFormat(
             L10n.string(
                 "mobile.workspaceAction.failure.message",
                 defaultValue: "Couldn't %@: %@."
@@ -91,6 +97,11 @@ extension WorkspaceShellView {
 
     private func workspaceActionFailureReasonText(_ failure: MobileWorkspaceMutationFailure) -> String {
         switch failure {
+        case .appliedNeedsRefresh:
+            return L10n.string(
+                "mobile.workspaceAction.failure.appliedNeedsRefresh",
+                defaultValue: "Change applied. Refresh to load the latest state."
+            )
         case let .notConnected(hostDisplayName):
             if let hostDisplayName = trimmedWorkspaceActionHostDisplayName(hostDisplayName) {
                 return String.localizedStringWithFormat(

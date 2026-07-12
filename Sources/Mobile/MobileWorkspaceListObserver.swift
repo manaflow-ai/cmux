@@ -232,7 +232,21 @@ final class MobileWorkspaceListObserver {
         mobileWorkspaceObserverLog.debug(
             "emitting workspace.updated for focused hierarchy workspace=\(workspace.id, privacy: .public)"
         )
-        MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
+        var payload: [String: Any] = [
+            "kind": "focus",
+            "workspace_id": workspace.id.uuidString,
+        ]
+        if let focusedPaneID = workspace.bonsplitController.focusedPaneId?.id.uuidString {
+            payload["focused_pane_id"] = focusedPaneID
+        } else {
+            payload["focused_pane_id"] = NSNull()
+        }
+        if let selectedTerminalID = workspace.focusedTerminalPanel?.id.uuidString {
+            payload["selected_terminal_id"] = selectedTerminalID
+        } else {
+            payload["selected_terminal_id"] = NSNull()
+        }
+        MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: payload)
     }
 
     private static func focusedHierarchySignature(for workspace: Workspace) -> Int {

@@ -41,7 +41,7 @@ extension MobileShellComposite {
                 list[workspaceIndex].panes[paneIndex].terminalIDs.append(terminal.id)
             }
         }
-        selectedTerminalID = terminal.id
+        selectTerminal(terminal.id)
         suppressTerminalAutoFocusOnNextAttach(for: terminal.id)
     }
 }

@@ -52,3 +52,19 @@ import Testing
     #expect(workspace.resolvedPanes.count == 1)
     #expect(pane.terminalIDs == [terminal.id])
 }
+
+@Test func workspaceFocusEventDecodesScopedSelectionIncludingNullTerminal() throws {
+    let selected = MobileWorkspaceFocusEvent.decode(Data("""
+    {"kind":"focus","workspace_id":"ws-1","focused_pane_id":"pane-right","selected_terminal_id":"terminal-c"}
+    """.utf8))
+    #expect(selected?.workspaceID == "ws-1")
+    #expect(selected?.focusedPaneID == "pane-right")
+    #expect(selected?.selectedTerminalID == "terminal-c")
+
+    let browser = MobileWorkspaceFocusEvent.decode(Data("""
+    {"kind":"focus","workspace_id":"ws-1","focused_pane_id":"pane-right","selected_terminal_id":null}
+    """.utf8))
+    #expect(browser?.workspaceID == "ws-1")
+    #expect(browser?.selectedTerminalID == nil)
+    #expect(MobileWorkspaceFocusEvent.decode(Data("{}".utf8)) == nil)
+}

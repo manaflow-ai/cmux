@@ -1,3 +1,6 @@
+import CmuxMobileRPC
+import CmuxMobileShellModel
+import Foundation
 import Testing
 @testable import CmuxMobileShell
 
@@ -39,4 +42,34 @@ import Testing
     let refreshed = await store.refreshAfterWorkspaceMutation(target)
 
     #expect(!refreshed)
+}
+
+@MainActor
+@Test func workspaceFocusEventUpdatesOnlyItsWorkspaceSnapshot() throws {
+    let workspace = MobileWorkspacePreview(
+        id: "ws-focus",
+        name: "Focus",
+        terminals: [
+            MobileTerminalPreview(id: "terminal-a", name: "A", paneID: "pane-left", isFocused: true),
+            MobileTerminalPreview(id: "terminal-b", name: "B", paneID: "pane-right"),
+        ],
+        panes: [
+            MobilePanePreview(id: "pane-left", spatialIndex: 0, isFocused: true, terminalIDs: ["terminal-a"]),
+            MobilePanePreview(id: "pane-right", spatialIndex: 1, terminalIDs: ["terminal-b"]),
+        ],
+        focusedPaneID: "pane-left",
+        selectedTerminalID: "terminal-a"
+    )
+    let store = MobileShellComposite(workspaces: [workspace])
+    let event = try #require(MobileWorkspaceFocusEvent.decode(Data("""
+    {"kind":"focus","workspace_id":"ws-focus","focused_pane_id":"pane-right","selected_terminal_id":"terminal-b"}
+    """.utf8)))
+
+    store.applyWorkspaceFocusEvent(event, macID: nil)
+
+    let updated = try #require(store.workspaces.first)
+    #expect(updated.focusedPaneID == "pane-right")
+    #expect(updated.selectedTerminalID == "terminal-b")
+    #expect(updated.panes.first(where: { $0.id == "pane-right" })?.isFocused == true)
+    #expect(updated.terminals.first(where: { $0.id == "terminal-b" })?.isFocused == true)
 }

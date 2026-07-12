@@ -17,11 +17,13 @@ struct TerminalHierarchySheet: View {
         MobileTerminalReorderReservation
     ) async -> Result<Void, MobileWorkspaceMutationFailure>
     let closeTerminal: (MobileTerminalPreview.ID, Bool) async -> Result<Void, MobileWorkspaceMutationFailure>
+    let refreshTerminals: () async -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var pendingClose: TerminalHierarchyRowSnapshot?
     @State private var closeConfirmationIncludesRunningProcess = false
     @State private var mutationFailed = false
+    @State private var mutationNeedsRefresh = false
     @State private var optimisticTerminalIDsByPane: [MobilePanePreview.ID: [MobileTerminalPreview.ID]] = [:]
 
     var body: some View {
@@ -84,6 +86,22 @@ struct TerminalHierarchySheet: View {
                     L10n.string(
                         "mobile.terminal.hierarchy.errorMessage",
                         defaultValue: "The Mac kept the previous terminal state. Check the connection and try again."
+                    )
+                )
+            }
+            .alert(
+                L10n.string("mobile.terminal.hierarchy.refreshTitle", defaultValue: "Change Applied"),
+                isPresented: $mutationNeedsRefresh
+            ) {
+                Button(L10n.string("mobile.common.refresh", defaultValue: "Refresh")) {
+                    Task { @MainActor in await refreshTerminals() }
+                }
+                Button(L10n.string("mobile.common.later", defaultValue: "Later"), role: .cancel) {}
+            } message: {
+                Text(
+                    L10n.string(
+                        "mobile.terminal.hierarchy.refreshMessage",
+                        defaultValue: "The Mac applied the change, but this list could not refresh. Refresh before making another change."
                     )
                 )
             }
@@ -254,7 +272,11 @@ struct TerminalHierarchySheet: View {
             let result = await reorderTerminal(intent, reservation)
             guard case .success = result else {
                 optimisticTerminalIDsByPane[pane.id] = nil
-                mutationFailed = true
+                if case .failure(.appliedNeedsRefresh) = result {
+                    mutationNeedsRefresh = true
+                } else {
+                    mutationFailed = true
+                }
                 return
             }
             optimisticTerminalIDsByPane[pane.id] = nil
@@ -303,6 +325,8 @@ struct TerminalHierarchySheet: View {
             case .failure(.confirmationRequired):
                 self.pendingClose = pendingClose
                 closeConfirmationIncludesRunningProcess = true
+            case .failure(.appliedNeedsRefresh):
+                mutationNeedsRefresh = true
             case .failure:
                 mutationFailed = true
             }

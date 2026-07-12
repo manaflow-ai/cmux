@@ -3717,6 +3717,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // Stop if this subscription was replaced/torn down.
                 guard self.secondaryMacSubscriptions[macID]?.client === client else { break }
                 if event.topic == "workspace.updated" {
+                    if let focusEvent = MobileWorkspaceFocusEvent.decode(event.payloadJSON) {
+                        self.applyWorkspaceFocusEvent(focusEvent, macID: macID)
+                        continue
+                    }
                     // Coalesced, newest-wins refresh: a title/progress churn stream
                     // collapses to at most one in-flight + one trailing full-list
                     // scan instead of one scan per event (mirrors the foreground's
@@ -5828,7 +5832,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if selectedWorkspaceID == rowWorkspaceID,
                let createdID = response.createdTerminalID {
                 let createdTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
-                selectedTerminalID = createdTerminalID
+                selectTerminal(createdTerminalID)
                 suppressTerminalAutoFocusOnNextAttach(for: createdTerminalID)
             }
         } catch {
@@ -6293,7 +6297,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 self.recordTerminalEventStreamLiveness()
                 self.markMacConnectionHealthy()
                 if event.topic == "workspace.updated" {
-                    self.scheduleWorkspaceListRefreshFromEvent()
+                    if let focusEvent = MobileWorkspaceFocusEvent.decode(event.payloadJSON) {
+                        self.applyWorkspaceFocusEvent(focusEvent, macID: nil)
+                    } else {
+                        self.scheduleWorkspaceListRefreshFromEvent()
+                    }
                 } else if event.topic == "terminal.render_grid" {
                     self.handleTerminalRenderGridEvent(event)
                 } else if event.topic == "terminal.set_font" {

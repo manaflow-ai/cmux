@@ -378,7 +378,7 @@ extension MobileShellComposite {
         }
         // Re-sync the authoritative list for the Mac we actually mutated.
         guard await refreshAfterWorkspaceMutation(target) else {
-            return .failure(.notConnected(hostDisplayName: hostDisplayName))
+            return .failure(.appliedNeedsRefresh(hostDisplayName: hostDisplayName))
         }
         return .success(())
     }

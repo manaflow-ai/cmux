@@ -59,7 +59,8 @@ public struct TerminalHierarchyPreviewView: View {
             selectTerminal: { selectedTerminalID = $0 },
             reorderGate: reorderGate,
             reorderTerminal: reorderTerminal,
-            closeTerminal: closeTerminal
+            closeTerminal: closeTerminal,
+            refreshTerminals: {}
         )
     }
 

@@ -698,6 +698,20 @@
         }
       }
     },
+    "mobile.common.later": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Later" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "後で" } }
+      }
+    },
+    "mobile.common.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refresh" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "更新" } }
+      }
+    },
     "mobile.common.retry": {
       "extractionState": "manual",
       "localizations": {
@@ -9062,6 +9076,13 @@
         }
       }
     },
+    "mobile.workspaceAction.failure.appliedNeedsRefresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Change applied. Refresh to load the latest state." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "変更は適用されました。最新の状態を読み込むには更新してください。" } }
+      }
+    },
     "mobile.workspaceAction.failure.message": {
       "extractionState": "manual",
       "localizations": {
@@ -9338,6 +9359,18 @@
       "extractionState": "manual", "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "The Mac kept the previous terminal state. Check the connection and try again." } },
         "ja": { "stringUnit": { "state": "translated", "value": "Mac では以前のターミナル状態が維持されています。接続を確認してもう一度お試しください。" } }
+      }
+    },
+    "mobile.terminal.hierarchy.refreshTitle": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Change Applied" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "変更を適用しました" } }
+      }
+    },
+    "mobile.terminal.hierarchy.refreshMessage": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Mac applied the change, but this list could not refresh. Refresh before making another change." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Mac では変更が適用されましたが、このリストを更新できませんでした。別の変更を行う前に更新してください。" } }
       }
     },
     "mobile.terminal.hierarchy.emptyTitle": {
