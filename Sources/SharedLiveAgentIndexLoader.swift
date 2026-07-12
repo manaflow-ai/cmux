@@ -97,8 +97,10 @@ struct SharedLiveAgentIndexLoader {
                 bindingsByPanel: detectedBindings.mapValues(\.binding)
             ),
             liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
-            processScopeFingerprint: Self.processScopeFingerprint(
+            processScopeFingerprint: Self.cacheValidationFingerprint(
                 from: processSnapshot,
+                registry: resolvedRegistry,
+                fileManager: fileManager,
                 processArgumentsProvider: cachedProcessArguments
             ),
             forkValidatedPanels: Self.forkValidatedPanels(
@@ -108,6 +110,68 @@ struct SharedLiveAgentIndexLoader {
                 validator: cachedAgentProcessValidator
             )
         )
+    }
+
+    static func currentCacheValidationFingerprint(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
+    ) -> Set<String> {
+        let snapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+        let registry = CmuxVaultAgentRegistry.load(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager
+        )
+        var processArgumentsByPID: [Int: CmuxTopProcessArguments?] = [:]
+        func cachedProcessArguments(_ processID: Int) -> CmuxTopProcessArguments? {
+            if let cached = processArgumentsByPID[processID] {
+                return cached
+            }
+            let resolved = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: processID)
+            processArgumentsByPID.updateValue(resolved, forKey: processID)
+            return resolved
+        }
+        return cacheValidationFingerprint(
+            from: snapshot,
+            registry: registry,
+            fileManager: fileManager,
+            processArgumentsProvider: cachedProcessArguments
+        )
+    }
+
+    static func cacheValidationFingerprint(
+        from snapshot: CmuxTopProcessSnapshot,
+        registry: CmuxVaultAgentRegistry,
+        fileManager: FileManager,
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
+    ) -> Set<String> {
+        var fingerprints = processScopeFingerprint(
+            from: snapshot,
+            processArgumentsProvider: processArgumentsProvider
+        )
+        fingerprints.insert(registryFingerprint(registry, workingDirectory: ""))
+
+        var visitedWorkingDirectories = Set<String>()
+        for process in snapshot.cmuxScopedProcesses() {
+            guard let environment = processArgumentsProvider(process.pid)?.environment,
+                  let rawWorkingDirectory = environment["CMUX_AGENT_LAUNCH_CWD"] ?? environment["PWD"] else {
+                continue
+            }
+            let trimmedWorkingDirectory = rawWorkingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedWorkingDirectory.isEmpty else { continue }
+            let workingDirectory = (trimmedWorkingDirectory as NSString).standardizingPath
+            guard visitedWorkingDirectories.insert(workingDirectory).inserted else {
+                continue
+            }
+            let effectiveRegistry = registry.mergingProjectConfig(
+                workingDirectory: workingDirectory,
+                fileManager: fileManager
+            )
+            fingerprints.insert(
+                registryFingerprint(effectiveRegistry, workingDirectory: workingDirectory)
+            )
+        }
+
+        return fingerprints
     }
 
     static func processScopeFingerprint(
@@ -136,13 +200,27 @@ struct SharedLiveAgentIndexLoader {
                 String(arguments.count)
             ]
             components.append(contentsOf: arguments)
-            let encodedComponents: [String] = components.map { component in
-                "\(component.utf8.count):\(component)"
-            }
-            fingerprints.insert(encodedComponents.joined())
+            fingerprints.insert(encodedFingerprintComponents(components))
         }
 
         return fingerprints
+    }
+
+    private static func registryFingerprint(
+        _ registry: CmuxVaultAgentRegistry,
+        workingDirectory: String
+    ) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let encodedRegistry = (try? encoder.encode(registry.registrations))?.base64EncodedString()
+            ?? String(reflecting: registry.registrations)
+        return "registry:" + encodedFingerprintComponents([workingDirectory, encodedRegistry])
+    }
+
+    private static func encodedFingerprintComponents(_ components: [String]) -> String {
+        components.map { component in
+            "\(component.utf8.count):\(component)"
+        }.joined()
     }
 
     private static func forkValidatedPanels(

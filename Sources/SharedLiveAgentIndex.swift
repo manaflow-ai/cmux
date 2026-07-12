@@ -56,11 +56,7 @@ final class SharedLiveAgentIndex {
             SharedLiveAgentIndexLoader().loadResultSynchronously()
         },
         processScopeFingerprintProvider: @escaping @Sendable () -> Set<String> = {
-            SharedLiveAgentIndexLoader.processScopeFingerprint(
-                from: CmuxTopProcessSnapshot.capture(
-                    includeProcessDetails: true
-                )
-            )
+            SharedLiveAgentIndexLoader.currentCacheValidationFingerprint()
         },
         generationTimeoutWaiter: @escaping @Sendable () async -> Bool = {
             do {
