@@ -167,6 +167,12 @@ struct MobileConnectionLifecycleStateMachine {
         didFinishStoredMacReconnectAttempt = false
     }
 
+    mutating func completeUnavailableStoredMacReconnect() {
+        guard activeEpisode == nil else { return }
+        didFinishStoredMacReconnectAttempt = true
+        recoveryFailed = true
+    }
+
     mutating func drainCompletedRequestIDs() -> Set<UInt64> {
         defer { completedRequestIDs.removeAll() }
         return completedRequestIDs

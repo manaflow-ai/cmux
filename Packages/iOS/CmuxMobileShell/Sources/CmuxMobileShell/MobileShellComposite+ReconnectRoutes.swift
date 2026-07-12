@@ -57,6 +57,9 @@ extension MobileShellComposite {
     @discardableResult
     public func reconnectActiveMacIfAvailable(stackUserID: String?) async -> Bool {
         guard remoteClient != nil || pairedMacStore != nil else {
+            let recoveryWasFailed = connectionLifecycle.recoveryFailed
+            connectionLifecycle.completeUnavailableStoredMacReconnect()
+            captureConnectionRecoveryFailureIfNeeded(wasFailed: recoveryWasFailed)
             return connectionState == .connected
         }
         let request = connectionLifecycle.requestStoredMacReconnect(
