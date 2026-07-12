@@ -8,7 +8,11 @@ import Foundation
 /// `AppDelegate -> NotificationDeliveryCoordinator -> adapter -> AppDelegate`
 /// cannot become a retain cycle.
 @MainActor
-final class NotificationDeliverySeamAdapter: NotificationFeedReplying, NotificationApplicationActivating {
+final class NotificationDeliverySeamAdapter:
+    NotificationFeedReplying,
+    NotificationApplicationActivating,
+    IncomingNotificationFocusRouting
+{
     weak var owner: AppDelegate?
 
     init(owner: AppDelegate) {
@@ -25,6 +29,21 @@ final class NotificationDeliverySeamAdapter: NotificationFeedReplying, Notificat
 
     func activateApplication() {
         owner?.notificationDeliveryActivateApplication()
+    }
+
+    func focusIncomingNotification(_ target: IncomingNotificationFocusTarget) -> Bool {
+        owner?.notificationNavigation.open(
+            tabId: target.workspaceId,
+            surfaceId: target.surfaceId,
+            panelId: target.panelId,
+            notificationId: nil,
+            scrollRow: nil,
+            scrollTotalRows: nil
+        ) ?? false
+    }
+
+    func activateApplicationForIncomingNotification() -> Bool {
+        owner?.activateMainWindowFromIncomingNotification() ?? false
     }
 }
 
