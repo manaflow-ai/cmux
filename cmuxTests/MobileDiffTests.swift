@@ -103,6 +103,7 @@ struct MobileDiffTests {
     @Test func loaderIncludesStagedFilesBeforeFirstCommit() async throws {
         let repository = try makeRepository(named: "unborn")
         defer { try? FileManager.default.removeItem(at: repository) }
+        let objectFilesBefore = try gitObjectFiles(in: repository)
 
         try Data("staged\n".utf8).write(to: repository.appendingPathComponent("staged.txt"))
         try runGit(["add", "staged.txt"], at: repository)
@@ -114,6 +115,7 @@ struct MobileDiffTests {
         #expect(patch.components(separatedBy: "diff --git a/staged.txt b/staged.txt").count == 2)
         #expect(patch.contains("+edited after staging"))
         #expect(!patch.contains("+staged"))
+        #expect(try gitObjectFiles(in: repository) == objectFilesBefore)
     }
 
     @Test func loaderIncludesFilesInUnbornSHA256Repository() async throws {
@@ -255,6 +257,19 @@ struct MobileDiffTests {
             expiresAt: Date().addingTimeInterval(3600),
             authToken: "ticket-secret"
         )
+    }
+
+    private func gitObjectFiles(in repository: URL) throws -> Set<String> {
+        let root = repository.appendingPathComponent(".git/objects", isDirectory: true)
+        guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey]) else {
+            return []
+        }
+        var files: Set<String> = []
+        for case let url as URL in enumerator
+        where try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true {
+            files.insert(String(url.path.dropFirst(root.path.count + 1)))
+        }
+        return files
     }
 
     private func runGit(_ arguments: [String], at directory: URL) throws {
