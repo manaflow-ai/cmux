@@ -1471,12 +1471,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
-    /// Yield automatic recovery ownership before the user enters manual pairing.
-    public func prepareForManualPairing() {
-        connectionLifecycleReconnectPendingAfterRetirement = false
-        if connectionLifecycle.isRecovering { resetConnectionLifecycle() }
-    }
-
     func captureConnectionRecoveryFailureIfNeeded(wasFailed: Bool) {
         guard !wasFailed, connectionLifecycle.recoveryFailed else { return }
         var props: [String: AnalyticsValue] = [:]
@@ -3010,6 +3004,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ rawValue: String? = nil,
         acceptedVersionWarning: Bool
     ) async -> MobilePairingURLConnectionResult {
+        prepareForManualPairing()
         let rawURL = Self.normalizedPairingURL(rawValue ?? pairingCode)
         _ = beginPairingValidationAttempt()
         connectionAttemptGeneration = UUID()
@@ -5418,7 +5413,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Clear the error and its guidance together (never bare `connectionError
     /// = nil`) so guidance cannot linger under a cleared headline.
-    private func clearPairingError() {
+    func clearPairingError() {
         connectionError = nil
         connectionErrorGuidance = nil
     }

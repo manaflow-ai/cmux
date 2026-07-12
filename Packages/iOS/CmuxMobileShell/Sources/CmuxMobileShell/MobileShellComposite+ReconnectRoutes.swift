@@ -9,6 +9,13 @@ extension MobileShellComposite {
             || connectionLifecycleReconnectPendingAfterRetirement
     }
 
+    /// Yield automatic recovery ownership before the user enters manual pairing.
+    public func prepareForManualPairing() {
+        connectionLifecycleReconnectPendingAfterRetirement = false
+        if connectionLifecycle.isRecovering { resetConnectionLifecycle() }
+        clearPairingError()
+    }
+
     /// The first reachable host/port route to a Mac, in priority order.
     ///
     /// When `preferNonLoopback` is set (physical devices), a real route
