@@ -891,6 +891,32 @@ describe("SEO metadata helpers", () => {
 });
 
 describe("SEO middleware", () => {
+  test("does not advertise unsupported locale variants globally", () => {
+    const response = middleware(requestFor("/ja/docs/remote-tmux"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("link")).toBeNull();
+  });
+
+  test("keeps the English-only Base docs canonical during locale negotiation", () => {
+    const unsupportedLocale = middleware(
+      requestFor("/de/docs/base", { "accept-language": "de" }),
+    );
+    expect(unsupportedLocale.status).toBe(301);
+    expect(unsupportedLocale.headers.get("location")).toBe(
+      "https://cmux.com/docs/base",
+    );
+
+    const canonicalEnglish = middleware(
+      requestFor("/docs/base", { "accept-language": "de" }),
+    );
+    expect(canonicalEnglish.status).toBe(200);
+    expect(canonicalEnglish.headers.get("x-middleware-rewrite")).toBe(
+      "https://cmux.com/en/docs/base",
+    );
+    expect(canonicalEnglish.headers.get("location")).toBeNull();
+  });
+
   test("serves the English remote tmux docs without locale redirect loops", () => {
     const unsupportedLocale = middleware(
       requestFor("/de/docs/remote-tmux", { "accept-language": "de" }),
