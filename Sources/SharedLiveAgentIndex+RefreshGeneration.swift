@@ -7,5 +7,6 @@ extension SharedLiveAgentIndex {
         var phase: Phase
         var publication: RefreshPublication
         var validationPanelsByPanelID: [UUID: RestorableAgentSessionIndex.PanelKey]
+        var cachedResultToValidate: LoadResult? = nil
     }
 }

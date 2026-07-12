@@ -46,7 +46,7 @@ final class SharedLiveAgentIndex {
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
 
     let indexLoader: @Sendable () -> SharedLiveAgentIndexLoader.LoadResult
-    private let processScopeFingerprintProvider: @Sendable () -> Set<String>
+    let processScopeFingerprintProvider: @Sendable () -> Set<String>
     let generationTimeoutWaiter: GenerationTimeoutWaiter
     private let hookStoreDirectoryProvider: @MainActor () -> String
     let dateProvider: @MainActor () -> Date
@@ -246,24 +246,19 @@ final class SharedLiveAgentIndex {
                   dateProvider().timeIntervalSince(latestCompletedAt) < maximumAge else {
                 break
             }
-            let processScopeFingerprintProvider = self.processScopeFingerprintProvider
-            let currentProcessScopeFingerprint = await Task.detached(priority: .utility) {
-                processScopeFingerprintProvider()
-            }.value
-            guard refreshTailID == nil else { continue }
-            if let currentResult = self.latestCompletedLoadResult,
-               let currentCompletedAt = self.latestCompletedAt,
-               dateProvider().timeIntervalSince(currentCompletedAt) < maximumAge,
-               currentResult.processScopeFingerprint == currentProcessScopeFingerprint {
-                return ProcessDetectedResumeIndexes(currentResult)
-            }
-            invalidateAllCachedResults()
-            let task = requestRefresh(
-                freshness: .captureAfterRequest,
+            guard let currentResult = latestCompletedLoadResult else { continue }
+            let validationTask = requestRefresh(
+                freshness: .joinCurrentGeneration,
                 publication: .scoped,
-                validating: nil
+                validating: nil,
+                cachedResultToValidate: currentResult
             )
-            return await task.value.map(ProcessDetectedResumeIndexes.init)
+            guard let validatedResult = await validationTask.value else {
+                invalidateAllCachedResults()
+                return nil
+            }
+            guard refreshTailID == nil else { continue }
+            return ProcessDetectedResumeIndexes(validatedResult)
         }
         let task = requestRefresh(
             freshness: .joinCurrentGeneration,
@@ -350,7 +345,7 @@ final class SharedLiveAgentIndex {
         validatedMissingForkPanels.removeAll()
     }
 
-    private func invalidateAllCachedResults() {
+    func invalidateAllCachedResults() {
         let hadCachedResult = latestCompletedLoadResult != nil || index != nil
         latestCompletedLoadResult = nil
         latestCompletedAt = nil

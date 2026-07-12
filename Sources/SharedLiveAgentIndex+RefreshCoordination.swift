@@ -4,13 +4,17 @@ extension SharedLiveAgentIndex {
     func requestRefresh(
         freshness: RefreshFreshness,
         publication: RefreshPublication,
-        validating panelKey: PanelKey?
+        validating panelKey: PanelKey?,
+        cachedResultToValidate: LoadResult? = nil
     ) -> Task<LoadResult?, Never> {
         if let refreshTailID,
            var generation = refreshGenerationsByID[refreshTailID],
            let task = refreshTasksByID[refreshTailID],
            (freshness == .joinCurrentGeneration && generation.phase != .timedOut)
                || generation.phase == .queued {
+            if cachedResultToValidate == nil {
+                generation.cachedResultToValidate = nil
+            }
             generation.publication.include(publication)
             if let panelKey {
                 generation.validationPanelsByPanelID[panelKey.panelId] = panelKey
@@ -38,7 +42,8 @@ extension SharedLiveAgentIndex {
             ordinal: nextRefreshOrdinal,
             phase: .queued,
             publication: publication,
-            validationPanelsByPanelID: validationPanelsByPanelID
+            validationPanelsByPanelID: validationPanelsByPanelID,
+            cachedResultToValidate: cachedResultToValidate
         )
         let task = Task { @MainActor [weak self] () -> LoadResult? in
             guard let self else { return nil }
@@ -63,10 +68,9 @@ extension SharedLiveAgentIndex {
             self.refreshGenerationsByID[generationID] = generation
             self.capturingGenerationIDs.insert(generationID)
 
-            let indexLoader = self.indexLoader
-            let result = await Task.detached(priority: .utility) {
-                indexLoader()
-            }.value
+            let result = await self.performRefreshWork(
+                validating: generation.cachedResultToValidate
+            )
             self.completeRefresh(generationID: generationID, result: result)
         }
         refreshWorkTasksByID[generationID] = workTask
@@ -100,6 +104,9 @@ extension SharedLiveAgentIndex {
 
     private func handleRefreshTimeout(generationID: UUID) {
         guard var generation = refreshGenerationsByID[generationID] else { return }
+        if generation.cachedResultToValidate != nil {
+            invalidateAllCachedResults()
+        }
         if generation.phase == .queued {
             refreshGenerationsByID.removeValue(forKey: generationID)
             refreshWorkTasksByID.removeValue(forKey: generationID)?.cancel()
@@ -126,6 +133,26 @@ extension SharedLiveAgentIndex {
             generationID: generationID
         )
         drainPendingHookStoreChangeIfPossible()
+    }
+
+    private func performRefreshWork(validating cachedResult: LoadResult?) async -> LoadResult {
+        let indexLoader = self.indexLoader
+        guard let cachedResult else {
+            return await Task.detached(priority: .utility) {
+                indexLoader()
+            }.value
+        }
+        let processScopeFingerprintProvider = self.processScopeFingerprintProvider
+        let currentProcessScopeFingerprint = await Task.detached(priority: .utility) {
+            processScopeFingerprintProvider()
+        }.value
+        guard cachedResult.processScopeFingerprint != currentProcessScopeFingerprint else {
+            return cachedResult
+        }
+        invalidateAllCachedResults()
+        return await Task.detached(priority: .utility) {
+            indexLoader()
+        }.value
     }
 
     private func completeRefresh(generationID: UUID, result: LoadResult) {
