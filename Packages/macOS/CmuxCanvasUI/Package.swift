@@ -16,6 +16,7 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxCanvas"),
         .package(path: "../CmuxFoundation"),
+        .package(path: "../CmuxAppKitSupportUI"),
     ],
     targets: [
         .target(
@@ -23,6 +24,7 @@ let package = Package(
             dependencies: [
                 "CmuxCanvas",
                 "CmuxFoundation",
+                "CmuxAppKitSupportUI",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

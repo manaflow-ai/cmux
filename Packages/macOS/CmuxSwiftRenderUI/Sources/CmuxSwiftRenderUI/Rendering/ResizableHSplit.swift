@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxSwiftRender
 import SwiftUI
 
@@ -64,7 +65,7 @@ struct ResizableHSplit: View {
         .frame(width: handleWidth)
         .contentShape(Rectangle())
         .onHover { inside in
-            if inside { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() }
+            if inside { CmuxResizeCursors.leftRight.set() } else { NSCursor.arrow.set() }
         }
         .gesture(
             DragGesture()

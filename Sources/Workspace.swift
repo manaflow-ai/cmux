@@ -2715,6 +2715,7 @@ final class Workspace: Identifiable, ObservableObject {
         backgroundOpacity: Double,
         tabTitleFontSize: CGFloat = 11
     ) -> BonsplitConfiguration.Appearance {
+        PortalDividerCursorKind.injectBonsplitDividerCursors()
         let sharesWindowBackdrop = usesWindowRootTerminalBackdrop()
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground

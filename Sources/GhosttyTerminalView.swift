@@ -3469,12 +3469,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
              GHOSTTY_MOUSE_SHAPE_E_RESIZE,
              GHOSTTY_MOUSE_SHAPE_EW_RESIZE,
              GHOSTTY_MOUSE_SHAPE_COL_RESIZE:
-            return .resizeLeftRight
+            return CmuxResizeCursors.leftRight
         case GHOSTTY_MOUSE_SHAPE_N_RESIZE,
              GHOSTTY_MOUSE_SHAPE_S_RESIZE,
              GHOSTTY_MOUSE_SHAPE_NS_RESIZE,
              GHOSTTY_MOUSE_SHAPE_ROW_RESIZE:
-            return .resizeUpDown
+            return CmuxResizeCursors.upDown
         default:
             return .arrow
         }

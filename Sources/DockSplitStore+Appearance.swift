@@ -30,6 +30,7 @@ extension DockSplitStore {
     }
 
     static func makeAppearance(from config: GhosttyConfig) -> BonsplitConfiguration.Appearance {
+        PortalDividerCursorKind.injectBonsplitDividerCursors()
         let sharesWindowBackdrop = Workspace.usesWindowRootTerminalBackdrop()
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
