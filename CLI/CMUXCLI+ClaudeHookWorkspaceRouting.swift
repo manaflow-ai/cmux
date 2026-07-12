@@ -31,7 +31,7 @@ extension CMUXCLI {
             if let cached { return cached }
             let resolution = liveHookCallerTerminalBindingResolution(
                 client: client,
-                includeAmbientTTY: workspaceFallback == nil && surfaceFallback == nil,
+                includeAmbientTTY: client.isRelayBacked || (workspaceFallback == nil && surfaceFallback == nil),
                 allowDiagnosticFallback: false
             )
             let binding = resolution.binding.flatMap {
