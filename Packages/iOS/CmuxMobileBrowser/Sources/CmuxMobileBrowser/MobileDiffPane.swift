@@ -7,6 +7,8 @@ import Foundation
 public struct MobileDiffPane: View {
     @State private var state: MobileDiffState
     @State private var showsFiles = false
+    @State private var fileListFiles: [MobileDiffFile] = []
+    @State private var fileListSelectedFileID: String?
     private let onClose: () -> Void
     private let onReload: () -> Void
 
@@ -29,7 +31,11 @@ public struct MobileDiffPane: View {
                 fileCount: state.files.count,
                 canSelectPrevious: state.canSelectPrevious,
                 canSelectNext: state.canSelectNext,
-                showFiles: { showsFiles = true },
+                showFiles: {
+                    fileListFiles = state.files
+                    fileListSelectedFileID = state.selectedFileID
+                    showsFiles = true
+                },
                 selectPrevious: state.selectPrevious,
                 selectNext: state.selectNext,
                 reload: onReload,
@@ -40,7 +46,12 @@ public struct MobileDiffPane: View {
         }
         .background(Color(.systemBackground))
         .sheet(isPresented: $showsFiles) {
-            MobileDiffFileList(state: state, dismiss: { showsFiles = false })
+            MobileDiffFileList(
+                files: fileListFiles,
+                selectedFileID: fileListSelectedFileID,
+                selectFile: { state.selectFile(id: $0) },
+                dismiss: { showsFiles = false }
+            )
         }
     }
 }

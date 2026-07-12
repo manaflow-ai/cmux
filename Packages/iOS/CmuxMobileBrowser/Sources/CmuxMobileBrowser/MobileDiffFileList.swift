@@ -3,15 +3,16 @@ import CmuxMobileSupport
 import SwiftUI
 
 struct MobileDiffFileList: View {
-    let state: MobileDiffState
+    let files: [MobileDiffFile]
+    let selectedFileID: String?
+    let selectFile: (String) -> Void
     let dismiss: () -> Void
 
     var body: some View {
-        let selectedFileID = state.selectedFileID
         NavigationStack {
-            List(state.files) { file in
+            List(files) { file in
                 Button {
-                    state.selectFile(id: file.id)
+                    selectFile(file.id)
                     dismiss()
                 } label: {
                     HStack(spacing: 10) {
