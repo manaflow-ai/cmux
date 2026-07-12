@@ -294,6 +294,23 @@ await hooks.event({
     }
   }
 });
+await hooks.event({
+  event: {
+    type: "session.status",
+    properties: {
+      sessionID: "opencode-session-test",
+      status: { type: "retrying" }
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "session.idle",
+    properties: {
+      sessionID: "opencode-session-test"
+    }
+  }
+});
 """
         check = subprocess.run(
             [bun, "--eval", check_source],
@@ -323,8 +340,8 @@ await hooks.event({
         if args_log.count("hooks opencode prompt-submit") != 1:
             print(f"FAIL: plugin invoked duplicate prompt-submit hooks, got {args_log!r}")
             return 1
-        if args_log.count("hooks opencode stop") != 1:
-            print(f"FAIL: plugin should stop once after the error closes the active turn, got {args_log!r}")
+        if args_log.count("hooks opencode stop") != 2:
+            print(f"FAIL: plugin should stop after the error and retrying-only idle, got {args_log!r}")
             return 1
         for expected in [
             "hooks opencode prompt-submit",
@@ -334,8 +351,8 @@ await hooks.event({
             if expected not in args_log:
                 print(f"FAIL: plugin did not invoke {expected}, got {args_log!r}")
                 return 1
-        if args_log.count("hooks opencode notification") != 4:
-            print(f"FAIL: plugin should notify for retry, permission, question, and error events; got {args_log!r}")
+        if args_log.count("hooks opencode notification") != 5:
+            print(f"FAIL: plugin should notify for retry, permission, question, error, and retry-only events; got {args_log!r}")
             return 1
         if '"session_id":"opencode-session-test"' not in stdin_log or '"/tmp/opencode-project"' not in stdin_log:
             print(f"FAIL: plugin did not pass expected session payload, got {stdin_log!r}")

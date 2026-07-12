@@ -45,6 +45,7 @@ function sessionState(sessionId) {
       cwd: null,
       started: false,
       activeTurn: false,
+      retrying: false,
       updatedAt: Date.now(),
     });
   }
@@ -280,6 +281,7 @@ function sendPromptSubmitOnce(ctx, event) {
   const state = sessionState(sessionId);
   if (state.activeTurn) return;
   state.activeTurn = true;
+  state.retrying = false;
   sendHook("prompt-submit", ctx, event);
 }
 
@@ -287,8 +289,9 @@ function sendStopIfActive(ctx, event) {
   const sessionId = sessionIdFor(event);
   if (!sessionId) return;
   const state = sessionState(sessionId);
-  if (!state.activeTurn) return;
+  if (!state.activeTurn && !state.retrying) return;
   state.activeTurn = false;
+  state.retrying = false;
   sendHook("stop", ctx, event);
 }
 
@@ -347,6 +350,8 @@ const CMUXSessionRestore = async (ctx) => {
           if (isIdleStatus(openCodeStatusType(event))) {
             sendStopIfActive(ctx, event);
           } else if (isRetryingStatus(openCodeStatusType(event))) {
+            const sessionId = sessionIdFor(event);
+            if (sessionId) sessionState(sessionId).retrying = true;
             sendHook("notification", ctx, event, {
               cmux_status: "retrying",
               reason: "retrying",
