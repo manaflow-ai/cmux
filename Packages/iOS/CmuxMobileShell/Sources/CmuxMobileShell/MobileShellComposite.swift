@@ -720,7 +720,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
     var createWorkspaceTask: Task<Result<Void, MobileWorkspaceMutationFailure>, Never>?
     var createWorkspaceTaskGroupID: MobileWorkspaceGroupPreview.ID?
-    private var createTerminalTask: Task<Void, Never>?
+    @ObservationIgnored private let terminalCreationRequestOwner = MobileTerminalCreationRequestOwner()
     private var workspaceListRefreshTask: Task<Void, Never>?
     var foregroundWorkspaceListMutationEpoch: UInt64 = 0
     var foregroundWorkspaceListAppliedMutationEpoch: UInt64 = 0
@@ -734,7 +734,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var pullToRefreshTask: Task<Bool, Never>?
     private var aggregateWorkspaceRefreshTask: Task<Void, Never>?
     var createWorkspaceTaskID: UUID?
-    private var createTerminalTaskID: UUID?
     var connectionGeneration: UUID
     private var connectionAttemptGeneration: UUID
     @ObservationIgnored var macSwitchAttemptID: UUID?
@@ -977,12 +976,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalSubscriptionRefreshTask = nil
         self.createWorkspaceTask = nil
         self.createWorkspaceTaskGroupID = nil
-        self.createTerminalTask = nil
         self.workspaceListRefreshTask = nil
         self.pullToRefreshTask = nil
         self.aggregateWorkspaceRefreshTask = nil
         self.createWorkspaceTaskID = nil
-        self.createTerminalTaskID = nil
         self.connectionGeneration = UUID()
         self.connectionAttemptGeneration = UUID()
         self.chatEventSourceGeneration = UUID()
@@ -1036,7 +1033,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         renderGridLivenessProbeTask?.cancel()
         terminalSubscriptionRefreshTask?.cancel()
         createWorkspaceTask?.cancel()
-        createTerminalTask?.cancel()
         workspaceListRefreshTask?.cancel()
         pullToRefreshTask?.cancel()
         aggregateWorkspaceRefreshTask?.cancel()
@@ -4103,7 +4099,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Bail BEFORE pinning selection when a create is already in flight,
             // so a second "+" on another workspace can't strand the UI on that
             // workspace with no new terminal while the earlier RPC still runs.
-            guard createTerminalTask == nil else { return }
+            guard !terminalCreationRequestOwner.isActive else { return }
             let mutationClaim = claimTerminalCreationMutation(
                 in: targetWorkspace, paneID: targetPaneID ?? targetWorkspace?.terminalCreationPaneID
             )
@@ -4111,13 +4107,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Pin selection to the target so the async create + the resulting
             // terminal selection stay on the workspace the caller intended.
             if let targetWorkspaceID { selectedWorkspaceID = targetWorkspaceID }
-            let taskID = UUID()
-            createTerminalTaskID = taskID
-            createTerminalTask = Task { @MainActor [weak self] in
-                defer {
-                    self?.clearCreateTerminalTask(id: taskID)
-                    self?.finishTerminalCreationMutation(mutationClaim)
-                }
+            terminalCreationRequestOwner.start(
+                claim: mutationClaim,
+                gate: terminalReorderGate
+            ) { @MainActor [weak self] in
                 guard let self else { return }
                 await self.createRemoteTerminal(in: targetWorkspaceID, paneID: targetPaneID)
             }
@@ -5261,9 +5254,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createWorkspaceTask = nil
         createWorkspaceTaskGroupID = nil
         createWorkspaceTaskID = nil
-        createTerminalTask?.cancel()
-        createTerminalTask = nil
-        createTerminalTaskID = nil
+        terminalCreationRequestOwner.cancel(gate: terminalReorderGate)
         workspaceListRefreshTask?.cancel()
         workspaceListRefreshTask = nil
         pullToRefreshTask?.cancel()
@@ -5602,12 +5593,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createWorkspaceTask = nil
         createWorkspaceTaskGroupID = nil
         createWorkspaceTaskID = nil
-    }
-
-    private func clearCreateTerminalTask(id: UUID) {
-        guard createTerminalTaskID == id else { return }
-        createTerminalTask = nil
-        createTerminalTaskID = nil
     }
 
     func isCurrentRemoteOperation(client: MobileCoreRPCClient, generation: UUID) -> Bool {
