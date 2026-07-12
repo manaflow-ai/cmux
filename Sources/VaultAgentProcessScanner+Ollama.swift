@@ -11,13 +11,19 @@ extension RestorableAgentSessionIndex {
     ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
         var results: [PanelKey: ProcessDetectedSnapshotEntry] = [:]
         for process in processSnapshot.cmuxScopedProcesses() {
+            // This snapshot is persisted and auto-executed on restore, so the
+            // identity gate uses only the kernel-reported executable path:
+            // CMUX_AGENT_LAUNCH_KIND and argv are user-controlled and must
+            // not decide what gets relaunched. Fail closed without a path.
             guard process.isTerminalForegroundProcessGroup,
                   let workspaceID = process.cmuxWorkspaceID,
                   let surfaceID = process.cmuxSurfaceID,
+                  let executablePath = process.path?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  (executablePath as NSString).lastPathComponent == "ollama",
                   let details = processArgumentsProvider(process.pid),
                   CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                       processName: process.name,
-                      processPath: process.path,
+                      processPath: executablePath,
                       arguments: details.arguments,
                       environment: details.environment
                   )?.id == "ollama",
@@ -34,10 +40,11 @@ extension RestorableAgentSessionIndex {
                 details.environment["CMUX_AGENT_LAUNCH_CWD"] ?? details.environment["PWD"]
             )
             let key = PanelKey(workspaceId: workspaceID, panelId: surfaceID)
+            // Relaunch through the trusted kernel path, never argv[0].
             let launchCommand = AgentLaunchCommandSnapshot(
                 processDetectedLauncher: "ollama",
-                executablePath: sanitizedArguments.first,
-                arguments: sanitizedArguments,
+                executablePath: executablePath,
+                arguments: [executablePath] + sanitizedArguments.dropFirst(),
                 workingDirectory: workingDirectory,
                 environment: details.environment
             )
