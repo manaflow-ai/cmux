@@ -1,5 +1,6 @@
 import XCTest
 import Darwin
+import os
 
 extension CLINotifyProcessIntegrationRegressionTests {
     func testGenericHookAgentsPersistSanitizedLaunchCommandsForSessionRestore() throws {
@@ -708,6 +709,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .appendingPathComponent("cmux-hermes-session-end-\(UUID().uuidString)", isDirectory: true)
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let turnWorkspaceId = "33333333-3333-3333-3333-333333333333"
+        let turnSurfaceId = "44444444-4444-4444-4444-444444444444"
+        let finalWorkspaceId = "55555555-5555-5555-5555-555555555555"
+        let finalSurfaceId = "66666666-6666-6666-6666-666666666666"
+        let liveTarget = OSAllocatedUnfairLock(
+            initialState: (workspaceId: workspaceId, surfaceId: surfaceId)
+        )
         let sessionId = "hermes-session-end-123"
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -738,9 +746,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 }
                 switch method {
                 case "surface.list":
-                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                    return self.surfaceListResponse(id: id, surfaceId: liveTarget.withLock { $0.surfaceId })
                 case "system.resolve_terminal":
-                    return self.terminalResolverResponse(id: id, workspaceId: workspaceId, surfaceId: surfaceId)
+                    let target = liveTarget.withLock { $0 }
+                    return self.terminalResolverResponse(
+                        id: id,
+                        workspaceId: target.workspaceId,
+                        surfaceId: target.surfaceId
+                    )
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -791,6 +804,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         // The per-turn on_session_end hook. Hermes is a restorable agent, so this is a
         // turn boundary, not a true session teardown.
+        liveTarget.withLock { $0 = (turnWorkspaceId, turnSurfaceId) }
         let sessionEndCommandStart = state.commands.count
         let sessionEnd = runHermesHook(
             "session-end",
@@ -817,11 +831,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try storedHermesSessionIfPresent(),
             "Hermes on_session_end fires per turn and must not consume the restore record, saw it removed from the store"
         )
+        let sessionEndEvent = sessionEndCommands.compactMap { self.jsonObject($0) }
+            .first { $0["method"] as? String == "feed.push" }?["params"] as? [String: Any]
+        let sessionEndPayload = sessionEndEvent?["event"] as? [String: Any]
+        XCTAssertEqual(sessionEndPayload?["workspace_id"] as? String, turnWorkspaceId)
+        XCTAssertEqual(sessionEndPayload?["surface_id"] as? String, turnSurfaceId)
+        let sessionAfterTurn = try XCTUnwrap(storedHermesSessionIfPresent())
+        XCTAssertEqual(sessionAfterTurn["workspaceId"] as? String, turnWorkspaceId)
+        XCTAssertEqual(sessionAfterTurn["surfaceId"] as? String, turnSurfaceId)
 
         // The genuine teardown hook (on_session_finalize) routes to the dedicated
         // session-finalize subcommand and must perform the destructive cleanup the
         // per-turn path suppresses: consume the record, clear the resume binding, and
         // clear the agent PID routing.
+        liveTarget.withLock { $0 = (finalWorkspaceId, finalSurfaceId) }
         let finalizeCommandStart = state.commands.count
         let finalize = runHermesHook(
             "session-finalize",
@@ -833,13 +856,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let finalizeCommands = Array(state.commands.dropFirst(finalizeCommandStart))
         XCTAssertTrue(
-            finalizeCommands.contains { $0.hasPrefix("clear_agent_pid hermes-agent.") },
+            finalizeCommands.contains {
+                $0.hasPrefix("clear_agent_pid hermes-agent.")
+                    && $0.contains("--tab=\(finalWorkspaceId) --panel=\(finalSurfaceId)")
+            },
             "Hermes on_session_finalize is a true teardown and must clear agent PID routing, saw \(finalizeCommands)"
         )
-        XCTAssertTrue(
-            finalizeCommands.contains { $0.contains("surface.resume.clear") },
-            "Hermes on_session_finalize is a true teardown and must clear the surface resume binding, saw \(finalizeCommands)"
-        )
+        let resumeClearParams = finalizeCommands.compactMap { self.jsonObject($0) }
+            .first { $0["method"] as? String == "surface.resume.clear" }?["params"] as? [String: Any]
+        XCTAssertEqual(resumeClearParams?["surface_id"] as? String, finalSurfaceId)
         XCTAssertNil(
             try storedHermesSessionIfPresent(),
             "Hermes on_session_finalize is a true teardown and must consume the restore record"
