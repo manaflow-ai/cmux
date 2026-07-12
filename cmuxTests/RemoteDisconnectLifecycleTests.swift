@@ -86,10 +86,16 @@ struct RemoteDisconnectLifecycleTests {
 
         let firstPlaceholder = try #require(workspace.terminalPanel(for: panel.id))
         let firstWrapperPath = firstPlaceholder.surface.initialCommand
+        let firstReplayPath = try #require(
+            firstPlaceholder.surface.startupEnvironmentValue(SessionScrollbackReplayStore.environmentKey)
+        )
         defer {
             if let firstWrapperPath { try? FileManager.default.removeItem(atPath: firstWrapperPath) }
+            try? FileManager.default.removeItem(atPath: firstReplayPath)
             Self.removeTransitionArtifacts(workspace: workspace, panelIds: [panel.id])
         }
+        let replayedScrollback = try String(contentsOfFile: firstReplayPath, encoding: .utf8)
+        #expect(replayedScrollback == "remote-output\n")
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panel.id)
 
@@ -99,6 +105,30 @@ struct RemoteDisconnectLifecycleTests {
         #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
         #expect(workspace.isRemoteTerminalSurface(sibling.id))
         #expect(workspace.remoteConnectionState == .connected)
+        #expect(!FileManager.default.fileExists(atPath: firstReplayPath))
+    }
+
+    @Test func closingDisconnectedPlaceholderRemovesReplayArtifact() throws {
+        let workspace = Workspace()
+        workspace.configureRemoteConnection(Self.remoteConfiguration(), autoConnect: false)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        workspace.restoredTerminalScrollbackByPanelId[panel.id] = "remote-output\n"
+
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panel.id, relayPort: 64007)
+        #expect(workspace.transitionRemoteTerminalToDisconnectedPlaceholder(surfaceId: panel.id))
+        let placeholder = try #require(workspace.terminalPanel(for: panel.id))
+        let replayPath = try #require(
+            placeholder.surface.startupEnvironmentValue(SessionScrollbackReplayStore.environmentKey)
+        )
+        defer {
+            try? FileManager.default.removeItem(atPath: replayPath)
+            Self.removeTransitionArtifacts(workspace: workspace, panelIds: [panel.id])
+        }
+        #expect(FileManager.default.fileExists(atPath: replayPath))
+
+        workspace.teardownAllPanels()
+
+        #expect(!FileManager.default.fileExists(atPath: replayPath))
     }
 
     @Test func staleChildExitCannotReplaceNewRuntimeWithSameSurfaceID() throws {
