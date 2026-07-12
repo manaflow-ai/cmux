@@ -46,6 +46,9 @@ public final class BrowserSurfaceStore {
     /// UserDefaults key for the versioned snapshot array.
     private let persistenceKey: String
 
+    /// Owner epoch that makes queued prior-owner archives unobservable.
+    private var archiveGeneration: BrowserArchiveGenerationState
+
     /// Ordered archive writer. Scheduled page churn never encodes on the main actor.
     private let archiveWriter: BrowserSurfaceArchiveWriter?
 
@@ -85,6 +88,10 @@ public final class BrowserSurfaceStore {
         self.defaultURL = defaultURL
         self.persistenceDefaults = persistenceDefaults
         self.persistenceKey = persistenceKey
+        self.archiveGeneration = BrowserArchiveGenerationState(
+            defaults: persistenceDefaults,
+            archiveKey: persistenceKey
+        )
         self.archiveWriter = persistenceDefaults.map {
             BrowserSurfaceArchiveWriter(defaults: $0, key: persistenceKey)
         }
@@ -112,10 +119,7 @@ public final class BrowserSurfaceStore {
         scheduledPersistenceTask?.cancel()
         scheduledPersistenceTask = nil
         hasPendingPersistence = false
-        if persistenceScope != nil {
-            persistenceDefaults?.removeObject(forKey: persistenceKey)
-            archiveWriter?.enqueueRemoval()
-        }
+        if persistenceScope != nil { revokePersistedArchive() }
         surfacesByWorkspace.removeAll()
         selectedBrowserWorkspaceIDs.removeAll()
         snapshotSourcesByWorkspace.removeAll()
@@ -361,8 +365,7 @@ public final class BrowserSurfaceStore {
         selectedBrowserWorkspaceIDs.removeAll()
         snapshotSourcesByWorkspace.removeAll()
         durableSnapshotsByWorkspace.removeAll()
-        persistenceDefaults?.removeObject(forKey: persistenceKey)
-        archiveWriter?.enqueueRemoval()
+        revokePersistedArchive()
     }
 
     private func installPersistenceCallbacks() {
@@ -388,9 +391,14 @@ public final class BrowserSurfaceStore {
         guard let persistenceDefaults, let persistenceScope,
               let data = persistenceDefaults.data(forKey: persistenceKey) else { return }
         guard let archive = try? JSONDecoder().decode(BrowserSurfaceArchive.self, from: data),
-              archive.scope == persistenceScope else {
+              archive.scope == persistenceScope,
+              archiveGeneration.accepts(archive.generation) else {
             persistenceDefaults.removeObject(forKey: persistenceKey)
             return
+        }
+
+        if archive.generation == nil {
+            archiveGeneration.consumeLegacyRestore()
         }
 
         // Decode into the workspace-keyed source of truth. Duplicate rows from
@@ -403,13 +411,16 @@ public final class BrowserSurfaceStore {
                 initialURL: restoredURL
             )
             surface.title = snapshot.title
-            surface.contentModePreference = contentModePreference(snapshot.contentMode)
+            surface.contentModePreference = BrowserContentModePreference(persistenceRawValue: snapshot.contentMode)
             surfacesByWorkspace[snapshot.workspaceID] = surface
             if snapshot.isSelected {
                 selectedBrowserWorkspaceIDs.insert(snapshot.workspaceID)
             }
             snapshotSourcesByWorkspace[snapshot.workspaceID] = BrowserSurfaceSnapshotSource(value: snapshot)
             durableSnapshotsByWorkspace[snapshot.workspaceID] = snapshot
+        }
+        if archive.generation == nil {
+            enqueuePersistence()
         }
     }
 
@@ -445,8 +456,15 @@ public final class BrowserSurfaceStore {
         guard let archiveWriter, let persistenceScope else { return }
         archiveWriter.enqueueWrite(
             scope: persistenceScope,
-            snapshotsByWorkspace: durableSnapshotsByWorkspace
+            snapshotsByWorkspace: durableSnapshotsByWorkspace,
+            generation: archiveGeneration.current
         )
+    }
+
+    private func revokePersistedArchive() {
+        archiveGeneration.revoke(in: persistenceDefaults)
+        persistenceDefaults?.removeObject(forKey: persistenceKey)
+        archiveWriter?.enqueueRemoval()
     }
 
     /// Waits until archive requests already submitted by this store finish.
@@ -463,7 +481,7 @@ public final class BrowserSurfaceStore {
             surfaceID: surface.id.rawValue,
             currentURL: surface.currentURL?.absoluteString,
             title: surface.title,
-            contentMode: contentModeRawValue(surface.contentModePreference),
+            contentMode: surface.contentModePreference.persistenceRawValue,
             isSelected: selectedBrowserWorkspaceIDs.contains(workspaceID)
         )
     }
@@ -476,22 +494,6 @@ public final class BrowserSurfaceStore {
             source.update(snapshot)
         } else {
             snapshotSourcesByWorkspace[workspaceID] = BrowserSurfaceSnapshotSource(value: snapshot)
-        }
-    }
-
-    private func contentModePreference(_ rawValue: String) -> BrowserContentModePreference {
-        switch rawValue {
-        case "mobile": .mobile
-        case "desktop": .desktop
-        default: .recommended
-        }
-    }
-
-    private func contentModeRawValue(_ preference: BrowserContentModePreference) -> String {
-        switch preference {
-        case .recommended: "recommended"
-        case .mobile: "mobile"
-        case .desktop: "desktop"
         }
     }
 }

@@ -1,6 +1,7 @@
-import CmuxMobileBrowser
 import Foundation
+import CmuxMobileShellModel
 import Testing
+@testable import CmuxMobileBrowser
 @testable import CmuxMobileShellUI
 @testable import cmuxFeature
 

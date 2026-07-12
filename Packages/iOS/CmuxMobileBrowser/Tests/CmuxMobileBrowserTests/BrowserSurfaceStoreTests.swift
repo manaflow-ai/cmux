@@ -327,7 +327,7 @@ import Testing
         #expect(defaults.data(forKey: "cmux.mobile.browserSurfaces.v1") == nil)
     }
 
-    @Test func scopeTransitionsClearLiveAndDurableBrowserState() throws {
+    @Test func scopeTransitionsClearLiveAndDurableBrowserState() async throws {
         let suiteName = "BrowserSurfaceStoreTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
@@ -342,11 +342,19 @@ import Testing
 
         store.setPersistenceScope(.init(userID: "user-a", teamID: "team-b"))
         #expect(store.browser(for: "ws-1") == nil)
+        let priorOwnerObserver = BrowserSurfaceStore(defaultURL: nil, persistenceDefaults: defaults)
+        priorOwnerObserver.setPersistenceScope(scope)
+        #expect(priorOwnerObserver.browser(for: "ws-1") == nil)
+        await store.flushPersistence()
         #expect(defaults.data(forKey: "cmux.mobile.browserSurfaces.v1") == nil)
 
         _ = store.openBrowser(for: "ws-2")
         store.setPersistenceScope(nil)
         #expect(store.browser(for: "ws-2") == nil)
+        let signedOutObserver = BrowserSurfaceStore(defaultURL: nil, persistenceDefaults: defaults)
+        signedOutObserver.setPersistenceScope(.init(userID: "user-a", teamID: "team-b"))
+        #expect(signedOutObserver.browser(for: "ws-2") == nil)
+        await store.flushPersistence()
         #expect(defaults.data(forKey: "cmux.mobile.browserSurfaces.v1") == nil)
     }
 

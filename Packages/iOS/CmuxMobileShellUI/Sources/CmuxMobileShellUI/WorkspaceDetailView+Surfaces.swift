@@ -6,39 +6,48 @@ extension WorkspaceDetailView {
     @ViewBuilder
     var detailSurfaceContent: some View {
         #if os(iOS)
-        let surface = activeSurface
-        // Captured at body time (the same evaluation as `shouldAutoFocus` in
-        // `detailContent()`), so a chrome-driven terminal switch — which
-        // suppresses the target's autofocus until the remount's `onAppear`
-        // consumes the suppression — cannot race that consumption and pop
-        // the keyboard anyway.
-        let refocusTerminalID = WorkspaceActiveSurface.chromeReturnRefocusTerminalID(
-            selectedTerminalID: selectedTerminal?.id.rawValue,
-            shouldAutoFocusTerminal: { store.shouldAutoFocusTerminalSurface($0) },
-            isComposerPresented: store.isComposerPresented
-        )
-        ZStack {
-            detailContent()
-                .opacity(surface == .terminal ? 1 : 0)
-                .allowsHitTesting(surface == .terminal)
-                .accessibilityHidden(surface != .terminal)
-            if surface == .chat, let session = chosenChatSession {
-                chatContent(session)
-                    .background(TerminalPalette.background)
-            } else if surface == .browser, let browser = activeBrowser {
+        if !openMode.mountsRemoteWorkspaceSurface {
+            if let browser = activeBrowser {
                 browserContent(browser)
                     .background(TerminalPalette.background)
-            }
-        }
-        .onChange(of: surface) { _, newSurface in
-            if newSurface == .terminal {
-                // The surface stayed mounted under the chrome, so no attach
-                // autofocus fires on return; refocus explicitly.
-                if let refocusTerminalID {
-                    GhosttySurfaceView.focusInput(surfaceID: refocusTerminalID)
-                }
             } else {
-                dismissTerminalKeyboardForChrome()
+                TerminalPalette.background
+            }
+        } else {
+            let surface = activeSurface
+            // Captured at body time (the same evaluation as `shouldAutoFocus` in
+            // `detailContent()`), so a chrome-driven terminal switch — which
+            // suppresses the target's autofocus until the remount's `onAppear`
+            // consumes the suppression — cannot race that consumption and pop
+            // the keyboard anyway.
+            let refocusTerminalID = WorkspaceActiveSurface.chromeReturnRefocusTerminalID(
+                selectedTerminalID: selectedTerminal?.id.rawValue,
+                shouldAutoFocusTerminal: { store.shouldAutoFocusTerminalSurface($0) },
+                isComposerPresented: store.isComposerPresented
+            )
+            ZStack {
+                detailContent()
+                    .opacity(surface == .terminal ? 1 : 0)
+                    .allowsHitTesting(surface == .terminal)
+                    .accessibilityHidden(surface != .terminal)
+                if surface == .chat, let session = chosenChatSession {
+                    chatContent(session)
+                        .background(TerminalPalette.background)
+                } else if surface == .browser, let browser = activeBrowser {
+                    browserContent(browser)
+                        .background(TerminalPalette.background)
+                }
+            }
+            .onChange(of: surface) { _, newSurface in
+                if newSurface == .terminal {
+                    // The surface stayed mounted under the chrome, so no attach
+                    // autofocus fires on return; refocus explicitly.
+                    if let refocusTerminalID {
+                        GhosttySurfaceView.focusInput(surfaceID: refocusTerminalID)
+                    }
+                } else {
+                    dismissTerminalKeyboardForChrome()
+                }
             }
         }
         #else
@@ -52,7 +61,12 @@ extension WorkspaceDetailView {
         MobileBrowserPane(
             state: browser,
             websiteDataStore: browserStore.websiteDataStore,
-            onClose: { browserStore.closeBrowser(for: workspace.browserSurfaceIdentity) }
+            onClose: {
+                browserStore.closeBrowser(for: workspace.browserSurfaceIdentity)
+                if openMode.returnsToSurfaceGridOnBrowserClose {
+                    backButtonConfiguration?.action()
+                }
+            }
         )
         .id(browser.id.rawValue)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -17,10 +17,15 @@ final class BrowserSurfaceArchiveWriter: @unchecked Sendable {
 
     func enqueueWrite(
         scope: BrowserPersistenceScope,
-        snapshotsByWorkspace: [String: BrowserSurfaceSnapshot]
+        snapshotsByWorkspace: [String: BrowserSurfaceSnapshot],
+        generation: String
     ) {
         queue.async { [self] in
-            write(scope: scope, snapshotsByWorkspace: snapshotsByWorkspace)
+            write(
+                scope: scope,
+                snapshotsByWorkspace: snapshotsByWorkspace,
+                generation: generation
+            )
         }
     }
 
@@ -40,12 +45,17 @@ final class BrowserSurfaceArchiveWriter: @unchecked Sendable {
 
     private func write(
         scope: BrowserPersistenceScope,
-        snapshotsByWorkspace: [String: BrowserSurfaceSnapshot]
+        snapshotsByWorkspace: [String: BrowserSurfaceSnapshot],
+        generation: String
     ) {
         let snapshots = snapshotsByWorkspace.keys.sorted().compactMap {
             snapshotsByWorkspace[$0]
         }
-        let archive = BrowserSurfaceArchive(scope: scope, surfaces: snapshots)
+        let archive = BrowserSurfaceArchive(
+            scope: scope,
+            surfaces: snapshots,
+            generation: generation
+        )
         guard let data = try? JSONEncoder().encode(archive) else { return }
         defaults.set(data, forKey: key)
     }

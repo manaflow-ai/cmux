@@ -44,14 +44,36 @@ struct WorkspaceDetailContainer: View {
                     connectionStatus: workspace.macConnectionStatus ?? store.macConnectionStatus,
                     workspace: workspace,
                     store: store,
-                    createWorkspace: createWorkspace,
-                    canCreateWorkspace: canCreateWorkspace,
-                    createTerminal: { store.createTerminal(in: workspace.id) },
-                    renameWorkspace: workspace.actionCapabilities.supportsWorkspaceActions ? renameWorkspace : nil,
-                    setWorkspaceUnread: workspace.actionCapabilities.supportsReadStateActions ? setWorkspaceUnread : nil,
-                    closeWorkspace: workspace.actionCapabilities.supportsCloseActions ? closeWorkspace : nil,
-                    reportTerminalViewport: store.reportTerminalViewport,
-                    sendTerminalInput: store.sendTerminalRawInput,
+                    openMode: openMode,
+                    createWorkspace: {
+                        openMode.performRemoteAction(createWorkspace)
+                    },
+                    canCreateWorkspace: openMode.showsRemoteWorkspaceControls && canCreateWorkspace,
+                    createTerminal: {
+                        openMode.performRemoteAction {
+                            store.createTerminal(in: workspace.id)
+                        }
+                    },
+                    renameWorkspace: openMode.showsRemoteWorkspaceControls
+                        && workspace.actionCapabilities.supportsWorkspaceActions ? renameWorkspace : nil,
+                    setWorkspaceUnread: openMode.showsRemoteWorkspaceControls
+                        && workspace.actionCapabilities.supportsReadStateActions ? setWorkspaceUnread : nil,
+                    closeWorkspace: openMode.showsRemoteWorkspaceControls
+                        && workspace.actionCapabilities.supportsCloseActions ? closeWorkspace : nil,
+                    reportTerminalViewport: { workspaceID, terminalID, viewportSize in
+                        openMode.performRemoteAction {
+                            store.reportTerminalViewport(
+                                workspaceID: workspaceID,
+                                terminalID: terminalID,
+                                viewportSize: viewportSize
+                            )
+                        }
+                    },
+                    sendTerminalInput: { text in
+                        openMode.performRemoteAction {
+                            store.sendTerminalRawInput(text)
+                        }
+                    },
                     safeAreaContext: safeAreaContext,
                     backButtonConfiguration: backButtonConfiguration,
                     signOut: signOut

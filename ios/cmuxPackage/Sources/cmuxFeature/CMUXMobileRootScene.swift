@@ -34,6 +34,7 @@ public struct CMUXMobileRootScene: View {
     private let auth: MobileAuthComposition
     private let reachability: any ReachabilityProviding
     private let analytics: any AnalyticsEmitting
+    private let browserComposition: MobileBrowserComposition
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
@@ -73,6 +74,7 @@ public struct CMUXMobileRootScene: View {
     ///     delegate) injected into the environment.
     ///   - displaySettings: The app-root mobile display settings injected into
     ///     the environment (drives workspace-title wrapping).
+    ///   - browserComposition: The process browser owner shared by every scene.
     ///   - onboardingStore: The app-root first-run onboarding "seen" flag store,
     ///     injected into the root view to gate the one-time onboarding screen.
     ///   - tailscaleStatusMonitor: The app-root tailnet detector, injected into
@@ -86,6 +88,7 @@ public struct CMUXMobileRootScene: View {
         analytics: any AnalyticsEmitting,
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
+        browserComposition: MobileBrowserComposition,
         onboardingStore: MobileOnboardingStore,
         tailscaleStatusMonitor: any TailscaleStatusObserving,
         diagnosticLog: DiagnosticLog? = nil
@@ -96,6 +99,7 @@ public struct CMUXMobileRootScene: View {
         self.analytics = analytics
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
+        self.browserComposition = browserComposition
         self.onboardingStore = onboardingStore
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.pairedMacStore = Self.openPairedMacStore()
@@ -110,12 +114,14 @@ public struct CMUXMobileRootScene: View {
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
-        analytics: any AnalyticsEmitting
+        analytics: any AnalyticsEmitting,
+        browserComposition: MobileBrowserComposition
     ) {
         self.runtime = runtime
         self.auth = auth
         self.reachability = reachability
         self.analytics = analytics
+        self.browserComposition = browserComposition
         self.tailscaleStatusMonitor = nil
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
@@ -250,13 +256,21 @@ public struct CMUXMobileRootScene: View {
         } else if ProcessInfo.processInfo.environment["CMUX_BOTTOM_SCROLL_STRESS"] == "1" {
             MobileBottomScrollStressView()
         } else {
-            CMUXMobileAppView(store: makeStore(), onboardingStore: onboardingStore)
+            CMUXMobileAppView(
+                store: makeStore(),
+                browserStore: browserComposition.store,
+                onboardingStore: onboardingStore
+            )
         }
         #else
-        CMUXMobileAppView(store: makeStore(), onboardingStore: onboardingStore)
+        CMUXMobileAppView(
+            store: makeStore(),
+            browserStore: browserComposition.store,
+            onboardingStore: onboardingStore
+        )
         #endif
         #else
-        CMUXMobileAppView(store: makeStore())
+        CMUXMobileAppView(store: makeStore(), browserStore: browserComposition.store)
         #endif
     }
 

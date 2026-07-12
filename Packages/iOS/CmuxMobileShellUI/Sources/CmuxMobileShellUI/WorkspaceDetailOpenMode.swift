@@ -6,4 +6,21 @@ enum WorkspaceDetailOpenMode: Hashable {
     var opensRemoteWorkspace: Bool {
         self == .remoteWorkspace
     }
+
+    var mountsRemoteWorkspaceSurface: Bool {
+        self == .remoteWorkspace
+    }
+
+    var showsRemoteWorkspaceControls: Bool {
+        self == .remoteWorkspace
+    }
+
+    var returnsToSurfaceGridOnBrowserClose: Bool {
+        self == .localBrowser
+    }
+
+    func performRemoteAction(_ action: () -> Void) {
+        guard self == .remoteWorkspace else { return }
+        action()
+    }
 }

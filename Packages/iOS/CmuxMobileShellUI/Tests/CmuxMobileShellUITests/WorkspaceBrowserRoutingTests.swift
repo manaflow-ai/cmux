@@ -9,9 +9,11 @@ import Testing
         #expect(WorkspaceDetailOpenMode.localBrowser.opensRemoteWorkspace == false)
         #expect(WorkspaceDetailOpenMode.localBrowser.mountsRemoteWorkspaceSurface == false)
         #expect(WorkspaceDetailOpenMode.localBrowser.showsRemoteWorkspaceControls == false)
+        #expect(WorkspaceDetailOpenMode.localBrowser.returnsToSurfaceGridOnBrowserClose)
         #expect(WorkspaceDetailOpenMode.remoteWorkspace.opensRemoteWorkspace)
         #expect(WorkspaceDetailOpenMode.remoteWorkspace.mountsRemoteWorkspaceSurface)
         #expect(WorkspaceDetailOpenMode.remoteWorkspace.showsRemoteWorkspaceControls)
+        #expect(WorkspaceDetailOpenMode.remoteWorkspace.returnsToSurfaceGridOnBrowserClose == false)
 
         var performedActions: [String] = []
         WorkspaceDetailOpenMode.localBrowser.performRemoteAction {

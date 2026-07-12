@@ -19,6 +19,7 @@ struct WorkspaceDetailView: View {
     let connectionStatus: MobileMacConnectionStatus
     let workspace: MobileWorkspacePreview
     @Bindable var store: CMUXMobileShellStore
+    let openMode: WorkspaceDetailOpenMode
     let createWorkspace: () -> Void
     let canCreateWorkspace: Bool
     let createTerminal: () -> Void
@@ -93,8 +94,14 @@ struct WorkspaceDetailView: View {
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome()
             .toolbar { workspaceDetailToolbar }
-            .task(id: chatRefreshKey) { await refreshChatSessions() }
-            .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
+            .task(id: chatRefreshKey) {
+                guard openMode.showsRemoteWorkspaceControls else { return }
+                await refreshChatSessions()
+            }
+            .task(id: chatConversationWarmKey) {
+                guard openMode.showsRemoteWorkspaceControls else { return }
+                await runWarmChatConversation()
+            }
             .onChange(of: selectedTerminalID) { _, _ in
                 refreshCachedChatToggleAnchor()
                 syncTerminalPickerRows(includeTitleChanges: true)
@@ -114,14 +121,22 @@ struct WorkspaceDetailView: View {
                 text: $renameText,
                 onSave: commitRenameFromDialog
             )
-            .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
+            .mobileConnectionRecoveryOverlay(
+                store: store,
+                signOut: signOut,
+                isEnabled: openMode.showsRemoteWorkspaceControls
+            )
         #else
         content
             .closeWorkspaceConfirmation(
                 isPresented: $isConfirmingClose,
                 confirm: confirmCloseWorkspaceFromMenu
             )
-            .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
+            .mobileConnectionRecoveryOverlay(
+                store: store,
+                signOut: signOut,
+                isEnabled: openMode.showsRemoteWorkspaceControls
+            )
         #endif
     }
 
@@ -139,7 +154,8 @@ struct WorkspaceDetailView: View {
         ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
             workspaceTitleToolbarMenu
         }
-        if let selectedTerminalID,
+        if openMode.showsRemoteWorkspaceControls,
+           let selectedTerminalID,
            store.isAlternateScreen(surfaceID: selectedTerminalID),
            displaySettings.showAltScreenNotice {
             ToolbarItem(id: "workspace-altscreen-notice", placement: .topBarTrailing) {
@@ -148,8 +164,10 @@ struct WorkspaceDetailView: View {
                 }
             }
         }
-        ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
-            toolbarTrailingCluster
+        if openMode.showsRemoteWorkspaceControls {
+            ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
+                toolbarTrailingCluster
+            }
         }
     }
 
@@ -157,9 +175,9 @@ struct WorkspaceDetailView: View {
         WorkspaceTitleMenu(
             contentWidth: contentWidth,
             hasBackButton: backButtonConfiguration != nil,
-            hasTrailingCluster: true,
-            hasChatToggle: shouldShowChatToggle,
-            isEnabled: hasTitleMenuActions,
+            hasTrailingCluster: openMode.showsRemoteWorkspaceControls,
+            hasChatToggle: openMode.showsRemoteWorkspaceControls && shouldShowChatToggle,
+            isEnabled: openMode.showsRemoteWorkspaceControls && hasTitleMenuActions,
             menuContent: { titleMenuContent }
         ) {
             toolbarTitleLabel
@@ -647,12 +665,14 @@ struct WorkspaceDetailView: View {
     #endif
 
     private func createTerminalFromToolbar() {
-        dismissTerminalKeyboardForChrome()
-        // Creating a terminal from the (shared) chrome must surface it. If a
-        // browser pane is up, hide it so `body` shows the new terminal while
-        // retaining the phone-local browser for the Safari grid.
-        browserStore.showNonBrowserSurface(for: workspace.browserSurfaceIdentity)
-        createTerminal()
+        openMode.performRemoteAction {
+            dismissTerminalKeyboardForChrome()
+            // Creating a terminal from the (shared) chrome must surface it. If a
+            // browser pane is up, hide it so `body` shows the new terminal while
+            // retaining the phone-local browser for the Safari grid.
+            browserStore.showNonBrowserSurface(for: workspace.browserSurfaceIdentity)
+            createTerminal()
+        }
     }
 
     private func openBrowserFromToolbar() {
@@ -664,16 +684,18 @@ struct WorkspaceDetailView: View {
     }
 
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
-        dismissTerminalKeyboardForChrome()
-        // Choosing a terminal returns from the browser pane while retaining the
-        // local browser session for a later grid selection.
-        WorkspaceTerminalSurfaceSelection(
-            store: store,
-            browserStore: browserStore
-        ).selectFromChrome(
-            terminalID: terminalID,
-            browserWorkspaceIdentity: workspace.browserSurfaceIdentity
-        )
+        openMode.performRemoteAction {
+            dismissTerminalKeyboardForChrome()
+            // Choosing a terminal returns from the browser pane while retaining the
+            // local browser session for a later grid selection.
+            WorkspaceTerminalSurfaceSelection(
+                store: store,
+                browserStore: browserStore
+            ).selectFromChrome(
+                terminalID: terminalID,
+                browserWorkspaceIdentity: workspace.browserSurfaceIdentity
+            )
+        }
     }
 
     func dismissTerminalKeyboardForChrome() {
