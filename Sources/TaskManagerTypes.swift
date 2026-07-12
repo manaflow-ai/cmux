@@ -584,14 +584,12 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable, Sendable {
         environment: [String: String]
     ) -> CmuxTaskManagerCodingAgentDefinition? {
         let definitions = builtIns
-        let launchKind = normalized(environment["CMUX_AGENT_LAUNCH_KIND"])
-        if let launchKind,
-           let definition = definitions.first(where: {
-               $0.launchKinds.contains(launchKind) && $0.matchesRequiredArguments(arguments)
-           }) {
-            return definition
-        }
-
+        // The process's own executable identity outranks the launch-kind
+        // environment: CMUX_AGENT_LAUNCH_* is inherited by every descendant
+        // of the launched pane, so a later `ollama run` inside a pane that
+        // launched claude still carries CMUX_AGENT_LAUNCH_KIND=claude. The
+        // env var only identifies processes (wrappers, script hosts) whose
+        // executable matches no agent definition of its own.
         let basenames = candidateBasenames(
             processName: processName,
             processPath: processPath,
@@ -601,6 +599,14 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable, Sendable {
             definition.matchesRequiredArguments(arguments)
                 && basenames.contains { definition.directBasenames.contains($0) }
         }) {
+            return definition
+        }
+
+        let launchKind = normalized(environment["CMUX_AGENT_LAUNCH_KIND"])
+        if let launchKind,
+           let definition = definitions.first(where: {
+               $0.launchKinds.contains(launchKind) && $0.matchesRequiredArguments(arguments)
+           }) {
             return definition
         }
 
