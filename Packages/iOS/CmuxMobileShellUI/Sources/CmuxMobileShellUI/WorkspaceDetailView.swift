@@ -182,7 +182,7 @@ struct WorkspaceDetailView: View {
             hasTrailingCluster: true,
             hasChatToggle: shouldShowChatToggle,
             hasTerminalAdd: true,
-            isEnabled: hasTitleMenuActions,
+            isEnabled: true,
             menuContent: { titleMenuContent }
         ) {
             toolbarTitleLabel

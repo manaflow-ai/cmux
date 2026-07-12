@@ -87,6 +87,26 @@ import Testing
 }
 
 @MainActor
+@Test func concurrentForegroundMutationRefreshesShareNewestSuccess() async throws {
+    let router = RoutingHostRouter()
+    let store = MobileShellComposite(
+        connectionState: .connected,
+        workspaces: MobileShellComposite.preview().workspaces
+    )
+    try installFreshRemoteClient(on: store, router: router)
+    await router.workspaceListGate.setHoldFirst(true)
+    let firstRefresh = Task { await store.refreshForegroundWorkspaceListAfterMutation() }
+    await router.workspaceListGate.waitUntilFirstReached()
+
+    let secondRefresh = await store.refreshForegroundWorkspaceListAfterMutation()
+    await router.workspaceListGate.releaseFirst()
+
+    #expect(secondRefresh)
+    #expect(await firstRefresh.value)
+    #expect(await router.workspaceListGate.requestCount() == 2)
+}
+
+@MainActor
 @Test func foregroundMutationRefreshRejectsReplacedClient() async throws {
     let originalRouter = RoutingHostRouter()
     let store = MobileShellComposite(

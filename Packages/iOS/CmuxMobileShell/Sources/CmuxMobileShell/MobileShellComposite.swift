@@ -723,6 +723,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var createTerminalTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
     var foregroundWorkspaceListMutationEpoch: UInt64 = 0
+    var foregroundWorkspaceListAppliedMutationEpoch: UInt64 = 0
+    var foregroundWorkspaceMutationRefreshTask: Task<ForegroundWorkspaceMutationRefreshResult, Never>?
     /// The user pull-to-refresh round-trip, kept on its own handle so the
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
@@ -5198,6 +5200,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 response,
                 preferActiveTicketTarget: selectedWorkspaceID == nil || selectedWorkspace?.rpcWorkspaceID == activeTicketWorkspaceID
             )
+            markForegroundWorkspaceListApplied()
             return true
         } catch {
             mobileShellLog.info("full mobile workspace list unavailable after scoped attach: \(String(describing: error), privacy: .private)")
@@ -5838,6 +5841,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   !Task.isCancelled else { return }
             advanceForegroundWorkspaceListMutationEpoch()
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
+            markForegroundWorkspaceListApplied()
             if selectedWorkspaceID == rowWorkspaceID,
                let createdID = response.createdTerminalID {
                 let createdTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
@@ -7412,6 +7416,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   connectionState == .connected,
                   mutationEpoch == foregroundWorkspaceListMutationEpoch else { return false }
             applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)
+            markForegroundWorkspaceListApplied()
             syncSelectedTerminalForWorkspace()
             return true
         } catch {

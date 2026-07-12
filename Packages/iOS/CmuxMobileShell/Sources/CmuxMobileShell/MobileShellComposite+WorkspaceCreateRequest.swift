@@ -63,6 +63,7 @@ extension MobileShellComposite {
             }
             advanceForegroundWorkspaceListMutationEpoch()
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
+            markForegroundWorkspaceListApplied()
             let createdWorkspace = response.createdWorkspaceID.map(MobileWorkspacePreview.ID.init(rawValue:))
             if let createdWorkspace {
                 setSelectedWorkspaceID(
