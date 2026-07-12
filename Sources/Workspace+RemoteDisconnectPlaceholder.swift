@@ -1,10 +1,58 @@
+import CMUXMobileCore
+import CmuxTerminal
 import Foundation
 
 extension Workspace {
+    /// Captures only Ghostty's bounded history tail plus the current viewport.
+    @MainActor
+    static func boundedRemoteDisconnectScrollback(
+        terminalPanel: TerminalPanel,
+        lineLimit: Int
+    ) -> String? {
+        guard lineLimit > 0,
+              let frame = terminalPanel.surface.mobileRenderGridFrame(
+                  stateSeq: 0,
+                  scrollbackLines: lineLimit
+              )?.frame else {
+            return nil
+        }
+        return remoteDisconnectScrollbackText(from: frame)
+    }
+
+    static func remoteDisconnectScrollbackText(from frame: MobileTerminalRenderGridFrame) -> String? {
+        var lines = remoteDisconnectRows(count: frame.scrollbackRows, spans: frame.scrollbackSpans)
+        lines.append(contentsOf: frame.plainRows())
+        while lines.last?.allSatisfy(\.isWhitespace) == true { lines.removeLast() }
+        guard !lines.isEmpty else { return nil }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private static func remoteDisconnectRows(
+        count: Int,
+        spans: [MobileTerminalRenderGridFrame.RowSpan]
+    ) -> [String] {
+        var lines = Array(repeating: "", count: count)
+        for span in spans.sorted(by: {
+            $0.row == $1.row ? $0.column < $1.column : $0.row < $1.row
+        }) where lines.indices.contains(span.row) {
+            if lines[span.row].count < span.column {
+                lines[span.row].append(String(repeating: " ", count: span.column - lines[span.row].count))
+            }
+            lines[span.row].append(span.text)
+            let padding = max(0, (span.cellWidth ?? span.text.count) - span.text.count)
+            if padding > 0 { lines[span.row].append(String(repeating: " ", count: padding)) }
+        }
+        return lines
+    }
+
     /// Writes a small shell wrapper that keeps a disconnected remote terminal visible.
-    /// Returned path goes to `initialCommand`, which Ghostty runs as the PTY command.
-    static func remoteDisconnectPlaceholderScript(target: String, reconnectCommand: String?) -> String {
-        let scriptURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+    /// The returned path goes to `initialCommand`; failure returns `nil` without a shell fallback.
+    static func remoteDisconnectPlaceholderScript(
+        target: String,
+        reconnectCommand: String?,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> String? {
+        let scriptURL = temporaryDirectory.appendingPathComponent(
             "cmux-remote-disconnect-\(UUID().uuidString.lowercased()).sh"
         )
         // Base64 keeps targets and localized text out of shell syntax, even if they contain
@@ -82,7 +130,8 @@ extension Workspace {
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
             return scriptURL.path
         } catch {
-            return "/bin/sh"
+            try? FileManager.default.removeItem(at: scriptURL)
+            return nil
         }
     }
 }
