@@ -116,9 +116,13 @@ struct SharedLiveAgentIndexLoader {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         }
     ) -> Set<String> {
-        Set(snapshot.cmuxScopedProcesses().map { process in
-            let arguments = processArgumentsProvider(process.pid)?.arguments ?? []
-            return ([
+        let processes: [CmuxTopProcessInfo] = snapshot.cmuxScopedProcesses()
+        var fingerprints = Set<String>()
+        fingerprints.reserveCapacity(processes.count)
+
+        for process in processes {
+            let arguments: [String] = processArgumentsProvider(process.pid)?.arguments ?? []
+            var components: [String] = [
                 process.cmuxWorkspaceID?.uuidString ?? "",
                 process.cmuxSurfaceID?.uuidString ?? "",
                 String(process.pid),
@@ -130,8 +134,15 @@ struct SharedLiveAgentIndexLoader {
                 process.name,
                 process.path ?? "",
                 String(arguments.count)
-            ] + arguments).map { "\($0.utf8.count):\($0)" }.joined()
-        })
+            ]
+            components.append(contentsOf: arguments)
+            let encodedComponents: [String] = components.map { component in
+                "\(component.utf8.count):\(component)"
+            }
+            fingerprints.insert(encodedComponents.joined())
+        }
+
+        return fingerprints
     }
 
     private static func forkValidatedPanels(
