@@ -94,6 +94,20 @@ struct RemoteDisconnectLifecycleTests {
         #expect(!workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(panel.id))
     }
 
+    @Test func restoredFallbackWithTerminalControlsIsNotReplayed() throws {
+        let workspace = Workspace()
+        workspace.configureRemoteConnection(Self.remoteConfiguration(), autoConnect: false)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        workspace.restoredTerminalScrollbackByPanelId[panel.id] = "\u{001B}]0;unterminated-title"
+
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panel.id, relayPort: 64007)
+        #expect(workspace.transitionRemoteTerminalToDisconnectedPlaceholder(surfaceId: panel.id))
+        defer { Self.removeTransitionArtifacts(workspace: workspace, panelIds: [panel.id]) }
+
+        let placeholder = try #require(workspace.terminalPanel(for: panel.id))
+        #expect(placeholder.surface.startupEnvironmentValue(SessionScrollbackReplayStore.environmentKey) == nil)
+    }
+
     @Test func disconnectedPlaceholderChildExitPreservesWorkspaceAndPanel() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
