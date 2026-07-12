@@ -51,6 +51,7 @@ extension MobileShellComposite {
         let generation = connectionGeneration
         let focusRevision = workspaceFocusRevisionSnapshot()
         let responseMutationEpoch = foregroundWorkspaceListMutationEpoch
+        let createSelectionRevision = claimForegroundCreateSelection()
         do {
             var params: [String: Any] = [:]
             if let groupID {
@@ -60,18 +61,25 @@ extension MobileShellComposite {
                 MobileCoreRPCClient.requestData(method: "workspace.create", params: params)
             )
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
-            guard isCurrentRemoteOperation(client: client, generation: generation), !Task.isCancelled else {
-                return .success(())
-            }
-            advanceForegroundWorkspaceListMutationEpoch()
-            applyRemoteWorkspaceList(
+            let responseOutcome = await applyOrReconcileRemoteCreateResponse(
                 response,
-                mergeExistingWorkspaces: true,
-                listStartedAtFocusRevision: focusRevision
+                startedAt: responseMutationEpoch,
+                focusRevision: focusRevision,
+                client: client,
+                generation: generation
             )
-            markForegroundWorkspaceListApplied(through: responseMutationEpoch)
+            switch responseOutcome {
+            case .invalidated:
+                return .success(())
+            case .reconciliationRequired:
+                return .failure(.appliedNeedsRefresh(hostDisplayName: connectedHostName))
+            case .appliedScopedResponse, .reconciledAuthoritativeList:
+                break
+            }
             let createdWorkspace = response.createdWorkspaceID.map(MobileWorkspacePreview.ID.init(rawValue:))
-            if let createdWorkspace {
+            let selectsCreatedWorkspace = createdWorkspace != nil
+                && ownsForegroundCreateSelection(createSelectionRevision)
+            if let createdWorkspace, selectsCreatedWorkspace {
                 setSelectedWorkspaceID(
                     rowWorkspaceID(
                         forRemoteWorkspaceID: createdWorkspace,
@@ -80,7 +88,7 @@ extension MobileShellComposite {
                 )
             }
             syncSelectedTerminalForWorkspace()
-            if createdWorkspace != nil {
+            if selectsCreatedWorkspace {
                 // A "+" actually created and selected a new workspace, so its terminal is freshly created.
                 suppressTerminalAutoFocusOnNextAttach(for: selectedTerminalID)
             }

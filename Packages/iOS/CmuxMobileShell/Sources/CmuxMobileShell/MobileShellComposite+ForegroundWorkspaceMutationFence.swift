@@ -12,7 +12,54 @@ struct ForegroundWorkspaceMutationRefreshResult: Sendable {
     let succeeded: Bool
 }
 
+enum RemoteCreateResponseOutcome: Equatable, Sendable {
+    case appliedScopedResponse
+    case reconciledAuthoritativeList
+    case reconciliationRequired
+    case invalidated
+}
+
 extension MobileShellComposite {
+    /// Claims selection ownership across workspace and terminal creates. Their
+    /// RPCs have separate single-flight owners and can overlap, so only the most
+    /// recently started create may select its result after an await.
+    func claimForegroundCreateSelection() -> UInt64 {
+        foregroundCreateSelectionRevision &+= 1
+        return foregroundCreateSelectionRevision
+    }
+
+    func ownsForegroundCreateSelection(_ revision: UInt64) -> Bool {
+        revision == foregroundCreateSelectionRevision
+    }
+
+    /// Installs a create response only while it still owns the hierarchy epoch.
+    /// A newer mutation or authoritative list invalidates that scoped snapshot;
+    /// in that case a fresh post-mutation list becomes the sole hierarchy writer.
+    func applyOrReconcileRemoteCreateResponse(
+        _ response: MobileSyncWorkspaceListResponse,
+        startedAt mutationEpoch: UInt64,
+        focusRevision: UInt64,
+        client: MobileCoreRPCClient,
+        generation: UUID
+    ) async -> RemoteCreateResponseOutcome {
+        guard isCurrentRemoteOperation(client: client, generation: generation),
+              !Task.isCancelled else { return .invalidated }
+        if mutationEpoch == foregroundWorkspaceListMutationEpoch {
+            advanceForegroundWorkspaceListMutationEpoch()
+            applyRemoteWorkspaceList(
+                response,
+                mergeExistingWorkspaces: true,
+                listStartedAtFocusRevision: focusRevision
+            )
+            markForegroundWorkspaceListApplied(through: mutationEpoch)
+            return .appliedScopedResponse
+        }
+        let reconciled = await refreshForegroundWorkspaceListAfterMutation()
+        guard isCurrentRemoteOperation(client: client, generation: generation),
+              !Task.isCancelled else { return .invalidated }
+        return reconciled ? .reconciledAuthoritativeList : .reconciliationRequired
+    }
+
     /// Re-fetches and installs the foreground Mac's authoritative workspace list.
     func reloadWorkspaceListFromMac() async -> Bool {
         guard let client = remoteClient else { return false }

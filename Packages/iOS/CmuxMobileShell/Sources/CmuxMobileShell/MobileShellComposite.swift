@@ -724,6 +724,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var workspaceListRefreshTask: Task<Void, Never>?
     var foregroundWorkspaceListMutationEpoch: UInt64 = 0
     var foregroundWorkspaceListAppliedMutationEpoch: UInt64 = 0
+    @ObservationIgnored var foregroundCreateSelectionRevision: UInt64 = 0
     @ObservationIgnored var workspaceFocusEventRevision: UInt64 = 0
     @ObservationIgnored var workspaceFocusEventRevisionsByMac: [
         String: [String: MobileWorkspaceFocusDimensionRevisions]

@@ -23,6 +23,7 @@ extension MobileShellComposite {
         let generation = connectionGeneration
         let focusRevision = workspaceFocusRevisionSnapshot()
         let responseMutationEpoch = foregroundWorkspaceListMutationEpoch
+        let createSelectionRevision = claimForegroundCreateSelection()
         do {
             var params: [String: Any] = ["workspace_id": requestedWorkspaceID.rawValue]
             if let paneID {
@@ -35,16 +36,24 @@ extension MobileShellComposite {
                 )
             )
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
-            guard isCurrentRemoteOperation(client: client, generation: generation),
-                  !Task.isCancelled else { return }
-            advanceForegroundWorkspaceListMutationEpoch()
-            applyRemoteWorkspaceList(
+            let responseOutcome = await applyOrReconcileRemoteCreateResponse(
                 response,
-                mergeExistingWorkspaces: true,
-                listStartedAtFocusRevision: focusRevision
+                startedAt: responseMutationEpoch,
+                focusRevision: focusRevision,
+                client: client,
+                generation: generation
             )
-            markForegroundWorkspaceListApplied(through: responseMutationEpoch)
-            if selectedWorkspaceID == rowWorkspaceID,
+            switch responseOutcome {
+            case .invalidated:
+                return
+            case .reconciliationRequired:
+                terminalReorderGate.requireRefresh(workspaceID: rowWorkspaceID)
+                return
+            case .appliedScopedResponse, .reconciledAuthoritativeList:
+                break
+            }
+            if ownsForegroundCreateSelection(createSelectionRevision),
+               selectedWorkspaceID == rowWorkspaceID,
                let createdTerminalID = resolvedRemoteTerminalCreationSelection(
                    responseCreatedTerminalID: response.createdTerminalID,
                    workspaceID: rowWorkspaceID,
