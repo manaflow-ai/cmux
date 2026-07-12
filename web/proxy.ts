@@ -3,8 +3,11 @@ import createMiddleware from "next-intl/middleware";
 import { routing } from "./i18n/routing";
 import { isAgentPageVariantPath } from "./app/lib/agent-page-paths";
 import {
+  fallbackContentLocales,
+  fallbackContentRequestForPathname,
   featureWorkflowContentLocales,
   featureWorkflowDocRequestForPathname,
+  hasFallbackContent,
   remoteTmuxDocsLocales,
 } from "./i18n/locale-availability";
 import { buildAlternateLinkHeader } from "./i18n/seo";
@@ -76,6 +79,31 @@ export default function middleware(request: NextRequest) {
     return response;
   }
 
+  const fallbackContentRequest = fallbackContentRequestForPathname(pathname);
+  if (fallbackContentRequest && !fallbackContentRequest.locale) {
+    const preferredLocale = preferredFallbackContentLocale(request);
+    const url = request.nextUrl.clone();
+    url.pathname = `/${preferredLocale}${fallbackContentRequest.path}`;
+    const response =
+      preferredLocale === "en"
+        ? NextResponse.rewrite(url)
+        : NextResponse.redirect(url, 307);
+    setFallbackContentLinkHeader(
+      response,
+      request,
+      fallbackContentRequest.path,
+    );
+    return response;
+  }
+  if (
+    fallbackContentRequest?.locale &&
+    !hasFallbackContent(fallbackContentRequest.locale)
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = fallbackContentRequest.path;
+    return NextResponse.redirect(url, 301);
+  }
+
   // Legal pages are English-only. Redirect /<locale>/legal-page to /legal-page,
   // and skip next-intl for /legal-page so locale detection can't redirect back.
   const englishOnlyPages = new Set([
@@ -125,8 +153,98 @@ export default function middleware(request: NextRequest) {
       featureWorkflowDocRequest.path,
     );
   }
+  if (fallbackContentRequest) {
+    setFallbackContentLinkHeader(
+      response,
+      request,
+      fallbackContentRequest.path,
+    );
+  }
 
   return response;
+}
+
+function setFallbackContentLinkHeader(
+  response: NextResponse,
+  request: NextRequest,
+  path: string,
+) {
+  response.headers.set(
+    "Link",
+    buildAlternateLinkHeader(
+      requestOrigin(request),
+      path,
+      fallbackContentLocales,
+    ),
+  );
+}
+
+function preferredFallbackContentLocale(request: NextRequest): "en" | "ja" {
+  const cookieLocale = request.cookies.get("NEXT_LOCALE")?.value;
+  if (cookieLocale && hasFallbackContent(cookieLocale)) {
+    return cookieLocale;
+  }
+  if (cookieLocale && routing.locales.some((locale) => locale === cookieLocale)) {
+    return "en";
+  }
+
+  const preferences = (request.headers.get("accept-language") ?? "")
+    .split(",")
+    .map((preference, index) => {
+      const [tag, ...parameters] = preference.trim().split(";");
+      const qualityParameter = parameters.find((parameter) =>
+        /^q\s*=/iu.test(parameter.trim()),
+      );
+      const qualityValue = qualityParameter?.split("=")[1].trim();
+      const quality =
+        qualityValue === undefined
+          ? 1
+          : /^(?:0(?:\.\d{0,3})?|1(?:\.0{0,3})?)$/u.test(qualityValue)
+            ? Number(qualityValue)
+            : Number.NaN;
+      return { tag: tag.trim().toLowerCase(), quality, index };
+    })
+    .filter(
+      ({ tag, quality }) =>
+        tag.length > 0 &&
+        Number.isFinite(quality) &&
+        quality >= 0 &&
+        quality <= 1,
+    );
+
+  const english = effectiveLanguageQuality("en", preferences);
+  const japanese = effectiveLanguageQuality("ja", preferences);
+  if (japanese.quality > english.quality) return "ja";
+  if (
+    japanese.quality === english.quality &&
+    japanese.quality > 0 &&
+    japanese.index < english.index
+  ) {
+    return "ja";
+  }
+  return "en";
+}
+
+function effectiveLanguageQuality(
+  locale: "en" | "ja",
+  preferences: Array<{ tag: string; quality: number; index: number }>,
+) {
+  const explicitMatches = preferences.filter(({ tag }) => {
+    if (tag === "*") return false;
+    return tag.split("-")[0] === locale;
+  });
+  const matches =
+    explicitMatches.length > 0
+      ? explicitMatches
+      : preferences.filter(({ tag }) => tag === "*");
+  return matches.reduce(
+    (best, preference) =>
+      preference.quality > best.quality ||
+      (preference.quality === best.quality && preference.index < best.index)
+        ? preference
+        : best,
+    { quality: 0, index: Number.POSITIVE_INFINITY },
+  );
 }
 
 function setFeatureWorkflowDocLinkHeader(
