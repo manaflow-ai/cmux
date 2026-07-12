@@ -87,6 +87,13 @@ final class AgentGUIWirePublisher {
         )
     }
 
+    func publishStreamTick(_ event: GuiStreamTickEvent, sessionID: AgentSessionID) {
+        publish(
+            topic: GuiWireTopic.journal(sessionID: sessionID),
+            frame: GuiEventFrame(epoch: epoch, sessionID: sessionID, payload: .streamTick(event))
+        )
+    }
+
     private func publish(topic: String, frame: GuiEventFrame) {
         guard MobileHostService.hasEventSubscribers(topic: topic) else {
             return

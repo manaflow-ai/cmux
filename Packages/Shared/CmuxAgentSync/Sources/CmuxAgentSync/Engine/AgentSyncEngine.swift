@@ -31,7 +31,7 @@ public final class AgentSyncEngine {
     @ObservationIgnored let decoder: JSONDecoder
     @ObservationIgnored private var connectionTask: Task<Void, Never>?
     @ObservationIgnored private var frameTask: Task<Void, Never>?
-    @ObservationIgnored private var retryTask: Task<Void, Never>?
+    @ObservationIgnored var retryTask: Task<Void, Never>?
     @ObservationIgnored private var resyncTask: Task<Void, Never>?
     @ObservationIgnored private var tailPullTasks: [AgentSessionID: Task<Void, Never>]
     @ObservationIgnored private var conversationOwnerCounts: [AgentSessionID: Int]
@@ -279,7 +279,7 @@ public final class AgentSyncEngine {
         }
     }
 
-    private func triggerResync() {
+    func triggerResync() {
         guard started, !stopped else { return }
         retryTask?.cancel()
         retryTask = nil
@@ -295,6 +295,7 @@ public final class AgentSyncEngine {
 
     private func scheduleRetry(reason: String) {
         guard !stopped else { return }
+        connectivity.recordFailure(reason: reason)
         connectivity.setPhase(.offline(reason: reason))
         retryAttempt += 1
         retryTask?.cancel()
@@ -340,6 +341,7 @@ public final class AgentSyncEngine {
             try await pullTail(sessionID: sessionID)
         }
         try await flushQueuedTickets()
+        connectivity.recordSuccessfulSync()
         connectivity.setPhase(.connected)
     }
 
@@ -409,6 +411,10 @@ public final class AgentSyncEngine {
                   let conversation = conversations[sessionID],
                   conversation.journalID == value.journalID,
                   conversation.tailSeq == value.afterSeq else { return }
+            guard !value.textTail.isEmpty else {
+                streamingTails[sessionID] = nil
+                return
+            }
             streamingTails[sessionID] = AgentStreamingTail(
                 journalID: value.journalID,
                 afterSeq: value.afterSeq,

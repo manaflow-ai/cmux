@@ -57,4 +57,20 @@ import Testing
         #expect(ledger.tickets.map(\.id) == [earlier, later])
         #expect(ledger.tickets.count == 2)
     }
+
+    @Test func retentionCapEvictsOnlyOldestResolvedTickets() {
+        let unresolved = ReplicaTestSupport.ticket(id: UUID(), state: .unconfirmed, createdAt: 0)
+        var ledger = TicketLedgerClient(tickets: [unresolved])
+        for tick in 1...(TicketLedgerClient.resolvedRetentionLimit + 10) {
+            _ = ledger.apply(ReplicaTestSupport.ticket(
+                id: UUID(),
+                state: .failed(code: "test"),
+                createdAt: tick
+            ))
+        }
+
+        #expect(ledger.tickets.count == TicketLedgerClient.resolvedRetentionLimit + 1)
+        #expect(ledger.tickets.first?.id == unresolved.id)
+        #expect(ledger.tickets.dropFirst().allSatisfy { $0.state.isResolved })
+    }
 }

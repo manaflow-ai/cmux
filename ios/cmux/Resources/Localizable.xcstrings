@@ -970,6 +970,23 @@
         }
       }
     },
+    "mobile.composer.agent.attachmentsStaged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attachments stay staged for Terminal mode. Remove them or switch to Terminal before sending."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイルはターミナルモード用に保持されます。送信する前に削除するか、ターミナルに切り替えてください。"
+          }
+        }
+      }
+    },
     "mobile.composer.attachment.remove": {
       "extractionState": "manual",
       "localizations": {

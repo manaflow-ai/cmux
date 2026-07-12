@@ -41,6 +41,7 @@ struct AgentGUIAskRegistryTests {
         let activeAsks = published.filter { $0.state == .active }
         #expect(activeAsks.map(\.kind) == [.question, .permission])
         #expect(activeAsks.map(\.optionsCount) == [2, 2])
+        #expect(activeAsks.map(\.options) == [["A", "B"], ["Deny", "Allow"]])
     }
 
     @Test func answerSendsOneBasedDigitAndIsIdempotent() throws {

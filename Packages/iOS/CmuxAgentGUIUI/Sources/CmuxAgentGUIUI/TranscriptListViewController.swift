@@ -1,6 +1,7 @@
 #if os(iOS)
 import CMUXMobileCore
 public import CmuxAgentGUIProjection
+import CmuxAgentReplica
 import SwiftUI
 public import UIKit
 /// UIKit transcript list with flipped collection-view physics.
@@ -9,8 +10,8 @@ public import UIKit
     public private(set) var collectionView: UICollectionView!
     private let projector = TranscriptProjector()
     var currentTheme: AgentGUITheme
-    private var dataSource: UICollectionViewDiffableDataSource<TranscriptListSection, TranscriptRowID>!
-    private var rowsByID: [TranscriptRowID: TranscriptRow] = [:]
+    var dataSource: UICollectionViewDiffableDataSource<TranscriptListSection, TranscriptRowID>!
+    var rowsByID: [TranscriptRowID: TranscriptRow] = [:]
     private var spacingByID: [TranscriptRowID: TranscriptRowSpacing] = [:]
     private var currentRows: [TranscriptRow] = []
     private var latestInput: TranscriptProjectionInput?
@@ -30,6 +31,10 @@ public import UIKit
     var renderedPillUnreadCount = 0
     private var topMaskView: TranscriptPinnedTopMaskView?
     private var bottomMaskView: TranscriptPinnedBottomMaskView?
+    var answeringAskID: String?
+    var failedAskID: String?
+    var onAnswer: (PendingAsk, Int) -> Void = { _, _ in }
+    var onShowTerminal: () -> Void = {}
 
     /// Creates the transcript list controller.
     public init(theme: AgentGUITheme) {
@@ -39,13 +44,6 @@ public import UIKit
 
     required init?(coder: NSCoder) {
         nil
-    }
-
-    /// The current physical bottom obstruction reported by `keyboardLayoutGuide`.
-    public var keyboardBottomInset: CGFloat {
-        guard isViewLoaded else { return 0 }
-        let obstruction = view.bounds.maxY - view.keyboardLayoutGuide.layoutFrame.minY
-        return pixelRounded(max(0, obstruction - view.safeAreaInsets.bottom))
     }
 
     public override func loadView() {
@@ -81,6 +79,7 @@ public import UIKit
         currentRows = projection.rows
         applyRows(projection.rows, diff: projection.diff)
     }
+
     /// Recolors the mounted transcript and chrome without replacing the list controller.
     public func apply(theme: AgentGUITheme) {
         guard theme != currentTheme else {
@@ -226,7 +225,15 @@ public import UIKit
             else {
                 return UICollectionViewCell()
             }
-            cell.configure(row: row, spacing: spacing, theme: currentTheme)
+            cell.configure(
+                row: row,
+                spacing: spacing,
+                theme: currentTheme,
+                answeringAskID: answeringAskID,
+                failedAskID: failedAskID,
+                onAnswer: onAnswer,
+                onShowTerminal: onShowTerminal
+            )
             return cell
         }
         var snapshot = NSDiffableDataSourceSnapshot<TranscriptListSection, TranscriptRowID>()
@@ -336,10 +343,6 @@ public import UIKit
         collectionView.contentOffset.y -= newScreenY - anchor.screenY
     }
 
-    var bottomRestOffset: CGPoint {
-        CGPoint(x: -collectionView.contentInset.left, y: -collectionView.contentInset.top)
-    }
-
     func updateVisualEdgeInsets(preservingBottomPosition: Bool) {
         let oldRestOffset = bottomRestOffset
         let wasNearBottom = distanceFromBottom <= 40
@@ -366,10 +369,6 @@ public import UIKit
         let newRestOffset = bottomRestOffset
         collectionView.contentOffset.x += newRestOffset.x - oldRestOffset.x
         collectionView.contentOffset.y += newRestOffset.y - oldRestOffset.y
-    }
-
-    var isScrollInteractionActive: Bool {
-        collectionView.isTracking || collectionView.isDragging || collectionView.isDecelerating
     }
 
     private static let visualBottomBreathingGap: CGFloat = 8

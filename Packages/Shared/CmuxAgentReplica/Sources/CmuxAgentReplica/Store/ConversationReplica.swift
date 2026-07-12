@@ -188,7 +188,7 @@ public import Observation
         }
         enforceWindowCap()
         recomputeHoles()
-        needsTailPull = !holes.isEmpty
+        needsTailPull = hasRepairableHole
     }
 
     /// Marks entries through a sequence as read.
@@ -340,6 +340,18 @@ public import Observation
             nextHoles.append(EntryRange(lowerBound: EntrySeq(rawValue: 1), upperBound: tailSeq))
         }
         holes = Self.coalesced(nextHoles)
+    }
+
+    private var hasRepairableHole: Bool {
+        guard let firstLoaded = loadedRanges.first?.lowerBound else {
+            return !holes.isEmpty
+        }
+        return holes.contains { hole in
+            let isPageablePrefix = hasMoreBeforeWindow
+                && hole.lowerBound.rawValue == 1
+                && hole.upperBound.rawValue < firstLoaded.rawValue
+            return !isPageablePrefix
+        }
     }
 
     private func firstHoleAfterReadPointer() -> EntryRange? {

@@ -361,6 +361,60 @@
         "en" : { "stringUnit" : { "state" : "translated", "value" : "No activity" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "アクティビティなし" } }
       }
+    },
+    "agent.ask.failed" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The answer could not be sent. Try again or use Terminal." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "回答を送信できませんでした。もう一度試すか、ターミナルを使用してください。" } }
+      }
+    },
+    "agent.ask.showTerminal" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Show Terminal" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナルを表示" } }
+      }
+    },
+    "agent.ask.terminalRequired" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Answer this request in Terminal." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このリクエストにはターミナルで回答してください。" } }
+      }
+    },
+    "agent.sync.failed.message" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "cmux could not update this conversation. Retry or continue in Terminal." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmuxはこの会話を更新できませんでした。再試行するか、ターミナルで続けてください。" } }
+      }
+    },
+    "agent.sync.failed.title" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Conversation unavailable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "会話を利用できません" } }
+      }
+    },
+    "agent.sync.loading" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Loading conversation…" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "会話を読み込み中…" } }
+      }
+    },
+    "agent.sync.retry" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Retry" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "再試行" } }
+      }
+    },
+    "agent.sync.stale.message" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "New activity is not available yet." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新しいアクティビティはまだ利用できません。" } }
+      }
+    },
+    "agent.sync.stale.title" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Showing saved conversation" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "保存済みの会話を表示中" } }
+      }
     }
   },
   "version" : "1.0"

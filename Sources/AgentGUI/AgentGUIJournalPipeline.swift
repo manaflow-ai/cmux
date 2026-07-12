@@ -22,6 +22,7 @@ final class AgentGUIJournalPipeline {
     private var watchTask: Task<Void, Never>?
     private(set) var window: AgentGUIJournalWindow?
     private(set) var isWatching = false
+    private(set) var lastReadByteCount = 0
 
     init(sessionID: AgentSessionID, kind: AgentKind, path: String) {
         self.sessionID = sessionID
@@ -115,15 +116,20 @@ final class AgentGUIJournalPipeline {
             currentIdentity = fileIdentity.journalIdentity(baselineFirstLine: baselineFirstLine)
         }
 
-        let chunk = await readChunk(from: currentByteOffset)
+        let chunk = if didReset || fullRefresh {
+            await readInitialTail()
+        } else {
+            await readChunk(from: currentByteOffset)
+        }
+        lastReadByteCount = chunk.data.count
         if didReset || fullRefresh {
             let result = rebuildWindow(journalID: journalID, from: chunk)
-            currentByteOffset += chunk.byteCount
+            currentByteOffset = chunk.endOffset
             return result
         }
 
         guard chunk.byteCount > 0 else { return [] }
-        currentByteOffset += chunk.byteCount
+        currentByteOffset = chunk.endOffset
         return append(data: chunk.data, journalID: journalID)
     }
 
@@ -166,7 +172,11 @@ final class AgentGUIJournalPipeline {
         let stamped = decode(lines: completeLines, startingAt: cappedStart, journalID: journalID)
         currentLineIndex = cappedStart + completeLines.count
         var nextWindow = AgentGUIJournalWindow(journalID: journalID)
-        nextWindow.reset(journalID: journalID, entries: stamped.map(\.entry), hasMoreBefore: cappedStart > 0)
+        nextWindow.reset(
+            journalID: journalID,
+            entries: stamped.map(\.entry),
+            hasMoreBefore: chunk.discardedPrefix || cappedStart > 0
+        )
         window = nextWindow
         return [.reset(journalID: journalID, tailSeq: nextWindow.tailSeq)]
     }
@@ -190,12 +200,25 @@ final class AgentGUIJournalPipeline {
         let path = path
         return await Task.detached(priority: .utility) {
             guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path)) else {
-                return ReadChunk(data: Data())
+                return ReadChunk(data: Data(), endOffset: byteOffset, discardedPrefix: false)
             }
             defer { try? handle.close() }
-            do { try handle.seek(toOffset: UInt64(byteOffset)) } catch { return ReadChunk(data: Data()) }
+            do { try handle.seek(toOffset: UInt64(byteOffset)) } catch {
+                return ReadChunk(data: Data(), endOffset: byteOffset, discardedPrefix: false)
+            }
             let data = (try? handle.readToEnd()) ?? Data()
-            return ReadChunk(data: data)
+            return ReadChunk(data: data, endOffset: byteOffset + data.count, discardedPrefix: false)
+        }.value
+    }
+
+    private func readInitialTail() async -> ReadChunk {
+        let path = path
+        return await Task.detached(priority: .utility) {
+            AgentGUITranscriptTailReader.read(
+                path: path,
+                lineLimit: AgentGUIConstants.initialTailLineCap,
+                byteLimit: AgentGUIConstants.initialTailByteCap
+            )
         }.value
     }
 
@@ -215,5 +238,37 @@ final class AgentGUIJournalPipeline {
 
 private struct ReadChunk: Sendable {
     let data: Data
+    let endOffset: Int
+    let discardedPrefix: Bool
     var byteCount: Int { data.count }
+}
+
+private enum AgentGUITranscriptTailReader {
+    static func read(path: String, lineLimit: Int, byteLimit: Int) -> ReadChunk {
+        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path)) else {
+            return ReadChunk(data: Data(), endOffset: 0, discardedPrefix: false)
+        }
+        defer { try? handle.close() }
+        let endOffset = Int((try? handle.seekToEnd()) ?? 0)
+        let startOffset = max(0, endOffset - max(1, byteLimit))
+        do { try handle.seek(toOffset: UInt64(startOffset)) } catch {
+            return ReadChunk(data: Data(), endOffset: endOffset, discardedPrefix: startOffset > 0)
+        }
+        var data = (try? handle.readToEnd()) ?? Data()
+        var discardedPrefix = startOffset > 0
+        if startOffset > 0 {
+            if let firstNewline = data.firstIndex(of: 0x0A) {
+                data = Data(data[data.index(after: firstNewline)...])
+            } else {
+                data.removeAll()
+            }
+        }
+        let newlineIndexes = data.indices.filter { data[$0] == 0x0A }
+        if newlineIndexes.count > lineLimit {
+            let cutoff = newlineIndexes[newlineIndexes.count - lineLimit - 1]
+            data = Data(data[data.index(after: cutoff)...])
+            discardedPrefix = true
+        }
+        return ReadChunk(data: data, endOffset: endOffset, discardedPrefix: discardedPrefix)
+    }
 }

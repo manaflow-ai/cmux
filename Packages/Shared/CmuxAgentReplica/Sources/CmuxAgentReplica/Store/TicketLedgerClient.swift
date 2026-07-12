@@ -2,6 +2,7 @@ import Foundation
 
 /// Applies FIFO send-ticket updates with legal transition enforcement.
 public struct TicketLedgerClient: Codable, Hashable, Sendable {
+    static let resolvedRetentionLimit = 256
     /// Tickets in FIFO order.
     public private(set) var tickets: [SendTicket]
     /// Count of illegal transition attempts that were dropped.
@@ -24,6 +25,7 @@ public struct TicketLedgerClient: Codable, Hashable, Sendable {
         guard let index = updateIndex(for: ticket) else {
             tickets.append(ticket)
             tickets.sort { $0.createdAt < $1.createdAt }
+            enforceResolvedRetentionLimit()
             return true
         }
 
@@ -35,6 +37,7 @@ public struct TicketLedgerClient: Codable, Hashable, Sendable {
 
         tickets[index] = ticket
         tickets.sort { $0.createdAt < $1.createdAt }
+        enforceResolvedRetentionLimit()
         return true
     }
 
@@ -79,5 +82,15 @@ public struct TicketLedgerClient: Codable, Hashable, Sendable {
             }
         }
         return tickets.firstIndex { $0.id == ticket.id }
+    }
+
+    private mutating func enforceResolvedRetentionLimit() {
+        var resolvedCount = tickets.count { $0.state.isResolved }
+        guard resolvedCount > Self.resolvedRetentionLimit else { return }
+        tickets.removeAll { ticket in
+            guard resolvedCount > Self.resolvedRetentionLimit, ticket.state.isResolved else { return false }
+            resolvedCount -= 1
+            return true
+        }
     }
 }

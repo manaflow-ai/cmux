@@ -36,7 +36,8 @@ extension WorkspaceDetailView {
                     sessionID: availability.sessionID,
                     bottomChromeHeight: transcriptBottomChromeHeight,
                     terminalTheme: TerminalThemeStore.current,
-                    terminalThemeGeneration: store.terminalThemeGeneration
+                    terminalThemeGeneration: store.terminalThemeGeneration,
+                    onShowTerminal: { guiModeSelected = false }
                 )
                 .ignoresSafeArea(.keyboard, edges: .bottom)
                 .transition(.opacity)

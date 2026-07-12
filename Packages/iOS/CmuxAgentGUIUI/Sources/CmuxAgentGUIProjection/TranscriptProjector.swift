@@ -71,7 +71,7 @@ public struct TranscriptProjector: Sendable {
         for ask in input.asks where Self.isActive(ask.state) {
             chronological.append(TranscriptRow(
                 rowID: .pendingAsk(ask.id),
-                rowKind: .genericActivity(Self.activity(for: ask)),
+                rowKind: .pendingAsk(ask),
                 isUnread: true
             ))
         }
@@ -105,13 +105,13 @@ public struct TranscriptProjector: Sendable {
         turn: inout TranscriptTurnAccumulator?,
         rows: inout [TranscriptRow]
     ) {
-        if lastDayKey != context.dayKey {
+        if let dayKey = context.dayKey, lastDayKey != dayKey {
             flush(&turn, input: input, latestTurnID: latestTurnID, rows: &rows)
             rows.append(TranscriptRow(
-                rowID: .dateHeader(context.dayKey),
-                rowKind: .dateHeader(dayKey: context.dayKey)
+                rowID: .dateHeader(dayKey),
+                rowKind: .dateHeader(dayKey: dayKey)
             ))
-            lastDayKey = context.dayKey
+            lastDayKey = dayKey
         }
         if case .userMessage = context.entry.content.payload {
             flush(&turn, input: input, latestTurnID: latestTurnID, rows: &rows)
@@ -362,15 +362,6 @@ public struct TranscriptProjector: Sendable {
     private static func uniqueRowIDs(in rows: [TranscriptRow]) -> [TranscriptRowID] {
         var seen = Set<TranscriptRowID>()
         return rows.compactMap { seen.insert($0.rowID).inserted ? $0.rowID : nil }
-    }
-
-    private static func activity(for ask: PendingAsk) -> TranscriptGenericActivity {
-        switch ask.kind {
-        case .question:
-            TranscriptGenericActivity(kindLabel: "question", summary: ask.promptSummary)
-        case .permission:
-            TranscriptGenericActivity(kindLabel: "permission", summary: ask.promptSummary)
-        }
     }
 
     private static func isActive(_ state: PendingAskState) -> Bool {

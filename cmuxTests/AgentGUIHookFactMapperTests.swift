@@ -11,6 +11,24 @@ import Testing
 #endif
 
 @Suite struct AgentGUIHookFactMapperTests {
+    @Test func processKindRequiresStructuredLaunchMetadata() {
+        #expect(AgentProcessObservationSource.agentKind(
+            arguments: ["codex_report.py"],
+            environment: [:],
+            processName: "python"
+        ) == .unknown("unknown"))
+        #expect(AgentProcessObservationSource.agentKind(
+            arguments: ["claude.log"],
+            environment: [:],
+            processName: "cat"
+        ) == .unknown("unknown"))
+        #expect(AgentProcessObservationSource.agentKind(
+            arguments: [],
+            environment: ["CMUX_AGENT_LAUNCH_KIND": "codex"],
+            processName: "node"
+        ) == .codex)
+    }
+
     @Test func mapsKnownHookNamesAndUnknowns() {
         let mapper = AgentGUIHookFactMapper()
 

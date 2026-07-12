@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxAgentGUIProjection
+import CmuxAgentReplica
 import SwiftUI
 import UIKit
 
@@ -29,12 +30,28 @@ final class TranscriptCollectionCell: UICollectionViewListCell {
     private(set) var rowKind: TranscriptRowKind?
     private(set) var row: TranscriptRow?
 
-    func configure(row: TranscriptRow, spacing: TranscriptRowSpacing, theme: AgentGUITheme) {
+    func configure(
+        row: TranscriptRow,
+        spacing: TranscriptRowSpacing,
+        theme: AgentGUITheme,
+        answeringAskID: String?,
+        failedAskID: String?,
+        onAnswer: @escaping (PendingAsk, Int) -> Void,
+        onShowTerminal: @escaping () -> Void
+    ) {
         self.row = row
         rowKind = row.rowKind
         rowSpacing = spacing
         contentConfiguration = UIHostingConfiguration {
-            TranscriptRowContentView(row: row, spacing: rowSpacing, theme: theme)
+            TranscriptRowContentView(
+                row: row,
+                spacing: rowSpacing,
+                theme: theme,
+                answeringAskID: answeringAskID,
+                failedAskID: failedAskID,
+                onAnswer: onAnswer,
+                onShowTerminal: onShowTerminal
+            )
         }
         .margins(.all, 0)
         // UICollectionViewListCell may refresh its default background when its
@@ -42,9 +59,14 @@ final class TranscriptCollectionCell: UICollectionViewListCell {
         // transcript canvas remains visible through row gaps.
         backgroundConfiguration = .clear()
         contentView.backgroundColor = .clear
-        isAccessibilityElement = true
-        accessibilityTraits = .staticText
-        accessibilityLabel = row.accessibilityLabel
+        if case .pendingAsk = row.rowKind {
+            isAccessibilityElement = false
+            accessibilityLabel = nil
+        } else {
+            isAccessibilityElement = true
+            accessibilityTraits = .staticText
+            accessibilityLabel = row.accessibilityLabel
+        }
     }
 
 }

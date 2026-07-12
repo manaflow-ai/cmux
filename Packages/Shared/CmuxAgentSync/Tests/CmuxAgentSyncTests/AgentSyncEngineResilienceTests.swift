@@ -92,6 +92,30 @@ extension AgentSyncEngineTests {
         for _ in 0..<20 { await Task.yield() }
         #expect(engine.streamingTails[AgentSyncTestSupport.session]?.revision == 1)
 
+        let clear = try AgentSyncTestSupport.eventData(.streamTick(
+            GuiStreamTickEvent(
+                journalID: AgentSyncTestSupport.journalOne,
+                afterSeq: EntrySeq(rawValue: 2),
+                textTail: "",
+                revision: 2
+            )
+        ))
+        await transport.injectFrame(
+            topic: GuiWireTopic.journal(sessionID: AgentSyncTestSupport.session),
+            payload: clear
+        )
+        #expect(await AgentSyncTestSupport.waitUntil {
+            engine.streamingTails[AgentSyncTestSupport.session] == nil
+        })
+
+        await transport.injectFrame(
+            topic: GuiWireTopic.journal(sessionID: AgentSyncTestSupport.session),
+            payload: contiguous
+        )
+        #expect(await AgentSyncTestSupport.waitUntil {
+            engine.streamingTails[AgentSyncTestSupport.session]?.revision == 1
+        })
+
         let append = try AgentSyncTestSupport.eventData(.entriesAppended(
             GuiEntriesAppendedEvent(
                 journalID: AgentSyncTestSupport.journalOne,

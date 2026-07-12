@@ -25,6 +25,7 @@ final class AgentGUIService {
     private var pipelines: [AgentSessionID: AgentGUIJournalPipeline] = [:]
     private var sendLedgers: [AgentSessionID: AgentGUISendLedger] = [:]
     private let askRegistry: AgentGUIAskRegistry
+    private var streamProducer: AgentGUIStreamProducer?
     private var removalVersions: [AgentSessionID: UInt64] = [:]
     private var subscriptionObserver: NSObjectProtocol?
     private let hookTapStream: AsyncStream<WorkstreamEvent>
@@ -54,6 +55,22 @@ final class AgentGUIService {
         let hookTap = AsyncStream<WorkstreamEvent>.makeStream()
         self.hookTapStream = hookTap.stream
         self.hookTapContinuation = hookTap.continuation
+        self.streamProducer = AgentGUIStreamProducer(
+            publish: { [publisher] sessionID, event in
+                publisher.publishStreamTick(event, sessionID: sessionID)
+            },
+            snapshot: { surfaceID in
+                GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID)?
+                    .mobileRenderGridFrame(stateSeq: 0, full: true)?.rows
+            },
+            hasSubscribers: { sessionID in
+                MobileHostService.hasEventSubscribers(topic: GuiWireTopic.journal(sessionID: sessionID))
+            },
+            context: { [weak self] sessionID in
+                guard let window = self?.pipelines[sessionID]?.window else { return nil }
+                return AgentGUIStreamProducer.Context(journalID: window.journalID, afterSeq: window.tailSeq)
+            }
+        )
     }
 
     func start() {
@@ -92,12 +109,14 @@ final class AgentGUIService {
         let hookTapContinuation = hookTapContinuation
         let hookTapTask = hookTapTask
         let subscriptionObserver = subscriptionObserver
+        let streamProducer = streamProducer
         Task { @MainActor in
             exitWatcher?.stopAll()
             processSource?.setRunning(false)
             reevaluationTimer?.cancel()
             hookTapContinuation.finish()
             hookTapTask?.cancel()
+            streamProducer?.stopAll()
             if let subscriptionObserver {
                 NotificationCenter.default.removeObserver(subscriptionObserver)
             }
@@ -173,9 +192,12 @@ final class AgentGUIService {
         guard !text.isEmpty else {
             throw AgentGUIRPCError.invalidParams
         }
-        let snapshot = reducer.snapshots[params.sessionID]
-        guard snapshot != nil else {
+        guard let snapshot = reducer.snapshots[params.sessionID],
+              let evidence = reducer.evidence[params.sessionID] else {
             throw AgentGUIRPCError.notFound
+        }
+        guard capabilityBuilder.report(for: evidence).steerable else {
+            throw AgentGUIRPCError.sendRejected(detail: "session_not_steerable")
         }
         let result = try ledger(sessionID: params.sessionID).submit(
             ticketID: ticketID,
@@ -232,6 +254,18 @@ final class AgentGUIService {
         let fact = hookMapper.hookFact(from: event)
         fold(.hookEvent(fact, tick: tick))
         ensurePipeline(sessionID: fact.sessionID, kindHint: AgentKind(rawValue: event.source), transcriptPath: fact.transcriptPath, cwd: fact.cwd)
+        switch event.hookEventName {
+        case .userPromptSubmit:
+            if let snapshot = reducer.snapshots[fact.sessionID],
+               let rawSurfaceID = snapshot.surfaceID,
+               let surfaceID = UUID(uuidString: rawSurfaceID) {
+                streamProducer?.turnStarted(sessionID: fact.sessionID, surfaceID: surfaceID, agentKind: snapshot.kind)
+            }
+        case .stop, .sessionEnd:
+            streamProducer?.turnEnded(sessionID: fact.sessionID)
+        default:
+            break
+        }
         updateGates()
     }
 
@@ -273,6 +307,7 @@ final class AgentGUIService {
                 sendLedgers[session.id]?.handleSessionSnapshot(session)
                 askRegistry.handleSessionSnapshot(session)
             case .sessionRemoved(let sessionID):
+                streamProducer?.turnEnded(sessionID: sessionID)
                 sendLedgers.removeValue(forKey: sessionID)
                 askRegistry.removeSession(sessionID)
                 let version = nextRemovalVersion(sessionID: sessionID)
@@ -348,6 +383,9 @@ final class AgentGUIService {
 
     private func handleJournalEvents(_ events: [AgentGUIJournalPipelineEvent], sessionID: AgentSessionID) {
         for event in events {
+            if event.containsAgentProse {
+                streamProducer?.authoritativeProseArrived(sessionID: sessionID)
+            }
             publisher.publishJournalEvent(event, sessionID: sessionID)
             sendLedgers[sessionID]?.handleJournalEvent(event)
             askRegistry.handleJournalEvent(event, sessionID: sessionID)
@@ -371,5 +409,18 @@ final class AgentGUIService {
         }
         sendLedgers[sessionID] = ledger
         return ledger
+    }
+}
+
+private extension AgentGUIJournalPipelineEvent {
+    var containsAgentProse: Bool {
+        switch self {
+        case .reset:
+            false
+        case .appended(_, let entries):
+            entries.contains { $0.kind == .agentProse }
+        case .replaced(_, let entry):
+            entry.kind == .agentProse
+        }
     }
 }

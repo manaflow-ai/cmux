@@ -12,11 +12,13 @@ import Foundation
 /// maps to `1`, including for non-shell tools.
 public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
     private let lineDecoder: JSONLineDecoder
+    private let textBudget: TranscriptTextBudget
     private var pendingTools: [String: PendingToolUse]
 
     /// Creates a Claude transcript decoder.
     public init() {
         self.lineDecoder = JSONLineDecoder()
+        self.textBudget = TranscriptTextBudget()
         self.pendingTools = [:]
     }
 
@@ -127,8 +129,8 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
         }
         if let text = content.string {
             let payload: EntryPayload = role == "user"
-                ? .userMessage(UserMessagePayload(text: text, attachmentCount: 0, hasImage: false))
-                : .agentProse(AgentProsePayload(markdown: text))
+                ? .userMessage(UserMessagePayload(text: textBudget.body(text), attachmentCount: 0, hasImage: false))
+                : .agentProse(AgentProsePayload(markdown: textBudget.body(text)))
             accumulator.emit(payload: payload, journalID: journalID, lineIndex: lineIndex)
             return
         }
@@ -163,8 +165,8 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
         case "text":
             let text = object["text"]?.string ?? ""
             let payload: EntryPayload = role == "user"
-                ? .userMessage(UserMessagePayload(text: text, attachmentCount: 0, hasImage: false))
-                : .agentProse(AgentProsePayload(markdown: text))
+                ? .userMessage(UserMessagePayload(text: textBudget.body(text), attachmentCount: 0, hasImage: false))
+                : .agentProse(AgentProsePayload(markdown: textBudget.body(text)))
             return ClaudeDecodedBlock(summary: text, payload: payload)
         case "image":
             let payload: EntryPayload = role == "user"
@@ -173,7 +175,8 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
             return ClaudeDecodedBlock(summary: "Image attachment", payload: payload)
         case "thinking":
             let text = object["thinking"]?.string ?? object["text"]?.string ?? ""
-            return ClaudeDecodedBlock(summary: text, payload: .thought(ThoughtPayload(text: text)))
+            let bounded = textBudget.body(text)
+            return ClaudeDecodedBlock(summary: bounded, payload: .thought(ThoughtPayload(text: bounded)))
         case "tool_use":
             return decodeToolUse(object, raw: raw)
         case "tool_result":
@@ -205,7 +208,7 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
             accumulator.countUnknown("tool_result")
             return ClaudeDecodedBlock(summary: "Unpaired Claude tool result", payload: .unknown(UnknownPayload(rawKind: "tool_result", summary: "Unpaired Claude tool result")))
         }
-        let fragments = object["content"]?.textFragments().joined(separator: "\n") ?? ""
+        let fragments = textBudget.body(object["content"]?.textFragments().joined(separator: "\n") ?? "")
         let payload = payloadByAddingResult(pending.payload, resultSummary: fragments, exitCode: exitCode(in: object))
         return ClaudeDecodedBlock(summary: summary(for: payload), payload: payload)
     }
@@ -213,17 +216,17 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
     private func payloadForToolUse(name: String, input: JSONValue?) -> EntryPayload {
         switch name {
         case "Write":
-            .fileChange(FileChangePayload(path: filePath(in: input) ?? "", changeKind: .write))
+            .fileChange(FileChangePayload(path: textBudget.inputDetail(filePath(in: input) ?? ""), changeKind: .write))
         case "Edit", "MultiEdit":
-            .fileChange(FileChangePayload(path: filePath(in: input) ?? "", changeKind: .edit))
+            .fileChange(FileChangePayload(path: textBudget.inputDetail(filePath(in: input) ?? ""), changeKind: .edit))
         case "NotebookEdit":
-            .fileChange(FileChangePayload(path: filePath(in: input) ?? "", changeKind: .notebook))
+            .fileChange(FileChangePayload(path: textBudget.inputDetail(filePath(in: input) ?? ""), changeKind: .notebook))
         case "AskUserQuestion":
             .question(QuestionPayload(prompt: questionPrompt(in: input), options: questionOptions(in: input)))
         case "Bash":
-            .toolRun(ToolRunPayload(toolName: name, argumentSummary: commandSummary(in: input), isTerminal: true, isRunning: true))
+            .toolRun(ToolRunPayload(toolName: name, argumentSummary: textBudget.inputDetail(commandSummary(in: input)), isTerminal: true, isRunning: true))
         default:
-            .toolRun(ToolRunPayload(toolName: name, argumentSummary: commandSummary(in: input), isTerminal: false, isRunning: true))
+            .toolRun(ToolRunPayload(toolName: name, argumentSummary: textBudget.inputDetail(commandSummary(in: input)), isTerminal: false, isRunning: true))
         }
     }
 
@@ -360,13 +363,13 @@ public struct ClaudeTranscriptDecoder: TranscriptDecoder, Sendable {
             .toolRun(ToolRunPayload(
                 toolName: tool.toolName,
                 argumentSummary: tool.argumentSummary,
-                resultSummary: resultSummary,
+                resultSummary: textBudget.body(resultSummary),
                 isTerminal: tool.isTerminal,
                 exitCode: exitCode,
                 isRunning: false
             ))
         case .fileChange(let file):
-            .fileChange(FileChangePayload(path: file.path, changeKind: file.changeKind, resultSummary: resultSummary))
+            .fileChange(FileChangePayload(path: file.path, changeKind: file.changeKind, resultSummary: textBudget.body(resultSummary)))
         default:
             payload
         }

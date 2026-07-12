@@ -3,7 +3,7 @@ import CmuxAgentReplica
 struct EntryContext: Sendable {
     let entry: EntrySnapshot
     let tick: Int
-    let dayKey: String
+    let dayKey: String?
 
     var proseRole: TranscriptProseRole? {
         switch entry.content.payload {

@@ -56,7 +56,7 @@ struct TranscriptRowSpacing: Hashable, Sendable {
             (1, grouping)
         case .pendingTicket, .streaming:
             (2, .single)
-        case .status, .dateHeader, .boundary, .hole, .genericActivity, .activitySummary, .activityItem, .unsupported:
+        case .status, .dateHeader, .boundary, .hole, .pendingAsk, .genericActivity, .activitySummary, .activityItem, .unsupported:
             nil
         }
     }

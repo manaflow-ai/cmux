@@ -1,5 +1,6 @@
 #if os(iOS)
 public import CmuxAgentGUIProjection
+import CmuxAgentReplica
 public import UIKit
 
 /// Production container that embeds the transcript list in a host view controller.
@@ -46,6 +47,20 @@ public import UIKit
     public func apply(input: TranscriptProjectionInput) {
         loadViewIfNeeded()
         transcript.apply(input: input)
+    }
+
+    func applyPendingAskInteraction(
+        answeringAskID: String?,
+        failedAskID: String?,
+        onAnswer: @escaping (PendingAsk, Int) -> Void,
+        onShowTerminal: @escaping () -> Void
+    ) {
+        transcript.applyPendingAskInteraction(
+            answeringAskID: answeringAskID,
+            failedAskID: failedAskID,
+            onAnswer: onAnswer,
+            onShowTerminal: onShowTerminal
+        )
     }
 
     /// Recolors the mounted transcript without replacing its list or collection view.

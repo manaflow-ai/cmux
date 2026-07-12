@@ -16,6 +16,8 @@ public enum TranscriptRowKind: Hashable, Sendable {
     case hole(range: EntryRange)
     /// A local send waiting for transcript confirmation.
     case pendingTicket(SendTicket)
+    /// An active question or permission request with ordered choices.
+    case pendingAsk(PendingAsk)
     /// The single live streaming tail preview.
     case streaming(textTail: String)
     /// Compact display for known rich activity kinds not expanded in this slice.

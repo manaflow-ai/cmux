@@ -92,6 +92,33 @@ struct AgentGUIJournalPipelineTests {
         #expect((pipeline.window?.entriesBySeq.count ?? 0) <= AgentGUIConstants.journalWindowEntryCap)
     }
 
+    @Test func initialIngestReadsABoundedTailAndAppendsContiguously() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-gui-bounded-tail-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let transcript = directory.appendingPathComponent("bounded.jsonl")
+        try write(lines: Array(repeating: Self.codexMessageLine, count: 3_000), to: transcript)
+        let pipeline = AgentGUIJournalPipeline(
+            sessionID: AgentSessionID(rawValue: "session-bounded"),
+            kind: .codex,
+            path: transcript.path
+        )
+
+        _ = await pipeline.ingestInitial()
+        let initial = try #require(pipeline.entries(beforeSeq: nil, afterSeq: nil, limit: 200))
+        #expect(pipeline.lastReadByteCount <= AgentGUIConstants.initialTailByteCap)
+        #expect(pipeline.window?.entriesBySeq.count == AgentGUIConstants.initialTailLineCap)
+        #expect(initial.hasMoreBefore)
+        #expect(initial.tailSeq == EntrySeq(rawValue: AgentGUIConstants.initialTailLineCap - 1))
+
+        try append(lines: [Self.codexMessageLine], to: transcript)
+        _ = await pipeline.ingestInitial()
+        let appended = try #require(pipeline.entries(beforeSeq: nil, afterSeq: nil, limit: 1))
+        #expect(appended.entries.last?.seq == EntrySeq(rawValue: AgentGUIConstants.initialTailLineCap))
+    }
+
     @Test func successiveInPlaceTruncationsMintDistinctJournals() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("agent-gui-truncate-\(UUID().uuidString)", isDirectory: true)

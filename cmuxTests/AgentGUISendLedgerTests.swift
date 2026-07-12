@@ -191,6 +191,47 @@ struct AgentGUISendLedgerTests {
         #expect(published.last?.state == .unconfirmed)
     }
 
+    @Test func resolvedTicketsExpireWithoutBeingResubmitted() throws {
+        var now = 1_000
+        let injector = FakeAgentGUITerminalInjector()
+        let ledger = AgentGUISendLedger(
+            sessionID: Self.sessionID,
+            clock: { now },
+            injector: injector,
+            publish: { _ in }
+        )
+        _ = try ledger.submit(ticketID: UUID(), text: "done", attachmentCount: 0, snapshot: Self.snapshot())
+        ledger.handleJournalEvent(.appended(journalID: Self.journalID, entries: [Self.userEntry(seq: 1, text: "done")]))
+        #expect(ledger.retainedRecordCount == 1)
+
+        now += AgentGUIConstants.sendTicketIdempotencyWindowMS
+        ledger.expire()
+
+        #expect(ledger.retainedRecordCount == 0)
+    }
+
+    @Test func resolvedTicketRetentionHasAHardBound() throws {
+        var now = 1_000
+        let injector = FakeAgentGUITerminalInjector()
+        let ledger = AgentGUISendLedger(
+            sessionID: Self.sessionID,
+            clock: { now },
+            injector: injector,
+            publish: { _ in }
+        )
+        for index in 1...(AgentGUIConstants.resolvedSendTicketRetentionLimit + 20) {
+            let text = "prompt \(index)"
+            _ = try ledger.submit(ticketID: UUID(), text: text, attachmentCount: 0, snapshot: Self.snapshot())
+            ledger.handleJournalEvent(.appended(
+                journalID: Self.journalID,
+                entries: [Self.userEntry(seq: index, text: text)]
+            ))
+            now += 1
+        }
+
+        #expect(ledger.retainedRecordCount == AgentGUIConstants.resolvedSendTicketRetentionLimit)
+    }
+
     @Test func unboundSessionFailsWithBindingLostTicketState() {
         let injector = FakeAgentGUITerminalInjector()
         var published: [SendTicket] = []

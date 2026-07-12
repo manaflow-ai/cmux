@@ -10,6 +10,8 @@ extension TranscriptRow {
             AgentGUIL10n.userAccessibilityLabel(text)
         case .pendingTicket(let ticket):
             AgentGUIL10n.userAccessibilityLabel(ticket.text)
+        case .pendingAsk(let ask):
+            ask.promptSummary
         case .status(let code, let detail):
             [AgentGUIL10n.statusCode(code), detail].compactMap(\.self).joined(separator: " ")
         case .dateHeader(let dayKey):

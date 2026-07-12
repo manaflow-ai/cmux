@@ -8,6 +8,7 @@ final class AgentGUISendLedger {
         var ticket: SendTicket
         var injectedText: String?
         var injectedAt: Int?
+        var resolvedAt: Int?
         var unmatchedUserMessageCount: Int
     }
 
@@ -35,12 +36,12 @@ final class AgentGUISendLedger {
 
     var hasPendingExpirations: Bool {
         records.values.contains { record in
-            if case .injected = record.ticket.state {
-                return true
-            }
-            return false
+            if case .injected = record.ticket.state { return true }
+            return record.resolvedAt != nil
         }
     }
+
+    var retainedRecordCount: Int { records.count }
 
     func submit(
         ticketID: UUID,
@@ -48,7 +49,7 @@ final class AgentGUISendLedger {
         attachmentCount: Int,
         snapshot: AgentSessionSnapshot?
     ) throws -> GuiSendResult {
-        pruneExpiredResolvedTicket(ticketID)
+        pruneResolvedTickets(now: clock())
         if let existing = records[ticketID] {
             return GuiSendResult(accepted: true, queuedOnMac: queued.contains(ticketID) && existing.ticket.state == .acceptedByMac)
         }
@@ -61,7 +62,7 @@ final class AgentGUISendLedger {
             state: .acceptedByMac,
             createdAt: clock()
         )
-        records[ticketID] = Record(ticket: ticket, injectedText: nil, injectedAt: nil, unmatchedUserMessageCount: 0)
+        records[ticketID] = Record(ticket: ticket, injectedText: nil, injectedAt: nil, resolvedAt: nil, unmatchedUserMessageCount: 0)
         order.append(ticketID)
         publish(ticket)
 
@@ -113,7 +114,7 @@ final class AgentGUISendLedger {
 
     func expire(now: Int? = nil) {
         let current = now ?? clock()
-        for ticketID in order {
+        for ticketID in Array(order) {
             guard let record = records[ticketID],
                   case .injected = record.ticket.state,
                   let injectedAt = record.injectedAt,
@@ -122,6 +123,7 @@ final class AgentGUISendLedger {
             }
             transition(ticketID, to: .unconfirmed)
         }
+        pruneResolvedTickets(now: current)
     }
 
     private func injectNextQueued(snapshot: AgentSessionSnapshot) {
@@ -191,19 +193,26 @@ final class AgentGUISendLedger {
         }
     }
 
-    private func pruneExpiredResolvedTicket(_ ticketID: UUID) {
-        guard let record = records[ticketID],
-              clock() - record.ticket.createdAt > AgentGUIConstants.sendTicketIdempotencyWindowMS else {
-            return
+    private func pruneResolvedTickets(now: Int) {
+        for ticketID in Array(order) {
+            guard let resolvedAt = records[ticketID]?.resolvedAt,
+                  now - resolvedAt >= AgentGUIConstants.sendTicketIdempotencyWindowMS else { continue }
+            remove(ticketID)
         }
-        switch record.ticket.state {
-        case .echoed, .failed:
-            records.removeValue(forKey: ticketID)
-            order.removeAll { $0 == ticketID }
-            queued.removeAll { $0 == ticketID }
-        case .queuedLocal, .acceptedByMac, .injected, .unconfirmed:
-            break
+        enforceResolvedRetentionLimit()
+    }
+
+    private func enforceResolvedRetentionLimit() {
+        var resolvedIDs = order.filter { records[$0]?.resolvedAt != nil }
+        while resolvedIDs.count > AgentGUIConstants.resolvedSendTicketRetentionLimit {
+            remove(resolvedIDs.removeFirst())
         }
+    }
+
+    private func remove(_ ticketID: UUID) {
+        records.removeValue(forKey: ticketID)
+        order.removeAll { $0 == ticketID }
+        queued.removeAll { $0 == ticketID }
     }
 
     private func transition(_ ticketID: UUID, to state: SendTicketState) {
@@ -218,8 +227,12 @@ final class AgentGUISendLedger {
             createdAt: current.createdAt
         )
         record.ticket = next
+        if state.isResolved, !current.state.isResolved {
+            record.resolvedAt = clock()
+        }
         records[ticketID] = record
         publish(next)
+        enforceResolvedRetentionLimit()
     }
 
     private func updateRecord(_ ticketID: UUID, _ body: (inout Record) -> Void) {

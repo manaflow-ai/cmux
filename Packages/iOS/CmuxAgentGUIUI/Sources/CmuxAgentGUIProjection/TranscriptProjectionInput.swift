@@ -21,7 +21,7 @@ public struct TranscriptProjectionInput: Sendable {
     /// Maps an entry to a deterministic display tick.
     public let displayTick: @Sendable (EntrySnapshot) -> Int
     /// Maps a display tick to a display day key.
-    public let dayKey: @Sendable (Int) -> String
+    public let dayKey: @Sendable (Int) -> String?
 
     /// Creates projection input.
     /// - Parameters:
@@ -45,7 +45,7 @@ public struct TranscriptProjectionInput: Sendable {
         sessionPhase: SessionPhase = .idle,
         unreadPointer: EntrySeq = EntrySeq(rawValue: 0),
         displayTick: @escaping @Sendable (EntrySnapshot) -> Int = { $0.seq.rawValue },
-        dayKey: @escaping @Sendable (Int) -> String = { "day-\($0 / 86_400)" }
+        dayKey: @escaping @Sendable (Int) -> String? = { _ in nil }
     ) {
         self.entries = entries.sorted { $0.seq < $1.seq }
         self.holes = holes.sorted { $0.lowerBound < $1.lowerBound }
@@ -73,7 +73,7 @@ public struct TranscriptProjectionInput: Sendable {
         streamingTail: TranscriptStreamingTail? = nil,
         sessionPhase: SessionPhase = .idle,
         displayTick: @escaping @Sendable (EntrySnapshot) -> Int = { $0.seq.rawValue },
-        dayKey: @escaping @Sendable (Int) -> String = { "day-\($0 / 86_400)" }
+        dayKey: @escaping @Sendable (Int) -> String? = { _ in nil }
     ) {
         self.init(
             entries: state.entries,

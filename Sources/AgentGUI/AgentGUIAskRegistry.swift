@@ -146,7 +146,7 @@ final class AgentGUIAskRegistry {
                 sessionID: sessionID,
                 kind: .question,
                 promptSummary: payload.prompt,
-                optionsCount: payload.options.count,
+                options: payload.options,
                 state: payload.answeredChoice.map { .answered(choice: $0) } ?? .active
             )
         case .permission(let payload):
@@ -156,7 +156,7 @@ final class AgentGUIAskRegistry {
                 sessionID: sessionID,
                 kind: .permission,
                 promptSummary: summary,
-                optionsCount: payload.options.count,
+                options: payload.options,
                 state: .active
             )
         default:
@@ -196,7 +196,7 @@ final class AgentGUIAskRegistry {
             sessionID: current.sessionID,
             kind: current.kind,
             promptSummary: current.promptSummary,
-            optionsCount: current.optionsCount,
+            options: current.options,
             state: state
         )
         record.ask = next

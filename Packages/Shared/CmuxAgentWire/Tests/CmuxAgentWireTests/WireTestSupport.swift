@@ -51,7 +51,7 @@ struct WireTestSupport {
         sessionID: sessionID,
         kind: .question,
         promptSummary: "Choose",
-        optionsCount: 2,
+        options: ["Allow", "Deny"],
         state: .answered(choice: 1)
     )
 
@@ -59,7 +59,7 @@ struct WireTestSupport {
     static let entryPayloadJSON = #"{"attachment_count":1,"has_image":true,"kind":"userMessage","text":"Hello"}"#
     static let entryJSON = #"{"content":{"content_hash":101,"payload":{"attachment_count":1,"has_image":true,"kind":"userMessage","text":"Hello"}},"journal_id":"journal-1","kind":"userMessage","seq":10,"version":2}"#
     static let ticketJSON = #"{"attachment_count":2,"created_at":123,"id":"11111111-1111-1111-1111-111111111111","session_id":"session-1","state":{"type":"acceptedByMac"},"text":"Queue this"}"#
-    static let askJSON = #"{"id":"ask-1","kind":"question","options_count":2,"prompt_summary":"Choose","session_id":"session-1","state":{"choice":1,"type":"answered"}}"#
+    static let askJSON = #"{"id":"ask-1","kind":"question","options":["Allow","Deny"],"options_count":2,"prompt_summary":"Choose","session_id":"session-1","state":{"choice":1,"type":"answered"}}"#
 
     static func assertGolden<Value: Codable & Equatable>(
         _ value: Value,

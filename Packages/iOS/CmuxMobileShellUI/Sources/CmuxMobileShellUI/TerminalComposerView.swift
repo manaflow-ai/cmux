@@ -110,6 +110,10 @@ struct TerminalComposerView: View {
         store.pendingAttachments(forTerminalID: terminalID)
     }
 
+    var stagedAttachmentCount: Int {
+        pendingAttachments.count
+    }
+
     /// The Mac decodes the image to a temp file with a 10 MB cap; mirror the
     /// clipboard paste path and keep the bounded encode under ~8 MB. The store
     /// re-enforces this as the authoritative per-image cap; this constant only
@@ -272,7 +276,16 @@ struct TerminalComposerView: View {
             // iMessage-style chip row of staged image attachments, ABOVE the
             // field. Shown only when something is staged so the empty composer
             // keeps its compact one-line height (and the host's measurement).
-            if !pendingAttachments.isEmpty {
+            if agentRoutingPolicy.showsAttachmentGuidance {
+                Text(L10n.string(
+                    "mobile.composer.agent.attachmentsStaged",
+                    defaultValue: "Attachments stay staged for Terminal mode. Remove them or switch to Terminal before sending."
+                ))
+                .font(.footnote)
+                .foregroundStyle(TerminalPalette.foreground.opacity(0.7))
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("AgentComposerAttachmentGuidance")
+            } else if !pendingAttachments.isEmpty {
                 attachmentChipRow
             }
 
@@ -281,6 +294,7 @@ struct TerminalComposerView: View {
                     systemImage: "paperclip",
                     foregroundStyle: AnyShapeStyle(TerminalPalette.foreground.opacity(0.7)),
                     size: controlHeight,
+                    isDisabled: !agentRoutingPolicy.canAttach,
                     accessibilityIdentifier: "MobileComposerAttach",
                     accessibilityLabel: L10n.string("mobile.composer.attach", defaultValue: "Attach Photo")
                 ) {

@@ -178,6 +178,27 @@ struct TranscriptProjectorTests {
     }
 
     @Test
+    func activeAskProjectsOrderedActionableOptions() throws {
+        let ask = PendingAsk(
+            id: "ask-1",
+            sessionID: AgentSessionID(rawValue: "session"),
+            kind: .question,
+            promptSummary: "Pick one",
+            options: ["A", "B"],
+            state: .active
+        )
+        let rows = projector.project(TranscriptProjectionInput(entries: [], asks: [ask])).rows
+        let row = try #require(rows.first)
+
+        #expect(row.rowID == .pendingAsk("ask-1"))
+        guard case .pendingAsk(let projected) = row.rowKind else {
+            Issue.record("active ask should remain actionable")
+            return
+        }
+        #expect(projected.options == ["A", "B"])
+    }
+
+    @Test
     func streamingUpdatesKeepStableIdentity() throws {
         let firstInput = TranscriptProjectionInput(
             entries: [Self.agent(seq: 1, text: "confirmed")],

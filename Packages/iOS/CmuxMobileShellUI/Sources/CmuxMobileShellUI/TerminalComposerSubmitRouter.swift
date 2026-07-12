@@ -23,4 +23,23 @@ final class TerminalComposerSubmitRouter {
         }
     }
 }
+
+struct TerminalComposerAgentRoutingPolicy: Equatable {
+    let isAgentGUIRouting: Bool
+    let trimmedTextIsEmpty: Bool
+    let attachmentCount: Int
+
+    var canAttach: Bool { !isAgentGUIRouting }
+
+    var canSend: Bool {
+        if isAgentGUIRouting {
+            return !trimmedTextIsEmpty && attachmentCount == 0
+        }
+        return !trimmedTextIsEmpty || attachmentCount > 0
+    }
+
+    var showsAttachmentGuidance: Bool {
+        isAgentGUIRouting && attachmentCount > 0
+    }
+}
 #endif

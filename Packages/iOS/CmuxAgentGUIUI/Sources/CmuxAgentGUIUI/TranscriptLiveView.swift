@@ -12,8 +12,11 @@ public struct TranscriptLiveView: View {
     private let bottomChromeHeight: CGFloat
     private let terminalTheme: TerminalTheme
     private let terminalThemeGeneration: UInt64
+    private let onShowTerminal: () -> Void
     @State private var input = TranscriptProjectionInput(entries: [])
     @State private var driver: TranscriptProjectionDriver?
+    @State private var answeringAskID: String?
+    @State private var failedAskID: String?
     private var driverKey: TranscriptLiveDriverKey {
         TranscriptLiveDriverKey(engine: engine, sessionID: sessionID)
     }
@@ -30,22 +33,42 @@ public struct TranscriptLiveView: View {
         sessionID: AgentSessionID,
         bottomChromeHeight: CGFloat,
         terminalTheme: TerminalTheme,
-        terminalThemeGeneration: UInt64
+        terminalThemeGeneration: UInt64,
+        onShowTerminal: @escaping () -> Void = {}
     ) {
         self.engine = engine
         self.sessionID = sessionID
         self.bottomChromeHeight = bottomChromeHeight
         self.terminalTheme = terminalTheme
         self.terminalThemeGeneration = terminalThemeGeneration
+        self.onShowTerminal = onShowTerminal
     }
 
     public var body: some View {
-        TranscriptLiveControllerRepresentable(
-            input: input,
-            bottomChromeHeight: bottomChromeHeight,
-            theme: AgentGUITheme(terminalTheme: terminalTheme),
-            terminalThemeGeneration: terminalThemeGeneration
+        let theme = AgentGUITheme(terminalTheme: terminalTheme)
+        let syncPresentation = TranscriptSyncPresentation(
+            phase: engine.connectivity.phase,
+            consecutiveFailures: engine.connectivity.consecutiveFailureCount,
+            hasContent: !input.entries.isEmpty
         )
+        ZStack {
+            TranscriptLiveControllerRepresentable(
+                input: input,
+                bottomChromeHeight: bottomChromeHeight,
+                theme: theme,
+                terminalThemeGeneration: terminalThemeGeneration,
+                answeringAskID: answeringAskID,
+                failedAskID: failedAskID,
+                onAnswer: answer,
+                onShowTerminal: onShowTerminal
+            )
+            TranscriptSyncStatusView(
+                presentation: syncPresentation,
+                theme: theme,
+                retry: { engine.retryNow() },
+                showTerminal: onShowTerminal
+            )
+        }
         .onAppear {
             startDriverIfNeeded()
         }
@@ -75,6 +98,20 @@ public struct TranscriptLiveView: View {
         stopDriver()
         input = TranscriptProjectionInput(entries: [])
         startDriverIfNeeded()
+    }
+
+    private func answer(_ ask: PendingAsk, choice: Int) {
+        guard answeringAskID == nil, ask.options.indices.contains(choice) else { return }
+        answeringAskID = ask.id
+        failedAskID = nil
+        Task { @MainActor in
+            defer { answeringAskID = nil }
+            do {
+                try await engine.answer(sessionID: sessionID, askID: ask.id, choice: choice)
+            } catch {
+                failedAskID = ask.id
+            }
+        }
     }
 }
 #endif

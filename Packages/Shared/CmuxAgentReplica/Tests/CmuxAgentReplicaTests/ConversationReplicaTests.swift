@@ -156,7 +156,7 @@ import Testing
         store.apply(.entriesAppended(journalID: ReplicaTestSupport.journal, entries: [ReplicaTestSupport.entry(1)]), origin: .live)
         store.markReadThrough(ReplicaTestSupport.seq(1))
         store.apply(.sendTicketChanged(ReplicaTestSupport.ticket(id: ticketID, state: .queuedLocal, createdAt: 1)), origin: .live)
-        store.apply(.askChanged(PendingAsk(id: "ask", sessionID: ReplicaTestSupport.session, kind: .question, promptSummary: "q", optionsCount: 2, state: .active)), origin: .live)
+        store.apply(.askChanged(PendingAsk(id: "ask", sessionID: ReplicaTestSupport.session, kind: .question, promptSummary: "q", options: ["A", "B"], state: .active)), origin: .live)
 
         store.handleEpochChange(to: ReplicaEpoch(rawValue: "e2"))
 

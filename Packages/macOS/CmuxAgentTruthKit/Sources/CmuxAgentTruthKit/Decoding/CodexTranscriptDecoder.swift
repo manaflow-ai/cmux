@@ -4,13 +4,17 @@ import Foundation
 /// Decodes Codex rollout JSONL transcripts into fail-open entries.
 public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
     private let lineDecoder: JSONLineDecoder
+    private let textBudget: TranscriptTextBudget
     private var pendingCalls: [String: PendingToolUse]
+    private var seenQuestionCallIDs: Set<String>
     private var sawCompactedRecord: Bool
 
     /// Creates a Codex transcript decoder.
     public init() {
         self.lineDecoder = JSONLineDecoder()
+        self.textBudget = TranscriptTextBudget()
         self.pendingCalls = [:]
+        self.seenQuestionCallIDs = []
         self.sawCompactedRecord = false
     }
 
@@ -106,6 +110,14 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
             }
         case "user_message", "agent_message":
             accumulator.countDuplicateStream("event_msg.\(eventType)")
+        case "request_user_input":
+            decodeRequestUserInput(
+                payload,
+                callID: payload["call_id"]?.string,
+                lineIndex: lineIndex,
+                journalID: journalID,
+                accumulator: &accumulator
+            )
         case "patch_apply_end", "web_search_end", "mcp_tool_call_end", "entered_review_mode", "exited_review_mode", "thread_goal_updated", "thread_rolled_back", "token_count":
             accumulator.countModeled("event_msg.\(eventType)")
         default:
@@ -150,7 +162,10 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
         case "message":
             decodeMessage(payload, raw: raw, lineIndex: lineIndex, journalID: journalID, accumulator: &accumulator)
         case "reasoning":
-            accumulator.emit(payload: .thought(ThoughtPayload(text: payload["summary"]?.textFragments().joined(separator: "\n") ?? payload["content"]?.textFragments().joined(separator: "\n") ?? "")), journalID: journalID, lineIndex: lineIndex)
+            let text = payload["summary"]?.textFragments().joined(separator: "\n")
+                ?? payload["content"]?.textFragments().joined(separator: "\n")
+                ?? ""
+            accumulator.emit(payload: .thought(ThoughtPayload(text: textBudget.body(text))), journalID: journalID, lineIndex: lineIndex)
         case "function_call":
             decodeFunctionCall(payload, raw: raw, lineIndex: lineIndex, journalID: journalID, accumulator: &accumulator)
         case "function_call_output":
@@ -175,9 +190,9 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
         let role = payload["role"]?.string ?? "assistant"
         let text = payload["content"]?.textFragments().joined(separator: "\n") ?? ""
         let entryPayload: EntryPayload = if role == "user" {
-            .userMessage(UserMessagePayload(text: text, attachmentCount: attachmentCount(in: payload["content"]), hasImage: hasImage(in: payload["content"])))
+            .userMessage(UserMessagePayload(text: textBudget.body(text), attachmentCount: attachmentCount(in: payload["content"]), hasImage: hasImage(in: payload["content"])))
         } else {
-            .agentProse(AgentProsePayload(markdown: text))
+            .agentProse(AgentProsePayload(markdown: textBudget.body(text)))
         }
         accumulator.emit(payload: entryPayload, journalID: journalID, lineIndex: lineIndex)
     }
@@ -193,12 +208,27 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
         let name = payload["name"]?.string ?? toolName(for: itemType) ?? payload["call_id"]?.string ?? "call"
         let argumentValue = payload["arguments"] ?? payload["input"] ?? payload["action"]
         let argumentSummary = summarizeArguments(argumentValue)
+        if name == "request_user_input" {
+            let callID = payload["call_id"]?.string
+            let question = requestUserInputQuestion(in: argumentValue)
+            if let callID, let question {
+                pendingCalls[callID] = PendingToolUse(payload: .question(question), raw: raw)
+            }
+            decodeRequestUserInput(
+                parsedRequestUserInput(in: argumentValue)?.object ?? [:],
+                callID: callID,
+                lineIndex: lineIndex,
+                journalID: journalID,
+                accumulator: &accumulator
+            )
+            return
+        }
         let entryPayload: EntryPayload = if name == "apply_patch" {
-            .fileChange(FileChangePayload(path: filePath(in: argumentValue) ?? "", changeKind: .patch))
+            .fileChange(FileChangePayload(path: textBudget.inputDetail(filePath(in: argumentValue) ?? ""), changeKind: .patch))
         } else {
             .toolRun(ToolRunPayload(
                 toolName: name,
-                argumentSummary: argumentSummary,
+                argumentSummary: textBudget.inputDetail(argumentSummary),
                 isTerminal: isTerminalTool(name: name, arguments: argumentValue),
                 isRunning: true
             ))
@@ -222,7 +252,11 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
             accumulator.emit(payload: unknownPayload(rawKind: outputType, summary: "Unpaired Codex \(outputType)", raw: raw), journalID: journalID, lineIndex: lineIndex)
             return
         }
-        let output = payload["output"]?.textFragments().joined(separator: "\n") ?? ""
+        if case .question = pending.payload {
+            accumulator.countModeled("request_user_input.output")
+            return
+        }
+        let output = textBudget.body(payload["output"]?.textFragments().joined(separator: "\n") ?? "")
         accumulator.emit(payload: payloadByAddingResult(pending.payload, resultSummary: output, exitCode: exitCode(in: payload)), journalID: journalID, lineIndex: lineIndex)
     }
 
@@ -245,6 +279,64 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
             return summarizeArgumentValue(lineDecoder.decode(string) ?? .string(string))
         }
         return summarizeArgumentValue(value)
+    }
+
+    private func parsedRequestUserInput(in value: JSONValue?) -> JSONValue? {
+        if let encoded = value?.string {
+            return lineDecoder.decode(encoded)
+        }
+        return value
+    }
+
+    private func requestUserInputQuestion(in value: JSONValue?) -> QuestionPayload? {
+        questionPayload(in: parsedRequestUserInput(in: value)?.object ?? [:])
+    }
+
+    private mutating func decodeRequestUserInput(
+        _ payload: [String: JSONValue],
+        callID: String?,
+        lineIndex: Int,
+        journalID: JournalID,
+        accumulator: inout TranscriptDecodeAccumulator
+    ) {
+        if let callID, !seenQuestionCallIDs.insert(callID).inserted {
+            accumulator.countDuplicateStream("request_user_input")
+            return
+        }
+        guard let question = questionPayload(in: payload) else {
+            accumulator.countUnknown("request_user_input")
+            return
+        }
+        accumulator.emit(payload: .question(question), journalID: journalID, lineIndex: lineIndex)
+    }
+
+    private func questionPayload(in payload: [String: JSONValue]) -> QuestionPayload? {
+        guard let questions = payload["questions"]?.array, !questions.isEmpty else {
+            return nil
+        }
+        guard questions.count == 1,
+              let question = questions.first?.object,
+              let prompt = question["question"]?.string else {
+            let prompts = questions.compactMap { value -> String? in
+                guard let object = value.object, let prompt = object["question"]?.string else { return nil }
+                if let header = object["header"]?.string, !header.isEmpty {
+                    return "\(header): \(prompt)"
+                }
+                return prompt
+            }
+            guard !prompts.isEmpty else { return nil }
+            return QuestionPayload(prompt: prompts.joined(separator: "\n"), options: [])
+        }
+        let options = question["options"]?.array?.compactMap { option in
+            option.object?["label"]?.string ?? option.string
+        } ?? []
+        let indexedOptions = options.count <= 9 ? options : []
+        return QuestionPayload(
+            questionID: question["id"]?.string,
+            header: question["header"]?.string,
+            prompt: prompt,
+            options: indexedOptions
+        )
     }
 
     private func summarizeArgumentValue(_ value: JSONValue) -> String {
@@ -340,13 +432,13 @@ public struct CodexTranscriptDecoder: TranscriptDecoder, Sendable {
             .toolRun(ToolRunPayload(
                 toolName: tool.toolName,
                 argumentSummary: tool.argumentSummary,
-                resultSummary: resultSummary,
+                resultSummary: textBudget.body(resultSummary),
                 isTerminal: tool.isTerminal,
                 exitCode: exitCode,
                 isRunning: false
             ))
         case .fileChange(let file):
-            .fileChange(FileChangePayload(path: file.path, changeKind: file.changeKind, resultSummary: resultSummary))
+            .fileChange(FileChangePayload(path: file.path, changeKind: file.changeKind, resultSummary: textBudget.body(resultSummary)))
         default:
             payload
         }

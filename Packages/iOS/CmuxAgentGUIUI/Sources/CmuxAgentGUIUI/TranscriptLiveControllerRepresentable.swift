@@ -1,5 +1,6 @@
 #if os(iOS)
 public import CmuxAgentGUIProjection
+public import CmuxAgentReplica
 public import SwiftUI
 
 /// SwiftUI bridge for the production live transcript container.
@@ -8,6 +9,10 @@ public struct TranscriptLiveControllerRepresentable: UIViewControllerRepresentab
     private let bottomChromeHeight: CGFloat
     private let theme: AgentGUITheme
     private let terminalThemeGeneration: UInt64
+    private let answeringAskID: String?
+    private let failedAskID: String?
+    private let onAnswer: (PendingAsk, Int) -> Void
+    private let onShowTerminal: () -> Void
 
     /// Creates a live transcript bridge.
     /// - Parameters:
@@ -19,12 +24,20 @@ public struct TranscriptLiveControllerRepresentable: UIViewControllerRepresentab
         input: TranscriptProjectionInput,
         bottomChromeHeight: CGFloat,
         theme: AgentGUITheme,
-        terminalThemeGeneration: UInt64
+        terminalThemeGeneration: UInt64,
+        answeringAskID: String?,
+        failedAskID: String?,
+        onAnswer: @escaping (PendingAsk, Int) -> Void,
+        onShowTerminal: @escaping () -> Void
     ) {
         self.input = input
         self.bottomChromeHeight = bottomChromeHeight
         self.theme = theme
         self.terminalThemeGeneration = terminalThemeGeneration
+        self.answeringAskID = answeringAskID
+        self.failedAskID = failedAskID
+        self.onAnswer = onAnswer
+        self.onShowTerminal = onShowTerminal
     }
 
     public func makeUIViewController(context: Context) -> TranscriptLiveContainerViewController {
@@ -33,6 +46,12 @@ public struct TranscriptLiveControllerRepresentable: UIViewControllerRepresentab
             terminalThemeGeneration: terminalThemeGeneration
         )
         controller.apply(input: input)
+        controller.applyPendingAskInteraction(
+            answeringAskID: answeringAskID,
+            failedAskID: failedAskID,
+            onAnswer: onAnswer,
+            onShowTerminal: onShowTerminal
+        )
         controller.setBottomChromeHeight(bottomChromeHeight)
         return controller
     }
@@ -46,6 +65,12 @@ public struct TranscriptLiveControllerRepresentable: UIViewControllerRepresentab
             terminalThemeGeneration: terminalThemeGeneration
         )
         uiViewController.apply(input: input)
+        uiViewController.applyPendingAskInteraction(
+            answeringAskID: answeringAskID,
+            failedAskID: failedAskID,
+            onAnswer: onAnswer,
+            onShowTerminal: onShowTerminal
+        )
         uiViewController.setBottomChromeHeight(bottomChromeHeight)
     }
 }

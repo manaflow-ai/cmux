@@ -10,9 +10,17 @@ extension TerminalComposerView {
     /// Send follows terminal attachment rules normally, but agent routing accepts text only.
     var canSend: Bool {
         if submitRouter?.isAgentGUIRouting == true {
-            return !trimmedIsEmpty
+            return agentRoutingPolicy.canSend
         }
         return store.composerCanSend(forTerminalID: terminalID)
+    }
+
+    var agentRoutingPolicy: TerminalComposerAgentRoutingPolicy {
+        TerminalComposerAgentRoutingPolicy(
+            isAgentGUIRouting: submitRouter?.isAgentGUIRouting == true,
+            trimmedTextIsEmpty: trimmedIsEmpty,
+            attachmentCount: stagedAttachmentCount
+        )
     }
 }
 

@@ -57,7 +57,8 @@ public enum SendTicketState: Codable, Hashable, Sendable {
         }
     }
 
-    var isResolved: Bool {
+    /// Whether the ticket reached a terminal success or failure state.
+    public var isResolved: Bool {
         switch self {
         case .echoed, .failed:
             true

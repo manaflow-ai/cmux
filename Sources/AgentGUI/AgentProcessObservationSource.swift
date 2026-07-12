@@ -86,16 +86,9 @@ final class AgentProcessObservationSource {
         )
     }
 
-    private nonisolated static func agentKind(arguments: [String], environment: [String: String], processName: String) -> AgentKind {
+    nonisolated static func agentKind(arguments _: [String], environment: [String: String], processName _: String) -> AgentKind {
         if let launchKind = normalized(environment["CMUX_AGENT_LAUNCH_KIND"]) {
             return AgentKind(rawValue: launchKind)
-        }
-        let haystack = ([processName] + arguments.prefix(2)).joined(separator: " ").lowercased()
-        if haystack.contains("codex") {
-            return .codex
-        }
-        if haystack.contains("claude") {
-            return .claude
         }
         return .unknown("unknown")
     }
