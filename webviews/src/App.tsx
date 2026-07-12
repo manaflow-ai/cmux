@@ -64,6 +64,8 @@ type ActiveDiffSession = {
   sessionId: string;
 };
 
+const registeredCustomThemeNames = new Set<string>();
+
 type AppState = {
   activeItemId: string;
   activeTreePath: string;
@@ -1539,11 +1541,11 @@ function useRenderDiff(
     }
     const payload = config.payload ?? {};
     const appearance = resolveDiffViewerAppearance(payload.appearance);
-    if (appearance.themes.light.name) {
-      registerCustomTheme(appearance.themes.light.name, () => Promise.resolve(shikiThemeFromGhostty(appearance.themes.light, appearance)));
-    }
-    if (appearance.themes.dark.name) {
-      registerCustomTheme(appearance.themes.dark.name, () => Promise.resolve(shikiThemeFromGhostty(appearance.themes.dark, appearance)));
+    for (const theme of [appearance.themes.light, appearance.themes.dark]) {
+      if (theme.name && !registeredCustomThemeNames.has(theme.name)) {
+        registerCustomTheme(theme.name, () => Promise.resolve(shikiThemeFromGhostty(theme, appearance)));
+        registeredCustomThemeNames.add(theme.name);
+      }
     }
     let cancelled = false;
     const handlePageHide = () => {
