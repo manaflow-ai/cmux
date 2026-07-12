@@ -1,7 +1,4 @@
 import {
-  assetCacheStatsForTest,
-  buildBundles,
-  cssAsset,
   cssFontFamily,
   dirtyStateForTest,
   emitDoneAfterFilesForTest,
@@ -17,7 +14,6 @@ import {
   recordTurnBaselineForTest,
   rebuildFileDiffAllowlistForTest,
   renderPageForTest,
-  resetAssetCachesForTest,
   resolveFileDiffPath,
   sendPromptForTest,
   stripAuthPrefixForTest,
@@ -39,23 +35,6 @@ import { join } from "node:path";
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
-}
-
-const priorDev = process.env.CMUX_AGENT_UI_DEV;
-try {
-  delete process.env.CMUX_AGENT_UI_DEV;
-  resetAssetCachesForTest();
-  const [firstBundles, secondBundles] = await Promise.all([buildBundles(), buildBundles()]);
-  assert(firstBundles === secondBundles, "buildBundles should return the cached bundle map by default");
-  assert(assetCacheStatsForTest().bundleBuildCount === 1, "buildBundles should build once by default");
-
-  const firstCss = await cssAsset();
-  const secondCss = await cssAsset();
-  assert(firstCss === secondCss, "cssAsset should return the cached stylesheet by default");
-  assert(assetCacheStatsForTest().cssReadCount === 1, "cssAsset should read once by default");
-} finally {
-  if (priorDev === undefined) delete process.env.CMUX_AGENT_UI_DEV;
-  else process.env.CMUX_AGENT_UI_DEV = priorDev;
 }
 
 const cwd = "/tmp/agent-chat-path-test";

@@ -169,40 +169,16 @@ extension AppDelegate {
         tabManager: TabManager,
         url: URL
     ) -> Workspace? {
-        let beforeIds = Set(tabManager.tabs.map(\.id))
         let workspaceName = String(
             localized: "workspace.agentChat.defaultTitle",
             defaultValue: "Agent Chat"
         )
-        let workspaceDefinition = CmuxWorkspaceDefinition(
-            name: workspaceName,
-            layout: .pane(CmuxPaneDefinition(surfaces: [
-                CmuxSurfaceDefinition(
-                    type: .browser,
-                    name: workspaceName,
-                    command: nil,
-                    cwd: nil,
-                    env: nil,
-                    url: url.absoluteString,
-                    focus: true
-                ),
-            ]))
+        return tabManager.addWorkspace(
+            title: workspaceName,
+            initialSurface: .browser,
+            initialBrowserURL: url,
+            initialBrowserOmnibarVisible: false
         )
-        let command = CmuxCommandDefinition(
-            name: workspaceName,
-            workspace: workspaceDefinition
-        )
-        let baseCwd = tabManager.selectedWorkspace?.currentDirectory
-            ?? FileManager.default.homeDirectoryForCurrentUser.path
-        guard CmuxConfigExecutor.executeWorkspaceCommand(
-            command: command,
-            workspace: workspaceDefinition,
-            tabManager: tabManager,
-            baseCwd: baseCwd
-        ) else {
-            return nil
-        }
-        return tabManager.tabs.first { !beforeIds.contains($0.id) } ?? tabManager.selectedWorkspace
     }
 
 
@@ -220,18 +196,12 @@ extension AppDelegate {
                 preferredWindow: preferredWindow
             )
         case .appOwned:
-            guard let startCommand = agentChat.startCommand else {
-                return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
-            }
             return await ensureOwnedAgentChatServerAvailable(
                 agentChat,
-                startCommand: startCommand,
+                startCommand: agentChat.startCommand,
                 globalConfigPath: globalConfigPath,
                 preferredWindow: preferredWindow
             )
-        case .legacyDefaultURL:
-            let isHealthy = await Self.agentChatServerIsHealthy(healthURL: agentChat.healthURL, timeout: 1.5)
-            return AgentChatServerAvailability(isReachable: isHealthy, browserURL: agentChat.url)
         }
     }
 
@@ -279,7 +249,7 @@ extension AppDelegate {
 
     private func ensureOwnedAgentChatServerAvailable(
         _ agentChat: CmuxAgentChatConfiguration,
-        startCommand: String,
+        startCommand: String?,
         globalConfigPath: String?,
         preferredWindow: NSWindow?
     ) async -> AgentChatServerAvailability {
@@ -304,24 +274,31 @@ extension AppDelegate {
             return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
         }
 
-        guard await authorizeAgentChatStartCommandIfNeeded(
-            agentChat,
-            command: startCommand,
-            globalConfigPath: globalConfigPath,
-            preferredWindow: preferredWindow
-        ) else {
-            return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
+        if let startCommand {
+            guard await authorizeAgentChatStartCommandIfNeeded(
+                agentChat,
+                command: startCommand,
+                globalConfigPath: globalConfigPath,
+                preferredWindow: preferredWindow
+            ) else {
+                return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
+            }
         }
-        guard Self.launchDetachedAgentChatStartCommand(
-            startCommand,
-            currentDirectoryURL: Self.agentChatStartCommandDirectoryURL(for: agentChat),
-            environmentOverrides: [
-                "CMUX_AGENT_CHAT_TOKEN": token,
-                "CMUX_AGENT_CHAT_PORT": "0",
-                "CMUX_AGENT_CHAT_STATE_FILE": stateFileURL.path,
-                "CMUX_AGENT_CHAT_LAUNCH_ID": launchId,
-            ]
-        ) else {
+        let environmentOverrides = Self.agentChatOwnedServerEnvironment(
+            token: token,
+            stateFileURL: stateFileURL,
+            launchId: launchId
+        )
+        let didLaunch = if let startCommand {
+            Self.launchDetachedAgentChatStartCommand(
+                startCommand,
+                currentDirectoryURL: Self.agentChatStartCommandDirectoryURL(for: agentChat),
+                environmentOverrides: environmentOverrides
+            )
+        } else {
+            Self.launchBundledAgentChatServer(environmentOverrides: environmentOverrides)
+        }
+        guard didLaunch else {
             return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
         }
 
@@ -444,6 +421,52 @@ extension AppDelegate {
             return true
         } catch {
             NSLog("[AgentChat] failed to launch startCommand: %@", String(describing: error))
+            return false
+        }
+    }
+
+    nonisolated private static func agentChatOwnedServerEnvironment(
+        token: String,
+        stateFileURL: URL,
+        launchId: String
+    ) -> [String: String] {
+        var environment = [
+            "CMUX_AGENT_CHAT_TOKEN": token,
+            "CMUX_AGENT_CHAT_PORT": "0",
+            "CMUX_AGENT_CHAT_STATE_FILE": stateFileURL.path,
+            "CMUX_AGENT_CHAT_LAUNCH_ID": launchId,
+        ]
+        if let resources = Bundle.main.resourceURL {
+            environment["CMUX_AGENT_CHAT_WEBVIEWS_DIR"] = resources
+                .appendingPathComponent("markdown-viewer/webviews-app", isDirectory: true).path
+            environment["CMUX_AGENT_CHAT_ICON_DIR"] = resources
+                .appendingPathComponent("agent-chat-icons", isDirectory: true).path
+        }
+        return environment
+    }
+
+    nonisolated private static func launchBundledAgentChatServer(
+        environmentOverrides: [String: String]
+    ) -> Bool {
+        guard let executableURL = Bundle.main.resourceURL?
+            .appendingPathComponent("bin/cmux-agent-chat", isDirectory: false),
+              FileManager.default.isExecutableFile(atPath: executableURL.path) else {
+            NSLog("[AgentChat] bundled server is missing")
+            return false
+        }
+        let process = Process()
+        process.executableURL = executableURL
+        process.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
+        process.environment = ProcessInfo.processInfo.environment
+            .merging(environmentOverrides) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            return true
+        } catch {
+            NSLog("[AgentChat] failed to launch bundled server: %@", String(describing: error))
             return false
         }
     }

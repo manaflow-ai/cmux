@@ -87,7 +87,6 @@ enum CmuxAgentChatConfigurationSource: Sendable, Hashable {
 enum AgentChatServerMode: Sendable, Hashable {
     case explicitURL
     case appOwned
-    case legacyDefaultURL
 }
 
 struct CmuxAgentChatConfiguration: Sendable, Hashable {
@@ -112,10 +111,7 @@ struct CmuxAgentChatConfiguration: Sendable, Hashable {
         if hasExplicitURL {
             return .explicitURL
         }
-        if startCommand != nil {
-            return .appOwned
-        }
-        return .legacyDefaultURL
+        return .appOwned
     }
 
     var healthURL: URL {

@@ -37,7 +37,8 @@ strip_trailing_line_whitespace() {
 
 normalize_webviews_output() {
   out_dir="$1"
-  strip_trailing_line_whitespace "$out_dir/main.mjs" "$out_dir/agent-session.html"
+  find "$out_dir" -type f \( -name '*.mjs' -o -name '*.html' \) -print0 \
+    | xargs -0 /usr/bin/perl -0pi -e 's/[ \t]+(?=\r?\n)//g; s/[ \t]+\z//'
 }
 
 if [ "${1:-}" = "--check" ]; then

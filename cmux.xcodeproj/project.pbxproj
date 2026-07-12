@@ -5284,6 +5284,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001030 /* Frameworks */,
 				A5001102 /* Resources */,
 				D3664003D3664003D3664003 /* Compress Markdown Viewer Assets */,
+				C0DEAC100000000000000001 /* Build Agent Chat Sidecar */,
 				C0DE47000000000000000003 /* Write Extension Point */,
 				D1320AA0D1320AA0D1320AA6 /* Copy Dock Tile Plugin */,
 				A5001020 /* Embed Frameworks */,
@@ -5581,6 +5582,30 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		C0DEAC100000000000000001 /* Build Agent Chat Sidecar */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/agent-chat",
+				"$(SRCROOT)/scripts/build-agent-chat-sidecar.sh",
+				"$(SRCROOT)/Assets.xcassets/AgentIcons",
+			);
+			name = "Build Agent Chat Sidecar";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-agent-chat",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/agent-chat-icons",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/scripts/build-agent-chat-sidecar.sh\"\n";
+		};
 		C0DE47000000000000000003 /* Write Extension Point */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;

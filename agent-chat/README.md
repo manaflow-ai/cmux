@@ -7,8 +7,8 @@ MVP of the "UI mode" for cmux: a web chat surface (initial composer + chat view)
 Three entrypoints, all landing on the same server:
 
 - **CLI** (`cmux-chat`, symlinked into `~/.local/bin`): `cmux-chat` opens a composer as a new workspace tab; `cmux-chat -p codex fix the tests` starts the chat immediately; `--split` opens in the current workspace instead; `--no-open` prints the URL. It auto-starts the server if needed.
-- **Command palette**: `Cmd+Shift+P` → "New Agent Chat". Wired via `~/.config/cmux/cmux.json` (`actions.agent-chat` → `workspaceCommand` "Agent Chat" with a browser-surface layout), cmux's designed extension point, so no app build. When this productizes it becomes a built-in palette command in the cmux repo.
-- **Server** runs as a cmux sidecar. Manual dev run: `bun server.ts` (defaults to `http://127.0.0.1:7739` with no token). Production launchers set `CMUX_AGENT_CHAT_PORT=0`, `CMUX_AGENT_CHAT_TOKEN=<unguessable>`, and `CMUX_AGENT_CHAT_STATE_FILE=<path>`; after bind the server atomically writes `{"port":..., "pid":..., "protocolVersion":1}` so cmux can open `http://127.0.0.1:<port>/<token>/`.
+- **Command palette**: `Cmd+Shift+P` → "New Agent Chat". cmux launches its bundled sidecar and opens a browser workspace without browser chrome.
+- **Server** runs as a cmux-owned sidecar. Manual dev run: `bun server.ts` (defaults to `http://127.0.0.1:7739` with no token). Production sets `CMUX_AGENT_CHAT_PORT=0`, `CMUX_AGENT_CHAT_TOKEN=<unguessable>`, and `CMUX_AGENT_CHAT_STATE_FILE=<path>`; after bind the server atomically writes `{"port":..., "pid":..., "protocolVersion":1}` so cmux can open `http://127.0.0.1:<port>/<token>/`.
 
 One page = one session: `/` is the composer, `/s/<id>` a chat. When `CMUX_AGENT_CHAT_TOKEN` or `--token` is configured, every HTTP route, static asset, API route, and WebSocket upgrade except `/healthz` must be under `/<token>/...`; missing or wrong tokens return 404. There is deliberately no in-page session list or header; each chat is its own cmux workspace tab (page title = first prompt), so cmux's sidebar is the session list.
 
@@ -48,17 +48,14 @@ bun test/e2e.ts               # or: bun test/e2e.ts codex pi
 
 ## Architecture
 
-The frontend is a small React app built with Bun and styled to match the
-terminal. Dropdowns and controls use `@base-ui-components/react` (Base UI),
-the same component library the cmux web app uses: `Select` for the provider
-picker and `Popover` for the working-directory editor and overflow menus.
-Base UI ships unstyled, so every part is themed with the resolved Ghostty
-colors. The server bundles `src/main.tsx` with `Bun.build` on startup and
-serves it as `/app.js`; the HTML shell injects the theme CSS variables and
-loads `app.css` relative to the current sidecar prefix.
+The frontend lives at `webviews/src/agent-chat` beside Diff Viewer. Vite builds
+one code-split React app, and the HTML shell selects Agent Chat with
+`data-cmux-webview-kind="agent-chat"`. The sidecar serves the same prebuilt
+`main.mjs` and lazy chunks that ship in the app instead of rebuilding React at
+startup. Dropdowns and controls use `@base-ui-components/react` (Base UI).
 
 ```
-browser surface (React app: src/*.tsx + Base UI)
+browser surface (React app: webviews/src/agent-chat + Base UI)
         │ WebSocket (common event schema)
 server.ts (Bun): session manager, replayable event log per session
         │
@@ -111,7 +108,7 @@ stays in adapters.
 | opencode/gemini ACP | model, mode | `session/new` `configOptions` / ACP `modes`; opencode setter is `session/set_config_option` (`session/set_config` is not supported by 1.17.13) |
 | opencode/gemini ACP | commands | `available_commands_update`, emitted as `/` commands; opencode accepts slash command prompt text and routes it to `session.command` |
 
-Keyboard shortcuts are defined once in `src/keymap.ts` and the status row plus
+Keyboard shortcuts are defined once in `webviews/src/agent-chat/keymap.ts` and the status row plus
 keyboard handler both call the same `setOption` path:
 
 | shortcut | action |

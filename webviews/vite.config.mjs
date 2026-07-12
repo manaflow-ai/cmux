@@ -70,7 +70,7 @@ export default defineConfig({
           }
           if (
             id.includes("/@pierre/") ||
-            id.includes("/shiki/") ||
+            (id.includes("/shiki/") && !id.includes("/src/agent-chat/")) ||
             id.includes("/@shikijs/") ||
             id.includes("/oniguruma-parser/") ||
             id.includes("/oniguruma-to-es/")

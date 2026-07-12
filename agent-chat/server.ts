@@ -114,8 +114,13 @@ export async function writeStateFileForTest(path: string, port: number) {
   process.env.PATH = [...extra.filter((p) => !cur.includes(p)), ...cur].join(":");
 }
 const ROOT = import.meta.dir;
-const DEFAULT_CWD = `${ROOT}/scratch`;
-const ICON_ROOT = resolve(ROOT, "../Assets.xcassets/AgentIcons");
+const DEFAULT_CWD = process.env.CMUX_AGENT_UI_CWD ?? homedir();
+const WEBVIEWS_ROOT = resolve(
+  process.env.CMUX_AGENT_CHAT_WEBVIEWS_DIR ?? resolve(ROOT, "../Resources/markdown-viewer/webviews-app"),
+);
+const ICON_ROOT = resolve(
+  process.env.CMUX_AGENT_CHAT_ICON_DIR ?? resolve(ROOT, "../Assets.xcassets/AgentIcons"),
+);
 const CATALOG_TTL_MS = 10 * 60_000;
 const FILES_TTL_MS = 30_000;
 const FILES_LIMIT = 5_000;
@@ -1579,22 +1584,20 @@ function renderPage(url: URL, prefix = AUTH_PREFIX): string {
   // document root. In transparent mode html stays clear on purpose so
   // background-opacity/blur show through.
   const css = `:root { ${themeCssVars(currentTheme, { transparent, opacity: Number.isNaN(override) ? undefined : override })} }`;
-  // Shell: theme vars first (so the first paint is the terminal bg), the
-  // static stylesheet, a mount point, and the bundled React app (Base UI).
-  const script = url.pathname === "/gallery" ? "gallery.js" : "app.js";
+  // The same Vite entrypoint dispatches Diff Viewer and Agent Chat into lazy
+  // surface chunks. The data attribute selects the current Agent Chat UI.
   const base = prefix ? `${prefix}/` : "/";
   return `<!doctype html>
-<html lang="en"><head>
+<html lang="en" data-cmux-webview-kind="agent-chat"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>cmux agent</title>
 <base href="${base}">
 <script>window.__AGENT_CHAT_BASE__=${JSON.stringify(prefix)};</script>
-<link rel="stylesheet" href="app.css">
 <style>${css}</style>
-</head><body>
+</head><body data-cmux-webview-kind="agent-chat">
 <div id="root"></div>
-<script type="module" src="${script}"></script>
+<script type="module" src="webviews/main.mjs"></script>
 </body></html>`;
 }
 
@@ -1602,128 +1605,25 @@ export function renderPageForTest(pathname: string, prefix = ""): string {
   return renderPage(new URL(`http://127.0.0.1${pathname}`), prefix);
 }
 
-interface StaticAsset {
-  route: string;
-  bytes: ArrayBuffer;
-  gzip: ArrayBuffer;
-  type: string;
+function webviewAssetPath(pathname: string): { path: string; encoded: boolean; type: string } | null {
+  const relativePath = pathname.slice("/webviews/".length);
+  if (!relativePath || relativePath.includes("\\") || relativePath.split("/").includes("..")) return null;
+  if (!/^[a-zA-Z0-9_./-]+$/.test(relativePath)) return null;
+  const path = resolve(WEBVIEWS_ROOT, relativePath);
+  if (relative(WEBVIEWS_ROOT, path).startsWith("..")) return null;
+  const type = path.endsWith(".css") ? "text/css; charset=utf-8" : "application/javascript; charset=utf-8";
+  if (existsSync(path)) return { path, encoded: false, type };
+  if (existsSync(`${path}.deflate`)) return { path: `${path}.deflate`, encoded: true, type };
+  return null;
 }
 
-// Bundle the frontend entries with Bun. Built once at startup and cached by
-// default; rebuilt on request only when CMUX_AGENT_UI_DEV=1 (dev iteration).
-let assetCache: Map<string, StaticAsset> | null = null;
-let cssAssetCache: StaticAsset | null = null;
-let assetBuildPromise: Promise<Map<string, StaticAsset>> | null = null;
-let cssAssetPromise: Promise<StaticAsset> | null = null;
-let bundleBuildCount = 0;
-let cssReadCount = 0;
-
-function arrayBufferOf(bytes: Uint8Array): ArrayBuffer {
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-}
-
-function makeAsset(route: string, bytes: ArrayBuffer, type: string): StaticAsset {
-  return { route, bytes, gzip: arrayBufferOf(Bun.gzipSync(bytes)), type };
-}
-
-function formatBytes(n: number): string {
-  if (n > 1024 * 1024) return `${(n / 1024 / 1024).toFixed(2)} MB`;
-  if (n > 1024) return `${Math.round(n / 1024)} KB`;
-  return `${n} B`;
-}
-
-function bundleSizeLine(assets: Map<string, StaticAsset>): string {
-  const app = assets.get("/app.js");
-  const gallery = assets.get("/gallery.js");
-  const part = (name: string, asset?: StaticAsset) => asset
-    ? `${name} ${formatBytes(asset.bytes.byteLength)} raw / ${formatBytes(asset.gzip.byteLength)} gzip`
-    : `${name} missing`;
-  return `bundle ready: ${part("app.js", app)}; ${part("gallery.js", gallery)}`;
-}
-
-export async function buildBundles(): Promise<Map<string, StaticAsset>> {
-  if (assetCache && process.env.CMUX_AGENT_UI_DEV !== "1") return assetCache;
-  if (assetBuildPromise && process.env.CMUX_AGENT_UI_DEV !== "1") return assetBuildPromise;
-  assetBuildPromise = buildBundlesFresh().finally(() => {
-    assetBuildPromise = null;
-  });
-  return assetBuildPromise;
-}
-
-async function buildBundlesFresh(): Promise<Map<string, StaticAsset>> {
-  bundleBuildCount += 1;
-  const out = await Bun.build({
-    entrypoints: [`${ROOT}/src/main.tsx`, `${ROOT}/src/gallery-main.tsx`],
-    target: "browser",
-    minify: true,
-    splitting: true,
-    outdir: `/tmp/cmux-agent-ui-${process.pid}`,
-    define: { "process.env.NODE_ENV": '"production"' },
-  });
-  if (!out.success) {
-    const msg = out.logs.map((l) => String(l)).join("\n");
-    throw new Error("bundle failed:\n" + msg);
-  }
-  const assets = new Map<string, StaticAsset>();
-  for (const output of out.outputs) {
-    const base = pathBasename(output.path);
-    const route = base === "main.js" ? "/app.js" : base === "gallery-main.js" ? "/gallery.js" : `/${base}`;
-    const bytes = await output.arrayBuffer();
-    assets.set(route, makeAsset(route, bytes, "application/javascript; charset=utf-8"));
-  }
-  assetCache = assets;
-  console.log(bundleSizeLine(assets));
-  return assets;
-}
-
-export async function cssAsset(): Promise<StaticAsset> {
-  if (cssAssetCache && process.env.CMUX_AGENT_UI_DEV !== "1") return cssAssetCache;
-  if (cssAssetPromise && process.env.CMUX_AGENT_UI_DEV !== "1") return cssAssetPromise;
-  cssAssetPromise = cssAssetFresh().finally(() => {
-    cssAssetPromise = null;
-  });
-  return cssAssetPromise;
-}
-
-async function cssAssetFresh(): Promise<StaticAsset> {
-  cssReadCount += 1;
-  const bytes = await Bun.file(`${ROOT}/public/app.css`).arrayBuffer();
-  cssAssetCache = makeAsset("/app.css", bytes, "text/css; charset=utf-8");
-  return cssAssetCache;
-}
-
-export function resetAssetCachesForTest() {
-  assetCache = null;
-  cssAssetCache = null;
-  assetBuildPromise = null;
-  cssAssetPromise = null;
-  bundleBuildCount = 0;
-  cssReadCount = 0;
-}
-
-export function assetCacheStatsForTest() {
-  return { bundleBuildCount, cssReadCount };
-}
-
-function acceptsGzip(req: Request): boolean {
-  return /\bgzip\b/.test(req.headers.get("accept-encoding") ?? "");
-}
-
-function assetResponse(req: Request, asset: StaticAsset): Response {
-  if (acceptsGzip(req)) {
-    return new Response(asset.gzip, {
-      headers: {
-        "content-type": asset.type,
-        "content-encoding": "gzip",
-        "vary": "Accept-Encoding",
-        "cache-control": "no-cache",
-      },
-    });
-  }
-  return new Response(asset.bytes, {
+function webviewAssetResponse(pathname: string): Response {
+  const asset = webviewAssetPath(pathname);
+  if (!asset) return new Response("not found", { status: 404 });
+  return new Response(Bun.file(asset.path), {
     headers: {
       "content-type": asset.type,
-      "vary": "Accept-Encoding",
+      ...(asset.encoded ? { "content-encoding": "deflate" } : {}),
       "cache-control": "no-cache",
     },
   });
@@ -1746,21 +1646,7 @@ function startServer() {
         : new Response("upgrade failed", { status: 400 });
     }
     if (url.pathname.startsWith("/icons/")) return iconResponse(url);
-    if (url.pathname === "/app.js" || url.pathname === "/gallery.js" || /^\/chunk-[\w-]+\.js$/.test(url.pathname)) {
-      try {
-        const asset = (await buildBundles()).get(url.pathname);
-        if (!asset) return new Response("not found", { status: 404 });
-        return assetResponse(req, asset);
-      } catch (err) {
-        return new Response(`console.error(${JSON.stringify(String(err))})`, {
-          status: 500,
-          headers: { "content-type": "application/javascript; charset=utf-8" },
-        });
-      }
-    }
-    if (url.pathname === "/app.css") {
-      return assetResponse(req, await cssAsset());
-    }
+    if (url.pathname.startsWith("/webviews/")) return webviewAssetResponse(url.pathname);
     if (url.pathname === "/api/theme" && req.method === "POST") {
       if (!hasTrustedOrigin(req)) return Response.json({ error: "forbidden" }, { status: 403 });
       try {
@@ -1845,13 +1731,6 @@ function startServer() {
       },
     },
   });
-
-  // Warm the bundle so the first page load doesn't pay the build cost, and so
-  // a build error surfaces at startup rather than as a blank page.
-  buildBundles().then(
-    () => {},
-    (err) => console.error(String(err)),
-  );
 
   for (const p of PROVIDERS) {
     refreshCatalog(p.id, process.env.CMUX_AGENT_UI_CWD ?? DEFAULT_CWD).catch((err) => {
