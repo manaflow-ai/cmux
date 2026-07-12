@@ -572,31 +572,17 @@ extension FeedCoordinator {
         return slot.value
     }
 
-    /// Parses `workstreamId` in the form `<agent>-<sessionId>` and
-    /// looks up the matching hook-session entry in the app's hook store (written by
-    /// `cmux <agent>-hook session-start`). Returns `true` if a match
-    /// was found so the UI can gate the jump gesture.
-    ///
-    /// Actual focus (workspace.select + surface.focus) is scheduled via
-    /// `FeedJumpResolver.focusIfPossible` on the main actor.
-    func resolvePossibleSurface(for workstreamId: String) -> Bool {
-        guard let parsed = FeedJumpResolver.parse(workstreamId) else {
-            return false
-        }
-        return FeedJumpResolver.lookup(agent: parsed.agent, sessionId: parsed.sessionId) != nil
-    }
-
     /// Fires a best-effort focus for the given `workstreamId`. Returns
     /// `true` if a target was found and the focus commands were
     /// dispatched. Runs on the main actor because the focus commands
     /// touch AppKit state.
     @MainActor
-    func focusIfPossible(workstreamId: String) -> Bool {
-        guard let parsed = FeedJumpResolver.parse(workstreamId),
-              let target = FeedJumpResolver.lookup(
-                agent: parsed.agent, sessionId: parsed.sessionId
-              )
-        else { return false }
+    func focusIfPossible(workstreamId: String) async -> Bool {
+        guard let parsed = FeedJumpResolver.parse(workstreamId) else { return false }
+        guard let target = await FeedJumpResolver.lookupOffMain(
+            agent: parsed.agent,
+            sessionId: parsed.sessionId
+        ) else { return false }
         FeedJumpResolver.focus(workspaceId: target.workspaceId, surfaceId: target.surfaceId)
         return true
     }
@@ -607,12 +593,12 @@ extension FeedCoordinator {
     /// the Feed without switching focus to the terminal.
     @MainActor
     @discardableResult
-    func sendTextToWorkstream(workstreamId: String, text: String) -> Bool {
-        guard let parsed = FeedJumpResolver.parse(workstreamId),
-              let target = FeedJumpResolver.lookup(
-                agent: parsed.agent, sessionId: parsed.sessionId
-              )
-        else { return false }
+    func sendTextToWorkstream(workstreamId: String, text: String) async -> Bool {
+        guard let parsed = FeedJumpResolver.parse(workstreamId) else { return false }
+        guard let target = await FeedJumpResolver.lookupOffMain(
+            agent: parsed.agent,
+            sessionId: parsed.sessionId
+        ) else { return false }
         FeedJumpResolver.sendText(
             workspaceId: target.workspaceId,
             surfaceId: target.surfaceId,
@@ -626,7 +612,7 @@ extension FeedCoordinator {
 /// mapping a feed `workstream_id` to a cmux `(workspaceId, surfaceId)` pair.
 /// The schema is the same one written by `cmux <agent>-hook session-start`.
 enum FeedJumpResolver {
-    struct Target: Equatable {
+    struct Target: Equatable, Sendable {
         let workspaceId: String
         let surfaceId: String
     }
@@ -661,6 +647,16 @@ enum FeedJumpResolver {
             return nil
         }
         return Target(workspaceId: workspaceId, surfaceId: surfaceId)
+    }
+
+    static func lookupOffMain(
+        agent: String,
+        sessionId: String,
+        stateDirectory: URL? = nil
+    ) async -> Target? {
+        await Task.detached(priority: .userInitiated) {
+            lookup(agent: agent, sessionId: sessionId, stateDirectory: stateDirectory)
+        }.value
     }
 
     /// Dispatches a workspace-select + surface-focus intent. Posts

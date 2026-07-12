@@ -78,6 +78,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "auth.sign_out",
         "feedback.submit",
         "feed.push",
+        // Resolves bundle-scoped hook state from disk. Keep that read and JSON
+        // decode on the socket worker; the command does not touch UI state.
+        "feed.jump",
         "feed.permission.reply",
         "feed.question.reply",
         "feed.exit_plan.reply",
