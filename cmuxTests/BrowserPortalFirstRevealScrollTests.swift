@@ -195,6 +195,7 @@ struct BrowserPortalFirstRevealScrollTests {
 
         let webView = RecordingWebView(frame: .zero, configuration: WKWebViewConfiguration())
         webView.browserPortalPrepareForHiddenHostAdoption()
+        #expect(webView.browserPortalRequiresRenderingStateReattach)
         slot.addSubview(webView)
         host.pinHostedWebView(webView, in: slot)
         webView.frameSizeCalls.removeAll()
@@ -207,6 +208,7 @@ struct BrowserPortalFirstRevealScrollTests {
         #expect(webView.frameSizeCalls.filter { size($0, approximatelyEquals: nudgedSize) }.count == 1)
         #expect(webView.frameSizeCalls.contains { size($0, approximatelyEquals: revealedSize) })
         #expect(size(webView.frame.size, approximatelyEquals: revealedSize))
+        #expect(!webView.browserPortalRequiresRenderingStateReattach)
         #expect(!webView.browserPortalNeedsFirstSizedRevealNudge)
 
         webView.frameSizeCalls.removeAll()
