@@ -7,12 +7,14 @@ import Testing
 @testable import cmux
 #endif
 
-extension RemoteTmuxMirrorCLIObservabilityTests {
+@MainActor
+@Suite(.serialized)
+struct RemoteTmuxMirrorTopTopologyTests {
     /// Regression for #7910: process enrichment must not mint a second view of
     /// mirror topology. `system.top` and `system.tree` must expose the same
     /// actionable pane and surface identities.
     @Test func topUsesTreeTopologyForMirrorWorkspaces() async throws {
-        let harness = try Harness()
+        let harness = try RemoteTmuxMirrorCLIObservabilityTests.Harness()
         defer { harness.tearDown() }
 
         let tree = TerminalController.shared.controlSystemTreeWindows(
@@ -97,7 +99,7 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
     /// Task Manager navigation must consume the same projected surface IDs
     /// that its top snapshot displays.
     @Test func taskManagerViewsProjectedMirrorSurface() async throws {
-        let harness = try Harness(connectedTransport: true)
+        let harness = try RemoteTmuxMirrorCLIObservabilityTests.Harness(connectedTransport: true)
         defer { harness.tearDown() }
 
         let targetTmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
