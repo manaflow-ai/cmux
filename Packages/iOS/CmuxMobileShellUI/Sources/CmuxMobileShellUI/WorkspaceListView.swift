@@ -289,11 +289,11 @@ struct WorkspaceListView: View {
         }
         .listStyle(.plain)
         #if os(iOS)
-        .safeAreaInset(edge: .top, spacing: 0) {
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             WorkspaceSearchBar(text: $searchText)
                 .frame(height: 52)
                 .background(.bar)
-                .overlay(alignment: .bottom) {
+                .overlay(alignment: .top) {
                     Divider()
                 }
         }
