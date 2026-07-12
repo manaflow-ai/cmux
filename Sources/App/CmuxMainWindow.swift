@@ -74,6 +74,25 @@ func configureCmuxMainWindowDragBehavior(_ window: NSWindow) {
 @MainActor
 final class CmuxMainWindow: NSWindow {
 
+    /// No content may resize this window past its display. The content view
+    /// hosts AppKit subtrees whose subviews carry REQUIRED autoresizing-mask
+    /// constraints, and if any of them is ever laid out oversized, AppKit
+    /// satisfies those constraints by growing the WINDOW — and since this
+    /// window is non-movable, nothing ever constrains it back. A layout bug
+    /// then compounds through everything derived from window geometry
+    /// (observed live: the window at 29,000 points wide, growing every
+    /// pass). The user sizes this window; layout does not.
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        var frame = frameRect
+        if !styleMask.contains(.fullScreen),
+           let limit = (screen ?? NSScreen.main)?.frame,
+           limit.width > 1, limit.height > 1 {
+            frame.size.width = min(frame.size.width, limit.width)
+            frame.size.height = min(frame.size.height, limit.height)
+        }
+        super.setFrame(frame, display: flag)
+    }
+
     static var minimumContentSize: NSSize {
         NSSize(
             width: CGFloat(SessionPersistencePolicy.minimumWindowWidth),
