@@ -46,11 +46,10 @@ public struct TerminalScrollbackViewportAnchor: Equatable, Sendable {
 
     /// Resolves the first visible row for Ghostty's current scrollback geometry.
     ///
-    /// A live-bottom anchor follows the runtime's current bottom. Other anchors
-    /// remain attached to the same output while their row numbering is stable.
-    /// Reflow can renumber rows, and bounded history can evict them, without a
-    /// persistent identity to resolve. Invalid geometry is clamped to the
-    /// current scroll range.
+    /// A live-bottom anchor follows the runtime's current bottom. Historical
+    /// anchors wait until their captured bottom edge is addressable, then remain
+    /// attached to that output while row numbering is stable. Reflow can
+    /// renumber rows without exposing a persistent identity to resolve.
     ///
     /// - Parameter scrollbar: The current top-relative Ghostty scrollbar state.
     /// - Returns: The absolute first visible row, or `nil` before the runtime has
@@ -64,6 +63,7 @@ public struct TerminalScrollbackViewportAnchor: Equatable, Sendable {
             return currentLastTopRow
         }
         let capturedViewportBottomRow = capturedTotalRows - rowsBelowViewport
+        guard capturedViewportBottomRow <= currentTotalRows else { return nil }
         let unclampedTopRow = max(0, capturedViewportBottomRow - currentVisibleRows)
         return min(currentLastTopRow, unclampedTopRow)
     }
