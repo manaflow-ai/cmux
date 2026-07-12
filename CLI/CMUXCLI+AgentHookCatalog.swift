@@ -18,16 +18,31 @@ func resolveAgentHookStateWriterLocation(
     } else {
         resolvedLegacyHomeDirectory = fileManager.homeDirectoryForCurrentUser
     }
-    return AgentHookStateWriterLocation(
+    let resolvedApplicationSupportDirectory = applicationSupportDirectory ?? fileManager.urls(
+        for: .applicationSupportDirectory,
+        in: .userDomainMask
+    ).first
+    let resolvedContainingBundleIdentifier = containingBundleIdentifier
+        ?? CLIExecutableLocator.enclosingAppBundle()?.bundleIdentifier
+    let inheritedBundleIdentifier = environment["CMUX_BUNDLE_ID"]?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    let resolvedBundleIdentifier = inheritedBundleIdentifier?.isEmpty == false
+        ? inheritedBundleIdentifier
+        : resolvedContainingBundleIdentifier
+    let writerLocation = AgentHookStateWriterLocation(
         environment: environment,
-        applicationSupportDirectory: applicationSupportDirectory ?? fileManager.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first,
-        containingBundleIdentifier: containingBundleIdentifier
-            ?? CLIExecutableLocator.enclosingAppBundle()?.bundleIdentifier,
+        applicationSupportDirectory: resolvedApplicationSupportDirectory,
+        containingBundleIdentifier: resolvedContainingBundleIdentifier,
         legacyHomeDirectory: resolvedLegacyHomeDirectory
     )
+    AgentHookStateReaderLocation(
+        environment: environment,
+        applicationSupportDirectory: resolvedApplicationSupportDirectory,
+        bundleIdentifier: resolvedBundleIdentifier,
+        legacyHomeDirectory: resolvedLegacyHomeDirectory,
+        fileManager: fileManager
+    ).migrateLegacyStoresIfNeeded(fileManager: fileManager)
+    return writerLocation
 }
 
 func ensurePrivateAgentHookStateDirectory(at directoryURL: URL, fileManager: FileManager) throws {

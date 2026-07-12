@@ -30159,6 +30159,7 @@ export default CMUXSessionRestore;
         var processBindingCache: CallerTerminalBinding?
         var didResolveProcessBinding = false
         var processBindingBlockedByAmbiguousTTY = false
+        var processBindingAllowsRemoteAmbientFallback = false
         func processBinding() -> CallerTerminalBinding? {
             if !didResolveProcessBinding {
                 didResolveProcessBinding = true
@@ -30169,9 +30170,16 @@ export default CMUXSessionRestore;
                 // resume binding persists it across reload. resolveAgentHookTarget now uses this
                 // binding to OVERRIDE a disagreeing ambient-env surface; the binding stays nil (env
                 // trusted) under remote/SSH where no local TTY maps to a surface.
-                let ttyResolution = callerTerminalBindingResolutionByTTY(client: client)
+                let ttyResolution = callerTerminalBindingResolutionByTTY(
+                    client: client,
+                    pid: inferredPID
+                )
                 processBindingCache = ttyResolution.binding ?? resolveAgentProcessTerminalBinding(pid: inferredPID, client: client)
                 processBindingBlockedByAmbiguousTTY = ttyResolution.isAmbiguous && ttyResolution.binding == nil && processBindingCache == nil
+                processBindingAllowsRemoteAmbientFallback = ttyResolution.usedTargetedResolver
+                    && !ttyResolution.isAmbiguous
+                    && ttyResolution.binding == nil
+                    && processBindingCache == nil
             }
             return processBindingCache
         }
@@ -30401,7 +30409,7 @@ export default CMUXSessionRestore;
             func ambientDirectWorkspaceAgreesWithProcessBinding(_ workspaceId: String) -> Bool {
                 guard hookWsFlag == nil, explicitSurfaceFlag == nil else { return true }
                 guard let processWorkspaceId = resolveAccessibleWorkspaceId(processBinding()?.workspaceId) else {
-                    return true
+                    return processBindingAllowsRemoteAmbientFallback
                 }
                 return processWorkspaceId == workspaceId
             }

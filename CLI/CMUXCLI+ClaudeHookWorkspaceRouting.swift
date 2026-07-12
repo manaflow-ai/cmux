@@ -165,7 +165,10 @@ extension CMUXCLI {
         if let pid, pid > 0 { targetedParams["pid"] = pid }
         if !targetedParams.isEmpty,
            let payload = try? client.sendV2(method: "system.resolve_terminal", params: targetedParams) {
-            if let resolution = targetedCallerTerminalBindingResolution(payload) {
+            if let resolution = targetedCallerTerminalBindingResolution(
+                payload,
+                requirePIDBinding: pid != nil
+            ) {
                 return resolution
             }
         }
@@ -201,7 +204,8 @@ extension CMUXCLI {
     }
 
     private func targetedCallerTerminalBindingResolution(
-        _ payload: [String: Any]
+        _ payload: [String: Any],
+        requirePIDBinding: Bool
     ) -> CallerTerminalBindingResolution? {
         guard let rawTTYBindings = payload["tty_bindings"] as? [Any],
               payload.keys.contains("pid_binding"),
@@ -235,6 +239,13 @@ extension CMUXCLI {
             pidBinding = decoded
         }
         if ttyBindings.count == 1, let ttyBinding = ttyBindings.first {
+            if requirePIDBinding, pidBinding == nil {
+                return CallerTerminalBindingResolution(
+                    binding: nil,
+                    isAmbiguous: true,
+                    usedTargetedResolver: true
+                )
+            }
             if let pidBinding, !same(ttyBinding, pidBinding) {
                 return CallerTerminalBindingResolution(
                     binding: nil,
