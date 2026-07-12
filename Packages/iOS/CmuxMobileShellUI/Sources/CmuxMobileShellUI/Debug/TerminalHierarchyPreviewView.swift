@@ -12,6 +12,7 @@ public struct TerminalHierarchyPreviewView: View {
     private let simulatesMutationFailure: Bool
     private let simulatesProtectedClose: Bool
     private let simulatesResultUnknownRefreshed: Bool
+    private let simulatesCloseUnavailable: Bool
 
     /// Creates the preview fixture.
     public init() {
@@ -50,6 +51,7 @@ public struct TerminalHierarchyPreviewView: View {
         simulatesMutationFailure = scenario == "error"
         simulatesProtectedClose = scenario == "close-protected"
         simulatesResultUnknownRefreshed = scenario == "result-unknown-refreshed"
+        simulatesCloseUnavailable = scenario == "close-unavailable"
     }
 
     /// Renders the deterministic hierarchy fixture for UI verification.
@@ -64,7 +66,8 @@ public struct TerminalHierarchyPreviewView: View {
             reorderGate: reorderGate,
             reorderTerminal: reorderTerminal,
             closeTerminal: closeTerminal,
-            refreshTerminals: { true }
+            refreshTerminals: { true },
+            onCloseRequested: simulateCompetingCloseReservation
         )
     }
 
@@ -81,6 +84,14 @@ public struct TerminalHierarchyPreviewView: View {
         workspace.panes[paneIndex].terminalIDs.append(terminal.id)
         workspace.selectedTerminalID = terminal.id
         selectedTerminalID = terminal.id
+    }
+
+    private func simulateCompetingCloseReservation() {
+        guard simulatesCloseUnavailable else { return }
+        _ = reorderGate.reserve(
+            workspaceID: workspace.id,
+            paneID: workspace.terminalCreationPaneID ?? "pane-left"
+        )
     }
 
     private func reorderTerminal(

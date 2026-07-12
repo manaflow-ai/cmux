@@ -9375,6 +9375,18 @@
         "ja": { "stringUnit": { "state": "translated", "value": "このターミナルを閉じる前に、Mac で固定を解除してください。" } }
       }
     },
+    "mobile.terminal.hierarchy.closeUnavailableTitle": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal Close Unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルを閉じられません" } }
+      }
+    },
+    "mobile.terminal.hierarchy.closeUnavailableMessage": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The terminal list changed or another terminal action started. Review the latest state before trying again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルの一覧が変更されたか、別の操作が開始されました。最新の状態を確認してからもう一度お試しください。" } }
+      }
+    },
     "mobile.terminal.hierarchy.errorTitle": {
       "extractionState": "manual", "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Couldn't Update Terminals" } },

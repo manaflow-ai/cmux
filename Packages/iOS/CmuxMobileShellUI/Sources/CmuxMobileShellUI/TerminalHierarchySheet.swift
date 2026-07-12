@@ -22,7 +22,7 @@ struct TerminalHierarchySheet: View {
         MobileTerminalReorderReservation
     ) async -> Result<Void, MobileWorkspaceMutationFailure>
     let refreshTerminals: () async -> Bool
-
+    var onCloseRequested: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var pendingClose: TerminalHierarchyRowSnapshot?
     @State private var closeConfirmationIncludesRunningProcess = false
@@ -31,10 +31,10 @@ struct TerminalHierarchySheet: View {
     @State private var mutationProtected = false
     @State private var closeProtected = false
     @State private var mutationResultUnknownRefreshed = false
+    @State private var closeUnavailable = false
     @State private var showRefreshAlert = false
     @State private var refreshResultIsUnknown = false
     @State private var optimisticTerminalIDsByPane: [MobilePanePreview.ID: [MobileTerminalPreview.ID]] = [:]
-
     var body: some View {
         NavigationStack {
             List {
@@ -156,16 +156,8 @@ struct TerminalHierarchySheet: View {
                 )
                 .accessibilityIdentifier("MobileTerminalHierarchyCloseProtectedMessage")
             }
-            .alert(
-                L10n.string("mobile.terminal.hierarchy.resultUnknownRefreshedTitle", defaultValue: "Terminal State Refreshed"),
-                isPresented: $mutationResultUnknownRefreshed
-            ) {
-                Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
-            } message: {
-                Text(
-                    L10n.string("mobile.terminal.hierarchy.resultUnknownRefreshedMessage", defaultValue: "Latest terminal state loaded. Verify the change.")
-                )
-            }
+            .terminalHierarchyResultUnknownRefreshedAlert(isPresented: $mutationResultUnknownRefreshed)
+            .terminalHierarchyCloseUnavailableAlert(isPresented: $closeUnavailable)
         }
         .accessibilityIdentifier("MobileTerminalHierarchySheet")
     }
@@ -405,14 +397,19 @@ struct TerminalHierarchySheet: View {
 
     private func confirmPendingClose(_ confirmation: TerminalHierarchyCloseConfirmation) {
         let pendingClose = confirmation.row
-        guard
-              let paneID = snapshot.panes.first(where: { pane in
-                  pane.rows.contains(where: { $0.id == pendingClose.id })
-              })?.id,
-              let reservation = reorderGate.reserve(
-                  workspaceID: snapshot.workspaceID,
-                  paneID: paneID
-              ) else { return }
+        guard let paneID = snapshot.panes.first(where: { pane in
+            pane.rows.contains(where: { $0.id == pendingClose.id })
+        })?.id else {
+            presentCloseUnavailable()
+            return
+        }
+        guard let reservation = reorderGate.reserve(
+            workspaceID: snapshot.workspaceID,
+            paneID: paneID
+        ) else {
+            presentCloseUnavailable()
+            return
+        }
         clearPendingClose()
         Task { @MainActor in
             let result = await closeTerminal(pendingClose.id, confirmation.confirmed, reservation)
@@ -442,6 +439,12 @@ struct TerminalHierarchySheet: View {
         pendingClose = row
         closeConfirmationIncludesRunningProcess = row.requiresCloseConfirmation
         isCloseConfirmationPresented = true
+        onCloseRequested?()
+    }
+
+    private func presentCloseUnavailable() {
+        clearPendingClose()
+        closeUnavailable = true
     }
 
     private func clearPendingClose() {
