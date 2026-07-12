@@ -47,6 +47,65 @@ import Testing
 }
 
 @MainActor
+@Test func foregroundMutationRefreshSurvivesAnonymousIdentityAdoption() async throws {
+    let router = RoutingHostRouter()
+    let store = MobileShellComposite(
+        connectionState: .connected,
+        workspaces: MobileShellComposite.preview().workspaces
+    )
+    try installFreshRemoteClient(on: store, router: router)
+    store.setWorkspaceStatesForTesting(
+        [
+            MobileShellComposite.foregroundAnonymousKey: MacWorkspaceState(
+                macDeviceID: MobileShellComposite.foregroundAnonymousKey,
+                workspaces: store.workspaces
+            ),
+        ],
+        foregroundMacDeviceID: nil
+    )
+    let workspaceID = try #require(store.workspaces.first?.id)
+    let target = WorkspaceMutationTarget(
+        client: store.remoteClient,
+        isForeground: true,
+        macDeviceID: nil
+    )
+    store.terminalReorderGate.requireRefresh(workspaceID: workspaceID)
+
+    store.adoptForegroundMacIdentity("test-mac-2")
+    let refreshed = await store.refreshAfterWorkspaceMutation(target)
+
+    #expect(refreshed)
+    #expect(await router.workspaceListGate.requestCount() == 1)
+    #expect(store.terminalReorderGate.canMutate(workspaceID: workspaceID))
+}
+
+@MainActor
+@Test func secondaryMutationRefreshRejectsReplacedSubscriptionClient() async throws {
+    let originalRouter = RoutingHostRouter()
+    let replacementRouter = RoutingHostRouter()
+    let store = MobileShellComposite(
+        runtime: RoutingTestRuntime(
+            transportFactory: RoutingTransportFactory(router: replacementRouter)
+        )
+    )
+    let macID = "secondary-replaced"
+    try installSecondaryClient(on: store, macDeviceID: macID, router: originalRouter)
+    let originalSubscription = try #require(store.secondaryMacSubscriptions[macID])
+    let target = WorkspaceMutationTarget(
+        client: originalSubscription.client,
+        isForeground: false,
+        macDeviceID: macID
+    )
+    try installSecondaryClient(on: store, macDeviceID: macID, router: replacementRouter)
+
+    let refreshed = await store.refreshAfterWorkspaceMutation(target)
+
+    #expect(!refreshed)
+    #expect(await originalRouter.workspaceListGate.requestCount() == 0)
+    #expect(await replacementRouter.workspaceListGate.requestCount() == 0)
+}
+
+@MainActor
 @Test func foregroundMutationRefreshStartsAfterOlderPullCompletes() async throws {
     let router = RoutingHostRouter()
     let store = MobileShellComposite(
