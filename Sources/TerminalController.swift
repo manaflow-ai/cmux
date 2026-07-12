@@ -1284,8 +1284,7 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedbackSubmit(params: request.params))
         case "feed.push":
             return v2Result(id: request.id, v2FeedPush(params: request.params))
-        case "feed.jump":
-            return v2Result(id: request.id, v2FeedJump(params: request.params))
+        case "feed.jump": return v2Result(id: request.id, v2FeedJump(params: request.params))
         case "feed.permission.reply":
             return v2Result(id: request.id, v2FeedPermissionReply(params: request.params))
         case "feed.question.reply":
@@ -2221,8 +2220,7 @@ class TerminalController {
         // Settings/session/feedback: session.restore_previous, settings.open, and
         // feedback.open handled by ControlCommandCoordinator.
 
-        // Feed (workstream): feed.list handled by ControlCommandCoordinator.
-        // feed.jump reads hook state on the app-side socket-worker path.
+        // Feed: feed.list uses the coordinator; feed.jump reads hook state on the socket worker.
         case "sidebar.custom.open":
             return v2Result(id: id, self.v2CustomSidebarOpen(params: params))
 
@@ -2336,8 +2334,7 @@ class TerminalController {
 
     private nonisolated func v2Capabilities() -> [String: Any] {
         var methods: [String] = [
-            "system.ping",
-            "system.capabilities",
+            "system.ping", "system.capabilities",
             "system.identify",
             "system.tree", "system.resolve_terminal",
             "sidebar.custom.open",
@@ -5629,29 +5626,6 @@ class TerminalController {
     }
 
     // MARK: - V2 Feed (workstream) handlers
-
-    private nonisolated func v2FeedJump(params: [String: Any]) -> V2CallResult {
-        guard let workstreamID = params["workstream_id"] as? String else {
-            return .err(
-                code: "invalid_params",
-                message: "feed.jump requires workstream_id",
-                data: nil
-            )
-        }
-        let matched: Bool
-        if let parsed = FeedJumpResolver.parse(workstreamID) {
-            matched = FeedJumpResolver.lookup(
-                agent: parsed.agent,
-                sessionId: parsed.sessionId
-            ) != nil
-        } else {
-            matched = false
-        }
-        return .ok([
-            "workstream_id": workstreamID,
-            "matched": matched,
-        ])
-    }
 
     private nonisolated func v2FeedPush(params: [String: Any]) -> V2CallResult {
         let waitTimeout: TimeInterval
