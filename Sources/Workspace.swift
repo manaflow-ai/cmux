@@ -9482,7 +9482,7 @@ final class Workspace: Identifiable, ObservableObject {
         trigger: FocusPanelTrigger = .standard,
         focusIntent: PanelFocusIntent? = nil
     ) {
-        guard !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
+        guard !remoteTmuxMirrorInterceptsFocusPanel(panelId, previousHostedView: previousHostedView, trigger: trigger, focusIntent: focusIntent) else { return }
         markExplicitFocusIntent(on: panelId)
 #if DEBUG
         let pane = bonsplitController.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
