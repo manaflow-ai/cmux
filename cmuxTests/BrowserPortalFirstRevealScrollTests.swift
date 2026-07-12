@@ -185,6 +185,61 @@ struct BrowserPortalFirstRevealScrollTests {
         #expect(fixture.window.firstResponder === firstResponder)
     }
 
+    @Test func hiddenHostRevealThroughLocalInlineHostNudgesFrameOnceAndClearsFlag() async throws {
+        let fixture = makeWindowFixture()
+        defer { fixture.window.orderOut(nil) }
+        let host = WebViewRepresentable.HostContainerView(frame: fixture.anchor.frame)
+        fixture.window.contentView?.addSubview(host)
+        let slot = host.ensureLocalInlineSlotView()
+        host.layoutSubtreeIfNeeded()
+
+        let webView = RecordingWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        webView.browserPortalPrepareForHiddenHostAdoption()
+        slot.addSubview(webView)
+        host.pinHostedWebView(webView, in: slot)
+        webView.frameSizeCalls.removeAll()
+
+        host.refreshHostedWebKitPresentation(reason: "unitTestLocalInlineReveal")
+        await waitForNextMainTurn()
+
+        let revealedSize = slot.bounds.size
+        let nudgedSize = NSSize(width: revealedSize.width, height: max(1, revealedSize.height - 1))
+        #expect(webView.frameSizeCalls.filter { size($0, approximatelyEquals: nudgedSize) }.count == 1)
+        #expect(webView.frameSizeCalls.contains { size($0, approximatelyEquals: revealedSize) })
+        #expect(size(webView.frame.size, approximatelyEquals: revealedSize))
+        #expect(!webView.browserPortalNeedsFirstSizedRevealNudge)
+
+        webView.frameSizeCalls.removeAll()
+        host.refreshHostedWebKitPresentation(reason: "unitTestLocalInlineRevealAgain")
+        await waitForNextMainTurn()
+
+        #expect(!webView.frameSizeCalls.contains { size($0, approximatelyEquals: nudgedSize) })
+    }
+
+    @Test func localInlineHostCompanionSkipsAndClearsPendingNudge() async {
+        let fixture = makeWindowFixture()
+        defer { fixture.window.orderOut(nil) }
+        let host = WebViewRepresentable.HostContainerView(frame: fixture.anchor.frame)
+        fixture.window.contentView?.addSubview(host)
+        let slot = host.ensureLocalInlineSlotView()
+        host.layoutSubtreeIfNeeded()
+
+        let webView = RecordingWebView(frame: slot.bounds, configuration: WKWebViewConfiguration())
+        slot.addSubview(webView)
+        host.pinHostedWebView(webView, in: slot)
+        let companion = WKCompanionTestView(frame: NSRect(x: 0, y: 0, width: 60, height: slot.bounds.height))
+        slot.addSubview(companion)
+        webView.browserPortalNotifyHidden(reason: "unitTestLocalInlineCompanion")
+        webView.frameSizeCalls.removeAll()
+
+        host.refreshHostedWebKitPresentation(reason: "unitTestLocalInlineCompanion")
+        await waitForNextMainTurn()
+
+        let nudgedSize = NSSize(width: slot.bounds.width, height: max(1, slot.bounds.height - 1))
+        #expect(!webView.frameSizeCalls.contains { size($0, approximatelyEquals: nudgedSize) })
+        #expect(!webView.browserPortalNeedsFirstSizedRevealNudge)
+    }
+
     @Test func companionWebKitSubviewSkipsAndClearsPendingNudge() async {
         let fixture = makeWindowFixture()
         defer { fixture.window.orderOut(nil) }
