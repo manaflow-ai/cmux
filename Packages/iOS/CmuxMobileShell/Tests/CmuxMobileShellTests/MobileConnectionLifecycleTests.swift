@@ -130,6 +130,29 @@ import Testing
 
         #expect(store.connectionLifecycle.activeEpisode == nil)
     }
+
+    @Test func resettingStreamRepairReconcilesSurvivingLiveConnectionStatus() async throws {
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let clock = TestClock()
+        let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+        let baselineSubscriptions = await router.count(of: "mobile.events.subscribe")
+        await router.setHoldSubscribe(true)
+        defer { Task { await router.releaseAllHeld() } }
+
+        store.requestConnectionLifecycleRecovery(.eventStreamLost)
+        await router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: baselineSubscriptions + 1
+        )
+        #expect(store.macConnectionStatus == .reconnecting)
+
+        store.resetConnectionLifecycle()
+
+        #expect(store.connectionLifecycle.activeEpisode == nil)
+        #expect(store.connectionState == .connected)
+        #expect(store.macConnectionStatus == .connected)
+    }
 }
 
 @MainActor

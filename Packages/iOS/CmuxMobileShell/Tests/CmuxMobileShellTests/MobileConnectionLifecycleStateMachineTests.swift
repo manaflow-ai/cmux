@@ -144,6 +144,32 @@ import Testing
         #expect(reducer.activeEpisode?.triggers == [.networkPathChanged, .eventStreamLost])
     }
 
+    @Test func connectedStreamRepairWaitsBehindAnInFlightReconnect() {
+        var reducer = MobileConnectionLifecycleStateMachine()
+        let reconnect = reducer.requestStoredMacReconnect(
+            stackUserID: "user-1",
+            health: .disconnected
+        )
+        guard case .start(let reconnectEpisode) = reconnect.effect else {
+            Issue.record("stored Mac reconnect must start")
+            return
+        }
+
+        #expect(reducer.request(.networkPathChanged, health: .healthy) == nil)
+        #expect(reducer.activeEpisode?.triggers == [.storedMacReconnect])
+        #expect(reducer.resourceSnapshot.pendingRequestCount == 1)
+
+        guard case .start(let repairEpisode) = reducer.complete(
+            id: reconnectEpisode.id,
+            health: .healthy
+        ) else {
+            Issue.record("the post-connect stream repair must run as a follow-up episode")
+            return
+        }
+        #expect(repairEpisode.kind == .streamRepair)
+        #expect(repairEpisode.triggers == [.networkPathChanged])
+    }
+
     @Test func deferredReconnectRetainsItsIdentityAndCompletionOwnership() {
         var reducer = MobileConnectionLifecycleStateMachine()
         guard case .start(let streamEpisode) = reducer.request(
@@ -301,6 +327,34 @@ import Testing
 
         #expect(!store.isReconnectingStoredMac)
         #expect(store.didFinishStoredMacReconnectAttempt)
+    }
+
+    @MainActor
+    @Test func teamChangeReplacesStoredMacRecoveryWithNewScopeEpisode() {
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: DelayedTeamPairedMacStore(
+                recordsByTeam: [:],
+                blockedTeams: []
+            ),
+            identityProvider: StaticIdentityProvider(userID: "user-1")
+        )
+        let oldRequest = store.connectionLifecycle.requestStoredMacReconnect(
+            stackUserID: "user-1",
+            health: .disconnected
+        )
+        guard case .start(let oldEpisode) = oldRequest.effect else {
+            Issue.record("old-team reconnect must start")
+            return
+        }
+
+        store.currentTeamDidChange()
+
+        let replacement = store.connectionLifecycle.activeEpisode
+        #expect(replacement?.id != oldEpisode.id)
+        #expect(replacement?.kind == .reconnect)
+        #expect(replacement?.reconnectStackUserID == "user-1")
+        #expect(!store.didFinishStoredMacReconnectAttempt)
     }
 }
 
