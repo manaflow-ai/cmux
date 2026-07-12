@@ -243,6 +243,14 @@ public struct PromptLineTurnDetector: Sendable {
             resetLogicalLine()
         case 0x08, 0x7F:
             invalidatePendingPrompt()
+            if logicalLineOverflowed {
+                // Erasing from an overflowed line makes its exact content
+                // unknowable; fail closed on the latched submission snapshot
+                // so an erased oversized paste cannot count a submission at
+                // the boundary. Output-ness stays latched: the erased bytes
+                // were still visible output for turn observation.
+                overflowedSubmissionHadVisibleContent = false
+            }
             if unstoredLineByteCount > 0 {
                 unstoredLineByteCount -= 1
             } else if !logicalLineOverflowed, let removed = logicalLine.popLast() {
