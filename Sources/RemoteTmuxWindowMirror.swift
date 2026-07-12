@@ -507,6 +507,24 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         _ = updateClientSize()
         if inputs.visible {
             imposeDividerPlan()
+            // The imposition applies to bonsplit on the NEXT runloop turn
+            // (coalesced), so the anchors move after this pass returns. The
+            // portal syncs its hosted views from AppKit's async geometry
+            // callbacks, which under churn can sample an anchor before its
+            // imposed move or coalesce the catch-up away — leaving a hosted
+            // view at a stale (wider) frame over its shrunk neighbor. Drive
+            // the resync explicitly two turns out, after the apply has
+            // landed: the transaction owns the geometry change, so it owns
+            // telling the portal, rather than racing notifications.
+            if let window = panelsByPaneId.values.first?.hostedView.window {
+                DispatchQueue.main.async {
+                    DispatchQueue.main.async {
+                        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(
+                            for: window, forceImmediate: false
+                        )
+                    }
+                }
+            }
         }
     }
 
