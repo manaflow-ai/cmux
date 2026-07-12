@@ -87,7 +87,10 @@ import Testing
 
     #expect(store.terminalReorderGate.isActive)
     #expect(store.terminalReorderGate.reserve(workspaceID: workspace.id, paneID: paneID) == nil)
-    store.finishTerminalCreationMutation(claim)
+    guard case .reserved(let reservation) = claim else {
+        return #expect(Bool(false), "modern terminal create must reserve the hierarchy gate")
+    }
+    store.terminalReorderGate.finish(reservation)
     #expect(store.terminalReorderGate.canMutate(workspaceID: workspace.id))
 }
 

@@ -147,11 +147,6 @@ extension MobileShellComposite {
         return .reserved(reservation)
     }
 
-    func finishTerminalCreationMutation(_ claim: MobileTerminalCreationMutationClaim) {
-        guard case let .reserved(reservation) = claim else { return }
-        terminalReorderGate.finish(reservation)
-    }
-
     /// Creates and selects a preview/local terminal in one exact pane.
     func createLocalTerminal(
         in workspaceID: MobileWorkspacePreview.ID?,

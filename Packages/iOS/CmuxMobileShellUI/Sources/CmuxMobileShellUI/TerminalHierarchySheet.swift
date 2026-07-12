@@ -321,47 +321,40 @@ struct TerminalHierarchySheet: View {
             return
         }
         if destination == sourceIndex || destination == sourceIndex + 1 { return }
-        guard let intent = MobileTerminalReorderIntent(
-                  terminalID: pane.rows[sourceIndex].id,
-                  sourceIndex: sourceIndex,
-                  destinationIndex: destination,
-                  pane: pane.pane
-              ) else {
+        guard let action = TerminalHierarchyMoveAction(
+            source: source,
+            destination: destination,
+            pane: pane
+        ) else {
             mutationFailed = true
             return
         }
-        let reservationDecision = TerminalHierarchyMoveReservationDecision(
-            snapshot: snapshot, paneID: pane.id, reorderGate: reorderGate
-        )
-        guard case .reserved(let reservation) = reservationDecision else {
+        action.perform(
+            workspaceID: snapshot.workspaceID,
+            reorderGate: reorderGate,
+            reorderTerminal: reorderTerminal,
+            updateOptimisticOrder: { optimisticTerminalIDsByPane[pane.id] = $0 }
+        ) { outcome in
+            presentMoveOutcome(outcome)
+        }
+    }
+
+    private func presentMoveOutcome(_ outcome: TerminalHierarchyMoveActionOutcome) {
+        switch outcome {
+        case .unavailable:
             moveUnavailable = true
-            return
-        }
-        guard let optimisticOrder = intent.applying(to: pane.rows.map(\.id)) else {
-            reorderGate.finish(reservation)
-            mutationFailed = true
-            return
-        }
-        optimisticTerminalIDsByPane[pane.id] = optimisticOrder
-        Task { @MainActor in
-            let result = await reorderTerminal(intent, reservation)
-            guard case .success = result else {
-                optimisticTerminalIDsByPane[pane.id] = nil
-                if case .failure(.appliedNeedsRefresh) = result {
-                    presentRefreshRequired(resultIsUnknown: false)
-                } else if case .failure(.resultUnknownNeedsRefresh) = result {
-                    presentRefreshRequired(resultIsUnknown: true)
-                } else if case .failure(.resultUnknownRefreshed) = result {
-                    mutationResultUnknownRefreshed = true
-                } else if case .failure(.protected) = result {
-                    mutationProtected = true
-                } else {
-                    mutationFailed = true
-                }
-                return
-            }
-            optimisticTerminalIDsByPane[pane.id] = nil
+        case .completed(.success):
             announce(L10n.string("mobile.terminal.hierarchy.reorderedAnnouncement", defaultValue: "Terminal order updated"))
+        case .completed(.failure(.appliedNeedsRefresh)):
+            presentRefreshRequired(resultIsUnknown: false)
+        case .completed(.failure(.resultUnknownNeedsRefresh)):
+            presentRefreshRequired(resultIsUnknown: true)
+        case .completed(.failure(.resultUnknownRefreshed)):
+            mutationResultUnknownRefreshed = true
+        case .completed(.failure(.protected)):
+            mutationProtected = true
+        case .completed(.failure):
+            mutationFailed = true
         }
     }
     private func presentedPane(_ pane: TerminalHierarchyPaneSnapshot) -> TerminalHierarchyPaneSnapshot {
