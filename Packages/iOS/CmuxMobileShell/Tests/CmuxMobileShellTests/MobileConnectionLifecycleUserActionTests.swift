@@ -180,6 +180,15 @@ import Testing
         #expect(!startedDuplicate)
         await pairedMacStore.release(teamID: nil)
         _ = await reconnect.value
+        #expect(try await pollUntil {
+            store.connectionResourceSnapshotForTesting().retiredLifecycleTaskCount == 0
+        })
+        let resources = store.connectionResourceSnapshotForTesting()
+        #expect(resources.activeEpisodeCount == 0)
+        #expect(resources.pendingRequestCount == 0)
+        #expect(resources.lifecycleTaskCount == 0)
+        #expect(resources.retiredLifecycleTaskCount == 0)
+        #expect(resources.lifecycleWaiterCount == 0)
     }
 
     @Test func forgettingDuringReconnectCannotBeUndoneByLatePersistence() async throws {
