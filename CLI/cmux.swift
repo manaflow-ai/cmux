@@ -12916,7 +12916,7 @@ struct CMUXCLI {
         return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
-    func execInteractiveProgram(
+    private func execInteractiveProgram(
         launchPath: String,
         arguments: [String]
     ) throws -> Never {

@@ -71,18 +71,20 @@ extension CMUXCLI {
         String(
             localized: "cli.ios.usage",
             defaultValue: """
-            Usage: cmux ios <subcommand> [args] [--surface <id|ref|index>]
+            Usage: cmux ios <subcommand> [args] [--surface <ref>]
 
             Every native `cmux simulator` subcommand is accepted unchanged.
 
             Additional subcommands:
-              context [--udid]                    Print the selected Simulator identity
-              xcodebuildmcp <workflow> <tool> ... Run XcodeBuildMCP against that Simulator
+              list [--workspace <ref>]            List Simulator panes and device identifiers
+              context [--udid]                    Print one selected Simulator identity
+              screenshot [--out <path>]           Capture one or many selected Simulators
 
             Examples:
-              cmux ios context --json
+              cmux ios list --json
+              cmux ios screenshot --surface surface:2 --out phone.png
+              cmux ios screenshot --all --out screenshots/
               cmux ios rotate landscape-left
-              cmux ios xcodebuildmcp simulator screenshot --return-format path
             """
         )
     }
@@ -98,6 +100,18 @@ extension CMUXCLI {
             throw CLIError(message: iosSubcommandUsage())
         }
         switch subcommand {
+        case "list":
+            var values = Array(commandArgs.dropFirst())
+            let workspace = try removeIOSOption("--workspace", from: &values)
+            guard values.isEmpty else { throw CLIError(message: iosSubcommandUsage()) }
+            let targets = try iosTargetPayloads(
+                workspace: workspace, client: client, windowOverride: windowOverride
+            )
+            if jsonOutput {
+                print(jsonString(formatIDs(["targets": targets], mode: idFormat)))
+            } else {
+                printIOSTargets(targets)
+            }
         case "context":
             var values = Array(commandArgs.dropFirst())
             let udidOnly = values.contains("--udid")
@@ -117,26 +131,151 @@ extension CMUXCLI {
             } else {
                 printIOSContext(payload)
             }
-        case "xcodebuildmcp", "xbmcp":
-            var arguments = Array(commandArgs.dropFirst())
-            let surface = try removeIOSSurfaceOption(from: &arguments)
-            guard arguments.count >= 2 else { throw CLIError(message: iosSubcommandUsage()) }
-            let payload = try iosContextPayload(
-                surface: surface, client: client, windowOverride: windowOverride
+        case "screenshot":
+            try runIOSScreenshot(
+                commandArgs: Array(commandArgs.dropFirst()),
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowOverride
             )
-            guard let simulatorID = payload["simulator_id"] as? String else {
-                throw missingIOSSimulatorIdentifier()
-            }
-            if !arguments.contains("--simulator-id")
-                && !arguments.contains(where: { $0.hasPrefix("--simulator-id=") }) {
-                arguments.append(contentsOf: ["--simulator-id", simulatorID])
-            }
-            try execInteractiveProgram(launchPath: "xcodebuildmcp", arguments: arguments)
         default:
             try runSimulatorNamespace(
                 commandArgs: commandArgs, client: client, jsonOutput: jsonOutput,
                 idFormat: idFormat, windowOverride: windowOverride
             )
+        }
+    }
+
+    private func iosTargetPayloads(
+        workspace: String?, client: SocketClient, windowOverride: String?
+    ) throws -> [[String: Any]] {
+        let window = try normalizeWindowHandle(windowOverride, client: client)
+        let requestedWorkspace = workspace
+            ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+        let workspaceID: String
+        if let requestedWorkspace,
+           let normalized = try normalizeWorkspaceHandle(
+               requestedWorkspace, client: client, windowHandle: window
+           ) {
+            workspaceID = normalized
+        } else {
+            var params: [String: Any] = [:]
+            if let window { params["window_id"] = window }
+            let current = try client.sendV2(method: "workspace.current", params: params)
+            guard let resolved = (current["workspace_id"] as? String)
+                ?? (current["workspace_ref"] as? String) else {
+                throw CLIError(message: iosSubcommandUsage())
+            }
+            workspaceID = resolved
+        }
+        var listParams: [String: Any] = ["workspace_id": workspaceID]
+        if let window { listParams["window_id"] = window }
+        let listed = try client.sendV2(method: "surface.list", params: listParams)
+        let surfaces = (listed["surfaces"] as? [[String: Any]] ?? []).filter {
+            ($0["type"] as? String) == "simulator"
+        }
+        return try surfaces.map { surface in
+            guard let handle = (surface["id"] as? String) ?? (surface["ref"] as? String) else {
+                throw CLIError(message: iosSubcommandUsage())
+            }
+            var target = try iosContextPayload(
+                surface: handle, client: client, windowOverride: windowOverride
+            )
+            target["workspace_id"] = listed["workspace_id"] ?? workspaceID
+            target["workspace_ref"] = listed["workspace_ref"] ?? NSNull()
+            return target
+        }
+    }
+
+    private func runIOSScreenshot(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        var values = commandArgs
+        let surfaces = try removeIOSOptions("--surface", from: &values)
+        let workspace = try removeIOSOption("--workspace", from: &values)
+        let output = try removeIOSOption("--out", from: &values)
+        let all = values.contains("--all")
+        values.removeAll { $0 == "--all" }
+        guard values.isEmpty, all || surfaces.count <= 1 else {
+            throw CLIError(message: iosSubcommandUsage())
+        }
+        let candidates = try iosTargetPayloads(
+            workspace: workspace, client: client, windowOverride: windowOverride
+        )
+        let targets: [[String: Any]]
+        if all {
+            guard surfaces.isEmpty else { throw CLIError(message: iosSubcommandUsage()) }
+            targets = candidates
+        } else if let surface = surfaces.first {
+            let normalized = try normalizeSurfaceHandle(surface, client: client)
+            targets = candidates.filter {
+                ($0["surface_id"] as? String) == normalized
+                    || ($0["surface_ref"] as? String) == surface
+            }
+        } else {
+            guard candidates.count == 1 else {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.ios.error.ambiguousTargets",
+                        defaultValue: "Found %lld iOS Simulator panes; pass --surface <ref> or --all"
+                    ), candidates.count
+                ))
+            }
+            targets = candidates
+        }
+        guard !targets.isEmpty else {
+            throw CLIError(message: String(
+                localized: "cli.ios.error.noTargets",
+                defaultValue: "No matching iOS Simulator panes were found"
+            ))
+        }
+        let outputURL = output.map { URL(fileURLWithPath: $0).standardizedFileURL }
+        if targets.count > 1, let outputURL {
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: outputURL.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                throw CLIError(message: String(
+                    localized: "cli.ios.error.outputDirectoryRequired",
+                    defaultValue: "--out must name an existing directory when capturing multiple Simulators"
+                ))
+            }
+        }
+        let captures = try targets.map { target -> [String: Any] in
+            guard let simulatorID = target["simulator_id"] as? String,
+                  let surfaceRef = target["surface_ref"] as? String else {
+                throw missingIOSSimulatorIdentifier()
+            }
+            let destination: URL
+            if let outputURL, targets.count == 1 {
+                destination = outputURL
+            } else {
+                let directory = outputURL ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                let safeRef = surfaceRef.replacingOccurrences(of: ":", with: "-")
+                destination = directory.appendingPathComponent("ios-\(safeRef).png")
+            }
+            let result = CLIProcessRunner.runProcess(
+                executablePath: "/usr/bin/xcrun",
+                arguments: ["simctl", "io", simulatorID, "screenshot", destination.path],
+                timeout: 30
+            )
+            guard result.status == 0 else {
+                throw CLIError(message: result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+            return [
+                "path": destination.path,
+                "simulator_id": simulatorID,
+                "surface_ref": surfaceRef,
+            ]
+        }
+        if jsonOutput {
+            print(jsonString(formatIDs(["captures": captures], mode: idFormat)))
+        } else {
+            captures.forEach { print($0["path"] as? String ?? "") }
         }
     }
 
@@ -154,11 +293,23 @@ extension CMUXCLI {
     }
 
     private func removeIOSSurfaceOption(from arguments: inout [String]) throws -> String? {
-        guard let index = arguments.firstIndex(of: "--surface") else { return nil }
-        guard index + 1 < arguments.count else { throw CLIError(message: iosSubcommandUsage()) }
-        let value = arguments[index + 1]
-        arguments.removeSubrange(index...(index + 1))
-        return value
+        try removeIOSOption("--surface", from: &arguments)
+    }
+
+    private func removeIOSOption(_ name: String, from arguments: inout [String]) throws -> String? {
+        let values = try removeIOSOptions(name, from: &arguments)
+        guard values.count <= 1 else { throw CLIError(message: iosSubcommandUsage()) }
+        return values.first
+    }
+
+    private func removeIOSOptions(_ name: String, from arguments: inout [String]) throws -> [String] {
+        var values: [String] = []
+        while let index = arguments.firstIndex(of: name) {
+            guard index + 1 < arguments.count else { throw CLIError(message: iosSubcommandUsage()) }
+            values.append(arguments[index + 1])
+            arguments.removeSubrange(index...(index + 1))
+        }
+        return values
     }
 
     private func missingIOSSimulatorIdentifier() -> CLIError {
@@ -173,6 +324,21 @@ extension CMUXCLI {
             "simulator_id", "device_name", "runtime_id", "state", "orientation", "surface_ref",
         ] {
             if let value = payload[key], !(value is NSNull) { print("\(key)=\(value)") }
+        }
+    }
+
+    private func printIOSTargets(_ targets: [[String: Any]]) {
+        guard !targets.isEmpty else {
+            print(String(localized: "cli.ios.output.noTargets", defaultValue: "No iOS Simulator panes"))
+            return
+        }
+        for target in targets {
+            print([
+                target["surface_ref"] as? String ?? "?",
+                target["device_name"] as? String ?? "?",
+                target["simulator_id"] as? String ?? "?",
+                target["state"] as? String ?? "?",
+            ].joined(separator: "\t"))
         }
     }
 
