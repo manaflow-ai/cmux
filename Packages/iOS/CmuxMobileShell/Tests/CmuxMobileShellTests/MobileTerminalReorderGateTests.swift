@@ -176,3 +176,85 @@ import Testing
 
     #expect(store.terminalReorderGate.canMutate(workspaceID: "missing-workspace"))
 }
+
+@MainActor
+@Test func definiteCloseFailuresSkipRefreshAndReleaseReservation() async throws {
+    for code in ["protected", "confirmation_required"] {
+        let router = RoutingHostRouter()
+        await router.setTerminalCloseErrorCode(code)
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            connectionState: .connected,
+            workspaceActionCapabilities: MobileWorkspaceActionCapabilities(
+                supportsTerminalCloseActions: true
+            )
+        )
+        let workspace = try #require(store.workspaces.first)
+        #expect(workspace.actionCapabilities.supportsTerminalCloseActions)
+        #expect(workspace.terminals.contains { $0.id.rawValue == RoutingHostRouter.terminalA && $0.canClose })
+        let paneID = try #require(workspace.resolvedPanes.first?.id)
+        let reservation = try #require(store.terminalReorderGate.reserve(
+            workspaceID: workspace.id,
+            paneID: paneID
+        ))
+
+        let result = await store.closeTerminal(
+            workspaceID: workspace.id,
+            terminalID: MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalA),
+            confirmed: false,
+            reservation: reservation
+        )
+
+        if code == "protected" {
+            guard case .failure(.protected) = result else {
+                Issue.record("Expected protected, got \(result)")
+                continue
+            }
+        } else {
+            guard case .failure(.confirmationRequired) = result else {
+                Issue.record("Expected confirmationRequired, got \(result)")
+                continue
+            }
+        }
+        #expect(await router.recordedTerminalCloseCount() == 1)
+        #expect(await router.workspaceListGate.requestCount() == 0)
+        #expect(store.terminalReorderGate.canMutate(workspaceID: workspace.id))
+    }
+}
+
+@MainActor
+@Test func ambiguousCloseFailureStillReconcilesAndReleasesReservation() async throws {
+    let router = RoutingHostRouter()
+    await router.setDropTerminalCloseResponse(true)
+    let store = try await makeRoutingConnectedStore(
+        router: router,
+        connectionState: .connected,
+        rpcRequestTimeoutNanoseconds: 20_000_000,
+        workspaceActionCapabilities: MobileWorkspaceActionCapabilities(
+            supportsTerminalCloseActions: true
+        )
+    )
+    let workspace = try #require(store.workspaces.first)
+    #expect(workspace.actionCapabilities.supportsTerminalCloseActions)
+    #expect(workspace.terminals.contains { $0.id.rawValue == RoutingHostRouter.terminalA && $0.canClose })
+    let paneID = try #require(workspace.resolvedPanes.first?.id)
+    let reservation = try #require(store.terminalReorderGate.reserve(
+        workspaceID: workspace.id,
+        paneID: paneID
+    ))
+
+    let result = await store.closeTerminal(
+        workspaceID: workspace.id,
+        terminalID: MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalA),
+        confirmed: false,
+        reservation: reservation
+    )
+
+    guard case .failure(.resultUnknownRefreshed) = result else {
+        Issue.record("Expected reconciled unknown result, got \(result)")
+        return
+    }
+    #expect(await router.recordedTerminalCloseCount() == 1)
+    #expect(await router.workspaceListGate.requestCount() == 1)
+    #expect(store.terminalReorderGate.canMutate(workspaceID: workspace.id))
+}
