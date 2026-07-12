@@ -28,7 +28,7 @@ final class AnalyticsConsentGenerationGate: Sendable {
     private let state: OSAllocatedUnfairLock<State>
 
     init(isEnabled: Bool) {
-        state = OSAllocatedUnfairLock(initialState: State(isEnabled: isEnabled))
+        state = .init(initialState: State(isEnabled: isEnabled))
     }
 
     func snapshot() -> AnalyticsConsentSnapshot {
