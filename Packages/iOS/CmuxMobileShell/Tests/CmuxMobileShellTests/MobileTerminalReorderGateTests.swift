@@ -223,6 +223,40 @@ import Testing
 }
 
 @MainActor
+@Test func notFoundCloseFailureRefreshesOnceAsDefiniteDivergence() async throws {
+    let router = RoutingHostRouter()
+    await router.setTerminalCloseErrorCode("not_found")
+    let store = try await makeRoutingConnectedStore(
+        router: router,
+        connectionState: .connected,
+        workspaceActionCapabilities: MobileWorkspaceActionCapabilities(
+            supportsTerminalCloseActions: true
+        )
+    )
+    let workspace = try #require(store.workspaces.first)
+    let paneID = try #require(workspace.resolvedPanes.first?.id)
+    let reservation = try #require(store.terminalReorderGate.reserve(
+        workspaceID: workspace.id,
+        paneID: paneID
+    ))
+
+    let result = await store.closeTerminal(
+        workspaceID: workspace.id,
+        terminalID: MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalA),
+        confirmed: false,
+        reservation: reservation
+    )
+
+    guard case .failure(.rejected) = result else {
+        Issue.record("Expected definite rejected failure, got \(result)")
+        return
+    }
+    #expect(await router.recordedTerminalCloseCount() == 1)
+    #expect(await router.workspaceListGate.requestCount() == 1)
+    #expect(store.terminalReorderGate.canMutate(workspaceID: workspace.id))
+}
+
+@MainActor
 @Test func ambiguousCloseFailureStillReconcilesAndReleasesReservation() async throws {
     let router = RoutingHostRouter()
     await router.setDropTerminalCloseResponse(true)
