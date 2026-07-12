@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxCore
 
 extension Workspace {
     func createInitialAgentSessionPanel(workingDirectory: String?) -> TabID? {
