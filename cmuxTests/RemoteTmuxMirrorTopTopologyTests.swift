@@ -105,10 +105,8 @@ struct RemoteTmuxMirrorTopTopologyTests {
         )
         defer { harness.tearDown() }
 
-        let activeTmuxPaneID = try #require(harness.mirror.activePaneId)
-        let targetTmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first {
-            $0 != activeTmuxPaneID
-        })
+        let targetTmuxPaneID = 22
+        #expect(harness.mirror.paneIDsInOrder.contains(targetTmuxPaneID))
         let targetSurfaceID = try #require(harness.mirror.panel(forPane: targetTmuxPaneID)?.id)
         let payload = try await TerminalController.shared.taskManagerTopPayload(
             includeProcesses: false
@@ -118,6 +116,8 @@ struct RemoteTmuxMirrorTopTopologyTests {
             $0.kind == .terminalSurface && $0.surfaceId == targetSurfaceID
         })
 
+        harness.mirror.noteRemoteActivePane(11)
+        #expect(harness.mirror.activePaneId == 11)
         let baselinePendingCount = harness.connection.pendingCommandKindsForTesting.count
         CmuxTaskManagerModel().viewTerminal(for: row)
         #expect(harness.connection.pendingCommandKindsForTesting.count == baselinePendingCount + 1)
