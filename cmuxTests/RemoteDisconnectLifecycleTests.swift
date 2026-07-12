@@ -1,3 +1,4 @@
+import CmuxCore
 import Foundation
 import Testing
 
@@ -124,12 +125,17 @@ struct RemoteDisconnectLifecycleTests {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         let panel = try #require(workspace.focusedTerminalPanel)
+        workspace.configureRemoteConnection(Self.remoteConfiguration(), autoConnect: false)
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: "Connected to cmux-macmini via shared local proxy 127.0.0.1:64007",
+            target: "cmux-macmini"
+        )
         let sibling = try #require(workspace.newTerminalSplit(
             from: panel.id,
             orientation: .horizontal,
             focus: false
         ))
-        workspace.configureRemoteConnection(Self.remoteConfiguration(), autoConnect: false)
         workspace.restoredTerminalScrollbackByPanelId[panel.id] = "remote-output\n"
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panel.id)
