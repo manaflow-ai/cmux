@@ -179,6 +179,38 @@ struct RemoteProxyBrokerPTYLifecycleRestartTests {
         )
     }
 
+    @Test("stale wrapper end cannot claim a newer generation on the same attachment")
+    func staleWrapperEndDoesNotClaimNewAttachmentGeneration() throws {
+        let provider = FakeTunnelProvider()
+        let broker = RemoteProxyBroker(tunnelProvider: provider, clock: ManualRetryClock())
+        let configuration = makeConfiguration()
+        let lease = broker.acquire(configuration: configuration, remotePath: "/r/p") { _ in }
+        defer { lease.release() }
+
+        for lifecycleID in ["old-generation", "new-generation"] {
+            _ = try broker.startPTYBridge(
+                configuration: configuration,
+                sessionID: "session",
+                lifecycleID: lifecycleID,
+                attachmentID: "surface",
+                command: nil,
+                requireExisting: true
+            )
+        }
+
+        let oldGenerationWasCurrent = broker.acknowledgePTYLifecycleAfterWrapperEnd(
+            sessionID: "session",
+            lifecycleID: "old-generation"
+        )
+        let newGenerationWasCurrent = broker.acknowledgePTYLifecycleAfterWrapperEnd(
+            sessionID: "session",
+            lifecycleID: "new-generation"
+        )
+
+        #expect(!oldGenerationWasCurrent)
+        #expect(newGenerationWasCurrent)
+    }
+
     @Test("ended lifecycle removes its broker owner index")
     func endedLifecycleRemovesOwnerIndex() throws {
         let provider = FakeTunnelProvider()

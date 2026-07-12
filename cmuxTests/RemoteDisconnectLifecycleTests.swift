@@ -101,6 +101,29 @@ struct RemoteDisconnectLifecycleTests {
         #expect(workspace.remoteConnectionState == .connected)
     }
 
+    @Test func staleChildExitCannotReplaceNewRuntimeWithSameSurfaceID() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let exitedRuntime = panel.surface
+        workspace.configureRemoteConnection(Self.remoteConfiguration(), autoConnect: false)
+        workspace.restoredTerminalScrollbackByPanelId[panel.id] = "remote-output\n"
+
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panel.id, relayPort: 64007)
+        #expect(workspace.transitionRemoteTerminalToDisconnectedPlaceholder(surfaceId: panel.id))
+        let replacementRuntime = try #require(workspace.terminalPanel(for: panel.id)?.surface)
+        defer { Self.removeTransitionArtifacts(workspace: workspace, panelIds: [panel.id]) }
+
+        manager.closePanelAfterChildExited(
+            tabId: workspace.id,
+            surfaceId: panel.id,
+            runtimeSurface: exitedRuntime
+        )
+
+        #expect(workspace.terminalPanel(for: panel.id)?.surface === replacementRuntime)
+        #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
+    }
+
     @Test func failedLegacyWrapperReplacementRetainsRemoteOwnership() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
