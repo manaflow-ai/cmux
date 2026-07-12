@@ -32,6 +32,14 @@ extension MobileShellComposite {
             sendRemote: { [weak self] request in
                 await self?.performTerminalScroll(request)
             },
+            sendClick: { [weak self] surfaceID, epoch, col, row in
+                await self?.performTerminalClick(
+                    surfaceID: surfaceID,
+                    interactionEpoch: epoch,
+                    col: col,
+                    row: row
+                ) ?? false
+            },
             supportsOrderedRemoteRuns: { [weak self] in
                 self?.supportedHostCapabilities.contains(MobileTerminalScrollRun.orderedRunsCapability) == true
             },
@@ -99,6 +107,17 @@ extension MobileShellComposite {
 
     public func terminalScrollInteractionDidEnd(surfaceID: String) {
         terminalScrollSessionsBySurfaceID[surfaceID]?.interactionDidEnd()
+    }
+
+    /// A click is a viewport-relative terminal interaction, so it enters the
+    /// same per-surface owner as scroll rather than racing a separate RPC task.
+    public func clickTerminal(surfaceID: String, col: Int, row: Int) async {
+        prepareTerminalOutputForOptimisticScroll(surfaceID: surfaceID)
+        deferredTerminalRenderGridEventsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalScrollSessionsBySurfaceID[surfaceID]?.submitClick(
+            col: col,
+            row: row
+        )
     }
 
     @discardableResult
@@ -179,6 +198,40 @@ extension MobileShellComposite {
         } catch {
             terminalScrollDeliveryLog.error("scroll transaction failed surface=\(request.surfaceID, privacy: .public) epoch=\(request.interactionEpoch, privacy: .public) revision=\(request.clientRevision, privacy: .public) error=\(String(describing: error), privacy: .public)")
             return nil
+        }
+    }
+
+    private func performTerminalClick(
+        surfaceID: String,
+        interactionEpoch: UInt64,
+        col: Int,
+        row: Int
+    ) async -> Bool {
+        guard let client = remoteClient,
+              let workspaceID = workspaceID(forTerminalID: surfaceID) else {
+            return false
+        }
+        do {
+            let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
+            let data = try await client.sendRequest(MobileCoreRPCClient.requestData(
+                method: "mobile.terminal.mouse",
+                params: [
+                    "workspace_id": remoteWorkspaceID.rawValue,
+                    "surface_id": surfaceID,
+                    "client_id": clientID,
+                    "interaction_epoch": Int(clamping: interactionEpoch),
+                    "col": col,
+                    "row": row,
+                ]
+            ))
+            guard remoteClient === client,
+                  let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return false
+            }
+            return (object["accepted"] as? Bool) ?? true
+        } catch {
+            terminalScrollDeliveryLog.error("click transaction failed surface=\(surfaceID, privacy: .public) epoch=\(interactionEpoch, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            return false
         }
     }
 }

@@ -51,7 +51,7 @@ extension TerminalController {
         terminalPanel: TerminalPanel,
         surfaceID: UUID,
         params: [String: Any]
-    ) -> [String: Any] {
+    ) -> [String: Any]? {
         var payload: [String: Any] = [
             "workspace_id": workspaceID.uuidString,
             "surface_id": surfaceID.uuidString,
@@ -75,19 +75,35 @@ extension TerminalController {
             seq: stateSeq,
             scrollbackLines: window.before,
             scrollForwardLines: window.after
-        ) else {
-            payload["render_revision"] = advanceMobileRenderRevision(surfaceID: surfaceID)
-            return payload
-        }
+        ) else { return nil }
         if let renderRevision = renderGrid.renderRevision {
             payload["render_revision"] = renderRevision
         }
-        guard renderGrid.activeScreen == .primary,
-              let renderGridObject = try? renderGrid.jsonObject() else { return payload }
+        guard renderGrid.activeScreen == .primary else { return payload }
+        guard let renderGridObject = try? renderGrid.jsonObject() else { return nil }
         payload["columns"] = renderGrid.columns
         payload["rows"] = renderGrid.rows
         payload["render_grid"] = renderGridObject
         payload["seq"] = renderGrid.stateSeq
+        return payload
+    }
+
+    func mobileTerminalScrollRejectedPayload(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        params: [String: Any]
+    ) -> [String: Any] {
+        var payload: [String: Any] = [
+            "workspace_id": workspaceID.uuidString,
+            "surface_id": surfaceID.uuidString,
+            "accepted": false,
+        ]
+        if let epoch = v2Int(params, "interaction_epoch") {
+            payload["interaction_epoch"] = epoch
+        }
+        if let revision = v2Int(params, "client_scroll_revision") {
+            payload["client_scroll_revision"] = revision
+        }
         return payload
     }
 
@@ -160,41 +176,64 @@ extension TerminalController {
             surfaceID: surfaceId,
             rejectOlder: true
         ) else {
-            var payload: [String: Any] = [
-                "workspace_id": resolved.workspace.id.uuidString,
-                "surface_id": surfaceId.uuidString,
-                "accepted": false,
-            ]
-            if let epoch = v2Int(params, "interaction_epoch") {
-                payload["interaction_epoch"] = epoch
-            }
-            if let revision = v2Int(params, "client_scroll_revision") {
-                payload["client_scroll_revision"] = revision
-            }
-            return .ok(payload)
+            return .ok(mobileTerminalScrollRejectedPayload(
+                workspaceID: resolved.workspace.id,
+                surfaceID: surfaceId,
+                params: params
+            ))
         }
         guard let directionalRuns = mobileScrollDirectionalRuns(params: params) else {
             return .err(code: "invalid_params", message: "Invalid terminal scroll runs", data: nil)
         }
-        if !directionalRuns.isEmpty {
+        if directionalRuns.isEmpty {
+            guard terminalPanel.surface.mobileScroll(deltaLines: 0, col: 0, row: 0) else {
+                return .ok(mobileTerminalScrollRejectedPayload(
+                    workspaceID: resolved.workspace.id,
+                    surfaceID: surfaceId,
+                    params: params
+                ))
+            }
+        } else {
             for run in directionalRuns {
-                terminalPanel.surface.mobileScroll(
+                guard terminalPanel.surface.mobileScroll(
                     deltaLines: run.lines,
                     col: run.col,
                     row: run.row
-                )
+                ) else {
+                    return .ok(mobileTerminalScrollRejectedPayload(
+                        workspaceID: resolved.workspace.id,
+                        surfaceID: surfaceId,
+                        params: params
+                    ))
+                }
             }
             MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: terminalPanel.id)
         }
-        return .ok(mobileTerminalScrollResponsePayload(
+        guard let payload = mobileTerminalScrollResponsePayload(
             workspaceID: resolved.workspace.id,
             terminalPanel: terminalPanel,
             surfaceID: surfaceId,
             params: params
-        ))
+        ) else {
+            return .ok(mobileTerminalScrollRejectedPayload(
+                workspaceID: resolved.workspace.id,
+                surfaceID: surfaceId,
+                params: params
+            ))
+        }
+        return .ok(payload)
     }
 
     func v2MobileTerminalMouse(params: [String: Any]) -> V2CallResult {
+        v2MobileTerminalMouse(params: params) { terminalPanel, col, row in
+            terminalPanel.surface.mobileClick(col: col, row: row)
+        }
+    }
+
+    func v2MobileTerminalMouse(
+        params: [String: Any],
+        applyClick: (TerminalPanel, Int, Int) -> Bool
+    ) -> V2CallResult {
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
         }
@@ -208,12 +247,24 @@ extension TerminalController {
         }
         let col = (params["col"] as? NSNumber)?.intValue ?? 0
         let row = (params["row"] as? NSNumber)?.intValue ?? 0
-        terminalPanel.surface.mobileClick(col: max(0, col), row: max(0, row))
+        guard applyClick(terminalPanel, max(0, col), max(0, row)) else {
+            return .err(code: "unavailable", message: "Terminal surface is unavailable", data: nil)
+        }
+        _ = recordMobileInteractionEpoch(
+            params: params,
+            surfaceID: surfaceId,
+            rejectOlder: false
+        )
         MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: terminalPanel.id)
-        return .ok([
+        var payload: [String: Any] = [
             "workspace_id": resolved.workspace.id.uuidString,
             "surface_id": surfaceId.uuidString,
-        ])
+            "accepted": true,
+        ]
+        if let epoch = v2Int(params, "interaction_epoch") {
+            payload["interaction_epoch"] = epoch
+        }
+        return .ok(payload)
     }
 
     /// Records the newest interaction epoch for one client/surface. Input and

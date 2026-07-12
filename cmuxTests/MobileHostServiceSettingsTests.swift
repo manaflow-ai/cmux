@@ -158,11 +158,12 @@ struct MobileTerminalScrollHandlerTests {
         let harness = try makeTerminalHarness()
         defer { harness.restore() }
 
-        let click = TerminalController.shared.v2MobileTerminalMouse(params: harness.params(
-            epoch: 2,
-            col: 7,
-            row: 9
-        ))
+        let click = TerminalController.shared.v2MobileTerminalMouse(
+            params: harness.params(epoch: 2, col: 7, row: 9),
+            applyClick: { _, col, row in
+                col == 7 && row == 9
+            }
+        )
         let staleScroll = TerminalController.shared.v2MobileTerminalScroll(params: harness.params(
             epoch: 1,
             revision: 1,

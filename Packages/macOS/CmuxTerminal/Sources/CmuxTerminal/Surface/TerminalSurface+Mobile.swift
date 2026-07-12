@@ -12,9 +12,9 @@ extension TerminalSurface {
     /// the alt-screen wheel reports at the right cell. Runs on the main actor
     /// like the desktop's own scroll path.
     @MainActor
-    public func mobileScroll(deltaLines: Double, col: Int, row: Int) {
-        guard deltaLines != 0,
-              let surface = liveSurfaceForGhosttyAccess(reason: "mobileScroll") else { return }
+    public func mobileScroll(deltaLines: Double, col: Int, row: Int) -> Bool {
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileScroll") else { return false }
+        guard deltaLines != 0 else { return true }
         let size = ghostty_surface_size(surface)
         // The surface is sized in backing pixels; `ghostty_surface_mouse_pos`
         // wants points, so divide the cell size by the content scale.
@@ -25,6 +25,7 @@ extension TerminalSurface {
         let posY = (Double(row) + 0.5) * cellHeightPt
         ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
         ghostty_surface_mouse_scroll(surface, 0, deltaLines, 0)
+        return true
     }
 
     /// Forward a mobile tap to this real surface as a left mouse click at the
@@ -34,8 +35,8 @@ extension TerminalSurface {
     /// which is harmless. `col`/`row` is the grid cell under the finger. Runs on
     /// the main actor like the desktop's own click path.
     @MainActor
-    public func mobileClick(col: Int, row: Int) {
-        guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileClick") else { return }
+    public func mobileClick(col: Int, row: Int) -> Bool {
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileClick") else { return false }
         let size = ghostty_surface_size(surface)
         // The surface is sized in backing pixels; `ghostty_surface_mouse_pos`
         // wants points, so divide the cell size by the content scale. Aim at the
@@ -48,6 +49,7 @@ extension TerminalSurface {
         ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, GHOSTTY_MODS_NONE)
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, GHOSTTY_MODS_NONE)
+        return true
     }
 
     /// Exports the surface grid as a mobile render frame (optionally filtered

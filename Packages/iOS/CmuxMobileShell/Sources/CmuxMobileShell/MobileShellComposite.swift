@@ -1240,33 +1240,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         registryDevices = []
     }
 
-    /// Forward a tap to the Mac's real surface as a left click at the given grid
-    /// cell. libghostty self-gates: a TUI with mouse reporting receives the
-    /// click; a normal screen treats it as a harmless empty selection. The
-    /// render-grid mirrors any resulting change back. Fire-and-forget.
-    public func clickTerminal(surfaceID: String, col: Int, row: Int) async {
-        guard let client = remoteClient,
-              let workspaceID = workspaceID(forTerminalID: surfaceID) else {
-            return
-        }
-        do {
-            let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
-            let request = try MobileCoreRPCClient.requestData(
-                method: "mobile.terminal.mouse",
-                params: [
-                    "workspace_id": remoteWorkspaceID.rawValue,
-                    "surface_id": surfaceID,
-                    "client_id": clientID,
-                    "col": col,
-                    "row": row,
-                ]
-            )
-            _ = try await client.sendRequest(request)
-        } catch {
-            mobileShellLog.error("click forward failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
-        }
-    }
-
     // MARK: - Feedback routing
 
     /// An all-empty stamp used when no app-layer provider is injected (previews /
