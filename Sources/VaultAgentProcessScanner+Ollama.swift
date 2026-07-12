@@ -6,7 +6,8 @@ extension RestorableAgentSessionIndex {
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
         scopedProcessIDsByPanelKey: [PanelKey: Set<Int>],
-        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?,
+        interactiveStdioProbe: (Int) -> Bool = processHasInteractiveTerminalStdio
     ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
         var results: [PanelKey: ProcessDetectedSnapshotEntry] = [:]
         for process in processSnapshot.cmuxScopedProcesses() {
@@ -20,6 +21,7 @@ extension RestorableAgentSessionIndex {
                       arguments: details.arguments,
                       environment: details.environment
                   )?.id == "ollama",
+                  interactiveStdioProbe(process.pid),
                   let sanitizedArguments = AgentLaunchSanitizer.sanitizedLaunchArguments(
                       details.arguments,
                       launcher: "",
@@ -62,5 +64,34 @@ extension RestorableAgentSessionIndex {
             return nil
         }
         return trimmed
+    }
+
+    /// Ollama decides interactivity from its stdio terminals, not argv:
+    /// `cat prompt | ollama run model` and `ollama run model > out` carry the
+    /// interactive argv but are one-shot batch jobs whose pipe or file
+    /// redirection cannot be restored as a REPL. Require both stdin and
+    /// stdout to be TTY vnodes and fail closed when a descriptor cannot be
+    /// inspected.
+    static func processHasInteractiveTerminalStdio(pid: Int) -> Bool {
+        stdioFDIsTerminal(pid: pid, fd: 0) && stdioFDIsTerminal(pid: pid, fd: 1)
+    }
+
+    private static func stdioFDIsTerminal(pid: Int, fd: Int32) -> Bool {
+        var info = vnode_fdinfowithpath()
+        let size = proc_pidfdinfo(
+            pid_t(pid),
+            fd,
+            PROC_PIDFDVNODEPATHINFO,
+            &info,
+            Int32(MemoryLayout<vnode_fdinfowithpath>.size)
+        )
+        // Pipes and other non-vnode descriptors fail this query, which is
+        // exactly the fail-closed answer.
+        guard size > 0 else { return false }
+        let path = withUnsafeBytes(of: &info.pvip.vip_path) { raw -> String in
+            guard let base = raw.baseAddress else { return "" }
+            return String(cString: base.assumingMemoryBound(to: CChar.self))
+        }
+        return path.hasPrefix("/dev/tty")
     }
 }

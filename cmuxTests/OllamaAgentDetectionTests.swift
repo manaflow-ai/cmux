@@ -1,3 +1,5 @@
+import Darwin
+import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -39,6 +41,92 @@ struct OllamaAgentDetectionTests {
             environment: [:]
         ) == nil)
     }
+
+    @Test("A custom vault registration may reuse the ollama id")
+    func customOllamaRegistrationStaysDecodable() throws {
+        let registration = try JSONDecoder().decode(
+            CmuxVaultAgentRegistration.self,
+            from: Data(Self.customOllamaRegistrationJSON.utf8)
+        )
+        #expect(registration.id == "ollama")
+        #expect(registration.name == "My Ollama")
+    }
+
+    @Test("Snapshots with a custom ollama registration keep registration-owned resume")
+    func snapshotKeepsCustomOllamaRegistrationIdentity() throws {
+        let snapshotJSON = """
+        {
+          "kind": "ollama",
+          "sessionId": "abc123",
+          "registration": \(Self.customOllamaRegistrationJSON)
+        }
+        """
+        let snapshot = try JSONDecoder().decode(
+            SessionRestorableAgentSnapshot.self,
+            from: Data(snapshotJSON.utf8)
+        )
+        #expect(snapshot.kind.customAgentID == "ollama")
+        #expect(snapshot.kind.restoreMode == .resumeSession)
+
+        let bare = try JSONDecoder().decode(
+            SessionRestorableAgentSnapshot.self,
+            from: Data(#"{"kind": "ollama", "sessionId": ""}"#.utf8)
+        )
+        #expect(bare.kind == .ollama)
+        #expect(bare.kind.restoreMode == .relaunchCommand)
+    }
+
+    @Test("Pipe-backed stdio is not interactive")
+    func pipedStdioIsNotInteractive() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/cat")
+        process.standardInput = Pipe()
+        process.standardOutput = Pipe()
+        try process.run()
+        defer {
+            process.terminate()
+            process.waitUntilExit()
+        }
+        #expect(!RestorableAgentSessionIndex.processHasInteractiveTerminalStdio(
+            pid: Int(process.processIdentifier)
+        ))
+    }
+
+    @Test("PTY-backed stdio is interactive")
+    func ptyStdioIsInteractive() throws {
+        let master = posix_openpt(O_RDWR | O_NOCTTY)
+        try #require(master >= 0)
+        defer { close(master) }
+        try #require(grantpt(master) == 0)
+        try #require(unlockpt(master) == 0)
+        let slavePath = String(cString: ptsname(master))
+        let slaveFD = open(slavePath, O_RDWR | O_NOCTTY)
+        try #require(slaveFD >= 0)
+        defer { close(slaveFD) }
+
+        let slaveHandle = FileHandle(fileDescriptor: slaveFD, closeOnDealloc: false)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/cat")
+        process.standardInput = slaveHandle
+        process.standardOutput = slaveHandle
+        try process.run()
+        defer {
+            process.terminate()
+            process.waitUntilExit()
+        }
+        #expect(RestorableAgentSessionIndex.processHasInteractiveTerminalStdio(
+            pid: Int(process.processIdentifier)
+        ))
+    }
+
+    private static let customOllamaRegistrationJSON = """
+    {
+      "id": "ollama",
+      "name": "My Ollama",
+      "sessionIdSource": "--session",
+      "resumeCommand": "my-ollama --resume {{sessionId}}"
+    }
+    """
 
     @Test("Restorable kind carries Ollama identity and relaunch semantics")
     func restorableKindIsRelaunchOnly() {

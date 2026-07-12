@@ -39,7 +39,9 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         .codebuddy,
         .factory,
         .qoder,
-        .ollama,
+        // Ollama is registry-owned like Pi/Grok/Antigravity: leaving it out
+        // keeps the id available to pre-existing custom Vault registrations
+        // while direct native values still encode.
     ]
 
     init?(rawValue: String) {
