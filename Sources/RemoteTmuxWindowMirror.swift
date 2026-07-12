@@ -414,6 +414,33 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         }
     }
 
+    #if DEBUG
+    /// One-shot per window: at container-suspect time, walk from a pane's
+    /// view to the window logging each ancestor's class and width. The
+    /// FIRST ancestor wider than the window names the view whose sizing
+    /// rule still adopts a content-derived ideal.
+    private static var dumpedAncestorChains = Set<Int>()
+    func debugDumpAncestorWidths() {
+        guard !Self.dumpedAncestorChains.contains(windowId),
+              let view = panelsByPaneId.values.first?.hostedView else { return }
+        Self.dumpedAncestorChains.insert(windowId)
+        let windowWidth = view.window?.contentLayoutRect.width ?? -1
+        var node: NSView? = view
+        var depth = 0
+        while let current = node, depth < 60 {
+            let width = Int(current.frame.width)
+            let marker = CGFloat(width) > windowWidth + 1 ? " OVERSIZED" : ""
+            cmuxDebugLog(
+                "remote.container.chain @\(windowId) [\(depth)]"
+                    + " \(String(describing: type(of: current))) w=\(width)\(marker)"
+            )
+            node = current.superview
+            depth += 1
+        }
+        cmuxDebugLog("remote.container.chain @\(windowId) window=\(Int(windowWidth))")
+    }
+    #endif
+
     private func handleSizingSample(_ sample: TerminalSurfaceRawSizingSample, paneId: Int) {
         ingest(sample: sample)
         lastRenderedGrids[paneId] = (cols: sample.columns, rows: sample.rows)

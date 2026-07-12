@@ -64,6 +64,7 @@ struct RemoteTmuxWindowMirrorSplitView: View {
                         + " size=\(Int(newSize.width))x\(Int(newSize.height))"
                         + " visibleInUI=\(isVisibleInUI ? 1 : 0)"
                 )
+                mirror.debugDumpAncestorWidths()
             }
             #endif
             containerSize = newSize
@@ -96,6 +97,9 @@ struct RemoteTmuxWindowMirrorSplitView: View {
     /// planned into divider extents.
     private func becameVisible() {
         pushClientSize(pointSize: containerSize)
+        // The tab's views may have been recreated while hidden; identical
+        // plan inputs do not mean the fresh views hold the plan.
+        mirror.lastPlanInputs = nil
         mirror.refreshDividerPositions()
     }
 }

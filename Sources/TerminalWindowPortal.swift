@@ -737,7 +737,28 @@ final class WindowTerminalPortal: NSObject {
         scheduleExternalGeometrySynchronize(forceImmediate: true)
     }
 
+    /// See scheduleExternalGeometrySynchronize: true exactly while ANY
+    /// portal's sync pass runs. Static on purpose — one portal's layout
+    /// pass fires other portals' observers (didResizeSubviews is observed
+    /// with object: nil, and windows host several portals), so a
+    /// per-instance flag just turns the self-echo into cross-portal
+    /// ping-pong. The main thread runs nothing else during a pass, so any
+    /// geometry notification in that window is echo, whoever receives it.
+    private var isSynchronizingExternalGeometry: Bool {
+        get { Self.anyPortalSynchronizingExternalGeometry }
+        set { Self.anyPortalSynchronizingExternalGeometry = newValue }
+    }
+    private static var anyPortalSynchronizingExternalGeometry = false
+
     fileprivate func scheduleExternalGeometrySynchronize(forceImmediate: Bool) {
+        // Geometry notifications that arrive while OUR OWN sync pass runs
+        // are that pass's echo: the pass lays out hosted split views (which
+        // post didResizeSubviews) and writes hostView.frame (which posts
+        // frameDidChange), and the main thread runs nothing else meanwhile.
+        // Scheduling on them makes the sync self-sustaining — observed as
+        // the main thread pinned at full CPU inside this class under
+        // multi-window churn.
+        guard !isSynchronizingExternalGeometry else { return }
         // Coalesce to the latest request so ancestor/frame churn (for example
         // sidebar toggles) doesn't resize the PTY at stale intermediate widths.
         externalGeometrySyncGeneration &+= 1
@@ -800,12 +821,26 @@ final class WindowTerminalPortal: NSObject {
     }
 
     private func synchronizeLayoutHierarchy() {
+        // Idempotence at the choke point. Several paths funnel here (window
+        // notifications, anchor geometry callbacks, deferred full syncs,
+        // transient recovery), each forcing subtree layout — and each layout
+        // pass emits the notifications and callbacks that re-enter those
+        // same paths, possibly delivered after any in-pass flag is down.
+        // When everything this pass reads and writes is unchanged since the
+        // last completed pass, the pass is a no-op: skip the layout storm
+        // and the echo dies here, whichever path carried it. AppKit still
+        // runs pending inner layout before display on its own.
+        let signature = externalGeometrySignature()
+        if let last = lastHierarchySyncSignature, last == signature { return }
         installedContainerView?.layoutSubtreeIfNeeded()
         installedReferenceView?.layoutSubtreeIfNeeded()
         hostView.superview?.layoutSubtreeIfNeeded()
         hostView.layoutSubtreeIfNeeded()
         _ = synchronizeHostFrameToReference()
+        lastHierarchySyncSignature = externalGeometrySignature()
     }
+
+    private var lastHierarchySyncSignature: String?
 
     @discardableResult
     private func synchronizeHostFrameToReference() -> Bool {
@@ -813,13 +848,25 @@ final class WindowTerminalPortal: NSObject {
               let reference = installedReferenceView else {
             return false
         }
-        let frameInContainer = container.convert(reference.bounds, from: reference)
+        var frameInContainer = container.convert(reference.bounds, from: reference)
         let hasFiniteFrame =
             frameInContainer.origin.x.isFinite &&
             frameInContainer.origin.y.isFinite &&
             frameInContainer.size.width.isFinite &&
             frameInContainer.size.height.isFinite
         guard hasFiniteFrame else { return false }
+        // The host mirrors ON-SCREEN geometry, and nothing larger than the
+        // window's content is on screen. The SwiftUI reference view can
+        // report a content-derived size that exceeds the window (SwiftUI
+        // children may exceed their proposals), and adopting it verbatim
+        // makes every hosted layout pass pay for the oversized tree — the
+        // probe caught this host at 4,241 points inside a 1,728-point
+        // window, with the display cycle relaying the excess every frame.
+        if let bound = container.window?.contentLayoutRect.size,
+           bound.width > 1, bound.height > 1 {
+            frameInContainer.size.width = min(frameInContainer.size.width, bound.width)
+            frameInContainer.size.height = min(frameInContainer.size.height, bound.height)
+        }
 
         if !Self.rectApproximatelyEqual(hostView.frame, frameInContainer) {
             CATransaction.begin()
@@ -837,10 +884,37 @@ final class WindowTerminalPortal: NSObject {
     }
 
     fileprivate func synchronizeAllEntriesFromExternalGeometryChange() {
+        guard !isSynchronizingExternalGeometry else { return }
+        isSynchronizingExternalGeometry = true
+        defer { isSynchronizingExternalGeometry = false }
+        // Content-based echo cut. A sync pass lays out hosted split views
+        // and writes hostView.frame, and the notifications those emit can
+        // be DELIVERED AFTER the pass ends (block observers on .main), so
+        // no in-pass flag can catch them all — the sync then re-runs
+        // forever on identical geometry, pinning the main thread. An echo
+        // carries the exact geometry the last pass left behind, so it dies
+        // here in one cheap comparison; any real change differs somewhere
+        // and syncs fully.
         guard ensureInstalled() else { return }
         synchronizeLayoutHierarchy()
         synchronizeAllHostedViews(excluding: nil)
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.externalGeometrySync")
+    }
+
+    /// Cheap (no-layout) fingerprint of everything a sync pass reads or
+    /// writes: window size, container/reference/host frames, and every
+    /// hosted view's frame. Identical fingerprint = the pass would be a
+    /// no-op = skip it (and with it, the relayout that echoes).
+    private func externalGeometrySignature() -> String {
+        var parts: [String] = []
+        if let window { parts.append("w\(Int(window.frame.width))x\(Int(window.frame.height))") }
+        parts.append("h\(hostView.frame.debugDescription)")
+        if let container = installedContainerView { parts.append("c\(container.frame.debugDescription)") }
+        if let reference = installedReferenceView { parts.append("r\(reference.frame.debugDescription)") }
+        for (id, entry) in entriesByHostedId.sorted(by: { $0.key.hashValue < $1.key.hashValue }) {
+            parts.append("e\(id.hashValue):\(entry.hostedView?.frame.debugDescription ?? "gone")")
+        }
+        return parts.joined(separator: "|")
     }
 
     private func ensureDividerOverlayOnTop() {
@@ -1305,12 +1379,22 @@ final class WindowTerminalPortal: NSObject {
         reason: String
     ) -> Bool {
         guard Self.transientRecoveryEnabled else { return false }
+        // 0 = idle (a fresh episode may begin), -1 = EXHAUSTED. Without the
+        // sentinel, an exhausted budget decayed back to 0, looked idle, and
+        // refilled — so an entry that stays not-ready (a hosted view
+        // mid-teardown during workspace churn) drove one full sync and
+        // relayout per runloop turn indefinitely, pinning the main thread.
+        // Only a successful sync (resetTransientRecoveryRetryIfNeeded)
+        // returns an exhausted entry to idle.
         if entry.transientRecoveryRetriesRemaining == 0 {
             entry.transientRecoveryRetriesRemaining = Self.transientRecoveryRetryBudget
         }
         guard entry.transientRecoveryRetriesRemaining > 0 else { return false }
 
         entry.transientRecoveryRetriesRemaining -= 1
+        if entry.transientRecoveryRetriesRemaining == 0 {
+            entry.transientRecoveryRetriesRemaining = -1
+        }
         entriesByHostedId[hostedId] = entry
 #if DEBUG
         cmuxDebugLog(

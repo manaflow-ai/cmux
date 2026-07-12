@@ -27,6 +27,7 @@ extension RemoteTmuxWindowMirror {
         } else if treeReady, Self.sameShapeAndPaneIds(previousLayout, newLayout) {
             refreshDividerPositions()
         } else if treeReady, applyTargetedStructureChange(from: previousLayout, to: newLayout) {
+            lastPlanInputs = nil
             refreshDividerPositions()
         } else {
             rebuildBonsplitTree()
@@ -36,6 +37,11 @@ extension RemoteTmuxWindowMirror {
     func rebuildBonsplitTree() {
         isApplyingRemoteLayout = true
         defer { isApplyingRemoteLayout = false }
+        // A rebuilt tree has fresh split states: the last imposition pass's
+        // inputs no longer describe what is on screen, so the idempotence
+        // gate must not skip the next pass (a new split can also be imposed
+        // before its view exists — the follow-up pass is its recovery).
+        lastPlanInputs = nil
         resetToSingleEmptyPane()
         tabIdByPaneId.removeAll()
         paneIdByPaneId.removeAll()
