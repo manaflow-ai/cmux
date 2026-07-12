@@ -139,6 +139,15 @@ extension WKWebView {
     }
 
     func browserPortalNotifyHidden(reason: String) {
+        guard !cmuxIsWebInspectorObject(self) else {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.portal.webview.hidden.skip web=\(browserPortalRenderingStateDebugToken(self)) " +
+                "reason=\(reason) skip=inspectorFrontend"
+            )
+#endif
+            return
+        }
         browserPortalNeedsRenderingStateReattach = true
         browserPortalMarkNeedsFirstSizedRevealNudge(reason: reason)
         let firedSelectors = ["viewDidHide", "_exitInWindow"].filter {
@@ -295,8 +304,17 @@ extension WKWebView {
         return true
     }
 
-    func browserPortalReattachRenderingState(reason: String) {
-        guard browserPortalNeedsRenderingStateReattach else { return }
+    private func browserPortalApplyRenderingStateRefresh(reason: String, force: Bool) {
+        guard !cmuxIsWebInspectorObject(self) else {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.portal.webview.reattach.skip web=\(browserPortalRenderingStateDebugToken(self)) " +
+                "reason=\(reason) skip=inspectorFrontend"
+            )
+#endif
+            return
+        }
+        guard force || browserPortalNeedsRenderingStateReattach else { return }
         guard window != nil else { return }
         browserPortalNeedsRenderingStateReattach = false
 
@@ -323,12 +341,21 @@ extension WKWebView {
 #if DEBUG
         if !firedSelectors.isEmpty {
             cmuxDebugLog(
-                "browser.portal.webview.reattach web=\(browserPortalRenderingStateDebugToken(self)) " +
+                "\(force ? "browser.portal.webview.forceRefresh" : "browser.portal.webview.reattach") " +
+                "web=\(browserPortalRenderingStateDebugToken(self)) " +
                 "reason=\(reason) selectors=\(firedSelectors.joined(separator: ",")) " +
                 "frame=\(String(format: "%.1f,%.1f %.1fx%.1f", frame.origin.x, frame.origin.y, frame.size.width, frame.size.height))"
             )
         }
 #endif
+    }
+
+    func browserPortalReattachRenderingState(reason: String) {
+        browserPortalApplyRenderingStateRefresh(reason: reason, force: false)
+    }
+
+    func browserPortalForceRenderingStateRefresh(reason: String) {
+        browserPortalApplyRenderingStateRefresh(reason: reason, force: true)
     }
 }
 
