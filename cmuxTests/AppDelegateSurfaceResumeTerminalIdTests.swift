@@ -27,14 +27,7 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
         }
 
         let manager = TabManager(autoWelcomeIfNeeded: false)
-        app.registerMainWindow(
-            window,
-            windowId: windowId,
-            tabManager: manager,
-            sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState(),
-            fileExplorerState: FileExplorerState()
-        )
+        registerMainWindow(app: app, window: window, windowId: windowId, manager: manager)
         TerminalController.shared.setActiveTabManager(manager)
 
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -89,14 +82,7 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
         }
 
         let manager = TabManager(autoWelcomeIfNeeded: false)
-        app.registerMainWindow(
-            window,
-            windowId: windowId,
-            tabManager: manager,
-            sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState(),
-            fileExplorerState: FileExplorerState()
-        )
+        registerMainWindow(app: app, window: window, windowId: windowId, manager: manager)
         TerminalController.shared.setActiveTabManager(manager)
 
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -164,22 +150,8 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
 
         let activeManager = TabManager(autoWelcomeIfNeeded: false)
         let targetManager = TabManager(autoWelcomeIfNeeded: false)
-        app.registerMainWindow(
-            activeWindow,
-            windowId: activeWindowId,
-            tabManager: activeManager,
-            sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState(),
-            fileExplorerState: FileExplorerState()
-        )
-        app.registerMainWindow(
-            targetWindow,
-            windowId: targetWindowId,
-            tabManager: targetManager,
-            sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState(),
-            fileExplorerState: FileExplorerState()
-        )
+        registerMainWindow(app: app, window: activeWindow, windowId: activeWindowId, manager: activeManager)
+        registerMainWindow(app: app, window: targetWindow, windowId: targetWindowId, manager: targetManager)
         TerminalController.shared.setActiveTabManager(activeManager)
 
         let activeWorkspace = try XCTUnwrap(activeManager.selectedWorkspace)
@@ -241,22 +213,8 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
 
         let activeManager = TabManager(autoWelcomeIfNeeded: false)
         let otherManager = TabManager(autoWelcomeIfNeeded: false)
-        app.registerMainWindow(
-            activeWindow,
-            windowId: activeWindowId,
-            tabManager: activeManager,
-            sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState(),
-            fileExplorerState: FileExplorerState()
-        )
-        app.registerMainWindow(
-            otherWindow,
-            windowId: otherWindowId,
-            tabManager: otherManager,
-            sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState(),
-            fileExplorerState: FileExplorerState()
-        )
+        registerMainWindow(app: app, window: activeWindow, windowId: activeWindowId, manager: activeManager)
+        registerMainWindow(app: app, window: otherWindow, windowId: otherWindowId, manager: otherManager)
         TerminalController.shared.setActiveTabManager(activeManager)
 
         let activeWorkspace = try XCTUnwrap(activeManager.selectedWorkspace)
@@ -297,14 +255,7 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
         }
 
         let manager = TabManager(autoWelcomeIfNeeded: false)
-        app.registerMainWindow(
-            window,
-            windowId: windowId,
-            tabManager: manager,
-            sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState(),
-            fileExplorerState: FileExplorerState()
-        )
+        registerMainWindow(app: app, window: window, windowId: windowId, manager: manager)
         TerminalController.shared.setActiveTabManager(manager)
 
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -335,6 +286,69 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
         XCTAssertNil(firstWorkspace.surfaceResumeBinding(panelId: firstPanel.id))
         XCTAssertNil(firstWorkspace.surfaceResumeBinding(panelId: firstSplit.id))
         XCTAssertNil(secondWorkspace.surfaceResumeBinding(panelId: secondPanel.id))
+    }
+
+    func testSurfaceResumeRejectsDuplicateInUnregisteredFallbackManager() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let previousActiveManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        let registeredManager = TabManager(autoWelcomeIfNeeded: false)
+        let fallbackManager = TabManager(autoWelcomeIfNeeded: false)
+        let registeredWindowId = app.registerMainWindowContextForTesting(tabManager: registeredManager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousActiveManager)
+            app.unregisterMainWindowContextForTesting(windowId: registeredWindowId)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let registeredWorkspace = try XCTUnwrap(registeredManager.selectedWorkspace)
+        let registeredPanel = try XCTUnwrap(registeredWorkspace.focusedTerminalPanel)
+        let fallbackWorkspace = try XCTUnwrap(fallbackManager.selectedWorkspace)
+        let fallbackPanel = try XCTUnwrap(fallbackWorkspace.focusedTerminalPanel)
+        let duplicateStableId = UUID()
+        registeredPanel.adoptStableSurfaceId(duplicateStableId)
+        fallbackPanel.adoptStableSurfaceId(duplicateStableId)
+        TerminalController.shared.setActiveTabManager(fallbackManager)
+
+        let (raw, envelope) = try v2Envelope(method: "surface.resume.set", params: [
+            "surface_id": duplicateStableId.uuidString,
+            "command": "codex resume ambiguous-fallback-target",
+        ])
+
+        XCTAssertEqual(envelope["ok"] as? Bool, false, raw)
+        XCTAssertNil(registeredWorkspace.surfaceResumeBinding(panelId: registeredPanel.id))
+        XCTAssertNil(fallbackWorkspace.surfaceResumeBinding(panelId: fallbackPanel.id))
+    }
+
+    func testSystemResolveTerminalRefreshesWhenPrepopulatedManagerRegisters() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        let firstManager = TabManager(autoWelcomeIfNeeded: false)
+        let secondManager = TabManager(autoWelcomeIfNeeded: false)
+        let firstWorkspace = try XCTUnwrap(firstManager.selectedWorkspace)
+        let secondWorkspace = try XCTUnwrap(secondManager.selectedWorkspace)
+        let firstSurface = try XCTUnwrap(firstWorkspace.focusedPanelId)
+        let secondSurface = try XCTUnwrap(secondWorkspace.focusedPanelId)
+        let ttyName = "cmux-cache-refresh-\(UUID().uuidString)"
+        firstWorkspace.surfaceTTYNames[firstSurface] = ttyName
+        secondWorkspace.surfaceTTYNames[secondSurface] = ttyName
+        let firstWindowId = app.registerMainWindowContextForTesting(tabManager: firstManager)
+        var secondWindowId: UUID?
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: firstWindowId)
+            if let secondWindowId { app.unregisterMainWindowContextForTesting(windowId: secondWindowId) }
+            TerminalController.invalidateTerminalResolverBindingCaches()
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let firstPayload = try terminalResolverPayload(["tty_name": ttyName])
+        XCTAssertEqual((firstPayload["tty_bindings"] as? [[String: Any]])?.count, 1)
+
+        secondWindowId = app.registerMainWindowContextForTesting(tabManager: secondManager)
+        let refreshedPayload = try terminalResolverPayload(["tty_name": ttyName])
+        XCTAssertEqual((refreshedPayload["tty_bindings"] as? [[String: Any]])?.count, 2)
     }
 
     func testSystemResolveTerminalRejectsInheritedScopeWithoutUniqueLiveTTY() throws {
@@ -404,6 +418,30 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
         )
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
         return window
+    }
+
+    private func registerMainWindow(
+        app: AppDelegate,
+        window: NSWindow,
+        windowId: UUID,
+        manager: TabManager
+    ) {
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+    }
+
+    private func terminalResolverPayload(_ params: [String: Any]) throws -> [String: Any] {
+        guard case .ok(let rawPayload) = TerminalController.shared.v2SystemResolveTerminal(params: params) else {
+            XCTFail("Expected terminal resolver success")
+            return [:]
+        }
+        return try XCTUnwrap(rawPayload as? [String: Any])
     }
 
     private func v2Result(method: String, params: [String: Any]) throws -> [String: Any] {
