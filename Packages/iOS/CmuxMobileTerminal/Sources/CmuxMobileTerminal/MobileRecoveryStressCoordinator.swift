@@ -14,6 +14,7 @@ final class MobileRecoveryStressCoordinator: NSObject, GhosttySurfaceViewDelegat
     private var scenarioTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
     private var watchdogTask: Task<Void, Never>?
+    private var acceptsSyntheticViewportEcho = false
 
     init(
         configuration: MobileRecoveryStressConfiguration,
@@ -35,6 +36,7 @@ final class MobileRecoveryStressCoordinator: NSObject, GhosttySurfaceViewDelegat
 
     func start() {
         guard scenarioTask == nil else { return }
+        acceptsSyntheticViewportEcho = true
         if let surfaceView {
             GhosttySurfaceView.RecoveryStressObservers.set({ [weak self] snapshot in
                 guard let self else { return }
@@ -60,6 +62,7 @@ final class MobileRecoveryStressCoordinator: NSObject, GhosttySurfaceViewDelegat
     }
 
     func stop() {
+        acceptsSyntheticViewportEcho = false
         if let surfaceView { GhosttySurfaceView.RecoveryStressObservers.set(nil, for: surfaceView) }
         scenarioTask?.cancel()
         heartbeatTask?.cancel()
@@ -72,7 +75,7 @@ final class MobileRecoveryStressCoordinator: NSObject, GhosttySurfaceViewDelegat
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {}
 
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {
-        guard size.columns > 0, size.rows > 0 else { return }
+        guard acceptsSyntheticViewportEcho, size.columns > 0, size.rows > 0 else { return }
         surfaceView.applyViewSize(cols: max(1, size.columns - 1), rows: max(1, size.rows - 1))
     }
 
@@ -112,6 +115,7 @@ final class MobileRecoveryStressCoordinator: NSObject, GhosttySurfaceViewDelegat
             reporter.emit("recovery.stress.DEADLOCK kind=mount elapsedMs=5000 pendingFrees=0")
             return
         }
+        let mountedBounds = view.bounds
 
         for cycle in 1...configuration.cycles {
             if Task.isCancelled {
@@ -166,7 +170,65 @@ final class MobileRecoveryStressCoordinator: NSObject, GhosttySurfaceViewDelegat
             }
         }
 
+        acceptsSyntheticViewportEcho = false
+        guard await convergeToMountedGeometry(view, mountedBounds: mountedBounds) else {
+            let geometry = view.debugGeometrySnapshotForTesting()
+            reporter.emit(
+                "recovery.stress.DEADLOCK kind=geometry "
+                    + geometryDescription(geometry, mountedBounds: mountedBounds)
+            )
+            return
+        }
+        let geometry = view.debugGeometrySnapshotForTesting()
+        reporter.emit(
+            "recovery.stress.geometry.CONVERGED "
+                + geometryDescription(geometry, mountedBounds: mountedBounds)
+        )
         reporter.emit("recovery.stress.PASS cycles=\(configuration.cycles)")
+    }
+
+    private func convergeToMountedGeometry(
+        _ view: GhosttySurfaceView,
+        mountedBounds: CGRect
+    ) async -> Bool {
+        view.bounds = mountedBounds
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        guard await view.useNaturalViewSizeAndWait() else { return false }
+        return geometryConverged(
+            view.debugGeometrySnapshotForTesting(),
+            mountedBounds: mountedBounds
+        )
+    }
+
+    private func geometryConverged(
+        _ geometry: GhosttySurfaceView.DebugGeometrySnapshot,
+        mountedBounds: CGRect
+    ) -> Bool {
+        let cellWidth = geometry.cellPixelSize.width / max(1, geometry.screenScale)
+        let cellHeight = geometry.cellPixelSize.height / max(1, geometry.screenScale)
+        return geometry.effectiveGrid == nil
+            && abs(geometry.boundsSize.width - mountedBounds.width) < 0.5
+            && abs(geometry.boundsSize.height - mountedBounds.height) < 0.5
+            && geometry.renderRect.width > 0
+            && geometry.renderRect.height > 0
+            && abs(geometry.viewportRect.minX - geometry.renderRect.minX) < 0.5
+            && abs(geometry.viewportRect.minY - geometry.renderRect.minY) <= cellHeight + 1
+            && abs(geometry.viewportRect.width - geometry.renderRect.width) <= cellWidth + 1
+            && abs(geometry.viewportRect.height - geometry.renderRect.height) <= cellHeight + 1
+    }
+
+    private func geometryDescription(
+        _ geometry: GhosttySurfaceView.DebugGeometrySnapshot,
+        mountedBounds: CGRect
+    ) -> String {
+        let effective = geometry.effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "natural"
+        return "mounted=\(Int(mountedBounds.width))x\(Int(mountedBounds.height)) "
+            + "bounds=\(Int(geometry.boundsSize.width))x\(Int(geometry.boundsSize.height)) "
+            + "viewport=\(Int(geometry.viewportRect.width))x\(Int(geometry.viewportRect.height)) "
+            + "render=\(Int(geometry.renderRect.width))x\(Int(geometry.renderRect.height)) "
+            + "renderOrigin=\(Int(geometry.renderRect.minX)),\(Int(geometry.renderRect.minY)) "
+            + "effective=\(effective)"
     }
 
     private func waitForMountedSurface(_ view: GhosttySurfaceView) async -> Bool {
