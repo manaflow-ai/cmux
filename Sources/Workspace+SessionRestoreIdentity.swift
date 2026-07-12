@@ -350,3 +350,45 @@ extension Workspace {
         return alert.runModal() == .alertFirstButtonReturn
     }
 }
+
+extension AppDelegate {
+    /// Locates a terminal globally by runtime panel id first, then restart-stable surface id.
+    func locateSurfaceResumeTarget(
+        surfaceId targetId: UUID
+    ) -> (windowId: UUID, workspaceId: UUID, surfaceId: UUID, tabManager: TabManager)? {
+        if let located = locateSurface(surfaceId: targetId) {
+            return (located.windowId, located.workspaceId, targetId, located.tabManager)
+        }
+
+        var match: (windowId: UUID, workspaceId: UUID, surfaceId: UUID, tabManager: TabManager)?
+        var isAmbiguous = false
+        var visitedManagers = Set<ObjectIdentifier>()
+
+        func inspect(windowId: UUID, tabManager: TabManager) {
+            guard !isAmbiguous,
+                  visitedManagers.insert(ObjectIdentifier(tabManager)).inserted else {
+                return
+            }
+            for workspace in tabManager.tabs {
+                guard let surfaceId = workspace.terminalPanelIdForSurfaceResumeTarget(targetId) else {
+                    continue
+                }
+                guard match == nil else {
+                    isAmbiguous = true
+                    return
+                }
+                match = (windowId, workspace.id, surfaceId, tabManager)
+            }
+        }
+
+        for context in mainWindowContexts.values {
+            inspect(windowId: context.windowId, tabManager: context.tabManager)
+        }
+        for route in recoverableMainWindowRoutes() {
+            guard let tabManager = route.tabManager else { continue }
+            inspect(windowId: route.windowId, tabManager: tabManager)
+        }
+
+        return isAmbiguous ? nil : match
+    }
+}

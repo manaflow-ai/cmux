@@ -237,7 +237,7 @@ nonisolated enum StartupBreadcrumbLog {
         var combined = existingTail
         combined.append(boundedAppend)
         let boundedCombined = boundedJSONLTail(combined, maximumByteCount: maximumByteCount)
-        return boundedCombined
+        return boundedCombined.isEmpty ? boundedAppend : boundedCombined
     }
 
     static func boundedJSONLTail(_ data: Data, maximumByteCount: Int) -> Data {

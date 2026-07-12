@@ -3,8 +3,6 @@ import Foundation
 
 private nonisolated struct TerminalResolverProcessIdentity: Sendable {
     let ttyDevice: Int64?
-    let workspaceID: UUID?
-    let surfaceID: UUID?
 }
 
 private nonisolated struct LiveTerminalResolverBinding: Sendable {
@@ -215,8 +213,6 @@ extension TerminalController {
         var currentPID = pid
         var visited: Set<Int> = []
         var ttyDevice: Int64?
-        var workspaceID: UUID?
-        var surfaceID: UUID?
         while currentPID > 0,
               visited.insert(currentPID).inserted,
               let process = terminalResolverBSDInfo(pid: currentPID) {
@@ -224,28 +220,13 @@ extension TerminalController {
             if ttyDevice == nil, rawTTYDevice > 0 {
                 ttyDevice = rawTTYDevice
             }
-            if workspaceID == nil, surfaceID == nil,
-               let processArguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: currentPID),
-               let scope = CmuxTopProcessSnapshot.cmuxScope(
-                   arguments: processArguments.arguments,
-                   environment: processArguments.environment
-               ),
-               let scopedWorkspaceID = scope.workspaceID,
-               let scopedSurfaceID = scope.surfaceID {
-                workspaceID = scopedWorkspaceID
-                surfaceID = scopedSurfaceID
-            }
-            if ttyDevice != nil, workspaceID != nil, surfaceID != nil { break }
+            if ttyDevice != nil { break }
             currentPID = Int(process.pbi_ppid)
         }
         guard AgentPIDProcessIdentity(pid: pid_t(pid)) == initialIdentity else {
             return nil
         }
-        return TerminalResolverProcessIdentity(
-            ttyDevice: ttyDevice,
-            workspaceID: workspaceID,
-            surfaceID: surfaceID
-        )
+        return TerminalResolverProcessIdentity(ttyDevice: ttyDevice)
     }
 
     private nonisolated static func terminalResolverBSDInfo(pid: Int) -> proc_bsdinfo? {
@@ -292,22 +273,11 @@ extension TerminalController {
         _ identity: TerminalResolverProcessIdentity?,
         liveBindings: [LiveTerminalResolverBinding]
     ) -> LiveTerminalResolverBinding? {
-        guard let identity else { return nil }
-        let ttyMatches = identity.ttyDevice.map { device in
-            liveBindings.filter { $0.ttyDevice == device }
-        } ?? []
-        let scoped = liveBindings.first {
-            $0.workspaceID == identity.workspaceID && $0.surfaceID == identity.surfaceID
-        }
-        if ttyMatches.count == 1 {
-            return ttyMatches[0]
-        }
-        if ttyMatches.count > 1, let scoped,
-           ttyMatches.contains(where: {
-               $0.workspaceID == scoped.workspaceID && $0.surfaceID == scoped.surfaceID
-           }) {
-            return scoped
-        }
-        return ttyMatches.isEmpty ? scoped : nil
+        // A CMUX scope is inherited ambient state and can survive a restored or
+        // moved session. Only a unique live kernel TTY match proves ownership.
+        guard let ttyDevice = identity?.ttyDevice else { return nil }
+        let ttyMatches = liveBindings.filter { $0.ttyDevice == ttyDevice }
+        guard ttyMatches.count == 1 else { return nil }
+        return ttyMatches[0]
     }
 }

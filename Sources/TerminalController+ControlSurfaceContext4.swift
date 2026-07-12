@@ -42,10 +42,10 @@ extension TerminalController {
                 }
                 return (fallbackTabManager, workspace, surfaceId)
             }
-            if let located = AppDelegate.shared?.locateSurface(surfaceId: explicitSurfaceId),
+            if let located = AppDelegate.shared?.locateSurfaceResumeTarget(surfaceId: explicitSurfaceId),
                let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
-               workspace.terminalPanel(for: explicitSurfaceId) != nil {
-                return (located.tabManager, workspace, explicitSurfaceId)
+               workspace.terminalPanel(for: located.surfaceId) != nil {
+                return (located.tabManager, workspace, located.surfaceId)
             }
             if let workspace = fallbackTabManager.tabs.first(where: {
                 $0.terminalPanelIdForSurfaceResumeTarget(explicitSurfaceId) != nil

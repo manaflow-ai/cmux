@@ -30162,18 +30162,13 @@ export default CMUXSessionRestore;
         func processBinding() -> CallerTerminalBinding? {
             if !didResolveProcessBinding {
                 didResolveProcessBinding = true
-                // Always resolve the agent process's own terminal binding (TTY first, then PID), even
-                // when env supplies both ids. Historically this was suppressed whenever both env ids
-                // were present, which made a leaked/stale CMUX_SURFACE_ID impossible to correct — the
-                // codex jumble class, where a session routes to the wrong surface and the no-pid-gate
-                // resume binding persists it across reload. Implicit routing consumes only this live
-                // binding. A missing binding disables implicit routing; explicit hook flags retain
-                // operator intent.
-                let ttyResolution = callerTerminalBindingResolutionByTTY(
-                    client: client,
-                    pid: inferredPID
-                )
-                processBindingCache = ttyResolution.binding ?? resolveAgentProcessTerminalBinding(pid: inferredPID, client: client)
+                // Prove ownership with this hook CLI process, which remains alive
+                // for the resolver request and therefore cannot suffer PID reuse.
+                // CMUX_<AGENT>_PID remains lifecycle metadata, never routing proof.
+                // Relay clients suppress the host-local CLI PID and accept only
+                // relay-reported TTY identity.
+                let ttyResolution = liveHookCallerTerminalBindingResolution(client: client)
+                processBindingCache = ttyResolution.binding
                 processBindingBlockedByAmbiguousTTY = ttyResolution.isAmbiguous && ttyResolution.binding == nil && processBindingCache == nil
             }
             return processBindingCache
@@ -30408,12 +30403,10 @@ export default CMUXSessionRestore;
                 return target
             }
 
-            // One proof boundary for implicit hooks: use the current process's
-            // live binding, or a saved PID only after it resolves live to the
-            // exact saved workspace and surface. Do not substitute ambient,
-            // mapped, focused, or default surfaces after this point.
+            // One proof boundary for implicit hooks: use the live hook CLI
+            // binding. Persisted agent PIDs can be recycled, so saved session
+            // records remain lifecycle metadata and never prove ownership.
             let binding = processBinding()
-                ?? independentlyValidatedMappedTerminalBinding(mapped, client: client)
             if let workspaceId = resolveAccessibleWorkspaceId(binding?.workspaceId),
                let surfaceId = resolveAccessibleSurfaceId(binding?.surfaceId, workspaceId: workspaceId) {
 #if DEBUG

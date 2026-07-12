@@ -29,10 +29,9 @@ extension CMUXCLI {
         var cached: CallerTerminalBindingResolution?
         return {
             if let cached { return cached }
-            let resolution = callerTerminalBindingResolutionByTTY(
+            let resolution = liveHookCallerTerminalBindingResolution(
                 client: client,
                 includeAmbientTTY: workspaceFallback == nil && surfaceFallback == nil,
-                pid: claudeAgentPID(from: ProcessInfo.processInfo.environment),
                 allowDiagnosticFallback: false
             )
             let binding = resolution.binding.flatMap {
@@ -40,7 +39,7 @@ extension CMUXCLI {
             }
             let validated = CallerTerminalBindingResolution(
                 binding: binding,
-                isAmbiguous: resolution.isAmbiguous || (resolution.binding != nil && binding == nil),
+                isAmbiguous: resolution.isAmbiguous || binding == nil,
                 usedTargetedResolver: true
             )
             cached = validated
@@ -219,6 +218,22 @@ extension CMUXCLI {
         return CallerTerminalBindingResolution(binding: first, isAmbiguous: false)
     }
 
+    /// Resolve implicit hook ownership from the currently running CLI process.
+    /// A local PID cannot be recycled while this request is in flight. Relay
+    /// clients discard that host-local PID and use only relay-reported TTY data.
+    func liveHookCallerTerminalBindingResolution(
+        client: SocketClient,
+        includeAmbientTTY: Bool = true,
+        allowDiagnosticFallback: Bool = true
+    ) -> CallerTerminalBindingResolution {
+        callerTerminalBindingResolutionByTTY(
+            client: client,
+            includeAmbientTTY: includeAmbientTTY,
+            pid: Int(ProcessInfo.processInfo.processIdentifier),
+            allowDiagnosticFallback: allowDiagnosticFallback
+        )
+    }
+
     private func targetedCallerTerminalBindingResolution(
         _ payload: [String: Any],
         requirePIDBinding: Bool
@@ -236,39 +251,30 @@ extension CMUXCLI {
             }
             return CallerTerminalBinding(workspaceId: workspaceId, surfaceId: surfaceId)
         }
-        func same(_ lhs: CallerTerminalBinding, _ rhs: CallerTerminalBinding) -> Bool {
-            normalizedHandleValue(lhs.workspaceId) == normalizedHandleValue(rhs.workspaceId)
-                && normalizedHandleValue(lhs.surfaceId) == normalizedHandleValue(rhs.surfaceId)
-        }
-
         var ttyBindings: [CallerTerminalBinding] = []
         for raw in rawTTYBindings {
             guard let candidate = binding(raw) else { return nil }
-            guard !ttyBindings.contains(where: { same($0, candidate) }) else { continue }
+            guard !ttyBindings.contains(where: {
+                normalizedHandleValue($0.workspaceId) == normalizedHandleValue(candidate.workspaceId)
+                    && normalizedHandleValue($0.surfaceId) == normalizedHandleValue(candidate.surfaceId)
+            }) else { continue }
             ttyBindings.append(candidate)
         }
-        let pidBinding: CallerTerminalBinding?
-        if payload["pid_binding"] is NSNull {
-            pidBinding = nil
-        } else {
-            guard let decoded = binding(payload["pid_binding"]) else { return nil }
-            pidBinding = decoded
+        if requirePIDBinding {
+            guard let pidBinding = binding(payload["pid_binding"]) else {
+                return CallerTerminalBindingResolution(
+                    binding: nil,
+                    isAmbiguous: true,
+                    usedTargetedResolver: true
+                )
+            }
+            return CallerTerminalBindingResolution(
+                binding: pidBinding,
+                isAmbiguous: false,
+                usedTargetedResolver: true
+            )
         }
         if ttyBindings.count == 1, let ttyBinding = ttyBindings.first {
-            if requirePIDBinding, pidBinding == nil {
-                return CallerTerminalBindingResolution(
-                    binding: nil,
-                    isAmbiguous: true,
-                    usedTargetedResolver: true
-                )
-            }
-            if let pidBinding, !same(ttyBinding, pidBinding) {
-                return CallerTerminalBindingResolution(
-                    binding: nil,
-                    isAmbiguous: true,
-                    usedTargetedResolver: true
-                )
-            }
             return CallerTerminalBindingResolution(
                 binding: ttyBinding,
                 isAmbiguous: false,
@@ -276,33 +282,17 @@ extension CMUXCLI {
             )
         }
         if ttyBindings.count > 1 {
-            let disambiguated = pidBinding.flatMap { pidBinding in
-                ttyBindings.contains(where: { same($0, pidBinding) }) ? pidBinding : nil
-            }
             return CallerTerminalBindingResolution(
-                binding: disambiguated,
-                isAmbiguous: disambiguated == nil,
+                binding: nil,
+                isAmbiguous: true,
                 usedTargetedResolver: true
             )
         }
         return CallerTerminalBindingResolution(
-            binding: pidBinding,
-            isAmbiguous: requirePIDBinding && pidBinding == nil,
+            binding: nil,
+            isAmbiguous: false,
             usedTargetedResolver: true
         )
-    }
-
-    func independentlyValidatedMappedTerminalBinding(
-        _ mapped: ClaudeHookSessionRecord?,
-        client: SocketClient
-    ) -> CallerTerminalBinding? {
-        guard let mapped,
-              let binding = resolveAgentProcessTerminalBinding(pid: mapped.pid, client: client),
-              normalizedHandleValue(mapped.workspaceId) == normalizedHandleValue(binding.workspaceId),
-              normalizedHandleValue(mapped.surfaceId) == normalizedHandleValue(binding.surfaceId) else {
-            return nil
-        }
-        return binding
     }
 
     /// Like `resolveCallerWorkspaceIdForClaudeHook`, but refuses to guess when the
