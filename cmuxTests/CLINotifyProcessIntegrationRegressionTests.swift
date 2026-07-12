@@ -5889,6 +5889,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                     return self.surfaceListResponse(id: id, surfaceId: currentSurfaceId)
                 }
                 return self.v2Response(id: id, ok: false, error: ["code": "not_found", "message": "workspace not found"])
+            case "system.resolve_terminal":
+                return self.terminalResolverResponse(
+                    id: id,
+                    workspaceId: currentWorkspaceId,
+                    surfaceId: currentSurfaceId
+                )
             case "debug.terminals":
                 return self.v2Response(
                     id: id,
@@ -7835,6 +7841,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                     return self.surfaceListResponse(id: id, surfaceId: surfaceId)
                 }
                 return self.v2Response(id: id, ok: false, error: ["code": "not_found", "message": "workspace not found"])
+            case "system.resolve_terminal":
+                return self.terminalResolverResponse(
+                    id: id,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
             case "debug.terminals":
                 return self.v2Response(
                     id: id,
@@ -8619,7 +8631,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["surface_id"] as? String, surfaceId)
     }
 
-    private struct ClaudeHookContext {
+    struct ClaudeHookContext {
         let cliPath: String
         let socketPath: String
         let listenerFD: Int32
@@ -8713,75 +8725,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             standardInput: standardInput,
             timeout: 5
         )
-    }
-
-    private func startAgentHookMockServerAccepting(
-        context: ClaudeHookContext,
-        connectionLimit: Int
-    ) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            var accepted = 0
-            while accepted < connectionLimit {
-                var clientAddr = sockaddr_un()
-                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                        Darwin.accept(context.listenerFD, sockaddrPtr, &clientAddrLen)
-                    }
-                }
-                if clientFD < 0 {
-                    if errno == EINTR { continue }
-                    return
-                }
-                accepted += 1
-
-                DispatchQueue.global(qos: .userInitiated).async {
-                    defer { Darwin.close(clientFD) }
-                    var pending = Data()
-                    var buffer = [UInt8](repeating: 0, count: 4096)
-                    while true {
-                        let count = Darwin.read(clientFD, &buffer, buffer.count)
-                        if count < 0 {
-                            if errno == EINTR { continue }
-                            return
-                        }
-                        if count == 0 { return }
-                        pending.append(buffer, count: count)
-                        while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                            let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                            pending.removeSubrange(0...newlineRange.lowerBound)
-                            guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                            context.state.append(line)
-                            let response = self.agentHookMockResponse(line: line, context: context) + "\n"
-                            _ = response.withCString { ptr in
-                                Darwin.write(clientFD, ptr, strlen(ptr))
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func agentHookMockResponse(line: String, context: ClaudeHookContext) -> String {
-        guard let payload = jsonObject(line) else {
-            return "OK"
-        }
-        guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
-            return malformedRequestResponse(id: payload["id"] as? String, raw: line)
-        }
-        switch method {
-        case "surface.list":
-            return surfaceListResponse(id: id, surfaceId: context.surfaceId)
-        case "feed.push":
-            return v2Response(id: id, ok: true, result: [:])
-        case "surface.resume.set":
-            return v2Response(id: id, ok: true, result: ["resume_binding": [:]])
-        case "surface.resume.clear":
-            return v2Response(id: id, ok: true, result: ["cleared": true])
-        default:
-            return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
-        }
     }
 
     private func makeClaudeHookContext(name: String) throws -> ClaudeHookContext {

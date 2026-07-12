@@ -214,6 +214,7 @@ struct CLICodexHookTimeoutRegressionTests {
         startCodexHookMockSocketServerAccepting(
             listenerFD: listenerFD,
             commands: commands,
+            workspaceId: workspaceId,
             surfaceId: surfaceId,
             connectionLimit: 24
         )
@@ -339,6 +340,7 @@ struct CLICodexHookTimeoutRegressionTests {
         startCodexHookMockSocketServerAccepting(
             listenerFD: listenerFD,
             commands: commands,
+            workspaceId: workspaceId,
             surfaceId: surfaceId,
             connectionLimit: 8
         )
@@ -424,6 +426,7 @@ struct CLICodexHookTimeoutRegressionTests {
         startCodexHookMockSocketServerAccepting(
             listenerFD: listenerFD,
             commands: commands,
+            workspaceId: workspaceId,
             surfaceId: surfaceId,
             connectionLimit: 8
         )
@@ -508,6 +511,7 @@ struct CLICodexHookTimeoutRegressionTests {
         startCodexHookMockSocketServerAccepting(
             listenerFD: listenerFD,
             commands: commands,
+            workspaceId: workspaceId,
             surfaceId: surfaceId,
             connectionLimit: 8
         )
@@ -618,6 +622,7 @@ struct CLICodexHookTimeoutRegressionTests {
         startCodexHookMockSocketServerAccepting(
             listenerFD: listenerFD,
             commands: commands,
+            workspaceId: workspaceId,
             surfaceId: surfaceId,
             connectionLimit: 8
         )

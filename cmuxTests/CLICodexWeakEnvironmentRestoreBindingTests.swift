@@ -123,6 +123,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "surface.list":
                 return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "system.resolve_terminal":
+                return self.terminalResolverResponse(id: id, workspaceId: workspaceId, surfaceId: surfaceId)
             case "debug.terminals":
                 return self.v2Response(
                     id: id, ok: true,
@@ -212,6 +214,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "surface.list":
                 return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "system.resolve_terminal":
+                return self.terminalResolverResponse(id: id, workspaceId: workspaceId, surfaceId: surfaceId)
             case "debug.terminals":
                 return self.v2Response(
                     id: id, ok: true,
@@ -465,32 +469,4 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
-    func writeCodexHookStore(
-        root: URL,
-        sessionId: String,
-        workspaceId: String,
-        surfaceId: String,
-        cwd: String,
-        transcriptPath: String? = nil,
-        launchCommand: [String: Any]?
-    ) throws {
-        var session: [String: Any] = [
-            "sessionId": sessionId,
-            "workspaceId": workspaceId,
-            "surfaceId": surfaceId,
-            "cwd": cwd,
-            "startedAt": Date().timeIntervalSince1970,
-            "updatedAt": Date().timeIntervalSince1970,
-        ]
-        if let transcriptPath { session["transcriptPath"] = transcriptPath }
-        if let launchCommand { session["launchCommand"] = launchCommand }
-        let store: [String: Any] = [
-            "version": 1,
-            "sessions": [
-                sessionId: session,
-            ],
-        ]
-        let data = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
-        try data.write(to: root.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
-    }
 }

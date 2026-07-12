@@ -117,6 +117,7 @@ func bindCodexHookUnixSocket(at path: String) throws -> Int32 {
 func startCodexHookMockSocketServerAccepting(
     listenerFD: Int32,
     commands: CodexHookCapturedSocketCommands,
+    workspaceId: String,
     surfaceId: String,
     connectionLimit: Int
 ) {
@@ -136,7 +137,12 @@ func startCodexHookMockSocketServerAccepting(
             }
             accepted += 1
             DispatchQueue.global(qos: .userInitiated).async {
-                handleCodexHookMockSocketClient(fd: clientFD, commands: commands, surfaceId: surfaceId)
+                handleCodexHookMockSocketClient(
+                    fd: clientFD,
+                    commands: commands,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
             }
         }
     }
@@ -145,6 +151,7 @@ func startCodexHookMockSocketServerAccepting(
 func handleCodexHookMockSocketClient(
     fd clientFD: Int32,
     commands: CodexHookCapturedSocketCommands,
+    workspaceId: String,
     surfaceId: String
 ) {
     defer { Darwin.close(clientFD) }
@@ -163,7 +170,11 @@ func handleCodexHookMockSocketClient(
             pending.removeSubrange(0...newlineRange.lowerBound)
             guard let line = String(data: lineData, encoding: .utf8) else { continue }
             commands.append(line)
-            let response = codexHookMockSocketResponse(for: line, surfaceId: surfaceId) + "\n"
+            let response = codexHookMockSocketResponse(
+                for: line,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId
+            ) + "\n"
             _ = response.withCString { ptr in
                 Darwin.write(clientFD, ptr, strlen(ptr))
             }
@@ -171,19 +182,30 @@ func handleCodexHookMockSocketClient(
     }
 }
 
-func codexHookMockSocketResponse(for line: String, surfaceId: String) -> String {
+func codexHookMockSocketResponse(for line: String, workspaceId: String, surfaceId: String) -> String {
     guard let payload = codexHookJSONObject(line),
           let id = payload["id"] as? String else {
         return "OK"
     }
-    if payload["method"] as? String == "surface.list" {
+    switch payload["method"] as? String {
+    case "surface.list":
         return codexHookV2Response(
             id: id,
             ok: true,
             result: ["surfaces": [["id": surfaceId, "ref": surfaceId, "focused": true]]]
         )
+    case "system.resolve_terminal":
+        return codexHookV2Response(
+            id: id,
+            ok: true,
+            result: [
+                "tty_bindings": [],
+                "pid_binding": ["workspace_id": workspaceId, "surface_id": surfaceId],
+            ]
+        )
+    default:
+        return codexHookV2Response(id: id, ok: true, result: [:])
     }
-    return codexHookV2Response(id: id, ok: true, result: [:])
 }
 
 func codexHookV2Response(

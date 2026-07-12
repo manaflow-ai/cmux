@@ -4081,7 +4081,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["hooks", "codex", "session-start"],
+            arguments: ["hooks", "codex", "session-start", "--workspace", workspaceId, "--surface", surfaceId],
             environment: environment,
             timeout: 5
         )
@@ -4151,7 +4151,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["hooks", "codex", "stop"],
+            arguments: ["hooks", "codex", "stop", "--workspace", workspaceId, "--surface", surfaceId],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -4225,7 +4225,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["hooks", "codex", "stop"],
+            arguments: ["hooks", "codex", "stop", "--workspace", workspaceId, "--surface", surfaceId],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -4303,7 +4303,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["hooks", "codex", "stop"],
+            arguments: ["hooks", "codex", "stop", "--workspace", workspaceId, "--surface", surfaceId],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -4375,7 +4375,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let firstResult = runProcess(
             executablePath: cliPath,
-            arguments: ["hooks", "codex", "prompt-submit"],
+            arguments: ["hooks", "codex", "prompt-submit", "--workspace", workspaceId, "--surface", surfaceId],
             environment: environment,
             standardInput: firstInput,
             timeout: 5
@@ -4394,7 +4394,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let secondResult = runProcess(
             executablePath: cliPath,
-            arguments: ["hooks", "codex", "prompt-submit"],
+            arguments: ["hooks", "codex", "prompt-submit", "--workspace", workspaceId, "--surface", surfaceId],
             environment: environment,
             standardInput: secondInput,
             timeout: 5
@@ -4448,7 +4448,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["hooks", "codex", "stop"],
+            arguments: ["hooks", "codex", "stop", "--workspace", workspaceId, "--surface", surfaceId],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -4509,7 +4509,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["hooks", "codex", "stop"],
+            arguments: ["hooks", "codex", "stop", "--workspace", workspaceId, "--surface", surfaceId],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -4570,7 +4570,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["hooks", "codex", "stop"],
+            arguments: ["hooks", "codex", "stop", "--workspace", workspaceId, "--surface", surfaceId],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -4631,7 +4631,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["hooks", "codex", "stop"],
+            arguments: ["hooks", "codex", "stop", "--workspace", workspaceId, "--surface", surfaceId],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -4692,7 +4692,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["hooks", "codex", "stop"],
+            arguments: ["hooks", "codex", "stop", "--workspace", workspaceId, "--surface", surfaceId],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -4767,7 +4767,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["hooks", "codex", "stop"],
+            arguments: ["hooks", "codex", "stop", "--workspace", workspaceId, "--surface", surfaceId],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -4844,7 +4844,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["hooks", "codex", "stop"],
+            arguments: ["hooks", "codex", "stop", "--workspace", workspaceId, "--surface", surfaceId],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -4918,7 +4918,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["hooks", "codex", "stop"],
+            arguments: ["hooks", "codex", "stop", "--workspace", workspaceId, "--surface", surfaceId],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -4993,7 +4993,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["hooks", "codex", "stop"],
+            arguments: ["hooks", "codex", "stop", "--workspace", workspaceId, "--surface", surfaceId],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -5063,7 +5063,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["hooks", "codex", "stop"],
+            arguments: ["hooks", "codex", "stop", "--workspace", workspaceId, "--surface", surfaceId],
             environment: environment,
             standardInput: hookInput,
             timeout: 5

@@ -2,17 +2,6 @@ import XCTest
 import Darwin
 
 extension CLINotifyProcessIntegrationRegressionTests {
-    struct GenericHookPersistenceScenario {
-        let agent: String
-        let subcommand: String
-        let sessionId: String
-        let executable: String
-        let launchArguments: [String]
-        let extraEnvironment: [String: String]
-        let expectedArguments: [String]
-        let expectedEnvironment: [String: String]?
-    }
-
     func testGenericHookAgentsPersistSanitizedLaunchCommandsForSessionRestore() throws {
         let scenarios: [GenericHookPersistenceScenario] = [
             GenericHookPersistenceScenario(
@@ -324,6 +313,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "surface.list":
                 return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "system.resolve_terminal":
+                return self.terminalResolverResponse(id: id, workspaceId: workspaceId, surfaceId: surfaceId)
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             default:
@@ -582,7 +573,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ]
 
         func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
-            let serverHandled = startAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 4)
+            let serverHandled = startAgentHookMockServer(
+                listenerFD: listenerFD,
+                state: state,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                connectionCount: 4
+            )
             let result = runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "hermes-agent", subcommand],
@@ -742,6 +739,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 switch method {
                 case "surface.list":
                     return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "system.resolve_terminal":
+                    return self.terminalResolverResponse(id: id, workspaceId: workspaceId, surfaceId: surfaceId)
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -1373,7 +1372,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "GROK_HOME": grokHome.path,
         ]
 
-        startDetachedAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 80)
+        startDetachedAgentHookMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            connectionCount: 80
+        )
 
         func runGrokHook(_ subcommand: String, input: String) -> ProcessRunResult {
             let result = runProcess(
@@ -1960,6 +1965,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                             },
                         ]
                     )
+                case "system.resolve_terminal":
+                    return self.terminalResolverResponse(id: id, workspaceId: workspaceId, surfaceId: surfaceId)
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -2123,6 +2130,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 switch method {
                 case "surface.list":
                     return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "system.resolve_terminal":
+                    return self.terminalResolverResponse(id: id, workspaceId: workspaceId, surfaceId: surfaceId)
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -2225,6 +2234,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 switch method {
                 case "surface.list":
                     return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "system.resolve_terminal":
+                    return self.terminalResolverResponse(id: id, workspaceId: workspaceId, surfaceId: surfaceId)
                 case "feed.push":
                     return stallFeedTelemetry ? nil : self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -2330,17 +2341,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 case "surface.list":
                     return self.surfaceListResponse(id: id, surfaceId: surfaceId)
                 case "system.resolve_terminal":
-                    return self.v2Response(
-                        id: id,
-                        ok: true,
-                        result: [
-                            "tty_bindings": [],
-                            "pid_binding": [
-                                "workspace_id": workspaceId,
-                                "surface_id": surfaceId,
-                            ],
-                        ]
-                    )
+                    return self.terminalResolverResponse(id: id, workspaceId: workspaceId, surfaceId: surfaceId)
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -2513,6 +2514,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             input: String,
             environment: [String: String] = baseEnvironment
         ) -> ProcessRunResult {
+            let resolvedSurfaceId = input.contains(runningSessionId) ? runningSurfaceId : completingSurfaceId
             let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
                 guard let payload = self.jsonObject(line) else {
                     return "OK"
@@ -2532,6 +2534,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                             ],
                         ]
                     )
+                case "system.resolve_terminal":
+                    return self.terminalResolverResponse(id: id, workspaceId: workspaceId, surfaceId: resolvedSurfaceId)
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
                 default:
@@ -2683,6 +2687,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         ],
                     ]
                 )
+            case "system.resolve_terminal":
+                return self.terminalResolverResponse(id: id, workspaceId: workspaceId, surfaceId: completingSurfaceId)
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             default:
@@ -3159,116 +3165,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(isDirectory.boolValue)
     }
 
-    func runGenericHookPersistenceScenario(_ scenario: GenericHookPersistenceScenario) throws {
-        let cliPath = try bundledCLIPath()
-        let socketPath = makeSocketPath("hook-\(scenario.agent)")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = MockSocketServerState()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-\(scenario.agent)-hook-\(UUID().uuidString)", isDirectory: true)
-        let workspace = root.appendingPathComponent("repo", isDirectory: true)
-        let workspaceId = "11111111-1111-1111-1111-111111111111"
-        let surfaceId = "22222222-2222-2222-2222-222222222222"
-
-        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-            try? FileManager.default.removeItem(at: root)
-        }
-
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            guard let payload = self.jsonObject(line) else {
-                return "OK"
-            }
-            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
-                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
-            }
-            switch method {
-            case "surface.list":
-                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
-            case "surface.resume.set":
-                return self.v2Response(id: id, ok: true, result: ["ok": true])
-            case "feed.push":
-                return self.v2Response(id: id, ok: true, result: [:])
-            default:
-                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
-            }
-        }
-
-        var environment: [String: String] = [
-            "HOME": root.path,
-            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-            "PWD": workspace.path,
-            "CMUX_SOCKET_PATH": socketPath,
-            "CMUX_WORKSPACE_ID": workspaceId,
-            "CMUX_SURFACE_ID": surfaceId,
-            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
-            "CMUX_AGENT_LAUNCH_KIND": scenario.agent,
-            "CMUX_AGENT_LAUNCH_EXECUTABLE": scenario.executable,
-            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(scenario.launchArguments),
-            "CMUX_AGENT_LAUNCH_CWD": workspace.path,
-            "CMUX_CLI_SENTRY_DISABLED": "1",
-        ]
-        for (key, value) in scenario.extraEnvironment {
-            environment[key] = value
-        }
-
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["hooks", scenario.agent, scenario.subcommand],
-            environment: environment,
-            standardInput: #"{"session_id":"\#(scenario.sessionId)","cwd":"\#(workspace.path)","hook_event_name":"SessionStart"}"#,
-            timeout: 5
-        )
-
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "{}\n")
-
-        let storeURL = root.appendingPathComponent("\(scenario.agent)-hook-sessions.json", isDirectory: false)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
-        let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
-        let session = try XCTUnwrap(sessions[scenario.sessionId] as? [String: Any])
-        XCTAssertEqual(session["workspaceId"] as? String, workspaceId)
-        XCTAssertEqual(session["surfaceId"] as? String, surfaceId)
-        XCTAssertEqual(session["cwd"] as? String, workspace.path)
-
-        let launchCommand = try XCTUnwrap(session["launchCommand"] as? [String: Any])
-        XCTAssertEqual(launchCommand["launcher"] as? String, scenario.agent)
-        XCTAssertEqual(launchCommand["executablePath"] as? String, scenario.executable)
-        XCTAssertEqual(launchCommand["arguments"] as? [String], scenario.expectedArguments)
-        XCTAssertEqual(launchCommand["workingDirectory"] as? String, workspace.path)
-        XCTAssertEqual(launchCommand["environment"] as? [String: String], scenario.expectedEnvironment)
-
-        if scenario.agent == "kiro" {
-            let resumeSetRequests = state.commands.compactMap { command -> [String: Any]? in
-                guard let payload = self.jsonObject(command),
-                      payload["method"] as? String == "surface.resume.set" else {
-                    return nil
-                }
-                return payload["params"] as? [String: Any]
-            }
-            XCTAssertEqual(resumeSetRequests.count, 1, state.commands.joined(separator: "\n"))
-            let params = try XCTUnwrap(resumeSetRequests.first)
-            XCTAssertEqual(params["kind"] as? String, "kiro")
-            XCTAssertEqual(params["checkpoint_id"] as? String, scenario.sessionId)
-            XCTAssertEqual(params["auto_resume"] as? Bool, true)
-            XCTAssertEqual(
-                params["command"] as? String,
-                "cd -- '\(workspace.path)' 2>/dev/null || [ ! -d '\(workspace.path)' ] && '\(scenario.executable)' 'chat' '--resume-id' '\(scenario.sessionId)' '--agent' 'cmux' '--trust-tools' 'fs_read,fs_write'"
-            )
-            XCTAssertEqual(params["environment"] as? [String: String], scenario.expectedEnvironment)
-            XCTAssertFalse(
-                state.commands.contains { command in
-                    self.jsonObject(command)?["method"] as? String == "surface.resume.clear"
-                },
-                "Kiro should publish a resume binding instead of clearing it: \(state.commands)"
-            )
-        }
-    }
-
     /// G2 (https://github.com/manaflow-ai/cmux/issues/5350): plain `codex` under the subrouter account
     /// manager points CODEX_HOME at ~/.codex-accounts/<account>, not ~/.codex. When the launch argv
     /// can't be captured (no CMUX_AGENT_LAUNCH_ARGV_B64 and an exited PID), the session record used to
@@ -3329,6 +3225,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "surface.list":
                 return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "system.resolve_terminal":
+                return self.terminalResolverResponse(id: id, workspaceId: workspaceId, surfaceId: surfaceId)
             case "debug.terminals":
                 return self.v2Response(
                     id: id, ok: true,
@@ -3444,6 +3342,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         ["id": ttySurfaceId, "ref": "surface:2", "focused": false],
                     ]]
                 )
+            case "system.resolve_terminal":
+                return self.terminalResolverResponse(id: id, workspaceId: workspaceId, surfaceId: ttySurfaceId)
             case "debug.terminals":
                 return self.v2Response(
                     id: id, ok: true,
@@ -3532,6 +3432,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "surface.list":
                 // The stale env surface is NOT listed — only the live TTY pane is accessible.
                 return self.surfaceListResponse(id: id, surfaceId: ttySurfaceId)
+            case "system.resolve_terminal":
+                return self.terminalResolverResponse(id: id, workspaceId: workspaceId, surfaceId: ttySurfaceId)
             case "debug.terminals":
                 return self.v2Response(
                     id: id, ok: true,
@@ -3620,6 +3522,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "surface.list":
                 return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "system.resolve_terminal":
+                return self.terminalResolverResponse(id: id, workspaceId: workspaceId, surfaceId: surfaceId)
             case "debug.terminals":
                 return self.v2Response(
                     id: id, ok: true,
