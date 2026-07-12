@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 import os
 
-nonisolated struct CmuxTopProcessCPUSample: Sendable {
+struct CmuxTopProcessCPUSample: Sendable {
     let totalTimeTicks: UInt64
     let sampledAtNanoseconds: UInt64
 }

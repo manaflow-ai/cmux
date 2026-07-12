@@ -2,7 +2,7 @@ import Foundation
 import Darwin
 import os
 
-nonisolated struct CmuxTopProcessScopeCacheKey: Hashable {
+struct CmuxTopProcessScopeCacheKey: Hashable {
     let pid: Int
     let startSeconds: Int
     let startMicroseconds: Int
@@ -34,7 +34,7 @@ nonisolated let cmuxTopNegativeScopeTTLNanoseconds: UInt64 = 60 * 1_000_000_000
 // probe completed (the scope may legitimately be absent) and is safe to cache.
 // `unavailable` means a transient failure (process exited mid-probe, pid reuse,
 // or a failed sysctl) and must NOT be cached so the next poll retries.
-nonisolated enum CmuxTopProcessScopeProbeResult: Equatable {
+enum CmuxTopProcessScopeProbeResult: Equatable {
     case resolved(CmuxTopProcessScope?)
     case unavailable
 }

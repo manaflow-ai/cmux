@@ -3,7 +3,7 @@ import Foundation
 
 nonisolated let cmuxTopMemoryDiagnosticDefaultGroupLimit = 12
 
-nonisolated struct CmuxTopProcessAttribution: Hashable, Sendable {
+struct CmuxTopProcessAttribution: Hashable, Sendable {
     let workspaceID: UUID?
     let workspaceRef: String?
     let paneID: UUID?

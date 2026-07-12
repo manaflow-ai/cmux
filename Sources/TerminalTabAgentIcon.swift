@@ -27,7 +27,7 @@ fileprivate func terminalTabAgentIconImageData(assetName: String) -> Data? {
 /// including project-config overrides) resolve through their registration's
 /// `iconAssetName` so this file never becomes a second source of truth for
 /// registered-agent branding.
-nonisolated struct TerminalTabAgentIconResolver {
+struct TerminalTabAgentIconResolver {
     /// One live agent candidate: its normalized status key plus the recorded
     /// process start identity used to order concurrent agents by recency.
     struct LiveAgent {

@@ -9,7 +9,7 @@ private nonisolated let agentChatThemeSyncLogger = Logger(
     category: "AgentChatThemeSync"
 )
 
-nonisolated struct AgentChatThemePayload: Codable, Equatable {
+struct AgentChatThemePayload: Codable, Equatable {
     let background: String
     let foreground: String
     let palette: [String]

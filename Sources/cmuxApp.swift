@@ -4662,7 +4662,7 @@ final class AppIconAppearanceObserver: NSObject {
     }
 }
 
-nonisolated enum BuildFlavor: String, Sendable {
+enum BuildFlavor: String, Sendable {
     case dev
     case nightly
     case stable
