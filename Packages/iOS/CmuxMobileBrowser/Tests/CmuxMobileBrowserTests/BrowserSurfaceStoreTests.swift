@@ -350,6 +350,37 @@ import Testing
         #expect(defaults.data(forKey: "cmux.mobile.browserSurfaces.v1") == nil)
     }
 
+    @Test func staleQueuedArchiveGenerationCannotRestoreAfterScopeTransition() throws {
+        let suiteName = "BrowserSurfaceStoreTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let key = "cmux.mobile.browserSurfaces.v1"
+        let scope = BrowserPersistenceScope(userID: "user-a", teamID: "team-a")
+        let staleArchive = BrowserSurfaceArchive(
+            scope: scope,
+            surfaces: [
+                BrowserSurfaceSnapshot(
+                    workspaceID: "stale-workspace",
+                    surfaceID: "stale-surface",
+                    currentURL: "https://stale.example",
+                    title: "Stale",
+                    contentMode: "recommended",
+                    isSelected: true
+                ),
+            ],
+            generation: "prior-owner-generation"
+        )
+        defaults.set("current-owner-generation", forKey: "\(key).generation")
+        defaults.set(try JSONEncoder().encode(staleArchive), forKey: key)
+
+        let observer = BrowserSurfaceStore(defaultURL: nil, persistenceDefaults: defaults)
+        observer.setPersistenceScope(scope)
+
+        #expect(observer.browser(for: "stale-workspace") == nil)
+        #expect(defaults.data(forKey: key) == nil)
+    }
+
     @Test func ownerlessLegacyArrayIsNeverClaimedByNextAccount() throws {
         let suiteName = "BrowserSurfaceStoreTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
