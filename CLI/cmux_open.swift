@@ -199,7 +199,7 @@ extension CMUXCLI {
         var completeDeferred: (() throws -> DiffViewerWriteResult)? = nil
     }
 
-    private struct DiffViewerDeferredSourceSet {
+    struct DiffViewerDeferredSourceSet {
         var pages: [DiffViewerDeferredSourcePage]
         var layout: String
         var layoutSource: String
@@ -213,7 +213,7 @@ extension CMUXCLI {
         var token: String?
     }
 
-    private struct DiffViewerDeferredSourcePage {
+    struct DiffViewerDeferredSourcePage {
         var source: DiffSource
         var url: URL
         var viewerURL: URL
@@ -230,7 +230,7 @@ extension CMUXCLI {
         var sourceFallbacks: [DiffSource: DiffViewerDeferredSourceFallback] = [:]
     }
 
-    private struct DiffViewerDeferredSourceFallback {
+    struct DiffViewerDeferredSourceFallback {
         var url: URL
         var viewerURL: URL
         var context: DiffSourceContext
@@ -788,7 +788,7 @@ extension CMUXCLI {
         }
     }
 
-    private struct DiffViewerTheme: Codable {
+    struct DiffViewerTheme: Codable {
         var generatedName: String
         var ghosttyName: String
         var type: String
@@ -1847,7 +1847,7 @@ extension CMUXCLI {
     /// The chosen diff base plus why it was chosen and how much we trust it. The
     /// reason is one of the FROZEN-CONTRACT tags ("created from" | "PR base" |
     /// "fork point" | "default" | "manual"); confidence is "high" or "low".
-    private struct DiffBranchBase {
+    struct DiffBranchBase {
         var ref: String
         var reason: String
         var confidence: String
