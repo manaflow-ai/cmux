@@ -165,7 +165,11 @@ extension TerminalController {
                 var windows: [[String: Any]] = []
                 for workspace in self.tabManager?.tabs ?? [] {
                     guard let session = workspace.remoteTmuxSessionMirror else { continue }
+                    let liveWindowIds = Set(session.connection.windowOrder)
                     for (windowId, mirror) in session.windowMirrorByWindowId {
+                        // A window tmux no longer lists cannot settle and
+                        // must not be judged; its mirror is mid-teardown.
+                        guard liveWindowIds.contains(windowId) else { continue }
                         // Hidden mirrors stop tracking by design (they claim
                         // once and their surfaces report collapsed sizes);
                         // only the visible mirror's state is judgeable.

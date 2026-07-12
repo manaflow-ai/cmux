@@ -294,6 +294,19 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             connection.lastWindowSizes.removeValue(forKey: windowId)
             connection.sentWindowSizes.removeValue(forKey: windowId)
         }
+        // Belt for a mirror that outlived its panel bookkeeping: a mirror
+        // whose window tmux no longer lists must die even if the
+        // panel-by-window entry was already gone (a server restart inside a
+        // reused workspace once left a corpse mirror claiming and being
+        // judged against a window id that no longer existed — it could
+        // never settle, and its tree kept replanning against live
+        // container sizes with no layouts ever arriving).
+        for (windowId, mirror) in windowMirrorByWindowId where !liveWindows.contains(windowId) {
+            mirror.teardown()
+            windowMirrorByWindowId[windowId] = nil
+            connection.lastWindowSizes.removeValue(forKey: windowId)
+            connection.sentWindowSizes.removeValue(forKey: windowId)
+        }
         // Drop cached directories for panes tmux no longer reports, so the cache
         // stays bounded across window/pane churn (tmux pane ids never recur).
         panelIdByPane = panelIdByPane.filter { livePanes.contains($0.key) }
