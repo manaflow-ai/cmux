@@ -250,8 +250,10 @@ struct WorkspaceListView: View {
                         showsSpinner: isRestoringStoredMac,
                         titleOverride: nil,
                         descriptionOverride: nil,
-                        retry: nil,
-                        addDevice: nil,
+                        retry: isRestoringStoredMac && store != nil
+                            ? { store?.retryMobileConnection() }
+                            : nil,
+                        addDevice: isRestoringStoredMac ? showAddDevice : nil,
                         reconnect: reconnect
                     )
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))

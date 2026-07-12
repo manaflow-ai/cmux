@@ -1428,7 +1428,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// User-initiated reconnect from the Retry control.
     public func retryMobileConnection() {
+        // An explicit user action supersedes automatic recovery ownership. This
+        // keeps Retry actionable even when an injected store or transport has
+        // not returned: the stale episode is invalidated before one replacement
+        // episode starts, instead of joining work the user asked to replace.
+        if connectionLifecycle.isRecovering {
+            resetConnectionLifecycle()
+        }
+        if connectionState != .connected, pairedMacStore != nil {
+            connectionLifecycle.prepareForStoredMacReconnect()
+        }
         requestConnectionLifecycleRecovery(.manualRetry)
+    }
+
+    /// Yield automatic recovery ownership before the user enters manual pairing.
+    public func prepareForManualPairing() {
+        guard connectionLifecycle.isRecovering else { return }
+        resetConnectionLifecycle()
     }
 
     func captureConnectionRecoveryFailureIfNeeded(wasFailed: Bool) {

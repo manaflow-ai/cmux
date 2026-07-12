@@ -389,6 +389,7 @@ struct CMUXMobileRootView: View {
     }
 
     private func showAddDevice() {
+        store.prepareForManualPairing()
         #if os(iOS)
         addDeviceSheetDetent = .large
         #endif
