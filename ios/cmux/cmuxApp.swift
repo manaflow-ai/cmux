@@ -36,7 +36,11 @@ struct cmuxApp: App {
         registrations.append(
             CmxRouteTransportFactoryRegistration(
                 kind: .iroh,
-                factory: CmxIrohByteTransportFactory(relayOnly: irohRelayOnly)
+                factory: CmxIrohByteTransportFactory(
+                    // TODO: mint via web API.
+                    relayAuthToken: nil,
+                    relayOnly: irohRelayOnly
+                )
             )
         )
         let transportFactory: CmxRouteTransportFactory

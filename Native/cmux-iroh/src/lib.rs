@@ -382,15 +382,20 @@ pub unsafe extern "C" fn cmux_iroh_secret_key_endpoint_id(
 /// - `enable_relay == true` and `relay_url` set: a custom single-relay map
 ///   (`RelayMode::Custom`), i.e. the user's own `iroh-relay`. This is the *only*
 ///   relay (no n0 fallback), so the dialer must be told the same relay URL (it
-///   travels in the published route / pairing code).
+///   travels in the published route / pairing code). When `relay_auth_token`
+///   is non-null and non-empty, it authenticates this endpoint to that custom
+///   relay. A token is ignored when relays are disabled or no custom relay URL
+///   is supplied.
 ///
 /// Returns null on failure with the cause in the error out-params. A malformed
-/// `relay_url` fails with `InvalidArgument`.
+/// `relay_url` fails with `InvalidArgument`. The relay auth token is never
+/// logged or included in route JSON.
 ///
 /// # Safety
 ///
 /// - `secret_key` must point at `secret_key_len` readable bytes.
 /// - `relay_url`, when non-null, must be a NUL-terminated C string.
+/// - `relay_auth_token`, when non-null, must be a NUL-terminated C string.
 /// - `err_kind`, when non-null, must point at a writable `int32_t`.
 /// - `err_buf`, when non-null, must point at `err_cap` writable bytes.
 #[unsafe(no_mangle)]
@@ -400,6 +405,7 @@ pub unsafe extern "C" fn cmux_iroh_endpoint_bind(
     secret_key_len: usize,
     enable_relay: bool,
     relay_url: *const c_char,
+    relay_auth_token: *const c_char,
     accept_connections: bool,
     err_kind: *mut i32,
     err_buf: *mut c_char,
@@ -411,6 +417,7 @@ pub unsafe extern "C" fn cmux_iroh_endpoint_bind(
         secret_key_len,
         enable_relay,
         relay_url,
+        relay_auth_token,
         accept_connections,
         false,
     );
@@ -442,6 +449,7 @@ pub unsafe extern "C" fn cmux_iroh_endpoint_bind_relay_only(
     secret_key_len: usize,
     enable_relay: bool,
     relay_url: *const c_char,
+    relay_auth_token: *const c_char,
     accept_connections: bool,
     err_kind: *mut i32,
     err_buf: *mut c_char,
@@ -453,6 +461,7 @@ pub unsafe extern "C" fn cmux_iroh_endpoint_bind_relay_only(
         secret_key_len,
         enable_relay,
         relay_url,
+        relay_auth_token,
         accept_connections,
         true,
     );
@@ -470,28 +479,12 @@ fn bind_impl(
     secret_key_len: usize,
     enable_relay: bool,
     relay_url: *const c_char,
+    relay_auth_token: *const c_char,
     accept_connections: bool,
     relay_only: bool,
 ) -> Result<Endpoint, FfiError> {
     let key = parse_secret_key(secret_key, secret_key_len)?;
-    // Parse an optional custom relay URL up front so a malformed value fails
-    // fast with `InvalidArgument` (mirrors the dial path's relay handling).
-    let custom_relay = match c_to_str(relay_url) {
-        Some(raw) if !raw.is_empty() => Some(RelayUrl::from_str(raw).map_err(|error| {
-            FfiError::new(
-                CmuxIrohErrorKind::InvalidArgument,
-                format!("invalid relay url: {error:#}"),
-            )
-        })?),
-        _ => None,
-    };
-    let relay_mode = if !enable_relay {
-        RelayMode::Disabled
-    } else if let Some(url) = custom_relay {
-        RelayMode::Custom(RelayMap::from(url))
-    } else {
-        RelayMode::Default
-    };
+    let relay_mode = relay_mode(enable_relay, relay_url, relay_auth_token)?;
     runtime()?
         .block_on(async move {
             let mut builder = Endpoint::builder(presets::N0)
@@ -511,6 +504,42 @@ fn bind_impl(
                 format!("bind failed: {error:#}"),
             )
         })
+}
+
+/// Builds the relay mode used by both endpoint bind entrypoints.
+fn relay_mode(
+    enable_relay: bool,
+    relay_url: *const c_char,
+    relay_auth_token: *const c_char,
+) -> Result<RelayMode, FfiError> {
+    // Parse an optional custom relay URL up front so a malformed value fails
+    // fast with `InvalidArgument` (mirrors the dial path's relay handling).
+    let custom_relay = match c_to_str(relay_url) {
+        Some(raw) if !raw.is_empty() => Some(RelayUrl::from_str(raw).map_err(|error| {
+            FfiError::new(
+                CmuxIrohErrorKind::InvalidArgument,
+                format!("invalid relay url: {error:#}"),
+            )
+        })?),
+        _ => None,
+    };
+    let relay_auth_token = c_to_str(relay_auth_token).filter(|token| !token.is_empty());
+    let relay_mode = if !enable_relay {
+        RelayMode::Disabled
+    } else if let Some(url) = custom_relay {
+        let relay_map = RelayMap::from(url);
+        let relay_map = if let Some(token) = relay_auth_token {
+            relay_map.with_auth_token(token)
+        } else {
+            relay_map
+        };
+        RelayMode::Custom(relay_map)
+    } else {
+        // A token without a custom relay URL is intentionally ignored: relay
+        // auth applies only to the caller-selected private relay map.
+        RelayMode::Default
+    };
+    Ok(relay_mode)
 }
 
 /// Returns the endpoint's `EndpointId` (z-base-32) as a heap string.
@@ -1416,6 +1445,7 @@ mod ffi_seam_tests {
                 key.len(),
                 false, // relay disabled: hermetic, local UDP only
                 ptr::null(),
+                ptr::null(),
                 accept,
                 &raw mut err.kind,
                 err.buf.as_mut_ptr(),
@@ -1473,6 +1503,7 @@ mod ffi_seam_tests {
                 CMUX_IROH_SECRET_KEY_LEN,
                 false,
                 ptr::null(),
+                ptr::null(),
                 false,
                 &raw mut err.kind,
                 err.buf.as_mut_ptr(),
@@ -1490,6 +1521,7 @@ mod ffi_seam_tests {
                 key.as_ptr(),
                 16,
                 false,
+                ptr::null(),
                 ptr::null(),
                 false,
                 &raw mut err.kind,
@@ -1514,6 +1546,7 @@ mod ffi_seam_tests {
                 key.len(),
                 true,
                 bogus.as_ptr(),
+                ptr::null(),
                 false,
                 &raw mut err.kind,
                 err.buf.as_mut_ptr(),
@@ -1523,6 +1556,54 @@ mod ffi_seam_tests {
         assert!(endpoint.is_null(), "malformed relay url must be rejected");
         assert_eq!(err.kind(), CmuxIrohErrorKind::InvalidArgument as i32);
         assert!(err.message().contains("relay url"), "{}", err.message());
+    }
+
+    #[test]
+    fn bind_relay_mode_applies_auth_token_only_to_custom_map() {
+        let relay_url = RelayUrl::from_str("https://127.0.0.1:9/").expect("valid relay url");
+        let relay_cstr = CString::new(relay_url.to_string()).expect("cstring");
+        let token = "cmux.test.jwt";
+        let token_cstr = CString::new(token).expect("cstring");
+        let empty_token = CString::new("").expect("cstring");
+
+        let mode = relay_mode(true, relay_cstr.as_ptr(), token_cstr.as_ptr())
+            .ok()
+            .expect("custom relay mode should parse");
+        let RelayMode::Custom(map) = mode else {
+            panic!("bind path should build a custom relay map");
+        };
+        let config = map
+            .get(&relay_url)
+            .expect("custom relay config must be installed");
+        assert!(
+            config.auth_token.as_deref() == Some(token),
+            "custom relay config should carry the auth token"
+        );
+
+        for absent_token in [ptr::null(), empty_token.as_ptr()] {
+            let mode = relay_mode(true, relay_cstr.as_ptr(), absent_token)
+                .ok()
+                .expect("custom relay mode should parse without a token");
+            let RelayMode::Custom(map) = mode else {
+                panic!("bind path should preserve the custom relay map");
+            };
+            let config = map
+                .get(&relay_url)
+                .expect("custom relay config must be installed");
+            assert!(
+                config.auth_token.is_none(),
+                "null and empty tokens must preserve unauthenticated relay config"
+            );
+        }
+
+        assert!(matches!(
+            relay_mode(true, ptr::null(), token_cstr.as_ptr()),
+            Ok(RelayMode::Default)
+        ));
+        assert!(matches!(
+            relay_mode(false, relay_cstr.as_ptr(), token_cstr.as_ptr()),
+            Ok(RelayMode::Disabled)
+        ));
     }
 
     #[test]
@@ -1606,6 +1687,7 @@ mod ffi_seam_tests {
             usize,
             bool,
             *const c_char,
+            *const c_char,
             bool,
             *mut i32,
             *mut c_char,
@@ -1675,6 +1757,7 @@ mod ffi_seam_tests {
                 listener_key.len(),
                 true,
                 ptr::null(),
+                ptr::null(),
                 true,
                 &raw mut err.kind,
                 err.buf.as_mut_ptr(),
@@ -1711,6 +1794,7 @@ mod ffi_seam_tests {
                 dialer_key.as_ptr(),
                 dialer_key.len(),
                 true,
+                ptr::null(),
                 ptr::null(),
                 false,
                 &raw mut err.kind,

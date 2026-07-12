@@ -80,7 +80,9 @@ final class MobileIrohHostLane {
         let listener = CmxIrohByteListener(
             secretKey: Self.loadOrCreateIrohSecretKey(),
             enableRelay: true,
-            relayURL: relayURL
+            relayURL: relayURL,
+            // TODO: mint via web API.
+            relayAuthToken: nil
         )
         let generation = UUID()
         acceptGeneration = generation
