@@ -10,6 +10,7 @@ import type {
   Id,
 } from "cmux/browser";
 import { debounce } from "../lib/debounce";
+import { terminalTheme } from "../lib/terminalTheme";
 
 interface AttachedTerminalOptions {
   client: CmuxClient | null;
@@ -26,17 +27,13 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     if (!host || !client || surface === null) return;
     let cancelled = false;
     const terminal = new Terminal({
+      allowProposedApi: true,
       cursorBlink: true,
       convertEol: false,
       fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
       fontSize: 13,
       lineHeight: 1.15,
-      theme: {
-        background: "#090c10",
-        foreground: "#d8dee9",
-        cursor: "#8be9fd",
-        selectionBackground: "#334155",
-      },
+      theme: terminalTheme(host),
     });
     const fit = new FitAddon();
     terminal.loadAddon(fit);

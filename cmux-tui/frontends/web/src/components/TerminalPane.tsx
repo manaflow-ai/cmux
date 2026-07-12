@@ -1,53 +1,170 @@
-import { useCallback, useState } from "react";
-import type { CmuxClient, Id } from "cmux/browser";
+import { useCallback, useReducer, useState } from "react";
+import type { CmuxClient, Id, LivePane, Tab } from "cmux/browser";
 import { t } from "../i18n";
+import type { PaneLayoutView } from "../lib/layout";
+import { layoutToViewModel } from "../lib/layout";
 import type { ScreenView } from "../lib/tree";
+import { contextMenuReducer } from "../lib/contextMenu";
+import { renameCanCommit, renameReducer } from "../lib/rename";
 import { useAttachedTerminal } from "../hooks/useAttachedTerminal";
+import { useContextTrigger } from "../hooks/useContextTrigger";
+import { ContextMenu } from "./ContextMenu";
 import { ExtraKeysBar } from "./ExtraKeysBar";
+import { InlineRename } from "./InlineRename";
 
 interface TerminalPaneProps {
   client: CmuxClient | null;
   screen: ScreenView | null;
   onSelectTab(pane: Id, index: number, surface: Id): void;
+  onNewTab(pane: Id): void;
+  onSplit(pane: Id, dir: "right" | "down"): void;
+  onFocusPane(pane: Id): void;
+  onZoomPane(pane: Id): void;
+  onClosePane(pane: Id): void;
+  onCloseSurface(surface: Id): void;
+  onRenamePane(pane: Id, name: string): void;
+  onRenameSurface(surface: Id, name: string): void;
 }
 
-export function TerminalPane({ client, screen, onSelectTab }: TerminalPaneProps) {
-  // Errors are keyed to the attachment they came from, so a stale alert never
-  // overlays a healthy terminal after a reconnect (new client) or tab switch.
+interface TabButtonProps {
+  tab: Tab;
+  index: number;
+  pane: LivePane;
+  onSelect(): void;
+  onNewTab(): void;
+  onClose(surface: Id): void;
+  onRename(surface: Id, name: string): void;
+}
+
+function TabButton({ tab, index, pane, onSelect, onNewTab, onClose, onRename }: TabButtonProps) {
+  const [menu, dispatchMenu] = useReducer(contextMenuReducer, { open: false });
+  const [rename, dispatchRename] = useReducer(renameReducer, null);
+  const trigger = useContextTrigger((point) => dispatchMenu({ type: "open", point }));
+  const label = tab.name || tab.title || t("tab", { number: index + 1 });
+  const commit = () => {
+    if (!renameCanCommit(rename)) return;
+    onRename(tab.surface, rename.value.trim());
+    dispatchRename({ type: "commit" });
+  };
+
+  return (
+    <span className="tab-wrap" {...trigger}>
+      {rename?.kind === "surface" && rename.id === tab.surface ? (
+        <InlineRename
+          value={rename.value}
+          onChange={(value) => dispatchRename({ type: "change", value })}
+          onCommit={commit}
+          onCancel={() => dispatchRename({ type: "cancel" })}
+        />
+      ) : (
+        <button className={pane.active_tab === index ? "active" : ""} onClick={onSelect} type="button">
+          <span aria-hidden="true">●</span>{label}
+        </button>
+      )}
+      {menu.open && (
+        <ContextMenu
+          point={menu.point}
+          onClose={() => dispatchMenu({ type: "close" })}
+          items={[
+            {
+              label: t("renameTab"),
+              onSelect: () => dispatchRename({ type: "begin", target: { kind: "surface", id: tab.surface, value: label } }),
+            },
+            { label: t("newTabRight"), onSelect: onNewTab },
+            { label: t("closeTab"), danger: true, onSelect: () => onClose(tab.surface) },
+          ]}
+        />
+      )}
+    </span>
+  );
+}
+
+interface PaneLeafProps extends Omit<TerminalPaneProps, "screen"> {
+  pane: LivePane | null;
+  paneId: Id;
+  active: boolean;
+  zoomed: boolean;
+}
+
+function PaneLeaf({
+  client,
+  pane,
+  paneId,
+  active,
+  zoomed,
+  onSelectTab,
+  onNewTab,
+  onSplit,
+  onFocusPane,
+  onZoomPane,
+  onClosePane,
+  onCloseSurface,
+  onRenamePane,
+  onRenameSurface,
+}: PaneLeafProps) {
+  const [menu, dispatchMenu] = useReducer(contextMenuReducer, { open: false });
+  const [rename, dispatchRename] = useReducer(renameReducer, null);
+  const trigger = useContextTrigger((point) => dispatchMenu({ type: "open", point }));
+  const { onPointerDown: startLongPress, ...contextTrigger } = trigger;
   const [errorState, setErrorState] = useState<{
     client: CmuxClient | null;
     surface: Id | null;
     message: string;
   } | null>(null);
-  const surface = screen?.tab?.kind === "pty" && !screen.tab.dead ? screen.tab.surface : null;
+  const tab = pane?.tabs[pane.active_tab] ?? null;
+  const surface = tab?.kind === "pty" && !tab.dead ? tab.surface : null;
   const reportError = useCallback(
     (error: Error) => setErrorState({ client, surface, message: error.message }),
     [client, surface],
   );
   const { terminalRef, focused } = useAttachedTerminal({ client, surface, onError: reportError });
-  const terminalError =
-    errorState !== null && errorState.client === client && errorState.surface === surface
-      ? errorState.message
-      : null;
+  const terminalError = errorState !== null && errorState.client === client && errorState.surface === surface
+    ? errorState.message
+    : null;
+  const commitPaneRename = () => {
+    if (!renameCanCommit(rename)) return;
+    onRenamePane(paneId, rename.value.trim());
+    dispatchRename({ type: "commit" });
+  };
 
   return (
-    <section className={`terminal-panel${focused ? " terminal-focused" : ""}`} aria-label={t("terminal")}>
+    <section
+      aria-label={t("pane", { number: paneId })}
+      className={`terminal-panel${active ? " active-pane" : ""}${focused ? " terminal-focused" : ""}`}
+      {...contextTrigger}
+      onPointerDown={(event) => {
+        startLongPress(event);
+        if ((event.target as HTMLElement).closest(".tab-bar, .extra-keys")) return;
+        if (!active) onFocusPane(paneId);
+      }}
+    >
       <div className="tab-bar">
-        {screen?.pane?.tabs.map((tab, index) => (
-          <button
-            className={screen.pane?.active_tab === index ? "active" : ""}
-            key={tab.surface}
-            onClick={() => onSelectTab(screen.pane!.id, index, tab.surface)}
-            type="button"
-          >
-            <span aria-hidden="true">●</span>{tab.name || tab.title || t("tab", { number: index + 1 })}
-          </button>
+        {rename?.kind === "pane" && rename.id === paneId && (
+          <InlineRename
+            value={rename.value}
+            onChange={(value) => dispatchRename({ type: "change", value })}
+            onCommit={commitPaneRename}
+            onCancel={() => dispatchRename({ type: "cancel" })}
+          />
+        )}
+        {pane?.tabs.map((candidate, index) => (
+          <TabButton
+            key={candidate.surface}
+            tab={candidate}
+            index={index}
+            pane={pane}
+            onSelect={() => onSelectTab(paneId, index, candidate.surface)}
+            onNewTab={() => onNewTab(paneId)}
+            onClose={onCloseSurface}
+            onRename={onRenameSurface}
+          />
         ))}
+        <button className="new-tab" aria-label={t("newTab")} onClick={() => onNewTab(paneId)} type="button">+</button>
       </div>
       <div className="terminal-stage">
         {surface !== null && <div className="terminal-host" ref={terminalRef} />}
-        {!screen?.tab && <div className="terminal-empty">{t("noSurface")}</div>}
-        {screen?.tab?.kind === "browser" && <div className="terminal-empty">{t("browserSurface")}</div>}
+        {!tab && <div className="terminal-empty">{t("noSurface")}</div>}
+        {tab?.kind === "browser" && <div className="terminal-empty">{t("browserSurface")}</div>}
         {terminalError && <div className="terminal-error" role="alert">{terminalError}</div>}
       </div>
       <ExtraKeysBar
@@ -56,6 +173,57 @@ export function TerminalPane({ client, screen, onSelectTab }: TerminalPaneProps)
           if (client !== null && surface !== null) void client.send(surface, { text }).catch(reportError);
         }}
       />
+      {menu.open && (
+        <ContextMenu
+          point={menu.point}
+          onClose={() => dispatchMenu({ type: "close" })}
+          items={[
+            { label: t("splitRight"), onSelect: () => onSplit(paneId, "right") },
+            { label: t("splitDown"), onSelect: () => onSplit(paneId, "down") },
+            {
+              label: t("renamePane"),
+              onSelect: () => dispatchRename({ type: "begin", target: { kind: "pane", id: paneId, value: pane?.name || "" } }),
+            },
+            { label: zoomed ? t("restorePane") : t("zoomPane"), onSelect: () => onZoomPane(paneId) },
+            { label: t("closePane"), danger: true, onSelect: () => onClosePane(paneId) },
+          ]}
+        />
+      )}
     </section>
   );
+}
+
+interface LayoutNodeProps extends Omit<TerminalPaneProps, "screen"> {
+  node: PaneLayoutView;
+  screen: ScreenView;
+  basis?: number;
+}
+
+function LayoutNode({ node, screen, basis, ...actions }: LayoutNodeProps) {
+  const style = basis === undefined ? undefined : { flex: `0 0 ${basis}%` };
+  if (node.type === "pane") {
+    return (
+      <div className="pane-leaf" style={style}>
+        <PaneLeaf
+          {...actions}
+          pane={screen.panes.find((pane) => pane.id === node.pane) ?? null}
+          paneId={node.pane}
+          active={screen.activePane === node.pane}
+          zoomed={screen.zoomedPane === node.pane}
+        />
+      </div>
+    );
+  }
+  return (
+    <div className={`pane-group ${node.direction}`} style={style}>
+      <LayoutNode {...actions} node={node.first} screen={screen} basis={node.firstPercent} />
+      <LayoutNode {...actions} node={node.second} screen={screen} basis={node.secondPercent} />
+    </div>
+  );
+}
+
+export function TerminalPane({ screen, ...props }: TerminalPaneProps) {
+  if (!screen) return <section className="terminal-empty terminal-root">{t("noSurface")}</section>;
+  const node = layoutToViewModel(screen.layout, screen.zoomedPane);
+  return <div className="pane-layout"><LayoutNode {...props} node={node} screen={screen} /></div>;
 }

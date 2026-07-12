@@ -45,6 +45,7 @@ export function useCmuxClient() {
   const [unread, setUnread] = useState<Set<Id>>(() => new Set());
   const [toasts, setToasts] = useState<Toast[]>([]);
   const refreshRef = useRef<(() => Promise<void>) | null>(null);
+  const localToastId = useRef(-1);
 
   useEffect(() => {
     if (!config) return;
@@ -156,28 +157,67 @@ export function useCmuxClient() {
     setConfig({ ...next, token: next.token || undefined });
   }, []);
 
-  const selectScreen = useCallback(async (workspaceIndex: number, screenIndex: number, surface: Id | null) => {
+  const runMutation = useCallback(async (mutation: (client: CmuxClient) => Promise<unknown>) => {
     if (!state.client) return;
-    await state.client.selectWorkspace({ index: workspaceIndex });
-    await state.client.selectScreen({ index: screenIndex });
-    if (surface !== null) setUnread((current) => {
-      const next = new Set(current);
-      next.delete(surface);
-      return next;
-    });
-    await refreshRef.current?.();
+    try {
+      await mutation(state.client);
+    } catch (error) {
+      const toast: Toast = {
+        event: "notification",
+        notification: localToastId.current--,
+        title: t("commandFailed"),
+        body: error instanceof Error ? error.message : String(error),
+        level: "error",
+        surface: null,
+      };
+      setToasts((current) => [...current.slice(-2), toast]);
+    }
   }, [state.client]);
 
-  const selectTab = useCallback(async (pane: Id, index: number, surface: Id) => {
-    if (!state.client) return;
-    await state.client.selectTab({ pane, index });
-    setUnread((current) => {
-      const next = new Set(current);
-      next.delete(surface);
-      return next;
+  const selectScreen = useCallback(async (workspaceIndex: number, screenIndex: number, surface: Id | null) => {
+    await runMutation(async (client) => {
+      await client.selectWorkspace({ index: workspaceIndex });
+      await client.selectScreen({ index: screenIndex });
+      if (surface !== null) setUnread((current) => {
+        const next = new Set(current);
+        next.delete(surface);
+        return next;
+      });
     });
-    await refreshRef.current?.();
-  }, [state.client]);
+  }, [runMutation]);
+
+  const selectTab = useCallback(async (pane: Id, index: number, surface: Id) => {
+    await runMutation(async (client) => {
+      await client.selectTab({ pane, index });
+      setUnread((current) => {
+        const next = new Set(current);
+        next.delete(surface);
+        return next;
+      });
+    });
+  }, [runMutation]);
+
+  const mutations = useMemo(() => ({
+    newWorkspace: () => runMutation((client) => client.newWorkspace()),
+    newScreen: (workspace: Id) => runMutation((client) => client.newScreen({ workspace })),
+    newTab: (pane: Id) => runMutation((client) => client.newTab({ pane })),
+    newBrowserTab: (pane: Id, url: string) => runMutation((client) => client.newBrowserTab(url, { pane })),
+    split: (pane: Id, dir: "right" | "down") => runMutation((client) => client.split(pane, dir)),
+    focusPane: (pane: Id) => runMutation((client) => client.focusPane(pane)),
+    closeWorkspace: (workspace: Id) => runMutation((client) => client.closeWorkspace(workspace)),
+    closeScreen: (screen: Id) => runMutation((client) => client.closeScreen(screen)),
+    closePane: (pane: Id) => runMutation((client) => client.closePane(pane)),
+    closeSurface: (surface: Id) => runMutation((client) => client.closeSurface(surface)),
+    renameWorkspace: (workspace: Id, name: string) => runMutation((client) => client.renameWorkspace(workspace, name)),
+    renameScreen: (screen: Id, name: string) => runMutation((client) => client.renameScreen(screen, name)),
+    renamePane: (pane: Id, name: string) => runMutation((client) => client.renamePane(pane, name)),
+    renameSurface: (surface: Id, name: string) => runMutation((client) => client.renameSurface(surface, name)),
+    zoomPane: (pane: Id) => runMutation((client) => client.zoomPane({ pane, mode: "toggle" })),
+    swapPane: (pane: Id, dir: "left" | "right" | "up" | "down") =>
+      runMutation((client) => client.swapPane({ pane, dir })),
+    setRatio: (pane: Id, dir: "right" | "down", ratio: number) =>
+      runMutation((client) => client.setRatio(pane, dir, ratio)),
+  }), [runMutation]);
 
   const dismissToast = useCallback((notification: Id) => {
     setToasts((current) => current.filter((toast) => toast.notification !== notification));
@@ -192,6 +232,7 @@ export function useCmuxClient() {
     connect,
     selectScreen,
     selectTab,
+    mutations,
     dismissToast,
   };
 }

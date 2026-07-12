@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Tree } from "cmux/browser";
-import { activeScreen, treeToViewModel } from "../src/lib/tree";
+import { activeScreen, screenSelection, treeToViewModel } from "../src/lib/tree";
 
 const tree: Tree = {
   workspaces: [{
@@ -38,5 +38,26 @@ describe("treeToViewModel", () => {
     const missing = structuredClone(tree);
     missing.workspaces[0]!.screens[0]!.active_pane = 99;
     expect(treeToViewModel(missing, new Set())[0]?.screens[0]?.tab).toBeNull();
+  });
+
+  it("exposes every screen to the drawer and maps a screen to the shared selection command", () => {
+    const multipleScreens = structuredClone(tree);
+    const secondScreen = structuredClone(multipleScreens.workspaces[0]!.screens[0]!);
+    secondScreen.id = 6;
+    secondScreen.active = false;
+    secondScreen.active_pane = 7;
+    secondScreen.layout = { type: "leaf", pane: 7 };
+    secondScreen.panes = [{
+      id: 7,
+      name: null,
+      active_tab: 0,
+      tabs: [{ surface: 8, kind: "pty", browser_source: null, name: null, title: "editor", size: null, dead: false }],
+    }];
+    multipleScreens.workspaces[0]!.screens.push(secondScreen);
+
+    const drawerWorkspaces = treeToViewModel(multipleScreens, new Set());
+
+    expect(drawerWorkspaces[0]?.screens.map(({ id }) => id)).toEqual([2, 6]);
+    expect(screenSelection(drawerWorkspaces[0]!.screens[1]!)).toEqual([0, 1, 8]);
   });
 });
