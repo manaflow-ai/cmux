@@ -8,8 +8,13 @@ MARKED_JS="$ROOT/Resources/markdown-viewer/marked.min.js"
 
 write_agent_session_html() {
   out_dir="$1"
+  agent_session_js="$out_dir/agent-session.js"
   if [ ! -f "$MARKED_JS" ]; then
     echo "error: missing markdown parser asset at $MARKED_JS" >&2
+    exit 1
+  fi
+  if [ ! -f "$agent_session_js" ]; then
+    echo "error: missing Agent Chat webview bundle at $agent_session_js" >&2
     exit 1
   fi
   {
@@ -25,10 +30,13 @@ write_agent_session_html() {
     printf '    <script>\n'
     /usr/bin/perl -0pe 's{</script}{<\\/script}ig; s{<!--}{<\\!--}g' "$MARKED_JS"
     printf '\n    </script>\n'
-    printf '    <script type="module" src="./main.mjs"></script>\n'
+    printf '    <script>\n'
+    /usr/bin/perl -0pe 's{</script}{<\/script}ig; s{<!--}{<\!--}g' "$agent_session_js"
+    printf '\n    </script>\n'
     printf '  </body>\n'
     printf '</html>\n'
   } > "$out_dir/agent-session.html"
+  rm -f "$agent_session_js"
 }
 
 strip_trailing_line_whitespace() {
