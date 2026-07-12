@@ -3,6 +3,12 @@ import CMUXAgentLaunch
 import CmuxWorkspaces
 import Foundation
 
+enum WorkspaceSurfaceResumeTargetLookup {
+    case found(UUID)
+    case missing
+    case ambiguous
+}
+
 extension Workspace {
     /// Re-adopts a persisted panel identity unless it is still live elsewhere.
     func adoptPersistedStableSurfaceId(from snapshot: SessionPanelSnapshot, panelId: UUID) {
@@ -22,20 +28,22 @@ extension Workspace {
         return restoreClosedPanel(entry)
     }
 
-    /// Resolves a resume target by runtime panel id first, then restart-stable surface id.
-    func terminalPanelIdForSurfaceResumeTarget(_ targetId: UUID) -> UUID? {
+    /// Resolves a resume target only when its runtime or restart-stable id is unique.
+    func surfaceResumeTargetLookup(_ targetId: UUID) -> WorkspaceSurfaceResumeTargetLookup {
+        var matches = Set<UUID>()
         if terminalPanel(for: targetId) != nil {
-            return targetId
+            matches.insert(targetId)
         }
-        let matches = panels.values.compactMap { panel -> UUID? in
+        for panel in panels.values {
             guard panel.stableSurfaceId == targetId,
                   terminalPanel(for: panel.id) != nil else {
-                return nil
+                continue
             }
-            return panel.id
+            matches.insert(panel.id)
         }
-        guard matches.count == 1 else { return nil }
-        return matches[0]
+        guard let match = matches.first else { return .missing }
+        guard matches.count == 1 else { return .ambiguous }
+        return .found(match)
     }
 
     func logSessionRestoreTerminalPanelBinding(
@@ -352,7 +360,6 @@ extension Workspace {
 }
 
 struct SurfaceResumeTargetLocation {
-    let windowId: UUID
     let workspaceId: UUID
     let surfaceId: UUID
     let tabManager: TabManager
@@ -364,52 +371,64 @@ enum SurfaceResumeTargetLookup {
     case ambiguous
 }
 
+extension TabManager {
+    /// Resolves a resume target only when exactly one workspace and terminal match.
+    func locateSurfaceResumeTarget(surfaceId targetId: UUID) -> SurfaceResumeTargetLookup {
+        var match: SurfaceResumeTargetLocation?
+        for workspace in tabs {
+            switch workspace.surfaceResumeTargetLookup(targetId) {
+            case .found(let surfaceId):
+                guard match == nil else { return .ambiguous }
+                match = SurfaceResumeTargetLocation(
+                    workspaceId: workspace.id,
+                    surfaceId: surfaceId,
+                    tabManager: self
+                )
+            case .ambiguous:
+                return .ambiguous
+            case .missing:
+                continue
+            }
+        }
+        guard let match else { return .missing }
+        return .found(match)
+    }
+}
+
 extension AppDelegate {
-    /// Locates a terminal globally by runtime panel id first, then restart-stable surface id.
+    /// Locates a terminal globally only when its runtime or restart-stable id is unique.
     func locateSurfaceResumeTarget(
         surfaceId targetId: UUID
     ) -> SurfaceResumeTargetLookup {
-        if let located = locateSurface(surfaceId: targetId) {
-            return .found(SurfaceResumeTargetLocation(
-                windowId: located.windowId,
-                workspaceId: located.workspaceId,
-                surfaceId: targetId,
-                tabManager: located.tabManager
-            ))
-        }
-
         var match: SurfaceResumeTargetLocation?
         var isAmbiguous = false
         var visitedManagers = Set<ObjectIdentifier>()
 
-        func inspect(windowId: UUID, tabManager: TabManager) {
+        func inspect(tabManager: TabManager) {
             guard !isAmbiguous,
                   visitedManagers.insert(ObjectIdentifier(tabManager)).inserted else {
                 return
             }
-            for workspace in tabManager.tabs {
-                guard let surfaceId = workspace.terminalPanelIdForSurfaceResumeTarget(targetId) else {
-                    continue
-                }
+            switch tabManager.locateSurfaceResumeTarget(surfaceId: targetId) {
+            case .found(let located):
                 guard match == nil else {
                     isAmbiguous = true
                     return
                 }
-                match = SurfaceResumeTargetLocation(
-                    windowId: windowId,
-                    workspaceId: workspace.id,
-                    surfaceId: surfaceId,
-                    tabManager: tabManager
-                )
+                match = located
+            case .ambiguous:
+                isAmbiguous = true
+            case .missing:
+                break
             }
         }
 
         for context in mainWindowContexts.values {
-            inspect(windowId: context.windowId, tabManager: context.tabManager)
+            inspect(tabManager: context.tabManager)
         }
         for route in recoverableMainWindowRoutes() {
             guard let tabManager = route.tabManager else { continue }
-            inspect(windowId: route.windowId, tabManager: tabManager)
+            inspect(tabManager: tabManager)
         }
 
         if isAmbiguous { return .ambiguous }
