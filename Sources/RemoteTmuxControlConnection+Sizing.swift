@@ -93,6 +93,23 @@ extension RemoteTmuxControlConnection {
             return
         }
         lastSizingSendAt = .now
+        // The CLIENT's own size must cover the largest window claim: tmux
+        // derives window sizes from client sizes, and per-window pins do
+        // not carry against a client still sitting at its 80-column
+        // default — a fresh control client after a server restart wedged
+        // every window near 80 regardless of pins. Keep the session-wide
+        // client size at the running maximum of live claims (setClientSize
+        // dedups and debounces; reseed replays it on reconnect).
+        let maxColumns = lastWindowSizes.values.map(\.0).max() ?? columns
+        let maxRows = lastWindowSizes.values.map(\.1).max() ?? rows
+        if lastClientSize == nil
+            || lastClientSize!.columns < maxColumns
+            || lastClientSize!.rows < maxRows {
+            setClientSize(
+                columns: max(maxColumns, lastClientSize?.columns ?? 0),
+                rows: max(maxRows, lastClientSize?.rows ?? 0)
+            )
+        }
         guard connectionState == .connected else { return }
         windowSizeDebounceTasks[windowId]?.cancel()
         windowSizeDebounceTasks[windowId] = Task { @MainActor [weak self] in

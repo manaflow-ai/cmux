@@ -286,6 +286,13 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             panelIdByWindow[windowId] = nil
             windowIdByPanel[panelId] = nil
             panelIdByPane = panelIdByPane.filter { $0.value != panelId }
+            // A dead window's size claims die with it. The size table feeds
+            // both the reconnect reseed and the session client-size floor —
+            // stale entries from windows tmux removed (server restarts
+            // reuse low ids) replayed obsolete pins and dragged the client
+            // floor to sizes no live window claims.
+            connection.lastWindowSizes.removeValue(forKey: windowId)
+            connection.sentWindowSizes.removeValue(forKey: windowId)
         }
         // Drop cached directories for panes tmux no longer reports, so the cache
         // stays bounded across window/pane churn (tmux pane ids never recur).
