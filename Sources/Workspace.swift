@@ -9483,6 +9483,20 @@ final class Workspace: Identifiable, ObservableObject {
         focusIntent: PanelFocusIntent? = nil
     ) {
         guard !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
+        // A mirror-projected pane surface is not a Bonsplit tab, so the normal
+        // focus path below cannot resolve it. Route through the pane's sole
+        // mutation owner (select-pane on the remote) and focus the mirror's
+        // container panel, mirroring `focusRemoteTmuxControlPane`.
+        if let location = remoteTmuxControlPane(surfaceID: panelId) {
+            _ = location.controlFocus()
+            focusPanel(
+                location.containerPanelID,
+                previousHostedView: previousHostedView,
+                trigger: trigger,
+                focusIntent: focusIntent
+            )
+            return
+        }
         markExplicitFocusIntent(on: panelId)
 #if DEBUG
         let pane = bonsplitController.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
