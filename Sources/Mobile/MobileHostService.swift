@@ -1398,7 +1398,7 @@ final class MobileHostService {
                 authorization: authorization,
                 workspaceSelection: workspaceSelection.value
             )
-        case "workspace.action", "workspace.close":
+        case "workspace.action", "workspace.close", "mobile.diff.load":
             return ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection.value)
         case "workspace.group.action", "workspace.group.create":
             return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)
@@ -1423,11 +1423,6 @@ final class MobileHostService {
             )
         case "mobile.events.subscribe", "mobile.events.unsubscribe":
             return nil
-        case "mobile.diff.load":
-            return ticketWorkspaceAuthorizationError(
-                authorization: authorization,
-                workspaceSelection: workspaceSelection.value
-            )
         case "mobile.host.status":
             return nil
         default:

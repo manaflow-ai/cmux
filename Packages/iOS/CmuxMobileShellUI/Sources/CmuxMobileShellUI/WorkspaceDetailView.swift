@@ -65,6 +65,7 @@ struct WorkspaceDetailView: View {
     @State var ignoredChatSessionRefreshID: UUID?
     @State var ignoredChatSessionRefreshTask: Task<[ChatSessionDescriptor]?, Never>?
     @State var mobileDiffState: MobileDiffState?
+    @State var mobileDiffLoadTask: Task<Void, Never>?
     /// Per-session chat stores kept warm while the workspace detail is visible.
     @State var chatConversationStores: [String: ChatConversationStore] = [:]
     /// Per-session composer drafts, surviving toggles back to the terminal.
@@ -100,6 +101,9 @@ struct WorkspaceDetailView: View {
             .onChange(of: selectedTerminalID) { _, _ in
                 refreshCachedChatToggleAnchor()
                 syncTerminalPickerRows(includeTitleChanges: true)
+            }
+            .onChange(of: workspace.id) { _, _ in
+                closeMobileDiff()
             }
             .closeWorkspaceConfirmation(
                 isPresented: $isConfirmingClose,
@@ -669,7 +673,7 @@ struct WorkspaceDetailView: View {
         // browser pane is up, close it so `body` leaves the browser branch and
         // shows the new terminal instead of staying on the browser.
         browserStore.closeBrowser(for: workspace.id.rawValue)
-        mobileDiffState = nil
+        closeMobileDiff()
         createTerminal()
     }
 
@@ -679,32 +683,7 @@ struct WorkspaceDetailView: View {
         // detail view flips to the browser because `activeBrowser` becomes
         // non-nil; the picker shows a check next to "New Browser" while it is up.
         browserStore.openBrowser(for: workspace.id.rawValue)
-        mobileDiffState = nil
-    }
-
-    private func openMobileDiffFromToolbar() {
-        dismissTerminalKeyboardForChrome()
-        browserStore.closeBrowser(for: workspace.id.rawValue)
-        isChatMode = false
-        pinnedChatSessionID = nil
-        let state = mobileDiffState ?? MobileDiffState()
-        mobileDiffState = state
-        reloadMobileDiff(state)
-    }
-
-    func reloadMobileDiff(_ state: MobileDiffState) {
-        state.beginLoading()
-        let workspaceID = workspace.id
-        Task { @MainActor in
-            do {
-                let document = try await store.loadMobileDiff(workspaceID: workspaceID)
-                guard mobileDiffState === state else { return }
-                state.load(document)
-            } catch {
-                guard mobileDiffState === state else { return }
-                state.fail(message: error.localizedDescription)
-            }
-        }
+        closeMobileDiff()
     }
 
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
@@ -712,7 +691,7 @@ struct WorkspaceDetailView: View {
         // Choosing a terminal returns from the browser pane (if up) to the
         // terminal. Closing the browser is enough to flip the detail view back.
         browserStore.closeBrowser(for: workspace.id.rawValue)
-        mobileDiffState = nil
+        closeMobileDiff()
         // Switching from the picker is chrome, not a typing intent, so the
         // newly-selected surface must not grab the keyboard on attach. The
         // store suppresses the target's autofocus (and is a no-op when it is

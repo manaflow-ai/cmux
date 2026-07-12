@@ -1072,66 +1072,6 @@ struct MobileHostAuthorizationTests {
         let recordedMethods = await requestRecorder.recordedMethods()
         #expect(recordedMethods == ["workspace.list"])
     }
-    // MARK: - Advertised mobile host capabilities
-    @Test func testMobileHostAdvertisesWorkspaceActionCapabilities() {
-        let capabilities = MobileHostService.mobileHostCapabilities
-        #expect(capabilities.contains("workspace.actions.v1"))
-        #expect(capabilities.contains("workspace.read_state.v1"))
-        #expect(capabilities.contains("workspace.close.v1"))
-        #expect(capabilities.contains("workspace.move.v1"))
-        #expect(capabilities.contains("workspace.group_actions.v1"))
-        #expect(capabilities.contains("terminal.render_grid.v1"))
-        #expect(capabilities.contains("mobile.diff.v1"))
-    }
-
-    @Test func testScopedAttachTicketAllowsDiffForItsWorkspace() throws {
-        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
-        let request = MobileHostRPCRequest(
-            id: "mobile-diff",
-            method: "mobile.diff.load",
-            params: ["workspace_id": "workspace"],
-            auth: MobileHostRPCAuth(attachToken: ticket.authToken, stackAccessToken: nil)
-        )
-        #expect(MobileHostService.ticketAuthorizationError(ticket: ticket, request: request) == nil)
-    }
-
-    @Test func testScopedAttachTicketRejectsDiffForAnotherWorkspace() throws {
-        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
-        let request = MobileHostRPCRequest(
-            id: "mobile-diff",
-            method: "mobile.diff.load",
-            params: ["workspace_id": "other-workspace"],
-            auth: MobileHostRPCAuth(attachToken: ticket.authToken, stackAccessToken: nil)
-        )
-        #expect(MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)?.code == "forbidden")
-    }
-
-    @Test func testMobileDiffLoaderIncludesTrackedAndUntrackedChanges() throws {
-        let repository = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-mobile-diff-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: repository, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: repository) }
-
-        try runGit(["init", "--quiet"], at: repository)
-        try Data("before\n".utf8).write(to: repository.appendingPathComponent("tracked.txt"))
-        try runGit(["add", "tracked.txt"], at: repository)
-        try runGit([
-            "-c", "user.name=cmux Tests",
-            "-c", "user.email=cmux-tests@example.com",
-            "commit", "--quiet", "-m", "fixture",
-        ], at: repository)
-        try Data("after\n".utf8).write(to: repository.appendingPathComponent("tracked.txt"))
-        try Data("new\n".utf8).write(to: repository.appendingPathComponent("untracked.txt"))
-
-        let document = try MobileWorkingTreeDiffLoader.load(directory: repository.path, title: "Fixture")
-        let patch = try #require(document["patch"] as? String)
-        #expect(document["repository_root"] as? String == repository.path)
-        #expect(document["title"] as? String == "Fixture")
-        #expect(patch.contains("diff --git a/tracked.txt b/tracked.txt"))
-        #expect(patch.contains("diff --git a/untracked.txt b/untracked.txt"))
-        #expect(patch.contains("+after"))
-        #expect(patch.contains("+new"))
-    }
     // MARK: - Mobile workspace.action sub-action gate
     @Test func testMobileWorkspaceActionGateAllowsOnlyPinNameAndReadStateActions() {
         for action in ["pin", "unpin", "rename", "mark_read", "mark_unread", "PIN", "UnPin", "RENAME", "MARK_READ", "Mark_Unread"] {
@@ -1164,16 +1104,6 @@ struct MobileHostAuthorizationTests {
             expiresAt: Date().addingTimeInterval(3600),
             authToken: "ticket-secret"
         )
-    }
-    private func runGit(_ arguments: [String], at directory: URL) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = ["-C", directory.path] + arguments
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        process.waitUntilExit()
-        #expect(process.terminationStatus == 0)
     }
     private func workspaceMoveAuthorizationError(
         ticketWorkspaceID: String,

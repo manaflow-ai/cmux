@@ -63,11 +63,7 @@ private struct MobileDiffNavigationBar: View {
                         Text(selectedFile?.name ?? L10n.string("mobile.diff.files", defaultValue: "Changed Files"))
                             .font(.subheadline.weight(.semibold))
                             .lineLimit(1)
-                        Text(String(
-                            format: L10n.string("mobile.diff.fileCount", defaultValue: "%lld files"),
-                            locale: Locale.current,
-                            fileCount
-                        ))
+                        Text(fileCountLabel)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -93,6 +89,17 @@ private struct MobileDiffNavigationBar: View {
         .padding(.vertical, 8)
         .background(.bar)
     }
+
+    private var fileCountLabel: String {
+        if fileCount == 1 {
+            return L10n.string("mobile.diff.fileCount.one", defaultValue: "1 file")
+        }
+        return String(
+            format: L10n.string("mobile.diff.fileCount.other", defaultValue: "%lld files"),
+            locale: Locale.current,
+            fileCount
+        )
+    }
 }
 
 private struct MobileDiffContent: View {
@@ -100,10 +107,7 @@ private struct MobileDiffContent: View {
     let reload: () -> Void
 
     var body: some View {
-        if state.isLoading, state.document == nil {
-            ProgressView(L10n.string("mobile.diff.loading", defaultValue: "Loading changes…"))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let errorMessage = state.errorMessage, state.document == nil {
+        if let errorMessage = state.errorMessage {
             ContentUnavailableView {
                 Label(L10n.string("mobile.diff.loadFailed", defaultValue: "Couldn’t Load Diff"), systemImage: "exclamationmark.triangle")
             } description: {
@@ -111,6 +115,9 @@ private struct MobileDiffContent: View {
             } actions: {
                 Button(L10n.string("mobile.common.retry", defaultValue: "Retry"), action: reload)
             }
+        } else if state.isLoading, state.document == nil {
+            ProgressView(L10n.string("mobile.diff.loading", defaultValue: "Loading changes…"))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if state.document != nil {
             MobileDiffWebView(state: state)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -130,6 +137,7 @@ private struct MobileDiffFileList: View {
     let dismiss: () -> Void
 
     var body: some View {
+        let selectedFileID = state.selectedFileID
         NavigationStack {
             List(state.files) { file in
                 Button {
@@ -137,8 +145,8 @@ private struct MobileDiffFileList: View {
                     dismiss()
                 } label: {
                     HStack(spacing: 10) {
-                        Image(systemName: file.id == state.selectedFileID ? "checkmark.circle.fill" : "doc.text")
-                            .foregroundStyle(file.id == state.selectedFileID ? Color.accentColor : Color.secondary)
+                        Image(systemName: file.id == selectedFileID ? "checkmark.circle.fill" : "doc.text")
+                            .foregroundStyle(file.id == selectedFileID ? Color.accentColor : Color.secondary)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(file.name).foregroundStyle(.primary)
                             Text(file.path).font(.caption).foregroundStyle(.secondary).lineLimit(1)

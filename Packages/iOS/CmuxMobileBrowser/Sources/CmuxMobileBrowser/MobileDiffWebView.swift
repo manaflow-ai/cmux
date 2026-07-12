@@ -72,6 +72,7 @@ public struct MobileDiffWebView: UIViewRepresentable {
                 do {
                     let html = try Self.viewerHTML(document: document, generation: state.generation)
                     guard MobileDiffPatchSchemeHandler.assetsAvailable else {
+                        loadedGeneration = state.generation
                         state.fail(message: L10n.string("mobile.diff.assetsMissing", defaultValue: "Diff viewer assets are missing from this build."))
                         return
                     }
@@ -102,9 +103,17 @@ public struct MobileDiffWebView: UIViewRepresentable {
                 }
             }
             if appliedSelection != state.selectedFileID, let selectedFileID = state.selectedFileID {
-                appliedSelection = selectedFileID
                 let literal = Self.javaScriptLiteral(selectedFileID)
-                webView.evaluateJavaScript("window.__cmuxMobileDiff?.selectFile(\(literal))")
+                let script = "Boolean(window.__cmuxMobileDiff && (window.__cmuxMobileDiff.selectFile(\(literal)), true))"
+                webView.evaluateJavaScript(script) { [weak self] value, error in
+                    Task { @MainActor in
+                        guard let self,
+                              error == nil,
+                              value as? Bool == true,
+                              state.selectedFileID == selectedFileID else { return }
+                        appliedSelection = selectedFileID
+                    }
+                }
             }
         }
 
@@ -112,6 +121,8 @@ public struct MobileDiffWebView: UIViewRepresentable {
             guard message.name == Self.messageHandlerName,
                   let body = message.body as? [String: Any],
                   body["type"] as? String == "files",
+                  let generation = body["generation"] as? Int,
+                  generation == state.generation,
                   let rawFiles = body["files"] else { return }
             do {
                 let data = try JSONSerialization.data(withJSONObject: rawFiles)
@@ -127,10 +138,16 @@ public struct MobileDiffWebView: UIViewRepresentable {
         }
 
         public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
-            state.fail(message: error.localizedDescription)
+            failNavigation(with: error)
         }
 
         public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
+            failNavigation(with: error)
+        }
+
+        private func failNavigation(with error: any Error) {
+            let nsError = error as NSError
+            guard nsError.domain != NSURLErrorDomain || nsError.code != NSURLErrorCancelled else { return }
             state.fail(message: error.localizedDescription)
         }
 
@@ -143,6 +160,7 @@ public struct MobileDiffWebView: UIViewRepresentable {
                 "layoutSource": "explicit",
                 "repoRoot": document.repositoryRoot,
                 "mobileNativeChrome": true,
+                "mobileDiffGeneration": generation,
                 "labels": [
                     "diffViewer": L10n.string("mobile.diff.title", defaultValue: "Diff Viewer"),
                     "loadingDiff": L10n.string("mobile.diff.loading", defaultValue: "Loading changes…"),

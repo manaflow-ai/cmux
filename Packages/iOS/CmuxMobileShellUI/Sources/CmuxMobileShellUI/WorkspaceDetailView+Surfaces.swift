@@ -64,7 +64,7 @@ extension WorkspaceDetailView {
     func diffContent(_ state: MobileDiffState) -> some View {
         MobileDiffPane(
             state: state,
-            onClose: { mobileDiffState = nil },
+            onClose: closeMobileDiff,
             onReload: { reloadMobileDiff(state) }
         )
         .id("mobile-diff")

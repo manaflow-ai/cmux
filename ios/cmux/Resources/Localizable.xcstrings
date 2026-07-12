@@ -2419,7 +2419,14 @@
         "ja": { "stringUnit": { "state": "translated", "value": "変更されたファイルはありません。" } }
       }
     },
-    "mobile.diff.fileCount": {
+    "mobile.diff.fileCount.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1 file" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1 ファイル" } }
+      }
+    },
+    "mobile.diff.fileCount.other": {
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "%lld files" } },
@@ -2438,6 +2445,13 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Couldn’t Load Diff" } },
         "ja": { "stringUnit": { "state": "translated", "value": "差分を読み込めませんでした" } }
+      }
+    },
+    "mobile.diff.loadFailedDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refresh and try loading the changes again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "更新して、変更をもう一度読み込んでください。" } }
       }
     },
     "mobile.diff.loading": {
