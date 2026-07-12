@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 
 extension Workspace {
     func createInitialAgentSessionPanel(workingDirectory: String?) -> TabID? {
