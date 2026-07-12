@@ -12176,6 +12176,19 @@ struct GhosttyTerminalView: NSViewRepresentable {
         TerminalWindowPortalRegistry.synchronizeForAnchor(host, syncLayout: false)
     }
 
+    // A terminal is space-filling: it renders in whatever space its
+    // container gives it and must never answer a size proposal with a
+    // content-derived ideal. Without this, SwiftUI's default representable
+    // sizing falls through to AppKit's fittingSize, and the portal-hosted
+    // terminal view's autoresizing constraints make that the HOSTED view's
+    // current frame — so any ancestor that honors ideals adopts the
+    // terminal's own layout as its size and hands it back grown (observed
+    // live as a mirror container inflating 19 points per layout pass inside
+    // a normal-sized window).
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSView, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? 0, height: proposal.height ?? 0)
+    }
+
     func makeNSView(context: Context) -> NSView {
         let container = HostContainerView(frame: .zero)
         container.wantsLayer = false
@@ -12317,6 +12330,12 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
                 hostedView.setActive(coordinator.desiredIsActive)
                 hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
+                // A grid resize that applied while this view was between
+                // windows (portal churn during a tab switch) owed its size
+                // report; entering a window is the moment it becomes
+                // deliverable. Without this, the listener's rendered-grid
+                // bookkeeping stays frozen at the pre-detach grid forever.
+                terminalSurface.flushPendingManualSizeReportIfAttached()
             }
             host.onGeometryChanged = { [weak host, weak hostedView, weak coordinator] in
                 guard let host, let hostedView, let coordinator else { return }

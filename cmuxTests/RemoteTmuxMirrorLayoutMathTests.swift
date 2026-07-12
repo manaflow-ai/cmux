@@ -26,7 +26,10 @@ import Testing
             dividerThickness: 1
         )
 
-        #expect(grid?.columns == 80)
+        // Width overhead is the per-pane quantization slack (1); height is
+        // two tab bars plus slack (31 each) minus the divider-for-separator
+        // credit (1 − 10): (800 − 1)/10 → 79, (300 − 53)/10 → 24.
+        #expect(grid?.columns == 79)
         #expect(grid?.rows == 24)
     }
 
@@ -47,8 +50,10 @@ import Testing
             dividerThickness: 1
         )
 
+        // Width overhead: 1 + 1 + (1 − 10) = −7 → (800 + 7)/10 → 80; height:
+        // one tab bar plus slack (31): (300 − 31)/10 → 26.
         #expect(grid?.columns == 80)
-        #expect(grid?.rows == 27)
+        #expect(grid?.rows == 26)
     }
 
     @Test func mixedTreeSubtractsWorstPathChrome() throws {
@@ -87,7 +92,7 @@ import Testing
             rest: [rootChildren[1]],
             orientation: .horizontal
         )
-        #expect(abs(rootFraction - 0.504_201_680_7) < 0.000_001)
+        #expect(abs(rootFraction - 601.0 / 1192.0) < 0.000_001)
 
         guard case .vertical(let nestedChildren) = rootChildren[1].content else {
             Issue.record("Expected nested vertical split")
@@ -98,7 +103,7 @@ import Testing
             rest: [nestedChildren[1]],
             orientation: .vertical
         )
-        #expect(abs(nestedFraction - 0.511_111_111_1) < 0.000_001)
+        #expect(abs(nestedFraction - 231.0 / 452.0) < 0.000_001)
     }
 
     @Test func dragConversionUsesTheActualLocalParentExtentBelowTenPercent() {
@@ -167,7 +172,7 @@ import Testing
             first: first,
             second: rest,
             orientation: orientation
-        ) - (90.0 / 571.0)) < 0.000_001)
+        ) - (91.0 / 574.0)) < 0.000_001)
         guard case .split(_, _, let restOrientation, let second, let third) = rest else {
             Issue.record("Expected right-associated remainder")
             return
@@ -176,7 +181,7 @@ import Testing
             first: second,
             second: third,
             orientation: restOrientation
-        ) - (190.0 / 480.0)) < 0.000_001)
+        ) - (191.0 / 482.0)) < 0.000_001)
     }
 
     @Test func embeddedBonsplitProfileKeepsOnlySupportedNestedActions() {

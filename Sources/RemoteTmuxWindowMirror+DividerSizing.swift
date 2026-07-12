@@ -29,11 +29,14 @@ extension RemoteTmuxWindowMirror {
         guard case .split(let split) = treeNode,
               case .split(_, _, let orientation, let firstTree, let secondTree) = tmuxTree,
               let splitID = UUID(uuidString: split.id),
-              split.orientation == (orientation == .horizontal ? "horizontal" : "vertical") else { return }
+              split.orientation == orientation.bonsplitTreeName else { return }
         let first = firstTree.layout
         let position = CGFloat(split.dividerPosition)
         let previous = lastDividerPositions[splitID] ?? position
-        if abs(position - previous) > 0.005 {
+        // A split holding an imposed extent cannot be mid-drag — a user
+        // drag clears the imposition — so any fraction delta on it is
+        // imposition churn, never a gesture to sync back to tmux.
+        if split.imposedFirstExtent == nil, abs(position - previous) > 0.005 {
             lastDividerPositions[splitID] = position
             let parentExtent = orientation == .horizontal
                 ? parentSize.width
@@ -44,7 +47,7 @@ extension RemoteTmuxWindowMirror {
                 parentExtent: parentExtent,
                 dividerPosition: position
             )
-            let axis = orientation == .horizontal ? "horizontal" : "vertical"
+            let axis = orientation.bonsplitTreeName
             if let targetPaneID = first.paneIDsInOrder.first {
                 _ = requestResizePane(
                     targetPaneID,
@@ -61,15 +64,20 @@ extension RemoteTmuxWindowMirror {
             parentExtent: parentExtent,
             dividerPosition: position
         )
-        let firstSize: CGSize
-        let secondSize: CGSize
-        if orientation == .horizontal {
-            firstSize = CGSize(width: childExtents.first, height: parentSize.height)
-            secondSize = CGSize(width: childExtents.second, height: parentSize.height)
-        } else {
-            firstSize = CGSize(width: parentSize.width, height: childExtents.first)
-            secondSize = CGSize(width: parentSize.width, height: childExtents.second)
-        }
+        // Descend with the imposed extent itself when one is active: the
+        // divider fraction is mirrored back from the same value, so the two
+        // agree to floating-point noise, but the extent is the exact point
+        // count the plan chose — no reason to round-trip it through a ratio.
+        let firstExtent = split.imposedFirstExtent
+            .map { min(max(0, CGFloat($0)), max(0, parentExtent - metrics.dividerThickness)) }
+            ?? childExtents.first
+        let sizes = metrics.childSizes(
+            parentSize: parentSize,
+            orientation: orientation,
+            firstExtent: firstExtent
+        )
+        let firstSize = sizes.first
+        let secondSize = sizes.second
         syncChangedDividerPositions(
             treeNode: split.first,
             tmuxTree: firstTree,

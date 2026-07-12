@@ -100,6 +100,29 @@ extension RemoteTmuxWindowMirror {
     }
 
     func refreshDividerPositions() {
+        // Never impose while hidden. A hidden tab's tree lives in a portal
+        // host with no window clamping its bounds, and moving a divider to
+        // an absolute point extent there GROWS the container instead of
+        // shrinking the second child — the next pass then plans against the
+        // grown container, and the feedback compounds without bound
+        // (observed live: a hidden window's host at 224k points claiming
+        // 27,984 columns). Fractions never fed back this way because they
+        // are relative to the container. The visibility flip re-imposes, so
+        // a shown tab always plans against real, window-clamped bounds.
+        guard isVisibleForSizing else { return }
+        // Idempotence by INPUTS: a pass with the same layout, container,
+        // and metrics as the last completed pass imposes the same extents,
+        // and each apply's layout re-emits sizing samples whose handlers
+        // land back here — without this gate that echo sustains a
+        // full-CPU replan loop. Anything that actually changes sizing
+        // changes one of these inputs; view recreation re-applies from the
+        // split state itself, so skipping identical passes loses nothing.
+        let inputs = (renderedLayout, containerSizePt, nativeLayoutMetrics())
+        if let last = lastPlanInputs,
+           last.0 == inputs.0, last.1 == inputs.1, last.2 == inputs.2 {
+            return
+        }
+        lastPlanInputs = inputs
         lastDividerPositions.removeAll()
         let treeNode = bonsplitController.treeSnapshot()
         let splitTree = RemoteTmuxNativeSplitTree(layout: renderedLayout)
@@ -113,6 +136,11 @@ extension RemoteTmuxWindowMirror {
                 parentSize: containerSizePt
             )
             applyDividerPositions(plan: plan, treeNode: treeNode)
+            // Re-baseline the drag detector on what the tree ACTUALLY holds:
+            // bonsplit may clamp a requested fraction (minimum pane sizes),
+            // and a stale requested-vs-actual gap would read as a user drag
+            // on the next geometry event and echo a spurious resize to tmux.
+            recordActualDividerPositions(treeNode: bonsplitController.treeSnapshot())
         } else {
             applyFallbackDividerPositions(tmuxTree: splitTree, treeNode: treeNode)
         }
@@ -120,19 +148,63 @@ extension RemoteTmuxWindowMirror {
 
     /// Applies a computed divider plan (``RemoteTmuxNativeSplitLayout``) to
     /// the bonsplit tree — position-by-position, so the plan's shape must
-    /// match the snapshot it was computed against.
+    /// match the snapshot it was computed against. A mismatch means the
+    /// bonsplit tree drifted from the layout the plan was computed for;
+    /// every divider below the mismatch keeps its stale fraction, so make
+    /// it loud in DEBUG instead of silently misrendering.
     func applyDividerPositions(
         plan: RemoteTmuxNativeSplitLayout.Plan,
         treeNode: ExternalTreeNode
     ) {
         guard case .split(let split) = treeNode,
-              case .split(let orientation, let fraction, let firstPlan, let secondPlan) = plan,
-              split.orientation == (orientation == .horizontal ? "horizontal" : "vertical"),
-              let splitId = UUID(uuidString: split.id) else { return }
-        _ = bonsplitController.setDividerPosition(fraction, forSplit: splitId, fromExternal: true)
-        lastDividerPositions[splitId] = fraction
+              case .split(
+                  let orientation, let fraction, let firstExtent, let firstPlan, let secondPlan
+              ) = plan
+        else {
+            if case .split = treeNode {
+                #if DEBUG
+                cmuxDebugLog("remote.divider.plan mismatch: plan leaf vs bonsplit split")
+                #endif
+            }
+            return
+        }
+        guard split.orientation == orientation.bonsplitTreeName,
+              let splitId = UUID(uuidString: split.id)
+        else {
+            #if DEBUG
+            cmuxDebugLog(
+                "remote.divider.plan mismatch: orientation \(split.orientation) vs \(orientation)"
+            )
+            #endif
+            return
+        }
+        // Impose exact points when the plan has them; a normalized fraction
+        // is kept only for the no-container fallback, because fractions pass
+        // through drift deadbands that can eat several columns at terminal
+        // container sizes.
+        _ = bonsplitController.setImposedFirstExtent(
+            firstExtent, forSplit: splitId, fromExternal: true
+        )
+        if firstExtent == nil {
+            _ = bonsplitController.setDividerPosition(fraction, forSplit: splitId, fromExternal: true)
+        }
+        // The drag-detection baseline is written ONLY by
+        // recordActualDividerPositions after the apply pass: writing the
+        // plan's ideal fraction here would leave a requested-vs-actual gap
+        // a geometry event could misread as a user drag.
         applyDividerPositions(plan: firstPlan, treeNode: split.first)
         applyDividerPositions(plan: secondPlan, treeNode: split.second)
+    }
+
+    /// Overwrites the drag-detection baseline with the fractions the
+    /// bonsplit tree actually holds after an imposition pass.
+    private func recordActualDividerPositions(treeNode: ExternalTreeNode) {
+        guard case .split(let split) = treeNode else { return }
+        if let splitId = UUID(uuidString: split.id) {
+            lastDividerPositions[splitId] = CGFloat(split.dividerPosition)
+        }
+        recordActualDividerPositions(treeNode: split.first)
+        recordActualDividerPositions(treeNode: split.second)
     }
 
     func applyFallbackDividerPositions(
@@ -141,13 +213,14 @@ extension RemoteTmuxWindowMirror {
     ) {
         guard case .split(let split) = treeNode,
               case .split(_, let orientation, let firstTree, let secondTree) = tmuxTree,
-              split.orientation == (orientation == .horizontal ? "horizontal" : "vertical"),
+              split.orientation == orientation.bonsplitTreeName,
               let splitId = UUID(uuidString: split.id) else { return }
         let fraction = Self.dividerFraction(
             first: firstTree.layout,
             rest: [secondTree.layout],
             horizontal: orientation == .horizontal
         )
+        _ = bonsplitController.setImposedFirstExtent(nil, forSplit: splitId, fromExternal: true)
         _ = bonsplitController.setDividerPosition(fraction, forSplit: splitId, fromExternal: true)
         lastDividerPositions[splitId] = fraction
         applyFallbackDividerPositions(tmuxTree: firstTree, treeNode: split.first)
@@ -311,7 +384,7 @@ extension RemoteTmuxWindowMirror {
     ) -> Bool {
         guard children.count > 1,
               case .split(let split) = treeNode,
-              split.orientation == (orientation == .horizontal ? "horizontal" : "vertical"),
+              split.orientation == orientation.bonsplitTreeName,
               let first = children.first else { return false }
         return bonsplitTreeMatches(layout: first, treeNode: split.first)
             && bonsplitTreeMatches(

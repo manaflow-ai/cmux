@@ -53,16 +53,29 @@ struct RemoteTmuxWindowMirrorSplitView: View {
         .onGeometryChange(for: CGSize.self) { proxy in
             proxy.size
         } action: { newSize in
+            #if DEBUG
+            // Tripwire for content-sized-container feedback: no real display
+            // is anywhere near this many points, so a container this large
+            // means some host is adopting layout-derived ideals again (the
+            // grep that caught a window inflating one point per layout pass).
+            if newSize.width > 4000 || newSize.height > 4000 {
+                cmuxDebugLog(
+                    "remote.container.suspect @\(mirror.windowId)"
+                        + " size=\(Int(newSize.width))x\(Int(newSize.height))"
+                        + " visibleInUI=\(isVisibleInUI ? 1 : 0)"
+                )
+            }
+            #endif
             containerSize = newSize
             pushClientSize(pointSize: newSize)
         }
         .onAppear {
             mirror.isVisibleForSizing = isVisibleInUI
-            if isVisibleInUI { pushClientSize(pointSize: containerSize) }
+            if isVisibleInUI { becameVisible() }
         }
         .onChange(of: isVisibleInUI) { _, visible in
             mirror.isVisibleForSizing = visible
-            if visible { pushClientSize(pointSize: containerSize) }
+            if visible { becameVisible() }
         }
         .onChange(of: mirror.layoutStructureVersion) { _, _ in
             pushClientSize(pointSize: containerSize)
@@ -74,5 +87,15 @@ struct RemoteTmuxWindowMirrorSplitView: View {
         guard pointSize.width > 0, pointSize.height > 0 else { return }
         mirror.noteContainerSize(pointSize: pointSize, scale: displayScale)
         _ = mirror.updateClientSize()
+    }
+
+    /// Impositions and container tracking are suspended while hidden (see
+    /// ``RemoteTmuxWindowMirror/refreshDividerPositions()``), so a tab that
+    /// becomes visible must both re-claim and re-impose: tmux layouts that
+    /// arrived while it was hidden were applied to the tree but never
+    /// planned into divider extents.
+    private func becameVisible() {
+        pushClientSize(pointSize: containerSize)
+        mirror.refreshDividerPositions()
     }
 }

@@ -1,3 +1,4 @@
+import Bonsplit
 import Foundation
 import Testing
 
@@ -154,7 +155,8 @@ import Testing
         // Both present: ready, and it lands per-window.
         mirror.noteContainerSize(pointSize: CGSize(width: 800, height: 620), scale: 2)
         #expect(mirror.updateClientSize())
-        #expect(pushed(connection)?.cols == 100) // native dividers replace tmux's separator columns
+        // (800 − 3 panes × (pad 4 + quantization slack 1) − 2 dividers × (1 − cell 8)) / 8 → 99.
+        #expect(pushed(connection)?.cols == 99)
         #expect(pushed(connection)?.rows == 34) // 620pt − the native 30pt pane tab bar
         #expect(connection.lastWindowSizes[0] != nil)
     }
@@ -183,11 +185,48 @@ import Testing
         let (mirror, connection) = readyMirror(layout: reflow123)
         mirror.reconcile(layout: reflow122)
         let claim = pushed(connection)
-        #expect(claim?.cols == 100)
+        #expect(claim?.cols == 99)
         mirror.reconcile(layout: reflow123)
         mirror.reconcile(layout: reflow122)
         #expect(pushed(connection)?.cols == claim?.cols)
         #expect(pushed(connection)?.rows == claim?.rows)
+    }
+
+    @Test func containerResizeReimposesDividerFractions() {
+        // A container-only resize produces no tmux layout echo, so the
+        // mirror itself must recompute the divider plan. In the normal case
+        // the imposed point extents don't change (points don't scale with
+        // the container — that staleness was a fraction disease), so the
+        // observable is the overconstrained case: a container too small for
+        // the assigned cells must rescale every imposed extent evenly.
+        let (mirror, _) = readyMirror(layout: reflow123)
+        mirror.isVisibleForSizing = true
+        mirror.reconcile(layout: reflow123)
+        let before = Self.imposedExtents(of: mirror.bonsplitController.treeSnapshot())
+        #expect(!before.isEmpty, "reconcile must impose exact extents")
+        // Shrink far below the layout's ideal width: extents must rescale.
+        mirror.noteContainerSize(pointSize: CGSize(width: 400, height: 620), scale: 2)
+        let after = Self.imposedExtents(of: mirror.bonsplitController.treeSnapshot())
+        #expect(Set(before.keys) == Set(after.keys))
+        for (id, extent) in after {
+            let original = before[id] ?? 0
+            #expect(
+                extent < original,
+                "imposed extent must rescale with the container: \(extent) vs \(original)"
+            )
+        }
+    }
+
+    private static func imposedExtents(of node: ExternalTreeNode) -> [String: Double] {
+        switch node {
+        case .pane:
+            return [:]
+        case .split(let split):
+            var extents = imposedExtents(of: split.first)
+                .merging(imposedExtents(of: split.second)) { first, _ in first }
+            if let imposed = split.imposedFirstExtent { extents[split.id] = imposed }
+            return extents
+        }
     }
 
     @Test func hiddenMirrorWritesOnlyTheInitialClaim() {
@@ -204,6 +243,29 @@ import Testing
         #expect(mirror.updateClientSize()) // collapsed hidden geometry arrives
         #expect(pushed(connection)?.cols == claim?.cols) // no re-write
         #expect(pushed(connection)?.rows == claim?.rows)
+        #expect(connection.lastWindowSizes.count == 1)
+    }
+
+    @Test func hiddenMirrorNeverImposesAndFreezesItsContainer() {
+        // While hidden, the tree lives in a portal host that no window
+        // clamps, so imposing an absolute extent there grows the host
+        // instead of shrinking the second child — and the grown bounds come
+        // back through noteContainerSize, compounding every pass (observed
+        // live: a hidden window's host at 224k points claiming 27,984
+        // columns). Hidden mirrors therefore neither impose nor record
+        // container sizes; showing the tab does both against real bounds.
+        let (mirror, connection) = readyMirror(layout: reflow123)
+        mirror.isVisibleForSizing = false
+        mirror.reconcile(layout: reflow123)
+        #expect(Self.imposedExtents(of: mirror.bonsplitController.treeSnapshot()).isEmpty)
+        // Inflated portal-limbo bounds arrive while hidden: not recorded.
+        mirror.noteContainerSize(pointSize: CGSize(width: 224_000, height: 620), scale: 2)
+        mirror.isVisibleForSizing = true
+        mirror.refreshDividerPositions()
+        #expect(!Self.imposedExtents(of: mirror.bonsplitController.treeSnapshot()).isEmpty)
+        #expect(mirror.updateClientSize())
+        // The claim reflects the frozen 800pt container, not limbo bounds.
+        #expect(pushed(connection)?.cols == 99)
         #expect(connection.lastWindowSizes.count == 1)
     }
 

@@ -1,6 +1,15 @@
 import Bonsplit
 import Foundation
 
+extension SplitOrientation {
+    /// The orientation string Bonsplit's external tree snapshot carries for
+    /// a split — the one place this mapping lives, so a guard comparing a
+    /// snapshot against a tmux orientation can't drift per call site.
+    var bonsplitTreeName: String {
+        self == .horizontal ? "horizontal" : "vertical"
+    }
+}
+
 /// Right-associated binary view of tmux's n-ary layout, matching Bonsplit's split tree.
 indirect enum RemoteTmuxNativeSplitTree: Sendable {
     case atomic(RemoteTmuxLayoutNode)

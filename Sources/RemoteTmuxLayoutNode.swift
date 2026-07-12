@@ -115,3 +115,20 @@ struct RemoteTmuxLayoutNode: Sendable, Equatable, Codable {
         }
     }
 }
+
+
+extension RemoteTmuxLayoutNode {
+    /// The leaf carrying `paneId`, or nil — a lookup for probes that compare
+    /// a pane's rendered grid against its assigned span.
+    func firstLeaf(withPaneId paneId: Int) -> RemoteTmuxLayoutNode? {
+        switch content {
+        case .pane(let id):
+            return id == paneId ? self : nil
+        case .horizontal(let children), .vertical(let children):
+            for child in children {
+                if let found = child.firstLeaf(withPaneId: paneId) { return found }
+            }
+            return nil
+        }
+    }
+}

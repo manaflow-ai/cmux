@@ -29,7 +29,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     /// - Parameter method: The trimmed method name.
     public init(forMethod method: String) {
 #if DEBUG
-        if method == "remote.tmux.test_exec" || method == "remote.tmux.test_set_frame" { self = .socketWorker(mainThreadCallable: false); return }
+        if method == "remote.tmux.test_exec" || method == "remote.tmux.test_set_frame"
+            || method == "remote.tmux.sizing_settled" {
+            self = .socketWorker(mainThreadCallable: false)
+            return
+        }
 #endif
         if method.hasPrefix("vm.") || method.hasPrefix("remotes.") || method.hasPrefix("aiAccounts.")
             || Self.socketWorkerMethods.contains(method) {

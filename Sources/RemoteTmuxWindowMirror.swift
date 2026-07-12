@@ -75,6 +75,26 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// prevents early surface callbacks from treating an unselected mirror as visible.
     @ObservationIgnored var isVisibleForSizing = false
 
+    /// The flag above, cross-checked against what is actually on screen —
+    /// for the settled/mismatch JUDGE, not the sizing gates. The flag alone
+    /// goes stale in one direction: tab content is recreated on switch, so a
+    /// hidden tab's view can be dismantled without its visibility callback
+    /// ever firing, leaving the flag stuck true. Judging that mirror
+    /// compares tmux's live assignments against grids nothing renders (its
+    /// panes sit in the offscreen parking window) and reports phantom
+    /// mismatches. A pane view in a window that is ordered in is the ground
+    /// truth for "this mirror's grids are on screen". The sizing gates keep
+    /// the plain flag: a stale-true mirror re-claims only its own frozen,
+    /// sane size (per-window, deduped), while gating them on view state
+    /// would break headless callers that never put panes in a window.
+    var isEffectivelyVisibleForSizing: Bool {
+        guard isVisibleForSizing else { return false }
+        guard let window = panelsByPaneId.values.first?.hostedView.window else {
+            return false
+        }
+        return window.isVisible
+    }
+
     /// ``TerminalPanel`` per tmux pane id. Not observation-tracked: the view
     /// re-reads it whenever ``layout`` (which IS tracked) changes, and the two
     /// are always updated together in ``reconcile(layout:)``.
@@ -88,6 +108,12 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     @ObservationIgnored var isApplyingRemoteLayout = false
     @ObservationIgnored var isApplyingTmuxFocus = false
     @ObservationIgnored var lastDividerPositions: [UUID: CGFloat] = [:]
+    /// The (layout, container, metrics) of the last completed imposition
+    /// pass — see refreshDividerPositions for why identical inputs skip.
+    @ObservationIgnored var lastPlanInputs: (RemoteTmuxLayoutNode, CGSize?, RemoteTmuxNativeLayoutMetrics?)?
+    /// Last grid each pane's surface reported (from sizing samples) — the
+    /// live half of the settled/mismatch probe.
+    @ObservationIgnored var lastRenderedGrids: [Int: (cols: Int, rows: Int)] = [:]
 
     // MARK: Sizing inputs (locally owned; never tmux-derived)
 
@@ -240,7 +266,13 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         let labels = (connection?.paneHeaderLabels ?? [:]).filter { livePaneIds.contains($0.key) }
         if labels != paneHeaderLabels { paneHeaderLabels = labels }
         let titleRows = connection?.windowTitleRowsVisible[windowId] ?? false
-        if tmuxTitleRowsVisible != titleRows { tmuxTitleRowsVisible = titleRows }
+        if tmuxTitleRowsVisible != titleRows {
+            tmuxTitleRowsVisible = titleRows
+            // Title rows are part of the claim's chrome (one cell per pane
+            // when active): flipping pane-border-status changes how many
+            // rows fit, so the claim must re-push, not just the dividers.
+            _ = updateClientSize()
+        }
         reconcileBonsplitTree(from: previousRenderedLayout, to: renderedLayout)
         // Adopt tmux's known active pane when this mirror has none yet: on
         // first attach the rects reply emits the active-pane event BEFORE the
@@ -270,13 +302,17 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
 
     private func configurePanePanel(_ panel: TerminalPanel, paneId: Int, needsSeed: Bool) {
         let surface = panel.surface
-        surface.onManualSizeApplied = { [weak self] in self?.handleSizingSample($0) }
+        surface.onManualSizeApplied = { [weak self] in
+            self?.handleSizingSample($0, paneId: paneId)
+        }
         surface.onRuntimeReady = { [weak self, weak surface] in
             guard let sample = surface?.rawSizingSample() else { return }
-            self?.handleSizingSample(sample)
+            self?.handleSizingSample(sample, paneId: paneId)
         }
         surface.flushPendingManualSizeReportIfAttached()
-        if let sample = surface.rawSizingSample() { handleSizingSample(sample) }
+        if let sample = surface.rawSizingSample() {
+            handleSizingSample(sample, paneId: paneId)
+        }
         if needsSeed { connection?.seedPane(paneId: paneId) }
     }
 
@@ -287,9 +323,66 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
 
     /// Records the container's size (points) and backing scale — f's variable
     /// inputs, delivered by the view on mount and every geometry change.
+    ///
+    /// A size change also re-imposes the divider plan: rail fractions are a
+    /// function of the container (``RemoteTmuxNativeSplitLayout``), so a
+    /// resize that stays inside one claim bucket — same claim, no
+    /// `%layout-change` echo, no reconcile — would otherwise leave the tree
+    /// scaling stale fractions proportionally, and a lopsided split can
+    /// lose more than the pane slack and wrap. The old ideal-over-ideal
+    /// fractions were container-independent, so no trigger existed here.
     func noteContainerSize(pointSize: CGSize, scale: CGFloat) {
+        // Hidden tabs keep their last visible geometry. A hidden tab's
+        // portal-hosted views have no window clamping them, so their
+        // reported bounds are not the size anything renders at — and once
+        // impositions inflate a hidden host (see refreshDividerPositions),
+        // recording those bounds would poison the claim tmux hears when a
+        // reconnect lets every window claim again. The one exception is the
+        // very first measurement: a never-shown mirror must still record
+        // its attach-time size so the initial claim can keep tmux off its
+        // 80×24 default.
+        guard isVisibleForSizing || containerSizePt == nil else { return }
+        // Nothing larger than the hosting window can be displayed, so no
+        // honest container is larger either. SwiftUI can hand this callback
+        // a content-derived size when some ancestor adopts a layout ideal —
+        // and recording it would feed the claim, grow tmux's assignments,
+        // grow the layout, and hand back a bigger size next pass, without
+        // bound. Clamping at this boundary breaks that loop no matter which
+        // view leaks an ideal.
+        var pointSize = pointSize
+        if let window = panelsByPaneId.values.first?.hostedView.window,
+           window.isVisible {
+            let bound = window.contentLayoutRect.size
+            if bound.width > 1, bound.height > 1 {
+                pointSize.width = min(pointSize.width, bound.width)
+                pointSize.height = min(pointSize.height, bound.height)
+            }
+        } else if containerSizePt != nil {
+            // No visible window to validate against means the panes are
+            // parked (portal limbo) and this callback's size is not
+            // evidence of anything on screen — recording it is how limbo
+            // geometry reached the claim. Only the very first measurement
+            // may pass unvalidated: it is the attach-time size the initial
+            // claim needs, delivered before the panes enter a window.
+            return
+        }
+        #if DEBUG
+        if pointSize.width > 3000 || pointSize.height > 3000 {
+            let window = panelsByPaneId.values.first?.hostedView.window
+            cmuxDebugLog(
+                "remote.container.record @\(windowId)"
+                    + " size=\(Int(pointSize.width))x\(Int(pointSize.height))"
+                    + " panels=\(panelsByPaneId.count)"
+                    + " win=\(window.map { "\(Int($0.contentLayoutRect.width))x\(Int($0.contentLayoutRect.height)) vis=\($0.isVisible ? 1 : 0) cls=\(String(describing: type(of: $0)))" } ?? "nil")"
+            )
+        }
+        #endif
+        let sizeChanged = containerSizePt != pointSize
         containerSizePt = pointSize
         containerScale = scale
+        if sizeChanged {
+            refreshDividerPositions()
+        }
     }
 
     /// Ingests one sizing sample into the min-tracked pad constants.
@@ -321,8 +414,23 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         }
     }
 
-    private func handleSizingSample(_ sample: TerminalSurfaceRawSizingSample) {
+    private func handleSizingSample(_ sample: TerminalSurfaceRawSizingSample, paneId: Int) {
         ingest(sample: sample)
+        lastRenderedGrids[paneId] = (cols: sample.columns, rows: sample.rows)
+        #if DEBUG
+        // The one line that makes "tests green, screen wrong" a grep instead
+        // of a debugging session: whenever a surface settles on a grid that
+        // disagrees with the span tmux assigned its pane, say so. Rendering
+        // FEWER columns than assigned wraps every full-width line.
+        if let leaf = renderedLayout.firstLeaf(withPaneId: paneId),
+           sample.columns < leaf.width || sample.rows < leaf.height {
+            cmuxDebugLog(
+                "remote.grid.mismatch @\(windowId) pane=%\(paneId)"
+                    + " rendered=\(sample.columns)x\(sample.rows)"
+                    + " assigned=\(leaf.width)x\(leaf.height)"
+            )
+        }
+        #endif
         _ = updateClientSize()
     }
 

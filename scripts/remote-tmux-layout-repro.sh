@@ -202,7 +202,7 @@ except Exception:
     sys.exit(1)
 for item in data.get("surfaces", []):
     if item.get("title") == title:
-        value = item.get("id") or item.get("handle")
+        value = item.get("id") or item.get("handle") or item.get("ref")
         if value:
             print(value)
             sys.exit(0)

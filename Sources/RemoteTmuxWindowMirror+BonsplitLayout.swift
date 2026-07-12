@@ -19,7 +19,10 @@ extension RemoteTmuxWindowMirror {
                 height: CGFloat(geometry.surfacePadHeightPx) / geometry.scale
             ),
             tabBarHeight: appearance.tabBarHeight,
-            dividerThickness: appearance.dividerThickness
+            dividerThickness: appearance.dividerThickness,
+            paneTitleRowHeight: tmuxTitleRowsVisible
+                ? CGFloat(geometry.cellHeightPx) / geometry.scale
+                : 0
         )
     }
 

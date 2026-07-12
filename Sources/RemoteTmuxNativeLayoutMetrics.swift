@@ -7,6 +7,23 @@ struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     let surfacePadding: CGSize
     let tabBarHeight: CGFloat
     let dividerThickness: CGFloat
+    /// Extra height each pane's outer size carries for tmux's own title row
+    /// (`pane-border-status`): one cell when active, zero otherwise. tmux
+    /// assigns the pane one row FEWER than its visual region — the title row
+    /// is tmux chrome inside the pane's rectangle but outside its grid — so
+    /// the claim must reserve it and the ideals must grant it, or every pane
+    /// renders one row over and the accounting drifts.
+    var paneTitleRowHeight: CGFloat = 0
+    /// One point of slack per pane per axis: extents are quantized to whole
+    /// points on cumulative rails rounded to NEAREST, so a pane sits within
+    /// half a point of its exact span — and half a point below an exact
+    /// boundary would cost a whole column when the surface floors to cells.
+    /// One point covers the worst case (0.5) with the same again as margin.
+    /// Whole points and nearest are both load-bearing: finer grids leave
+    /// nested view edges on half pixels where backing alignment shaves a
+    /// device pixel, and rounding UP would overshoot into trailing siblings
+    /// and compound across cross-axis nesting levels.
+    static let paneQuantizationSlack: CGFloat = 1
 
     func clientGrid(
         layout: RemoteTmuxLayoutNode,
@@ -32,8 +49,9 @@ struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         switch node.content {
         case .pane:
             return CGSize(
-                width: surfacePadding.width,
-                height: tabBarHeight + surfacePadding.height
+                width: surfacePadding.width + Self.paneQuantizationSlack,
+                height: tabBarHeight + surfacePadding.height + paneTitleRowHeight
+                    + Self.paneQuantizationSlack
             )
         case .horizontal(let children):
             let childResiduals = children.map(residual(of:))
@@ -84,6 +102,59 @@ struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
             along: orientation
         )
         return firstExtent / max(1, firstExtent + secondExtent)
+    }
+
+    /// The exact points a subtree needs along one axis: its cell span plus
+    /// its folded chrome residual.
+    func idealExtent(
+        of tree: RemoteTmuxNativeMeasuredSplitTree,
+        along orientation: SplitOrientation
+    ) -> CGFloat {
+        extent(of: tree.layout, residual: tree.residual, along: orientation)
+    }
+
+    /// The whole-point extent the FIRST subtree of a split should receive:
+    /// its ideal extent — scaled down evenly when the split's actual extent
+    /// cannot fit both subtrees' ideals — plus the region's leading-edge
+    /// rounding error (`carry`), rounded to the nearest whole point.
+    /// `round(ideal + carry)` is "round the boundary's absolute coordinate,
+    /// measured from the region's rounded leading edge", so allocations
+    /// track exact boundary positions and per-split error cannot accumulate
+    /// with depth (see the plan walk in ``RemoteTmuxNativeSplitLayout`` for
+    /// how the carries flow through the tree).
+    ///
+    /// When the ideals do not fit (mid-resize, a co-attached client holding
+    /// the window small, tmux briefly exceeding the claim on one axis)
+    /// every subtree shrinks by the same factor — an even degradation with
+    /// no pane singled out. Returns nil only for a degenerate extent
+    /// (nothing to divide).
+    ///
+    /// `secondCarry` is the rounding error of the freshly placed boundary —
+    /// its exact position minus its rounded position — which is precisely
+    /// the trailing subtree's leading-edge error along this split's axis.
+    func railAllocation(
+        firstIdeal: CGFloat,
+        secondIdeal: CGFloat,
+        carry: CGFloat,
+        available: CGFloat
+    ) -> (firstExtent: CGFloat, secondCarry: CGFloat)? {
+        guard available > 0 else { return nil }
+        let idealSum = firstIdeal + secondIdeal
+        // Fit is judged against the EXACT span, not the rounded one. The
+        // carry is positional — this region's leading edge landed |carry|
+        // inside or beyond its exact position — so `available - carry` is
+        // the true room the ideals were budgeted for. Comparing against the
+        // rounded span would let a half-point edge masquerade as
+        // overconstraint and scale every child down when everything fits.
+        let exactSpan = available - carry
+        let scale = idealSum > exactSpan && idealSum > 0 ? max(0, exactSpan) / idealSum : 1
+        let target = firstIdeal * scale + carry
+        // NEAREST whole point: rounding the boundary's absolute coordinate
+        // keeps every edge within half a point of exact — every pane within
+        // one point of ideal, which the per-pane quantization slack covers.
+        // Rounding up instead would overshoot into trailing siblings.
+        let allocated = min(max(0, target.rounded()), available)
+        return (firstExtent: allocated, secondCarry: target - allocated)
     }
 
     func requestedTmuxSpan(
@@ -142,8 +213,37 @@ struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
 
     func childExtents(parentExtent: CGFloat, dividerPosition: CGFloat) -> (first: CGFloat, second: CGFloat) {
         let available = max(0, parentExtent - dividerThickness)
-        let first = available * dividerPosition
-        return (first: first, second: available - first)
+        // Whole points: the native split view lays children out on the point
+        // grid, so modeling the division unrounded would disagree with the
+        // sizes panes actually receive.
+        let first = (available * dividerPosition).rounded()
+        return (first: first, second: max(0, available - first))
+    }
+
+    /// Splits a parent's size into the two child sizes a split with
+    /// `firstExtent` points for its first child produces — the one shared
+    /// model of a split's geometry, used by the divider plan (writing
+    /// fractions to the native tree) and the drag sync walk (reading them
+    /// back), so the two directions can never disagree about child sizes.
+    func childSizes(
+        parentSize: CGSize,
+        orientation: SplitOrientation,
+        firstExtent: CGFloat
+    ) -> (first: CGSize, second: CGSize) {
+        let parentExtent = orientation == .horizontal ? parentSize.width : parentSize.height
+        let available = max(0, parentExtent - dividerThickness)
+        let first = min(max(0, firstExtent), available)
+        let second = max(0, available - first)
+        if orientation == .horizontal {
+            return (
+                first: CGSize(width: first, height: parentSize.height),
+                second: CGSize(width: second, height: parentSize.height)
+            )
+        }
+        return (
+            first: CGSize(width: parentSize.width, height: first),
+            second: CGSize(width: parentSize.width, height: second)
+        )
     }
 
     func joinedResidual(

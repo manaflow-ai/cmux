@@ -43,6 +43,14 @@ private struct SplitMix64 {
     func everyPaneRendersAtLeastItsAssignedSpan(seed: UInt64) throws {
         var rng = SplitMix64(seed: seed)
 
+        // The minimum-cells guard below skips regimes whose claim came out
+        // too small to assign. That guard exists for pathological metric
+        // draws only — containers are built at least four cells above the
+        // minimum on each axis — so if most regimes stop executing, the
+        // generator or the claim collapsed and the suite would otherwise
+        // pass green while testing nothing.
+        var executedRegimes = 0
+
         for trial in 0..<80 {
             let scale: CGFloat = Self.draw(2, using: &rng) == 0 ? 1 : 2
             let cellWidthPx = 7 + Self.draw(18, using: &rng)
@@ -111,6 +119,7 @@ private struct SplitMix64 {
                     metrics.clientGrid(layout: structure, contentSize: container)
                 )
                 guard claim.columns >= minimum.cols, claim.rows >= minimum.rows else { continue }
+                executedRegimes += 1
                 let layout = Self.assign(
                     shape,
                     cols: claim.columns + extraCols,
@@ -122,6 +131,8 @@ private struct SplitMix64 {
                 let context = "seed=0x\(String(seed, radix: 16)) trial=\(trial) regime=\(regime)"
                     + " shape=\(Self.describe(layout)) container=\(Int(container.width))x\(Int(container.height))"
                     + " claim=\(claim.columns)x\(claim.rows)"
+                    + " cellPx=\(cellWidthPx)x\(cellHeightPx) padPx=\(padWidthPx)x\(padHeightPx)"
+                    + " scale=\(Int(scale)) divider=\(metrics.dividerThickness) tabBar=\(metrics.tabBarHeight)"
 
                 let measured = RemoteTmuxNativeMeasuredSplitTree(
                     tree: RemoteTmuxNativeSplitTree(layout: layout),
@@ -193,6 +204,10 @@ private struct SplitMix64 {
                 }
             }
         }
+        #expect(
+            executedRegimes >= 100,
+            "only \(executedRegimes)/320 regimes executed — generator or claim collapsed"
+        )
     }
 
     // MARK: - Random generation
