@@ -207,6 +207,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// sign-out, forget) each claim a generation; only the current generation may
     /// write paired-Mac state, while the lifecycle reducer owns presentation phase.
     var storedMacReconnectGeneration = 0
+    /// Saved Mac currently owned by the active stored-Mac reconnect operation.
+    /// This includes the first reachable fallback when no row is marked active.
+    var storedMacReconnectTargetDeviceID: String?
     /// Whether the current attach ticket has a non-empty auth token and has not expired.
     public var hasActiveUnexpiredAttachTicket: Bool {
         guard let activeTicket,
@@ -1632,6 +1635,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // update the paired-Mac hint; the lifecycle reducer owns reconnect phase.
         storedMacReconnectGeneration &+= 1
         let generation = storedMacReconnectGeneration
+        storedMacReconnectTargetDeviceID = nil
+        defer {
+            if generation == storedMacReconnectGeneration {
+                storedMacReconnectTargetDeviceID = nil
+            }
+        }
         // No store / not signed in: the owning lifecycle episode resolves after
         // this method returns, while the persisted hint remains available to a
         // future attempt.
@@ -1642,15 +1651,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               let scope = await currentScopeSnapshot(userID: stackUserID) else {
             return false
         }
-        // Pull the authoritative per-user backup first so saved-Mac routes are
-        // current before we dial: a Mac that relaunched on a new port republishes
-        // to the backup, and LWW by lastSeenAt keeps any live local edit. Without
-        // this a stale port makes the auto-connect fail and the app falls back to
-        // the Mac picker, the screen we want to avoid showing.
-        if let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
-            await refresher.refreshFromBackup(stackUserID: scope.userID)
-        }
-        guard await isScopeCurrent(scope) else { return false }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         func reachableRoutes(_ mac: MobilePairedMac) -> [(host: String, port: Int, routeID: String)] {
             Self.reconnectHostPortRoutes(
@@ -1659,6 +1659,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 preferNonLoopback: Self.prefersNonLoopbackRoutes
             )
         }
+        let cachedMacs = pairedMacsForIdentityMatching
+        storedMacReconnectTargetDeviceID = cachedMacs.first(where: {
+            $0.isActive && !reachableRoutes($0).isEmpty
+        })?.macDeviceID ?? cachedMacs.first(where: {
+            !reachableRoutes($0).isEmpty
+        })?.macDeviceID
+        // Pull the authoritative per-user backup first so saved-Mac routes are
+        // current before we dial: a Mac that relaunched on a new port republishes
+        // to the backup, and LWW by lastSeenAt keeps any live local edit. Without
+        // this a stale port makes the auto-connect fail and the app falls back to
+        // the Mac picker, the screen we want to avoid showing.
+        if let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
+            await refresher.refreshFromBackup(stackUserID: scope.userID)
+        }
+        guard generation == storedMacReconnectGeneration,
+              await isScopeCurrent(scope) else { return false }
         let loadedActiveMac: MobilePairedMac?
         let loadedMacs: [MobilePairedMac]
         do {
@@ -1671,9 +1687,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // paired state.
             return false
         }
-        guard await isScopeCurrent(scope) else { return false }
+        guard generation == storedMacReconnectGeneration,
+              await isScopeCurrent(scope) else { return false }
         let forgottenIDs = await forgottenMacDeviceIDs(scope: scope)
-        guard await isScopeCurrent(scope) else {
+        guard generation == storedMacReconnectGeneration,
+              await isScopeCurrent(scope) else {
             return false
         }
         let activeMac = loadedActiveMac.flatMap { forgottenIDs.contains($0.macDeviceID) ? nil : $0 }
@@ -1714,6 +1732,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   await isScopeCurrent(scope) else { break }
             let latestForgottenIDs = await forgottenMacDeviceIDs(scope: scope)
             guard generation == storedMacReconnectGeneration, await isScopeCurrent(scope), !latestForgottenIDs.contains(mac.macDeviceID) else { break }
+            storedMacReconnectTargetDeviceID = mac.macDeviceID
             // Best-effort registry refresh for this Mac in the background.
             refreshRoutesFromRegistry(for: mac, scope: scope)
             let localRoutes = reachableRoutes(mac)
@@ -1724,7 +1743,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     name: mac.displayName ?? route.host,
                     host: route.host,
                     port: route.port,
-                    pairedMacDeviceID: mac.macDeviceID)
+                    pairedMacDeviceID: mac.macDeviceID,
+                    ifStillCurrent: { [weak self] in
+                        self?.storedMacReconnectGeneration == generation
+                            && self?.storedMacReconnectTargetDeviceID == mac.macDeviceID
+                    }
+                )
                 if connectionState == .connected { break }
             }
             if connectionState != .connected,
@@ -1741,7 +1765,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         name: mac.displayName ?? route.host,
                         host: route.host,
                         port: route.port,
-                        pairedMacDeviceID: mac.macDeviceID)
+                        pairedMacDeviceID: mac.macDeviceID,
+                        ifStillCurrent: { [weak self] in
+                            self?.storedMacReconnectGeneration == generation
+                                && self?.storedMacReconnectTargetDeviceID == mac.macDeviceID
+                        }
+                    )
                     if connectionState == .connected { break }
                 }
             }
@@ -3975,7 +4004,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     #endif
 
-    func invalidateStoredMacReconnectAttempt() { storedMacReconnectGeneration &+= 1 }
+    func invalidateStoredMacReconnectAttempt() {
+        storedMacReconnectGeneration &+= 1
+        storedMacReconnectTargetDeviceID = nil
+    }
 
     /// Drop the PREVIOUS foreground/anonymous workspace snapshot from the aggregate
     /// after the foreground Mac changes (switch A→B, promotion, or a real connect

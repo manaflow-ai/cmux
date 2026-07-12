@@ -147,11 +147,18 @@ extension MobileShellComposite {
         let isActiveMac = pairedMacsForIdentityMatching.contains {
             targetIDSet.contains($0.macDeviceID) && $0.isActive
         }
-        if pairedMacsForIdentityMatching.contains(where: { targetIDSet.contains($0.macDeviceID) }) {
+        let forgetsKnownMac = pairedMacsForIdentityMatching.contains {
+            targetIDSet.contains($0.macDeviceID)
+        }
+        let forgetsReconnectTarget = connectionLifecycle.activeEpisode?.kind == .reconnect
+            && storedMacReconnectTargetDeviceID.map(targetIDSet.contains) == true
+        if forgetsKnownMac || forgetsReconnectTarget {
             invalidateStoredMacReconnectAttempt()
         }
         if isActiveMac {
             disconnectLiveConnection(preservingOtherMacWorkspaceState: true)
+        } else if forgetsReconnectTarget {
+            resetConnectionLifecycle()
         }
         for id in macDeviceIDs {
             if let subscription = secondaryMacSubscriptions[id] {
