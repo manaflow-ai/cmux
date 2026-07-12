@@ -60,8 +60,11 @@ struct BrowserWebExtensionSupportTests {
 
         #expect(support.activePanelID == firstPanel.id)
         #expect((support.webExtensionWindow(for: firstWindow) as AnyObject?) === support.windowAdapter)
+        #expect((support.focusedWebExtensionWindow(for: firstWindow) as AnyObject?) === support.windowAdapter)
         let unrelatedWindow = NSWindow()
         #expect(support.webExtensionWindow(for: unrelatedWindow) == nil)
+        #expect(support.focusedWebExtensionWindow(for: unrelatedWindow) == nil)
+        #expect(support.focusedWebExtensionWindow(for: nil) == nil)
     }
 
     @Test
@@ -330,6 +333,31 @@ struct BrowserWebExtensionSupportTests {
             ),
         ])
         #expect(plan.loadEntries.isEmpty)
+    }
+
+    @Test
+    func reconciliationPurgesPermissionStateWhenDisabledEntryIsRemoved() {
+        let planner = BrowserWebExtensionReconciliationPlanner()
+        let removedEntry = BrowserWebExtensionEntry(
+            id: "com.example.extension",
+            kind: .unpackedDirectory,
+            path: "/Extensions/Example",
+            enabled: false
+        )
+
+        let plan = planner.plan(
+            settingsEntries: [],
+            previousSettingsEntries: [removedEntry],
+            environmentPaths: [],
+            loadedEntries: []
+        )
+
+        #expect(plan.permissionStateRemovalEntries == [
+            BrowserWebExtensionPermissionStateRemoval(
+                id: removedEntry.id,
+                standardizedPath: removedEntry.standardizedResourceRootPath
+            ),
+        ])
     }
 
     @Test

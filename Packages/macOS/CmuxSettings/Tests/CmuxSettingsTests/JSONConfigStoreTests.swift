@@ -30,6 +30,24 @@ struct JSONConfigStoreTests {
         #expect(automation?["socketPassword"] as? String == "hunter2")
     }
 
+    @Test func concurrentUpdatesPreserveBothMutations() async throws {
+        let (store, _, _) = makeStore()
+        let key = JSONKey<[String]>(id: "browser.testAtomicUpdate", defaultValue: [])
+        try await store.set([], for: key)
+
+        async let firstUpdate = store.update(key) { values in
+            values.append("first")
+        }
+        async let secondUpdate = store.update(key) { values in
+            values.append("second")
+        }
+
+        let didUpdate = try await [firstUpdate, secondUpdate]
+        let value = await store.value(for: key)
+        #expect(didUpdate == [true, true])
+        #expect(Set(value) == ["first", "second"])
+    }
+
     @Test func resetRemovesEntryAndPrunesEmptyParents() async throws {
         let (store, fileURL, _) = makeStore()
         try await store.set("hunter2", for: JSONKey<String>(id: "automation.socketPassword", defaultValue: ""))
