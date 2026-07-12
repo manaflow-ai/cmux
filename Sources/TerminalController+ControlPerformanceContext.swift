@@ -68,6 +68,7 @@ extension TerminalController: ControlPerformanceContext {
                     "raw_tracked_status_scan_count": NSNumber(value: git.rawTrackedStatusScanCount),
                     "tracked_status_cache_hit_count": NSNumber(value: git.trackedStatusCacheHitCount),
                     "tracked_status_in_flight_join_count": NSNumber(value: git.trackedStatusInFlightJoinCount),
+                    "tracked_status_request_count": NSNumber(value: git.trackedStatusRequestCount),
                 ],
                 "sidebar_git": [
                     "schema_version": NSNumber(value: sidebarGit.schemaVersion),
