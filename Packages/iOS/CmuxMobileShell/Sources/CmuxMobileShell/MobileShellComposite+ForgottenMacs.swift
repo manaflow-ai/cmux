@@ -143,6 +143,7 @@ extension MobileShellComposite {
             return
         }
         let workspacesBeforeForget = workspacesByMac
+        let focusRevisionsBeforeForget = workspaceFocusEventRevisionsByMac
         let foregroundMacDeviceIDBeforeForget = foregroundMacDeviceID
         let isActiveMac = pairedMacsForIdentityMatching.contains {
             targetIDSet.contains($0.macDeviceID) && $0.isActive
@@ -165,6 +166,7 @@ extension MobileShellComposite {
                 await clearForgottenMacDeviceID(id, scope: scope)
             }
             workspacesByMac = workspacesBeforeForget
+            workspaceFocusEventRevisionsByMac = focusRevisionsBeforeForget
             foregroundMacDeviceID = foregroundMacDeviceIDBeforeForget
             return
         }
@@ -189,6 +191,7 @@ extension MobileShellComposite {
                 await clearForgottenMacDeviceID(id, scope: scope)
             }
             workspacesByMac = workspacesBeforeForget
+            workspaceFocusEventRevisionsByMac = focusRevisionsBeforeForget
             foregroundMacDeviceID = foregroundMacDeviceIDBeforeForget
             for id in removedIDs {
                 pruneWorkspaceStateForForgottenMac(id)
@@ -210,6 +213,9 @@ extension MobileShellComposite {
         if foregroundMacDeviceID == macDeviceID {
             foregroundMacDeviceID = nil
         }
+        let removedOwnerKeys = workspacesByMac.compactMap { key, state in
+            key == macDeviceID || state.macDeviceID == macDeviceID ? key : nil
+        }
         let pruned = workspacesByMac.reduce(into: [String: MacWorkspaceState]()) { result, entry in
             let (key, state) = entry
             guard key != macDeviceID, state.macDeviceID != macDeviceID else { return }
@@ -222,6 +228,9 @@ extension MobileShellComposite {
             workspacesByMac = pruned
         } else if pruned != workspacesByMac {
             workspacesByMac = pruned
+        }
+        for ownerKey in removedOwnerKeys {
+            removeWorkspaceFocusRevisions(ownerKey: ownerKey)
         }
     }
 }

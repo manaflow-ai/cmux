@@ -57,6 +57,74 @@ extension MobileShellComposite {
         }
     }
 
+    /// Removes revisions for one exact aggregate owner key. This intentionally
+    /// does not resolve foreground fallbacks because callers are evicting a raw
+    /// `workspacesByMac` key that no longer exists.
+    func removeWorkspaceFocusRevisions(ownerKey: String) {
+        workspaceFocusEventRevisionsByMac[ownerKey] = nil
+    }
+
+    /// Re-keys revisions when an anonymous foreground owner adopts its real Mac
+    /// identity. A workspace already observed under the destination keeps the
+    /// newer revision, and the global monotonic counter is unchanged.
+    func moveWorkspaceFocusRevisions(from oldOwnerKey: String, to newOwnerKey: String) {
+        guard oldOwnerKey != newOwnerKey,
+              let oldRevisions = workspaceFocusEventRevisionsByMac.removeValue(forKey: oldOwnerKey) else {
+            return
+        }
+        var merged = workspaceFocusEventRevisionsByMac[newOwnerKey] ?? [:]
+        for (workspaceID, revision) in oldRevisions {
+            merged[workspaceID] = max(merged[workspaceID] ?? 0, revision)
+        }
+        if !merged.isEmpty {
+            workspaceFocusEventRevisionsByMac[newOwnerKey] = merged
+        }
+    }
+
+    /// Drop the previous foreground/anonymous snapshot after a foreground Mac
+    /// change. Its focus revisions share the snapshot's raw aggregate owner.
+    func dropStalePreviousForeground(_ previousKey: String) {
+        guard previousKey != foregroundMacKey,
+              secondaryMacSubscriptions[previousKey] == nil else { return }
+        let removedWorkspaceIDs = Set((workspacesByMac[previousKey]?.workspaces ?? []).flatMap { workspace in
+            let remoteID = workspace.remoteWorkspaceID ?? workspace.id
+            return [
+                workspace.id.rawValue,
+                remoteID.rawValue,
+                workspaceAggregation.rowID(macDeviceID: previousKey, workspaceID: remoteID).rawValue,
+            ]
+        })
+        workspacesByMac[previousKey] = nil
+        removeWorkspaceFocusRevisions(ownerKey: previousKey)
+        for workspaceID in removedWorkspaceIDs {
+            chatSessionSnapshotsByWorkspaceID[workspaceID] = nil
+        }
+    }
+
+    /// Move anonymous foreground state and focus-revision ownership onto a
+    /// host-reported stable Mac identity.
+    func adoptForegroundMacIdentity(_ macDeviceID: String) {
+        guard !macDeviceID.isEmpty, foregroundMacDeviceID != macDeviceID else { return }
+        let oldKey = foregroundMacKey
+        foregroundMacDeviceID = macDeviceID
+        guard oldKey != macDeviceID else { return }
+        if var state = workspacesByMac[oldKey] {
+            workspacesByMac[oldKey] = nil
+            state.macDeviceID = macDeviceID
+            state.workspaces = state.workspaces.map { workspace in
+                var copy = workspace
+                copy.macDeviceID = macDeviceID
+                return copy
+            }
+            workspacesByMac[macDeviceID] = state
+        }
+        moveWorkspaceFocusRevisions(from: oldKey, to: macDeviceID)
+        if let connection = connections[oldKey] {
+            connections[oldKey] = nil
+            connections[macDeviceID] = connection
+        }
+    }
+
     private func recordWorkspaceFocusEvent(
         _ event: MobileWorkspaceFocusEvent,
         macID: String?

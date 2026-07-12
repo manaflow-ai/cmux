@@ -24,11 +24,13 @@ import Testing
         foregroundMacID: ["foreground-workspace": 3],
         secondaryMacID: ["secondary-workspace": 4],
     ]
+    store.workspaceFocusEventRevision = 4
 
     store.currentTeamDidChange()
 
     #expect(store.workspaceFocusEventRevisionsByMac[foregroundMacID] == ["foreground-workspace": 3])
     #expect(store.workspaceFocusEventRevisionsByMac[secondaryMacID] == nil)
+    #expect(store.workspaceFocusEventRevision == 4)
 }
 
 @MainActor
@@ -39,11 +41,13 @@ import Testing
     let secondaryMacID = "vanished-secondary"
     try installSecondaryClient(on: store, macDeviceID: secondaryMacID, router: router)
     store.workspaceFocusEventRevisionsByMac[secondaryMacID] = ["workspace-old": 7]
+    store.workspaceFocusEventRevision = 7
 
     await store.refreshSecondaryMacWorkspaces()
 
     #expect(store.secondaryMacSubscriptions[secondaryMacID] == nil)
     #expect(store.workspaceFocusEventRevisionsByMac[secondaryMacID] == nil)
+    #expect(store.workspaceFocusEventRevision == 7)
 }
 
 @MainActor

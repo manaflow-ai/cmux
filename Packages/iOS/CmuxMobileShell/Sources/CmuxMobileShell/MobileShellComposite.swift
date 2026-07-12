@@ -238,7 +238,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var workspacesByMac: [String: MacWorkspaceState] = [:] {
         didSet { recomputeDerivedWorkspaceState() }
     }
-    private let workspaceAggregation = MobileWorkspaceAggregation()
+    let workspaceAggregation = MobileWorkspaceAggregation()
     /// The flat aggregated workspace list the UI renders. A materialized
     /// derivation of ``workspacesByMac``: only ``recomputeDerivedWorkspaceState``
     /// assigns it, so it is never independently mutated.
@@ -747,7 +747,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// read-only connections to the user's other Macs so every connected Mac's
     /// workspaces can be aggregated. `foregroundMacDeviceID` is the Mac whose
     /// connection drives terminal I/O and the connected UI.
-    private var connections: [String: MacConnection] = [:]
+    var connections: [String: MacConnection] = [:]
     var foregroundMacDeviceID: String? {
         didSet { recomputeDerivedWorkspaceState() }
     }
@@ -1185,6 +1185,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // it. Group sections are account-scoped like `pairedMacs`/`registryDevices`
         // above: the placeholder workspaces are ungrouped, and the previous
         // account's group names must not survive into the next session.
+        workspaceFocusEventRevisionsByMac.removeAll()
         workspacesByMac = [Self.foregroundAnonymousKey: MacWorkspaceState(
             macDeviceID: Self.foregroundAnonymousKey,
             workspaces: PreviewMobileHost.workspaces,
@@ -1220,7 +1221,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // on the next foreground / Computers `.task` / pull-to-refresh.
         teardownSecondaryMacSubscriptions()
         let foregroundKey = foregroundMacKey
+        let removedFocusOwnerKeys = workspacesByMac.keys.filter { $0 != foregroundKey }
         workspacesByMac = workspacesByMac.filter { $0.key == foregroundKey }
+        for ownerKey in removedFocusOwnerKeys {
+            removeWorkspaceFocusRevisions(ownerKey: ownerKey)
+        }
         // Restore memo: invalidate so the next read re-restores for the new
         // (account, team) scope, and a suspended old-team restore can't resume.
         // Invalidate the shared boundary synchronously first; actor cleanup is
@@ -2765,7 +2770,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     connectionState = .disconnected
                     macConnectionStatus = .unavailable
                     clearRemoteConnectionContext()
+                    let removedFocusOwnerKeys = workspacesByMac.keys.filter(previousIDs.contains)
                     workspacesByMac = workspacesByMac.filter { !previousIDs.contains($0.key) }
+                    for ownerKey in removedFocusOwnerKeys {
+                        removeWorkspaceFocusRevisions(ownerKey: ownerKey)
+                    }
                 }
                 return false
             }
@@ -3539,6 +3548,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             subscription.cancel()
             secondaryMacSubscriptions[macID] = nil
             workspacesByMac[macID] = nil
+            removeWorkspaceFocusRevisions(ownerKey: macID)
         }
         // For each wanted secondary Mac: establish a fresh subscription, or — if
         // one already exists — reseed its snapshot over the existing client so an
@@ -3766,7 +3776,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func teardownSecondaryMacSubscriptions() {
         secondaryAggregationTask?.cancel()
         secondaryAggregationTask = nil
-        for (_, subscription) in secondaryMacSubscriptions { subscription.cancel() }
+        for (macID, subscription) in secondaryMacSubscriptions {
+            subscription.cancel()
+            removeWorkspaceFocusRevisions(ownerKey: macID)
+        }
         secondaryMacSubscriptions.removeAll()
     }
 
@@ -3786,7 +3799,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let foregroundAnonymousKey = "__cmux_foreground__"
 
     /// The key the foreground Mac's state lives under in ``workspacesByMac``.
-    private var foregroundMacKey: String { foregroundMacDeviceID ?? Self.foregroundAnonymousKey }
+    var foregroundMacKey: String { foregroundMacDeviceID ?? Self.foregroundAnonymousKey }
 
     private func updateForegroundWorkspaceActionCapabilities() {
         guard var state = workspacesByMac[foregroundMacKey] else { return }
@@ -3973,67 +3986,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     #endif
 
     func invalidateStoredMacReconnectAttempt() { storedMacReconnectGeneration &+= 1 }
-
-    /// Drop the PREVIOUS foreground/anonymous workspace snapshot from the aggregate
-    /// after the foreground Mac changes (switch A→B, promotion, or a real connect
-    /// after an anonymous/sign-out session). Its live client was just replaced, so
-    /// those rows are stale; left in place, `recomputeDerivedWorkspaceState` (which
-    /// derives over every `workspacesByMac` entry) keeps showing the old Mac's rows
-    /// and can route actions/opens through stale ownership — the regression the
-    /// pre-aggregation `workspaces = remoteWorkspaces` full replacement avoided.
-    ///
-    /// Only the OLD foreground key is removed. A live secondary is never keyed under
-    /// the foreground id (aggregation excludes the foreground), and a reachable
-    /// previous Mac is re-added as a secondary by the `scheduleSecondaryAggregation`
-    /// the callers kick right after — so this never drops a real secondary's rows
-    /// (including an intentionally-kept offline secondary).
-    private func dropStalePreviousForeground(_ previousKey: String) {
-        guard previousKey != foregroundMacKey,
-              secondaryMacSubscriptions[previousKey] == nil else { return }
-        let removedWorkspaceIDs = Set((workspacesByMac[previousKey]?.workspaces ?? []).flatMap { workspace in
-            let remoteID = workspace.remoteWorkspaceID ?? workspace.id
-            return [
-                workspace.id.rawValue,
-                remoteID.rawValue,
-                workspaceAggregation.rowID(macDeviceID: previousKey, workspaceID: remoteID).rawValue,
-            ]
-        })
-        workspacesByMac[previousKey] = nil
-        for workspaceID in removedWorkspaceIDs {
-            chatSessionSnapshotsByWorkspaceID[workspaceID] = nil
-        }
-    }
-
-    /// Adopt a host-reported real device id as the foreground Mac's aggregate key.
-    /// A compact/anonymous QR ticket connects with an empty `macDeviceID`, so the
-    /// foreground state lands under the anonymous key with `foregroundMacDeviceID`
-    /// nil. When `mobile.host.status` later reports the real id, move that state to
-    /// the real id and stamp its rows — otherwise the Computers screen shows the
-    /// connected Mac as "not connected" (foregroundMacDeviceID never matched) and
-    /// secondary aggregation, which excludes `foregroundMacDeviceID`, can open a
-    /// DUPLICATE read-only connection to the very Mac that is already foreground.
-    private func adoptForegroundMacIdentity(_ macDeviceID: String) {
-        guard !macDeviceID.isEmpty, foregroundMacDeviceID != macDeviceID else { return }
-        let oldKey = foregroundMacKey
-        foregroundMacDeviceID = macDeviceID
-        guard oldKey != macDeviceID else { return }
-        if var state = workspacesByMac[oldKey] {
-            workspacesByMac[oldKey] = nil
-            state.macDeviceID = macDeviceID
-            state.workspaces = state.workspaces.map { workspace in
-                var copy = workspace
-                copy.macDeviceID = macDeviceID
-                return copy
-            }
-            // Don't clobber a (somehow) pre-existing real-id entry; merge by keeping
-            // the live foreground rows.
-            workspacesByMac[macDeviceID] = state
-        }
-        if let connection = connections[oldKey] {
-            connections[oldKey] = nil
-            connections[macDeviceID] = connection
-        }
-    }
 
     /// Apply an optimistic mutation to the foreground Mac's workspace list (e.g. a
     /// just-created workspace or terminal) directly on the per-Mac source of
@@ -5217,7 +5169,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // now-offline foreground Mac's last-known workspaces for the offline
             // view; the derived list recomputes to just the offline Mac's rows.
             teardownSecondaryMacSubscriptions()
+            let removedFocusOwnerKeys = workspacesByMac.keys.filter { $0 != offlineForegroundKey }
             workspacesByMac = workspacesByMac.filter { $0.key == offlineForegroundKey }
+            for ownerKey in removedFocusOwnerKeys {
+                removeWorkspaceFocusRevisions(ownerKey: ownerKey)
+            }
         }
         // The retained foreground entry still carries its last-known
         // `status: .connected`; `macConnectionStatuses` (the Computers screen's
