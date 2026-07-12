@@ -99,14 +99,6 @@ public final class AuthCoordinator {
     /// would read the stale published flag and skip the rollback that keeps
     /// its raced store write from surviving the sign-out.
     @ObservationIgnored var signOutEpoch: UInt64 = 0
-
-    /// Monotonic process-local evidence that a local sign-out began.
-    ///
-    /// Lifecycle consumers use this revision instead of relying on observing
-    /// the transient signed-out UI state, which can be coalesced when another
-    /// account signs in immediately afterward.
-    public var signOutRevision: UInt64 { signOutEpoch }
-
     /// Monotonic sign-in attempt count, allocating each flow's attempt id.
     @ObservationIgnored var signInAttemptCounter: UInt64 = 0
     /// Sign-in attempts that currently own a possible write to the token store.
