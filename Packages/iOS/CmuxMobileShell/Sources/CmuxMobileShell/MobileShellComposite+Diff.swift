@@ -1,5 +1,5 @@
 internal import CmuxMobileRPC
-internal import CmuxMobileShellModel
+public import CmuxMobileShellModel
 internal import Foundation
 
 extension MobileShellComposite {
