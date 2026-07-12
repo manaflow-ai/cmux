@@ -226,6 +226,20 @@ import Testing
         #expect(!session.hasJumpBackTarget)
     }
 
+    @Test func refreshResetsHunkWhenSelectedPathDisappears() {
+        let session = DiffReviewSession(files: [file("A.swift"), file("B.swift"), file("C.swift")])
+        session.openFile(path: "B.swift")
+        session.recordHunkCount(3, for: "B.swift")
+        session.moveForward()
+        session.moveForward()
+
+        session.setFiles([file("A.swift"), file("C.swift"), file("D.swift")])
+
+        #expect(session.currentFile?.path == "C.swift")
+        #expect(session.currentFileIndex == 1)
+        #expect(session.currentHunkIndex == 0)
+    }
+
     private func file(_ path: String) -> MobileWorkspaceDiffStatusResponse.File {
         let data = Data(#"{"path":"\#(path)","status":"M","additions":1,"deletions":0}"#.utf8)
         return try! JSONDecoder().decode(MobileWorkspaceDiffStatusResponse.File.self, from: data)
