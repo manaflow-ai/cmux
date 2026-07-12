@@ -1,4 +1,6 @@
+import CmuxMobileRPC
 import CmuxMobileShellModel
+import Foundation
 import Testing
 @testable import CmuxMobileShell
 
@@ -83,4 +85,88 @@ import Testing
         "workspace-target-only": 4,
     ])
     #expect(store.workspaceFocusEventRevision == 11)
+}
+
+@MainActor
+@Test func lateWorkspaceFocusEventCannotRestoreClosedTerminalTopology() throws {
+    let survivorID = MobileTerminalPreview.ID(rawValue: "terminal-survivor")
+    let survivorPaneID = MobilePanePreview.ID(rawValue: "pane-survivor")
+    let workspace = MobileWorkspacePreview(
+        id: "workspace-after-close",
+        name: "After close",
+        terminals: [
+            MobileTerminalPreview(
+                id: survivorID,
+                name: "Survivor",
+                paneID: survivorPaneID,
+                isFocused: true
+            ),
+        ],
+        panes: [
+            MobilePanePreview(
+                id: survivorPaneID,
+                spatialIndex: 0,
+                isFocused: true,
+                terminalIDs: [survivorID]
+            ),
+        ],
+        focusedPaneID: survivorPaneID,
+        selectedTerminalID: survivorID
+    )
+    let store = MobileShellComposite(workspaces: [workspace])
+    let lateEvent = try #require(MobileWorkspaceFocusEvent(payloadJSON: Data("""
+    {"kind":"focus","workspace_id":"workspace-after-close","focused_pane_id":"pane-closed","selected_terminal_id":"terminal-closed"}
+    """.utf8)))
+
+    store.applyWorkspaceFocusEvent(lateEvent, macID: nil)
+
+    let updated = try #require(store.workspaces.first)
+    #expect(updated.focusedPaneID == survivorPaneID)
+    #expect(updated.selectedTerminalID == survivorID)
+    #expect(updated.panes.first?.isFocused == true)
+    #expect(updated.terminals.first?.isFocused == true)
+}
+
+@MainActor
+@Test func focusSnapshotDimensionsApplyNilAndValidValuesIndependently() throws {
+    let workspace = MobileWorkspacePreview(
+        id: "workspace-mixed-focus",
+        name: "Mixed focus",
+        terminals: [
+            MobileTerminalPreview(id: "terminal-a", name: "A", paneID: "pane-a", isFocused: true),
+            MobileTerminalPreview(id: "terminal-b", name: "B", paneID: "pane-b"),
+        ],
+        panes: [
+            MobilePanePreview(id: "pane-a", spatialIndex: 0, isFocused: true, terminalIDs: ["terminal-a"]),
+            MobilePanePreview(id: "pane-b", spatialIndex: 1, terminalIDs: ["terminal-b"]),
+        ],
+        focusedPaneID: "pane-a",
+        selectedTerminalID: "terminal-a"
+    )
+    let store = MobileShellComposite(workspaces: [workspace])
+    let event = try #require(MobileWorkspaceFocusEvent(payloadJSON: Data("""
+    {"kind":"focus","workspace_id":"workspace-mixed-focus","focused_pane_id":null,"selected_terminal_id":"terminal-b"}
+    """.utf8)))
+
+    store.applyWorkspaceFocusEvent(event, macID: nil)
+
+    let applied = try #require(store.workspaces.first)
+    #expect(applied.focusedPaneID == nil)
+    #expect(applied.panes.allSatisfy { !$0.isFocused })
+    #expect(applied.selectedTerminalID == "terminal-b")
+    #expect(applied.terminals.first(where: { $0.id == "terminal-b" })?.isFocused == true)
+
+    var refreshed = workspace
+    var existing = workspace
+    existing.focusedPaneID = "pane-b"
+    existing.panes[0].isFocused = false
+    existing.panes[1].isFocused = true
+    existing.selectedTerminalID = nil
+    existing.terminals[0].isFocused = false
+    refreshed.preserveFocusSnapshot(from: existing)
+
+    #expect(refreshed.focusedPaneID == "pane-b")
+    #expect(refreshed.panes.first(where: { $0.id == "pane-b" })?.isFocused == true)
+    #expect(refreshed.selectedTerminalID == nil)
+    #expect(refreshed.terminals.allSatisfy { !$0.isFocused })
 }
