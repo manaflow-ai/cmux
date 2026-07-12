@@ -213,6 +213,36 @@ struct PromptLineTurnDetectorTests {
         #expect(detector.confirm(confirmation) == 1)
     }
 
+    @Test("Spinner redraws via CSI 1G/2K do not poison Ollama prompt detection")
+    func spinnerRedrawsDoNotPoisonPromptDetection() throws {
+        // Byte idioms captured from a real `ollama run` PTY: the model-load
+        // spinner redraws its braille frame in place with CSI 1G + CSI K and
+        // never emits CR/LF, then the idle prompt is drawn after CSI 2K.
+        let ollamaConfiguration = PromptLineTurnDetectionConfiguration(
+            prompt: ">>> ",
+            waitingPromptSuffixes: ["Send a message (/? for help)"]
+        )
+        var detector = PromptLineTurnDetector(configuration: ollamaConfiguration)
+
+        detector.consume(Data("Last login: Sat Jul 11 19:53:41 on ttys151\r\n".utf8))
+        for frame in ["⠙", "⠹", "⠸", "⠼"] {
+            detector.consume(Data("\u{1B}[?2026h\u{1B}[?25l\u{1B}[1G\(frame) \u{1B}[K\u{1B}[?25h\u{1B}[?2026l".utf8))
+        }
+        detector.consume(Data("\u{1B}[2K\u{1B}[1G\u{1B}[?25h\u{1B}[?2004h>>> \u{1B}[38;5;245mSend a message (/? for help)\u{1B}[28D\u{1B}[0m".utf8))
+
+        detector.consume(Data("\u{1B}[Kname one metal, one word\r\n".utf8))
+        #expect(detector.submissionCount == 1)
+
+        detector.consume(Data("\u{1B}[?2026h\u{1B}[?25l\u{1B}[1G⠙ \u{1B}[K\u{1B}[?25h\u{1B}[?2026l".utf8))
+        detector.consume(Data("\u{1B}[2K\u{1B}[1G\u{1B}[38;5;245m\u{1B}[1mThinking...\r\n".utf8))
+        detector.consume(Data("\u{1B}[0mIron.\r\n\r\n".utf8))
+        detector.consume(Data("\u{1B}[?2026h\u{1B}[?25l\u{1B}[1G⠙ \u{1B}[K\u{1B}[?25h\u{1B}[?2026l".utf8))
+        detector.consume(Data("\u{1B}[2K\u{1B}[1G\u{1B}[?25h>>> \u{1B}[38;5;245mSend a message (/? for help)\u{1B}[28D\u{1B}[0m\u{1B}[K".utf8))
+
+        let confirmation = try #require(detector.pendingConfirmation)
+        #expect(detector.confirm(confirmation) == 1)
+    }
+
     private func readyDetector() -> PromptLineTurnDetector {
         var detector = PromptLineTurnDetector(configuration: configuration)
         detector.consume(Data(">>> ".utf8))
