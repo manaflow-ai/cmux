@@ -47,6 +47,24 @@ import Testing
         #expect(store.storedMacReconnectTargetDeviceID == nil)
     }
 
+    @Test func signOutClearsStoredMacReconnectTargetOwnership() {
+        let store = MobileShellComposite.preview()
+        store.storedMacReconnectTargetDeviceID = "mac-being-restored"
+
+        store.signOut()
+
+        #expect(store.storedMacReconnectTargetDeviceID == nil)
+    }
+
+    @Test func deletingLastVisibleMacClearsReconnectTargetOwnership() {
+        let store = MobileShellComposite.preview()
+        store.storedMacReconnectTargetDeviceID = "mac-being-restored"
+
+        store.clearSavedMacHintAfterDeletingLastVisibleMacIfNeeded()
+
+        #expect(store.storedMacReconnectTargetDeviceID == nil)
+    }
+
     @Test func manualRetrySupersedesAnOwnedStoredMacReconnect() {
         let store = MobileShellComposite(
             isSignedIn: true,
