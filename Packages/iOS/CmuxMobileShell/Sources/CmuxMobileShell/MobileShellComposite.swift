@@ -1473,8 +1473,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Yield automatic recovery ownership before the user enters manual pairing.
     public func prepareForManualPairing() {
-        guard connectionLifecycle.isRecovering else { return }
-        resetConnectionLifecycle()
+        connectionLifecycleReconnectPendingAfterRetirement = false
+        if connectionLifecycle.isRecovering { resetConnectionLifecycle() }
     }
 
     func captureConnectionRecoveryFailureIfNeeded(wasFailed: Bool) {
