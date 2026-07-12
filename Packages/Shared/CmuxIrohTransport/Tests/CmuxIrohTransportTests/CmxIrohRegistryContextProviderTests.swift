@@ -1,4 +1,4 @@
-import CryptoKit
+@preconcurrency import CryptoKit
 import CMUXMobileCore
 import Foundation
 import Testing

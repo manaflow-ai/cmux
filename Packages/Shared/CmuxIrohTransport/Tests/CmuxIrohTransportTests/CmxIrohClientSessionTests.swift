@@ -56,7 +56,8 @@ struct CmxIrohClientSessionTests {
         let clientReady = try #require(sent.dropFirst().first)
         #expect(sent.count == 2)
         let decodedHeader = try CmxIrohStreamHeaderCodec().decodePrefix(encodedHeader).header
-        #expect(decodedHeader == (try CmxIrohStreamHeader(lane: .control, credential: credential)))
+        let expectedHeader = try CmxIrohStreamHeader(lane: .control, credential: credential)
+        #expect(decodedHeader == expectedHeader)
         #expect(clientReady == admissionFrame(status: 2))
         #expect(await events.observedEvents() == [
             "connection.limits:0:0",
