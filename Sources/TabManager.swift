@@ -2790,11 +2790,11 @@ class TabManager: ObservableObject {
     }
 
     /// Close a panel because its child process exited (e.g. the user hit Ctrl+D).
-    ///
     /// This should never prompt: the process is already gone, and Ghostty emits the
     /// `SHOW_CHILD_EXITED` action specifically so the host app can decide what to do.
-    func closePanelAfterChildExited(tabId: UUID, surfaceId: UUID) {
+    func closePanelAfterChildExited(tabId: UUID, surfaceId: UUID, runtimeSurface: TerminalSurface? = nil) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        if let runtimeSurface, tab.terminalPanel(for: surfaceId)?.surface !== runtimeSurface { return }
         if tab.panels[surfaceId] == nil { tab.closeDockPanelAndClearNotifications(surfaceId, force: true); return }
         let ownsRemoteChildExit = tab.isRemoteTerminalSurface(surfaceId) ||
             tab.pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId) || tab.remoteDisconnectPlaceholderPanelIds.contains(surfaceId)
