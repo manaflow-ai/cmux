@@ -29,7 +29,8 @@ extension MobileShellComposite {
         guard foregroundWorkspaceListMutationEpoch > epoch,
               let latestTask = foregroundWorkspaceMutationRefreshTask else { return false }
         let latestResult = await latestTask.value
-        return latestResult.epoch >= epoch && latestResult.succeeded
+        return foregroundWorkspaceListAppliedMutationEpoch >= epoch
+            || (latestResult.epoch >= epoch && latestResult.succeeded)
     }
 
     /// Invalidates foreground list reads that started before a mutation response.

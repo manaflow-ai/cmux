@@ -15,7 +15,7 @@ extension MobileShellComposite {
                 ? paneID
                 : workspace.panes.first(where: \.isFocused)?.id ?? workspace.panes.first?.id
         } else {
-            resolvedPaneID = nil
+            resolvedPaneID = workspace.panes.isEmpty ? nil : workspace.terminalCreationPaneID
         }
         var terminalIndex = workspace.terminals.count + 1
         let existingTerminalIDs = Set(workspace.terminals.map(\.id))

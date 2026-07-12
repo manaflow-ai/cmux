@@ -58,3 +58,31 @@ import Testing
     #expect(Set(updated.terminals.map(\.id)).count == updated.terminals.count)
     #expect(updated.terminals.last?.id == "workspace-pane-terminal-3")
 }
+
+@MainActor
+@Test func createTerminalWithoutPaneCapabilityUsesFocusedLocalPane() throws {
+    let store = MobileShellComposite.preview()
+    let workspace = MobileWorkspacePreview(
+        id: "workspace-pane",
+        name: "Pane project",
+        terminals: [MobileTerminalPreview(id: "terminal-a", name: "shell", paneID: "pane-live")],
+        panes: [
+            MobilePanePreview(
+                id: "pane-live",
+                spatialIndex: 0,
+                isFocused: true,
+                terminalIDs: ["terminal-a"]
+            ),
+        ],
+        focusedPaneID: "pane-live",
+        selectedTerminalID: "terminal-a"
+    )
+    store.replaceForegroundWorkspaceState([workspace])
+
+    store.createTerminal(in: workspace.id)
+
+    let updated = try #require(store.workspaces.first)
+    let created = try #require(updated.terminals.last)
+    #expect(created.paneID == "pane-live")
+    #expect(updated.panes[0].terminalIDs.last == created.id)
+}
