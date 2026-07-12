@@ -6385,7 +6385,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             guard let hostedInspectorHit = hostedInspectorDividerCandidate() else { return }
             let clipped = hostedInspectorDividerHitRect(for: hostedInspectorHit).intersection(bounds)
             guard !clipped.isNull, clipped.width > 0, clipped.height > 0 else { return }
-            addCursorRect(clipped, cursor: NSCursor.resizeLeftRight)
+            addCursorRect(clipped, cursor: PortalDividerCursorKind.vertical.cursor)
         }
 
         override func updateTrackingAreas() {
@@ -6667,7 +6667,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 return
             }
             activeDividerCursorKind = .vertical
-            NSCursor.resizeLeftRight.set()
+            PortalDividerCursorKind.vertical.cursor.set()
         }
 
         private func clearActiveDividerCursor(restoreArrow: Bool) {

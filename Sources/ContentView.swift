@@ -1189,8 +1189,8 @@ struct ContentView: View {
     }
 
     private static let fixedSidebarResizeCursor = NSCursor(
-        image: NSCursor.resizeLeftRight.image,
-        hotSpot: NSCursor.resizeLeftRight.hotSpot
+        image: PortalDividerCursorKind.vertical.cursor.image,
+        hotSpot: PortalDividerCursorKind.vertical.cursor.hotSpot
     )
     private static let commandPaletteUsageDefaultsKey = "commandPalette.commandUsage.v1"
     nonisolated private static let commandPaletteCommandsPrefix = ">"

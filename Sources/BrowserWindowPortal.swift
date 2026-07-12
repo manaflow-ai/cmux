@@ -341,7 +341,7 @@ final class WindowBrowserHostView: NSView {
         super.resetCursorRects()
         invalidateSplitDividerRegionCache()
         let plan = PortalSplitDividerRegion.cursorRectPlan(for: splitDividerRegions())
-        let planned = plan.bands.map { ($0.rect, $0.isVertical ? NSCursor.resizeLeftRight : .resizeUpDown) }
+        let planned = plan.bands.map { ($0.rect, ($0.isVertical ? PortalDividerCursorKind.vertical : .horizontal).cursor) }
             + plan.corners.map { ($0, PortalDividerCursorKind.both.cursor) }
         for (rect, cursor) in planned {
             let clipped = convert(rect, from: nil).intersection(bounds)

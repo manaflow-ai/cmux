@@ -82,7 +82,7 @@ final class WindowTerminalHostView: NSView {
             let clipped = convert(band.rect, from: nil).intersection(bounds)
             guard !clipped.isNull, clipped.width > 0, clipped.height > 0 else { continue }
             guard !cursorRectIntersectsChromePassThrough(clipped) else { continue }
-            addCursorRect(clipped, cursor: band.isVertical ? .resizeLeftRight : .resizeUpDown)
+            addCursorRect(clipped, cursor: (band.isVertical ? PortalDividerCursorKind.vertical : .horizontal).cursor)
         }
         for corner in plan.corners {
             let clipped = convert(corner, from: nil).intersection(bounds)

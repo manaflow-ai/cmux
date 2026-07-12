@@ -11,24 +11,27 @@ enum PortalDividerCursorKind: Equatable {
 
     var cursor: NSCursor {
         switch self {
-        case .vertical: return .resizeLeftRight
-        case .horizontal: return .resizeUpDown
+        case .vertical: return Self.leftRightCursor
+        case .horizontal: return Self.upDownCursor
         case .both: return Self.allAxesCursor
         }
     }
 
-    /// AppKit ships no public four-way resize cursor, and the private
-    /// `_moveCursor` cannot be resolved by selector: on macOS 15 the class
-    /// method exists (`responds(to:)` is true) but its implementation is a
-    /// tombstone that raises `doesNotRecognizeSelector`, crashing the app the
-    /// moment the cursor is first used. Draw the classic four-directions
-    /// move cursor (N/S/E/W arrows meeting at the center, dark glyph with a
-    /// white rim like the system resize cursors) with bezier paths, so it
-    /// needs no symbol or private API at all.
-    private static let allAxesCursor: NSCursor = {
+    /// All divider cursors are drawn with one arrow style so the single-axis
+    /// and four-way affordances read as a family. AppKit's four-way move
+    /// cursor is private and cannot be resolved by selector (on macOS 15 the
+    /// class method exists but its implementation is a tombstone that raises
+    /// `doesNotRecognizeSelector`, crashing on first use), and mixing the
+    /// system resize glyphs with a drawn four-way made the corner cursor
+    /// look off-family. Dark glyph with a white rim like system cursors.
+    private static let leftRightCursor = drawnArrowsCursor(directions: [(1, 0), (-1, 0)])
+    private static let upDownCursor = drawnArrowsCursor(directions: [(0, 1), (0, -1)])
+    private static let allAxesCursor = drawnArrowsCursor(directions: [(0, 1), (0, -1), (1, 0), (-1, 0)])
+
+    private static func drawnArrowsCursor(directions: [(dx: CGFloat, dy: CGFloat)]) -> NSCursor {
         let side: CGFloat = 24
         let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { _ in
-            let path = fourDirectionsArrowsPath(center: NSPoint(x: side / 2, y: side / 2))
+            let path = arrowsPath(center: NSPoint(x: side / 2, y: side / 2), directions: directions)
             NSColor.white.setStroke()
             path.lineWidth = 2.5
             path.lineJoinStyle = .round
@@ -38,27 +41,28 @@ enum PortalDividerCursorKind: Equatable {
             return true
         }
         return NSCursor(image: image, hotSpot: NSPoint(x: side / 2, y: side / 2))
-    }()
+    }
 
-    /// Cross of four arrows: shafts from the center with a triangular head
-    /// per compass direction. Sized for a 24pt cursor image.
-    private static func fourDirectionsArrowsPath(center c: NSPoint) -> NSBezierPath {
+    /// Opposing arrows from the center: a shaft per axis plus a triangular
+    /// head per direction. Sized for a 24pt cursor image.
+    private static func arrowsPath(center c: NSPoint, directions: [(dx: CGFloat, dy: CGFloat)]) -> NSBezierPath {
         let tip: CGFloat = 8.5      // center -> arrow tip
         let headLength: CGFloat = 4.0
         let headHalfWidth: CGFloat = 3.0
         let shaftHalfWidth: CGFloat = 1.0
 
         let path = NSBezierPath()
-        // Shafts (one cross: horizontal + vertical bars up to the head bases).
         let base = tip - headLength
-        path.appendRect(NSRect(
-            x: c.x - base, y: c.y - shaftHalfWidth, width: base * 2, height: shaftHalfWidth * 2
-        ))
-        path.appendRect(NSRect(
-            x: c.x - shaftHalfWidth, y: c.y - base, width: shaftHalfWidth * 2, height: base * 2
-        ))
-        // Heads: (unit direction, per-direction perpendicular).
-        let directions: [(dx: CGFloat, dy: CGFloat)] = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+        if directions.contains(where: { $0.dx != 0 }) {
+            path.appendRect(NSRect(
+                x: c.x - base, y: c.y - shaftHalfWidth, width: base * 2, height: shaftHalfWidth * 2
+            ))
+        }
+        if directions.contains(where: { $0.dy != 0 }) {
+            path.appendRect(NSRect(
+                x: c.x - shaftHalfWidth, y: c.y - base, width: shaftHalfWidth * 2, height: base * 2
+            ))
+        }
         for d in directions {
             let tipPoint = NSPoint(x: c.x + d.dx * tip, y: c.y + d.dy * tip)
             let basePoint = NSPoint(x: c.x + d.dx * base, y: c.y + d.dy * base)
