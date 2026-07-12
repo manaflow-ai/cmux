@@ -117,4 +117,46 @@ final class OpenDiffViewerAgentBaselineLocationTests: XCTestCase {
         )
         XCTAssertEqual(environment["CMUX_AGENT_HOOK_STATE_DIR"], legacyDirectory.path)
     }
+
+    func testNewestMatchWinsAcrossScopedAndLegacyStores() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-diff-baseline-newest-\(UUID().uuidString)", isDirectory: true)
+        let scopedRepo = root.appendingPathComponent("scoped-repo", isDirectory: true)
+        let legacyRepo = root.appendingPathComponent("legacy-repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: scopedRepo, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: legacyRepo, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let workspaceId = UUID()
+        let surfaceId = UUID()
+        let sessionId = "newest-store-session"
+        let scopedStore = root.appendingPathComponent("scoped.json")
+        let legacyStore = root.appendingPathComponent("legacy.json")
+
+        func writeStore(_ url: URL, repoRoot: URL, capturedAt: TimeInterval) throws {
+            try JSONSerialization.data(withJSONObject: [
+                "version": 1,
+                "records": [[
+                    "workspaceId": workspaceId.uuidString,
+                    "surfaceId": surfaceId.uuidString,
+                    "sessionId": sessionId,
+                    "repoRoot": repoRoot.path,
+                    "capturedAt": capturedAt,
+                ]],
+            ]).write(to: url, options: .atomic)
+        }
+
+        try writeStore(scopedStore, repoRoot: scopedRepo, capturedAt: 1)
+        try writeStore(legacyStore, repoRoot: legacyRepo, capturedAt: 2)
+
+        let context = try XCTUnwrap(AppDelegate.latestAgentTurnDiffContext(
+            storeURLs: [scopedStore, legacyStore],
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            sessionId: sessionId
+        ))
+
+        XCTAssertEqual(context.repoRoot, legacyRepo.path)
+        XCTAssertEqual(context.storeURL, legacyStore)
+    }
 }
