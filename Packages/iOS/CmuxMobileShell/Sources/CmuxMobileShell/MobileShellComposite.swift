@@ -757,7 +757,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// write. Replaced (cancelling the prior) on each scheduled pass.
     private var secondaryAggregationTask: Task<Void, Never>?
     /// Whether the visible workspace list includes a completed secondary-Mac pass.
-    public private(set) var browserWorkspaceListIsAuthoritative = false
+    public internal(set) var browserWorkspaceListIsAuthoritative = false
     /// Bumped on Stack team switches so every aggregation caller, including
     /// direct pull-to-refresh calls that are not owned by
     /// ``secondaryAggregationTask``, can reject old-team results after awaits.
@@ -5085,10 +5085,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             generation: generation
                         )
                     }
-                    // Aggregate the user's other Macs' workspaces in the background.
-                    // Best-effort; never blocks the foreground connect.
-                    if multiMacAggregationEnabled {
-                        self.scheduleSecondaryAggregation()
+                    if !workspaceListRequest.isScoped {
+                        foregroundWorkspaceListDidBecomeAuthoritative()
                     }
                     diagnosticLog?.record(DiagnosticEvent(.pairOk))
                     if workspaceListRequest.isScoped {
@@ -5232,6 +5230,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 response,
                 preferActiveTicketTarget: selectedWorkspaceID == nil || selectedWorkspace?.rpcWorkspaceID == activeTicketWorkspaceID
             )
+            foregroundWorkspaceListDidBecomeAuthoritative()
             return true
         } catch {
             mobileShellLog.info("full mobile workspace list unavailable after scoped attach: \(String(describing: error), privacy: .private)")
@@ -7428,6 +7427,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard remoteClient === client, connectionState == .connected else { return }
             applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)
             syncSelectedTerminalForWorkspace()
+            foregroundWorkspaceListDidRefresh()
         } catch {
             mobileShellLog.error("workspace list event refresh failed: \(String(describing: error), privacy: .private)")
         }

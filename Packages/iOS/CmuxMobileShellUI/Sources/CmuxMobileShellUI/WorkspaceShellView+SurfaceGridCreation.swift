@@ -22,12 +22,14 @@ extension WorkspaceShellView {
 
     func createWorkspaceFromSurfaceGrid() {
         guard !isCreatingWorkspaceFromSurfaceGrid,
-              canCreateWorkspaceFromSurfaceGrid,
-              let workspaceID = compactSurfaceGridSelectedWorkspaceID else { return }
+              canCreateWorkspaceFromSurfaceGrid else { return }
+        let workspaceID = compactSurfaceGridSelectedWorkspaceID
         isCreatingWorkspaceFromSurfaceGrid = true
         Task { @MainActor in
             defer { isCreatingWorkspaceFromSurfaceGrid = false }
-            guard await store.openWorkspace(workspaceID) != nil else { return }
+            if let workspaceID {
+                guard await store.openWorkspace(workspaceID) != nil else { return }
+            }
             createWorkspaceInCompactStack()
         }
     }

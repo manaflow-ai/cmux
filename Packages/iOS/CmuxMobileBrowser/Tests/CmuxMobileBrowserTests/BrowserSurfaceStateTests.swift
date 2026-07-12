@@ -136,6 +136,32 @@ import Testing
         #expect(state.lastFailedURL == nil)
     }
 
+    @Test func cancelledNavigationRestoresCommittedAddress() {
+        let committedURL = URL(string: "https://secure.example")!
+        let state = makeState()
+        state.navigationDidFinish(url: committedURL)
+        state.load(URL(string: "http://slow.example")!)
+
+        state.navigationDidCancel()
+
+        #expect(state.isLoading == false)
+        #expect(state.addressText == committedURL.absoluteString)
+    }
+
+    @Test func dismissingProvisionalFailureRestoresCommittedAddress() {
+        let committedURL = URL(string: "https://secure.example")!
+        let failedURL = URL(string: "http://failed.example")!
+        let state = makeState()
+        state.navigationDidFinish(url: committedURL)
+        state.load(failedURL)
+        state.navigationDidFail(message: "offline", url: failedURL, wasProvisional: true)
+
+        state.clearNavigationError()
+
+        #expect(state.addressText == committedURL.absoluteString)
+        #expect(state.lastErrorMessage == nil)
+    }
+
     @Test func laterSuccessClearsFailureAndCommitsPageIdentity() {
         let state = makeState()
         state.navigationDidFail(

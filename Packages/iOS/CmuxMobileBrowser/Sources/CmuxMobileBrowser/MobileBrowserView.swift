@@ -305,8 +305,11 @@ public struct MobileBrowserView: UIViewRepresentable {
             // loading state when a replacement navigation is still in flight.
             let nsError = error as NSError
             if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
-                state.isLoading = webView.isLoading
-                if !state.isLoading { state.estimatedProgress = 0 }
+                if webView.isLoading {
+                    state.isLoading = true
+                } else {
+                    state.navigationDidCancel()
+                }
                 return
             }
             let failingValue = nsError.userInfo[NSURLErrorFailingURLErrorKey]

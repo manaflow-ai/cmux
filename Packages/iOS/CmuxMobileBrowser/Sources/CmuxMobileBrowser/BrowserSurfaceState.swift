@@ -330,6 +330,15 @@ public final class BrowserSurfaceState: Identifiable {
         lastFailureWasProvisional = wasProvisional
     }
 
+    /// Restores committed chrome after a cancelled provisional navigation.
+    public func navigationDidCancel() {
+        isLoading = false
+        estimatedProgress = 0
+        if let currentURL, !isAddressEditing {
+            addressText = currentURL.absoluteString
+        }
+    }
+
     /// Retry the failed destination, if one was recorded.
     public func retryFailedNavigation() {
         guard let lastFailedURL else { return }
@@ -338,6 +347,9 @@ public final class BrowserSurfaceState: Identifiable {
 
     /// Clear a visible navigation error without changing the committed page.
     public func clearNavigationError() {
+        if lastFailureWasProvisional, let currentURL, !isAddressEditing {
+            addressText = currentURL.absoluteString
+        }
         lastErrorMessage = nil
         lastFailedURL = nil
         lastFailureWasProvisional = false
