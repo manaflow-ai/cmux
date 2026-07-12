@@ -55,7 +55,10 @@ extension CmuxTaskManagerCodingAgentDefinition {
             directBasenames: ["ollama"],
             argumentNeedles: ["ollama"],
             requiredArgumentPrefix: ["run"],
-            promptTurnDetection: PromptLineTurnDetectionConfiguration(prompt: ">>> ")
+            promptTurnDetection: PromptLineTurnDetectionConfiguration(
+                prompt: ">>> ",
+                waitingPromptSuffixes: ["Send a message (/? for help)"]
+            )
         ),
     ]
 }

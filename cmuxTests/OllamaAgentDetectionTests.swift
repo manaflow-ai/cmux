@@ -18,6 +18,7 @@ struct OllamaAgentDetectionTests {
         ))
         #expect(run.id == "ollama")
         #expect(run.promptTurnDetection?.prompt == ">>> ")
+        #expect(run.promptTurnDetection?.waitingPromptSuffixes == ["Send a message (/? for help)"])
 
         #expect(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
             processName: "ollama",

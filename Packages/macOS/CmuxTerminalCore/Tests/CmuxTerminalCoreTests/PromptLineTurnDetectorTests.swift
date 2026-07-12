@@ -31,6 +31,22 @@ struct PromptLineTurnDetectorTests {
         #expect(detector.confirm(staleConfirmation) == 0)
     }
 
+    @Test("An approved idle placeholder completes a current Ollama turn")
+    func currentOllamaIdlePlaceholderCompletesTurn() throws {
+        let currentOllamaConfiguration = PromptLineTurnDetectionConfiguration(
+            prompt: ">>> ",
+            waitingPromptSuffixes: ["Send a message (/? for help)"]
+        )
+        var detector = PromptLineTurnDetector(configuration: currentOllamaConfiguration)
+
+        detector.consume(Data(">>> Send a message (/? for help)".utf8))
+        detector.consume(Data("\r>>> Return FINAL_OLLAMA_OK\r\nFINAL_OLLAMA_OK\r\n".utf8))
+        detector.consume(Data(">>> Send a message (/? for help)".utf8))
+
+        let confirmation = try #require(detector.pendingConfirmation)
+        #expect(detector.confirm(confirmation) == 1)
+    }
+
     @Test("Typing echo without a submitted response never completes a turn")
     func typingEchoDoesNotCompleteTurn() throws {
         var detector = readyDetector()

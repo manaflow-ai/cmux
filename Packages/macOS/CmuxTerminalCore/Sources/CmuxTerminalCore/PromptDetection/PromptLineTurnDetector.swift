@@ -161,9 +161,9 @@ public struct PromptLineTurnDetector: Sendable {
 
     private mutating func evaluateLogicalLine() {
         guard !logicalLineOverflowed,
-              logicalLine == configuration.promptBytes,
+              configuration.waitingPromptLineBytes.contains(logicalLine),
               case .stable(let stablePhase) = phase else {
-            if !configuration.promptBytes.starts(with: logicalLine),
+            if !configuration.waitingPromptLineBytes.contains(where: { $0.starts(with: logicalLine) }),
                containsVisibleContent(logicalLine) {
                 markOutputObserved()
             }
@@ -200,7 +200,8 @@ public struct PromptLineTurnDetector: Sendable {
         switch stablePhase {
         case .readyForSubmission:
             guard !logicalLineOverflowed,
-                  logicalLine.starts(with: configuration.promptBytes) else {
+                  logicalLine.starts(with: configuration.promptBytes),
+                  !configuration.waitingPromptLineBytes.contains(logicalLine) else {
                 return
             }
             let submission = logicalLine.dropFirst(configuration.promptBytes.count)
@@ -218,7 +219,7 @@ public struct PromptLineTurnDetector: Sendable {
         guard case .stable(.awaitingPrompt(let observedOutput)) = phase,
               !observedOutput,
               containsVisibleContent(logicalLine),
-              logicalLine != configuration.promptBytes else {
+              !configuration.waitingPromptLineBytes.contains(logicalLine) else {
             return
         }
         phase = .stable(.awaitingPrompt(observedOutput: true))
