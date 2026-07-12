@@ -2,6 +2,8 @@ import { locales } from "../../i18n/routing";
 import { comparePages, comparePath } from "./compare-pages";
 import type { ComparePageKey } from "./compare-pages";
 import {
+  englishFallbackContentLocales,
+  fallbackContentLocales,
   featureWorkflowContentLocales,
   remoteTmuxDocsLocales,
 } from "../../i18n/locale-availability";
@@ -109,7 +111,7 @@ const agentReadableComparePages = comparePages.map((page) => ({
 export const agentReadablePages = [
   { path: "/", title: "Home" },
   { path: "/ios", title: "cmux iOS" },
-  { path: "/pricing", title: "Pricing" },
+  { path: "/pricing", title: "Pricing", locales: fallbackContentLocales },
   { path: "/enterprise", title: "Enterprise" },
   { path: "/blog", title: "Blog" },
   {
@@ -125,16 +127,26 @@ export const agentReadablePages = [
   { path: "/blog/markdown-viewer", title: "A better markdown viewer in cmux" },
   { path: "/blog/unread-shortcuts", title: "Unread workspace shortcuts in cmux" },
   { path: "/blog/session-restore", title: "Session restore in cmux" },
-  { path: "/blog/cmux-ssh", title: "cmux SSH" },
+  {
+    path: "/blog/cmux-ssh",
+    title: "cmux SSH",
+    locales: fallbackContentLocales,
+  },
   {
     path: "/blog/cmux-claude-teams",
     title: "Claude Code teammate agents as native cmux panes",
+    locales: englishFallbackContentLocales,
   },
   {
     path: "/blog/cmux-omo",
     title: "oh-my-openagent subagents as native cmux panes",
+    locales: englishFallbackContentLocales,
   },
-  { path: "/blog/gpl", title: "cmux is now GPL" },
+  {
+    path: "/blog/gpl",
+    title: "cmux is now GPL",
+    locales: englishFallbackContentLocales,
+  },
   { path: "/blog/cmd-shift-u", title: "Cmd+Shift+U" },
   { path: "/blog/zen-of-cmux", title: "The Zen of cmux" },
   { path: "/blog/show-hn-launch", title: "Launching cmux on Show HN" },
@@ -174,6 +186,7 @@ export const agentReadablePages = [
   {
     path: "/docs/agent-integrations/oh-my-pi",
     title: "oh-my-pi",
+    locales: fallbackContentLocales,
   },
   {
     path: "/docs/agent-integrations/oh-my-claudecode",

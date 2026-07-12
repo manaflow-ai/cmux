@@ -15,6 +15,7 @@ const redirect = mock((href: unknown) => {
 // carry every export another test in the suite might import.
 mock.module("next/navigation", () => ({
   redirect,
+  usePathname: () => "/",
   notFound: () => {
     throw new Error("notFound");
   },

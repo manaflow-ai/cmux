@@ -551,7 +551,7 @@ function HomeContent() {
         </div>
         <div className="flex justify-center gap-4 mt-6">
           <Link
-            href="/docs"
+            href="/docs/getting-started"
             className="text-sm text-muted hover:text-foreground transition-colors underline underline-offset-2 decoration-link-underline hover:decoration-foreground"
           >
             {tc("readTheDocs")}
