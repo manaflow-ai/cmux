@@ -334,18 +334,23 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
         let ttyName = "cmux-cache-refresh-\(UUID().uuidString)"
         firstWorkspace.surfaceTTYNames[firstSurface] = ttyName
         secondWorkspace.surfaceTTYNames[secondSurface] = ttyName
-        let firstWindowId = app.registerMainWindowContextForTesting(tabManager: firstManager)
-        var secondWindowId: UUID?
+        let firstWindowId = UUID()
+        let secondWindowId = UUID()
+        let firstWindow = makeMainWindow(id: firstWindowId)
+        let secondWindow = makeMainWindow(id: secondWindowId)
+        registerMainWindow(app: app, window: firstWindow, windowId: firstWindowId, manager: firstManager)
         defer {
             app.unregisterMainWindowContextForTesting(windowId: firstWindowId)
-            if let secondWindowId { app.unregisterMainWindowContextForTesting(windowId: secondWindowId) }
+            app.unregisterMainWindowContextForTesting(windowId: secondWindowId)
+            firstWindow.orderOut(nil)
+            secondWindow.orderOut(nil)
             AppDelegate.shared = previousAppDelegate
         }
 
         let firstPayload = try terminalResolverPayload(["tty_name": ttyName])
         XCTAssertEqual((firstPayload["tty_bindings"] as? [[String: Any]])?.count, 1)
 
-        secondWindowId = app.registerMainWindowContextForTesting(tabManager: secondManager)
+        registerMainWindow(app: app, window: secondWindow, windowId: secondWindowId, manager: secondManager)
         let refreshedPayload = try terminalResolverPayload(["tty_name": ttyName])
         XCTAssertEqual((refreshedPayload["tty_bindings"] as? [[String: Any]])?.count, 2)
     }
