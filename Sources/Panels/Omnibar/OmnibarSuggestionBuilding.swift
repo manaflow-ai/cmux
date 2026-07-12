@@ -403,7 +403,7 @@ private func prioritizedAutocompletionSuggestions(suggestions: [OmnibarSuggestio
     return reordered
 }
 
-private func omnibarPreferredAutocompletionSuggestionIndex(
+func omnibarPreferredAutocompletionSuggestionIndex(
     suggestions: [OmnibarSuggestion],
     query: String
 ) -> Int? {
