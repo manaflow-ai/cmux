@@ -1,3 +1,4 @@
+internal import CmuxFoundation
 import os
 
 /// Process-wide counters for the tracked-status scan coordination path.
@@ -117,6 +118,7 @@ final class CmuxGitRuntimeMetricsRecorder: Sendable {
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
+    private let enabled = AtomicBooleanGate(false)
 
     func snapshot() -> CmuxGitRuntimeMetricsSnapshot {
         state.withLock { $0.snapshot }
@@ -124,9 +126,11 @@ final class CmuxGitRuntimeMetricsRecorder: Sendable {
 
     func reset(enable: Bool) {
         state.withLock { $0 = State(enabled: enable) }
+        enabled.storeRelease(enable)
     }
 
     func disable() {
+        enabled.storeRelease(false)
         state.withLock { $0.enabled = false }
     }
 
@@ -140,6 +144,7 @@ final class CmuxGitRuntimeMetricsRecorder: Sendable {
 
     @inline(__always)
     func recordRawTrackedStatusScan() {
+        guard enabled.loadRelaxed() else { return }
         state.withLock { state in
             guard state.enabled else { return }
             state.rawTrackedStatusScanCount &+= 1
@@ -148,6 +153,7 @@ final class CmuxGitRuntimeMetricsRecorder: Sendable {
 
     @inline(__always)
     func recordTrackedStatusCacheHit() {
+        guard enabled.loadRelaxed() else { return }
         state.withLock { state in
             guard state.enabled else { return }
             state.trackedStatusCacheHitCount &+= 1
@@ -156,6 +162,7 @@ final class CmuxGitRuntimeMetricsRecorder: Sendable {
 
     @inline(__always)
     func recordTrackedStatusInFlightJoin() {
+        guard enabled.loadRelaxed() else { return }
         state.withLock { state in
             guard state.enabled else { return }
             state.trackedStatusInFlightJoinCount &+= 1

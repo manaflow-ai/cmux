@@ -1,3 +1,4 @@
+internal import CmuxFoundation
 import os
 
 /// Process-wide counters for sidebar Git snapshot and pull-request work.
@@ -144,6 +145,7 @@ final class CmuxSidebarGitRuntimeMetricsRecorder: Sendable {
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
+    private let enabled = AtomicBooleanGate(false)
 
     func snapshot() -> CmuxSidebarGitRuntimeMetricsSnapshot {
         state.withLock { $0.snapshot }
@@ -151,9 +153,11 @@ final class CmuxSidebarGitRuntimeMetricsRecorder: Sendable {
 
     func reset(enable: Bool) {
         state.withLock { $0 = State(enabled: enable) }
+        enabled.storeRelease(enable)
     }
 
     func disable() {
+        enabled.storeRelease(false)
         state.withLock { $0.enabled = false }
     }
 
@@ -167,6 +171,7 @@ final class CmuxSidebarGitRuntimeMetricsRecorder: Sendable {
 
     @inline(__always)
     func recordSnapshotBatchApply() {
+        guard enabled.loadRelaxed() else { return }
         state.withLock { state in
             guard state.enabled else { return }
             state.snapshotBatchApplyCount &+= 1
@@ -175,6 +180,7 @@ final class CmuxSidebarGitRuntimeMetricsRecorder: Sendable {
 
     @inline(__always)
     func recordMaterialChange() {
+        guard enabled.loadRelaxed() else { return }
         state.withLock { state in
             guard state.enabled else { return }
             state.materialChangeCount &+= 1
@@ -183,6 +189,7 @@ final class CmuxSidebarGitRuntimeMetricsRecorder: Sendable {
 
     @inline(__always)
     func recordPullRequestSeed() {
+        guard enabled.loadRelaxed() else { return }
         state.withLock { state in
             guard state.enabled else { return }
             state.pullRequestSeedCount &+= 1
@@ -191,6 +198,7 @@ final class CmuxSidebarGitRuntimeMetricsRecorder: Sendable {
 
     @inline(__always)
     func recordPullRequestTraversal() {
+        guard enabled.loadRelaxed() else { return }
         state.withLock { state in
             guard state.enabled else { return }
             state.pullRequestTraversalCount &+= 1
@@ -199,6 +207,7 @@ final class CmuxSidebarGitRuntimeMetricsRecorder: Sendable {
 
     @inline(__always)
     func recordStaleApply() {
+        guard enabled.loadRelaxed() else { return }
         state.withLock { state in
             guard state.enabled else { return }
             state.staleApplyCount &+= 1
