@@ -57,9 +57,11 @@ struct OllamaLaunchArgumentsPreserver {
                 continue
             }
 
-            // A second positional is Ollama's one-shot prompt. Relaunching it
-            // would repeat user work and may exit instead of opening the REPL.
-            break
+            // A second positional is Ollama's one-shot prompt: the command is
+            // not an interactive session, so it is not restorable. Replaying
+            // it would repeat user work, and stripping it would restore a
+            // REPL the user never started.
+            return nil
         }
 
         guard model?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {

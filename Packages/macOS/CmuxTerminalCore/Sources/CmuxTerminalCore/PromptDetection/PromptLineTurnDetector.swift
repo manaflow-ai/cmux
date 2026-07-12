@@ -9,6 +9,11 @@ public import Foundation
 /// interval or let subsequent same-line output invalidate it. ANSI CSI and OSC
 /// sequences are ignored, while carriage returns and backspaces update the line.
 ///
+/// Prompt text is the only idle signal third-party REPLs expose, so a model
+/// that streams the exact prompt bytes and stalls past the debounce is
+/// indistinguishable from idleness by design; callers bound the blast radius
+/// with process verification and delivery deduplication.
+///
 /// The detector is designed for Ghostty's synchronous PTY read callback: once
 /// the current line can no longer influence detection, whole printable runs
 /// are skipped without per-byte state machine work, so surfaces that never

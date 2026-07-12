@@ -26,13 +26,14 @@ struct OllamaAgentLaunchTests {
         ])
     }
 
-    @Test("Sanitization drops a one-shot prompt instead of replaying it")
-    func sanitizerDropsPromptPayload() {
+    @Test("A one-shot prompt makes the command non-restorable")
+    func sanitizerRejectsOneShotPrompt() {
+        // Restoring would launch an interactive REPL the user never started.
         #expect(AgentLaunchSanitizer.sanitizedLaunchArguments(
             ["ollama", "run", "llama3.2", "explain my repository", "--verbose"],
             launcher: "",
             fallbackKind: "ollama"
-        ) == ["ollama", "run", "llama3.2"])
+        ) == nil)
     }
 
     @Test("Non-interactive Ollama commands are not restorable")
@@ -60,13 +61,13 @@ struct OllamaAgentLaunchTests {
     @Test("Bare --think never consumes the next token")
     func sanitizerTreatsBareThinkAsValueless() {
         // Upstream registers --think with an optional value (NoOptDefVal),
-        // so "high" here is Ollama's one-shot prompt, not a level, and must
-        // not be replayed on restore.
+        // so "high" here is Ollama's one-shot prompt, not a level, which
+        // makes the whole command non-restorable.
         #expect(AgentLaunchSanitizer.sanitizedLaunchArguments(
             ["ollama", "run", "qwen3", "--think", "high", "--verbose"],
             launcher: "",
             fallbackKind: "ollama"
-        ) == ["ollama", "run", "qwen3", "--think"])
+        ) == nil)
         // Before the model, the token after a bare --think is the model.
         #expect(AgentLaunchSanitizer.sanitizedLaunchArguments(
             ["ollama", "run", "--think", "qwen3"],
