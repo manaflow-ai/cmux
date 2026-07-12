@@ -241,5 +241,5 @@ extension MobileHostAuthorizationTests {
             )
         }
         #expect(!TerminalController.mobileAllowsWorkspaceAction(nil))
+    }
 }
-

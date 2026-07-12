@@ -79,6 +79,4 @@ extension MobileHostAuthorizationTests {
         }
         #expect(tcpPayload["mac_device_id"] == nil)
     }
-    #if DEBUG
 }
-

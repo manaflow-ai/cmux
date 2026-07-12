@@ -147,6 +147,7 @@ struct MobileHostAuthorizationTests {
         let result = await MobileHostService.shared.debugAuthorizationError(for: request)
         #expect(result == nil)
     }
+    #if DEBUG
     @Test func testDebugStackAuthTokenPolicyRequiresConfiguredToken() {
         #expect(MobileHostDevStackAuthPolicy.normalizedToken("   ") == nil)
         #expect(!MobileHostDevStackAuthPolicy.authorize(
@@ -899,7 +900,6 @@ struct MobileHostAuthorizationTests {
         #expect(status.port == nil)
         #expect(status.routes.isEmpty)
         #expect(service.debugListenerPortForTesting() == nil)
-    }
     }
     private func scopedAttachTicket(workspaceID: String, terminalID: String?) throws -> CmxAttachTicket {
         let route = try CmxAttachRoute(id: "debug", kind: .debugLoopback, endpoint: .hostPort(host: "127.0.0.1", port: 58465))
