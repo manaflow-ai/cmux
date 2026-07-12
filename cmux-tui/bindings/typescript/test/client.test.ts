@@ -29,7 +29,7 @@ test("attachSurface decodes VT, output, and resized payloads", async () => {
     transport.emit({ event: "vt-state", surface: 7, cols: 80, rows: 24, data: "G1s/bA==" });
     transport.emit({ id: request.id, ok: true, data: {} });
     transport.emit({ event: "output", surface: 7, data: "aGk=" });
-    transport.emit({ event: "resized", surface: 7, cols: 100, rows: 30, replay: "AQID" });
+    transport.emit({ event: "resized", surface: 7, cols: 100, rows: 30, data: "AQID" });
   });
   const client = new CmuxClient({
     transport: main,
@@ -46,7 +46,10 @@ test("attachSurface decodes VT, output, and resized payloads", async () => {
   assert.equal(output.event, "output");
   if (output.event === "output") assert.deepEqual(output.data, Uint8Array.from([104, 105]));
   assert.equal(resized.event, "resized");
-  if (resized.event === "resized") assert.deepEqual(resized.replay, Uint8Array.from([1, 2, 3]));
+  if (resized.event === "resized") {
+    assert.deepEqual(resized.data, Uint8Array.from([1, 2, 3]));
+    assert.deepEqual(resized.replay, resized.data);
+  }
   stream.close();
   await client.close();
 });
