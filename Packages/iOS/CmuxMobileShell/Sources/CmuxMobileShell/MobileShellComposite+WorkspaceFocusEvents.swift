@@ -163,15 +163,33 @@ extension MobileWorkspacePreview {
     }
 
     mutating func preserveFocusSnapshot(from existing: MobileWorkspacePreview) {
-        focusedPaneID = existing.focusedPaneID
-        selectedTerminalID = existing.selectedTerminalID
-        let focusedPaneIDs = Set(existing.panes.filter(\.isFocused).map(\.id))
-        let focusedTerminalIDs = Set(existing.terminals.filter(\.isFocused).map(\.id))
-        for index in panes.indices {
-            panes[index].isFocused = focusedPaneIDs.contains(panes[index].id)
+        if let existingPaneID = existing.focusedPaneID {
+            if panes.contains(where: { $0.id == existingPaneID }) {
+                focusedPaneID = existingPaneID
+                let focusedPaneIDs = Set(existing.panes.filter(\.isFocused).map(\.id))
+                for index in panes.indices {
+                    panes[index].isFocused = focusedPaneIDs.contains(panes[index].id)
+                }
+            }
+        } else {
+            focusedPaneID = nil
+            for index in panes.indices {
+                panes[index].isFocused = false
+            }
         }
-        for index in terminals.indices {
-            terminals[index].isFocused = focusedTerminalIDs.contains(terminals[index].id)
+        if let existingTerminalID = existing.selectedTerminalID {
+            if terminals.contains(where: { $0.id == existingTerminalID }) {
+                selectedTerminalID = existingTerminalID
+                let focusedTerminalIDs = Set(existing.terminals.filter(\.isFocused).map(\.id))
+                for index in terminals.indices {
+                    terminals[index].isFocused = focusedTerminalIDs.contains(terminals[index].id)
+                }
+            }
+        } else {
+            selectedTerminalID = nil
+            for index in terminals.indices {
+                terminals[index].isFocused = false
+            }
         }
     }
 }
