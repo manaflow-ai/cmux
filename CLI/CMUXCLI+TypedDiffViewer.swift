@@ -1,6 +1,77 @@
 import Foundation
 
 extension CMUXCLI {
+    /// Emits either the full branch picker or one bounded smart-base row. Rust
+    /// requests the bounded form when opening a branch session so repositories
+    /// with thousands of refs do not enter the initial diff-generation path.
+    func runDiffViewerRefsCommand(commandArgs: [String]) throws {
+        var repo: String?
+        var base: String?
+        var token: String?
+        var suggestedOnly = false
+        var index = 0
+        while index < commandArgs.count {
+            switch commandArgs[index] {
+            case "--repo":
+                guard index + 1 < commandArgs.count else { throw CLIError(message: "__diff-viewer-refs --repo requires a path") }
+                repo = commandArgs[index + 1]; index += 2
+            case "--base":
+                guard index + 1 < commandArgs.count else { throw CLIError(message: "__diff-viewer-refs --base requires a ref") }
+                base = commandArgs[index + 1]; index += 2
+            case "--token":
+                guard index + 1 < commandArgs.count else { throw CLIError(message: "__diff-viewer-refs --token requires a value") }
+                token = commandArgs[index + 1]; index += 2
+            case "--suggested-only":
+                suggestedOnly = true; index += 1
+            default:
+                throw CLIError(message: "Unexpected __diff-viewer-refs argument: \(commandArgs[index])")
+            }
+        }
+        guard let repo, !repo.isEmpty else {
+            throw CLIError(message: "__diff-viewer-refs requires --repo")
+        }
+        let rootDirectory = try diffViewerDirectory()
+        let repoAuthorized = if let token, !token.isEmpty {
+            diffViewerTokenAllowsRepo(token, repoRoot: repo, rootDirectory: rootDirectory)
+        } else {
+            diffViewerRepoIsAllowed(repo, rootDirectory: rootDirectory)
+        }
+        guard repoAuthorized else {
+            throw CLIError(message: "Repository is not in the diff viewer allow-list")
+        }
+        let data: Data
+        if suggestedOnly {
+            let groups: [[String: Any]]
+            if let resolved = try? resolvedDiffBranchBase(base, in: repo) {
+                groups = [[
+                    "id": "suggested",
+                    "label": CMUXDiffViewerLocalization.string(
+                        "diffViewer.refGroup.suggested",
+                        defaultValue: "Suggested"
+                    ),
+                    "rows": [[
+                        "ref": resolved.ref,
+                        "label": resolved.ref,
+                        "secondary": diffBranchBaseReasonLabel(resolved.reason),
+                        "reason": resolved.reason,
+                        "confidence": resolved.confidence,
+                    ]],
+                ]]
+            } else {
+                groups = []
+            }
+            data = try JSONSerialization.data(withJSONObject: ["groups": groups], options: [.sortedKeys])
+        } else {
+            data = cachedDiffBranchRefGroupsPayloadForCLI(
+                repoRoot: repo,
+                selectedBaseRef: base,
+                rootDirectory: rootDirectory
+            )
+        }
+        cliWriteStdout(data)
+        cliWriteStdout(Data("\n".utf8))
+    }
+
     /// Writes one viewer document for the typed sidecar path. Source and repo
     /// changes open a new Rust session inside that document, so the modern path
     /// does not prebuild the legacy source x repository x base page matrix.

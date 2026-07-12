@@ -1862,7 +1862,7 @@ extension CMUXCLI {
     }
 
     /// Localized, human-facing rendering of a reason tag for UI rows.
-    private func diffBranchBaseReasonLabel(_ reason: String) -> String {
+    func diffBranchBaseReasonLabel(_ reason: String) -> String {
         switch reason {
         case DiffBranchBaseReason.createdFrom:
             return CMUXDiffViewerLocalization.string("diffViewer.baseReason.createdFrom", defaultValue: "created from")
@@ -1897,7 +1897,7 @@ extension CMUXCLI {
     /// passed an explicit `--base`, that is honored as a "manual" high-confidence
     /// choice. Otherwise walk the heuristic order: recorded cmuxBase -> PR base ->
     /// merge-base fork point -> origin/HEAD/main/master fallback.
-    private func resolvedDiffBranchBase(_ rawBaseRef: String?, in repoRoot: String) throws -> DiffBranchBase {
+    func resolvedDiffBranchBase(_ rawBaseRef: String?, in repoRoot: String) throws -> DiffBranchBase {
         if let rawBaseRef,
            !rawBaseRef.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let ref = try resolvedGitBranchDiffBaseRef(rawBaseRef, in: repoRoot)
@@ -5300,59 +5300,6 @@ extension CMUXCLI {
         return withSentinel.replacingOccurrences(of: "base=__CMUX_REF__", with: "base={ref}")
     }
 
-    // MARK: - Headless picker commands (for the in-app custom-scheme handler)
-
-    /// `cmux __diff-viewer-refs --repo <root> [--base <ref>]` -> grouped refs JSON
-    /// on stdout. Validates `repo` against the persisted session allow-list so it
-    /// cannot enumerate refs of an arbitrary repository. Used by the in-app
-    /// custom-scheme handler to mirror the HTTP `/__cmux_diff_viewer_refs` route.
-    func runDiffViewerRefsCommand(commandArgs: [String]) throws {
-        var repo: String?
-        var base: String?
-        var token: String?
-        var index = 0
-        while index < commandArgs.count {
-            switch commandArgs[index] {
-            case "--repo":
-                guard index + 1 < commandArgs.count else { throw CLIError(message: "__diff-viewer-refs --repo requires a path") }
-                repo = commandArgs[index + 1]; index += 2
-            case "--base":
-                guard index + 1 < commandArgs.count else { throw CLIError(message: "__diff-viewer-refs --base requires a ref") }
-                base = commandArgs[index + 1]; index += 2
-            case "--token":
-                guard index + 1 < commandArgs.count else { throw CLIError(message: "__diff-viewer-refs --token requires a value") }
-                token = commandArgs[index + 1]; index += 2
-            default:
-                throw CLIError(message: "Unexpected __diff-viewer-refs argument: \(commandArgs[index])")
-            }
-        }
-        guard let repo, !repo.isEmpty else {
-            throw CLIError(message: "__diff-viewer-refs requires --repo")
-        }
-        let rootDirectory = try diffViewerDirectory()
-        // The request token must match a session that allow-lists this repo, so
-        // one active token cannot enumerate refs for another branch session's
-        // repo. When no token is supplied, fall back to the repo-only allow-list
-        // (the HTTP server origin path, which has no token-host to thread).
-        let repoAuthorized: Bool
-        if let token, !token.isEmpty {
-            repoAuthorized = diffViewerTokenAllowsRepo(token, repoRoot: repo, rootDirectory: rootDirectory)
-        } else {
-            repoAuthorized = diffViewerRepoIsAllowed(repo, rootDirectory: rootDirectory)
-        }
-        guard repoAuthorized else {
-            throw CLIError(message: "Repository is not in the diff viewer allow-list")
-        }
-        let data = cachedDiffBranchRefGroupsPayloadForCLI(
-            repoRoot: repo,
-            selectedBaseRef: base,
-            rootDirectory: rootDirectory
-        )
-        cliWriteStdout(data)
-        cliWriteStdout(Data("\n".utf8))
-    }
-
-
     /// `cmux __diff-viewer-branch --group <g> --repo <root> --base <ref>` ->
     /// regenerate the branch page into the secure dir and print the new viewer URL
     /// (custom-scheme form) on stdout. Used by the in-app custom-scheme handler to
@@ -5710,7 +5657,7 @@ extension CMUXCLI {
         }
     }
 
-    private func diffViewerDirectory() throws -> URL {
+    func diffViewerDirectory() throws -> URL {
         let directory = URL(fileURLWithPath: "/tmp", isDirectory: true)
             .appendingPathComponent("cmux-diff-viewer-\(getuid())", isDirectory: true)
         try ensureSecureDiffViewerDirectory(directory)
@@ -6160,7 +6107,7 @@ extension CMUXCLI {
     /// session to belong to `token`. Used to bind a request's custom-scheme token
     /// to the session it is allowed to act on, so one active token cannot read
     /// refs for an unrelated branch session's repo.
-    private func diffViewerTokenAllowsRepo(_ token: String, repoRoot: String, rootDirectory: URL) -> Bool {
+    func diffViewerTokenAllowsRepo(_ token: String, repoRoot: String, rootDirectory: URL) -> Bool {
         guard diffViewerHTTPIsValidToken(token) else { return false }
         let normalized = URL(fileURLWithPath: repoRoot, isDirectory: true)
             .standardizedFileURL.resolvingSymlinksInPath().path
@@ -6205,7 +6152,7 @@ extension CMUXCLI {
         return false
     }
 
-    private func diffViewerRepoIsAllowed(_ repoRoot: String, rootDirectory: URL) -> Bool {
+    func diffViewerRepoIsAllowed(_ repoRoot: String, rootDirectory: URL) -> Bool {
         let normalized = URL(fileURLWithPath: repoRoot, isDirectory: true)
             .standardizedFileURL.resolvingSymlinksInPath().path
         guard let entries = try? FileManager.default.contentsOfDirectory(

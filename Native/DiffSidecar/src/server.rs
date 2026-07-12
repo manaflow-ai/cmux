@@ -564,6 +564,7 @@ async fn resolve_session_source(
             .arg("__diff-viewer-refs")
             .arg("--repo")
             .arg(repo)
+            .arg("--suggested-only")
             .stdin(Stdio::null())
             .stderr(Stdio::null())
             .kill_on_drop(true)

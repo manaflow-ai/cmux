@@ -2,8 +2,21 @@ fn main() {
     let arguments = std::env::args().collect::<Vec<_>>();
     let command = arguments.get(1).map(String::as_str).unwrap_or_default();
     match command {
+        "__diff-viewer-refs"
+            if arguments
+                .iter()
+                .any(|argument| argument == "--suggested-only") =>
+        {
+            println!(
+                r#"{{"groups":[{{"id":"suggested","label":"Suggested","rows":[{{"ref":"HEAD","label":"HEAD","current":true}}]}}]}}"#
+            );
+        }
+        // Deliberately exceeds the sidecar's bounded smart-base response. The
+        // branch-session integration test fails if it regresses to requesting
+        // the complete picker payload for initial base resolution.
         "__diff-viewer-refs" => println!(
-            r#"{{"groups":[{{"id":"suggested","label":"Suggested","rows":[{{"ref":"HEAD","label":"HEAD","current":true}}]}}]}}"#
+            "{{\"groups\":[{{\"id\":\"suggested\",\"label\":\"Suggested\",\"rows\":[{{\"ref\":\"HEAD\",\"label\":\"HEAD\"}}]}},{{\"id\":\"branches\",\"label\":\"Branches\",\"rows\":[{{\"ref\":\"{}\",\"label\":\"oversized\"}}]}}]}}",
+            "x".repeat(8192)
         ),
         "__diff-viewer-branch" => {
             let base = arguments
