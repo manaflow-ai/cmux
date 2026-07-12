@@ -60,8 +60,14 @@ nonisolated enum StartupBreadcrumbLog {
         )
 
         func enqueue(_ record: Record) {
+            enqueue([record])
+        }
+
+        func enqueue(_ records: [Record]) {
             let shouldScheduleDrain = buffer.withLock { buffer in
-                buffer.enqueue(record)
+                records.reduce(into: false) { shouldScheduleDrain, record in
+                    shouldScheduleDrain = buffer.enqueue(record) || shouldScheduleDrain
+                }
             }
             guard shouldScheduleDrain else { return }
             queue.async { [weak self] in
@@ -72,7 +78,7 @@ nonisolated enum StartupBreadcrumbLog {
         private func drain() {
             while let batch = buffer.withLock({ buffer in buffer.takeBatch() }) {
                 let records = StartupBreadcrumbLog.records(in: batch)
-                StartupBreadcrumbLog.write(records)
+                StartupBreadcrumbLog.write(records, waitForLock: true)
             }
         }
     }
@@ -93,7 +99,8 @@ nonisolated enum StartupBreadcrumbLog {
         "build"
     ]
 
-    /// Writes a low-cardinality edge synchronously so it survives an immediate launch abort.
+    /// Writes a low-cardinality edge synchronously when the shared log is free.
+    /// Lock contention falls back to the bounded background writer so startup never waits.
     static func append(_ event: String, fields: [String: String] = [:]) {
         guard isEnabled else { return }
         write([record(event: event, fields: fields)])
@@ -132,11 +139,13 @@ nonisolated enum StartupBreadcrumbLog {
         return records
     }
 
-    private static func write(_ records: [Record]) {
+    private static func write(_ records: [Record], waitForLock: Bool = false) {
         guard !records.isEmpty else { return }
         do {
             let data = try encodedData(for: records)
-            try append(data, to: logURL)
+            if try !append(data, to: logURL, waitForLock: waitForLock) {
+                deferredWriter.enqueue(records)
+            }
         } catch {
             logger.fault("cmux startup breadcrumb failed: \(String(describing: error), privacy: .public)")
         }
@@ -168,9 +177,10 @@ nonisolated enum StartupBreadcrumbLog {
         return output
     }
 
-    private static func append(_ data: Data, to url: URL) throws {
+    /// Returns false only when a non-waiting caller encountered lock contention.
+    private static func append(_ data: Data, to url: URL, waitForLock: Bool) throws -> Bool {
         let boundedAppend = boundedJSONLTail(data, maximumByteCount: maxLogByteCount)
-        guard !boundedAppend.isEmpty else { return }
+        guard !boundedAppend.isEmpty else { return true }
 
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
@@ -181,10 +191,14 @@ nonisolated enum StartupBreadcrumbLog {
         }
         let handle = try FileHandle(forUpdating: url)
         defer { try? handle.close() }
-        guard flock(handle.fileDescriptor, LOCK_EX | LOCK_NB) == 0 else {
+        let lockOperation = waitForLock ? LOCK_EX : LOCK_EX | LOCK_NB
+        while flock(handle.fileDescriptor, lockOperation) != 0 {
             let errorNumber = errno
-            if errorNumber == EWOULDBLOCK || errorNumber == EAGAIN {
-                return
+            if errorNumber == EINTR {
+                continue
+            }
+            if !waitForLock, errorNumber == EWOULDBLOCK || errorNumber == EAGAIN {
+                return false
             }
             let code = POSIXErrorCode(rawValue: errorNumber) ?? .EIO
             throw POSIXError(code)
@@ -194,7 +208,7 @@ nonisolated enum StartupBreadcrumbLog {
         let currentSize = try handle.seekToEnd()
         if currentSize <= UInt64(maxLogByteCount - boundedAppend.count) {
             try handle.write(contentsOf: boundedAppend)
-            return
+            return true
         }
 
         let existingByteBudget = maxLogByteCount - boundedAppend.count
@@ -217,6 +231,7 @@ nonisolated enum StartupBreadcrumbLog {
         }
         try handle.seek(toOffset: 0)
         try handle.write(contentsOf: replacement)
+        return true
     }
 
     static func boundedJSONLTail(
