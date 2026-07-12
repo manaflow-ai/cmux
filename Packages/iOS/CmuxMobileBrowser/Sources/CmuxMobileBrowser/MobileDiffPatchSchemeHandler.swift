@@ -5,7 +5,7 @@ import WebKit
 /// Serves immutable local diff content entirely within WebKit's synchronous callback.
 @MainActor
 final class MobileDiffPatchSchemeHandler: NSObject, WKURLSchemeHandler {
-    static let scheme = "cmux-mobile-diff-data"
+    nonisolated static let scheme = "cmux-mobile-diff-data"
     static var assetsAvailable: Bool {
         guard let resourceURL = Bundle.main.resourceURL else { return false }
         return (try? resourceURL.appendingPathComponent("webviews-app/main.mjs").checkResourceIsReachable()) == true
