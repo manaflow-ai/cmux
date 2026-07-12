@@ -15,6 +15,7 @@ public final class MobileDiffWebViewCoordinator: NSObject, WKNavigationDelegate,
     private var pendingGeneration: Int?
     private var appliedSelection: String?
     private var loadTask: Task<Void, Never>?
+    private var renderTimeoutTask: Task<Void, Never>?
 
     init(state: MobileDiffState) {
         self.state = state
@@ -28,6 +29,8 @@ public final class MobileDiffWebViewCoordinator: NSObject, WKNavigationDelegate,
     func detach() {
         loadTask?.cancel()
         loadTask = nil
+        renderTimeoutTask?.cancel()
+        renderTimeoutTask = nil
         webView = nil
     }
 
@@ -62,6 +65,7 @@ public final class MobileDiffWebViewCoordinator: NSObject, WKNavigationDelegate,
                     appliedSelection = nil
                     let url = URL(string: "\(MobileDiffPatchSchemeHandler.scheme)://viewer/index-\(generation).html")!
                     webView.load(URLRequest(url: url))
+                    startRenderTimeout(generation: generation)
                 }
             } catch {
                 state.fail(message: error.localizedDescription)
@@ -92,6 +96,17 @@ public final class MobileDiffWebViewCoordinator: NSObject, WKNavigationDelegate,
               let generation = body["generation"] as? Int,
               generation == state.generation,
               let type = body["type"] as? String else { return }
+        if type == "ready" {
+            renderTimeoutTask?.cancel()
+            renderTimeoutTask = nil
+            return
+        }
+        if type == "error" {
+            renderTimeoutTask?.cancel()
+            renderTimeoutTask = nil
+            state.fail(message: L10n.string("mobile.diff.renderFailed", defaultValue: "Couldn’t render this diff."))
+            return
+        }
         if type == "selection" {
             if let selectedFileID = body["selectedItemId"] as? String {
                 state.selectFile(id: selectedFileID)
@@ -126,7 +141,23 @@ public final class MobileDiffWebViewCoordinator: NSObject, WKNavigationDelegate,
     private func failNavigation(with error: any Error) {
         let nsError = error as NSError
         guard nsError.domain != NSURLErrorDomain || nsError.code != NSURLErrorCancelled else { return }
+        renderTimeoutTask?.cancel()
+        renderTimeoutTask = nil
         state.fail(message: error.localizedDescription)
+    }
+
+    private func startRenderTimeout(generation: Int) {
+        renderTimeoutTask?.cancel()
+        renderTimeoutTask = Task { @MainActor [weak self] in
+            do {
+                try await ContinuousClock().sleep(for: .seconds(15))
+            } catch {
+                return
+            }
+            guard let self, state.generation == generation else { return }
+            renderTimeoutTask = nil
+            state.fail(message: L10n.string("mobile.diff.renderFailed", defaultValue: "Couldn’t render this diff."))
+        }
     }
 }
 

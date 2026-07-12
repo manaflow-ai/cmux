@@ -20,6 +20,11 @@ export type MobileDiffSelectionMessage = {
   type: "selection";
 };
 
+export type MobileDiffLifecycleMessage = {
+  generation: number;
+  type: "error" | "ready";
+};
+
 type MobileDiffMessageHandler = {
   postMessage(message: unknown): void;
 };
@@ -76,10 +81,11 @@ export function mobileDiffCompletionMessages(
   source: FileTreeSource | null,
   selectedItemId: string,
   generation: number,
-): [MobileDiffFilesMessage, MobileDiffSelectionMessage] {
+): [MobileDiffFilesMessage, MobileDiffSelectionMessage, MobileDiffLifecycleMessage] {
   return [
     mobileDiffMessage(source, generation),
     mobileDiffSelectionMessage(selectedItemId, generation),
+    { type: "ready", generation },
   ];
 }
 
@@ -106,6 +112,7 @@ export function useMobileDiffBridge(
   selectedItemId: string,
   generation: number | null,
   streamComplete: boolean,
+  renderFailed: boolean,
   selectFile: (itemId: string) => void,
 ): void {
   const selectedItemIdRef = useRef(selectedItemId);
@@ -122,6 +129,12 @@ export function useMobileDiffBridge(
       }
     }
   }, [source, generation, streamComplete]);
+  useEffect(() => {
+    const messageHandler = (window as MobileDiffBridgeWindow).webkit?.messageHandlers?.cmuxMobileDiff;
+    if (generation !== null && renderFailed && messageHandler) {
+      messageHandler.postMessage({ type: "error", generation } satisfies MobileDiffLifecycleMessage);
+    }
+  }, [generation, renderFailed]);
   useEffect(() => {
     const messageHandler = (window as MobileDiffBridgeWindow).webkit?.messageHandlers?.cmuxMobileDiff;
     if (generation !== null && messageHandler) {

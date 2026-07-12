@@ -335,6 +335,7 @@ export function App({ config, initialStatus }: ConfigProps) {
     state.activeItemId,
     mobileDiffGeneration,
     diffStreamComplete,
+    state.status.error,
     scrollToItem,
   );
   const setStatus = (status: DiffViewerStatus) => {
