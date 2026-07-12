@@ -69,6 +69,14 @@ final class CmuxAgentSessionURLSchemeHandler: NSObject, WKURLSchemeHandler {
         return nil
     }
 
+    func contents(of asset: Asset) throws -> Data {
+        let data = try Data(contentsOf: asset.fileURL, options: .mappedIfSafe)
+        guard asset.isDeflated else {
+            return data
+        }
+        return try (data as NSData).decompressed(using: .zlib) as Data
+    }
+
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
         guard let requestURL = urlSchemeTask.request.url,
               let asset = asset(for: requestURL) else {
@@ -79,18 +87,16 @@ final class CmuxAgentSessionURLSchemeHandler: NSObject, WKURLSchemeHandler {
         }
 
         do {
-            let data = try Data(contentsOf: asset.fileURL, options: .mappedIfSafe)
-            var headers = [
+            let data = try contents(of: asset)
+            let headers = [
                 "Content-Type": "\(asset.mimeType); charset=utf-8",
                 "Cache-Control": "no-store",
                 "X-Content-Type-Options": "nosniff",
                 "Cross-Origin-Resource-Policy": "same-origin"
             ]
-            if asset.isDeflated {
-                headers["Content-Encoding"] = "deflate"
-            }
+            var responseHeaders = headers
             if asset.mimeType == "text/html" {
-                headers["Content-Security-Policy"] = [
+                responseHeaders["Content-Security-Policy"] = [
                     "default-src 'none'",
                     "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
                     "style-src 'unsafe-inline'",
@@ -106,7 +112,7 @@ final class CmuxAgentSessionURLSchemeHandler: NSObject, WKURLSchemeHandler {
                 url: requestURL,
                 statusCode: 200,
                 httpVersion: "HTTP/1.1",
-                headerFields: headers
+                headerFields: responseHeaders
             ) ?? URLResponse(
                 url: requestURL,
                 mimeType: asset.mimeType,

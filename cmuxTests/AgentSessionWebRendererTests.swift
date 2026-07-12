@@ -34,7 +34,9 @@ struct AgentSessionWebRendererTests {
         let shell = appAssets.appendingPathComponent("agent-session.html")
         let compressedModule = appAssets.appendingPathComponent("main.mjs.deflate")
         try Data("<html></html>".utf8).write(to: shell)
-        try Data([0x78, 0x9c]).write(to: compressedModule)
+        let moduleSource = Data("export const loaded = true;".utf8)
+        let compressedSource = try (moduleSource as NSData).compressed(using: .zlib) as Data
+        try compressedSource.write(to: compressedModule)
 
         let handler = CmuxAgentSessionURLSchemeHandler(resourceDirectoryURL: resources)
         let shellAsset = handler.asset(for: try #require(URL(string: "cmux-agent-session://app/agent-session.html")))
@@ -46,6 +48,8 @@ struct AgentSessionWebRendererTests {
         expectEqual(moduleAsset?.fileURL, compressedModule)
         expectEqual(moduleAsset?.mimeType, "text/javascript")
         expectTrue(moduleAsset?.isDeflated ?? false)
+        let resolvedModule = try #require(moduleAsset)
+        expectEqual(try handler.contents(of: resolvedModule), moduleSource)
         expectNil(handler.asset(for: try #require(URL(string: "cmux-agent-session://other/main.mjs"))))
         expectNil(handler.asset(for: try #require(URL(string: "cmux-agent-session://app/../main.mjs"))))
     }
