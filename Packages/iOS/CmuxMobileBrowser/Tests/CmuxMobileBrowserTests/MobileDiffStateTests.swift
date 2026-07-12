@@ -49,4 +49,19 @@ import CmuxMobileShellModel
 
         #expect(state.selectedFileID == "b")
     }
+
+    @Test func refreshingDocumentPreservesNativeSelectionWhenFileStillExists() {
+        let state = MobileDiffState()
+        let files = [
+            MobileDiffFile(id: "a", path: "A.swift", added: 1, deleted: 0),
+            MobileDiffFile(id: "b", path: "B.swift", added: 1, deleted: 0),
+        ]
+        state.updateFiles(files, selectedFileID: "a")
+        state.selectFile(id: "b")
+
+        state.load(MobileDiffDocument(patch: "updated", repositoryRoot: "/repo", title: "Changes"))
+        state.updateFiles(files, selectedFileID: "a")
+
+        #expect(state.selectedFileID == "b")
+    }
 }

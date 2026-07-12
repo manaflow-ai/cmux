@@ -145,6 +145,30 @@ struct MobileDiffTests {
         }
     }
 
+    @Test func loaderRejectsTooManyTrackedChanges() async throws {
+        let repository = try makeRepository(named: "many-tracked-files")
+        defer { try? FileManager.default.removeItem(at: repository) }
+        for index in 0...200 {
+            try Data("before\n".utf8).write(to: repository.appendingPathComponent("tracked-\(index).txt"))
+        }
+        try runGit(["add", "."], at: repository)
+        try runGit([
+            "-c", "user.name=cmux Tests",
+            "-c", "user.email=cmux-tests@example.com",
+            "commit", "--quiet", "-m", "fixture",
+        ], at: repository)
+        for index in 0...200 {
+            try Data("after\n".utf8).write(to: repository.appendingPathComponent("tracked-\(index).txt"))
+        }
+
+        do {
+            _ = try await MobileWorkingTreeDiffLoader().load(directory: repository.path, title: "Fixture")
+            Issue.record("Expected too many tracked files to fail")
+        } catch let error as MobileWorkingTreeDiffLoadError {
+            #expect(error.code == "too_many_files")
+        }
+    }
+
     @Test func loaderStopsOversizedPatchCapture() async throws {
         let repository = try makeRepository(named: "oversized")
         defer { try? FileManager.default.removeItem(at: repository) }
@@ -182,6 +206,21 @@ struct MobileDiffTests {
         let document = try await MobileWorkingTreeDiffLoader().load(directory: repository.path, title: "Fixture")
         let patch = try #require(document["patch"] as? String)
         #expect(!patch.contains("blocking-pipe"))
+    }
+
+    @Test func loaderSkipsSymlinksToUntrackedFIFOs() async throws {
+        let repository = try makeRepository(named: "fifo-symlink")
+        defer { try? FileManager.default.removeItem(at: repository) }
+        let fifoPath = repository.appendingPathComponent("blocking-pipe").path
+        #expect(mkfifo(fifoPath, S_IRUSR | S_IWUSR) == 0)
+        try FileManager.default.createSymbolicLink(
+            atPath: repository.appendingPathComponent("blocking-link").path,
+            withDestinationPath: "blocking-pipe"
+        )
+
+        let document = try await MobileWorkingTreeDiffLoader().load(directory: repository.path, title: "Fixture")
+        let patch = try #require(document["patch"] as? String)
+        #expect(!patch.contains("blocking-link"))
     }
 
     @Test func loaderRejectsNonUTF8UntrackedPaths() async throws {

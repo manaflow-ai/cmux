@@ -31,10 +31,9 @@ test("empty diffs are ready states, not render failures", () => {
   expect(mobileDiffRenderFailed({ error: true, message: "Render failed" }, "No changes")).toBe(true);
 });
 
-test("completion republishes the current renderer selection after the file index", () => {
+test("completion publishes the renderer selection with the file index", () => {
   expect(mobileDiffCompletionMessages(null, "item-2", 7)).toEqual([
-    { type: "files", files: [], generation: 7 },
-    { type: "selection", selectedItemId: "item-2", generation: 7 },
+    { type: "files", files: [], generation: 7, selectedItemId: "item-2" },
     { type: "ready", generation: 7 },
   ]);
 });
