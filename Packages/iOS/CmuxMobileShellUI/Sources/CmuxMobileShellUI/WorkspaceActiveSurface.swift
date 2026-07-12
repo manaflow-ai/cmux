@@ -11,7 +11,7 @@ enum WorkspaceActiveSurface: Equatable {
         hasChosenChatSession: Bool,
         hasActiveBrowser: Bool,
         hasActiveDiff: Bool = false
-    ) -> Self {
+    ) {
         if isChatMode, hasChosenChatSession {
             self = .chat
             return
