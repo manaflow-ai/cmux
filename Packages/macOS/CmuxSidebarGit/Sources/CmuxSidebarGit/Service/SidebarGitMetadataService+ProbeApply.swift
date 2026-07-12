@@ -86,7 +86,7 @@ extension SidebarGitMetadataService {
             return
         }
         if currentDirectory != expectedDirectory {
-            CmuxSidebarGitRuntimeMetrics.recordStaleApply()
+            Self.recordStaleApply()
             clearWorkspaceGitProbe(probeKey)
             didClearProbe = true
 #if DEBUG
@@ -231,7 +231,7 @@ extension SidebarGitMetadataService {
             )
         }
         if didApplyMaterialSidebarGitChange {
-            CmuxSidebarGitRuntimeMetrics.recordMaterialChange()
+            Self.recordMaterialChange()
         }
 
 #if DEBUG

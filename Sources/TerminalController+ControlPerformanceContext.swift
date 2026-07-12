@@ -5,8 +5,8 @@ import Foundation
 
 extension TerminalController: ControlPerformanceContext {
     func controlPerformanceMetricsRead() -> JSONValue? {
-        let git = CmuxGitRuntimeMetrics.snapshot()
-        let sidebarGit = CmuxSidebarGitRuntimeMetrics.snapshot()
+        let git = GitMetadataService.runtimeMetricsSnapshot()
+        let sidebarGit = SidebarGitMetadataService.runtimeMetricsSnapshot()
         return JSONValue(
             foundationObject: [
                 "schema_version": 1,
@@ -35,16 +35,16 @@ extension TerminalController: ControlPerformanceContext {
     func controlPerformanceMetricsReset() -> JSONValue? {
         ProcessPerformanceMetrics.shared.reset(enable: true)
         MobileWorkspaceObserverMetrics.shared.reset(enable: true)
-        CmuxGitRuntimeMetrics.reset(enable: true)
-        CmuxSidebarGitRuntimeMetrics.reset(enable: true)
+        GitMetadataService.resetRuntimeMetrics(enable: true)
+        SidebarGitMetadataService.resetRuntimeMetrics(enable: true)
         return controlPerformanceMetricsRead()
     }
 
     func controlPerformanceMetricsStop() -> JSONValue? {
         ProcessPerformanceMetrics.shared.disable()
         MobileWorkspaceObserverMetrics.shared.disable()
-        CmuxGitRuntimeMetrics.disable()
-        CmuxSidebarGitRuntimeMetrics.disable()
+        GitMetadataService.disableRuntimeMetrics()
+        SidebarGitMetadataService.disableRuntimeMetrics()
         return controlPerformanceMetricsRead()
     }
 }

@@ -28,53 +28,95 @@ public struct CmuxSidebarGitRuntimeMetricsSnapshot: Codable, Equatable, Sendable
     }
 }
 
-/// Thread-safe access to process-wide ``CmuxSidebarGitRuntimeMetricsSnapshot`` values.
-public enum CmuxSidebarGitRuntimeMetrics {
-    private static let recorder = CmuxSidebarGitRuntimeMetricsRecorder()
+/// Instantiated, thread-safe recorder for
+/// ``CmuxSidebarGitRuntimeMetricsSnapshot``. ``SidebarGitMetadataService`` owns
+/// the process-wide production instance; tests may inject an independent one.
+public final class CmuxSidebarGitRuntimeMetrics: Sendable {
+    private let recorder: CmuxSidebarGitRuntimeMetricsRecorder
+
+    public init() {
+        recorder = CmuxSidebarGitRuntimeMetricsRecorder()
+    }
 
     /// Returns the current counters without changing them.
-    public static func snapshot() -> CmuxSidebarGitRuntimeMetricsSnapshot {
+    public func snapshot() -> CmuxSidebarGitRuntimeMetricsSnapshot {
         recorder.snapshot()
     }
 
     /// Clears all counters and selects whether subsequent events are recorded.
-    public static func reset(enable: Bool) {
+    public func reset(enable: Bool) {
         recorder.reset(enable: enable)
     }
 
     /// Stops recording while preserving the counters already collected.
-    public static func disable() {
+    public func disable() {
         recorder.disable()
     }
 
     /// Returns the current counters and clears them in the same critical section.
-    public static func snapshotAndReset() -> CmuxSidebarGitRuntimeMetricsSnapshot {
+    public func snapshotAndReset() -> CmuxSidebarGitRuntimeMetricsSnapshot {
         recorder.snapshotAndReset()
     }
 
     @inline(__always)
-    static func recordSnapshotBatchApply() {
+    func recordSnapshotBatchApply() {
         recorder.recordSnapshotBatchApply()
     }
 
     @inline(__always)
-    static func recordMaterialChange() {
+    func recordMaterialChange() {
         recorder.recordMaterialChange()
     }
 
     @inline(__always)
-    static func recordPullRequestSeed() {
+    func recordPullRequestSeed() {
         recorder.recordPullRequestSeed()
     }
 
     @inline(__always)
-    static func recordPullRequestTraversal() {
+    func recordPullRequestTraversal() {
         recorder.recordPullRequestTraversal()
     }
 
     @inline(__always)
-    static func recordStaleApply() {
+    func recordStaleApply() {
         recorder.recordStaleApply()
+    }
+}
+
+public extension SidebarGitMetadataService {
+    static func runtimeMetricsSnapshot() -> CmuxSidebarGitRuntimeMetricsSnapshot {
+        runtimeMetrics.snapshot()
+    }
+
+    static func resetRuntimeMetrics(enable: Bool) {
+        runtimeMetrics.reset(enable: enable)
+    }
+
+    static func disableRuntimeMetrics() {
+        runtimeMetrics.disable()
+    }
+}
+
+extension SidebarGitMetadataService {
+    static func recordSnapshotBatchApply() {
+        runtimeMetrics.recordSnapshotBatchApply()
+    }
+
+    static func recordMaterialChange() {
+        runtimeMetrics.recordMaterialChange()
+    }
+
+    static func recordPullRequestSeed() {
+        runtimeMetrics.recordPullRequestSeed()
+    }
+
+    static func recordPullRequestTraversal() {
+        runtimeMetrics.recordPullRequestTraversal()
+    }
+
+    static func recordStaleApply() {
+        runtimeMetrics.recordStaleApply()
     }
 }
 

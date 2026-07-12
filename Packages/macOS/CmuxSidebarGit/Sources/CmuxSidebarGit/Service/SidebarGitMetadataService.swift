@@ -24,6 +24,7 @@ internal import CmuxFoundation
 /// every probe/watcher state transition.
 @MainActor
 public final class SidebarGitMetadataService: SidebarGitMetadataServing {
+    static let runtimeMetrics = CmuxSidebarGitRuntimeMetrics()
     // MARK: Tuning constants (legacy TabManager values, preserved exactly)
 
     nonisolated static let initialWorkspaceGitProbeDelays: [TimeInterval] = [0, 0.5, 1.5, 3.0, 6.0, 10.0]

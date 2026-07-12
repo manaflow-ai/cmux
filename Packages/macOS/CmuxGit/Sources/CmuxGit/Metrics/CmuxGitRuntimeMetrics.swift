@@ -23,43 +23,77 @@ public struct CmuxGitRuntimeMetricsSnapshot: Codable, Equatable, Sendable {
     }
 }
 
-/// Thread-safe access to process-wide ``CmuxGitRuntimeMetricsSnapshot`` values.
-public enum CmuxGitRuntimeMetrics {
-    private static let recorder = CmuxGitRuntimeMetricsRecorder()
+/// Instantiated, thread-safe recorder for ``CmuxGitRuntimeMetricsSnapshot``.
+/// ``GitMetadataService`` owns the process-wide production instance; tests may
+/// inject an independent recorder.
+public final class CmuxGitRuntimeMetrics: Sendable {
+    private let recorder: CmuxGitRuntimeMetricsRecorder
+
+    public init() {
+        recorder = CmuxGitRuntimeMetricsRecorder()
+    }
 
     /// Returns the current counters without changing them.
-    public static func snapshot() -> CmuxGitRuntimeMetricsSnapshot {
+    public func snapshot() -> CmuxGitRuntimeMetricsSnapshot {
         recorder.snapshot()
     }
 
     /// Clears all counters and selects whether subsequent events are recorded.
-    public static func reset(enable: Bool) {
+    public func reset(enable: Bool) {
         recorder.reset(enable: enable)
     }
 
     /// Stops recording while preserving the counters already collected.
-    public static func disable() {
+    public func disable() {
         recorder.disable()
     }
 
     /// Returns the current counters and clears them in the same critical section.
-    public static func snapshotAndReset() -> CmuxGitRuntimeMetricsSnapshot {
+    public func snapshotAndReset() -> CmuxGitRuntimeMetricsSnapshot {
         recorder.snapshotAndReset()
     }
 
     @inline(__always)
-    static func recordRawTrackedStatusScan() {
+    func recordRawTrackedStatusScan() {
         recorder.recordRawTrackedStatusScan()
     }
 
     @inline(__always)
-    static func recordTrackedStatusCacheHit() {
+    func recordTrackedStatusCacheHit() {
         recorder.recordTrackedStatusCacheHit()
     }
 
     @inline(__always)
-    static func recordTrackedStatusInFlightJoin() {
+    func recordTrackedStatusInFlightJoin() {
         recorder.recordTrackedStatusInFlightJoin()
+    }
+}
+
+public extension GitMetadataService {
+    static func runtimeMetricsSnapshot() -> CmuxGitRuntimeMetricsSnapshot {
+        runtimeMetrics.snapshot()
+    }
+
+    static func resetRuntimeMetrics(enable: Bool) {
+        runtimeMetrics.reset(enable: enable)
+    }
+
+    static func disableRuntimeMetrics() {
+        runtimeMetrics.disable()
+    }
+}
+
+extension GitMetadataService {
+    static func recordRawTrackedStatusScan() {
+        runtimeMetrics.recordRawTrackedStatusScan()
+    }
+
+    static func recordTrackedStatusCacheHit() {
+        runtimeMetrics.recordTrackedStatusCacheHit()
+    }
+
+    static func recordTrackedStatusInFlightJoin() {
+        runtimeMetrics.recordTrackedStatusInFlightJoin()
     }
 }
 

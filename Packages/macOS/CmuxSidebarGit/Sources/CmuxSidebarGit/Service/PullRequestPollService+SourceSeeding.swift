@@ -30,7 +30,7 @@ extension PullRequestPollService {
         branch: String,
         reason: String
     ) {
-        CmuxSidebarGitRuntimeMetrics.recordPullRequestSeed()
+        SidebarGitMetadataService.recordPullRequestSeed()
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
         guard sidebarPullRequestPollingEnabled else {
             clearWorkspacePullRequestMetadata(for: key)

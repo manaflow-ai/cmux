@@ -87,7 +87,7 @@ public actor GitTrackedChangesSnapshotCache {
             authority: authority
         )
         guard let snapshot = entriesByKey[key]?.snapshot else { return nil }
-        CmuxGitRuntimeMetrics.recordTrackedStatusCacheHit()
+        GitMetadataService.recordTrackedStatusCacheHit()
         return snapshot
     }
 
@@ -104,7 +104,7 @@ public actor GitTrackedChangesSnapshotCache {
             authority: authority
         )
         if let snapshot = entriesByKey[key]?.snapshot {
-            CmuxGitRuntimeMetrics.recordTrackedStatusCacheHit()
+            GitMetadataService.recordTrackedStatusCacheHit()
             return snapshot
         }
 
@@ -162,7 +162,7 @@ public actor GitTrackedChangesSnapshotCache {
             return
         }
         if var inFlight = inFlightSnapshotsByKey[key] {
-            CmuxGitRuntimeMetrics.recordTrackedStatusInFlightJoin()
+            GitMetadataService.recordTrackedStatusInFlightJoin()
             inFlight.waitersByID[waiterID] = waiter
             inFlightSnapshotsByKey[key] = inFlight
             return

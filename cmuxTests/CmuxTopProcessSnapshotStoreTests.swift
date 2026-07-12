@@ -49,6 +49,25 @@ struct CmuxTopProcessSnapshotStoreTests {
                 consumer: .portScannerPanel
             )
         }
+#if DEBUG
+        // Do not release the controlled capture until the second actor request
+        // has entered the store. Without this signal the scheduler may run the
+        // second task only after completion, turning the intended in-flight
+        // reuse assertion into a cache-hit race.
+        for _ in 0..<10_000 {
+            if metricsStore.snapshot().requestCountsByConsumer[
+                ProcessSnapshotConsumer.portScannerPanel.rawValue
+            ] == 2 {
+                break
+            }
+            await Task.yield()
+        }
+        #expect(
+            metricsStore.snapshot().requestCountsByConsumer[
+                ProcessSnapshotConsumer.portScannerPanel.rawValue
+            ] == 2
+        )
+#endif
         await capturer.releaseNext()
 
         let firstSnapshot = await first.value

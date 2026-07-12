@@ -219,7 +219,7 @@ extension SidebarGitMetadataService {
         let apply = WorkspaceGitSnapshotApply(taskID: taskID, snapshot: snapshot)
         workspaceGitSnapshotApplyBatcher.submit(apply, for: expectedDirectory) { [weak self] snapshots in
             guard let self else { return }
-            CmuxSidebarGitRuntimeMetrics.recordSnapshotBatchApply()
+            Self.recordSnapshotBatchApply()
             // Stable ordering keeps state-machine transitions and test traces
             // deterministic when multiple repositories finish in one frame.
             for directory in snapshots.keys.sorted() {
@@ -239,7 +239,7 @@ extension SidebarGitMetadataService {
         expectedDirectory: String
     ) {
         guard workspaceGitSnapshotTaskIDByDirectory[expectedDirectory] == taskID else {
-            CmuxSidebarGitRuntimeMetrics.recordStaleApply()
+            Self.recordStaleApply()
             return
         }
         let taskWasSuperseded = workspaceGitSupersededSnapshotTaskIDs.remove(taskID) != nil
@@ -252,7 +252,7 @@ extension SidebarGitMetadataService {
         workspaceGitSnapshotTaskIDByDirectory.removeValue(forKey: expectedDirectory)
         let requests = workspaceGitSnapshotRequestsByDirectory.removeValue(forKey: expectedDirectory) ?? [:]
         if wasSuperseded {
-            CmuxSidebarGitRuntimeMetrics.recordStaleApply()
+            Self.recordStaleApply()
             for request in requests.values {
                 workspaceGitSnapshotDirectoryByProbeKey.removeValue(forKey: request.probeKey)
                 guard case .inFlight = workspaceGitProbeStateByKey[request.probeKey] else {

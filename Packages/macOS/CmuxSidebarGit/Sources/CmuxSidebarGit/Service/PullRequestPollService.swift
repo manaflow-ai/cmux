@@ -182,7 +182,7 @@ public final class PullRequestPollService: PullRequestProbing {
             host.clearAllSidebarPullRequestMetadata()
             return
         }
-        CmuxSidebarGitRuntimeMetrics.recordPullRequestTraversal()
+        SidebarGitMetadataService.recordPullRequestTraversal()
 
         let now = Date()
         var candidateSeeds: [WorkspacePullRequestCandidateSeed] = []

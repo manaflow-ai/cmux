@@ -34,6 +34,7 @@ import Foundation
 /// if meta.isRepository, meta.isDirty { showDirtyIndicator() }
 /// ```
 public struct GitMetadataService: Sendable {
+    static let runtimeMetrics = CmuxGitRuntimeMetrics()
     let fileStatusReader: any GitFileStatusReading
     private let trackedChangesSnapshotScope: GitTrackedChangesSnapshotScope
 
