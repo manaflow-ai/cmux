@@ -7161,7 +7161,7 @@ extension CMUXCLI {
         return [pageURL.standardizedFileURL.path: remoteURL]
     }
 
-    private func diffViewerShortcutPayload() -> [String: Any] {
+    func diffViewerShortcutPayload() -> [String: Any] {
         Dictionary(
             uniqueKeysWithValues: diffViewerShortcuts().map { action, shortcut in
                 (action.rawValue, shortcut.jsonObject)
