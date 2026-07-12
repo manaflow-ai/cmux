@@ -1,3 +1,6 @@
+#if os(iOS) && DEBUG
+import CmuxAgentGUIUI
+#endif
 import Foundation
 import CmuxAuthRuntime
 import CmuxMobileShell
@@ -62,27 +65,29 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowTranscriptDemoPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.transcriptDemoPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
+    @ViewBuilder private var transcriptDemoPreview: some View {
+        #if os(iOS) && DEBUG
+        NavigationStack {
+            TranscriptDemoScreen()
+        }
+        #else
+        EmptyView()
+        #endif
+    }
+
     private var shouldShowWorkspaceListLayoutPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.workspaceListLayoutPreviewEnabled
         #else
         return false
-        #endif
-    }
-
-    private var shouldShowStreamingChatPreview: Bool {
-        #if os(iOS) && DEBUG
-        return UITestConfig.streamingChatPreviewEnabled
-        #else
-        return false
-        #endif
-    }
-
-    @ViewBuilder private var streamingChatPreview: some View {
-        #if os(iOS) && DEBUG
-        StreamingChatPreviewView()
-        #else
-        EmptyView()
         #endif
     }
 
@@ -198,14 +203,12 @@ struct CMUXMobileRootView: View {
     private var rootContent: some View {
         if shouldShowDeleteComputersVerifier {
             deleteComputersVerifier
-        } else if shouldShowAgentChatDemoPreview {
-            agentChatDemoPreview
         } else if shouldShowTerminalLayoutPreview {
             terminalLayoutPreview
+        } else if shouldShowTranscriptDemoPreview {
+            transcriptDemoPreview
         } else if shouldShowWorkspaceListLayoutPreview {
             workspaceListLayoutPreview
-        } else if shouldShowStreamingChatPreview {
-            streamingChatPreview
         } else if !isAuthenticated {
             SignInView()
         } else if store.connectionState != .connected && shouldShowRestoringStoredMac {

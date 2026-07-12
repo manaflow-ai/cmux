@@ -11,27 +11,6 @@ Categories: `wall-clock-timing-assert` 36, `sleep-as-sync` 20, `async-race` 17, 
 
 ---
 
-## Packages/Shared/CmuxAgentChat  (3)
-
-### `Packages/Shared/CmuxAgentChat/Tests/CmuxAgentChatTests/ChatConversationStoreTests.swift` :: `replayOverlappingHistoryDeduplicates`
-- **async-race** · severity low · confidence medium
-- **Evidence:** Line 554: `_ = await TestPoller.waitUntil { Self.snapshots(store.rows).count > 100 }`. The poller result is discarded. The condition (`count > 100`) represents the BROKEN behavior, so on a correct store it always times out after 400 iterations (~4 seconds of busy polling + sleep), making this test consistently slow and masking the timeout as normal.
-- **Why flaky:** Not flaky in correctness terms, but the always-timeout path burns ~4 seconds of CI time per run. More importantly, if the store is temporarily slow to apply events (GC pause, scheduler starvation), the poller exits at false and the subsequent `#expect(count == 100)` could race a still-in-flight apply, reading a transient count.
-- **Suggested fix:** Replace the discard pattern with `#expect(!(await TestPoller.waitUntil { Self.snapshots(store.rows).count > 100 }))` to explicitly assert the condition was never met, or better: poll for `count == 100` with `#expect` directly after the emit, which gives the store time to settle and asserts the correct final state.
-
-### `Packages/Shared/CmuxAgentChat/Tests/CmuxAgentChatTests/ChatConversationStoreTests.swift` :: `failedPendingSurvivesForeignEchoes`
-- **async-race** · severity low · confidence low
-- **Evidence:** Lines 597 and 607: `_ = await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 2 }` and `_ = await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 1 }`. Both discard the boolean return. If either poll times out, subsequent assertions run against stale/intermediate state.
-- **Why flaky:** If line 597's poll times out before the second pending is registered (extremely unlikely since `store.send` is `@MainActor` and completes synchronously), the test proceeds with only 1 pending and the echo logic is never exercised — the test would pass silently without actually verifying the failing-row-survives-foreign-echoes invariant. Under normal CI load this is extremely unlikely but remains a theoretical false-pass path.
-- **Suggested fix:** Change both discards to `#expect(await TestPoller.waitUntil { ... })` so a timeout is reported as a test failure instead of silently continuing with incorrect preconditions.
-
-### `Packages/Shared/CmuxAgentChat/Tests/CmuxAgentChatTests/ChatConversationStoreTests.swift` :: `slashCommandEchoDoesNotEatAttachmentPending`
-- **async-race** · severity low · confidence low
-- **Evidence:** Lines 627 and 637: `_ = await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 2 }` and `_ = await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 1 }`. Same discard pattern. Line 640 `#expect(Self.pendingItems(store.rows).first?.text.isEmpty == true)` runs against whatever the current count is if polls timeout.
-- **Why flaky:** If line 637's poll times out before the slash-echo reconciliation completes (both sends still pending), `pendingItems.first` returns the attachment-only send (text is empty), and line 640 passes trivially — the test does not witness the echo consuming the slash-command pending as intended.
-- **Suggested fix:** Replace `_ = await TestPoller.waitUntil` with `#expect(await TestPoller.waitUntil)` on both lines so a timeout is a test failure, forcing the test to wait for the correct precondition before asserting.
-
-
 ## Packages/Shared/CmuxAuthRuntime  (2)
 
 ### `Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/AuthCoordinatorTests.swift` :: `signOutJoinsAndCancelsSlowTeardownAtDeadline`

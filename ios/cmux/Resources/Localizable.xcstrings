@@ -766,6 +766,40 @@
         }
       }
     },
+    "mobile.agentGUI.showTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを表示"
+          }
+        }
+      }
+    },
+    "mobile.agentGUI.showTranscript": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Agent Transcript"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの会話を表示"
+          }
+        }
+      }
+    },
     "mobile.browser.forward": {
       "extractionState": "manual",
       "localizations": {
@@ -932,6 +966,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "写真を添付"
+          }
+        }
+      }
+    },
+    "mobile.composer.agent.attachmentsStaged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attachments stay staged for Terminal mode. Remove them or switch to Terminal before sending."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイルはターミナルモード用に保持されます。送信する前に削除するか、ターミナルに切り替えてください。"
           }
         }
       }
@@ -4251,23 +4302,6 @@
         }
       }
     },
-    "mobile.settings.agentChatDemo": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent Chat Demo"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントチャットデモ"
-          }
-        }
-      }
-    },
     "mobile.settings.developer": {
       "extractionState": "manual",
       "localizations": {
@@ -4659,19 +4693,19 @@
         }
       }
     },
-    "mobile.settings.terminalLogDemo": {
+    "mobile.settings.transcriptDemo": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal Log Demo"
+            "value": "Transcript Demo"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナルログデモ"
+            "value": "トランスクリプトデモ"
           }
         }
       }
@@ -5063,40 +5097,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "カスタムアクションを追加"
-          }
-        }
-      }
-    },
-    "mobile.shortcuts.chat.footer": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choose which compatible terminal buttons appear on both the chat and terminal keyboard bars. Changes here also update the terminal keyboard bar."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "チャットとターミナル両方のキーボードバーに表示する互換性のあるターミナルボタンを選びます。ここでの変更はターミナルのキーボードバーにも反映されます。"
-          }
-        }
-      }
-    },
-    "mobile.shortcuts.chat.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shared Shortcuts"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "共有ショートカット"
           }
         }
       }
@@ -6967,23 +6967,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "ボタンのラベル"
-          }
-        }
-      }
-    },
-    "mobile.workspace.agentChat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent Chat"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントチャット"
           }
         }
       }

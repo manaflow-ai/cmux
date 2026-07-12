@@ -1,0 +1,77 @@
+#if os(iOS)
+import CmuxAgentGUIProjection
+import CmuxAgentReplica
+import SwiftUI
+import UIKit
+
+final class TranscriptCollectionCell: UICollectionViewListCell {
+    private(set) var rowSpacing = TranscriptRowSpacing(top: 0, bottom: 0)
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
+        backgroundConfiguration = .clear()
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // UIHostingConfiguration swaps the list cell's managed content view,
+        // which can drop the counter-flip applied at init; reassert it so the
+        // cell always renders upright inside the flipped collection view.
+        if contentView.transform.d != -1 {
+            contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
+        }
+    }
+
+    private(set) var rowKind: TranscriptRowKind?
+    private(set) var row: TranscriptRow?
+
+    func configure(
+        row: TranscriptRow,
+        spacing: TranscriptRowSpacing,
+        theme: AgentGUITheme,
+        isActivitySummaryExpanded: Bool,
+        answeringAskID: String?,
+        failedAskID: String?,
+        onToggleActivitySummary: @escaping () -> Void,
+        onAnswer: @escaping (PendingAsk, Int) -> Void,
+        onShowTerminal: @escaping () -> Void
+    ) {
+        self.row = row
+        rowKind = row.rowKind
+        rowSpacing = spacing
+        contentConfiguration = UIHostingConfiguration {
+            TranscriptRowContentView(
+                row: row,
+                spacing: rowSpacing,
+                theme: theme,
+                isActivitySummaryExpanded: isActivitySummaryExpanded,
+                answeringAskID: answeringAskID,
+                failedAskID: failedAskID,
+                onToggleActivitySummary: onToggleActivitySummary,
+                onAnswer: onAnswer,
+                onShowTerminal: onShowTerminal
+            )
+        }
+        .margins(.all, 0)
+        // UICollectionViewListCell may refresh its default background when its
+        // hosting configuration changes. Reassert transparency so the single
+        // transcript canvas remains visible through row gaps.
+        backgroundConfiguration = .clear()
+        contentView.backgroundColor = .clear
+        if case .pendingAsk = row.rowKind {
+            isAccessibilityElement = false
+            accessibilityLabel = nil
+        } else {
+            isAccessibilityElement = true
+            accessibilityTraits = .staticText
+            accessibilityLabel = row.accessibilityLabel
+        }
+    }
+
+}
+#endif

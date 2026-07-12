@@ -1,5 +1,3 @@
-import CmuxAgentChat
-import CmuxAgentChatUI
 import CmuxMobileBrowser
 import CmuxMobileDiagnostics
 import CmuxMobileShell
@@ -52,24 +50,8 @@ struct WorkspaceDetailView: View {
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
     @State var terminalPickerRows: [TerminalPickerMenuRow] = []
-    /// Chat-mode toggle for inline agent chat in place of the terminal.
-    @State var isChatMode = false
-    /// The session chat mode was entered on, pinned so sorting cannot swap the conversation
-    /// out from under the user mid-read. Cleared when chat mode turns off.
-    @State var pinnedChatSessionID: String?
-    @State var chatSessions: [ChatSessionDescriptor] = []
-    @State var chatSessionsWorkspaceID: String?
-    /// Last terminal id whose cached snapshot said it had a chat session.
-    @State var cachedChatToggleTerminalID: String?
-    @State var ignoredChatSessionRefreshKey: String?
-    @State var ignoredChatSessionRefreshID: UUID?
-    @State var ignoredChatSessionRefreshTask: Task<[ChatSessionDescriptor]?, Never>?
-    /// Per-session chat stores kept warm while the workspace detail is visible.
-    @State var chatConversationStores: [String: ChatConversationStore] = [:]
-    /// Per-session composer drafts, surviving toggles back to the terminal.
-    @State var chatDrafts: [String: String] = [:]
-    /// App lifecycle phase used to re-pull chat sessions on foreground.
-    @Environment(\.scenePhase) var scenePhase
+    @State var guiModeSelected = false
+    @State var transcriptBottomChromeHeight = GhosttySurfaceView.persistentBottomToolbarHeight
     #endif
     /// The active browser surface for this workspace, when a browser pane is open.
     var activeBrowser: BrowserSurfaceState? {
@@ -77,11 +59,7 @@ struct WorkspaceDetailView: View {
     }
     #if os(iOS)
     var activeSurface: WorkspaceActiveSurface {
-        WorkspaceActiveSurface.derive(
-            isChatMode: isChatMode,
-            hasChosenChatSession: chosenChatSession != nil,
-            hasActiveBrowser: activeBrowser != nil
-        )
+        WorkspaceActiveSurface.derive(hasActiveBrowser: activeBrowser != nil)
     }
     #endif
     var body: some View {
@@ -93,11 +71,20 @@ struct WorkspaceDetailView: View {
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome()
             .toolbar { workspaceDetailToolbar }
-            .task(id: chatRefreshKey) { await refreshChatSessions() }
-            .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
             .onChange(of: selectedTerminalID) { _, _ in
-                refreshCachedChatToggleAnchor()
                 syncTerminalPickerRows(includeTitleChanges: true)
+            }
+            .onChange(of: guiModeSelected) { _, isSelected in
+                if isSelected {
+                    dismissTerminalKeyboardForChrome()
+                }
+            }
+            .onChange(of: agentGUIAvailability) { _, availability in
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    if availability == nil {
+                        guiModeSelected = false
+                    }
+                }
             }
             .closeWorkspaceConfirmation(
                 isPresented: $isConfirmingClose,
@@ -158,27 +145,32 @@ struct WorkspaceDetailView: View {
             contentWidth: contentWidth,
             hasBackButton: backButtonConfiguration != nil,
             hasTrailingCluster: true,
-            hasChatToggle: shouldShowChatToggle,
+            hasChatToggle: agentGUIAvailability != nil,
             isEnabled: hasTitleMenuActions,
             menuContent: { titleMenuContent }
         ) {
             toolbarTitleLabel
         }
     }
+
+    @ViewBuilder
+    private var toolbarTrailingCluster: some View {
+        HStack(spacing: 8) {
+            if agentGUIAvailability != nil {
+                AgentGUIToggleButton(isSelected: $guiModeSelected)
+                    .frame(width: 44, height: 44)
+                    .transition(.scale.combined(with: .opacity))
+            }
+            terminalPickerToolbarButton
+                .frame(width: 44, height: 44)
+        }
+        .animation(.easeInOut(duration: 0.2), value: agentGUIAvailability)
+        .frame(width: agentGUIAvailability == nil ? 44 : 96, height: 44, alignment: .trailing)
+    }
+
     @ViewBuilder
     private var toolbarTitleLabel: some View {
-        if isChatMode,
-           let session = chosenChatSession,
-           let conversation = chatConversationStores[session.id] {
-            ChatSessionHeaderView(
-                descriptor: conversation.descriptor,
-                agentState: conversation.agentState,
-                isConnected: conversation.isConnected,
-                titleOverride: workspace.name,
-                subtitle: tabName(for: session),
-                style: .toolbarCompact
-            )
-        } else if let browser = activeBrowser {
+        if let browser = activeBrowser {
             Text(browser.title ?? workspace.name)
                 .font(.headline)
                 .lineLimit(1)
@@ -212,7 +204,14 @@ struct WorkspaceDetailView: View {
                     // config + recolors the mounted surface in place (background,
                     // letterbox, default cell colors) without a remount, so
                     // scrollback survives a theme change.
-                    themeGeneration: store.terminalThemeGeneration
+                    themeGeneration: store.terminalThemeGeneration,
+                    composerSubmitAction: agentGUIComposerSubmitAction,
+                    onComposerChromeHeightChange: { height in
+                        Task { @MainActor in
+                            guard abs(transcriptBottomChromeHeight - height) > 0.5 else { return }
+                            transcriptBottomChromeHeight = height
+                        }
+                    }
                 )
                 // Identity must track the selected terminal. The representable's
                 // coordinator binds its byte sink to the surfaceID at make time and
@@ -415,9 +414,9 @@ struct WorkspaceDetailView: View {
 
         #if canImport(UIKit)
         Section {
-            // Only while the terminal pane is showing: browser and chat modes
-            // do not mount a terminal surface for text capture.
-            if activeBrowser == nil && !isChatMode {
+            // Only while the terminal pane is showing: browser mode does not
+            // mount a terminal surface for text capture.
+            if activeBrowser == nil {
                 Button(action: openTextSheetFromMenu) {
                     Label(
                         L10n.string("mobile.terminal.viewAsText", defaultValue: "View as Text"),

@@ -55,9 +55,6 @@ private final class FakeMobileHostControlCommandContext: ControlCommandContext {
         record("terminal.paste", params)
     }
 
-    func controlMobileChatSessionsDump() -> ControlCallResult {
-        record("chat.sessions.dump", [:])
-    }
 }
 
 @MainActor
@@ -83,12 +80,6 @@ struct ControlCommandCoordinatorMobileHostTests {
         #expect(context.lastMarker == "terminal.paste")
     }
 
-    @Test func v2SurfaceRoutesChatSessionsDumpThroughSeam() {
-        let (coordinator, context) = makeCoordinator()
-        #expect(coordinator.handle(request("chat.sessions.dump")) != nil)
-        #expect(context.lastMarker == "chat.sessions.dump")
-    }
-
     @Test func v2SurfaceUsesPrivateHostStatusVariant() {
         let (coordinator, context) = makeCoordinator()
         #expect(coordinator.handle(request("mobile.host.status")) != nil)
@@ -111,8 +102,8 @@ struct ControlCommandCoordinatorMobileHostTests {
     @Test func v2SurfaceMobileHostHandlerIgnoresDataPlaneOnlyVerbs() {
         let (coordinator, context) = makeCoordinator()
         // The mobile-host v2 dispatcher must NOT own the data-plane-only verbs
-        // (`mobile.chat.*`, `dogfood.feedback.submit`, the mobile workspace
-        // wrappers). The phone reaches those only through the mobile data-plane RPC
+        // (`dogfood.feedback.submit` and the mobile workspace wrappers). The
+        // phone reaches those only through the mobile data-plane RPC
         // (`TerminalController.mobileHostHandleRPC`), which dispatches its
         // `v2Mobile*` bodies directly and never transits this coordinator.
         // `handleMobileHost` returns nil for them so they never touch a mobile-host
@@ -121,7 +112,6 @@ struct ControlCommandCoordinatorMobileHostTests {
         // `workspace.close` — so this asserts the mobile-host handler specifically,
         // not the umbrella `handle(_:)`.)
         for method in [
-            "mobile.chat.sessions",
             "dogfood.feedback.submit",
             "mobile.attach_ticket.create",
             "workspace.action",
