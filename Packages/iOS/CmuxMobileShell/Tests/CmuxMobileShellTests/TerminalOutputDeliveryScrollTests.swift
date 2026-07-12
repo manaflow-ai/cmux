@@ -193,13 +193,14 @@ import Testing
 }
 
 @MainActor
-@Test func terminalOutputUnmountRetiresScrollRevisionState() async throws {
+@Test func terminalOutputUnmountRetainsEpochAndRetiresRenderRevision() async throws {
     let store = MobileShellComposite.preview()
     let surfaceID = "terminal"
     _ = store.mountTerminalScrollSession(
         surfaceID: surfaceID,
         cancelLocal: {}
     )
+    let interactionEpoch = try #require(store.terminalInteractionEpochsBySurfaceID[surfaceID])
     store.acceptTerminalRenderRevision(42, surfaceID: surfaceID)
     let consumer = Task { @MainActor in
         for await _ in store.terminalOutputStream(surfaceID: surfaceID) {}
@@ -212,7 +213,7 @@ import Testing
     consumer.cancel()
     await consumer.value
     let retired = try await pollUntil {
-        store.terminalInteractionEpochsBySurfaceID[surfaceID] == nil
+        (store.terminalInteractionEpochsBySurfaceID[surfaceID] ?? 0) > interactionEpoch
             && store.acceptedTerminalRenderRevisionsBySurfaceID[surfaceID] == nil
     }
     #expect(retired)

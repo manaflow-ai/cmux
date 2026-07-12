@@ -169,13 +169,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.surfaceView = surfaceView
             guard let store else { return }
             let surfaceID = surfaceID
-            let outputStream = store.terminalOutputStream(surfaceID: surfaceID)
-            terminalScrollSessionToken = store.mountTerminalScrollSession(
+            let mount = store.mountTerminalSurfaceOutput(
                 surfaceID: surfaceID,
-                cancelLocal: { [weak surfaceView] in
-                    surfaceView?.cancelScrollMomentum()
-                }
+                cancelLocal: { [weak surfaceView] in surfaceView?.cancelScrollMomentum() }
             )
+            terminalScrollSessionToken = mount.scrollSessionToken
+            let outputStream = mount.output
             viewportReportScheduler = TerminalViewportReportScheduler(
                 send: { [weak self] report in
                     guard let self, let store = self.store else { return nil }

@@ -1,5 +1,6 @@
 public import CMUXMobileCore
 import CmuxMobileRPC
+public import CmuxMobileShellModel
 public import Foundation
 import OSLog
 
@@ -100,6 +101,23 @@ extension MobileShellComposite {
         return session.token
     }
 
+    /// Mounts interaction ownership before output registration triggers its
+    /// cold replay, so the first replay uses the session's scrollback window.
+    public func mountTerminalSurfaceOutput(
+        surfaceID: String,
+        cancelLocal: @escaping @MainActor @Sendable () -> Void
+    ) -> (
+        scrollSessionToken: UUID,
+        output: AsyncStream<MobileTerminalOutputChunk>
+    ) {
+        let scrollSessionToken = mountTerminalScrollSession(
+            surfaceID: surfaceID,
+            cancelLocal: cancelLocal
+        )
+        let output = terminalOutputStream(surfaceID: surfaceID)
+        return (scrollSessionToken, output)
+    }
+
     public func unmountTerminalScrollSession(surfaceID: String, token: UUID) {
         guard let session = terminalScrollSessionsBySurfaceID[surfaceID],
               session.token == token else {
@@ -132,7 +150,6 @@ extension MobileShellComposite {
     /// A click is a viewport-relative terminal interaction, so it enters the
     /// same per-surface owner as scroll rather than racing a separate RPC task.
     public func clickTerminal(surfaceID: String, col: Int, row: Int) async {
-        deferredTerminalRenderGridEventsBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollSessionsBySurfaceID[surfaceID]?.submitClick(
             col: col,
             row: row

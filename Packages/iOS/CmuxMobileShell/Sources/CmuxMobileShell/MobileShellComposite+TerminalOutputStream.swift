@@ -51,8 +51,8 @@ extension MobileShellComposite {
         // Tell the Mac this device is no longer viewing the surface so it can unpin and clear its border.
         clearTerminalViewport(surfaceID: surfaceID)
         // clearTerminalViewport captures the final interaction epoch before
-        // scheduling its request. The per-surface scroll state can now retire.
-        terminalInteractionEpochsBySurfaceID.removeValue(forKey: surfaceID)
+        // scheduling its request. Keep the epoch fence for a same-connection
+        // remount; resetTerminalOutputTracking owns connection-lifetime cleanup.
         acceptedTerminalRenderRevisionsBySurfaceID.removeValue(forKey: surfaceID)
     }
 
