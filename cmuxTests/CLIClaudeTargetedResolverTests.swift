@@ -62,6 +62,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["PWD"] = root.path
         environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
         environment["CMUX_SOCKET_PATH"] = "127.0.0.1:\(relay.port)"
+        environment.removeValue(forKey: "CMUX_SOCKET")
         environment["CMUX_RELAY_ID"] = relayID
         environment["CMUX_RELAY_TOKEN"] = relayToken
         environment["CMUX_CLI_TTY_NAME"] = ttyName
