@@ -16,9 +16,23 @@ extension MobileShellComposite {
     ) -> MobilePanePreview.ID? {
         guard let workspace,
               workspace.actionCapabilities.supportsTerminalCreateInPane else { return nil }
-        if let explicitPaneID { return explicitPaneID }
-        guard !workspace.panes.isEmpty else { return nil }
-        return workspace.terminalCreationPaneID
+        return liveTerminalCreationPaneID(in: workspace, explicitPaneID: explicitPaneID)
+    }
+
+    /// Resolves pane selection only against the current host hierarchy. Focus
+    /// events can temporarily outlive their pane during a concurrent refresh.
+    private func liveTerminalCreationPaneID(
+        in workspace: MobileWorkspacePreview,
+        explicitPaneID: MobilePanePreview.ID?
+    ) -> MobilePanePreview.ID? {
+        let livePaneIDs = Set(workspace.panes.map(\.id))
+        if let explicitPaneID, livePaneIDs.contains(explicitPaneID) {
+            return explicitPaneID
+        }
+        if let focusedPaneID = workspace.focusedPaneID, livePaneIDs.contains(focusedPaneID) {
+            return focusedPaneID
+        }
+        return workspace.panes.first(where: \.isFocused)?.id ?? workspace.panes.first?.id
     }
 
     /// Enrolls modern terminal creation in the same hierarchy mutation owner as
@@ -54,14 +68,7 @@ extension MobileShellComposite {
     ) {
         guard let workspace = workspaces.first(where: { $0.id == workspaceID }) else { return }
         selectedWorkspaceID = workspaceID
-        let resolvedPaneID: MobilePanePreview.ID?
-        if let paneID {
-            resolvedPaneID = workspace.panes.contains(where: { $0.id == paneID })
-                ? paneID
-                : workspace.panes.first(where: \.isFocused)?.id ?? workspace.panes.first?.id
-        } else {
-            resolvedPaneID = workspace.panes.isEmpty ? nil : workspace.terminalCreationPaneID
-        }
+        let resolvedPaneID = liveTerminalCreationPaneID(in: workspace, explicitPaneID: paneID)
         var terminalIndex = workspace.terminals.count + 1
         let existingTerminalIDs = Set(workspace.terminals.map(\.id))
         var terminalID = MobileTerminalPreview.ID(

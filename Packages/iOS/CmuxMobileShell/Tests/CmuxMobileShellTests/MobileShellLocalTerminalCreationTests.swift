@@ -48,6 +48,32 @@ import Testing
 }
 
 @MainActor
+@Test func remoteCreateFallsBackFromStaleFocusedAndExplicitPaneIDs() {
+    let store = MobileShellComposite.preview()
+    var workspace = MobileWorkspacePreview(
+        id: "workspace-pane",
+        name: "Pane project",
+        terminals: [MobileTerminalPreview(id: "terminal-a", name: "shell", paneID: "pane-live")],
+        panes: [
+            MobilePanePreview(
+                id: "pane-live",
+                spatialIndex: 0,
+                isFocused: false,
+                terminalIDs: ["terminal-a"]
+            ),
+        ],
+        focusedPaneID: "pane-stale",
+        selectedTerminalID: "terminal-a"
+    )
+    workspace.actionCapabilities.supportsTerminalCreateInPane = true
+
+    #expect(store.remoteTerminalCreationPaneID(
+        in: workspace,
+        explicitPaneID: "pane-also-stale"
+    ) == "pane-live")
+}
+
+@MainActor
 @Test func createTerminalDoesNotDuplicateAnExistingIDAfterDeletion() throws {
     let store = MobileShellComposite.preview()
     let workspace = MobileWorkspacePreview(

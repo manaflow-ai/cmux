@@ -374,8 +374,8 @@ extension MobileShellComposite {
             }
             mobileShellLog.error("workspace mutation failed action=\(actionName, privacy: .public) id=\(logID, privacy: .public) error=\(String(describing: error), privacy: .public)")
             let reconciled = await refreshAfterWorkspaceMutation(target)
-            if !reconciled, workspaceMutationMayHaveApplied(error) {
-                return .failure(.appliedNeedsRefresh(hostDisplayName: hostDisplayName))
+            if !reconciled {
+                return .failure(unreconciledWorkspaceMutationFailure(error, hostDisplayName: hostDisplayName))
             }
             return .failure(workspaceMutationFailure(error, hostDisplayName: hostDisplayName))
         }
@@ -408,7 +408,7 @@ extension MobileShellComposite {
         return workspaceMutationTarget(for: anchorWorkspaceID)
     }
 
-    private func workspaceMutationFailure(
+    func workspaceMutationFailure(
         _ error: any Error,
         hostDisplayName: String?
     ) -> MobileWorkspaceMutationFailure {

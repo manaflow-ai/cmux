@@ -21,4 +21,6 @@ public enum MobileWorkspaceMutationFailure: Error, Equatable, Sendable {
     case unsupported(hostDisplayName: String?)
     /// The Mac acknowledged the mutation, but iOS could not reload its result.
     case appliedNeedsRefresh(hostDisplayName: String?)
+    /// The request may have reached the Mac, and iOS could not reconcile the result.
+    case resultUnknownNeedsRefresh(hostDisplayName: String?)
 }

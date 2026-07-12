@@ -29,6 +29,7 @@ struct TerminalHierarchySheet: View {
     @State private var mutationFailed = false
     @State private var mutationProtected = false
     @State private var showRefreshAlert = false
+    @State private var refreshResultIsUnknown = false
     @State private var optimisticTerminalIDsByPane: [MobilePanePreview.ID: [MobileTerminalPreview.ID]] = [:]
 
     var body: some View {
@@ -108,7 +109,7 @@ struct TerminalHierarchySheet: View {
                 )
             }
             .alert(
-                L10n.string("mobile.terminal.hierarchy.refreshTitle", defaultValue: "Change Applied"),
+                refreshAlertTitle,
                 isPresented: $showRefreshAlert
             ) {
                 Button(L10n.string("mobile.common.refresh", defaultValue: "Refresh")) {
@@ -116,12 +117,7 @@ struct TerminalHierarchySheet: View {
                 }
                 Button(L10n.string("mobile.common.later", defaultValue: "Later"), role: .cancel) {}
             } message: {
-                Text(
-                    L10n.string(
-                        "mobile.terminal.hierarchy.refreshMessage",
-                        defaultValue: "The Mac applied the change, but this list could not refresh. Refresh before making another change."
-                    )
-                )
+                Text(refreshAlertMessage)
             }
             .alert(
                 L10n.string("mobile.terminal.hierarchy.protectedTitle", defaultValue: "Pinned Order Protected"),
@@ -310,8 +306,9 @@ struct TerminalHierarchySheet: View {
             guard case .success = result else {
                 optimisticTerminalIDsByPane[pane.id] = nil
                 if case .failure(.appliedNeedsRefresh) = result {
-                    reorderGate.requireRefresh(workspaceID: snapshot.workspaceID)
-                    showRefreshAlert = true
+                    presentRefreshRequired(resultIsUnknown: false)
+                } else if case .failure(.resultUnknownNeedsRefresh) = result {
+                    presentRefreshRequired(resultIsUnknown: true)
                 } else if case .failure(.protected) = result {
                     mutationProtected = true
                 } else {
@@ -376,8 +373,9 @@ struct TerminalHierarchySheet: View {
                 self.pendingClose = pendingClose
                 closeConfirmationIncludesRunningProcess = true
             case .failure(.appliedNeedsRefresh):
-                reorderGate.requireRefresh(workspaceID: snapshot.workspaceID)
-                showRefreshAlert = true
+                presentRefreshRequired(resultIsUnknown: false)
+            case .failure(.resultUnknownNeedsRefresh):
+                presentRefreshRequired(resultIsUnknown: true)
             case .failure:
                 mutationFailed = true
             }
@@ -402,6 +400,35 @@ struct TerminalHierarchySheet: View {
             reorderGate.finishRecovery(workspaceID: snapshot.workspaceID, succeeded: succeeded)
             showRefreshAlert = !succeeded
         }
+    }
+
+    private var refreshAlertTitle: String {
+        if refreshResultIsUnknown {
+            return L10n.string(
+                "mobile.terminal.hierarchy.resultUnknownTitle",
+                defaultValue: "Terminal State Unknown"
+            )
+        }
+        return L10n.string("mobile.terminal.hierarchy.refreshTitle", defaultValue: "Change Applied")
+    }
+
+    private var refreshAlertMessage: String {
+        if refreshResultIsUnknown {
+            return L10n.string(
+                "mobile.terminal.hierarchy.resultUnknownMessage",
+                defaultValue: "The Mac may have applied the change. Refresh before making another change."
+            )
+        }
+        return L10n.string(
+            "mobile.terminal.hierarchy.refreshMessage",
+            defaultValue: "The Mac applied the change, but this list could not refresh. Refresh before making another change."
+        )
+    }
+
+    private func presentRefreshRequired(resultIsUnknown: Bool) {
+        reorderGate.requireRefresh(workspaceID: snapshot.workspaceID)
+        refreshResultIsUnknown = resultIsUnknown
+        showRefreshAlert = true
     }
 
     private func announce(_ message: String) {

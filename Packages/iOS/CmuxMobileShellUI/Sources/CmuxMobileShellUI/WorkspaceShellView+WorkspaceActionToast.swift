@@ -50,6 +50,12 @@ extension WorkspaceShellView {
                 defaultValue: "Change applied. Refresh to load the latest state."
             )
         }
+        if case .resultUnknownNeedsRefresh = failure {
+            return L10n.string(
+                "mobile.workspaceAction.failure.resultUnknownNeedsRefresh",
+                defaultValue: "The result is unknown. Refresh to load the latest state."
+            )
+        }
         return String.localizedStringWithFormat(
             L10n.string(
                 "mobile.workspaceAction.failure.message",
@@ -101,6 +107,11 @@ extension WorkspaceShellView {
             return L10n.string(
                 "mobile.workspaceAction.failure.appliedNeedsRefresh",
                 defaultValue: "Change applied. Refresh to load the latest state."
+            )
+        case .resultUnknownNeedsRefresh:
+            return L10n.string(
+                "mobile.workspaceAction.failure.resultUnknownNeedsRefresh",
+                defaultValue: "The result is unknown. Refresh to load the latest state."
             )
         case let .notConnected(hostDisplayName):
             if let hostDisplayName = trimmedWorkspaceActionHostDisplayName(hostDisplayName) {
