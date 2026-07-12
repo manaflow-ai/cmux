@@ -372,7 +372,7 @@ const CMUXSessionRestore = async (ctx) => {
           break;
         case "session.error":
           sendHook("notification", ctx, event, {
-            message: openCodeEventMessage(event),
+            message: "OpenCode reported an error",
             reason: "error",
           });
           sendStopIfActive(ctx, event);
