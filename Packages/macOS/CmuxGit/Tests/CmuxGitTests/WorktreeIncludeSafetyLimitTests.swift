@@ -31,6 +31,60 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: destination.appendingPathComponent("cache").path))
     }
 
+    @Test func fileGrowthDuringCopyCannotBypassBudget() async throws {
+        let (root, source, destination) = try makeRepositoryFixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cache = source.appendingPathComponent("cache", isDirectory: true)
+        let growingFile = cache.appendingPathComponent("growing.bin")
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        #expect(FileManager.default.createFile(atPath: growingFile.path, contents: Data([0])))
+        try "cache/\n".write(
+            to: source.appendingPathComponent(".gitignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "cache/\n".write(
+            to: source.appendingPathComponent(".worktreeinclude"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let fileManager = GrowingWorktreeIncludeFileManager(
+            targetDirectory: cache,
+            fileToGrow: growingFile
+        )
+
+        let diagnostics = await WorktreeIncludeSyncService(fileManager: fileManager).sync(
+            from: source,
+            to: destination
+        )
+
+        #expect(diagnostics.contains { $0.localizedCaseInsensitiveContains("copy limit") })
+        #expect(!FileManager.default.fileExists(atPath: destination.appendingPathComponent("cache").path))
+    }
+
+    @Test func cancellationStopsBeforeGitMatching() async throws {
+        let (root, source, destination) = try makeRepositoryFixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "node_modules/\n.env\n".write(
+            to: source.appendingPathComponent(".worktreeinclude"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let runner = CandidateFilteringCommandRunner()
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await WorktreeIncludeSyncService(commandRunner: runner).sync(
+                from: source,
+                to: destination
+            )
+        }
+
+        let diagnostics = await task.value
+
+        #expect(diagnostics.contains { $0.localizedCaseInsensitiveContains("cancel") })
+        #expect(await runner.invocations().isEmpty)
+    }
+
     @Test func failedStandardIgnoreBatchStopsTheStage() async throws {
         let (root, source, destination) = try makeRepositoryFixture()
         defer { try? FileManager.default.removeItem(at: root) }
