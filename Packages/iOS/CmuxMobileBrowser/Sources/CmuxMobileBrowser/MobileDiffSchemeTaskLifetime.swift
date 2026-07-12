@@ -20,7 +20,8 @@ actor MobileDiffSchemeTaskLifetime {
     }
 
     func finish(_ taskID: ObjectIdentifier) {
-        stop(taskID)
+        activeTasks.remove(taskID)
+        stoppedBeforeRegistration.remove(taskID)
     }
 
     func stop(_ taskID: ObjectIdentifier) {

@@ -13,11 +13,12 @@ extension TerminalController {
             return .err(code: "not_found", message: "Workspace directory not found", data: nil)
         }
         do {
-            let document = try await MobileWorkingTreeDiffLoader().load(
+            let document = try await mobileWorkingTreeDiffCoordinator.load(
+                key: workspace.id.uuidString,
                 directory: directory,
                 title: workspace.title
             )
-            return .ok(document)
+            return .ok(document.rpcValue)
         } catch let error as MobileWorkingTreeDiffLoadError {
             return .err(code: error.code, message: error.message, data: nil)
         } catch {

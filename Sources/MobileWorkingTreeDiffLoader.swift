@@ -18,6 +18,10 @@ final class MobileWorkingTreeDiffLoader: Sendable {
     }
 
     func load(directory: String, title: String) async throws -> [String: Any] {
+        try await loadPayload(directory: directory, title: title).rpcValue
+    }
+
+    func loadPayload(directory: String, title: String) async throws -> MobileWorkingTreeDiffPayload {
         let result = try await withThrowingTaskGroup(
             of: (patch: String, repositoryRoot: String, title: String).self
         ) { group in
@@ -34,17 +38,18 @@ final class MobileWorkingTreeDiffLoader: Sendable {
             group.cancelAll()
             return result
         }
-        let document: [String: Any] = [
-            "patch": result.patch,
-            "repository_root": result.repositoryRoot,
-            "title": result.title,
-        ]
+        let payload = MobileWorkingTreeDiffPayload(
+            patch: result.patch,
+            repositoryRoot: result.repositoryRoot,
+            title: result.title
+        )
+        let document = payload.rpcValue
         let maximumDocumentBytes = MobileSyncFrameCodec.defaultMaximumFrameByteCount - responseEnvelopeBudget
         guard let encodedDocument = try? JSONSerialization.data(withJSONObject: document),
               encodedDocument.count <= maximumDocumentBytes else {
             throw MobileWorkingTreeDiffLoadError(code: "too_large", message: "Workspace diff is too large to send to this phone")
         }
-        return document
+        return payload
     }
 
     private func loadResult(

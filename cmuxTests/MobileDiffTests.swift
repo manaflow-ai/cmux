@@ -67,8 +67,8 @@ struct MobileDiffTests {
             return MobileWorkingTreeDiffPayload(patch: "patch", repositoryRoot: directory, title: title)
         }
 
-        async let first = coordinator.load(directory: "/tmp/repository", title: "First")
-        async let second = coordinator.load(directory: "/tmp/repository", title: "Second")
+        async let first = coordinator.load(key: "workspace", directory: "/tmp/repository", title: "First")
+        async let second = coordinator.load(key: "workspace", directory: "/tmp/repository", title: "Second")
         let (firstResult, secondResult) = try await (first, second)
 
         #expect(callCount.withLock { $0 } == 1)
