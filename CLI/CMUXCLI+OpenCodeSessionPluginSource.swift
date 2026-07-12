@@ -236,11 +236,11 @@ function hookEnvironment(cwd) {
 }
 
 function sendHook(subcommand, ctx, event, extra = {}) {
-  if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1") return;
-  if (!process.env.CMUX_SURFACE_ID) return;
+  if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1") return false;
+  if (!process.env.CMUX_SURFACE_ID) return false;
 
   const sessionId = sessionIdFor(event);
-  if (!sessionId) return;
+  if (!sessionId) return false;
 
   const cwd = cwdFor(ctx, event);
   const state = sessionState(sessionId);
@@ -256,14 +256,16 @@ function sendHook(subcommand, ctx, event, extra = {}) {
   if (context) payload.context = context;
   const cmux = process.env.CMUX_OPENCODE_CMUX_BIN || "cmux";
   try {
-    spawnSync(cmux, ["hooks", "opencode", subcommand], {
+    const result = spawnSync(cmux, ["hooks", "opencode", subcommand], {
       input: JSON.stringify(payload),
       encoding: "utf8",
       env: hookEnvironment(cwd),
       stdio: ["pipe", "ignore", "ignore"],
       timeout: 5000,
     });
+    return !result.error && result.status === 0 && !result.signal;
   } catch (_) {}
+  return false;
 }
 
 function sendStartOnce(ctx, event) {
@@ -271,8 +273,9 @@ function sendStartOnce(ctx, event) {
   if (!sessionId) return;
   const state = sessionState(sessionId);
   if (state.started) return;
-  state.started = true;
-  sendHook("session-start", ctx, event);
+  if (sendHook("session-start", ctx, event)) {
+    state.started = true;
+  }
 }
 
 function sendPromptSubmitOnce(ctx, event) {
@@ -280,9 +283,10 @@ function sendPromptSubmitOnce(ctx, event) {
   if (!sessionId) return;
   const state = sessionState(sessionId);
   if (state.activeTurn) return;
-  state.activeTurn = true;
-  state.retrying = false;
-  sendHook("prompt-submit", ctx, event);
+  if (sendHook("prompt-submit", ctx, event)) {
+    state.activeTurn = true;
+    state.retrying = false;
+  }
 }
 
 function sendStopIfActive(ctx, event) {
@@ -290,9 +294,10 @@ function sendStopIfActive(ctx, event) {
   if (!sessionId) return;
   const state = sessionState(sessionId);
   if (!state.activeTurn && !state.retrying) return;
-  state.activeTurn = false;
-  state.retrying = false;
-  sendHook("stop", ctx, event);
+  if (sendHook("stop", ctx, event)) {
+    state.activeTurn = false;
+    state.retrying = false;
+  }
 }
 
 function trackMessage(event) {
@@ -377,7 +382,7 @@ const CMUXSessionRestore = async (ctx) => {
           break;
         case "session.error":
           sendHook("notification", ctx, event, {
-            message: "OpenCode reported an error",
+            message: "Agent reported an error",
             reason: "error",
           });
           sendStopIfActive(ctx, event);

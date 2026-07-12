@@ -172,12 +172,17 @@ printf '\\n---\\n' >> "$FAKE_CMUX_STDIN_LOG"
   printf 'cwd=%s\\n' "${CMUX_AGENT_LAUNCH_CWD-}"
   printf 'argv=%s\\n' "${CMUX_AGENT_LAUNCH_ARGV_B64-}"
 } >> "$FAKE_CMUX_ENV_LOG"
+if [[ -n "${FAKE_CMUX_FAIL_ONCE_MATCH-}" && -n "${FAKE_CMUX_FAIL_ONCE_MARKER-}" && "$*" == *"$FAKE_CMUX_FAIL_ONCE_MATCH"* && ! -e "$FAKE_CMUX_FAIL_ONCE_MARKER" ]]; then
+  : > "$FAKE_CMUX_FAIL_ONCE_MARKER"
+  exit 42
+fi
 """,
         )
 
         check_env = env.copy()
         check_env["CMUX_TEST_OPENCODE_PLUGIN_PATH"] = str(plugin_path)
         check_env["CMUX_TEST_OPENCODE_PLUGIN_COPY_PATH"] = str(plugin_copy_path)
+        check_env["CMUX_TEST_OPENCODE_FAILURE_MARKER_DIR"] = str(root)
         check_env["CMUX_SURFACE_ID"] = "surface-opencode-test"
         check_env["CMUX_OPENCODE_CMUX_BIN"] = str(fake_cmux)
         check_env["FAKE_CMUX_ARGS_LOG"] = str(fake_args_log)
@@ -311,6 +316,106 @@ await hooks.event({
     }
   }
 });
+process.env.FAKE_CMUX_FAIL_ONCE_MATCH = "hooks opencode session-start";
+process.env.FAKE_CMUX_FAIL_ONCE_MARKER = `${process.env.CMUX_TEST_OPENCODE_FAILURE_MARKER_DIR}/start-failed-once`;
+await hooks.event({
+  event: {
+    type: "session.created",
+    properties: {
+      info: {
+        id: "opencode-start-failure-test",
+        directory: "/tmp/opencode-project"
+      }
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "session.updated",
+    properties: {
+      info: {
+        id: "opencode-start-failure-test",
+        title: "retry start"
+      }
+    }
+  }
+});
+delete process.env.FAKE_CMUX_FAIL_ONCE_MATCH;
+delete process.env.FAKE_CMUX_FAIL_ONCE_MARKER;
+await hooks.event({
+  event: {
+    type: "session.created",
+    properties: {
+      info: {
+        id: "opencode-prompt-failure-test",
+        directory: "/tmp/opencode-project"
+      }
+    }
+  }
+});
+process.env.FAKE_CMUX_FAIL_ONCE_MATCH = "hooks opencode prompt-submit";
+process.env.FAKE_CMUX_FAIL_ONCE_MARKER = `${process.env.CMUX_TEST_OPENCODE_FAILURE_MARKER_DIR}/prompt-failed-once`;
+await hooks.event({
+  event: {
+    type: "session.status",
+    properties: {
+      sessionID: "opencode-prompt-failure-test",
+      status: { type: "running" }
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "session.status",
+    properties: {
+      sessionID: "opencode-prompt-failure-test",
+      status: { type: "streaming" }
+    }
+  }
+});
+delete process.env.FAKE_CMUX_FAIL_ONCE_MATCH;
+delete process.env.FAKE_CMUX_FAIL_ONCE_MARKER;
+await hooks.event({
+  event: {
+    type: "session.created",
+    properties: {
+      info: {
+        id: "opencode-stop-failure-test",
+        directory: "/tmp/opencode-project"
+      }
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "session.status",
+    properties: {
+      sessionID: "opencode-stop-failure-test",
+      status: { type: "running" }
+    }
+  }
+});
+process.env.FAKE_CMUX_FAIL_ONCE_MATCH = "hooks opencode stop";
+process.env.FAKE_CMUX_FAIL_ONCE_MARKER = `${process.env.CMUX_TEST_OPENCODE_FAILURE_MARKER_DIR}/stop-failed-once`;
+await hooks.event({
+  event: {
+    type: "session.idle",
+    properties: {
+      sessionID: "opencode-stop-failure-test"
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "session.status",
+    properties: {
+      sessionID: "opencode-stop-failure-test",
+      status: { type: "done" }
+    }
+  }
+});
+delete process.env.FAKE_CMUX_FAIL_ONCE_MATCH;
+delete process.env.FAKE_CMUX_FAIL_ONCE_MARKER;
 """
         check = subprocess.run(
             [bun, "--eval", check_source],
@@ -334,14 +439,14 @@ await hooks.event({
         if "hooks opencode session-start" not in args_log:
             print(f"FAIL: plugin did not invoke hooks opencode session-start, got {args_log!r}")
             return 1
-        if args_log.count("hooks opencode session-start") != 1:
-            print(f"FAIL: plugin invoked duplicate session-start hooks, got {args_log!r}")
+        if args_log.count("hooks opencode session-start") != 5:
+            print(f"FAIL: plugin did not retry failed session-start hooks correctly, got {args_log!r}")
             return 1
-        if args_log.count("hooks opencode prompt-submit") != 1:
-            print(f"FAIL: plugin invoked duplicate prompt-submit hooks, got {args_log!r}")
+        if args_log.count("hooks opencode prompt-submit") != 4:
+            print(f"FAIL: plugin did not retry failed prompt-submit hooks correctly, got {args_log!r}")
             return 1
-        if args_log.count("hooks opencode stop") != 2:
-            print(f"FAIL: plugin should stop after the error and retrying-only idle, got {args_log!r}")
+        if args_log.count("hooks opencode stop") != 4:
+            print(f"FAIL: plugin should stop after the error, retrying-only idle, and failed stop retry, got {args_log!r}")
             return 1
         for expected in [
             "hooks opencode prompt-submit",
@@ -362,10 +467,14 @@ await hooks.event({
             '"reason":"permission_prompt"',
             '"reason":"question answer"',
             '"reason":"error"',
+            '"message":"Agent reported an error"',
         ]:
             if expected not in stdin_log:
                 print(f"FAIL: plugin did not pass expected status payload {expected}, got {stdin_log!r}")
                 return 1
+        if "provider failed" in stdin_log:
+            print(f"FAIL: plugin leaked provider error text into notification payload, got {stdin_log!r}")
+            return 1
         if "kind=opencode" not in env_log or "cwd=/tmp/opencode-project" not in env_log or "argv=" not in env_log:
             print(f"FAIL: plugin did not pass launch metadata environment, got {env_log!r}")
             return 1
