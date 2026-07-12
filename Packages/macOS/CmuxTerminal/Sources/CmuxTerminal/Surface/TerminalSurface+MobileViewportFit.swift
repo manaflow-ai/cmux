@@ -197,6 +197,7 @@ extension TerminalSurface {
     @discardableResult
     @MainActor
     public func clearMobileViewportLimit(reason: String) -> Bool {
+        pendingMobileViewportFontFitReloadLease = nil
         mobileViewportCellLimit = nil
         paneHost.setMobileViewportBorder(size: nil, drawRight: false, drawBottom: false)
 
@@ -260,7 +261,13 @@ extension TerminalSurface {
         let paneHeight = max(1, Int(height))
         let configuredFont = configuredFontPointSizeOverride
             ?? configuredMobileViewportFontPointSize()
-        let probedLiveFont = mobileViewportFontFitState.consumeLiveFontProbeRequest()
+        let shouldProbeLiveFont = mobileViewportFontFitState.consumeLiveFontProbeRequest()
+        if shouldProbeLiveFont {
+            // Cell-size is emitted before Ghostty enqueues its renderer font
+            // grid. Drain that mailbox before reading the renderer-owned font.
+            ghostty_surface_render_now(surface)
+        }
+        let probedLiveFont = shouldProbeLiveFont
             ? GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(surface)
             : nil
         let liveFont = probedLiveFont
