@@ -16,17 +16,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
-    func testClaudeTargetedResolverEmptySuccessPreservesRemoteFallback() throws {
+    func testClaudeTargetedResolverMissingRequestedPIDFailsClosed() throws {
         let outcome = try runClaudeTargetedResolverScenario(response: .emptySuccess)
         XCTAssertFalse(outcome.result.timedOut, outcome.result.stderr)
         XCTAssertEqual(outcome.result.status, 0, outcome.result.stderr)
-        XCTAssertTrue(
-            outcome.commands.contains {
-                $0.hasPrefix("set_status claude_code Needs input ")
-                    && $0.contains("--tab=\(outcome.workspaceId)")
-                    && $0.contains("--panel=\(outcome.surfaceId)")
+        XCTAssertFalse(
+            outcome.commands.contains { command in
+                command.hasPrefix("set_status ")
+                    || command.hasPrefix("notify_target")
+                    || self.jsonObject(command)?["method"] as? String == "feed.push"
             },
-            "A successful no-local-match response must preserve a valid remote binding: \(outcome.commands)"
+            "A requested PID miss must not collapse into ambient routing: \(outcome.commands)"
         )
     }
 
