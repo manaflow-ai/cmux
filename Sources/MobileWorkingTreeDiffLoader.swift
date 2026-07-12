@@ -4,20 +4,6 @@ import CMUXMobileCore
 
 /// Builds a bounded Git working-tree patch for transport to a mobile client.
 final class MobileWorkingTreeDiffLoader: Sendable {
-    private static let removedGitEnvironmentKeys: Set<String> = [
-        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-        "GIT_COMMON_DIR",
-        "GIT_CONFIG",
-        "GIT_CONFIG_COUNT",
-        "GIT_CONFIG_GLOBAL",
-        "GIT_CONFIG_SYSTEM",
-        "GIT_DIR",
-        "GIT_INDEX_FILE",
-        "GIT_NAMESPACE",
-        "GIT_OBJECT_DIRECTORY",
-        "GIT_REPLACE_REF_BASE",
-        "GIT_WORK_TREE",
-    ]
     private let maximumPatchBytes = 6 * 1024 * 1024
     private let maximumUntrackedFiles = 200
     private let maximumPathListBytes = 1024 * 1024
@@ -218,11 +204,7 @@ final class MobileWorkingTreeDiffLoader: Sendable {
     }
 
     private func sanitizedGitEnvironment() -> [String: String] {
-        var sanitized = environment.filter { key, _ in
-            !Self.removedGitEnvironmentKeys.contains(key)
-                && !key.hasPrefix("GIT_CONFIG_KEY_")
-                && !key.hasPrefix("GIT_CONFIG_VALUE_")
-        }
+        var sanitized = environment.filter { key, _ in !key.hasPrefix("GIT_") }
         sanitized["GIT_OPTIONAL_LOCKS"] = "0"
         return sanitized
     }
