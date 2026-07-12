@@ -74,6 +74,50 @@ import Testing
 }
 
 @MainActor
+@Test func remoteCreateDoesNotSelectConcurrentTerminalFromAnotherPane() throws {
+    let store = MobileShellComposite.preview()
+    let workspace = MobileWorkspacePreview(
+        id: "workspace-pane",
+        name: "Pane project",
+        terminals: [
+            MobileTerminalPreview(id: "terminal-selected", name: "shell", paneID: "pane-requested"),
+            MobileTerminalPreview(id: "terminal-existing-other", name: "shell", paneID: "pane-other"),
+            MobileTerminalPreview(id: "terminal-concurrent-other", name: "shell", paneID: "pane-other"),
+        ],
+        panes: [
+            MobilePanePreview(
+                id: "pane-requested",
+                spatialIndex: 0,
+                isFocused: true,
+                terminalIDs: ["terminal-selected"]
+            ),
+            MobilePanePreview(
+                id: "pane-other",
+                spatialIndex: 1,
+                isFocused: false,
+                terminalIDs: ["terminal-existing-other", "terminal-concurrent-other"]
+            ),
+        ],
+        focusedPaneID: "pane-requested",
+        selectedTerminalID: "terminal-selected"
+    )
+    store.replaceForegroundWorkspaceState([workspace])
+
+    let resolved = store.resolvedRemoteTerminalCreationSelection(
+        responseCreatedTerminalID: "terminal-transient",
+        workspaceID: workspace.id,
+        existingTerminalIDs: ["terminal-selected", "terminal-existing-other"],
+        paneID: "pane-requested"
+    )
+    if let resolved {
+        store.selectTerminal(resolved)
+    }
+
+    #expect(resolved == nil)
+    #expect(store.selectedTerminalID == "terminal-selected")
+}
+
+@MainActor
 @Test func createTerminalDoesNotDuplicateAnExistingIDAfterDeletion() throws {
     let store = MobileShellComposite.preview()
     let workspace = MobileWorkspacePreview(
