@@ -86,11 +86,26 @@ extension MobileShellComposite {
     }
 
     func resetConnectionLifecycle() {
+        let canceledStreamRepair = connectionLifecycle.activeEpisode?.kind == .streamRepair
         connectionLifecycle.reset()
         resumeCompletedConnectionLifecycleRequests()
         storedMacReconnectGeneration &+= 1
         connectionLifecycleTask?.cancel()
         connectionLifecycleTask = nil
+        reconcileMacConnectionStatusAfterLifecycleReset(
+            canceledStreamRepair: canceledStreamRepair
+        )
+    }
+
+    func restartStoredMacReconnectAfterScopeChange() {
+        guard isSignedIn,
+              connectionState != .connected,
+              pairedMacStore != nil else { return }
+        let request = connectionLifecycle.requestStoredMacReconnect(
+            stackUserID: identityProvider?.currentUserID,
+            health: connectionLifecycleHealth(at: runtime?.now() ?? Date())
+        )
+        applyConnectionLifecycleEffect(request.effect)
     }
 
     func completeStreamRepairLifecycleEpisodeIfNeeded() {

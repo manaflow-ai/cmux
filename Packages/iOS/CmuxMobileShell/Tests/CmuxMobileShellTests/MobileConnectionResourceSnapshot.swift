@@ -1,4 +1,6 @@
-#if DEBUG
+import Foundation
+@testable import CmuxMobileShell
+
 extension MobileShellComposite {
     func connectionResourceSnapshotForTesting() -> MobileConnectionResourceSnapshot {
         let lifecycle = connectionLifecycle.resourceSnapshot
@@ -37,4 +39,3 @@ struct MobileConnectionResourceSnapshot: Equatable {
     let byteContinuationCount: Int
     let liveFontContinuationCount: Int
 }
-#endif

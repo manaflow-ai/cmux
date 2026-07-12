@@ -1190,6 +1190,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// never drops the terminal the user is in (the chosen "keep session, re-scope
     /// lists" behavior).
     public func currentTeamDidChange() {
+        let wasReconnectingStoredMac = connectionLifecycle.isReconnectingStoredMac
         resetConnectionLifecycle()
         secondaryAggregationScopeGeneration &+= 1
         // Presence: cancel + re-subscribe so the online dots reflect the new team
@@ -1223,6 +1224,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacs = []
         forgottenMacDeviceIDsByScope = [:]
         registryDevices = []
+        if wasReconnectingStoredMac {
+            restartStoredMacReconnectAfterScopeChange()
+        }
     }
 
     /// Forward a tap to the Mac's real surface as a left click at the given grid
@@ -5594,6 +5598,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionLifecycle.markHealthy()
         connectionRequiresReauth = false
         completeStreamRepairLifecycleEpisodeIfNeeded()
+    }
+
+    func reconcileMacConnectionStatusAfterLifecycleReset(
+        canceledStreamRepair: Bool
+    ) {
+        guard canceledStreamRepair,
+              connectionState == .connected,
+              remoteClient != nil else { return }
+        macConnectionStatus = terminalEventListenerTask == nil
+            ? .unavailable
+            : .connected
     }
 
     func markMacConnectionReconnecting() {

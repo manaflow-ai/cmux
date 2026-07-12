@@ -199,8 +199,8 @@ struct MobileConnectionLifecycleStateMachine {
             case .streamRepair:
                 shouldAbsorb = kind == .streamRepair
             case .reconnect:
-                shouldAbsorb = kind == .streamRepair
-                    || request.reconnectStackUserID == selectedStackUserID
+                shouldAbsorb = kind == .reconnect
+                    && request.reconnectStackUserID == selectedStackUserID
             }
             if shouldAbsorb {
                 absorbed.append(request)
@@ -260,8 +260,10 @@ private extension MobileConnectionLifecycleEpisode {
         reconnectStackUserID requestedStackUserID: String?
     ) -> Bool {
         switch (kind, requestedKind) {
-        case (.streamRepair, .streamRepair), (.reconnect, .streamRepair):
+        case (.streamRepair, .streamRepair):
             return true
+        case (.reconnect, .streamRepair):
+            return false
         case (.streamRepair, .reconnect):
             return false
         case (.reconnect, .reconnect):
