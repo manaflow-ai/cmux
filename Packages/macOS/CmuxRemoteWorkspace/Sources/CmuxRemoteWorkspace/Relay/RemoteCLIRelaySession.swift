@@ -183,7 +183,8 @@ extension RemoteCLIRelayServer {
                 return
             }
             phase = .forwarding
-            let forwardedCommandLine = commandRewriter(commandLine)
+            let scopedCommandLine = commandLineByInjectingOwnerWorkspaceID(commandLine)
+            let forwardedCommandLine = commandRewriter(scopedCommandLine)
             DispatchQueue.global(qos: .utility).async { [localSocketPath, forwardedCommandLine, queue] in
                 let result = Result {
                     try Self.roundTripUnixSocket(socketPath: localSocketPath, request: forwardedCommandLine)
@@ -203,6 +204,26 @@ extension RemoteCLIRelayServer {
                     }
                 }
             }
+        }
+
+        private func commandLineByInjectingOwnerWorkspaceID(_ commandLine: Data) -> Data {
+            guard let ownerWorkspaceID,
+                  var request = try? JSONSerialization.jsonObject(with: commandLine) as? [String: Any],
+                  request["method"] as? String == "system.resolve_terminal"
+            else {
+                return commandLine
+            }
+            let rawParams = request["params"]
+            guard rawParams == nil || rawParams is [String: Any] else {
+                return commandLine
+            }
+            var params = rawParams as? [String: Any] ?? [:]
+            params["_cmux_authenticated_relay_workspace_id"] = ownerWorkspaceID.uuidString
+            request["params"] = params
+            guard let payload = try? JSONSerialization.data(withJSONObject: request) else {
+                return commandLine
+            }
+            return payload + Data([0x0A])
         }
 
         private func sendFailureAndClose() {

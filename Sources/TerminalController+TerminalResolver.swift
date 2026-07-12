@@ -25,6 +25,20 @@ extension TerminalController {
     /// are captured fresh because ownership and PID reuse are correctness
     /// boundaries, not cacheable presentation state.
     nonisolated func v2SystemResolveTerminal(params: [String: Any]) -> V2CallResult {
+        let relayWorkspaceID: UUID?
+        if let rawWorkspaceID = params["_cmux_authenticated_relay_workspace_id"] {
+            guard let workspaceID = rawWorkspaceID as? String,
+                  let parsedWorkspaceID = UUID(uuidString: workspaceID) else {
+                return .err(
+                    code: "invalid_params",
+                    message: "_cmux_authenticated_relay_workspace_id must be a UUID",
+                    data: nil
+                )
+            }
+            relayWorkspaceID = parsedWorkspaceID
+        } else {
+            relayWorkspaceID = nil
+        }
         let ttyName = v2NonEmptyString(v2String(params, "tty_name")).map(Self.terminalResolverTTYName)
         let pid: Int?
         if params["pid"] != nil {
@@ -42,7 +56,10 @@ extension TerminalController {
         let processIdentity: TerminalResolverProcessIdentity? = pid.flatMap { pid in
             Self.terminalResolverProcessIdentity(pid: pid)
         }
-        let bindings = freshLiveTerminalResolverBindings()
+        let liveBindings = freshLiveTerminalResolverBindings()
+        let bindings = relayWorkspaceID.map { workspaceID in
+            liveBindings.filter { $0.workspaceID == workspaceID }
+        } ?? liveBindings
         let ttyBindings = ttyName.map { requestedTTY in
             bindings.filter { $0.ttyName == requestedTTY }
         } ?? []

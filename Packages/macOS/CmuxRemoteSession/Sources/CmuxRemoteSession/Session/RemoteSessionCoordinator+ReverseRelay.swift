@@ -360,6 +360,7 @@ extension RemoteSessionCoordinator {
             localSocketPath: localSocketPath,
             relayID: relayID,
             relayTokenHex: relayToken,
+            ownerWorkspaceID: configuration.ownerWorkspaceID,
             commandRewriter: relayCommandRewriter
         )
         relayServer.updateRemoteRelayIDAliases(
