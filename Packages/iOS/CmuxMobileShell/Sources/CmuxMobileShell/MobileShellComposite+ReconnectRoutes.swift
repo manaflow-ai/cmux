@@ -92,7 +92,7 @@ extension MobileShellComposite {
         let canceledStreamRepair = connectionLifecycle.activeEpisode?.kind == .streamRepair
         connectionLifecycle.reset()
         resumeCompletedConnectionLifecycleRequests()
-        storedMacReconnectGeneration &+= 1
+        invalidateStoredMacReconnectAttempt()
         connectionLifecycleTask?.cancel()
         connectionLifecycleTask = nil
         reconcileMacConnectionStatusAfterLifecycleReset(
