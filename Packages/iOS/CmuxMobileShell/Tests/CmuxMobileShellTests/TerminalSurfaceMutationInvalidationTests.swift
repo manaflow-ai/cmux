@@ -192,12 +192,19 @@ struct TerminalSurfaceMutationInvalidationTests {
     func inputSnapUsesCausalStream() async throws {
         let store = MobileShellComposite.preview()
         let surfaceID = "input-snap"
+        var momentumCancellationCount = 0
         var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
-        _ = store.mountTerminalScrollSession(surfaceID: surfaceID, cancelLocal: {})
+        _ = store.mountTerminalScrollSession(surfaceID: surfaceID) {
+            momentumCancellationCount += 1
+        }
         store.deliverTerminalBytes(Data("before".utf8), surfaceID: surfaceID)
         store.scrollTerminal(surfaceID: surfaceID, lines: -4, col: 1, row: 2)
-        _ = store.invalidateTerminalScrollForInput(surfaceID: surfaceID)
+        let firstInputEpoch = store.invalidateTerminalScrollForInput(surfaceID: surfaceID)
+        let secondInputEpoch = store.invalidateTerminalScrollForInput(surfaceID: surfaceID)
         store.deliverTerminalBytes(Data("after".utf8), surfaceID: surfaceID)
+
+        #expect(firstInputEpoch != secondInputEpoch)
+        #expect(momentumCancellationCount == 2)
 
         var mutations: [MobileTerminalSurfaceMutation] = []
         for _ in 0..<4 {

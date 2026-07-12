@@ -115,6 +115,22 @@ struct MobileHostServiceSettingsTests {
 @MainActor
 @Suite(.serialized)
 struct MobileTerminalScrollHandlerTests {
+    @Test func cleanupRetiresOnlyRequestedSurfaceRenderRevision() {
+        let controller = TerminalController.shared
+        let removedSurfaceID = UUID()
+        let retainedSurfaceID = UUID()
+        defer { controller.cleanupSurfaceState(surfaceIds: [removedSurfaceID, retainedSurfaceID]) }
+
+        #expect(controller.advanceMobileRenderRevision(surfaceID: removedSurfaceID) == 1)
+        #expect(controller.advanceMobileRenderRevision(surfaceID: retainedSurfaceID) == 1)
+        #expect(controller.advanceMobileRenderRevision(surfaceID: retainedSurfaceID) == 2)
+
+        controller.cleanupSurfaceState(surfaceIds: [removedSurfaceID])
+
+        #expect(controller.mobileRenderRevisionsBySurfaceID[removedSurfaceID] == nil)
+        #expect(controller.mobileRenderRevisionsBySurfaceID[retainedSurfaceID] == 2)
+    }
+
     @Test func orderedRunPayloadAccepts32AndRejects33BeforeExecution() {
         func params(count: Int) -> [String: Any] {
             [

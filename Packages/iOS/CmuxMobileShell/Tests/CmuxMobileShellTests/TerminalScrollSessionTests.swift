@@ -187,9 +187,12 @@ struct TerminalScrollSessionTests {
         let remote = try #require(harness.remote.pending.first)
         harness.remote.pending.removeFirst()
 
-        let nextEpoch = session.invalidateForInput()
-        #expect(nextEpoch == 2)
-        #expect(harness.cancelLocalCount == 1)
+        let firstInputEpoch = session.invalidateForInput()
+        let secondInputEpoch = session.invalidateForInput()
+        #expect(firstInputEpoch == 2)
+        #expect(secondInputEpoch == 3)
+        #expect(harness.cancelLocalCount == 2)
+        #expect(harness.bottomSnapCount == 1)
         #expect(!session.shouldDeferLiveRenderGrid)
 
         remote.continuation.resume(returning: response(for: remote.request, renderRevision: 30))
@@ -197,6 +200,24 @@ struct TerminalScrollSessionTests {
 
         #expect(harness.delivered.isEmpty)
         #expect(session.latestReconciledRevision == 0)
+    }
+
+    @Test("a new scroll episode permits exactly one new input snap")
+    func newScrollRearmsInputSnap() {
+        let harness = Harness()
+        let session = harness.makeSession()
+
+        _ = session.invalidateForInput()
+        _ = session.invalidateForInput()
+        #expect(harness.bottomSnapCount == 1)
+
+        session.submit(lines: -3, col: 2, row: 4)
+        session.submitClick(col: 5, row: 6)
+        _ = session.invalidateForInput()
+        _ = session.invalidateForInput()
+
+        #expect(harness.bottomSnapCount == 2)
+        #expect(harness.cancelLocalCount == 4)
     }
 
     @Test("settlement requests a directional large window without a timer")
@@ -386,6 +407,7 @@ private final class Harness {
     var prepareIntentCount = 0
     var reconciliationCompletionCount = 0
     var cancelLocalCount = 0
+    var bottomSnapCount = 0
     var replayEpochs: [UInt64] = []
     var epoch: UInt64 = 1
 
@@ -411,7 +433,8 @@ private final class Harness {
                 receipt.resolve(true)
                 return receipt
             },
-            enqueueScrollToBottom: {
+            enqueueScrollToBottom: { [weak self] in
+                self?.bottomSnapCount += 1
                 let receipt = TerminalSurfaceMutationReceipt()
                 receipt.resolve(true)
                 return receipt

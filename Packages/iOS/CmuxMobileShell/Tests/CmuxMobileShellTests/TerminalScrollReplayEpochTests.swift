@@ -32,8 +32,10 @@ import Testing
     store.requestTerminalReplay(surfaceID: surfaceID, interactionEpoch: oldEpoch)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCount + 1)
 
-    let newEpoch = try #require(store.invalidateTerminalScrollForInput(surfaceID: surfaceID))
-    #expect(newEpoch != oldEpoch)
+    let firstInputEpoch = try #require(store.invalidateTerminalScrollForInput(surfaceID: surfaceID))
+    let secondInputEpoch = try #require(store.invalidateTerminalScrollForInput(surfaceID: surfaceID))
+    #expect(firstInputEpoch != oldEpoch)
+    #expect(secondInputEpoch != firstInputEpoch)
     await router.releaseAllHeld()
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCount + 2)
 
