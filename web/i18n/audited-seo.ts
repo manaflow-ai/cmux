@@ -42,6 +42,25 @@ const blogDescriptionCandidateKeys: Record<
   passkeyAuth: ["summary", "p1", "p3"],
 };
 
+export type AuditedDocsPageKey =
+  | "ohMyOpenCode"
+  | "api"
+  | "configuration"
+  | "browserAutomation"
+  | "ios"
+  | "ssh"
+  | "workspaceGroups"
+  | "textBox"
+  | "concepts"
+  | "customCommands"
+  | "notifications"
+  | "sessionRestore"
+  | "skills"
+  | "dock"
+  | "keyboardShortcuts"
+  | "gettingStarted"
+  | "remoteTmux";
+
 const conciseTitleLocales = new Set(["ja", "zh-CN", "zh-TW", "ko"]);
 
 const shortTitleContexts: Record<string, string> = {
@@ -102,10 +121,74 @@ function selectTitle(
   });
   return seoTitle(locale, original, {
     minLength: conciseTitleLocales.has(locale) ? 0 : undefined,
-    fallbackCandidates: [
-      ...contextualCandidates,
-    ],
+    fallbackCandidates: [...contextualCandidates],
   });
+}
+
+function selectDocsTitle(
+  locale: string,
+  original: string,
+  pageTitle: string,
+  layoutTitle: string,
+  compactTitle?: string,
+) {
+  const shortContext = shortTitleContexts[locale] ?? shortTitleContexts.en;
+  const suffix = ` — ${layoutTitle}`;
+  const titleCandidates = [
+    ...(compactTitle
+      ? [
+          compactTitle,
+          `${compactTitle} — macOS`,
+          `${compactTitle} — ${shortContext}`,
+        ]
+      : []),
+    pageTitle,
+    `${pageTitle} — macOS`,
+    `${pageTitle} — ${shortContext}`,
+  ];
+  const effectiveTitle = seoTitle(
+    locale,
+    `${compactTitle ?? original}${suffix}`,
+    {
+      minLength: conciseTitleLocales.has(locale) ? 0 : undefined,
+      fallbackCandidates: titleCandidates.map(
+        (candidate) => `${candidate}${suffix}`,
+      ),
+      appendLocalizedContext: false,
+    },
+  );
+  return effectiveTitle.endsWith(suffix)
+    ? effectiveTitle.slice(0, -suffix.length)
+    : effectiveTitle;
+}
+
+function selectDocsSocialTitle(
+  locale: string,
+  original: string,
+  pageTitle?: string,
+  compactTitle?: string,
+) {
+  const shortContext = shortTitleContexts[locale] ?? shortTitleContexts.en;
+  const fallbackTitles = [pageTitle, compactTitle].filter(
+    (candidate): candidate is string => Boolean(candidate),
+  );
+  return seoTitle(locale, original, {
+    minLength: conciseTitleLocales.has(locale) ? 0 : undefined,
+    fallbackCandidates: fallbackTitles.flatMap((candidate) => [
+      `${candidate} — ${shortContext} — cmux`,
+      `${candidate} — ${shortContext}`,
+      `${candidate} — cmux`,
+      candidate,
+    ]),
+    appendLocalizedContext: false,
+  });
+}
+
+function firstMetadataSentence(value: string) {
+  return value
+    .split(/(?<=[。！？])|(?<=[.!?؟។៕])\s+/u)
+    .map((fragment) => fragment.trim())
+    .find(Boolean);
 }
 
 function selectDescription(
@@ -119,10 +202,10 @@ function selectDescription(
   const short = shortSeoDescriptionCandidate(locale);
   const detailed = detailedSeoDescriptionCandidate(locale);
   const completeCandidates = (options.completeCandidates ?? [])
-    .filter((candidate) => !/[:：]\s*$/u.test(candidate))
+    .filter((candidate) => !/[:：៖]\s*$/u.test(candidate))
     .map((candidate) => completeMetadataSentence(locale, candidate));
   const contextFragments = (options.contextFragments ?? []).filter(
-    (candidate) => !/[:：]\s*$/u.test(candidate),
+    (candidate) => !/[:：៖]\s*$/u.test(candidate),
   );
   const contextualCandidates = [
     ...completeCandidates,
@@ -170,10 +253,7 @@ export function assetsSeoCopy(
     title: selectTitle(locale, t("metaTitle"), siteMeta, [t("title")]),
     description: selectDescription(locale, t("metaDescription"), {
       completeCandidates: [t("description")],
-      contextFragments: [
-        `${t("title")} — ${t("iconSection")}`,
-        t("title"),
-      ],
+      contextFragments: [`${t("title")} — ${t("iconSection")}`, t("title")],
     }),
   };
 }
@@ -231,6 +311,42 @@ export function landingPageSeoCopy(
     description: selectDescription(locale, t("metaDescription"), {
       completeCandidates,
       contextFragments,
+    }),
+  };
+}
+
+export function docsPageSeoCopy(
+  locale: string,
+  pageKey: AuditedDocsPageKey,
+  t: SeoMessageLookup,
+  layoutTitle: string,
+  options: {
+    curatedDescription?: string;
+    intro?: string;
+  } = {},
+) {
+  const pageTitle = pageKey === "ohMyOpenCode" ? undefined : t("title");
+  const title = pageTitle ?? t("metaTitle");
+  const metaTitle = t("metaTitle");
+  const metaDescription = t("metaDescription");
+  const auditedDescriptions = [
+    options.curatedDescription,
+    firstMetadataSentence(metaDescription),
+    options.intro ? firstMetadataSentence(options.intro) : undefined,
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  const auditedDescription = auditedDescriptions[0] ?? metaDescription;
+  const compactTitle =
+    pageKey === "ohMyOpenCode" ? "oh-my-opencode" : undefined;
+  return {
+    title: selectDocsTitle(locale, metaTitle, title, layoutTitle, compactTitle),
+    socialTitle: selectDocsSocialTitle(
+      locale,
+      metaTitle,
+      pageTitle,
+      compactTitle,
+    ),
+    description: selectDescription(locale, auditedDescription, {
+      completeCandidates: auditedDescriptions,
     }),
   };
 }

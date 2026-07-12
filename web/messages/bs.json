@@ -1278,6 +1278,7 @@
     "browserAutomation": {
       "title": "Automatizacija preglednika",
       "metaDescription": "Referenca cmux browser komandi za navigaciju, DOM interakciju, čekanje, inspekciju, JavaScript evaluaciju, tabove, dijaloge, okvire, preuzimanja i stanje preglednika.",
+      "metaDescriptionShort": "Koristite cmux browser komande za navigaciju, DOM inspekciju, čekanje i upravljanje tabovima, dijalozima i preuzimanjima putem Unix socket API-ja i CLI-ja.",
       "intro": "Grupa cmux browser komandi pruža automatizaciju preglednika nad cmux browser površinama. Koristite je za navigaciju, interakciju sa DOM elementima, inspekciju stanja stranice, evaluaciju JavaScript-a i upravljanje podacima sesije preglednika.",
       "commandIndex": "Indeks komandi",
       "categoryHeader": "Kategorija",
@@ -1522,6 +1523,7 @@
       "title": "TextBox (Beta)",
       "metaTitle": "TextBox (Beta)",
       "metaDescription": "Podesite cmux beta TextBox unos za nove terminalske tabove, podjele i radne prostore.",
+      "metaDescriptionShort": "TextBox je cmuxova bogata terminalska površina za unos i uređivanje promptova prije slanja u terminal, s podrškom za višeredni tekst.",
       "intro": "TextBox je cmuxova bogata terminalska površina za unos, za sastavljanje promptova prije slanja u terminal.",
       "betaCallout": "TextBox je beta funkcija. Zadane vrijednosti i ponašanje mogu se promijeniti tokom testiranja.",
       "defaultsTitle": "Zadane vrijednosti",
@@ -1535,7 +1537,8 @@
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode više agenata u cmux-u",
-      "metaDescription": "oh-my-opencode (cmux omo) pokreće OpenCode CLI s dodatkom oh-my-openagent unutar cmux-a. Orkestrirajte Claude, GPT, Gemini i Grok kao paralelne agente, svaki u nativnoj cmux podjeli."
+      "metaDescription": "oh-my-opencode (cmux omo) pokreće OpenCode CLI s dodatkom oh-my-openagent unutar cmux-a. Orkestrirajte Claude, GPT, Gemini i Grok kao paralelne agente, svaki u nativnoj cmux podjeli.",
+      "metaDescriptionShort": "cmux omo pokreće OpenCode uz oh-my-openagent i koordinira Claude, GPT, Gemini i Grok kao paralelne agente u izvornim cmux podjelama."
     },
     "ios": {
       "metaTitle": "iOS aplikacija",

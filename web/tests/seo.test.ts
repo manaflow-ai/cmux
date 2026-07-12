@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { NextRequest } from "next/server";
+import { createTranslator } from "use-intl/core";
 import { comparePages } from "../app/lib/compare-pages";
 import { blogPostsForLocale } from "../app/[locale]/components/blog-posts";
 import sitemap from "../app/sitemap";
@@ -27,6 +28,7 @@ import {
   communitySeoCopy,
   compareIndexSeoCopy,
   comparePageSeoCopy,
+  docsPageSeoCopy,
   homeSeoCopy,
   landingPageSeoCopy,
   ohMyPiSeoCopy,
@@ -58,11 +60,8 @@ describe("SEO metadata helpers", () => {
       "https://cmux.com/ja/docs",
     );
     expect(
-      buildAlternates(
-        "en",
-        "/blog/cmux-omo",
-        englishFallbackContentLocales,
-      ).languages,
+      buildAlternates("en", "/blog/cmux-omo", englishFallbackContentLocales)
+        .languages,
     ).toEqual({
       en: "https://cmux.com/blog/cmux-omo",
       "x-default": "https://cmux.com/blog/cmux-omo",
@@ -70,18 +69,15 @@ describe("SEO metadata helpers", () => {
   });
 
   test("extends short descriptions with localized product context", () => {
-    expect(
-      seoDescription("en", "CLI reference", { minLength: 110 }),
-    ).toContain(
+    expect(seoDescription("en", "CLI reference", { minLength: 110 })).toContain(
       "vertical tabs, notifications, split panes, and browser automation",
     );
     expect(
       seoDescription("ja", "CLI リファレンス。", { minLength: 110 }),
-    ).toContain(
-      "macOS の AI コーディングエージェント向け。",
-    );
-    expect(seoDescription("ja", "Hacker Newsでcmuxをローンチした話。"))
-      .toContain("縦型タブ、通知、分割ペイン、ブラウザ自動化、セッション復元");
+    ).toContain("macOS の AI コーディングエージェント向け。");
+    expect(
+      seoDescription("ja", "Hacker Newsでcmuxをローンチした話。"),
+    ).toContain("縦型タブ、通知、分割ペイン、ブラウザ自動化、セッション復元");
     const thaiDescription = seoDescription(
       "th",
       "ทำไมเราถึงสร้าง cmux เทอร์มินัลใหม่สำหรับ macOS",
@@ -93,9 +89,9 @@ describe("SEO metadata helpers", () => {
     expect(searchSnippetLength(thaiDescription)).toBeLessThanOrEqual(160);
     const overboundWithSuffix =
       "A detailed page about running multiple coding agents in cmux on macOS.";
-    expect(
-      seoDescription("en", overboundWithSuffix, { minLength: 110 }),
-    ).toBe(overboundWithSuffix);
+    expect(seoDescription("en", overboundWithSuffix, { minLength: 110 })).toBe(
+      overboundWithSuffix,
+    );
   });
 
   test("appends complete localized context only when the result fits", () => {
@@ -113,16 +109,17 @@ describe("SEO metadata helpers", () => {
     expect(joinMetadataSentences("km", "សាកល្បង។", "បន្ទាប់")).toBe(
       "សាកល្បង។ បន្ទាប់",
     );
-    expect(joinMetadataSentences("ja", "ブランドアセット", "次の文です。")).toBe(
-      "ブランドアセット。次の文です。",
-    );
+    expect(
+      joinMetadataSentences("ja", "ブランドアセット", "次の文です。"),
+    ).toBe("ブランドアセット。次の文です。");
     expect(
       completeMetadataSentence("en", "The terminal built for multitasking"),
     ).toBe("The terminal built for multitasking.");
     expect(completeMetadataSentence("en", "Examples:")).toBe("Examples:");
-    expect(joinMetadataQuestionAndAnswer("th", "ทำไมต้อง cmux", "เพราะเร็ว")).toBe(
-      "ทำไมต้อง cmux? เพราะเร็ว.",
-    );
+    expect(completeMetadataSentence("km", "ឧទាហរណ៍៖")).toBe("ឧទាហរណ៍៖");
+    expect(
+      joinMetadataQuestionAndAnswer("th", "ทำไมต้อง cmux", "เพราะเร็ว"),
+    ).toBe("ทำไมต้อง cmux? เพราะเร็ว.");
   });
 
   test("preserves overbound authored copy when no complete candidate fits", () => {
@@ -178,9 +175,9 @@ describe("SEO metadata helpers", () => {
 
   test("keeps legal descriptions limited to their legal summary", () => {
     const summary = "The terms that govern use of cmux.";
-    expect(legalMetadata("/terms-of-service", "Terms", summary).description).toBe(
-      summary,
-    );
+    expect(
+      legalMetadata("/terms-of-service", "Terms", summary).description,
+    ).toBe(summary);
   });
 
   test("adds complete shared social metadata", () => {
@@ -281,11 +278,7 @@ describe("SEO metadata helpers", () => {
         ),
         auditedRow(
           "/community",
-          communitySeoCopy(
-            locale,
-            messageLookup(messages.community),
-            siteMeta,
-          ),
+          communitySeoCopy(locale, messageLookup(messages.community), siteMeta),
           [
             messages.community.title,
             messages.community.metaDescription,
@@ -317,10 +310,7 @@ describe("SEO metadata helpers", () => {
             messages.landing.compare.metaDescription,
             messages.landing.compare.intro,
           ],
-          [
-            messages.landing.compare.metaTitle,
-            messages.landing.compare.title,
-          ],
+          [messages.landing.compare.metaTitle, messages.landing.compare.title],
         ),
       ];
 
@@ -336,34 +326,37 @@ describe("SEO metadata helpers", () => {
         );
         compareTitles.push(copy.title);
         rows.push(
-          auditedRow(`/compare/${page.slug}`, copy, [
-            pageMessages.title,
-            pageMessages.metaDescription,
-            pageMessages.faqQ1,
-            pageMessages.faqQ2,
-            pageMessages.faqQ3,
-            pageMessages.summaryBody,
-            pageMessages.intro,
-            ...(page.key === "bestTerminalForAgents"
-              ? [messages.landing.links.agents]
-              : []),
-            ...(page.key === "multipleClaudeAgents"
-              ? [messages.landing.links.claudeTeams]
-              : []),
-          ],
-          page.key === "bestTerminalForAgents"
-            ? [
-                pageMessages.metaTitle,
-                pageMessages.title,
-                messages.landing.links.bestTerminal,
-              ]
-            : [
-                pageMessages.metaTitle,
-                pageMessages.title,
-                ...(page.key === "multipleClaudeAgents"
-                  ? [messages.landing.links.claudeTeams]
-                  : []),
-              ],
+          auditedRow(
+            `/compare/${page.slug}`,
+            copy,
+            [
+              pageMessages.title,
+              pageMessages.metaDescription,
+              pageMessages.faqQ1,
+              pageMessages.faqQ2,
+              pageMessages.faqQ3,
+              pageMessages.summaryBody,
+              pageMessages.intro,
+              ...(page.key === "bestTerminalForAgents"
+                ? [messages.landing.links.agents]
+                : []),
+              ...(page.key === "multipleClaudeAgents"
+                ? [messages.landing.links.claudeTeams]
+                : []),
+            ],
+            page.key === "bestTerminalForAgents"
+              ? [
+                  pageMessages.metaTitle,
+                  pageMessages.title,
+                  messages.landing.links.bestTerminal,
+                ]
+              : [
+                  pageMessages.metaTitle,
+                  pageMessages.title,
+                  ...(page.key === "multipleClaudeAgents"
+                    ? [messages.landing.links.claudeTeams]
+                    : []),
+                ],
           ),
         );
       }
@@ -383,10 +376,7 @@ describe("SEO metadata helpers", () => {
         ["passkey-auth", "passkeyAuth"],
       ] as const;
       for (const [slug, postKey] of auditedBlogPosts) {
-        if (
-          locale !== "en" &&
-          (postKey === "cmuxOmo" || postKey === "gpl")
-        ) {
+        if (locale !== "en" && (postKey === "cmuxOmo" || postKey === "gpl")) {
           continue;
         }
         const metadata = messages.blog[postKey];
@@ -409,6 +399,67 @@ describe("SEO metadata helpers", () => {
               ),
             ],
             [metadata.metaTitle, post.title],
+          ),
+        );
+      }
+
+      const auditedDocsPages = [
+        ["/docs/agent-integrations/oh-my-opencode", "ohMyOpenCode"],
+        ["/docs/api", "api"],
+        ["/docs/configuration", "configuration"],
+        ["/docs/browser-automation", "browserAutomation"],
+        ["/docs/ios", "ios"],
+        ["/docs/ssh", "ssh"],
+        ["/docs/workspace-groups", "workspaceGroups"],
+        ["/docs/textbox", "textBox"],
+        ["/docs/concepts", "concepts"],
+        ["/docs/custom-commands", "customCommands"],
+        ["/docs/notifications", "notifications"],
+        ["/docs/session-restore", "sessionRestore"],
+        ["/docs/skills", "skills"],
+        ["/docs/dock", "dock"],
+        ["/docs/keyboard-shortcuts", "keyboardShortcuts"],
+        ["/docs/getting-started", "gettingStarted"],
+        ["/docs/remote-tmux", "remoteTmux"],
+      ] as const;
+      for (const [path, pageKey] of auditedDocsPages) {
+        if (pageKey === "remoteTmux" && locale !== "en" && locale !== "ja") {
+          continue;
+        }
+        const page = messages.docs[pageKey];
+        rows.push(
+          auditedRow(
+            path,
+            docsPageSeoCopy(
+              locale,
+              pageKey,
+              messageLookup(page),
+              messages.docs.layoutTitle,
+              {
+                curatedDescription:
+                  typeof (page as Record<string, unknown>)
+                    .metaDescriptionShort === "string"
+                    ? ((page as Record<string, unknown>)
+                        .metaDescriptionShort as string)
+                    : undefined,
+                intro:
+                  typeof (page as Record<string, unknown>).intro === "string"
+                    ? ((page as Record<string, unknown>).intro as string)
+                    : undefined,
+              },
+            ),
+            Object.values(page)
+              .filter((value): value is string => typeof value === "string")
+              .flatMap((value) => {
+                const sentences = metadataSentenceFragments(value);
+                return sentences;
+              }),
+            [
+              page.metaTitle,
+              page.title,
+              ...(pageKey === "ohMyOpenCode" ? ["oh-my-opencode"] : []),
+            ].filter((value): value is string => typeof value === "string"),
+            ` — ${messages.docs.layoutTitle}`,
           ),
         );
       }
@@ -449,13 +500,9 @@ describe("SEO metadata helpers", () => {
             messages.landing.guides.title,
             messages.landing.guides.intro,
           ],
-          [
-            messages.landing.guides.metaTitle,
-            messages.landing.guides.title,
-          ],
+          [messages.landing.guides.metaTitle, messages.landing.guides.title],
         ),
       );
-
       if (locale === "en" || locale === "ja") {
         const pricing = messageLookup(messages.pricing);
         rows.push(
@@ -470,12 +517,7 @@ describe("SEO metadata helpers", () => {
           ),
           auditedRow(
             "/pricing?without-vault",
-            pricingSeoCopy(
-              locale,
-              pricing,
-              siteMeta,
-              "metaDescriptionNoVault",
-            ),
+            pricingSeoCopy(locale, pricing, siteMeta, "metaDescriptionNoVault"),
             [
               messages.pricing.title,
               messages.pricing.metaDescriptionNoVault,
@@ -499,7 +541,8 @@ describe("SEO metadata helpers", () => {
       }
 
       for (const row of rows) {
-        const titleLength = searchSnippetLength(row.copy.title);
+        const renderedTitle = `${row.copy.title}${row.titleSuffix}`;
+        const titleLength = searchSnippetLength(renderedTitle);
         const descriptionLength = searchSnippetLength(row.copy.description);
         if (descriptionLength < 110 || descriptionLength > 160) {
           throw new Error(
@@ -510,11 +553,11 @@ describe("SEO metadata helpers", () => {
           expect(titleLength).toBeGreaterThanOrEqual(30);
         }
         expect(titleLength).toBeLessThanOrEqual(60);
-        expect(row.copy.title).not.toMatch(/cmux\s*—\s*cmux/iu);
-        expect(`${row.copy.title}${row.copy.description}`).not.toMatch(
+        expect(renderedTitle).not.toMatch(/cmux\s*—\s*cmux/iu);
+        expect(`${renderedTitle}${row.copy.description}`).not.toMatch(
           /…|<\/?(?:link|code)>/u,
         );
-        expect(`${row.copy.title}${row.copy.description}`).not.toMatch(
+        expect(`${renderedTitle}${row.copy.description}`).not.toMatch(
           /[{}]|__CMUXPH/iu,
         );
         expect(row.copy.description).not.toMatch(/[!?។៕。！？؟]\./u);
@@ -531,8 +574,7 @@ describe("SEO metadata helpers", () => {
         }
         if (
           !row.titleContexts.some(
-            (context) =>
-              context.length > 0 && row.copy.title.includes(context),
+            (context) => context.length > 0 && row.copy.title.includes(context),
           )
         ) {
           throw new Error(
@@ -560,6 +602,196 @@ describe("SEO metadata helpers", () => {
     expect(copy.description).toContain(page.faqA2);
     expect(searchSnippetLength(copy.description)).toBeGreaterThanOrEqual(110);
     expect(searchSnippetLength(copy.description)).toBeLessThanOrEqual(160);
+  });
+
+  test("keeps docs section headings and Khmer lead-ins out of descriptions", async () => {
+    const frenchMessages = await messagesFor("fr");
+    const frenchConcepts = docsPageSeoCopy(
+      "fr",
+      "concepts",
+      messageLookup(frenchMessages.docs.concepts),
+      frenchMessages.docs.layoutTitle,
+    );
+    expect(
+      frenchConcepts.description.startsWith(
+        `${frenchMessages.docs.concepts.summary}.`,
+      ),
+    ).toBe(false);
+
+    const khmerMessages = await messagesFor("km");
+    const khmerDock = docsPageSeoCopy(
+      "km",
+      "dock",
+      messageLookup(khmerMessages.docs.dock),
+      khmerMessages.docs.layoutTitle,
+    );
+    expect(khmerDock.description).not.toMatch(/៖[.។]/u);
+  });
+
+  test("accounts for the docs title template without stacking taglines", async () => {
+    const englishMessages = await messagesFor("en");
+    const englishSsh = docsPageSeoCopy(
+      "en",
+      "ssh",
+      messageLookup(englishMessages.docs.ssh),
+      englishMessages.docs.layoutTitle,
+    );
+    const englishTitle = `${englishSsh.title} — ${englishMessages.docs.layoutTitle}`;
+    expect(englishTitle).toBe("SSH — AI coding on macOS — cmux docs");
+    expect(englishTitle).not.toContain("terminal built for multitasking");
+
+    const arabicMessages = await messagesFor("ar");
+    const arabicTextBox = docsPageSeoCopy(
+      "ar",
+      "textBox",
+      messageLookup(arabicMessages.docs.textBox),
+      arabicMessages.docs.layoutTitle,
+    );
+    const arabicTitle = `${arabicTextBox.title} — ${arabicMessages.docs.layoutTitle}`;
+    expect(arabicTitle.split(arabicMessages.docs.layoutTitle)).toHaveLength(2);
+    expect(searchSnippetLength(arabicTitle)).toBeGreaterThanOrEqual(30);
+    expect(searchSnippetLength(arabicTitle)).toBeLessThanOrEqual(60);
+  });
+
+  test("keeps docs descriptions grounded in route-specific prose", async () => {
+    const cases = [
+      ["en", "configuration", "Ghostty config"],
+      ["de", "ios", "cmux-App"],
+      ["de", "workspaceGroups", "Workspace-Gruppen"],
+      ["it", "customCommands", "cmux.json"],
+    ] as const;
+
+    for (const [locale, pageKey, expectedRouteText] of cases) {
+      const messages = await messagesFor(locale);
+      const page = messages.docs[pageKey];
+      const copy = docsPageSeoCopy(
+        locale,
+        pageKey,
+        messageLookup(page),
+        messages.docs.layoutTitle,
+        {
+          curatedDescription:
+            typeof (page as Record<string, unknown>).metaDescriptionShort ===
+            "string"
+              ? ((page as Record<string, unknown>)
+                  .metaDescriptionShort as string)
+              : undefined,
+          intro:
+            typeof (page as Record<string, unknown>).intro === "string"
+              ? ((page as Record<string, unknown>).intro as string)
+              : undefined,
+        },
+      );
+      expect(copy.description).toContain(expectedRouteText);
+      expect(searchSnippetLength(copy.description)).toBeGreaterThanOrEqual(110);
+      expect(searchSnippetLength(copy.description)).toBeLessThanOrEqual(160);
+    }
+  });
+
+  test("keeps dependent docs prose attached to its page subject", async () => {
+    const cases = [
+      ["bs", "api", "cmux CLI i Unix socket API referenca."],
+      ["ar", "api", "مرجع واجهة أوامر cmux وواجهة مقابس Unix."],
+      ["ko", "dock", "Dock JSON으로"],
+      ["th", "api", "ใช้ cmux CLI และ Unix socket"],
+    ] as const;
+
+    for (const [locale, pageKey, expectedStart] of cases) {
+      const messages = await messagesFor(locale);
+      const page = messages.docs[pageKey];
+      const copy = docsPageSeoCopy(
+        locale,
+        pageKey,
+        messageLookup(page),
+        messages.docs.layoutTitle,
+        {
+          curatedDescription:
+            typeof (page as Record<string, unknown>).metaDescriptionShort ===
+            "string"
+              ? ((page as Record<string, unknown>)
+                  .metaDescriptionShort as string)
+              : undefined,
+          intro:
+            typeof (page as Record<string, unknown>).intro === "string"
+              ? ((page as Record<string, unknown>).intro as string)
+              : undefined,
+        },
+      );
+
+      expect(copy.description.startsWith(expectedStart)).toBe(true);
+    }
+  });
+
+  test("uses only audited standalone docs description sources", async () => {
+    const englishMessages = await messagesFor("en");
+    for (const [pageKey, excludedTrailingSentence] of [
+      ["concepts", "The hierarchy behind"],
+      ["workspaceGroups", "The anchor model"],
+      ["notifications", "CLI, OSC 99/777"],
+    ] as const) {
+      const page = englishMessages.docs[pageKey];
+      const copy = docsPageSeoCopy(
+        "en",
+        pageKey,
+        messageLookup(page),
+        englishMessages.docs.layoutTitle,
+        {
+          intro:
+            typeof (page as Record<string, unknown>).intro === "string"
+              ? ((page as Record<string, unknown>).intro as string)
+              : undefined,
+        },
+      );
+      expect(copy.description).not.toContain(excludedTrailingSentence);
+    }
+
+    for (const [locale, pageKey, expectedStart] of [
+      [
+        "fr",
+        "keyboardShortcuts",
+        "Utilisez les raccourcis clavier cmux pour gérer",
+      ],
+      ["pl", "browserAutomation", "Steruj przeglądarką cmux: nawiguj"],
+      [
+        "bs",
+        "browserAutomation",
+        "Koristite cmux browser komande za navigaciju",
+      ],
+    ] as const) {
+      const messages = await messagesFor(locale);
+      const page = messages.docs[pageKey];
+      const copy = docsPageSeoCopy(
+        locale,
+        pageKey,
+        messageLookup(page),
+        messages.docs.layoutTitle,
+        {
+          curatedDescription:
+            typeof (page as Record<string, unknown>).metaDescriptionShort ===
+            "string"
+              ? ((page as Record<string, unknown>)
+                  .metaDescriptionShort as string)
+              : undefined,
+        },
+      );
+      expect(copy.description.startsWith(expectedStart)).toBe(true);
+    }
+  });
+
+  test("selects social titles independently from the docs layout template", async () => {
+    const messages = await messagesFor("de");
+    const page = messages.docs.ohMyOpenCode;
+    const copy = docsPageSeoCopy(
+      "de",
+      "ohMyOpenCode",
+      messageLookup(page),
+      messages.docs.layoutTitle,
+    );
+
+    expect(copy.title).toBe("oh-my-opencode — macOS");
+    expect(copy.socialTitle).toBe(page.metaTitle);
+    expect(copy.socialTitle).not.toBe(copy.title);
+    expect(searchSnippetLength(copy.socialTitle)).toBeLessThanOrEqual(60);
   });
 
   test("keeps synthesized compare metadata tied to its localized route", async () => {
@@ -637,9 +869,24 @@ describe("SEO metadata helpers", () => {
       messageLookup(khmerMessages.blog),
       messageLookup(khmerMessages.meta),
     );
-    expect(khmerBlogCopy.description).toContain(
-      khmerMessages.blog.description,
+    expect(khmerBlogCopy.description).toContain(khmerMessages.blog.description);
+  });
+
+  test("reads docs candidates without formatting UI placeholders", async () => {
+    const messages = await messagesFor("zh-CN");
+    const docs = createTranslator({
+      locale: "zh-CN",
+      messages,
+      namespace: "docs.concepts",
+    });
+    const copy = docsPageSeoCopy(
+      "zh-CN",
+      "concepts",
+      (key) => docs(key as never),
+      messages.docs.layoutTitle,
     );
+
+    expect(`${copy.title}${copy.description}`).not.toMatch(/\{[^{}]+\}/u);
   });
 });
 
@@ -885,6 +1132,13 @@ function searchSnippetLength(value: string) {
   }, 0);
 }
 
+function metadataSentenceFragments(value: string) {
+  return value
+    .split(/(?<=[。！？])|(?<=[.!?؟។៕])\s+/u)
+    .map((fragment) => fragment.trim())
+    .filter(Boolean);
+}
+
 function messageLookup(messages: object) {
   return (key: string) => {
     const value = (messages as Record<string, unknown>)[key];
@@ -900,7 +1154,9 @@ function plainSeoMessageLookup(messages: object) {
   return (key: string) => {
     const value = lookup(key);
     if (value.includes("<")) {
-      throw new Error(`SEO metadata requested rich message ${key} as plain text`);
+      throw new Error(
+        `SEO metadata requested rich message ${key} as plain text`,
+      );
     }
     if (/[:：]\s*$/u.test(value)) {
       throw new Error(`SEO metadata requested list lead-in ${key} as prose`);
@@ -918,8 +1174,9 @@ function auditedRow(
   copy: SeoCopy,
   contexts: string[],
   titleContexts: string[] = [contexts[0]],
+  titleSuffix = "",
 ) {
-  return { route, copy, contexts, titleContexts };
+  return { route, copy, contexts, titleContexts, titleSuffix };
 }
 
 function requestFor(pathname: string, headers: Record<string, string> = {}) {
