@@ -465,7 +465,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
-    private func writeCodexHookStore(
+    func writeCodexHookStore(
         root: URL,
         sessionId: String,
         workspaceId: String,
