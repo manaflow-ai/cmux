@@ -176,6 +176,70 @@ struct MobileTerminalScrollHandlerTests {
         #expect(accepted(staleScroll) == false)
     }
 
+    @Test func replayFencingDoesNotRequireViewportGeometry() throws {
+        let harness = try makeTerminalHarness()
+        defer { harness.restore() }
+
+        let replay = TerminalController.shared.v2MobileTerminalReplay(
+            params: harness.params(epoch: 4)
+        )
+        let staleScroll = TerminalController.shared.v2MobileTerminalScroll(params: harness.params(
+            epoch: 3,
+            revision: 1,
+            deltaLines: -4
+        ))
+
+        guard case .ok = replay else {
+            Issue.record("interaction-fenced replay without viewport geometry should be accepted")
+            return
+        }
+        #expect(accepted(staleScroll) == false, "cold replay must still advance the interaction fence")
+
+        var columnsOnly = harness.params(epoch: 5)
+        columnsOnly["viewport_columns"] = 80
+        var rowsOnly = harness.params(epoch: 5)
+        rowsOnly["viewport_rows"] = 24
+        var generationOnly = harness.params(epoch: 5)
+        generationOnly["viewport_generation"] = 1
+        var missingClient = harness.params(epoch: 5)
+        missingClient["client_id"] = nil
+        missingClient["viewport_columns"] = 80
+        missingClient["viewport_rows"] = 24
+
+        for incomplete in [columnsOnly, rowsOnly, generationOnly, missingClient] {
+            guard case .err(let code, _, _) = TerminalController.shared.v2MobileTerminalReplay(
+                params: incomplete
+            ) else {
+                Issue.record("incomplete viewport geometry should be rejected")
+                continue
+            }
+            #expect(code == "invalid_params")
+        }
+    }
+
+    @Test func staleClickIsRejectedBeforeSurfaceMutation() throws {
+        let harness = try makeTerminalHarness()
+        defer { harness.restore() }
+
+        let newerClick = TerminalController.shared.v2MobileTerminalMouse(
+            params: harness.params(epoch: 2, col: 7, row: 9),
+            applyClick: { _, _, _ in true }
+        )
+        var staleClickCalls = 0
+        let staleClick = TerminalController.shared.v2MobileTerminalMouse(
+            params: harness.params(epoch: 1, col: 11, row: 13),
+            applyClick: { _, _, _ in
+                staleClickCalls += 1
+                return true
+            }
+        )
+
+        #expect(accepted(newerClick) == true)
+        #expect(accepted(staleClick) == false)
+        #expect(interactionEpoch(staleClick) == 1)
+        #expect(staleClickCalls == 0, "stale click must not reach the live-surface mutation")
+    }
+
     @MainActor
     private struct TerminalHarness {
         let previousTabManager: TabManager?
@@ -237,11 +301,16 @@ struct MobileTerminalScrollHandlerTests {
     }
 
     private func accepted(_ result: TerminalController.V2CallResult) -> Bool? {
-        guard case .ok(let rawPayload) = result,
-              let payload = rawPayload as? [String: Any] else {
-            return nil
-        }
-        return payload["accepted"] as? Bool
+        payload(result)?["accepted"] as? Bool
+    }
+
+    private func interactionEpoch(_ result: TerminalController.V2CallResult) -> Int? {
+        payload(result)?["interaction_epoch"] as? Int
+    }
+
+    private func payload(_ result: TerminalController.V2CallResult) -> [String: Any]? {
+        guard case .ok(let rawPayload) = result else { return nil }
+        return rawPayload as? [String: Any]
     }
 }
 

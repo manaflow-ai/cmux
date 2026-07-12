@@ -12,6 +12,48 @@ import Testing
 // Shared fixtures live in MobileShellRenderGridLivenessTestSupport.swift.
 
 @MainActor
+@Test func heldRevisionlessReplayCannotCrossNewerLiveSequenceFloor() async throws {
+    let store = MobileShellComposite.preview()
+    store.terminalOutputTransport = .renderGrid
+    let surfaceID = "revisionless-replay-terminal"
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+
+    let heldReplay = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 5,
+        columns: 24,
+        rows: 4,
+        full: true,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "held-old-replay"),
+        ]
+    )
+    let newerLive = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 6,
+        columns: 24,
+        rows: 4,
+        full: true,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "newer-live-output"),
+        ]
+    )
+
+    #expect(heldReplay.renderRevision == nil)
+    #expect(store.deliverAuthoritativeTerminalRenderGrid(newerLive, source: "event"))
+    let liveChunk = try #require(await iterator.next())
+    #expect(String(decoding: liveChunk.data, as: UTF8.self).contains("newer-live-output"))
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: liveChunk.streamToken)
+
+    let staleReplayAccepted = store.deliverAuthoritativeTerminalRenderGrid(
+        heldReplay,
+        source: "replay"
+    )
+    #expect(staleReplayAccepted == false)
+    #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 6)
+}
+
+@MainActor
 @Test func renderGridReplayAtSameSeqDoesNotOverwriteNewerLiveGrid() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
