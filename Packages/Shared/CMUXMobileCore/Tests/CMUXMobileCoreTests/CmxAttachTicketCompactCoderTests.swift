@@ -288,7 +288,8 @@ private func legacyDecoder() -> JSONDecoder {
     #expect(decoded.macDisplayName == nil)
     #expect(decoded.expiresAt == nil)
     #expect(!decoded.isExpired(at: .distantFuture))
-    #expect(decoded.routes == [try hostPortRoute()])
+    let expectedRoutes = [try hostPortRoute()]
+    #expect(decoded.routes == expectedRoutes)
 }
 
 @Test func compactDecodeKeepsFirstRevisionIrohHintFieldsReadable() throws {

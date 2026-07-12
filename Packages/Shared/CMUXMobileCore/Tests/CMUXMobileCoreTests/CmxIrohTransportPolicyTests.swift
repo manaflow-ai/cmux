@@ -98,9 +98,11 @@ private func profile(
         networkProfile: profile(.tailscale, "site-a")
     )
 
+    let expectedSiteAProfile = try profile(.customVPN, "site-a")
+    let expectedSiteBProfile = try profile(.customVPN, "site-b")
     #expect(siteA != siteB)
-    #expect(siteA.networkProfile == (try profile(.customVPN, "site-a")))
-    #expect(siteB.networkProfile == (try profile(.customVPN, "site-b")))
+    #expect(siteA.networkProfile == expectedSiteAProfile)
+    #expect(siteB.networkProfile == expectedSiteBProfile)
     #expect(siteA.networkProfile != sameNameFromTailscale.networkProfile)
 
     let endpoint = CmxAttachEndpoint.peer(
@@ -342,7 +344,8 @@ private func profile(
 
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
-    #expect(try decoder.decode(CmxAttachEndpoint.self, from: firstEncoding) == endpoint)
+    let roundTrippedEndpoint = try decoder.decode(CmxAttachEndpoint.self, from: firstEncoding)
+    #expect(roundTrippedEndpoint == endpoint)
 }
 
 @Test func publicStatusDisclosesNoAttachRoutes() throws {

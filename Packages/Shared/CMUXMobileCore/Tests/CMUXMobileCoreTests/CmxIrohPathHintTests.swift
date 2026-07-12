@@ -15,7 +15,8 @@ private func profile(
 }
 
 @Test func irohEndpointIDRequiresCanonicalLowercaseHex() throws {
-    #expect((try CmxIrohPeerIdentity(endpointID: canonicalEndpointID)).endpointID == canonicalEndpointID)
+    let identity = try CmxIrohPeerIdentity(endpointID: canonicalEndpointID)
+    #expect(identity.endpointID == canonicalEndpointID)
     for invalid in [
         "",
         String(repeating: "a", count: 63),
@@ -164,7 +165,8 @@ private func profile(
         pathHints: [tailscale, expiredLAN, relay, customVPN]
     )
 
-    #expect(endpoint.irohPeerIdentity == (try CmxIrohPeerIdentity(endpointID: canonicalEndpointID)))
+    let expectedIdentity = try CmxIrohPeerIdentity(endpointID: canonicalEndpointID)
+    #expect(endpoint.irohPeerIdentity == expectedIdentity)
     #expect(tailscale.use == .fallbackOnly)
     #expect(expiredLAN.use == .fallbackOnly)
     #expect(customVPN.use == .fallbackOnly)
