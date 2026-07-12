@@ -62,6 +62,36 @@ import Testing
 
         #expect(drainCount == 0)
     }
+
+    @Test func delayedTaskStartupDoesNotRestartConfiguredDelay() async {
+        let clock = DeferredDeadlineClock()
+        let submittedAt = clock.now()
+        let scheduler = LatestWinsBatcher<String, Int>.absoluteDeadlineScheduler(
+            now: clock.now,
+            sleepUntil: clock.sleep,
+            startTask: clock.startTask
+        )
+        var fireCount = 0
+
+        _ = scheduler(0.25) {
+            fireCount += 1
+        }
+
+        #expect(clock.pendingTaskCount == 1)
+        #expect(clock.requestedDeadlines.isEmpty)
+
+        // Model a blocked main actor: the scheduling task cannot start until
+        // after the original deadline has already elapsed.
+        clock.advance(by: 0.5)
+        await clock.runPendingTask()
+
+        #expect(clock.requestedDeadlines == [
+            submittedAt.advanced(by: .seconds(0.25))
+        ])
+        #expect(clock.remainingDurationsAtSleep.count == 1)
+        #expect(clock.remainingDurationsAtSleep[0] <= .zero)
+        #expect(fireCount == 1)
+    }
 }
 
 @MainActor
@@ -97,5 +127,54 @@ private final class ManualDeadlineScheduler {
             scheduled.removeAll { $0.id == next.id }
             next.action()
         }
+    }
+}
+
+@MainActor
+private final class DeferredDeadlineClock {
+    private enum SleepError: Error {
+        case deadlineStillInFuture
+    }
+
+    private var current = ContinuousClock().now
+    private var pendingTask: (@MainActor () async -> Void)?
+    private(set) var requestedDeadlines: [ContinuousClock.Instant] = []
+    private(set) var remainingDurationsAtSleep: [Duration] = []
+
+    var pendingTaskCount: Int {
+        pendingTask == nil ? 0 : 1
+    }
+
+    func now() -> ContinuousClock.Instant {
+        current
+    }
+
+    func advance(by interval: TimeInterval) {
+        current = current.advanced(by: .seconds(max(0, interval)))
+    }
+
+    func sleep(until deadline: ContinuousClock.Instant) async throws {
+        requestedDeadlines.append(deadline)
+        let remaining = current.duration(to: deadline)
+        remainingDurationsAtSleep.append(remaining)
+        if remaining > .zero {
+            throw SleepError.deadlineStillInFuture
+        }
+    }
+
+    func startTask(
+        operation: @escaping @MainActor () async -> Void
+    ) -> LatestWinsBatcher<String, Int>.Cancellation {
+        precondition(pendingTask == nil)
+        pendingTask = operation
+        return { [weak self] in
+            self?.pendingTask = nil
+        }
+    }
+
+    func runPendingTask() async {
+        let operation = pendingTask
+        pendingTask = nil
+        await operation?()
     }
 }

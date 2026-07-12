@@ -17,6 +17,12 @@ public final class LatestWinsBatcher<Key: Hashable, Value> {
         @escaping @MainActor () -> Void
     ) -> Cancellation
 
+    typealias DeadlineNow = @MainActor () -> ContinuousClock.Instant
+    typealias DeadlineSleep = @MainActor (ContinuousClock.Instant) async throws -> Void
+    typealias DeadlineTaskStarter = @MainActor (
+        @escaping @MainActor () async -> Void
+    ) -> Cancellation
+
     private let quietDelay: TimeInterval
     private let maximumDelay: TimeInterval
     private let schedule: Scheduler
@@ -115,17 +121,40 @@ public final class LatestWinsBatcher<Key: Hashable, Value> {
         delay: TimeInterval,
         action: @escaping @MainActor () -> Void
     ) -> Cancellation {
-        let boundedDelay = max(0, delay)
-        let task = Task { @MainActor in
-            do {
-                // A bounded, cancellable coalescing deadline is the intended behavior.
-                try await ContinuousClock().sleep(for: .seconds(boundedDelay))
-            } catch {
-                return
+        let clock = ContinuousClock()
+        return absoluteDeadlineScheduler(
+            now: { clock.now },
+            sleepUntil: { deadline in
+                try await clock.sleep(until: deadline)
+            },
+            startTask: { operation in
+                let task = Task { @MainActor in
+                    await operation()
+                }
+                return { task.cancel() }
             }
-            guard !Task.isCancelled else { return }
-            action()
+        )(delay, action)
+    }
+
+    /// Builds a scheduler whose deadline is captured before its task is
+    /// enqueued. Main-actor congestion can delay task startup, so computing the
+    /// delay inside the task would extend both quiet and maximum batching bounds.
+    static func absoluteDeadlineScheduler(
+        now: @escaping DeadlineNow,
+        sleepUntil: @escaping DeadlineSleep,
+        startTask: @escaping DeadlineTaskStarter
+    ) -> Scheduler {
+        { delay, action in
+            let deadline = now().advanced(by: .seconds(max(0, delay)))
+            return startTask {
+                do {
+                    try await sleepUntil(deadline)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                action()
+            }
         }
-        return { task.cancel() }
     }
 }
