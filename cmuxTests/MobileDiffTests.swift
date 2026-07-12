@@ -58,6 +58,28 @@ struct MobileDiffTests {
         #expect(patch.contains("+new"))
     }
 
+    @Test func loaderIgnoresInheritedRepositorySelectionEnvironment() async throws {
+        let selectedRepository = try makeRepository(named: "selected-environment")
+        let redirectedRepository = try makeRepository(named: "redirected-environment")
+        defer {
+            try? FileManager.default.removeItem(at: selectedRepository)
+            try? FileManager.default.removeItem(at: redirectedRepository)
+        }
+        try Data("selected\n".utf8).write(to: selectedRepository.appendingPathComponent("selected.txt"))
+        try Data("redirected\n".utf8).write(to: redirectedRepository.appendingPathComponent("redirected.txt"))
+        var environment = ProcessInfo.processInfo.environment
+        environment["GIT_DIR"] = redirectedRepository.appendingPathComponent(".git").path
+        environment["GIT_WORK_TREE"] = redirectedRepository.path
+
+        let document = try await MobileWorkingTreeDiffLoader(environment: environment)
+            .load(directory: selectedRepository.path, title: "Fixture")
+        let patch = try #require(document["patch"] as? String)
+
+        #expect(document["repository_root"] as? String == selectedRepository.path)
+        #expect(patch.contains("selected.txt"))
+        #expect(!patch.contains("redirected.txt"))
+    }
+
     @Test func loaderIncludesStagedFilesBeforeFirstCommit() async throws {
         let repository = try makeRepository(named: "unborn")
         defer { try? FileManager.default.removeItem(at: repository) }
