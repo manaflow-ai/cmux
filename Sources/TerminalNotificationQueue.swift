@@ -410,15 +410,23 @@ extension TerminalController {
         subtitle: String,
         body: String
     ) {
-        TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId, surfaceId: surfaceId)
+        // Retarget to the surface's CURRENT workspace at delivery time so a
+        // stale caller-supplied workspace id (spawn-time env, moved pane —
+        // issues #7939/#5781) cannot misfile the notification. Undeliverable
+        // targets fall back to the claimed address, preserving prior behavior.
+        let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
+            claimedTabId: tabId,
+            surfaceId: surfaceId
+        ) ?? (tabId: tabId, surfaceId: surfaceId)
+        TerminalMutationBus.shared.discardPendingNotifications(forTabId: target.tabId, surfaceId: target.surfaceId)
 #if DEBUG
         cmuxDebugLog(
-            "notification.sync.deliver workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count)"
+            "notification.sync.deliver workspace=\(target.tabId.uuidString.prefix(8)) surface=\(target.surfaceId?.uuidString.prefix(8) ?? "nil") claimedWorkspace=\(tabId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count)"
         )
 #endif
         TerminalNotificationStore.shared.addNotification(
-            tabId: tabId,
-            surfaceId: surfaceId,
+            tabId: target.tabId,
+            surfaceId: target.surfaceId,
             title: title,
             subtitle: subtitle,
             body: body
@@ -428,7 +436,14 @@ extension TerminalController {
 
 extension TerminalNotificationStore {
     fileprivate func deliverQueuedNotification(_ notification: QueuedTerminalNotification) {
-        guard shouldDeliverQueuedNotification(notification) else {
+        // Resolve the LIVE target at delivery time: a surface-scoped
+        // notification follows its surface to the workspace that currently
+        // owns it (issues #7939/#5781) instead of being dropped on a stale
+        // workspace claim; only a gone target (closed surface/workspace) skips.
+        guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
+            claimedTabId: notification.key.tabId,
+            surfaceId: notification.key.surfaceId
+        ) else {
 #if DEBUG
             cmuxDebugLog(
                 "notification.queue.deliver.skip workspace=\(notification.key.tabId.uuidString.prefix(8)) surface=\(notification.key.surfaceId?.uuidString.prefix(8) ?? "nil") reason=targetMissing titleLen=\(notification.title.count) subtitleLen=\(notification.subtitle.count) bodyLen=\(notification.body.count)"
@@ -438,32 +453,16 @@ extension TerminalNotificationStore {
         }
 #if DEBUG
         cmuxDebugLog(
-            "notification.queue.deliver workspace=\(notification.key.tabId.uuidString.prefix(8)) surface=\(notification.key.surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(notification.title.count) subtitleLen=\(notification.subtitle.count) bodyLen=\(notification.body.count)"
+            "notification.queue.deliver workspace=\(target.tabId.uuidString.prefix(8)) surface=\(target.surfaceId?.uuidString.prefix(8) ?? "nil") claimedWorkspace=\(notification.key.tabId.uuidString.prefix(8)) titleLen=\(notification.title.count) subtitleLen=\(notification.subtitle.count) bodyLen=\(notification.body.count)"
         )
 #endif
         addNotification(
-            tabId: notification.key.tabId,
-            surfaceId: notification.key.surfaceId,
+            tabId: target.tabId,
+            surfaceId: target.surfaceId,
             title: notification.title,
             subtitle: notification.subtitle,
             body: notification.body
         )
-    }
-
-    private func shouldDeliverQueuedNotification(_ notification: QueuedTerminalNotification) -> Bool {
-        guard let appDelegate = AppDelegate.shared else { return false }
-        guard let surfaceId = notification.key.surfaceId else {
-            let tabManager = appDelegate.tabManagerFor(tabId: notification.key.tabId) ?? appDelegate.tabManager
-            return tabManager?.tabs.contains(where: { $0.id == notification.key.tabId }) == true
-        }
-
-        guard let target = appDelegate.workspaceContainingPanel(
-            panelId: surfaceId,
-            preferredWorkspaceId: notification.key.tabId
-        ) else {
-            return false
-        }
-        return target.workspace.id == notification.key.tabId
     }
 
     static func cachedDeliveryAuthorizationDecision(

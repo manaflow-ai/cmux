@@ -123,4 +123,32 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
             fixture.store.hasUnreadNotification(forTabId: fixture.owningWorkspace.id, surfaceId: fixture.panelId)
         )
     }
+
+    func testTTYDeviceMatchRequiresUniqueSurface() {
+        let w1 = UUID(), s1 = UUID(), w2 = UUID(), s2 = UUID()
+        let bindings: [(workspaceId: UUID, surfaceId: UUID, ttyDevice: Int64)] = [
+            (workspaceId: w1, surfaceId: s1, ttyDevice: 7),
+            (workspaceId: w2, surfaceId: s2, ttyDevice: 9),
+        ]
+        XCTAssertEqual(
+            agentDeliveryTargetMatchingTTYDevice(7, surfaceTTYDevices: bindings),
+            AgentDeliveryTargetCandidate(workspaceId: w1, surfaceId: s1)
+        )
+        XCTAssertNil(agentDeliveryTargetMatchingTTYDevice(5, surfaceTTYDevices: bindings))
+        XCTAssertNil(
+            agentDeliveryTargetMatchingTTYDevice(
+                7,
+                surfaceTTYDevices: bindings + [(workspaceId: w2, surfaceId: s2, ttyDevice: 7)]
+            ),
+            "A tty device claimed by two different surfaces must refuse to guess"
+        )
+        XCTAssertEqual(
+            agentDeliveryTargetMatchingTTYDevice(
+                7,
+                surfaceTTYDevices: bindings + [(workspaceId: w1, surfaceId: s1, ttyDevice: 7)]
+            )?.surfaceId,
+            s1,
+            "Consistent duplicate rows for the same surface still resolve"
+        )
+    }
 }

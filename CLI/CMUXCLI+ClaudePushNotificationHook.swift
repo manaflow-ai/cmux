@@ -6,11 +6,7 @@ extension CMUXCLI {
         telemetry: CLISocketSentryTelemetry,
         parsedInput: ClaudeHookParsedInput,
         sessionStore: ClaudeHookSessionStore,
-        workspaceArg: String?,
-        surfaceArg: String?,
-        hookSurfaceFlagIsExplicit: Bool,
-        preferCallerTTYRouting: Bool,
-        callerTTYBindingProvider: (() -> CallerTerminalBinding?)?,
+        routing: ClaudeHookRoutingContext,
         markFeedTelemetryHandled: () -> Void,
         sendFeedTelemetry: (String?, String?) -> Void
     ) throws {
@@ -36,11 +32,9 @@ extension CMUXCLI {
             return
         }
         let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-        guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
-            preferred: mappedSession?.workspaceId,
-            fallback: workspaceArg,
-            preferCallerTTYOverFallback: preferCallerTTYRouting,
-            callerTerminalBinding: callerTTYBindingProvider,
+        guard let resolvedTarget = try resolveClaudeHookDeliveryTarget(
+            mappedSession: mappedSession,
+            routing: routing,
             client: client
         ) else {
             markFeedTelemetryHandled()
@@ -48,14 +42,8 @@ extension CMUXCLI {
             print(String(localized: "common.ok", defaultValue: "OK"))
             return
         }
-        let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
-            preferred: mappedSession?.surfaceId,
-            fallback: surfaceArg,
-            fallbackIsExplicit: hookSurfaceFlagIsExplicit,
-            workspaceId: workspaceId,
-            callerTerminalBinding: callerTTYBindingProvider,
-            client: client
-        )
+        let workspaceId = resolvedTarget.workspaceId
+        let resolvedSurface = resolvedTarget
         let surfaceId = resolvedSurface.surfaceId
         sendFeedTelemetry(workspaceId, surfaceId)
         guard shouldApplyClaudeHookVisibleMutation(
