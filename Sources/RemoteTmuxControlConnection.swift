@@ -507,7 +507,15 @@ final class RemoteTmuxControlConnection {
 
     @discardableResult
     func sendInternal(_ command: String, kind: CommandKind) -> Bool {
-        sendBatchInternal([command], kinds: [kind])
+        #if DEBUG
+        // Sizing sends were invisible: every claimed-vs-layout wedge was
+        // debugged by inference about what tmux was told. Log the exact
+        // command so the send side is evidence, not conjecture.
+        if command.hasPrefix("refresh-client") {
+            cmuxDebugLog("remote.send state=\(connectionState) \(command)")
+        }
+        #endif
+        return sendBatchInternal([command], kinds: [kind])
     }
 
     /// Atomically records command-result correlation before enqueueing one payload.

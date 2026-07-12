@@ -129,11 +129,17 @@ extension RemoteTmuxControlConnection {
     /// Sends the per-window form, tagging the command so an `%error` reply
     /// can flip the capability off and replay via the session-wide path.
     func sendPerWindowSize(windowId: Int, columns: Int, rows: Int) {
-        sentWindowSizes[windowId] = (columns, rows)
-        _ = sendInternal(
+        // Record AFTER the send reports success: a send attempted while the
+        // transport is down returns false, and recording it anyway makes
+        // the ledger claim the server has a size it never received — dedup
+        // then suppresses the retry and the claim wedges exactly the way
+        // this ledger exists to prevent.
+        if sendInternal(
             "refresh-client -C '@\(windowId):\(columns)x\(rows)'",
             kind: .perWindowSize(windowId)
-        )
+        ) {
+            sentWindowSizes[windowId] = (columns, rows)
+        }
     }
 
 
