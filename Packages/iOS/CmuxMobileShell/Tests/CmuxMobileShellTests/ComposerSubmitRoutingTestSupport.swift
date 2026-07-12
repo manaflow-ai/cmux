@@ -221,8 +221,10 @@ actor RoutingHostRouter {
         case "workspace.create":
             workspaceCreateCount += 1
             workspaceCreateGroupIDs.append(info.groupID)
-            workspaceHasBeenCreated = true
-            selectedHostWorkspaceID = "workspace-created"
+            if !rejectWorkspaceCreate {
+                workspaceHasBeenCreated = true
+                selectedHostWorkspaceID = "workspace-created"
+            }
             if workspaceCreateCount == 1 && holdFirstWorkspaceCreate {
                 firstWorkspaceCreateHeld = true
                 let reachedWaiters = firstWorkspaceCreateReachedWaiters

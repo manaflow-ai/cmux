@@ -92,7 +92,7 @@ import Testing
         #expect(await router.recordedWorkspaceCreateGroupIDs() == ["group-a"])
     }
 
-    @Test func createResponseCannotCreditLaterMutationEpoch() async throws {
+    @Test func staleCreateResponseRequiresAuthoritativeReconciliation() async throws {
         let router = RoutingHostRouter()
         await router.setHoldFirstWorkspaceCreate(true)
         let store = try await makeRoutingConnectedStore(
@@ -112,7 +112,8 @@ import Testing
             return #expect(Bool(false), "workspace create should succeed: \(createResult)")
         }
 
-        #expect(store.foregroundWorkspaceListAppliedMutationEpoch < laterMutationEpoch)
+        #expect(await router.workspaceListGate.requestCount() == 1)
+        #expect(store.foregroundWorkspaceListAppliedMutationEpoch >= laterMutationEpoch)
     }
 
     @Test func staleCreateResponseReconcilesWithoutOverwritingNewerAuthoritativeHierarchy() async throws {
@@ -184,5 +185,78 @@ import Testing
         #expect(store.workspaces.contains(where: { $0.rpcWorkspaceID.rawValue == "workspace-created" }))
         #expect(store.selectedWorkspaceID == workspaceID)
         #expect(store.selectedTerminalID?.rawValue == "terminal-route-created")
+    }
+
+    @Test func acknowledgedWorkspaceCreateReportsFailedAuthoritativeReconciliation() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstWorkspaceCreate(true)
+        await router.setRejectWorkspaceList(true)
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            connectionState: .connected
+        )
+
+        let create = Task { @MainActor in
+            await store.createWorkspaceRequest()
+        }
+        await router.awaitFirstWorkspaceCreateReached()
+        _ = store.advanceForegroundWorkspaceListMutationEpoch()
+        await router.releaseFirstWorkspaceCreate()
+
+        let result = await create.value
+        guard case .failure(.appliedNeedsRefresh) = result else {
+            return #expect(Bool(false), "acknowledged create with failed refresh must require refresh: \(result)")
+        }
+        #expect(await router.workspaceListGate.requestCount() == 1)
+        #expect(!store.workspaces.contains(where: { $0.rpcWorkspaceID.rawValue == "workspace-created" }))
+    }
+
+    @Test func acknowledgedTerminalCreateRetainsHierarchyRefreshRequirement() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstTerminalCreate(true)
+        await router.setRejectWorkspaceList(true)
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            connectionState: .connected
+        )
+        let workspaceID = try #require(store.workspaces.first?.id)
+        let originalTerminalID = store.selectedTerminalID
+
+        let create = Task { @MainActor in
+            await store.createRemoteTerminal(in: workspaceID)
+        }
+        await router.awaitFirstTerminalCreateReached()
+        _ = store.advanceForegroundWorkspaceListMutationEpoch()
+        await router.releaseFirstTerminalCreate()
+        await create.value
+
+        #expect(await router.workspaceListGate.requestCount() == 1)
+        #expect(store.terminalReorderGate.requiresRefresh(workspaceID: workspaceID))
+        #expect(store.selectedTerminalID == originalTerminalID)
+    }
+
+    @Test func invalidatedWorkspaceCreateCompletionRemainsBenign() async throws {
+        let originalRouter = RoutingHostRouter()
+        await originalRouter.setHoldFirstWorkspaceCreate(true)
+        let store = try await makeRoutingConnectedStore(
+            router: originalRouter,
+            connectionState: .connected
+        )
+        let replacementRouter = RoutingHostRouter()
+
+        let create = Task { @MainActor in
+            await store.createWorkspaceRequest()
+        }
+        await originalRouter.awaitFirstWorkspaceCreateReached()
+        try installFreshRemoteClient(on: store, router: replacementRouter)
+        await originalRouter.releaseFirstWorkspaceCreate()
+
+        let result = await create.value
+        guard case .success = result else {
+            return #expect(Bool(false), "completion from a replaced client should be ignored: \(result)")
+        }
+        #expect(await originalRouter.workspaceListGate.requestCount() == 0)
+        #expect(await replacementRouter.workspaceListGate.requestCount() == 0)
+        #expect(!store.workspaces.contains(where: { $0.rpcWorkspaceID.rawValue == "workspace-created" }))
     }
 }
