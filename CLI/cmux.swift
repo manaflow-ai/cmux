@@ -7496,9 +7496,10 @@ struct CMUXCLI {
         try applyFocusOption(focusOpt, defaultValue: false, to: &params)
         // Process-as-command: pass initial_command into workspace.create so Ghostty
         // runs the command as the terminal process. Do NOT surface.send_text after
-        // create — that races interactive shell startup (.zshrc/neofetch/shell-init)
-        // and is not portable across shells. /bin/sh -c is shell-agnostic and does
-        // not source the user's interactive login rc.
+        // create — that races interactive shell startup (.zshrc, neofetch, and any
+        // other login/rc work) and is not portable across shells. /bin/sh -c is
+        // shell-agnostic and does not source the user's interactive login rc.
+        // Keep in lockstep with Sources/TerminalProcessCommand.asInitialProcess.
         if layoutOpt == nil, let commandText = commandOpt {
             let trimmed = commandText.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
@@ -7518,8 +7519,9 @@ struct CMUXCLI {
     /// `/bin/sh -c`, without an interactive login shell (no zshrc/neofetch race).
     /// Multi-word commands and shell metacharacters are handled portably.
     ///
-    /// A minimal PATH is injected so tools like `kpm` / Homebrew CLIs resolve without
-    /// sourcing the user's interactive rc. This does **not** run shell-init or neofetch.
+    /// A minimal PATH is injected so user bins and common package-manager locations
+    /// (`~/bin`, Homebrew, `/usr/local`) resolve without sourcing the user's
+    /// interactive rc. Must match `TerminalProcessCommand.asInitialProcess` in Sources.
     private static func workspaceCreateProcessCommand(_ command: String) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         // Already a posix process wrapper — leave intact (resume scripts, dock scripts, etc.).
@@ -7529,10 +7531,10 @@ struct CMUXCLI {
             || (trimmed.hasPrefix("/") && !trimmed.contains(" ") && !trimmed.contains("'")) {
             return trimmed
         }
-        // Portable bootstrap: common user/Homebrew paths first, then existing PATH.
-        let bootstrap = #"""
-        export PATH="${HOME}/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin${PATH:+:$PATH}"; \
-        """#
+        // Single-line prefix (no line-continuation backslash): inside shellSingleQuote
+        // a trailing `\` would be literal and break the following command.
+        let bootstrap =
+            #"export PATH="${HOME}/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin${PATH:+:$PATH}"; "#
         return "/bin/sh -c " + shellSingleQuote(bootstrap + trimmed)
     }
 
@@ -15760,7 +15762,7 @@ struct CMUXCLI {
               cmux rename-tab --workspace workspace:2 --surface surface:5 --title "agent run"
             """
         case "new-workspace":
-            return """
+            return String(localized: "cli.new-workspace.usage", defaultValue: """
             Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--env KEY=VALUE]... [--env-file <path>]... [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
 
             Create a new workspace in the caller's window.
@@ -15790,7 +15792,7 @@ struct CMUXCLI {
               cmux new-workspace --cwd ~/projects/myapp
               cmux new-workspace --cwd . --command "npm test"
               cmux new-workspace --name "Dev" --layout '{"direction":"horizontal","split":0.5,"children":[{"pane":{"surfaces":[{"type":"terminal","command":"vim"}]}},{"pane":{"surfaces":[{"type":"terminal","command":"npm run start"}]}}]}'
-            """
+            """)
         case "list-workspaces":
             return """
             Usage: cmux list-workspaces [--window <id|ref|index>]

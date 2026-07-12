@@ -31,6 +31,43 @@ enum TerminalStartupShellQuoting {
     }
 }
 
+/// Builds portable process-as-command strings for terminal surfaces.
+///
+/// Prefer this over typing into an interactive shell (`send_text` / `sendInputWhenReady`)
+/// when a command should be the surface's initial process: that path is shell-agnostic,
+/// does not race interactive login rc (neofetch, zshrc, etc.), and keeps the pane
+/// observable via wait-after-command.
+///
+/// Keep the CLI (`CMUXCLI.workspaceCreateProcessCommand`) in lockstep — the CLI target
+/// cannot share this type, but both must produce the same `/bin/sh -c` + PATH shape.
+nonisolated enum TerminalProcessCommand {
+    /// Minimal PATH so common user and package-manager bins resolve without sourcing
+    /// the user's interactive login rc. Order: `~/bin`, Homebrew, `/usr/local`, system.
+    static let pathBootstrapPrefix =
+        #"export PATH="${HOME}/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin${PATH:+:$PATH}"; "#
+
+    /// Wrap `command` as a Ghostty `initial_command` process via `/bin/sh -c`.
+    /// Already-wrapped process forms (`/bin/sh -c …`, absolute single tokens, etc.)
+    /// are returned unchanged so resume/dock scripts are not double-wrapped.
+    static func asInitialProcess(_ command: String) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return trimmed }
+        if isAlreadyProcessWrapper(trimmed) {
+            return trimmed
+        }
+        return "/bin/sh -c " + TerminalStartupShellQuoting.singleQuoted(pathBootstrapPrefix + trimmed)
+    }
+
+    /// True when `command` is already a process launch form that should not be re-wrapped.
+    static func isAlreadyProcessWrapper(_ command: String) -> Bool {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasPrefix("/bin/sh -c ")
+            || trimmed.hasPrefix("/bin/bash -c ")
+            || trimmed.hasPrefix("/usr/bin/env ")
+            || (trimmed.hasPrefix("/") && !trimmed.contains(" ") && !trimmed.contains("'"))
+    }
+}
+
 fileprivate func shellSingleQuoted(_ value: String) -> String {
     TerminalStartupShellQuoting.singleQuoted(value)
 }
