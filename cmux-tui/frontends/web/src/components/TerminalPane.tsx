@@ -3,6 +3,7 @@ import type { CmuxClient, Id } from "cmux/browser";
 import { t } from "../i18n";
 import type { ScreenView } from "../lib/tree";
 import { useAttachedTerminal } from "../hooks/useAttachedTerminal";
+import { ExtraKeysBar } from "./ExtraKeysBar";
 
 interface TerminalPaneProps {
   client: CmuxClient | null;
@@ -23,14 +24,14 @@ export function TerminalPane({ client, screen, onSelectTab }: TerminalPaneProps)
     (error: Error) => setErrorState({ client, surface, message: error.message }),
     [client, surface],
   );
-  const terminalRef = useAttachedTerminal({ client, surface, onError: reportError });
+  const { terminalRef, focused } = useAttachedTerminal({ client, surface, onError: reportError });
   const terminalError =
     errorState !== null && errorState.client === client && errorState.surface === surface
       ? errorState.message
       : null;
 
   return (
-    <section className="terminal-panel" aria-label={t("terminal")}>
+    <section className={`terminal-panel${focused ? " terminal-focused" : ""}`} aria-label={t("terminal")}>
       <div className="tab-bar">
         {screen?.pane?.tabs.map((tab, index) => (
           <button
@@ -49,6 +50,12 @@ export function TerminalPane({ client, screen, onSelectTab }: TerminalPaneProps)
         {screen?.tab?.kind === "browser" && <div className="terminal-empty">{t("browserSurface")}</div>}
         {terminalError && <div className="terminal-error" role="alert">{terminalError}</div>}
       </div>
+      <ExtraKeysBar
+        visible={focused && client !== null && surface !== null}
+        onSend={(text) => {
+          if (client !== null && surface !== null) void client.send(surface, { text }).catch(reportError);
+        }}
+      />
     </section>
   );
 }
