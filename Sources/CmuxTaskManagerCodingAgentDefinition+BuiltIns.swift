@@ -53,7 +53,10 @@ extension CmuxTaskManagerCodingAgentDefinition {
             assetName: nil,
             launchKinds: ["ollama"],
             directBasenames: ["ollama"],
-            argumentNeedles: ["ollama"],
+            // No argument needles: a bare "ollama" token plus the "run"
+            // prefix would also match wrappers such as `npm run ollama`.
+            // Identity comes from the executable basename or launch kind.
+            argumentNeedles: [],
             requiredArgumentPrefix: ["run"],
             promptTurnDetection: PromptLineTurnDetectionConfiguration(
                 prompt: ">>> ",

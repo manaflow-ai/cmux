@@ -40,6 +40,14 @@ struct OllamaAgentDetectionTests {
             arguments: ["ollama", "serve", "run"],
             environment: [:]
         ) == nil)
+        // A bare "ollama" argv token must never satisfy identity: wrappers
+        // such as `npm run ollama` share the "run" prefix shape.
+        #expect(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            processName: "npm",
+            processPath: "/opt/homebrew/bin/npm",
+            arguments: ["npm", "run", "ollama"],
+            environment: [:]
+        ) == nil)
     }
 
     @Test("A custom vault registration may reuse the ollama id")

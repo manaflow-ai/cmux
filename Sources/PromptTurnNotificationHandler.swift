@@ -45,10 +45,10 @@ actor PromptTurnNotificationHandler {
             // prompt from a later process in the same pane cannot complete a
             // turn it never ran. A nil foreground PID clears the binding and
             // fails closed at the delivery deadline.
-            turnForegroundPIDByAgentID[agentID] = await Self.foregroundProcessID(
-                workspaceID: workspaceID,
-                surfaceID: surfaceID
-            )
+            turnForegroundPIDByAgentID[agentID] = await Self.currentTurnContext(
+                surfaceID: surfaceID,
+                preferredWorkspaceID: workspaceID
+            )?.foregroundPID
         }
         if let locallyConfirmed {
             // The detector already confirmed this turn synchronously at its
@@ -104,19 +104,20 @@ actor PromptTurnNotificationHandler {
         guard confirmation.confirmedTurnCount > 0,
               deliveredConfirmationIdentifierByAgentID[agentID, default: 0] < confirmation.identifier,
               let turnPID = turnForegroundPIDByAgentID[agentID],
-              let foregroundPID = await Self.foregroundProcessID(
-                  workspaceID: workspaceID,
-                  surfaceID: surfaceID
+              let context = await Self.currentTurnContext(
+                  surfaceID: surfaceID,
+                  preferredWorkspaceID: workspaceID
               ),
-              foregroundPID == turnPID,
+              context.foregroundPID == turnPID,
               let definition = await verifiedDefinition(
-                  foregroundPID: foregroundPID,
+                  foregroundPID: context.foregroundPID,
                   agentID: agentID
               ),
-              await Self.foregroundProcessID(
-                  workspaceID: workspaceID,
-                  surfaceID: surfaceID
-              ) == foregroundPID else {
+              let recheck = await Self.currentTurnContext(
+                  surfaceID: surfaceID,
+                  preferredWorkspaceID: workspaceID
+              ),
+              recheck.foregroundPID == context.foregroundPID else {
             return
         }
         if let requiredRevision, latestRevisionByAgentID[agentID] != requiredRevision {
@@ -130,7 +131,7 @@ actor PromptTurnNotificationHandler {
         deliveredConfirmationIdentifierByAgentID[agentID] = confirmation.identifier
 
         AgentNotificationDelivery().enqueue(
-            workspaceID: workspaceID,
+            workspaceID: recheck.workspaceID,
             surfaceID: surfaceID,
             title: definition.displayName,
             subtitle: String(
@@ -183,13 +184,23 @@ actor PromptTurnNotificationHandler {
         return definition?.id == agentID ? definition : nil
     }
 
+    /// Resolves the surface's current owner and foreground process. Live
+    /// terminals move between workspaces (and into the Dock) without surface
+    /// recreation, so the workspace captured at tee install time is only a
+    /// lookup hint; delivery must follow the surface's current workspace.
     @MainActor
-    private static func foregroundProcessID(workspaceID: UUID, surfaceID: UUID) -> Int? {
-        guard let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
-              let workspace = manager.tabs.first(where: { $0.id == workspaceID }),
-              let terminal = workspace.terminalPanel(for: surfaceID) else {
+    private static func currentTurnContext(
+        surfaceID: UUID,
+        preferredWorkspaceID: UUID
+    ) -> (workspaceID: UUID, foregroundPID: Int)? {
+        guard let located = AppDelegate.shared?.workspaceContainingPanel(
+            panelId: surfaceID,
+            preferredWorkspaceId: preferredWorkspaceID
+        ),
+              let terminal = located.workspace.terminalPanel(for: surfaceID),
+              let foregroundPID = terminal.surface.foregroundProcessID() else {
             return nil
         }
-        return terminal.surface.foregroundProcessID()
+        return (located.workspace.id, foregroundPID)
     }
 }
