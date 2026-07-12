@@ -102,7 +102,10 @@ struct RemoteTmuxMirrorTopTopologyTests {
         let harness = try RemoteTmuxMirrorCLIObservabilityTests.Harness(connectedTransport: true)
         defer { harness.tearDown() }
 
-        let targetTmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
+        let activeTmuxPaneID = try #require(harness.mirror.activePaneId)
+        let targetTmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first {
+            $0 != activeTmuxPaneID
+        })
         let targetSurfaceID = try #require(harness.mirror.panel(forPane: targetTmuxPaneID)?.id)
         let payload = try await TerminalController.shared.taskManagerTopPayload(
             includeProcesses: false
@@ -112,7 +115,9 @@ struct RemoteTmuxMirrorTopTopologyTests {
             $0.kind == .terminalSurface && $0.surfaceId == targetSurfaceID
         })
 
+        let baselinePendingCount = harness.connection.pendingCommandKindsForTesting.count
         CmuxTaskManagerModel().viewTerminal(for: row)
+        #expect(harness.connection.pendingCommandKindsForTesting.count == baselinePendingCount + 1)
 
         let writer = try #require(harness.controlWriter)
         let pipe = try #require(harness.controlPipe)
@@ -121,6 +126,7 @@ struct RemoteTmuxMirrorTopTopologyTests {
             bytes: try pipe.fileHandleForReading.readToEnd() ?? Data(),
             encoding: .utf8
         ))
-        #expect(commands == "select-pane -t @3.%\(targetTmuxPaneID)\n")
+        let commandLines = commands.split(separator: "\n").map(String.init)
+        #expect(commandLines.last == "select-pane -t @3.%\(targetTmuxPaneID)")
     }
 }
