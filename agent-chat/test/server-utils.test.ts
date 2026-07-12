@@ -66,8 +66,9 @@ assert(stripAuthPrefixForTest("/app.js", "secret") === null, "untokened route sh
 assert(stripAuthPrefixForTest("/healthz", "secret") === "/healthz", "healthz should remain tokenless");
 const tokenHtml = renderPageForTest("/gallery", "/secret");
 assert(tokenHtml.includes('<base href="/secret/">'), "tokened HTML should inject the token base path");
-assert(tokenHtml.includes('src="gallery.js"') && tokenHtml.includes('href="app.css"'), "tokened HTML should use relative asset URLs");
-assert(!tokenHtml.includes('src="/app.js"') && !tokenHtml.includes('href="/app.css"'), "tokened HTML should not use root-absolute asset URLs");
+assert(tokenHtml.includes('data-cmux-webview-kind="agent-chat"'), "agent chat should identify itself to the shared webviews entrypoint");
+assert(tokenHtml.includes('src="webviews/main.mjs"'), "agent chat should load the shared Diff Viewer webviews bundle");
+assert(!tokenHtml.includes('src="gallery.js"') && !tokenHtml.includes('href="app.css"'), "agent chat should not use its retired standalone frontend assets");
 const statePath = join(import.meta.dir, "..", "scratch", "agent-chat-state-test.json");
 await rm(statePath, { force: true });
 await writeStateFileForTest(statePath, 54321);

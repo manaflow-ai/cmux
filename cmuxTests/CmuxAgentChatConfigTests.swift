@@ -189,7 +189,7 @@ struct CmuxAgentChatConfigTests {
         #expect(resolved.source == .defaults)
         #expect(resolved.source.sourcePath == nil)
         #expect(!resolved.hasExplicitURL)
-        #expect(resolved.serverMode == .legacyDefaultURL)
+        #expect(resolved.serverMode == .appOwned)
         #expect(!resolved.startCommandRequiresTrust)
     }
 
