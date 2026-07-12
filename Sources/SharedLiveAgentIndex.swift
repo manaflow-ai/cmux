@@ -57,9 +57,8 @@ final class SharedLiveAgentIndex {
         },
         processScopeFingerprintProvider: @escaping @Sendable () -> Set<String> = {
             SharedLiveAgentIndexLoader.processScopeFingerprint(
-                from: CmuxTopProcessSnapshot.captureCached(
-                    includeProcessDetails: false,
-                    maximumAge: 5
+                from: CmuxTopProcessSnapshot.capture(
+                    includeProcessDetails: true
                 )
             )
         },
@@ -258,8 +257,7 @@ final class SharedLiveAgentIndex {
                currentResult.processScopeFingerprint == currentProcessScopeFingerprint {
                 return ProcessDetectedResumeIndexes(currentResult)
             }
-            self.latestCompletedLoadResult = nil
-            self.latestCompletedAt = nil
+            invalidateAllCachedResults()
             let task = requestRefresh(
                 freshness: .captureAfterRequest,
                 publication: .scoped,
@@ -350,6 +348,20 @@ final class SharedLiveAgentIndex {
         validatedForkPanels.removeAll()
         validatedForkPanelProbeCompletedAt.removeAll()
         validatedMissingForkPanels.removeAll()
+    }
+
+    private func invalidateAllCachedResults() {
+        let hadCachedResult = latestCompletedLoadResult != nil || index != nil
+        latestCompletedLoadResult = nil
+        latestCompletedAt = nil
+        index = nil
+        loadedAt = nil
+        liveAgentProcessFingerprint.removeAll()
+        processScopeFingerprint.removeAll()
+        invalidatePublishedForkValidations()
+        if hadCachedResult {
+            NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
+        }
     }
 
     func applyReloadedResult(

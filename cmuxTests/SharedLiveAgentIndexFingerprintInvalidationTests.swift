@@ -15,9 +15,14 @@ struct SharedLiveAgentIndexFingerprintInvalidationTests {
     func processScopeFingerprintChangesAcrossExec() {
         let workspaceID = UUID()
         let surfaceID = UUID()
-        func fingerprint(name: String, path: String) -> Set<String> {
+        func fingerprint(name: String, path: String, startSeconds: Int64 = 100) -> Set<String> {
             let process = CmuxTopProcessInfo(
                 pid: 42,
+                processIdentity: AgentPIDProcessIdentity(
+                    pid: 42,
+                    startSeconds: startSeconds,
+                    startMicroseconds: 7
+                ),
                 parentPID: 1,
                 name: name,
                 path: path,
@@ -37,13 +42,23 @@ struct SharedLiveAgentIndexFingerprintInvalidationTests {
                 sampledAt: Date(),
                 includesProcessDetails: true
             )
-            return SharedLiveAgentIndexLoader.processScopeFingerprint(from: snapshot)
+            return SharedLiveAgentIndexLoader.processScopeFingerprint(
+                from: snapshot,
+                processArgumentsProvider: { _ in
+                    CmuxTopProcessArguments(arguments: [path, "--session", "test"], environment: [:])
+                }
+            )
         }
 
         #expect(
             fingerprint(name: "cmux-agent-shim", path: "/usr/local/bin/cmux-agent-shim")
                 != fingerprint(name: "claude", path: "/usr/local/bin/claude"),
             "A same-PID exec must invalidate process-scoped resume metadata."
+        )
+        #expect(
+            fingerprint(name: "claude", path: "/usr/local/bin/claude", startSeconds: 100)
+                != fingerprint(name: "claude", path: "/usr/local/bin/claude", startSeconds: 101),
+            "PID reuse must invalidate process-scoped resume metadata."
         )
     }
 

@@ -55,6 +55,7 @@ nonisolated enum CmuxTopProcessMemorySource: String, Sendable {
 
 nonisolated struct CmuxTopProcessInfo: Sendable {
     let pid: Int
+    let processIdentity: AgentPIDProcessIdentity
     let parentPID: Int
     let name: String
     let path: String?
@@ -74,6 +75,7 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
 
     init(
         pid: Int,
+        processIdentity: AgentPIDProcessIdentity? = nil,
         parentPID: Int,
         name: String,
         path: String?,
@@ -92,6 +94,11 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
         threadCount: Int
     ) {
         self.pid = pid
+        self.processIdentity = processIdentity ?? AgentPIDProcessIdentity(
+            pid: pid_t(pid),
+            startSeconds: 0,
+            startMicroseconds: 0
+        )
         self.parentPID = parentPID
         self.name = name
         self.path = path

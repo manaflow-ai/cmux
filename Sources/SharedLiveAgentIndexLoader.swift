@@ -97,7 +97,10 @@ struct SharedLiveAgentIndexLoader {
                 bindingsByPanel: detectedBindings.mapValues(\.binding)
             ),
             liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
-            processScopeFingerprint: Self.processScopeFingerprint(from: processSnapshot),
+            processScopeFingerprint: Self.processScopeFingerprint(
+                from: processSnapshot,
+                processArgumentsProvider: cachedProcessArguments
+            ),
             forkValidatedPanels: Self.forkValidatedPanels(
                 in: index,
                 processArgumentsProvider: cachedProcessArguments,
@@ -107,16 +110,27 @@ struct SharedLiveAgentIndexLoader {
         )
     }
 
-    static func processScopeFingerprint(from snapshot: CmuxTopProcessSnapshot) -> Set<String> {
+    static func processScopeFingerprint(
+        from snapshot: CmuxTopProcessSnapshot,
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
+            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        }
+    ) -> Set<String> {
         Set(snapshot.cmuxScopedProcesses().map { process in
-            [
+            let arguments = processArgumentsProvider(process.pid)?.arguments ?? []
+            return ([
                 process.cmuxWorkspaceID?.uuidString ?? "",
                 process.cmuxSurfaceID?.uuidString ?? "",
                 String(process.pid),
+                String(process.processIdentity.startSeconds),
+                String(process.processIdentity.startMicroseconds),
                 String(process.parentPID),
                 String(process.processGroupID ?? 0),
-                String(process.terminalProcessGroupID ?? 0)
-            ].joined(separator: "|")
+                String(process.terminalProcessGroupID ?? 0),
+                process.name,
+                process.path ?? "",
+                String(arguments.count)
+            ] + arguments).map { "\($0.utf8.count):\($0)" }.joined()
         })
     }
 
