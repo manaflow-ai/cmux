@@ -339,7 +339,6 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
         defer {
             app.unregisterMainWindowContextForTesting(windowId: firstWindowId)
             if let secondWindowId { app.unregisterMainWindowContextForTesting(windowId: secondWindowId) }
-            TerminalController.invalidateTerminalResolverBindingCaches()
             AppDelegate.shared = previousAppDelegate
         }
 
@@ -361,9 +360,7 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
         let surfaceID = try XCTUnwrap(workspace.focusedPanelId)
         workspace.surfaceTTYNames[surfaceID] = "cmux-missing-tty-\(UUID().uuidString)"
         let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        TerminalController.invalidateTerminalResolverBindingCaches()
         defer {
-            TerminalController.invalidateTerminalResolverBindingCaches()
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)

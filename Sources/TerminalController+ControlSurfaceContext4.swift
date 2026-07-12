@@ -43,7 +43,10 @@ extension TerminalController {
                 return (fallbackTabManager, workspace, located.surfaceId)
             }
             if let appDelegate = AppDelegate.shared {
-                switch appDelegate.locateSurfaceResumeTarget(surfaceId: explicitSurfaceId) {
+                switch appDelegate.locateSurfaceResumeTarget(
+                    surfaceId: explicitSurfaceId,
+                    including: fallbackTabManager
+                ) {
                 case .found(let located):
                     guard let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
                           workspace.terminalPanel(for: located.surfaceId) != nil else {
@@ -53,7 +56,7 @@ extension TerminalController {
                 case .ambiguous:
                     return nil
                 case .missing:
-                    break
+                    return nil
                 }
             }
             switch fallbackTabManager.locateSurfaceResumeTarget(surfaceId: explicitSurfaceId) {

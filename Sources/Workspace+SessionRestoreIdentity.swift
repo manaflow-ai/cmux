@@ -398,7 +398,8 @@ extension TabManager {
 extension AppDelegate {
     /// Locates a terminal globally only when its runtime or restart-stable id is unique.
     func locateSurfaceResumeTarget(
-        surfaceId targetId: UUID
+        surfaceId targetId: UUID,
+        including fallbackTabManager: TabManager? = nil
     ) -> SurfaceResumeTargetLookup {
         var match: SurfaceResumeTargetLocation?
         var isAmbiguous = false
@@ -429,6 +430,9 @@ extension AppDelegate {
         for route in recoverableMainWindowRoutes() {
             guard let tabManager = route.tabManager else { continue }
             inspect(tabManager: tabManager)
+        }
+        if let fallbackTabManager {
+            inspect(tabManager: fallbackTabManager)
         }
 
         if isAmbiguous { return .ambiguous }

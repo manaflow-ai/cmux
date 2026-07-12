@@ -19,104 +19,11 @@ private nonisolated struct LiveTerminalResolverBinding: Sendable {
     }
 }
 
-private nonisolated struct TerminalResolverBindingCacheEntry: Sendable {
-    let capturedAt: Date
-    let bindings: [LiveTerminalResolverBinding]
-}
-
-private nonisolated struct TerminalResolverBindingCacheState {
-    var entries: [ObjectIdentifier: TerminalResolverBindingCacheEntry] = [:]
-    var generations: [ObjectIdentifier: UInt64] = [:]
-    var refreshes: [ObjectIdentifier: UInt64] = [:]
-}
-
-private nonisolated enum TerminalResolverBindingCacheLookup {
-    case cached([LiveTerminalResolverBinding])
-    case refresh(generation: UInt64)
-    case wait
-}
-
-private nonisolated final class TerminalResolverBindingCache: @unchecked Sendable {
-    private let condition = NSCondition()
-    private var state = TerminalResolverBindingCacheState()
-
-    func lookup(
-        key: ObjectIdentifier,
-        now: Date,
-        maximumAge: TimeInterval
-    ) -> TerminalResolverBindingCacheLookup {
-        condition.lock()
-        defer { condition.unlock() }
-        if let entry = state.entries[key],
-           now.timeIntervalSince(entry.capturedAt) <= maximumAge {
-            return .cached(entry.bindings)
-        }
-        if state.refreshes[key] != nil {
-            return .wait
-        }
-        let generation = state.generations[key, default: 0]
-        state.refreshes[key] = generation
-        return .refresh(generation: generation)
-    }
-
-    func waitForRefresh(key: ObjectIdentifier) {
-        condition.lock()
-        while state.refreshes[key] != nil {
-            condition.wait()
-        }
-        condition.unlock()
-    }
-
-    func completeRefresh(
-        key: ObjectIdentifier,
-        generation: UInt64,
-        capturedAt: Date,
-        bindings: [LiveTerminalResolverBinding]
-    ) {
-        condition.lock()
-        defer {
-            condition.broadcast()
-            condition.unlock()
-        }
-        guard state.refreshes[key] == generation else { return }
-        state.refreshes.removeValue(forKey: key)
-        guard state.generations[key, default: 0] == generation else {
-            state.generations.removeValue(forKey: key)
-            return
-        }
-        if state.entries.count >= 8,
-           let oldestKey = state.entries.min(by: {
-               $0.value.capturedAt < $1.value.capturedAt
-           })?.key {
-            state.entries.removeValue(forKey: oldestKey)
-            if state.refreshes[oldestKey] == nil {
-                state.generations.removeValue(forKey: oldestKey)
-            }
-        }
-        state.entries[key] = TerminalResolverBindingCacheEntry(
-            capturedAt: capturedAt,
-            bindings: bindings
-        )
-    }
-
-    func invalidateAll() {
-        condition.lock()
-        state.entries.removeAll(keepingCapacity: true)
-        state.generations = state.refreshes.reduce(into: [:]) { generations, refresh in
-            generations[refresh.key] = refresh.value &+ 1
-        }
-        condition.unlock()
-    }
-}
-
-private nonisolated let terminalResolverBindingCache = TerminalResolverBindingCache()
-
 extension TerminalController {
     /// Resolves one hook caller without constructing `debug.terminals` or a
-    /// `system.top` process tree. UI terminal bindings are shared for two
-    /// seconds across hook storms and invalidated when TTY ownership changes.
-    /// Requested PID identity is captured fresh because process creation and
-    /// PID reuse are correctness boundaries, not cacheable presentation state.
+    /// `system.top` process tree. Both UI topology and requested PID identity
+    /// are captured fresh because ownership and PID reuse are correctness
+    /// boundaries, not cacheable presentation state.
     nonisolated func v2SystemResolveTerminal(params: [String: Any]) -> V2CallResult {
         let ttyName = v2NonEmptyString(v2String(params, "tty_name")).map(Self.terminalResolverTTYName)
         let pid: Int?
@@ -135,7 +42,7 @@ extension TerminalController {
         let processIdentity: TerminalResolverProcessIdentity? = pid.flatMap { pid in
             Self.terminalResolverProcessIdentity(pid: pid)
         }
-        let bindings = cachedLiveTerminalResolverBindings(maximumAge: 2)
+        let bindings = freshLiveTerminalResolverBindings()
         let ttyBindings = ttyName.map { requestedTTY in
             bindings.filter { $0.ttyName == requestedTTY }
         } ?? []
@@ -154,52 +61,26 @@ extension TerminalController {
         ])
     }
 
-    private nonisolated func cachedLiveTerminalResolverBindings(
-        maximumAge: TimeInterval
-    ) -> [LiveTerminalResolverBinding] {
-        let cacheKey = ObjectIdentifier(self)
-        while true {
-            switch terminalResolverBindingCache.lookup(
-                key: cacheKey,
-                now: Date(),
-                maximumAge: maximumAge
-            ) {
-            case .cached(let bindings):
-                return bindings
-            case .wait:
-                terminalResolverBindingCache.waitForRefresh(key: cacheKey)
-            case .refresh(let generation):
-                let rawBindings = v2MainSync(commandKey: "system.resolve_terminal") {
-                    self.liveTerminalResolverBindings()
-                }
-                var seen: Set<String> = []
-                let captured = rawBindings.compactMap { binding -> LiveTerminalResolverBinding? in
-                    let key = "\(binding.workspaceID.uuidString):\(binding.surfaceID.uuidString)"
-                    guard seen.insert(key).inserted else { return nil }
-                    return LiveTerminalResolverBinding(
-                        workspaceID: binding.workspaceID,
-                        surfaceID: binding.surfaceID,
-                        ttyName: Self.terminalResolverTTYName(binding.ttyName),
-                        ttyDevice: CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: binding.ttyName)
-                    )
-                }.sorted {
-                    if $0.workspaceID != $1.workspaceID {
-                        return $0.workspaceID.uuidString < $1.workspaceID.uuidString
-                    }
-                    return $0.surfaceID.uuidString < $1.surfaceID.uuidString
-                }
-                terminalResolverBindingCache.completeRefresh(
-                    key: cacheKey,
-                    generation: generation,
-                    capturedAt: Date(),
-                    bindings: captured
-                )
-            }
+    private nonisolated func freshLiveTerminalResolverBindings() -> [LiveTerminalResolverBinding] {
+        let rawBindings = v2MainSync(commandKey: "system.resolve_terminal") {
+            self.liveTerminalResolverBindings()
         }
-    }
-
-    nonisolated static func invalidateTerminalResolverBindingCaches() {
-        terminalResolverBindingCache.invalidateAll()
+        var seen: Set<String> = []
+        return rawBindings.compactMap { binding -> LiveTerminalResolverBinding? in
+            let key = "\(binding.workspaceID.uuidString):\(binding.surfaceID.uuidString)"
+            guard seen.insert(key).inserted else { return nil }
+            return LiveTerminalResolverBinding(
+                workspaceID: binding.workspaceID,
+                surfaceID: binding.surfaceID,
+                ttyName: Self.terminalResolverTTYName(binding.ttyName),
+                ttyDevice: CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: binding.ttyName)
+            )
+        }.sorted {
+            if $0.workspaceID != $1.workspaceID {
+                return $0.workspaceID.uuidString < $1.workspaceID.uuidString
+            }
+            return $0.surfaceID.uuidString < $1.surfaceID.uuidString
+        }
     }
 
     private nonisolated static func terminalResolverProcessIdentity(
