@@ -725,7 +725,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The user pull-to-refresh round-trip, kept on its own handle so the
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
-    private var pullToRefreshTask: Task<Void, Never>?
+    private var pullToRefreshTask: Task<Bool, Never>?
     var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?
     var connectionGeneration: UUID
@@ -7366,7 +7366,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceListRefreshTask?.cancel()
         workspaceListRefreshTask = Task { @MainActor [weak self] in
             defer { self?.workspaceListRefreshTask = nil }
-            await self?.reloadWorkspaceListFromMac()
+            _ = await self?.reloadWorkspaceListFromMac()
         }
     }
 
@@ -7379,8 +7379,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// transport) are caught and logged, leaving the existing list intact, because
     /// ``applyRemoteWorkspaceList(_:preferActiveTicketTarget:mergeExistingWorkspaces:)``
     /// runs only on a successful decode.
-    private func reloadWorkspaceListFromMac() async {
-        guard let client = remoteClient else { return }
+    private func reloadWorkspaceListFromMac() async -> Bool {
+        guard let client = remoteClient else { return false }
         do {
             let request = try MobileCoreRPCClient.requestData(method: "mobile.workspace.list", params: [:])
             let data = try await client.sendRequest(
@@ -7388,11 +7388,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 timeoutNanoseconds: runtime?.rpcRequestTimeoutNanoseconds
             )
             let response = try MobileSyncWorkspaceListResponse.decode(data)
-            guard remoteClient === client, connectionState == .connected else { return }
+            guard remoteClient === client, connectionState == .connected else { return false }
             applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)
             syncSelectedTerminalForWorkspace()
+            return true
         } catch {
             mobileShellLog.error("workspace list event refresh failed: \(String(describing: error), privacy: .private)")
+            return false
         }
     }
 
@@ -7425,31 +7427,37 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         await loadPairedMacs()
         guard connectionState == .connected, remoteClient != nil else { return }
         if let inFlight = pullToRefreshTask {
-            await inFlight.value
+            _ = await inFlight.value
             return
         }
-        await reloadWorkspaceListFromMac()
+        _ = await reloadWorkspaceListFromMac()
+    }
+
+    /// Refresh only the foreground Mac and report whether an authoritative list
+    /// was installed. Mutation reconciliation uses this result to fail closed.
+    func refreshForegroundWorkspaceList() async -> Bool {
+        guard connectionState == .connected, remoteClient != nil else { return false }
+        if let inFlight = pullToRefreshTask {
+            return await inFlight.value
+        }
+        let task: Task<Bool, Never> = Task { @MainActor [weak self] in
+            guard let self else { return false }
+            defer { self.pullToRefreshTask = nil }
+            return await self.reloadWorkspaceListFromMac()
+        }
+        pullToRefreshTask = task
+        return await task.value
     }
 
     /// Refresh the foreground Mac workspace list and re-aggregate secondary Macs.
     public func refreshWorkspaces() async {
-        guard connectionState == .connected, remoteClient != nil else { return }
-        if let inFlight = pullToRefreshTask {
-            await inFlight.value
-            return
+        _ = await refreshForegroundWorkspaceList()
+        // Re-aggregate the other Macs too, so pull-to-refresh surfaces
+        // workspaces created on a secondary Mac since the last fetch (the
+        // read-only secondary list is a snapshot, not a live subscription).
+        if multiMacAggregationEnabled {
+            await refreshSecondaryMacWorkspaces()
         }
-        let task = Task { @MainActor [weak self] in
-            defer { self?.pullToRefreshTask = nil }
-            await self?.reloadWorkspaceListFromMac()
-            // Re-aggregate the other Macs too, so pull-to-refresh surfaces
-            // workspaces created on a secondary Mac since the last fetch (the
-            // read-only secondary list is a snapshot, not a live subscription).
-            if self?.multiMacAggregationEnabled == true {
-                await self?.refreshSecondaryMacWorkspaces()
-            }
-        }
-        pullToRefreshTask = task
-        await task.value
     }
 
     private func stopTerminalRefreshPolling() {

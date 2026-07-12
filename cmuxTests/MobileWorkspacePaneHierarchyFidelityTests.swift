@@ -36,6 +36,9 @@ struct MobileWorkspacePaneHierarchyFidelityTests {
             tabs: [workspace],
             selectedTabID: workspace.id
         )
+        let focusedBefore = MobileWorkspaceListObserver.focusedHierarchySignatureForTesting(
+            workspace: workspace
+        )
 
         workspace.focusPanel(ordered[1])
 
@@ -44,7 +47,11 @@ struct MobileWorkspacePaneHierarchyFidelityTests {
             tabs: [workspace],
             selectedTabID: workspace.id
         )
+        let focusedAfter = MobileWorkspaceListObserver.focusedHierarchySignatureForTesting(
+            workspace: workspace
+        )
         #expect(before != after, "focused pane and selected terminal are mobile payload state")
+        #expect(focusedBefore != focusedAfter, "focus events recompute only the affected workspace")
     }
 
     @Test func movingTerminalAcrossPanesChangesHashWhenFlatOrderDoesNot() throws {

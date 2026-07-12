@@ -26,6 +26,7 @@ final class MobileWorkspaceListObserver {
     private var notificationsCancellable: AnyCancellable?
     private var unreadIndicatorsCancellable: AnyCancellable?
     private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
+    private var focusedHierarchySignatures: [UUID: Int] = [:]
     private var lastSummaryHash: Int = 0
     /// Throttle window with `latest: true`. First event in a burst emits
     /// immediately (iPhone gets the change in milliseconds), subsequent
@@ -54,6 +55,9 @@ final class MobileWorkspaceListObserver {
             previewSignatures: currentPreviewSignatures(for: tabManager.tabs)
         )
         lastSummaryHash = initial
+        focusedHierarchySignatures = Dictionary(uniqueKeysWithValues: tabManager.tabs.map {
+            ($0.id, Self.focusedHierarchySignature(for: $0))
+        })
         emitIfNeeded(force: true)
 
         tabsCancellable = tabManager.tabsPublisher
@@ -84,10 +88,10 @@ final class MobileWorkspaceListObserver {
             .sink { [weak self] notification in
                 guard let self,
                       let workspaceID = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
-                      self.tabManager?.tabs.contains(where: { $0.id == workspaceID }) == true else {
+                      let workspace = self.tabManager?.tabs.first(where: { $0.id == workspaceID }) else {
                     return
                 }
-                self.emitIfNeeded(force: false)
+                self.emitFocusedHierarchyUpdateIfNeeded(for: workspace)
             }
         // Group structure (order, name, collapse/pin, anchor, membership) is
         // iOS-facing: the phone renders collapsible group sections. A pure
@@ -177,12 +181,14 @@ final class MobileWorkspaceListObserver {
         // Drop subscriptions for workspaces that vanished.
         for id in perWorkspaceCancellables.keys where !currentIDs.contains(id) {
             perWorkspaceCancellables.removeValue(forKey: id)
+            focusedHierarchySignatures.removeValue(forKey: id)
         }
         // Merge the per-workspace publishers behind the mobile workspace
         // list: terminal set, terminal titles, workspace title, and displayed
         // directory fields. Directory changes can arrive from shell prompt
         // updates without changing the terminal set.
         for workspace in tabs where perWorkspaceCancellables[workspace.id] == nil {
+            focusedHierarchySignatures[workspace.id] = Self.focusedHierarchySignature(for: workspace)
             let publishers: [AnyPublisher<Void, Never>] = [
                 workspace.panelsPublisher.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$panelTitles.map { _ in () }.eraseToAnyPublisher(),
@@ -217,6 +223,31 @@ final class MobileWorkspaceListObserver {
                 self?.emitIfNeeded(force: false)
             }
         }
+    }
+
+    private func emitFocusedHierarchyUpdateIfNeeded(for workspace: Workspace) {
+        let signature = Self.focusedHierarchySignature(for: workspace)
+        guard focusedHierarchySignatures[workspace.id] != signature else { return }
+        focusedHierarchySignatures[workspace.id] = signature
+        mobileWorkspaceObserverLog.debug(
+            "emitting workspace.updated for focused hierarchy workspace=\(workspace.id, privacy: .public)"
+        )
+        MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
+    }
+
+    private static func focusedHierarchySignature(for workspace: Workspace) -> Int {
+        var hasher = Hasher()
+        let paneIDs = workspace.bonsplitController.allPaneIds
+        hasher.combine(workspace.bonsplitController.focusedPaneId?.id)
+        hasher.combine(workspace.focusedTerminalPanel?.id)
+        for paneID in paneIDs {
+            hasher.combine(paneID.id)
+            let selectedTerminalID: UUID? = workspace.bonsplitController.selectedTab(inPane: paneID)
+                .flatMap { workspace.panelIdFromSurfaceId($0.id) }
+                .flatMap { workspace.terminalPanel(for: $0)?.id }
+            hasher.combine(selectedTerminalID)
+        }
+        return hasher.finalize()
     }
 
     private func emitIfNeeded(force: Bool) {
@@ -332,6 +363,10 @@ final class MobileWorkspaceListObserver {
     }
 
     #if DEBUG
+    static func focusedHierarchySignatureForTesting(workspace: Workspace) -> Int {
+        focusedHierarchySignature(for: workspace)
+    }
+
     static func summaryHashForTesting(
         tabs: [Workspace],
         groups: [WorkspaceGroup] = [],
