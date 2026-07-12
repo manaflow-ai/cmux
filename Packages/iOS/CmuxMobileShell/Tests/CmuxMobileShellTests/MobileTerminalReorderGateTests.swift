@@ -101,11 +101,18 @@ import Testing
 
     let firstAccepted = owner.startIfIdle(claim: .unreserved, gate: gate) {
         firstStarted = true
+        guard !Task.isCancelled else { return }
         await withCheckedContinuation { firstRelease = $0 }
     }
-    while !firstStarted {
+    defer {
+        firstRelease?.resume()
+        owner.cancel(gate: gate)
+    }
+    for _ in 0..<100 where !firstStarted {
         await Task.yield()
     }
+    #expect(firstStarted)
+    guard firstStarted else { return }
     let duplicateReservation = try #require(gate.reserve(
         workspaceID: "duplicate-workspace",
         paneID: "duplicate-pane"
@@ -125,6 +132,7 @@ import Testing
     #expect(gate.canMutate(workspaceID: "duplicate-workspace"))
 
     firstRelease?.resume()
+    firstRelease = nil
     for _ in 0..<100 where owner.isActive {
         await Task.yield()
     }
