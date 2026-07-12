@@ -30,7 +30,7 @@ enum PortalDividerCursorKind: Equatable {
         let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { _ in
             let path = fourDirectionsArrowsPath(center: NSPoint(x: side / 2, y: side / 2))
             NSColor.white.setStroke()
-            path.lineWidth = 3
+            path.lineWidth = 2.5
             path.lineJoinStyle = .round
             path.stroke()
             NSColor.black.setFill()
@@ -43,10 +43,10 @@ enum PortalDividerCursorKind: Equatable {
     /// Cross of four arrows: shafts from the center with a triangular head
     /// per compass direction. Sized for a 24pt cursor image.
     private static func fourDirectionsArrowsPath(center c: NSPoint) -> NSBezierPath {
-        let tip: CGFloat = 10.5      // center -> arrow tip
-        let headLength: CGFloat = 4.5
-        let headHalfWidth: CGFloat = 3.6
-        let shaftHalfWidth: CGFloat = 1.2
+        let tip: CGFloat = 8.5      // center -> arrow tip
+        let headLength: CGFloat = 4.0
+        let headHalfWidth: CGFloat = 3.0
+        let shaftHalfWidth: CGFloat = 1.0
 
         let path = NSBezierPath()
         // Shafts (one cross: horizontal + vertical bars up to the head bases).
