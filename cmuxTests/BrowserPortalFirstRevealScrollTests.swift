@@ -67,6 +67,62 @@ struct BrowserPortalFirstRevealScrollTests {
         #expect(webView.browserPortalHasPendingFirstSizedRevealNudgeForTesting)
     }
 
+    @Test func navigationStartedInAlphaZeroBackgroundHostSetsPendingFirstRevealNudge() throws {
+        let hostFrame = NSRect(x: -10_000, y: -10_000, width: 800, height: 600)
+        let window = NSWindow(
+            contentRect: hostFrame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.alphaValue = 0
+        let contentView = NSView(frame: hostFrame)
+        let webView = RecordingWebView(frame: contentView.bounds, configuration: WKWebViewConfiguration())
+        contentView.addSubview(webView)
+        window.contentView = contentView
+        window.orderFrontRegardless()
+        defer {
+            webView.stopLoading()
+            window.orderOut(nil)
+            window.close()
+        }
+
+        #expect(webView.window === window)
+        #expect(webView.frame.width == 800)
+        #expect(webView.frame.height == 600)
+        #expect(!webView.browserPortalHasPendingFirstSizedRevealNudgeForTesting)
+
+        let navigationURL = try #require(URL(string: "about:blank"))
+        _ = browserLoadRequest(URLRequest(url: navigationURL), in: webView)
+
+        #expect(webView.browserPortalHasPendingFirstSizedRevealNudgeForTesting)
+    }
+
+    @Test func navigationStartedInVisibleSizedWindowDoesNotSetPendingFirstRevealNudge() throws {
+        let fixture = makeWindowFixture()
+        let webView = RecordingWebView(
+            frame: NSRect(x: 0, y: 0, width: 300, height: 180),
+            configuration: WKWebViewConfiguration()
+        )
+        fixture.window.contentView?.addSubview(webView)
+        fixture.window.orderFrontRegardless()
+        defer {
+            webView.stopLoading()
+            fixture.window.orderOut(nil)
+            fixture.window.close()
+        }
+
+        #expect(webView.window === fixture.window)
+        #expect(fixture.window.alphaValue > 0.01)
+        #expect(!webView.browserPortalHasPendingFirstSizedRevealNudgeForTesting)
+
+        let navigationURL = try #require(URL(string: "about:blank"))
+        _ = browserLoadRequest(URLRequest(url: navigationURL), in: webView)
+
+        #expect(!webView.browserPortalHasPendingFirstSizedRevealNudgeForTesting)
+    }
+
     @Test func hiddenHostRevealThroughPortalNudgesFrameOnceAndClearsFlag() async throws {
         let fixture = makeWindowFixture()
         defer { fixture.window.orderOut(nil) }
