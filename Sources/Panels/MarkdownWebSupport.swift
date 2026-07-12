@@ -32,7 +32,8 @@ final class MarkdownWebView: WKWebView {
     var onReenterWindow: (() -> Void)?
 
     private var needsRenderingReattach = false
-    private var pendingViewerNavigationChordPrefix: ShortcutStroke?
+    private var pendingViewerNavigationChord: (prefix: ShortcutStroke, expiresAt: TimeInterval)?
+    private static let viewerNavigationChordTimeout: TimeInterval = 0.7
 
     private static let viewerNavigationActions: [KeyboardShortcutSettings.Action] = [
         .diffViewerScrollDown,
@@ -65,21 +66,26 @@ final class MarkdownWebView: WKWebView {
         let candidates = Self.viewerNavigationActions.map { action in
             (action, KeyboardShortcutSettings.shortcut(for: action))
         }
-        if let pendingPrefix = pendingViewerNavigationChordPrefix {
-            pendingViewerNavigationChordPrefix = nil
-            for (action, shortcut) in candidates {
-                guard shortcut.firstStroke == pendingPrefix,
-                      let secondStroke = shortcut.secondStroke,
-                      secondStroke.matches(event: event) else { continue }
-                performViewerNavigationAction(action)
-                return true
+        if let pendingChord = pendingViewerNavigationChord {
+            pendingViewerNavigationChord = nil
+            if event.timestamp <= pendingChord.expiresAt {
+                for (action, shortcut) in candidates {
+                    guard shortcut.firstStroke == pendingChord.prefix,
+                          let secondStroke = shortcut.secondStroke,
+                          secondStroke.matches(event: event) else { continue }
+                    performViewerNavigationAction(action)
+                    return true
+                }
             }
         }
 
         for (action, shortcut) in candidates where !shortcut.isUnbound {
             if shortcut.secondStroke != nil {
                 if shortcut.firstStroke.matches(event: event) {
-                    pendingViewerNavigationChordPrefix = shortcut.firstStroke
+                    pendingViewerNavigationChord = (
+                        prefix: shortcut.firstStroke,
+                        expiresAt: event.timestamp + Self.viewerNavigationChordTimeout
+                    )
                     return true
                 }
             } else if shortcut.matches(event: event) {

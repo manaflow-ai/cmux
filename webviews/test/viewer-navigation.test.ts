@@ -35,6 +35,9 @@ test("viewer navigation shares smooth Vim and Emacs motions", () => {
   });
 
   dispatchKey("j");
+  viewer.scrollTop = 600;
+  dom.window.document.dispatchEvent(new dom.window.WheelEvent("wheel", { bubbles: true }));
+  dispatchKey("j");
   dispatchKey("d", { ctrlKey: true });
   dispatchKey("p", { ctrlKey: true });
   dispatchKey("G", { shiftKey: true });
@@ -43,8 +46,9 @@ test("viewer navigation shares smooth Vim and Emacs motions", () => {
 
   expect(calls).toEqual([
     ["to", { top: 72, behavior: "smooth" }],
-    ["to", { top: 372, behavior: "smooth" }],
-    ["to", { top: 300, behavior: "smooth" }],
+    ["to", { top: 672, behavior: "smooth" }],
+    ["to", { top: 972, behavior: "smooth" }],
+    ["to", { top: 900, behavior: "smooth" }],
     ["to", { top: 1_800, behavior: "smooth" }],
     ["to", { top: 0, behavior: "smooth" }],
   ]);

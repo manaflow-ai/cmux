@@ -1772,11 +1772,6 @@ html { scroll-behavior: smooth; }
     darkMql.addListener(window.__cmuxApplyTheme);
   }
   window.__cmuxApplyTheme();
-  window.__cmuxDisposeViewerNavigation = CmuxViewerNavigation.install({
-    target: document,
-    getScroller: markdownScroller,
-    shortcuts: {{viewerShortcutsJSON}}
-  });
   window.__cmuxPerformViewerNavigationAction = function(action) {
     return CmuxViewerNavigation.performAction(action, markdownScroller());
   };

@@ -1,11 +1,30 @@
 import AppKit
+import Testing
 import WebKit
-import XCTest
 @testable import cmux
 
 @MainActor
-final class ViewerNavigationTests: XCTestCase {
-    func testMarkdownViewerUsesSmoothVimAndEmacsNavigation() async throws {
+@Suite(.serialized)
+struct ViewerNavigationTests {
+    @Test
+    func cliDiffViewerShortcutsIncludeVimAndEmacsNavigation() {
+        let expected: [CMUXCLI.DiffViewerShortcutAction: CMUXCLI.DiffViewerShortcut] = [
+            .scrollHalfPageDown: .init(first: .init(key: "d", control: true)),
+            .scrollHalfPageUp: .init(first: .init(key: "u", control: true)),
+            .scrollDownEmacs: .init(first: .init(key: "n", control: true)),
+            .scrollUpEmacs: .init(first: .init(key: "p", control: true)),
+            .nextFile: .init(first: .init(key: "]"), second: .init(key: "f")),
+            .previousFile: .init(first: .init(key: "["), second: .init(key: "f")),
+        ]
+
+        for (action, shortcut) in expected {
+            #expect(action.defaultShortcut == shortcut)
+            #expect(shortcut.jsonObject["unbound"] == nil)
+        }
+    }
+
+    @Test
+    func markdownViewerUsesSmoothVimAndEmacsNavigation() async throws {
         let frame = NSRect(x: 0, y: 0, width: 720, height: 360)
         let webView = MarkdownWebView(frame: frame, configuration: WKWebViewConfiguration())
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -16,41 +35,14 @@ final class ViewerNavigationTests: XCTestCase {
             window.close()
         }
 
-        let loaded = expectation(description: "markdown shell loaded")
-        let loadDelegate = ViewerNavigationShellLoadDelegate(expectation: loaded)
+        let loadDelegate = ViewerNavigationShellLoadDelegate()
         webView.navigationDelegate = loadDelegate
-        webView.loadHTMLString(
+        try await loadDelegate.load(
             MarkdownViewerAssets.shared.shellHTML(isDark: true),
+            in: webView,
             baseURL: FileManager.default.temporaryDirectory.appendingPathComponent("navigation.md")
         )
-        await fulfillment(of: [loaded], timeout: 5)
-        if let error = loadDelegate.error {
-            throw error
-        }
         try await renderMarkdown(scrollSmokeMarkdown(), in: webView)
-
-        let result = try await webView.evaluateJavaScript(
-            """
-            (function() {
-              var scroller = document.scrollingElement || document.documentElement;
-              var calls = [];
-              scroller.scrollTo = function(options) { calls.push(options); };
-              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', bubbles: true }));
-              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, bubbles: true }));
-              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', ctrlKey: true, bubbles: true }));
-              return calls;
-            })();
-            """
-        )
-        let calls = try XCTUnwrap(result as? [[String: Any]])
-        XCTAssertEqual(calls.count, 3)
-        XCTAssertEqual(calls.map { $0["behavior"] as? String }, ["smooth", "smooth", "smooth"])
-        XCTAssertEqual((calls[0]["top"] as? NSNumber)?.doubleValue, 72)
-        XCTAssertGreaterThan((calls[1]["top"] as? NSNumber)?.doubleValue ?? 0, 100)
-        XCTAssertLessThan(
-            (calls[2]["top"] as? NSNumber)?.doubleValue ?? .greatestFiniteMagnitude,
-            (calls[1]["top"] as? NSNumber)?.doubleValue ?? 0
-        )
 
         try await webView.evaluateJavaScript(
             """
@@ -61,27 +53,48 @@ final class ViewerNavigationTests: XCTestCase {
             })();
             """
         )
-        XCTAssertTrue(webView.handleViewerNavigationKey(Self.keyEvent("j")))
-        XCTAssertTrue(webView.handleViewerNavigationKey(Self.keyEvent("d", modifiers: .control)))
-        XCTAssertTrue(webView.handleViewerNavigationKey(Self.keyEvent("g")))
-        XCTAssertTrue(webView.handleViewerNavigationKey(Self.keyEvent("g")))
-        XCTAssertFalse(webView.handleViewerNavigationKey(Self.keyEvent("x")))
-        let nativeCalls = try XCTUnwrap(
+        let domKeyCallCount = try #require(
+            try await webView.evaluateJavaScript(
+                "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', bubbles: true })); window.__cmuxNativeNavigationCalls.length"
+            ) as? NSNumber
+        )
+        #expect(domKeyCallCount.intValue == 0)
+        #expect(webView.handleViewerNavigationKey(Self.keyEvent("j")))
+        #expect(webView.handleViewerNavigationKey(Self.keyEvent("d", modifiers: .control)))
+        #expect(webView.handleViewerNavigationKey(Self.keyEvent("p", modifiers: .control)))
+        #expect(webView.handleViewerNavigationKey(Self.keyEvent("g")))
+        #expect(webView.handleViewerNavigationKey(Self.keyEvent("g")))
+        #expect(!webView.handleViewerNavigationKey(Self.keyEvent("x")))
+        let nativeCalls = try #require(
             try await webView.evaluateJavaScript("window.__cmuxNativeNavigationCalls") as? [[String: Any]]
         )
-        XCTAssertEqual(nativeCalls.count, 3)
-        XCTAssertEqual(nativeCalls.map { $0["behavior"] as? String }, ["smooth", "smooth", "smooth"])
-        XCTAssertGreaterThan((nativeCalls[0]["top"] as? NSNumber)?.doubleValue ?? 0, 0)
-        XCTAssertGreaterThan(
-            (nativeCalls[1]["top"] as? NSNumber)?.doubleValue ?? 0,
-            (nativeCalls[0]["top"] as? NSNumber)?.doubleValue ?? .greatestFiniteMagnitude
+        #expect(nativeCalls.count == 4)
+        #expect(nativeCalls.map { $0["behavior"] as? String } == ["smooth", "smooth", "smooth", "smooth"])
+        #expect((nativeCalls[0]["top"] as? NSNumber)?.doubleValue == 72)
+        #expect(
+            (nativeCalls[1]["top"] as? NSNumber)?.doubleValue ?? 0
+                > ((nativeCalls[0]["top"] as? NSNumber)?.doubleValue ?? .greatestFiniteMagnitude)
         )
-        XCTAssertEqual((nativeCalls[2]["top"] as? NSNumber)?.doubleValue, 0)
+        #expect(
+            (nativeCalls[2]["top"] as? NSNumber)?.doubleValue ?? .greatestFiniteMagnitude
+                < ((nativeCalls[1]["top"] as? NSNumber)?.doubleValue ?? 0)
+        )
+        #expect((nativeCalls[3]["top"] as? NSNumber)?.doubleValue == 0)
+
+        _ = try await webView.evaluateJavaScript("window.__cmuxNativeNavigationCalls = []")
+        #expect(webView.handleViewerNavigationKey(Self.keyEvent("g", timestamp: 10)))
+        #expect(webView.handleViewerNavigationKey(Self.keyEvent("g", timestamp: 11)))
+        #expect(webView.handleViewerNavigationKey(Self.keyEvent("g", timestamp: 11.1)))
+        let expiredChordCalls = try #require(
+            try await webView.evaluateJavaScript("window.__cmuxNativeNavigationCalls") as? [[String: Any]]
+        )
+        #expect(expiredChordCalls.count == 1)
+        #expect((expiredChordCalls[0]["top"] as? NSNumber)?.doubleValue == 0)
     }
 
     private func renderMarkdown(_ markdown: String, in webView: WKWebView) async throws {
         let data = try JSONSerialization.data(withJSONObject: [markdown])
-        let literal = try XCTUnwrap(String(data: data, encoding: .utf8))
+        let literal = try #require(String(data: data, encoding: .utf8))
         _ = try await webView.evaluateJavaScript("window.__cmuxRenderMarkdown(\(literal)[0]);")
     }
 
@@ -95,13 +108,14 @@ final class ViewerNavigationTests: XCTestCase {
 
     private static func keyEvent(
         _ characters: String,
-        modifiers: NSEvent.ModifierFlags = []
+        modifiers: NSEvent.ModifierFlags = [],
+        timestamp: TimeInterval = 0
     ) -> NSEvent {
         NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: modifiers,
-            timestamp: 0,
+            timestamp: timestamp,
             windowNumber: 0,
             context: nil,
             characters: characters,
@@ -113,24 +127,35 @@ final class ViewerNavigationTests: XCTestCase {
 }
 
 private final class ViewerNavigationShellLoadDelegate: NSObject, WKNavigationDelegate {
-    let expectation: XCTestExpectation
-    var error: Error?
+    private var continuation: CheckedContinuation<Void, Error>?
 
-    init(expectation: XCTestExpectation) {
-        self.expectation = expectation
+    func load(_ html: String, in webView: WKWebView, baseURL: URL) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+            webView.loadHTMLString(html, baseURL: baseURL)
+        }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        expectation.fulfill()
+        finish(.success(()))
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        self.error = error
-        expectation.fulfill()
+        finish(.failure(error))
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        self.error = error
-        expectation.fulfill()
+        finish(.failure(error))
+    }
+
+    private func finish(_ result: Result<Void, Error>) {
+        guard let continuation else { return }
+        self.continuation = nil
+        switch result {
+        case .success:
+            continuation.resume()
+        case .failure(let error):
+            continuation.resume(throwing: error)
+        }
     }
 }

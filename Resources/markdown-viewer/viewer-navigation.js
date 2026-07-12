@@ -111,6 +111,11 @@
       }
     }
 
+    function clearSmoothTarget() {
+      var scroller = getScroller();
+      if (scroller) { smoothTargets.delete(scroller); }
+    }
+
     function listener(event) {
       if (event.defaultPrevented || isEditableTarget(event.target)) { return; }
       if (pending) {
@@ -137,9 +142,15 @@
     }
 
     target.addEventListener('keydown', listener);
+    target.addEventListener('wheel', clearSmoothTarget, true);
+    target.addEventListener('touchstart', clearSmoothTarget, true);
+    target.addEventListener('pointerdown', clearSmoothTarget, true);
     return function() {
       clearPending();
       target.removeEventListener('keydown', listener);
+      target.removeEventListener('wheel', clearSmoothTarget, true);
+      target.removeEventListener('touchstart', clearSmoothTarget, true);
+      target.removeEventListener('pointerdown', clearSmoothTarget, true);
     };
   }
 

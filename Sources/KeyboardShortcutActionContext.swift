@@ -2,6 +2,46 @@ import CmuxCommandPalette
 import CmuxSettings
 
 extension KeyboardShortcutSettings.Action {
+    var allowsBareFirstStroke: Bool {
+        switch self {
+        case .diffViewerScrollDown,
+             .diffViewerScrollUp,
+             .diffViewerScrollHalfPageDown,
+             .diffViewerScrollHalfPageUp,
+             .diffViewerScrollDownEmacs,
+             .diffViewerScrollUpEmacs,
+             .diffViewerScrollToBottom,
+             .diffViewerScrollToTop,
+             .diffViewerOpenFileSearch,
+             .diffViewerNextFile,
+             .diffViewerPreviousFile,
+             .fileExplorerOpenSelection,
+             .fileExplorerOpenSelectionFinderAlias:
+            return true
+        default:
+            return false
+        }
+    }
+
+    var isBrowserContentShortcut: Bool {
+        switch self {
+        case .diffViewerScrollDown,
+             .diffViewerScrollUp,
+             .diffViewerScrollHalfPageDown,
+             .diffViewerScrollHalfPageUp,
+             .diffViewerScrollDownEmacs,
+             .diffViewerScrollUpEmacs,
+             .diffViewerScrollToBottom,
+             .diffViewerScrollToTop,
+             .diffViewerOpenFileSearch,
+             .diffViewerNextFile,
+             .diffViewerPreviousFile:
+            return true
+        default:
+            return false
+        }
+    }
+
     enum ShortcutContext: Equatable {
         case application
         case nonBrowserPanel

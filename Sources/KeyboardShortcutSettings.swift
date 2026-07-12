@@ -181,15 +181,12 @@ enum KeyboardShortcutSettings {
         case openDiffViewer
         case diffViewerScrollDown
         case diffViewerScrollUp
-        case diffViewerScrollHalfPageDown
-        case diffViewerScrollHalfPageUp
-        case diffViewerScrollDownEmacs
-        case diffViewerScrollUpEmacs
+        case diffViewerScrollHalfPageDown, diffViewerScrollHalfPageUp
+        case diffViewerScrollDownEmacs, diffViewerScrollUpEmacs
         case diffViewerScrollToBottom
         case diffViewerScrollToTop
         case diffViewerOpenFileSearch
-        case diffViewerNextFile
-        case diffViewerPreviousFile
+        case diffViewerNextFile, diffViewerPreviousFile
 
         var id: String { rawValue }
 
@@ -625,48 +622,8 @@ enum KeyboardShortcutSettings {
             }
         }
 
-        var allowsBareFirstStroke: Bool {
-            switch self {
-            case .diffViewerScrollDown,
-                 .diffViewerScrollUp,
-                 .diffViewerScrollHalfPageDown,
-                 .diffViewerScrollHalfPageUp,
-                 .diffViewerScrollDownEmacs,
-                 .diffViewerScrollUpEmacs,
-                 .diffViewerScrollToBottom,
-                 .diffViewerScrollToTop,
-                 .diffViewerOpenFileSearch,
-                 .diffViewerNextFile,
-                 .diffViewerPreviousFile,
-                 .fileExplorerOpenSelection,
-                 .fileExplorerOpenSelectionFinderAlias:
-                return true
-            default:
-                return false
-            }
-        }
-
         var allowsChordShortcut: Bool {
             self != .fileExplorerOpenSelection && self != .fileExplorerOpenSelectionFinderAlias && self != .cycleTextBoxSubmitAction
-        }
-
-        var isBrowserContentShortcut: Bool {
-            switch self {
-            case .diffViewerScrollDown,
-                 .diffViewerScrollUp,
-                 .diffViewerScrollHalfPageDown,
-                 .diffViewerScrollHalfPageUp,
-                 .diffViewerScrollDownEmacs,
-                 .diffViewerScrollUpEmacs,
-                 .diffViewerScrollToBottom,
-                 .diffViewerScrollToTop,
-                 .diffViewerOpenFileSearch,
-                 .diffViewerNextFile,
-                 .diffViewerPreviousFile:
-                return true
-            default:
-                return false
-            }
         }
 
         func displayedShortcutString(for shortcut: StoredShortcut) -> String {
