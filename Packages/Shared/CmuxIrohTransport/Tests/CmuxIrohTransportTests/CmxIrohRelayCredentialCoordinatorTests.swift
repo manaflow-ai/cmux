@@ -42,7 +42,7 @@ struct CmxIrohRelayCredentialCoordinatorTests {
         #expect(updates[0].map(\.url) == fixture.relayURLs)
         #expect(await coordinator.credentialExpiresAt() == fixture.expiresAt)
         #expect(await installs.values() == [response])
-        #expect(await broker.observedBindingIDs().isEmpty)
+        #expect(await broker.observedEndpointIDs().isEmpty)
         await coordinator.deactivate()
         #expect(await clockEvents.next() == .cancelled)
     }
@@ -73,7 +73,7 @@ struct CmxIrohRelayCredentialCoordinatorTests {
             return
         }
         #expect(deadline == fixture.refreshAfter)
-        #expect(await broker.observedBindingIDs() == [fixture.bindingID])
+        #expect(await broker.observedEndpointIDs() == [fixture.identity])
         #expect(await endpoint.observedRelayUpdates().count == 1)
         #expect(try await supervisor.activeEndpoint().identity() == fixture.identity)
         await coordinator.deactivate()
@@ -105,7 +105,7 @@ struct CmxIrohRelayCredentialCoordinatorTests {
             return
         }
         #expect(deadline == fixture.now.addingTimeInterval(60))
-        #expect(await broker.observedBindingIDs() == [fixture.bindingID])
+        #expect(await broker.observedEndpointIDs() == [fixture.identity])
         #expect(await endpoint.observedRelayUpdates().isEmpty)
         #expect(try await supervisor.activeEndpoint().identity() == fixture.identity)
         await coordinator.deactivate()
@@ -160,14 +160,17 @@ private actor TestRelayTokenBroker: CmxIrohRelayTokenServing {
     }
 
     private var steps: [Step]
-    private var bindingIDs: [String] = []
+    private var endpointIDs: [CmxIrohPeerIdentity] = []
 
     init(steps: [Step]) {
         self.steps = steps
     }
 
-    func issueRelayToken(bindingID: String) throws -> CmxIrohRelayTokenResponse {
-        bindingIDs.append(bindingID)
+    func issueRelayToken(
+        bindingID _: String,
+        endpointID: CmxIrohPeerIdentity
+    ) throws -> CmxIrohRelayTokenResponse {
+        endpointIDs.append(endpointID)
         guard !steps.isEmpty else { throw TestRelayCoordinatorError.noResponse }
         switch steps.removeFirst() {
         case let .response(response):
@@ -177,8 +180,8 @@ private actor TestRelayTokenBroker: CmxIrohRelayTokenServing {
         }
     }
 
-    func observedBindingIDs() -> [String] {
-        bindingIDs
+    func observedEndpointIDs() -> [CmxIrohPeerIdentity] {
+        endpointIDs
     }
 }
 

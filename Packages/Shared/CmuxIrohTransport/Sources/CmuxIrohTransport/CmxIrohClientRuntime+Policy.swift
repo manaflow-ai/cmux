@@ -78,10 +78,6 @@ extension CmxIrohClientRuntime {
         guard expectation.matches(registration.binding) else {
             throw CmxIrohClientRuntimeError.invalidLocalBinding
         }
-        if case let .issued(relay) = registration.relay {
-            try validateRelayFleet(relay.relayFleet)
-        }
-
         let discovery: CmxIrohDiscoveryResponse
         do {
             discovery = try await broker.discover()
@@ -179,17 +175,7 @@ extension CmxIrohClientRuntime {
             relayCoordinator = coordinator
         }
 
-        let bootstrap: CmxIrohRelayTokenResponse?
-        if let registration = policy.registration {
-            switch registration.relay {
-            case let .issued(response):
-                bootstrap = response
-            case .unavailable, .notRequested:
-                bootstrap = startRelays ? configuration.cachedRelayCredential : nil
-            }
-        } else {
-            bootstrap = startRelays ? configuration.cachedRelayCredential : nil
-        }
+        let bootstrap = startRelays ? configuration.cachedRelayCredential : nil
         if startRelays || bootstrap != nil {
             do {
                 try await coordinator.activate(

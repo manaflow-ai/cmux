@@ -45,12 +45,8 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         }
     }
 
-    private static let managedRelayURLs: Set<String> = [
-        "https://aps1-1.relay.lawrence.cmux.iroh.link/",
-        "https://euc1-1.relay.lawrence.cmux.iroh.link/",
-        "https://use1-1.relay.lawrence.cmux.iroh.link/",
-        "https://usw1-1.relay.lawrence.cmux.iroh.link/",
-    ]
+    private static let relayDeployment = CmxIrohRelayDeployment.current
+    private static let managedRelayURLs = relayDeployment.urls
     private static let capabilities = ["mobile-rpc-v1", "multistream-v1"]
 
     /// The stable factory registered before debug-loopback and Tailscale fallbacks.
@@ -159,7 +155,8 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
                 }
                 return try CmxIrohTrustBrokerClient(
                     baseURL: baseURL,
-                    tokenSource: tokenSource
+                    tokenSource: tokenSource,
+                    relayTokenEndpoint: Self.relayDeployment.tokenEndpoint
                 )
             },
             deviceID: { stableDeviceID },

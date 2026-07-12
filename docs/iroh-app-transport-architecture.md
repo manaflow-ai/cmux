@@ -109,18 +109,21 @@ The fork must expose cancellation for an in-progress connect. Closing a QUIC con
 
 ## Relay fleet
 
-Production endpoints use only these managed relays:
+The target self-hosted deployment uses only these managed relays:
 
-- `https://euc1-1.relay.lawrence.cmux.iroh.link/`
-- `https://use1-1.relay.lawrence.cmux.iroh.link/`
-- `https://usw1-1.relay.lawrence.cmux.iroh.link/`
-- `https://aps1-1.relay.lawrence.cmux.iroh.link/`
+- `https://ape1.relay.cmux.dev/`
+- `https://apne1.relay.cmux.dev/`
+- `https://apse1.relay.cmux.dev/`
+- `https://euw4.relay.cmux.dev/`
+- `https://usc1.relay.cmux.dev/`
+- `https://use4.relay.cmux.dev/`
+- `https://usw1.relay.cmux.dev/`
 
-The four URLs form the local endpoint's allowed relay fleet. They must not all be synthesized as addresses for every remote endpoint. A remote `EndpointAddr` contains only the remote endpoint's currently advertised home relay or relays, validated against the fleet allowlist. Iroh currently expects zero or one home relay in normal operation. Fleet configuration and remote reachability are separate wire fields.
+The seven URLs form the local endpoint's allowed relay fleet. They must not all be synthesized as addresses for every remote endpoint. A remote `EndpointAddr` contains only the remote endpoint's currently advertised home relay or relays, validated against the fleet allowlist. Fleet configuration and remote reachability are separate wire fields.
 
-The Iroh Services project secret stays in a backend-only secret store. Apps receive an endpoint-bound RCAN containing only `relay:use`. Relay capabilities last 24 hours and refresh around 12 hours with jitter. The RCAN minter is a separately deployed Rust service and project, so the TypeScript trust broker cannot read `IROH_SERVICES_API_SECRET`; only a shared HMAC crosses that boundary. The API key pasted during planning must be rotated before deployment.
+A signed-in native client calls `POST /api/relay/token` with its canonical 64-character lowercase hexadecimal EndpointID. The web API returns the complete relay map and a five-minute EdDSA JWT bound to that key. Each relay verifies the JWT offline. The app normalizes each returned HTTPS origin, requires an exact match with its compiled allowlist, refreshes one minute before expiry with at most 30 seconds of jitter, and replaces relay credentials on the live endpoint without changing EndpointID or application streams.
 
-Relay replacement must be behavior-tested before rollout. Iroh 1.0 caches the authentication token in an active relay actor, so updating a relay map entry alone may not refresh a live actor. The implementation must use an explicit fork API or make-before-break rotation and prove that EndpointID and active application streams survive refresh.
+Tagged Debug builds use the self-hosted fleet and endpoint-bound token API. Release builds retain the legacy hosted fleet and binding-scoped issuer until the relay enforces an account-wide resource bound or closes sessions at JWT expiry. [cmux-relay issue 2](https://github.com/manaflow-ai/cmux-relay/issues/2) is closed after adding per-EndpointID connection and per-connection traffic caps, but the deployed code explicitly leaves admitted connections alive after expiry. A per-EndpointID cap does not bound one account that mints multiple EndpointIDs over time. The previously pasted Iroh Services API key is unused by the self-hosted fleet and must still be rotated because it was disclosed.
 
 [Upstream issue 4319](https://github.com/n0-computer/iroh/issues/4319) reports roughly 30 seconds of lost reachability after a custom home relay fails even when another relay is configured. Relay failover and rolling restarts require a soak and telemetry gate that measures inbound-reachability gaps, stream survival, and recovery latency. cmux does not claim relay high availability until those bounds pass.
 

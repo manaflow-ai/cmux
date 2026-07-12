@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 import Testing
 @testable import CmuxIrohTransport
@@ -83,6 +84,121 @@ struct CmxIrohTrustBrokerClientTests {
 
         #expect(response.binding.tag == "stable")
         #expect(response.relay == .notRequested)
+    }
+
+    @Test
+    func relayTokenBindsCanonicalHexEndpointAndNormalizesFleetOrigins() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: """
+                {"token":"\(Self.relayJWT)","expiresAt":1782000300,"ttlSeconds":300,"relays":["https://usc1.relay.cmux.dev","https://euw4.relay.cmux.dev/"]}
+                """
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+        let endpointID = try CmxIrohPeerIdentity(endpointID: Self.endpointID)
+
+        let response = try await client.issueRelayToken(
+            bindingID: Self.bindingID,
+            endpointID: endpointID
+        )
+
+        #expect(response.relayFleet == [
+            "https://usc1.relay.cmux.dev/",
+            "https://euw4.relay.cmux.dev/",
+        ])
+        let configurations = try response.relayConfigurations(
+            now: Date(timeIntervalSince1970: 1_782_000_000)
+        )
+        #expect(configurations.count == 2)
+        #expect(configurations.allSatisfy {
+            $0.token == Self.relayJWT
+        })
+
+        let captured = try #require(await transport.requests().first)
+        #expect(captured.url?.path == "/api/relay/token")
+        let body = try #require(captured.httpBody)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        #expect(object.count == 1)
+        #expect(object["endpointId"] as? String == Self.endpointID)
+    }
+
+    @Test
+    func relayTokenRejectsNonOriginFleetURL() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: """
+                {"token":"\(Self.relayJWT)","expiresAt":1782000300,"ttlSeconds":300,"relays":["https://relay.cmux.dev/capture"]}
+                """
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+        let endpointID = try CmxIrohPeerIdentity(endpointID: Self.endpointID)
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
+            _ = try await client.issueRelayToken(
+                bindingID: Self.bindingID,
+                endpointID: endpointID
+            )
+        }
+    }
+
+    @Test
+    func relayTokenRejectsJWTBoundToAnotherEndpoint() async throws {
+        let substituted = Self.makeRelayJWT(endpointID: String(repeating: "f", count: 64))
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: """
+                {"token":"\(substituted)","expiresAt":1782000300,"ttlSeconds":300,"relays":["https://usc1.relay.cmux.dev"]}
+                """
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+        let endpointID = try CmxIrohPeerIdentity(endpointID: Self.endpointID)
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
+            _ = try await client.issueRelayToken(
+                bindingID: Self.bindingID,
+                endpointID: endpointID
+            )
+        }
+    }
+
+    @Test
+    func legacyRelayTokenRouteRemainsAvailableForReleaseGate() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: """
+                {"token":"abc234","expires_at":"2026-07-11T00:00:00.000Z","refresh_after":"2026-07-10T12:00:00.000Z","relay_fleet":["https://use1-1.relay.lawrence.cmux.iroh.link/"]}
+                """
+            ),
+        ])
+        let client = try makeClient(
+            transport: transport,
+            relayTokenEndpoint: .legacyTrustBroker
+        )
+        let endpointID = try CmxIrohPeerIdentity(endpointID: Self.endpointID)
+
+        let response = try await client.issueRelayToken(
+            bindingID: Self.bindingID,
+            endpointID: endpointID
+        )
+
+        #expect(response.token == "abc234")
+        let captured = try #require(await transport.requests().first)
+        #expect(captured.url?.path == "/api/devices/iroh/relay-token")
+        let body = try #require(captured.httpBody)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        #expect(object.count == 1)
+        #expect(object["bindingId"] as? String == Self.bindingID)
     }
 
     @Test
@@ -229,12 +345,14 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     private func makeClient(
-        transport: RecordingBrokerTransport
+        transport: RecordingBrokerTransport,
+        relayTokenEndpoint: CmxIrohRelayTokenEndpoint = .selfHosted
     ) throws -> CmxIrohTrustBrokerClient {
         try CmxIrohTrustBrokerClient(
             baseURL: #require(URL(string: "https://cmux.example")),
             tokenSource: Self.tokenSource,
-            transport: transport
+            transport: transport,
+            relayTokenEndpoint: relayTokenEndpoint
         )
     }
 
@@ -268,10 +386,29 @@ struct CmxIrohTrustBrokerClientTests {
     )
     private static let endpointID =
         "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+    private static let bindingID = "123e4567-e89b-42d3-a456-426614174010"
+    private static let relayJWT = makeRelayJWT(endpointID: endpointID)
     private static let relayURLs = [
         "https://euc1-1.relay.lawrence.cmux.iroh.link/",
         "https://use1-1.relay.lawrence.cmux.iroh.link/",
     ]
+
+    private static func base64URL(_ value: String) -> String {
+        Data(value.utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    private static func makeRelayJWT(endpointID: String) -> String {
+        [
+            base64URL(#"{"alg":"EdDSA","typ":"JWT"}"#),
+            base64URL(
+                #"{"iss":"cmux","aud":"cmux-relay","exp":1782000300,"endpoint_id":"\#(endpointID)"}"#
+            ),
+            "signature",
+        ].joined(separator: ".")
+    }
     private static let registrationResponse = """
     {
       "binding": {
@@ -336,107 +473,4 @@ struct CmxIrohTrustBrokerClientTests {
       }
     }
     """
-}
-
-private final class BrokerRedirectURLProtocol: URLProtocol, @unchecked Sendable {
-    private static let lock = NSLock()
-    nonisolated(unsafe) private static var destination: URL?
-    nonisolated(unsafe) private static var captured: [URLRequest] = []
-
-    static func reset(destination: URL) {
-        lock.lock()
-        self.destination = destination
-        captured.removeAll()
-        lock.unlock()
-    }
-
-    static func capturedDestinationRequests() -> [URLRequest] {
-        lock.lock()
-        defer { lock.unlock() }
-        return captured
-    }
-
-    override class func canInit(with request: URLRequest) -> Bool {
-        ["cmux.example", "attacker.example"].contains(request.url?.host)
-    }
-
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
-        request
-    }
-
-    override func startLoading() {
-        guard let url = request.url else {
-            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
-            return
-        }
-        if url.path == "/capture" {
-            Self.lock.lock()
-            Self.captured.append(request)
-            Self.lock.unlock()
-            let response = HTTPURLResponse(
-                url: url,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: ["Content-Type": "application/json"]
-            )!
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: Data("{}".utf8))
-            client?.urlProtocolDidFinishLoading(self)
-            return
-        }
-
-        Self.lock.lock()
-        let destination = Self.destination
-        Self.lock.unlock()
-        guard let destination else {
-            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
-            return
-        }
-        var redirected = request
-        redirected.url = destination
-        let response = HTTPURLResponse(
-            url: url,
-            statusCode: 302,
-            httpVersion: nil,
-            headerFields: ["Location": destination.absoluteString]
-        )!
-        client?.urlProtocol(self, wasRedirectedTo: redirected, redirectResponse: response)
-    }
-
-    override func stopLoading() {}
-}
-
-private actor RecordingBrokerTransport: CmxIrohHTTPTransport {
-    struct Response: Sendable {
-        let status: Int
-        let body: Data
-
-        static func json(status: Int, body: String) -> Self {
-            Self(status: status, body: Data(body.utf8))
-        }
-    }
-
-    private var pending: [Response]
-    private var captured: [URLRequest] = []
-    private let failure: URLError.Code?
-
-    init(responses: [Response], failure: URLError.Code? = nil) {
-        pending = responses
-        self.failure = failure
-    }
-
-    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
-        captured.append(request)
-        if let failure { throw URLError(failure) }
-        let response = pending.removeFirst()
-        let http = HTTPURLResponse(
-            url: request.url!,
-            statusCode: response.status,
-            httpVersion: nil,
-            headerFields: ["Content-Type": "application/json"]
-        )!
-        return (response.body, http)
-    }
-
-    func requests() -> [URLRequest] { captured }
 }

@@ -1,3 +1,4 @@
+import CMUXMobileCore
 @testable import CmuxIrohTransport
 
 actor TestIrohClientBroker: CmxIrohClientBrokerServing {
@@ -47,7 +48,10 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
         throw TestIrohTransportError.unsupported
     }
 
-    func issueRelayToken(bindingID _: String) -> CmxIrohRelayTokenResponse {
+    func issueRelayToken(
+        bindingID _: String,
+        endpointID _: CmxIrohPeerIdentity
+    ) -> CmxIrohRelayTokenResponse {
         relayResponse
     }
 

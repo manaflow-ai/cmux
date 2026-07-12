@@ -472,15 +472,6 @@ public actor CmxIrohHostRuntime {
         )
     }
 
-    func registrationRelayBootstrap(
-        _ registration: CmxIrohRegistrationResponse
-    ) -> CmxIrohRelayTokenResponse? {
-        switch registration.relay {
-        case let .issued(response): response
-        case .unavailable, .notRequested: configuration.cachedRelayCredential
-        }
-    }
-
     static func isConnectivityFailure(_ error: any Error) -> Bool {
         guard let brokerError = error as? CmxIrohTrustBrokerClientError else {
             return false

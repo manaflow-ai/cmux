@@ -54,27 +54,15 @@ extension CmxIrohHostRuntime {
         }
         try requireCurrent(revision)
         try validateLocalBinding(registration.binding, endpointID: expectedEndpointID)
-        if case let .issued(relay) = registration.relay {
-            guard Set(relay.relayFleet) == configuration.managedRelayURLs,
-                  relay.relayFleet.count == configuration.managedRelayURLs.count else {
-                throw CmxIrohHostRuntimeError.relayFleetMismatch
-            }
-        }
-
         let discovery: CmxIrohDiscoveryResponse
         do {
             discovery = try await broker.discover()
         } catch {
-            let relayBootstrap: CmxIrohRelayTokenResponse?
-            switch registration.relay {
-            case let .issued(response): relayBootstrap = response
-            case .unavailable, .notRequested: relayBootstrap = nil
-            }
             return try cachedPolicy(
                 after: error,
                 expectedEndpointID: expectedEndpointID,
                 confirmedBinding: registration.binding,
-                relayBootstrap: relayBootstrap,
+                relayBootstrap: nil,
                 allowFallback: allowCachedFallback
             )
         }
@@ -103,7 +91,7 @@ extension CmxIrohHostRuntime {
             pairingEnabled: discovered.pairingEnabled,
             grantVerificationKeys: discovery.grantVerificationKeys,
             attestation: attestation,
-            relayBootstrap: registrationRelayBootstrap(registration),
+            relayBootstrap: configuration.cachedRelayCredential,
             lanRendezvous: discovery.lanRendezvous
         )
     }

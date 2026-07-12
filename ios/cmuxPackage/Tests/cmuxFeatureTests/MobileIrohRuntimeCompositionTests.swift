@@ -802,7 +802,8 @@ private actor MobileIrohRevocationBroker: CmxIrohClientBrokerServing {
     }
 
     func issueRelayToken(
-        bindingID _: String
+        bindingID _: String,
+        endpointID _: CmxIrohPeerIdentity
     ) throws -> CmxIrohRelayTokenResponse {
         throw MobileIrohSignOutTestError.unavailable
     }

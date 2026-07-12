@@ -273,7 +273,10 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         throw TestIrohTransportError.unsupported
     }
 
-    func issueRelayToken(bindingID _: String) -> CmxIrohRelayTokenResponse {
+    func issueRelayToken(
+        bindingID _: String,
+        endpointID _: CmxIrohPeerIdentity
+    ) -> CmxIrohRelayTokenResponse {
         CmxIrohRelayTokenResponse(
             token: "testrelaytoken",
             expiresAt: "2027-07-10T12:00:00.000Z",

@@ -33,7 +33,7 @@ public actor CmxIrohRelayCredentialCoordinator {
         jitter: @escaping @Sendable (_ now: Date, _ refreshAfter: Date) -> Date = {
             now,
             refreshAfter in
-            let window = min(15 * 60, max(0, refreshAfter.timeIntervalSince(now)))
+            let window = min(30, max(0, refreshAfter.timeIntervalSince(now)))
             return refreshAfter.addingTimeInterval(-Double.random(in: 0 ... window))
         },
         credentialDidInstall: @escaping @Sendable (
@@ -62,14 +62,15 @@ public actor CmxIrohRelayCredentialCoordinator {
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
         refreshTask?.cancel()
-        binding = Binding(id: bindingID, endpointIdentity: endpointIdentity)
+        let expectedBinding = Binding(id: bindingID, endpointIdentity: endpointIdentity)
+        binding = expectedBinding
         installedCredential = nil
 
         if let bootstrap {
             do {
                 let installed = try await install(
                     bootstrap,
-                    binding: Binding(id: bindingID, endpointIdentity: endpointIdentity),
+                    binding: expectedBinding,
                     revision: revision
                 )
                 startLoop(revision: revision, firstRefresh: installed.refreshAfter)
@@ -81,7 +82,25 @@ public actor CmxIrohRelayCredentialCoordinator {
                 throw error
             }
         }
-        startLoop(revision: revision, firstRefresh: nil)
+        do {
+            let response = try await broker.issueRelayToken(
+                bindingID: bindingID,
+                endpointID: endpointIdentity
+            )
+            let installed = try await install(
+                response,
+                binding: expectedBinding,
+                revision: revision
+            )
+            startLoop(revision: revision, firstRefresh: installed.refreshAfter)
+        } catch {
+            if isCurrent(revision), !Task.isCancelled {
+                startLoop(
+                    revision: revision,
+                    firstRefresh: clock.now().addingTimeInterval(60)
+                )
+            }
+        }
     }
 
     /// Cancels all scheduled refresh work and forgets binding-scoped state.
@@ -117,7 +136,10 @@ public actor CmxIrohRelayCredentialCoordinator {
             }
             guard isCurrent(revision), !Task.isCancelled, let binding else { return }
             do {
-                let response = try await broker.issueRelayToken(bindingID: binding.id)
+                let response = try await broker.issueRelayToken(
+                    bindingID: binding.id,
+                    endpointID: binding.endpointIdentity
+                )
                 let installed = try await install(
                     response,
                     binding: binding,

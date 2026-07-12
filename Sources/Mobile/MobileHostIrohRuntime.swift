@@ -16,12 +16,8 @@ let mobileHostIrohLog = Logger(
 final class MobileHostIrohRuntime {
     static let shared = MobileHostIrohRuntime()
 
-    static let managedRelayURLs: Set<String> = [
-        "https://aps1-1.relay.lawrence.cmux.iroh.link/",
-        "https://euc1-1.relay.lawrence.cmux.iroh.link/",
-        "https://use1-1.relay.lawrence.cmux.iroh.link/",
-        "https://usw1-1.relay.lawrence.cmux.iroh.link/",
-    ]
+    static let relayDeployment = CmxIrohRelayDeployment.current
+    static let managedRelayURLs = relayDeployment.urls
     static let capabilities = ["mobile-rpc-v1", "multistream-v1"]
 
     let appInstances: CmxIrohAppInstanceRepository
@@ -132,7 +128,8 @@ final class MobileHostIrohRuntime {
                 tokenSource: CmxIrohBrokerTokenSource(
                     accessToken: { accessToken },
                     refreshToken: { refreshToken }
-                )
+                ),
+                relayTokenEndpoint: Self.relayDeployment.tokenEndpoint
             )
             try await preparation.revoke(
                 using: broker,
@@ -298,7 +295,8 @@ final class MobileHostIrohRuntime {
                           let tokens = try? await auth.currentTokens() else { return nil }
                     return tokens.refreshToken
                 }
-            )
+            ),
+            relayTokenEndpoint: Self.relayDeployment.tokenEndpoint
         )
         let configuration = CmxIrohHostRuntimeConfiguration(
             accountID: accountID,

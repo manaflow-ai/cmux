@@ -17,7 +17,18 @@ struct CmxIrohConfigurationTests {
     }
 
     @Test
-    func relayCredentialRequiresCanonicalURLBase32AndFutureRefresh() throws {
+    func relayDeploymentKeepsReleaseBehindTheSecurityGate() {
+        #expect(CmxIrohRelayDeployment.selfHosted.urls.count == 7)
+        #expect(CmxIrohRelayDeployment.legacy.urls.count == 4)
+        #if DEBUG
+        #expect(CmxIrohRelayDeployment.current == CmxIrohRelayDeployment.selfHosted)
+        #else
+        #expect(CmxIrohRelayDeployment.current == CmxIrohRelayDeployment.legacy)
+        #endif
+    }
+
+    @Test
+    func relayCredentialRequiresCanonicalURLTokenAndFutureRefresh() throws {
         #expect(throws: CmxIrohRelayConfigurationError.invalidURL) {
             try relay(url: "http://relay.example/", token: "aaaa")
         }
@@ -27,6 +38,10 @@ struct CmxIrohConfigurationTests {
         #expect(throws: CmxIrohRelayConfigurationError.invalidToken) {
             try relay(url: "https://relay.example/", token: "upperCASE")
         }
+        #expect(
+            try relay(url: "https://relay.example/", token: "aB_-.cD-_.eF_-").token
+                == "aB_-.cD-_.eF_-"
+        )
         #expect(throws: CmxIrohRelayConfigurationError.invalidLifetime) {
             try CmxIrohRelayConfiguration(
                 url: "https://relay.example/",
