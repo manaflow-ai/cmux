@@ -129,26 +129,41 @@ final class cmuxUITests: XCTestCase {
         defer { app.terminate() }
 
         XCTAssertTrue(app.otherElements["MobileTerminalHierarchySheet"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.otherElements["MobileTerminalHierarchyWorkspace"].exists)
-        XCTAssertTrue(app.otherElements["MobileTerminalHierarchyPane-pane-left"].exists)
-        XCTAssertTrue(app.otherElements["MobileTerminalHierarchyPane-pane-right"].exists)
-        XCTAssertTrue(app.buttons["MobileTerminalHierarchyRow-terminal-agent-2"].exists)
-        XCTAssertTrue(app.buttons["MobileTerminalHierarchyClose-terminal-agent-2"].exists)
-
-        app.buttons["MobileTerminalHierarchyNewTerminal"].tap()
-        XCTAssertTrue(app.buttons["MobileTerminalHierarchyRow-terminal-created-5"].waitForExistence(timeout: 3))
-
-        let swipeRow = app.buttons["MobileTerminalHierarchyRow-terminal-shell"]
-        swipeRow.swipeLeft()
-        app.buttons["MobileTerminalHierarchySwipeClose-terminal-shell"].tap()
-        XCTAssertTrue(app.buttons["Cancel"].waitForExistence(timeout: 3))
-        app.buttons["Cancel"].tap()
-        XCTAssertTrue(swipeRow.exists, "Cancel must preserve the exact stable terminal identity")
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileTerminalHierarchyWorkspace"].waitForExistence(timeout: 3)
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileTerminalHierarchyPane-pane-left"].waitForExistence(timeout: 3)
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileTerminalHierarchyPane-pane-right"].waitForExistence(timeout: 3)
+        )
+        XCTAssertTrue(app.buttons["MobileTerminalHierarchyRow-terminal-agent-2"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["MobileTerminalHierarchyClose-terminal-agent-2"].waitForExistence(timeout: 3))
 
         app.buttons["MobileTerminalHierarchyClose-terminal-agent-2"].tap()
         XCTAssertTrue(app.buttons["Cancel"].waitForExistence(timeout: 3))
         app.buttons["Cancel"].tap()
-        XCTAssertTrue(app.buttons["MobileTerminalHierarchyRow-terminal-agent-2"].exists)
+        XCTAssertTrue(
+            app.buttons["MobileTerminalHierarchyRow-terminal-agent-2"].exists,
+            "Cancel must preserve the exact stable terminal identity"
+        )
+
+        app.buttons["MobileTerminalHierarchyClose-terminal-agent-2"].tap()
+        let confirmClose = app.buttons["MobileTerminalHierarchyCloseConfirm-terminal-agent-2"]
+        XCTAssertTrue(confirmClose.waitForExistence(timeout: 3))
+        confirmClose.tap()
+        XCTAssertFalse(
+            app.buttons["MobileTerminalHierarchyRow-terminal-agent-2"].waitForExistence(timeout: 1),
+            "Confirm must close the exact stable terminal identity"
+        )
+        XCTAssertTrue(
+            app.buttons["MobileTerminalHierarchyRow-terminal-long"].exists,
+            "Confirm must preserve the sibling terminal in the same pane"
+        )
+
+        app.buttons["MobileTerminalHierarchyNewTerminal"].tap()
+        XCTAssertTrue(app.buttons["MobileTerminalHierarchyRow-terminal-created-4"].waitForExistence(timeout: 3))
     }
 
     /// Regression: fast pinch-zoom must not hang the main thread (the
