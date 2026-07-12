@@ -178,6 +178,12 @@ extension RemoteTmuxControlConnection {
                 activePaneByWindow = activePaneByWindow.filter { liveIDs.contains($0.key) }
                 windowTitleRowsVisible = windowTitleRowsVisible.filter { liveIDs.contains($0.key) }
                 prunePaneState(keeping: Set(next.values.flatMap { $0.paneIDsInOrder }))
+                #if DEBUG
+                cmuxDebugLog(
+                    "remote.window.snapshot order=\(order)"
+                        + " prior=\(windowOrder)"
+                )
+                #endif
                 windowOrder = shouldApplyWindowOrder
                     ? order
                     : decoding.windowOrder(order, applyingReorder: optimisticLiveOrder)

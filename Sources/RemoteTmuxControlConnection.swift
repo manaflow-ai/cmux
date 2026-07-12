@@ -764,6 +764,9 @@ final class RemoteTmuxControlConnection {
             windowsByID[id] = nil
             windowTitleRowsVisible[id] = nil
             windowOrder.removeAll { $0 == id }
+            #if DEBUG
+            cmuxDebugLog("remote.window.close @\(id) order=\(windowOrder)")
+            #endif
             pendingLayouts[id] = nil
             initialBatchStaged[id] = nil
             finishInitialBatchMember(id)
