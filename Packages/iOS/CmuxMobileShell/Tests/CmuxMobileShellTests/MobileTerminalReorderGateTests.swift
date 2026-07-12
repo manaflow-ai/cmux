@@ -243,12 +243,16 @@ import Testing
         paneID: paneID
     ))
 
-    let result = await store.closeTerminal(
-        workspaceID: workspace.id,
-        terminalID: MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalA),
-        confirmed: false,
-        reservation: reservation
-    )
+    let close = Task { @MainActor in
+        await store.closeTerminal(
+            workspaceID: workspace.id,
+            terminalID: MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalA),
+            confirmed: false,
+            reservation: reservation
+        )
+    }
+    await router.awaitTerminalCloseReached()
+    let result = await close.value
 
     guard case .failure(.resultUnknownRefreshed) = result else {
         Issue.record("Expected reconciled unknown result, got \(result)")

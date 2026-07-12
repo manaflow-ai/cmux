@@ -57,6 +57,7 @@ actor RoutingHostRouter {
     private var terminalCloseErrorCode: String?
     private var dropTerminalCloseResponse = false
     private var terminalCloseCount = 0
+    private var terminalCloseReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var holdFirstWorkspaceCreate = false
     private var firstWorkspaceCreateHeld = false
     private var firstWorkspaceCreateContinuation: CheckedContinuation<Void, Never>?
@@ -113,6 +114,11 @@ actor RoutingHostRouter {
 
     func setDropTerminalCloseResponse(_ drop: Bool) {
         dropTerminalCloseResponse = drop
+    }
+
+    func awaitTerminalCloseReached() async {
+        if terminalCloseCount > 0 { return }
+        await withCheckedContinuation { terminalCloseReachedWaiters.append($0) }
     }
 
     func setHoldFirstWorkspaceCreate(_ hold: Bool) {
@@ -242,6 +248,9 @@ actor RoutingHostRouter {
             ])
         case "terminal.close":
             terminalCloseCount += 1
+            let reachedWaiters = terminalCloseReachedWaiters
+            terminalCloseReachedWaiters = []
+            for waiter in reachedWaiters { waiter.resume() }
             if dropTerminalCloseResponse { return nil }
             if let terminalCloseErrorCode {
                 return try? Self.errorFrame(
