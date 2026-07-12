@@ -415,9 +415,9 @@ struct NotificationRowSnapshotBoundaryTests {
         #expect(surfaceView.performedBindingActions == ["scroll_to_bottom", "scroll_to_bottom"])
     }
 
-    /// Verifies that direct user scroll input supersedes a pending notification
-    /// restore after Ghostty rejects its first binding action.
-    @Test func userScrollCancelsRejectedNotificationRestore() {
+    /// Verifies that wheel and scrollbar input supersede a pending restore.
+    @Test(arguments: [Notification.Name.ghosttyDidReceiveWheelScroll, NSScrollView.didLiveScrollNotification])
+    func userScrollCancelsRejectedNotificationRestore(inputName: Notification.Name) throws {
         let surfaceView = NotificationScrollRecordingSurfaceView(frame: .zero)
         surfaceView.scrollbar = GhosttyScrollbar(
             c: ghostty_action_scrollbar_s(total: 400, offset: 356, len: 44)
@@ -427,7 +427,11 @@ struct NotificationRowSnapshotBoundaryTests {
         let position = TerminalNotificationScrollPosition(row: 0, totalRows: 400)
 
         #expect(!hostedView.restoreNotificationScrollPosition(position))
-        NotificationCenter.default.post(name: .ghosttyDidReceiveWheelScroll, object: surfaceView)
+        let scrollView = try #require(
+            hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView
+        )
+        let inputObject: Any = inputName == .ghosttyDidReceiveWheelScroll ? surfaceView : scrollView
+        NotificationCenter.default.post(name: inputName, object: inputObject)
         NotificationCenter.default.post(
             name: .ghosttyDidUpdateScrollbar,
             object: surfaceView,
