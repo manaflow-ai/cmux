@@ -13,6 +13,8 @@
 		8B8A10022DF5000000A66F90 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8B8A10192DF5000000A66F90 /* Assets.xcassets */; };
 		8B8A10032DF5000000A66F90 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8B8A101A2DF5000000A66F90 /* InfoPlist.xcstrings */; };
 		8B8A10042DF5000000A66F90 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8B8A101B2DF5000000A66F90 /* Localizable.xcstrings */; };
+		8BD1FF012E01000000A66F90 /* webviews-app in Resources */ = {isa = PBXBuildFile; fileRef = 8BD1FF032E01000000A66F90 /* webviews-app */; };
+		8BD1FF022E01000000A66F90 /* diff-viewer in Resources */ = {isa = PBXBuildFile; fileRef = 8BD1FF042E01000000A66F90 /* diff-viewer */; };
 		8B8A10052DF5000000A66F90 /* cmuxUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A101C2DF5000000A66F90 /* cmuxUITests.swift */; };
 		8B41F6832DEDD23B001A66F9 /* cmuxFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6822DEDD23B001A66F9 /* cmuxFeature */; };
 		8B41F6852DEDD25C001A66F9 /* cmuxFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6842DEDD25C001A66F9 /* cmuxFeature */; };
@@ -48,6 +50,8 @@
 		8B8A101A2DF5000000A66F90 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		8B8A101B2DF5000000A66F90 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		8B8A101C2DF5000000A66F90 /* cmuxUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxUITests.swift; sourceTree = "<group>"; };
+		8BD1FF032E01000000A66F90 /* webviews-app */ = {isa = PBXFileReference; explicitFileType = folder; name = "webviews-app"; path = "../Resources/markdown-viewer/webviews-app"; sourceTree = SOURCE_ROOT; };
+		8BD1FF042E01000000A66F90 /* diff-viewer */ = {isa = PBXFileReference; explicitFileType = folder; name = "diff-viewer"; path = "../Resources/markdown-viewer/diff-viewer"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -98,6 +102,8 @@
 			isa = PBXGroup;
 			children = (
 				8BD71C052DEE41D800CEDD92 /* Config */,
+				8BD1FF032E01000000A66F90 /* webviews-app */,
+				8BD1FF042E01000000A66F90 /* diff-viewer */,
 				8B41F6472DEDD0D5001A66F9 /* cmux */,
 				8B41F65F2DEDD0D6001A66F9 /* cmuxUITests */,
 				8B41F6812DEDD23B001A66F9 /* Frameworks */,
@@ -237,6 +243,8 @@
 				8B8A10022DF5000000A66F90 /* Assets.xcassets in Resources */,
 				8B8A10032DF5000000A66F90 /* InfoPlist.xcstrings in Resources */,
 				8B8A10042DF5000000A66F90 /* Localizable.xcstrings in Resources */,
+				8BD1FF012E01000000A66F90 /* webviews-app in Resources */,
+				8BD1FF022E01000000A66F90 /* diff-viewer in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

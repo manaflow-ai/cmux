@@ -2398,6 +2398,125 @@
         }
       }
     },
+    "mobile.diff.assetsMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Diff viewer assets are missing from this build." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このビルドに差分ビューアのアセットがありません。" } }
+      }
+    },
+    "mobile.diff.close": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Close Diff" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "差分を閉じる" } }
+      }
+    },
+    "mobile.diff.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No changed files." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "変更されたファイルはありません。" } }
+      }
+    },
+    "mobile.diff.fileCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld files" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld ファイル" } }
+      }
+    },
+    "mobile.diff.files": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Changed Files" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "変更されたファイル" } }
+      }
+    },
+    "mobile.diff.loadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn’t Load Diff" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "差分を読み込めませんでした" } }
+      }
+    },
+    "mobile.diff.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Loading changes…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "変更を読み込み中…" } }
+      }
+    },
+    "mobile.diff.nextFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Next File" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "次のファイル" } }
+      }
+    },
+    "mobile.diff.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "View Changes" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "変更を表示" } }
+      }
+    },
+    "mobile.diff.parsing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Parsing changes…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "変更を解析中…" } }
+      }
+    },
+    "mobile.diff.previousFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Previous File" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "前のファイル" } }
+      }
+    },
+    "mobile.diff.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refresh Diff" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "差分を更新" } }
+      }
+    },
+    "mobile.diff.renderFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn’t render this diff." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この差分を表示できませんでした。" } }
+      }
+    },
+    "mobile.diff.rendering": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Rendering changes…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "変更を表示中…" } }
+      }
+    },
+    "mobile.diff.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Diff Viewer" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "差分ビューア" } }
+      }
+    },
+    "mobile.diff.untitled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Untitled" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "名称未設定" } }
+      }
+    },
+    "mobile.diff.workingTree": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Git working tree" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Git 作業ツリー" } }
+      }
+    },
     "mobile.feedback.cancel": {
       "extractionState": "manual",
       "localizations": {

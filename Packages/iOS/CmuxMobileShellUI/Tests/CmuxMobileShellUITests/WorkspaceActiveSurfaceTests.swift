@@ -26,6 +26,15 @@ import Testing
         ) == .terminal)
     }
 
+    @Test func diffTakesPrecedenceOverBrowser() {
+        #expect(WorkspaceActiveSurface.derive(
+            isChatMode: false,
+            hasChosenChatSession: false,
+            hasActiveBrowser: true,
+            hasActiveDiff: true
+        ) == .diff)
+    }
+
     @Test func chromeReturnRefocusesTheSelectedTerminal() {
         #expect(WorkspaceActiveSurface.chromeReturnRefocusTerminalID(
             selectedTerminalID: "terminal-1",

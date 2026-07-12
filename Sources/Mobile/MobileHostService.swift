@@ -1423,6 +1423,11 @@ final class MobileHostService {
             )
         case "mobile.events.subscribe", "mobile.events.unsubscribe":
             return nil
+        case "mobile.diff.load":
+            return ticketWorkspaceAuthorizationError(
+                authorization: authorization,
+                workspaceSelection: workspaceSelection.value
+            )
         case "mobile.host.status":
             return nil
         default:

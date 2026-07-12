@@ -28,6 +28,9 @@ extension WorkspaceDetailView {
             } else if surface == .browser, let browser = activeBrowser {
                 browserContent(browser)
                     .background(TerminalPalette.background)
+            } else if surface == .diff, let mobileDiffState {
+                diffContent(mobileDiffState)
+                    .background(TerminalPalette.background)
             }
         }
         .onChange(of: surface) { _, newSurface in
@@ -54,6 +57,17 @@ extension WorkspaceDetailView {
             onClose: { browserStore.closeBrowser(for: workspace.id.rawValue) }
         )
         .id(browser.id.rawValue)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    func diffContent(_ state: MobileDiffState) -> some View {
+        MobileDiffPane(
+            state: state,
+            onClose: { mobileDiffState = nil },
+            onReload: { reloadMobileDiff(state) }
+        )
+        .id("mobile-diff")
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     #endif

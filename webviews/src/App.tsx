@@ -50,6 +50,7 @@ import type { DiffViewerLabelResolver } from "./labels";
 import type { DiffViewerStatus } from "./status";
 import type { DiffViewerConfig } from "./types";
 import { createDiffWorkerPoolOptions } from "./worker-pool";
+import { useMobileDiffBridge } from "./mobile-diff-bridge";
 
 type ConfigProps = {
   config: DiffViewerConfig;
@@ -108,7 +109,7 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
     draft: null,
     fileSearchOpen: false,
     filesWidth: 252,
-    filesVisible: true,
+    filesVisible: payload.mobileNativeChrome !== true,
     items: [],
     languages: ["text"],
     metrics: null,
@@ -314,7 +315,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   };
 
   const selectedTreePath = state.treeSource?.treePathByItemId.get(state.activeItemId) ?? state.activeTreePath;
-  const scrollToItem = (itemId: string) => {
+  const scrollToItem = useCallback((itemId: string) => {
     const target = scrollTargetForItem(itemId, state.items);
     if (!target) {
       return;
@@ -325,7 +326,8 @@ export function App({ config, initialStatus }: ConfigProps) {
       itemId: target,
       treePath: state.treeSource?.treePathByItemId.get(target),
     });
-  };
+  }, [state.items, state.treeSource]);
+  useMobileDiffBridge(state.treeSource, state.activeItemId, scrollToItem);
   const setStatus = (status: DiffViewerStatus) => {
     applyDiffViewerStatusToDocument(status);
     dispatch({ type: "set-status", status });
