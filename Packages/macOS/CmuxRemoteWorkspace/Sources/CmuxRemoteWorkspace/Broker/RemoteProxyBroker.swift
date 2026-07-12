@@ -48,7 +48,6 @@ public final class RemoteProxyBroker: @unchecked Sendable {
     private var entries: [String: Entry] = [:]
     private var ptyLifecycleOwners: [RemotePTYLifecycleKey: (transportKey: String, attachmentKey: RemotePTYAttachmentKey)] = [:]
     internal private(set) var currentPTYLifecycleByAttachment: [RemotePTYAttachmentKey: RemotePTYLifecycleKey] = [:]
-
     /// Creates a broker.
     ///
     /// - Parameters:
@@ -173,9 +172,10 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             } else {
                 throw Self.ptyTunnelNotReadyError()
             }
-            ptyLifecycleOwners.removeValue(
-                forKey: RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
-            )
+            let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+            if let owner = ptyLifecycleOwners.removeValue(forKey: lifecycleKey), currentPTYLifecycleByAttachment[owner.attachmentKey] == lifecycleKey {
+                currentPTYLifecycleByAttachment.removeValue(forKey: owner.attachmentKey)
+            }
         }
     }
     /// Claims a generation and enqueues retirement against its exact transport.

@@ -5251,8 +5251,11 @@ final class Workspace: Identifiable, ObservableObject {
         let previousConfiguration = remoteConfiguration
         let previousPresentedDirectory = presentedCurrentDirectory
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
-        pendingRemoteDisconnectReplacementsBySurfaceId.removeAll()
-        let remoteDisconnectPlaceholderPanelIdsToClear = remoteDisconnectPlaceholderPanelIds
+        let shouldResetRemoteDisconnectOwnership = previousConfiguration.map { $0 != configuration } ?? true
+        if shouldResetRemoteDisconnectOwnership { pendingRemoteDisconnectReplacementsBySurfaceId.removeAll() }
+        let remoteDisconnectPlaceholderPanelIdsToClear = shouldResetRemoteDisconnectOwnership
+            ? remoteDisconnectPlaceholderPanelIds
+            : []
         if let previousConfiguration,
            previousConfiguration != configuration,
            !previousConfiguration.hasSamePersistentPTYIdentity(as: configuration) {
@@ -5371,8 +5374,6 @@ final class Workspace: Identifiable, ObservableObject {
                 !activeRemoteTerminalSurfaceIds.contains(reconnectingSurfaceId) ||
                 activeRemoteTerminalSurfaceIds.isEmpty ||
                 remoteConnectionState != .connected
-            remoteDisconnectPlaceholderPanelIds.remove(reconnectingSurfaceId)
-            pendingRemoteTerminalChildExitSurfaceIds.remove(reconnectingSurfaceId)
             if shouldRespawnSurface {
                 didRespawnTerminal = respawnTerminalSurface(
                     panelId: reconnectingSurfaceId,
@@ -5381,7 +5382,12 @@ final class Workspace: Identifiable, ObservableObject {
                     waitAfterCommand: true
                 ) != nil
             }
-            trackRemoteTerminalSurface(reconnectingSurfaceId)
+            if didRespawnTerminal {
+                remoteDisconnectPlaceholderPanelIds.remove(reconnectingSurfaceId)
+                pendingRemoteTerminalChildExitSurfaceIds.remove(reconnectingSurfaceId)
+                pendingRemoteDisconnectReplacementsBySurfaceId.removeValue(forKey: reconnectingSurfaceId)
+            }
+            if didRespawnTerminal || !shouldRespawnSurface { trackRemoteTerminalSurface(reconnectingSurfaceId) }
         }
         if reconnectingSurfaceId != nil, remoteConnectionState == .connected { return didRespawnTerminal }
         guard remoteConnectionState != .connecting, remoteConnectionState != .reconnecting else { return didRespawnTerminal }
