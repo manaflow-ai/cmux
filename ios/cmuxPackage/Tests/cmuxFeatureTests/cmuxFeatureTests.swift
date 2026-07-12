@@ -2233,6 +2233,56 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func remoteCreateTerminalSelectionSurvivesFocusNeutralRefresh() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "workspace-main",
+        terminalID: "terminal-agent-a",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date(timeIntervalSince1970: 2_000_000_000)
+    )
+    let router = FocusNeutralRemoteCreateTerminalRouter()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router),
+        supportsServerPushEvents: true
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    #expect(await waitForTerminalHierarchyCapabilities(store))
+    let workspace = try #require(store.workspaces.first { $0.rpcWorkspaceID.rawValue == "workspace-main" })
+    #expect(workspace.focusedPaneID == "pane-focused")
+    #expect(workspace.terminals.filter { $0.name == "Agent" }.count == 2)
+
+    store.createTerminal(in: workspace.id)
+    #expect(await waitForSelectedTerminal("terminal-agent-created", in: store))
+    let createRequest = try #require(
+        await router.sentRequests().first { $0.method == "terminal.create" }
+    )
+    #expect(createRequest.workspaceID == "workspace-main")
+    #expect(createRequest.paneID == "pane-focused")
+    let created = try #require(
+        store.selectedWorkspace?.terminals.first { $0.id.rawValue == "terminal-agent-created" }
+    )
+    #expect(created.name == "Agent")
+    #expect(created.paneID == "pane-focused")
+    #expect(!created.isReady)
+
+    #expect(await store.refreshForegroundWorkspaceList())
+
+    #expect(store.selectedWorkspace?.id == workspace.id)
+    #expect(store.selectedTerminalID?.rawValue == "terminal-agent-created")
+}
+
+@MainActor
 @Test func remoteCreateTerminalDoesNotStealSelectionAfterWorkspaceSwitch() async throws {
     let route = try CmxAttachRoute(
         id: "debug_loopback",
@@ -3217,6 +3267,70 @@ private func rpcTerminalCreateScopedFrame() throws -> Data {
     )
 }
 
+private func rpcFocusNeutralTerminalCreateFrame(created: Bool) throws -> Data {
+    var result: [String: Any] = [
+        "workspaces": [
+            [
+                "id": "workspace-main",
+                "title": "cmux",
+                "current_directory": "/Users/test/project",
+                "is_selected": true,
+                "focused_pane_id": "pane-focused",
+                "selected_terminal_id": "terminal-agent-a",
+                "panes": [
+                    [
+                        "id": "pane-other",
+                        "spatial_index": 0,
+                        "is_focused": false,
+                        "terminal_ids": ["terminal-other"],
+                    ],
+                    [
+                        "id": "pane-focused",
+                        "spatial_index": 1,
+                        "is_focused": true,
+                        "terminal_ids": created
+                            ? ["terminal-agent-a", "terminal-agent-b", "terminal-agent-created"]
+                            : ["terminal-agent-a", "terminal-agent-b"],
+                    ],
+                ],
+                "terminals": [
+                    [
+                        "id": "terminal-other",
+                        "title": "Other",
+                        "pane_id": "pane-other",
+                        "is_ready": true,
+                        "is_focused": false,
+                    ],
+                    [
+                        "id": "terminal-agent-a",
+                        "title": "Agent",
+                        "pane_id": "pane-focused",
+                        "is_ready": true,
+                        "is_focused": true,
+                    ],
+                    [
+                        "id": "terminal-agent-b",
+                        "title": "Agent",
+                        "pane_id": "pane-focused",
+                        "is_ready": true,
+                        "is_focused": false,
+                    ],
+                ] + (created ? [[
+                    "id": "terminal-agent-created",
+                    "title": "Agent",
+                    "pane_id": "pane-focused",
+                    "is_ready": false,
+                    "is_focused": false,
+                ]] : []),
+            ],
+        ],
+    ]
+    if created {
+        result["created_terminal_id"] = "terminal-agent-created"
+    }
+    return try rpcResultFrame(result: result)
+}
+
 private func rpcAttachTicketFrame(
     route: CmxAttachRoute,
     workspaceID: String,
@@ -3438,6 +3552,42 @@ private actor RemoteCreateTerminalRouter: RequestAwareTransportRouter {
             return try rpcTwoWorkspaceListFrame()
         case "terminal.create":
             return try rpcTerminalCreateScopedFrame()
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+}
+
+private actor FocusNeutralRemoteCreateTerminalRouter: RequestAwareTransportRouter {
+    private var requests: [RecordedRPCRequest] = []
+    private var created = false
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "workspace.list", "mobile.workspace.list":
+            return try rpcFocusNeutralTerminalCreateFrame(created: created)
+        case "mobile.host.status":
+            return try rpcHostStatusFrame(
+                renderGrid: true,
+                additionalCapabilities: [
+                    "terminal.close.v1",
+                    "terminal.create_in_pane.v1",
+                    "terminal.reorder.v1",
+                ]
+            )
+        case "mobile.events.subscribe":
+            return try rpcResultFrame(result: ["stream_id": "focus-neutral-create-events"])
+        case "terminal.create":
+            created = true
+            return try rpcFocusNeutralTerminalCreateFrame(created: true)
         default:
             return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
         }
@@ -3965,6 +4115,7 @@ private struct RecordedRPCRequest: Sendable {
     var method: String?
     var workspaceID: String?
     var terminalID: String?
+    var paneID: String?
     var viewportColumns: Int?
     var viewportRows: Int?
     var maxScrollbackRows: Int?
@@ -3985,6 +4136,7 @@ private func recordedRPCRequest(from payload: Data) throws -> RecordedRPCRequest
         method: request["method"] as? String,
         workspaceID: params["workspace_id"] as? String,
         terminalID: params["terminal_id"] as? String ?? params["surface_id"] as? String,
+        paneID: params["pane_id"] as? String,
         viewportColumns: params["viewport_columns"] as? Int,
         viewportRows: params["viewport_rows"] as? Int,
         maxScrollbackRows: params["max_scrollback_rows"] as? Int,
