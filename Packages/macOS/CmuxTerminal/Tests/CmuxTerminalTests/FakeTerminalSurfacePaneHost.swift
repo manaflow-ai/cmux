@@ -5,6 +5,7 @@ import AppKit
 final class FakeTerminalSurfacePaneHost: NSView, TerminalSurfacePaneHosting {
     private let surfaceView: FakeTerminalSurfaceNativeView
     private let attachesThroughSurfaceModel: Bool
+    private(set) var explicitInputCount = 0
 
     init(surfaceView: FakeTerminalSurfaceNativeView, attachesThroughSurfaceModel: Bool = false) {
         self.surfaceView = surfaceView
@@ -30,4 +31,8 @@ final class FakeTerminalSurfacePaneHost: NSView, TerminalSurfacePaneHosting {
     func setActive(_ active: Bool) {}
     func syncKeyStateIndicator(text: String?) {}
     func setMobileViewportBorder(size: CGSize?, drawRight: Bool, drawBottom: Bool) {}
+
+    func terminalSurfaceDidReceiveExplicitInput() {
+        explicitInputCount += 1
+    }
 }
