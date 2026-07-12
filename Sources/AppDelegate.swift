@@ -7358,13 +7358,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         debugSource: debugSource,
                         replacingInitialWorkspace: initialWorkspace
                     )
-                case .browser:
+                case .browser, .agentSession:
                     // The fresh window boots with a terminal workspace; add the
-                    // browser workspace and close that initial one so the
-                    // action's result matches the no-window case for terminals.
+                    // requested workspace and close it to match the no-window case.
                     let workspace = context.tabManager.addWorkspace(
                         title: title,
-                        initialSurface: .browser,
+                        initialSurface: initialSurface,
                         initialBrowserURL: initialBrowserURL,
                         initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                         initialBrowserTransparentBackground: initialBrowserTransparentBackground
@@ -7374,19 +7373,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         in: context
                     )
                     createdWorkspaceHandler?(workspace)
-                    if focusInitialBrowserAddressBarOnCreate {
+                    if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
                         focusInitialBrowserAddressBar(in: workspace)
                     }
-                case .agentSession:
-                    let workspace = context.tabManager.addWorkspace(
-                        title: title,
-                        initialSurface: .agentSession
-                    )
-                    closeInitialWorkspaceIfNeeded(
-                        initialWorkspaceId: initialWorkspace?.id,
-                        in: context
-                    )
-                    createdWorkspaceHandler?(workspace)
                 case .cloudVMLoading:
                     let workspace = context.tabManager.addWorkspace(initialSurface: .cloudVMLoading)
                     closeInitialWorkspaceIfNeeded(
@@ -8287,20 +8276,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let workspace: Workspace
-        if initialSurface == .browser {
-            workspace = context.tabManager.addWorkspace(
-                title: title,
-                initialSurface: .browser,
-                initialBrowserURL: initialBrowserURL,
-                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-                initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-                select: true
-            )
-        } else if initialSurface == .agentSession {
+        if initialSurface == .browser || initialSurface == .agentSession {
             workspace = context.tabManager.addWorkspace(
                 title: title,
                 workingDirectory: workingDirectory,
-                initialSurface: .agentSession,
+                initialSurface: initialSurface,
+                initialBrowserURL: initialBrowserURL,
+                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+                initialBrowserTransparentBackground: initialBrowserTransparentBackground,
                 select: true
             )
         } else if workingDirectory != nil || initialTerminalInput != nil {

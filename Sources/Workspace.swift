@@ -2947,9 +2947,7 @@ final class Workspace: Identifiable, ObservableObject {
                 initialTabId = surfaceIdFromPanelId(initialDetachedSurface.panelId)
             }
         } else if initialSurface == .browser {
-            // Create the initial browser panel in its default new-tab state.
-            // Mirrors the minimal terminal branch below plus the browser panel
-            // wiring `attachDetachedSurface` performs for reattached panels.
+            // Create the initial browser panel with the wiring used for reattached panels.
             let browserPanel = BrowserPanel(
                 workspaceId: id,
                 profileID: resolvedNewBrowserProfileID(),
@@ -2960,9 +2958,7 @@ final class Workspace: Identifiable, ObservableObject {
             configureBrowserPanel(browserPanel)
             panels[browserPanel.id] = browserPanel
             panelTitles[browserPanel.id] = browserPanel.displayTitle
-            // Land the first activation in the address bar so a URL can be
-            // typed immediately; BrowserPanelView consumes the pending request
-            // when the surface first appears.
+            // Let BrowserPanelView land the first activation in the address bar.
             if initialBrowserOmnibarVisible {
                 _ = browserPanel.requestAddressBarFocus(selectionIntent: .selectAll)
             }
@@ -2982,27 +2978,9 @@ final class Workspace: Identifiable, ObservableObject {
             }
             installBrowserPanelSubscription(browserPanel)
         } else if initialSurface == .agentSession {
-            let agentPanel = AgentSessionPanel(
-                workspaceId: id,
-                rendererKind: .react,
-                initialProviderID: .codex,
+            initialTabId = createInitialAgentSessionPanel(
                 workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil
             )
-            panels[agentPanel.id] = agentPanel
-            panelTitles[agentPanel.id] = agentPanel.displayTitle
-
-            if let tabId = bonsplitController.createTab(
-                title: agentPanel.displayTitle,
-                icon: agentPanel.displayIcon,
-                kind: SurfaceKind.agentSession.rawValue,
-                isDirty: agentPanel.isDirty,
-                isLoading: false,
-                isPinned: false
-            ) {
-                bindSurface(tabId, toPanelId: agentPanel.id)
-                initialTabId = tabId
-            }
-            installAgentSessionPanelSubscription(agentPanel)
         } else if initialSurface == .cloudVMLoading {
             let loadingPanel = CloudVMLoadingPanel(workspaceId: id)
             panels[loadingPanel.id] = loadingPanel
@@ -3781,7 +3759,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelSubscriptions[filePreviewPanel.id] = subscription
     }
 
-    private func installAgentSessionPanelSubscription(_ agentPanel: AgentSessionPanel) {
+    func installAgentSessionPanelSubscription(_ agentPanel: AgentSessionPanel) {
         agentPanel.onDisplayStateChanged = { [weak self, weak agentPanel] newTitle, isDirty in
             guard let self,
                   let agentPanel,

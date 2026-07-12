@@ -1082,15 +1082,10 @@ class TabManager: ObservableObject {
             case .terminal:
                 defaultTitle = "Terminal \(nextTabCount)"
             case .browser:
-                // Match the browser surface's blank new-tab title; the
-                // single-panel title sync keeps the workspace title following
-                // the page title once the user navigates.
+                // Match the blank page; single-panel sync follows its navigated title.
                 defaultTitle = String(localized: "browser.newTab", defaultValue: "New tab")
             case .agentSession:
-                defaultTitle = String(
-                    localized: "workspace.agentChat.defaultTitle",
-                    defaultValue: "Agent Chat"
-                )
+                defaultTitle = String(localized: "workspace.agentChat.defaultTitle", defaultValue: "Agent Chat")
             case .cloudVMLoading:
                 defaultTitle = String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM")
             }

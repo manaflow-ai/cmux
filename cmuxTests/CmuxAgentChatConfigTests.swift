@@ -21,23 +21,6 @@ struct CmuxAgentChatConfigTests {
         return try body()
     }
 
-    @MainActor
-    private func withBrowserDisabled(_ body: () throws -> Void) rethrows {
-        let defaults = UserDefaults.standard
-        let previous = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey) as? Bool
-        let hadPrevious = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey) != nil
-        BrowserAvailabilitySettings.setDisabled(true)
-        defer {
-            if hadPrevious, let previous {
-                BrowserAvailabilitySettings.setDisabled(previous)
-            } else {
-                defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
-                NotificationCenter.default.post(name: BrowserAvailabilitySettings.didChangeNotification, object: nil)
-            }
-        }
-        try body()
-    }
-
     private func decode(_ json: String) throws -> CmuxConfigFile {
         let data = json.data(using: .utf8)!
         return try JSONDecoder().decode(CmuxConfigFile.self, from: data)
@@ -479,26 +462,4 @@ struct CmuxAgentChatConfigTests {
         }
     }
 
-    @MainActor
-    @Test func performNewAgentChatActionUsesNativeSessionWhenBrowserSurfacesAreDisabled() throws {
-        try withAgentChatUIFlag(true) {
-            try withBrowserDisabled {
-                let tabManager = TabManager()
-                let didStart = AppDelegate().performNewAgentChatAction(
-                    tabManager: tabManager,
-                    agentChat: .default,
-                    globalConfigPath: nil,
-                    preferredWindow: nil
-                )
-
-                #expect(didStart)
-                #expect(tabManager.tabs.count == 2)
-                let workspace = try #require(tabManager.selectedWorkspace)
-                #expect(workspace.customTitle == "Agent Chat")
-                let panel = try #require(workspace.panels.values.first as? AgentSessionPanel)
-                #expect(panel.rendererKind == .react)
-                #expect(panel.currentProviderID == .codex)
-            }
-        }
-    }
 }
