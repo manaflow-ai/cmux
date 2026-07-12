@@ -8,9 +8,33 @@ final class MobileWorkingTreeDiffLoader: Sendable {
     private let maximumUntrackedFiles = 200
     private let maximumPathListBytes = 1024 * 1024
     private let maximumErrorBytes = 64 * 1024
-    private let processTimeout = Duration.seconds(15)
+    private let loadTimeout = Duration.seconds(15)
+    private let clock = ContinuousClock()
 
     func load(directory: String, title: String) async throws -> [String: Any] {
+        let result = try await withThrowingTaskGroup(
+            of: (patch: String, repositoryRoot: String, title: String).self
+        ) { group in
+            group.addTask {
+                try await self.loadResult(directory: directory, title: title)
+            }
+            group.addTask {
+                try await self.clock.sleep(for: self.loadTimeout)
+                throw MobileWorkingTreeDiffLoadError(code: "timed_out", message: "Workspace diff took too long to load")
+            }
+            guard let result = try await group.next() else {
+                throw MobileWorkingTreeDiffLoadError(code: "git_error", message: "Could not load workspace diff")
+            }
+            group.cancelAll()
+            return result
+        }
+        return ["patch": result.patch, "repository_root": result.repositoryRoot, "title": result.title]
+    }
+
+    private func loadResult(
+        directory: String,
+        title: String
+    ) async throws -> (patch: String, repositoryRoot: String, title: String) {
         let repoResult = try await runGit(
             ["rev-parse", "--show-toplevel"],
             directory: directory,
@@ -75,7 +99,7 @@ final class MobileWorkingTreeDiffLoader: Sendable {
         guard let patchText = String(data: patch, encoding: .utf8) else {
             throw MobileWorkingTreeDiffLoadError(code: "invalid_data", message: "Workspace diff is not valid UTF-8")
         }
-        return ["patch": patchText, "repository_root": repositoryRoot, "title": title]
+        return (patchText, repositoryRoot, title)
     }
 
     private func runGit(
@@ -94,12 +118,6 @@ final class MobileWorkingTreeDiffLoader: Sendable {
         process.standardInput = FileHandle.nullDevice
 
         let cancellation = MobileDiffProcessCancellation(process: process)
-        let timeout = processTimeout
-        let timeoutTask = Task.detached {
-            try await Task.sleep(for: timeout)
-            cancellation.cancel()
-        }
-        defer { timeoutTask.cancel() }
         let stdoutFD = stdout.fileHandleForReading.fileDescriptor
         let stderrFD = stderr.fileHandleForReading.fileDescriptor
         let stdoutRead = Task.detached {
