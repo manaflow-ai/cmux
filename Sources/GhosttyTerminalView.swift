@@ -8186,9 +8186,8 @@ final class GhosttySurfaceScrollView: NSView {
     private var isLiveScrolling = false
     private var lastSentRow: Int?
     var pendingNotificationScrollPosition: TerminalNotificationScrollPosition?
-    /// Tracks whether the user has scrolled away from the bottom to review scrollback.
-    /// When true, auto-scroll should be suspended to prevent the "doomscroll" bug
-    /// where the terminal fights the user's scroll position.
+    var pendingNotificationScrollRestoreAttemptsRemaining = 0
+    /// Tracks scrollback review so auto-scroll does not fight the user's position.
     var userScrolledAwayFromBottom = false
     private var pendingExplicitWheelScroll = false
     var allowExplicitScrollbarSync = false
@@ -8695,6 +8694,7 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.pendingExplicitWheelScroll = true
+            self?.clearPendingNotificationScrollRestore()
         })
 
         observers.append(NotificationCenter.default.addObserver(
