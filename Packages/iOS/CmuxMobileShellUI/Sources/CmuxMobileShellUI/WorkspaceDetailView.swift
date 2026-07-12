@@ -183,7 +183,7 @@ struct WorkspaceDetailView: View {
                 .font(.headline)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .foregroundStyle(TerminalPalette.chromeForeground)
+                .foregroundStyle(TerminalPalette.chromeForeground(for: store.activeTerminalTheme))
         } else {
             WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
         }
@@ -231,7 +231,7 @@ struct WorkspaceDetailView: View {
                     store.consumeTerminalAutoFocusSuppression(for: terminalID)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background(TerminalPalette.background)
+                .background(TerminalPalette.background(for: store.activeTerminalTheme))
                 // The surface positions its grid + docked toolbar from
                 // `keyboardHeight` directly, so opt out of SwiftUI keyboard
                 // avoidance; otherwise the view ALSO shrinks for the keyboard
@@ -240,11 +240,11 @@ struct WorkspaceDetailView: View {
                 // Keep the grid clear of the Dynamic Island and nav bar.
                 .padding(.top, terminalTopPadding)
             } else {
-                TerminalPalette.background
+                TerminalPalette.background(for: store.activeTerminalTheme)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             #else
-            TerminalPalette.background
+            TerminalPalette.background(for: store.activeTerminalTheme)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             #endif
         }
@@ -292,11 +292,11 @@ struct WorkspaceDetailView: View {
         )
         .background {
             // Fill under translucent chrome with the terminal's own color.
-            TerminalPalette.background
+            TerminalPalette.background(for: store.activeTerminalTheme)
                 .ignoresSafeArea(.container, edges: [.horizontal, .top, .bottom])
         }
         #else
-        .background(TerminalPalette.background)
+        .background(TerminalPalette.background(for: store.activeTerminalTheme))
         #endif
         #if !os(iOS)
         .navigationTitle(systemNavigationTitle)
@@ -347,7 +347,7 @@ struct WorkspaceDetailView: View {
             Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
                 .labelStyle(.iconOnly)
         }
-        .foregroundStyle(TerminalPalette.chromeForeground)
+        .foregroundStyle(TerminalPalette.chromeForeground(for: store.activeTerminalTheme))
         .disabled(!canCreateWorkspace)
         .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
     }
@@ -367,7 +367,7 @@ struct WorkspaceDetailView: View {
             )
             .labelStyle(.iconOnly)
         }
-        .foregroundStyle(TerminalPalette.chromeForeground)
+        .foregroundStyle(TerminalPalette.chromeForeground(for: store.activeTerminalTheme))
         .accessibilityLabel(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
         .accessibilityIdentifier("MobileTerminalDropdown")
         .accessibilityValue(selection?.name ?? "")

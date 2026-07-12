@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAgentChat
 import CmuxMobileBrowser
 import CmuxMobileShell
@@ -21,6 +22,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
     )
     @State private var browserStore = BrowserSurfaceStore()
     @State private var didStartFixture = false
+    @State private var themeStage = "loading"
 
     var body: some View {
         WorkspaceShellView(
@@ -29,6 +31,14 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             showAddDevice: nil
         )
         .environment(browserStore)
+        .overlay(alignment: .topLeading) {
+            if Self.showsThemeParitySequence {
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .accessibilityElement()
+                    .accessibilityIdentifier("TerminalThemeStage-\(themeStage)")
+            }
+        }
         .task {
             guard !didStartFixture else { return }
             didStartFixture = true
@@ -56,6 +66,9 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             store.replaceForegroundWorkspaceState([workspace])
             store.selectedWorkspaceID = Self.workspaceID
             store.selectedTerminalID = Self.terminalID
+            if Self.showsThemeParitySequence {
+                await runThemeParitySequence()
+            }
             if Self.showsChatToggle {
                 store.rememberChatSessions(
                     [
@@ -81,6 +94,30 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
 
     private static var showsChatToggle: Bool {
         ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_CHAT_TOGGLE"] == "1"
+    }
+
+    private static var showsThemeParitySequence: Bool {
+        ProcessInfo.processInfo.environment["CMUX_UITEST_THEME_PARITY_PREVIEW"] == "1"
+    }
+
+    private func runThemeParitySequence() async {
+        store.applyTerminalTheme(Self.theme(background: "#101522", foreground: "#e6edf3"))
+        themeStage = "dark"
+        try? await ContinuousClock().sleep(for: .seconds(3))
+        guard !Task.isCancelled else { return }
+        store.applyTerminalTheme(Self.theme(background: "#f4f0df", foreground: "#17212b"))
+        themeStage = "light"
+        try? await ContinuousClock().sleep(for: .seconds(3))
+        guard !Task.isCancelled else { return }
+        store.applyTerminalTheme(Self.theme(background: "#063f46", foreground: "#fff2a8"))
+        themeStage = "custom"
+    }
+
+    private static func theme(background: String, foreground: String) -> TerminalTheme {
+        var theme = TerminalTheme.monokai
+        theme.background = background
+        theme.foreground = foreground
+        return theme
     }
 
     private static var usesRefreshingTerminalMenu: Bool {
