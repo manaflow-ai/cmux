@@ -2263,23 +2263,24 @@ final class TerminalOutputCollector {
     #expect(workspace.terminals.filter { $0.name == "Agent" }.count == 2)
 
     store.createTerminal(in: workspace.id)
-    #expect(await waitForSelectedTerminal("terminal-agent-created", in: store))
+    #expect(await waitForSelectedTerminal("terminal-agent-returned", in: store))
     let createRequest = try #require(
         await router.sentRequests().first { $0.method == "terminal.create" }
     )
     #expect(createRequest.workspaceID == "workspace-main")
     #expect(createRequest.paneID == "pane-focused")
     let created = try #require(
-        store.selectedWorkspace?.terminals.first { $0.id.rawValue == "terminal-agent-created" }
+        store.selectedWorkspace?.terminals.first { $0.id.rawValue == "terminal-agent-returned" }
     )
     #expect(created.name == "Agent")
     #expect(created.paneID == "pane-focused")
-    #expect(!created.isReady)
+    #expect(created.isReady)
+    #expect(!store.selectedWorkspace!.terminals.contains { $0.id.rawValue == "terminal-agent-optimistic" })
 
     #expect(await store.refreshForegroundWorkspaceList())
 
     #expect(store.selectedWorkspace?.id == workspace.id)
-    #expect(store.selectedTerminalID?.rawValue == "terminal-agent-created")
+    #expect(store.selectedTerminalID?.rawValue == "terminal-agent-returned")
 }
 
 @MainActor
@@ -3289,7 +3290,7 @@ private func rpcFocusNeutralTerminalCreateFrame(created: Bool) throws -> Data {
                         "spatial_index": 1,
                         "is_focused": true,
                         "terminal_ids": created
-                            ? ["terminal-agent-a", "terminal-agent-b", "terminal-agent-created"]
+                            ? ["terminal-agent-a", "terminal-agent-b", "terminal-agent-returned"]
                             : ["terminal-agent-a", "terminal-agent-b"],
                     ],
                 ],
@@ -3316,17 +3317,17 @@ private func rpcFocusNeutralTerminalCreateFrame(created: Bool) throws -> Data {
                         "is_focused": false,
                     ],
                 ] + (created ? [[
-                    "id": "terminal-agent-created",
+                    "id": "terminal-agent-returned",
                     "title": "Agent",
                     "pane_id": "pane-focused",
-                    "is_ready": false,
+                    "is_ready": true,
                     "is_focused": false,
                 ]] : []),
             ],
         ],
     ]
     if created {
-        result["created_terminal_id"] = "terminal-agent-created"
+        result["created_terminal_id"] = "terminal-agent-optimistic"
     }
     return try rpcResultFrame(result: result)
 }
