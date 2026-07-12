@@ -1127,7 +1127,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // the forget path. On a real account switch the next reconnect's no-mac
         // branch clears the hint. Bump the reconnect generation so any in-flight
         // reconnect is superseded and cannot write paired-Mac state after sign-out.
-        storedMacReconnectGeneration &+= 1
+        invalidateStoredMacReconnectAttempt()
         connectionLifecycle.prepareForStoredMacReconnect()
         replaceRemoteClient(with: nil)
         cancelRemoteOperationTasks()
@@ -2747,7 +2747,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     func clearSavedMacHintAfterDeletingLastVisibleMacIfNeeded() {
         guard pairedMacs.isEmpty else { return }
-        storedMacReconnectGeneration &+= 1
+        invalidateStoredMacReconnectAttempt()
         hasKnownPairedMac = false
         connectionLifecycle.prepareForStoredMacReconnect()
     }
@@ -3342,7 +3342,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // (and the current disconnected view) shows add-device immediately. Bump
         // the reconnect generation first so an in-flight reconnect can't re-set the
         // paired-Mac state after the user forgot the Mac.
-        storedMacReconnectGeneration &+= 1
+        invalidateStoredMacReconnectAttempt()
         hasKnownPairedMac = false
         connectionLifecycle.prepareForStoredMacReconnect()
         if let pairedMacStore, let macID = staleMacID {
