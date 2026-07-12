@@ -1,4 +1,4 @@
-import { useCallback, useReducer, useState } from "react";
+import { useCallback, useReducer, useRef, useState } from "react";
 import type { CmuxClient, Id, LivePane, Tab } from "cmux/browser";
 import { t } from "../i18n";
 import type { PaneLayoutView } from "../lib/layout";
@@ -6,6 +6,7 @@ import { layoutToViewModel } from "../lib/layout";
 import type { ScreenView } from "../lib/tree";
 import { contextMenuReducer } from "../lib/contextMenu";
 import { renameCanCommit, renameReducer } from "../lib/rename";
+import { splitDividerTarget, splitRatioFromPointer, splitRatioToCommit } from "../lib/splitDrag";
 import { useAttachedTerminal } from "../hooks/useAttachedTerminal";
 import { useContextTrigger } from "../hooks/useContextTrigger";
 import { ContextMenu } from "./ContextMenu";
@@ -18,6 +19,7 @@ interface TerminalPaneProps {
   onSelectTab(pane: Id, index: number, surface: Id): void;
   onNewTab(pane: Id): void;
   onSplit(pane: Id, dir: "right" | "down"): void;
+  onSetRatio(pane: Id, dir: "right" | "down", ratio: number): Promise<boolean>;
   onFocusPane(pane: Id): void;
   onZoomPane(pane: Id): void;
   onClosePane(pane: Id): void;
@@ -79,7 +81,7 @@ function TabButton({ tab, index, pane, onSelect, onNewTab, onClose, onRename }: 
   );
 }
 
-interface PaneLeafProps extends Omit<TerminalPaneProps, "screen"> {
+interface PaneLeafProps extends Omit<TerminalPaneProps, "screen" | "onSetRatio"> {
   pane: LivePane | null;
   paneId: Id;
   active: boolean;
@@ -199,25 +201,146 @@ interface LayoutNodeProps extends Omit<TerminalPaneProps, "screen"> {
   basis?: number;
 }
 
-function LayoutNode({ node, screen, basis, ...actions }: LayoutNodeProps) {
+interface LayoutGroupNodeProps extends Omit<LayoutNodeProps, "node"> {
+  node: Extract<PaneLayoutView, { type: "group" }>;
+}
+
+function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodeProps) {
   const style = basis === undefined ? undefined : { flex: `0 0 ${basis}%` };
-  if (node.type === "pane") {
-    return (
-      <div className="pane-leaf" style={style}>
-        <PaneLeaf
-          {...actions}
-          pane={screen.panes.find((pane) => pane.id === node.pane) ?? null}
-          paneId={node.pane}
-          active={screen.activePane === node.pane}
-          zoomed={screen.zoomedPane === node.pane}
-        />
-      </div>
-    );
-  }
+  const authoritativeRatio = node.firstPercent / 100;
+  const target = splitDividerTarget(node);
+  const [previewRatio, setPreviewRatio] = useState<number | null>(null);
+  const [pendingRatio, setPendingRatio] = useState<{
+    requestId: number;
+    previousRatio: number;
+    ratio: number;
+    pane: Id;
+    dir: "right" | "down";
+  } | null>(null);
+  const nextRequestId = useRef(0);
+  const activeRequestId = useRef<number | null>(null);
+  const drag = useRef<{
+    pointerId: number;
+    bounds: DOMRect;
+    initialRatio: number;
+    lastRatio: number;
+  } | null>(null);
+
+  // Derived, not effect-driven: a pending commit is only trusted while it
+  // still addresses this divider and the authoritative ratio hasn't moved
+  // off the snapshot it was based on. The moment the server's layout event
+  // lands (confirm or foreign change), validity flips and the authoritative
+  // ratio renders; the stale record is cleared lazily on the next pointerdown.
+  const pendingValid = pendingRatio !== null
+    && target !== null
+    && target.pane === pendingRatio.pane
+    && target.dir === pendingRatio.dir
+    && Math.abs(authoritativeRatio - pendingRatio.previousRatio) <= 1e-6;
+
+  const firstRatio = previewRatio ?? (pendingValid && pendingRatio !== null ? pendingRatio.ratio : authoritativeRatio);
+  const firstPercent = firstRatio * 100;
+  const secondPercent = 100 - firstPercent;
+  const dividerStyle = node.direction === "row"
+    ? { left: `${firstPercent}%` }
+    : { top: `${firstPercent}%` };
+
   return (
     <div className={`pane-group ${node.direction}`} style={style}>
-      <LayoutNode {...actions} node={node.first} screen={screen} basis={node.firstPercent} />
-      <LayoutNode {...actions} node={node.second} screen={screen} basis={node.secondPercent} />
+      <LayoutNode {...actions} node={node.first} screen={screen} basis={firstPercent} />
+      {target && (
+        <div
+          aria-orientation={node.direction === "row" ? "vertical" : "horizontal"}
+          className="split-divider"
+          role="separator"
+          style={dividerStyle}
+          onPointerDown={(event) => {
+            if (event.pointerType === "mouse" && event.button !== 0) return;
+            if (pendingRatio && pendingValid) return;
+            if (pendingRatio) {
+              activeRequestId.current = null;
+              setPendingRatio(null);
+            }
+            const group = event.currentTarget.parentElement;
+            if (!group) return;
+            event.preventDefault();
+            event.stopPropagation();
+            event.currentTarget.setPointerCapture(event.pointerId);
+            drag.current = {
+              pointerId: event.pointerId,
+              bounds: group.getBoundingClientRect(),
+              initialRatio: authoritativeRatio,
+              lastRatio: authoritativeRatio,
+            };
+          }}
+          onPointerMove={(event) => {
+            if (!drag.current || drag.current.pointerId !== event.pointerId) return;
+            event.preventDefault();
+            const ratio = splitRatioFromPointer(node.direction, event, drag.current.bounds);
+            if (ratio === null) return;
+            drag.current.lastRatio = ratio;
+            setPreviewRatio(ratio);
+          }}
+          onPointerUp={(event) => {
+            const currentDrag = drag.current;
+            if (!currentDrag || currentDrag.pointerId !== event.pointerId) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const pointerRatio = splitRatioFromPointer(node.direction, event, currentDrag.bounds);
+            const nextRatio = pointerRatio ?? currentDrag.lastRatio;
+            drag.current = null;
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            }
+            const ratio = splitRatioToCommit(currentDrag.initialRatio, nextRatio);
+            if (ratio === null) {
+              setPreviewRatio(null);
+              return;
+            }
+            const requestId = ++nextRequestId.current;
+            activeRequestId.current = requestId;
+            setPreviewRatio(null);
+            setPendingRatio({
+              requestId,
+              previousRatio: currentDrag.initialRatio,
+              ratio,
+              pane: target.pane,
+              dir: target.dir,
+            });
+            void actions.onSetRatio(target.pane, target.dir, ratio).then((succeeded) => {
+              if (succeeded || activeRequestId.current !== requestId) return;
+              activeRequestId.current = null;
+              setPendingRatio(null);
+              setPreviewRatio(null);
+            });
+          }}
+          onPointerCancel={(event) => {
+            if (!drag.current || drag.current.pointerId !== event.pointerId) return;
+            drag.current = null;
+            setPreviewRatio(null);
+          }}
+        />
+      )}
+      <LayoutNode {...actions} node={node.second} screen={screen} basis={secondPercent} />
+    </div>
+  );
+}
+
+function LayoutNode({ node, screen, basis, ...actions }: LayoutNodeProps) {
+  const style = basis === undefined ? undefined : { flex: `0 0 ${basis}%` };
+  if (node.type === "group") {
+    // Keyed by screen so switching screens remounts the group and drops any
+    // drag/pending overlay state, replacing an imperative reset effect.
+    return <LayoutGroupNode key={screen.id} {...actions} node={node} screen={screen} basis={basis} />;
+  }
+  return (
+    <div className="pane-leaf" style={style}>
+      <PaneLeaf
+        {...actions}
+        pane={screen.panes.find((pane) => pane.id === node.pane) ?? null}
+        paneId={node.pane}
+        active={screen.activePane === node.pane}
+        zoomed={screen.zoomedPane === node.pane}
+      />
     </div>
   );
 }

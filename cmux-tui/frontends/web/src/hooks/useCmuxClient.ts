@@ -158,9 +158,10 @@ export function useCmuxClient() {
   }, []);
 
   const runMutation = useCallback(async (mutation: (client: CmuxClient) => Promise<unknown>) => {
-    if (!state.client) return;
+    if (!state.client) return false;
     try {
       await mutation(state.client);
+      return true;
     } catch (error) {
       const toast: Toast = {
         event: "notification",
@@ -171,6 +172,7 @@ export function useCmuxClient() {
         surface: null,
       };
       setToasts((current) => [...current.slice(-2), toast]);
+      return false;
     }
   }, [state.client]);
 

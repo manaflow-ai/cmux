@@ -72,6 +72,7 @@ export default function App() {
         onSelectTab={connection.selectTab}
         onNewTab={connection.mutations.newTab}
         onSplit={connection.mutations.split}
+        onSetRatio={connection.mutations.setRatio}
         onFocusPane={connection.mutations.focusPane}
         onZoomPane={connection.mutations.zoomPane}
         onClosePane={connection.mutations.closePane}

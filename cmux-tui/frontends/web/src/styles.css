@@ -95,10 +95,16 @@ button { color: inherit; touch-action: manipulation; }
 
 .pane-layout { display: flex; grid-area: 1 / 2; min-width: 0; min-height: 0; overflow: hidden; }
 .pane-layout > .pane-leaf, .pane-layout > .pane-group { flex: 1 1 auto; min-width: 0; min-height: 0; }
-.pane-group { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; gap: 1px; background: var(--border-inactive); }
+.pane-group { position: relative; display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; gap: 1px; background: var(--border-inactive); }
 .pane-group.row { flex-direction: row; }
 .pane-group.column { flex-direction: column; }
 .pane-leaf { min-width: 0; min-height: 0; background: var(--terminal-background); }
+.split-divider { position: absolute; z-index: 5; padding: 0; border: 0; background: var(--border-inactive); touch-action: none; user-select: none; -webkit-user-select: none; }
+.split-divider::before { position: absolute; content: ""; }
+.pane-group.row > .split-divider { top: 0; bottom: 0; width: 1px; transform: translateX(-0.5px); cursor: col-resize; }
+.pane-group.row > .split-divider::before { top: 0; bottom: 0; left: 50%; width: 24px; transform: translateX(-50%); }
+.pane-group.column > .split-divider { right: 0; left: 0; height: 1px; transform: translateY(-0.5px); cursor: row-resize; }
+.pane-group.column > .split-divider::before { top: 50%; right: 0; left: 0; height: 24px; transform: translateY(-50%); }
 .terminal-panel { position: relative; display: grid; grid-template-rows: 30px minmax(0, 1fr); width: 100%; height: 100%; min-width: 0; min-height: 0; border: 1px solid var(--border-inactive); background: var(--terminal-background); }
 .terminal-panel.active-pane { border-color: var(--border-active); }
 .tab-bar { display: flex; min-width: 0; overflow-x: auto; border-bottom: 1px solid currentColor; color: var(--border-inactive); background: var(--tab-bg); -webkit-overflow-scrolling: touch; }
