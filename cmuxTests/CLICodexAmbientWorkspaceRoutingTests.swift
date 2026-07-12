@@ -64,7 +64,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_WORKSPACE_ID",
             "CMUX_SURFACE_ID",
             "CMUX_CLI_TTY_NAME",
-            "CMUX_CODEX_PID",
             "ANTHROPIC_BASE_URL",
             "CLAUDE_CONFIG_DIR",
             "CODEX_HOME",
@@ -75,6 +74,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ] {
             environment.removeValue(forKey: key)
         }
+        environment["CMUX_CODEX_PID"] = "42424"
 
         let result = runProcess(
             executablePath: cliPath,

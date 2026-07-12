@@ -2329,6 +2329,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 switch method {
                 case "surface.list":
                     return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "system.resolve_terminal":
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "tty_bindings": [],
+                            "pid_binding": [
+                                "workspace_id": workspaceId,
+                                "surface_id": surfaceId,
+                            ],
+                        ]
+                    )
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
                 default:
