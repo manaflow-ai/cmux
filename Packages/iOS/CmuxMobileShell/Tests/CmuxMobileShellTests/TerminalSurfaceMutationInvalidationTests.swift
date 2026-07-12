@@ -321,6 +321,90 @@ struct TerminalSurfaceMutationInvalidationTests {
         #expect(bottom.mutation == .scrollToBottom)
     }
 
+    @Test("replay barrier retains scroll then input snap in causal order")
+    func replayBarrierRetainsInteractionOrder() async throws {
+        let store = MobileShellComposite.preview()
+        let surfaceID = "barrier-interactions"
+        var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+        _ = store.mountTerminalScrollSession(surfaceID: surfaceID, cancelLocal: {})
+        _ = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
+
+        let scrollReceipt = store.enqueueTerminalLocalScrollMutation(
+            surfaceID: surfaceID,
+            runs: [MobileTerminalScrollRun(lines: -6, col: 2, row: 3)]
+        )
+        let bottomReceipt = store.enqueueTerminalScrollToBottomMutation(surfaceID: surfaceID)
+        #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
+
+        #expect(store.deliverAuthoritativeTerminalRenderGrid(
+            try reconciliationFrame(surfaceID: surfaceID),
+            source: "replay",
+            bypassReplayBarrier: true
+        ))
+        let replay = try #require(await iterator.next())
+        #expect(store.terminalOutputWillProcess(
+            surfaceID: surfaceID,
+            streamToken: replay.streamToken,
+            deliveryID: replay.deliveryID
+        ))
+        store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replay.streamToken)
+
+        let retainedInteractionsReady = try await pollUntil {
+            store.terminalOutputQueuesBySurfaceID[surfaceID]?.currentInFlight?.isInteractionMutation == true
+        }
+        #expect(retainedInteractionsReady)
+        guard retainedInteractionsReady else { return }
+
+        var mutations: [MobileTerminalSurfaceMutation] = []
+        for _ in 0..<2 {
+            let chunk = try #require(await iterator.next())
+            mutations.append(chunk.mutation)
+            #expect(store.terminalOutputWillProcess(
+                surfaceID: surfaceID,
+                streamToken: chunk.streamToken,
+                deliveryID: chunk.deliveryID
+            ))
+            store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: chunk.streamToken)
+        }
+        guard case .localScroll(let runs) = mutations[0],
+              case .scrollToBottom = mutations[1] else {
+            Issue.record("expected retained scroll then input snap")
+            return
+        }
+        #expect(runs.map(\.lines) == [-6])
+        #expect(await scrollReceipt.value)
+        #expect(await bottomReceipt.value)
+    }
+
+    @Test("raw byte budget recovers before admitting local scroll")
+    func rawByteBudgetRecoversBeforeScroll() async throws {
+        let store = MobileShellComposite.preview()
+        let surfaceID = "raw-byte-overflow"
+        var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+        _ = store.mountTerminalScrollSession(surfaceID: surfaceID, cancelLocal: {})
+        store.deliverTerminalBytes(Data("head".utf8), surfaceID: surfaceID)
+        let stalled = try #require(await iterator.next())
+        #expect(store.terminalOutputWillProcess(
+            surfaceID: surfaceID,
+            streamToken: stalled.streamToken,
+            deliveryID: stalled.deliveryID
+        ))
+
+        let chunk = Data(repeating: 0x78, count: 8 * 1_024)
+        for _ in 0..<128 {
+            store.deliverTerminalBytes(chunk, surfaceID: surfaceID)
+        }
+        store.scrollTerminal(surfaceID: surfaceID, lines: -4, col: 1, row: 1)
+
+        #expect(store.terminalOutputStreamTokensBySurfaceID[surfaceID] != stalled.streamToken)
+        #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.pendingCount ?? .max <= 1)
+        guard case .localScroll(let runs) = store.terminalOutputQueuesBySurfaceID[surfaceID]?.currentInFlight?.mutation else {
+            Issue.record("expected recovery to admit scroll ahead of stale raw backlog")
+            return
+        }
+        #expect(runs.map(\.lines) == [-4])
+    }
+
     private func frame(text: String, full: Bool) throws -> MobileTerminalRenderGridFrame {
         try MobileTerminalRenderGridFrame.fromPlainRows(
             surfaceID: "terminal",

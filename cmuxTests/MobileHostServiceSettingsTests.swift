@@ -115,6 +115,41 @@ struct MobileHostServiceSettingsTests {
 @MainActor
 @Suite(.serialized)
 struct MobileTerminalScrollHandlerTests {
+    @Test func replacementConnectionOwnsSharedClientStateUntilItCloses() {
+        let service = MobileHostService.shared
+        let controller = TerminalController.shared
+        let connectionA = UUID()
+        let connectionB = UUID()
+        let surfaceID = UUID()
+        defer {
+            service.debugResetMobileLifecycleStateForTesting()
+            controller.debugResetMobileViewportReportsForTesting()
+            controller.mobileInteractionEpochsBySurfaceID[surfaceID] = nil
+        }
+
+        service.debugResetMobileLifecycleStateForTesting()
+        controller.debugResetMobileViewportReportsForTesting()
+        controller.debugSetMobileViewportReportForTesting(
+            surfaceID: surfaceID,
+            clientID: "shared-client",
+            columns: 72,
+            rows: 28
+        )
+        controller.mobileInteractionEpochsBySurfaceID[surfaceID] = ["shared-client": 9]
+        service.debugRecordClientIDForTesting("shared-client", connectionID: connectionA)
+        service.debugRecordClientIDForTesting("shared-client", connectionID: connectionB)
+
+        service.debugRemoveConnectionForTesting(id: connectionA)
+
+        #expect(controller.debugMobileViewportReportClientIDsForTesting(surfaceID: surfaceID) == ["shared-client"])
+        #expect(controller.mobileInteractionEpochsBySurfaceID[surfaceID] == ["shared-client": 9])
+
+        service.debugRemoveConnectionForTesting(id: connectionB)
+
+        #expect(controller.debugMobileViewportReportClientIDsForTesting(surfaceID: surfaceID).isEmpty)
+        #expect(controller.mobileInteractionEpochsBySurfaceID[surfaceID] == nil)
+    }
+
     @Test func cleanupRetiresOnlyRequestedSurfaceMobileOrderingState() {
         let controller = TerminalController.shared
         let removedSurfaceID = UUID()
