@@ -373,6 +373,7 @@ extension MobileShellComposite {
                 markMacConnectionUnavailableIfNeeded(after: error)
             }
             mobileShellLog.error("workspace mutation failed action=\(actionName, privacy: .public) id=\(logID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            guard workspaceMutationMayHaveApplied(error) else { return .failure(workspaceMutationFailure(error, hostDisplayName: hostDisplayName)) }
             let reconciled = await refreshAfterWorkspaceMutation(target)
             if !reconciled {
                 return .failure(unreconciledWorkspaceMutationFailure(error, hostDisplayName: hostDisplayName))
@@ -385,7 +386,6 @@ extension MobileShellComposite {
         }
         return .success(())
     }
-
     func workspaceMutationParams(id: MobileWorkspacePreview.ID) -> [String: Any] {
         var params: [String: Any] = [
             "workspace_id": remoteWorkspaceID(for: id).rawValue,
