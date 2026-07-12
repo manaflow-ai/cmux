@@ -45,7 +45,9 @@ public struct MobileDiffWebView: UIViewRepresentable {
         private let state: MobileDiffState
         private weak var webView: WKWebView?
         private var loadedGeneration = -1
+        private var pendingGeneration: Int?
         private var appliedSelection: String?
+        private var loadTask: Task<Void, Never>?
 
         init(state: MobileDiffState) {
             self.state = state
@@ -57,23 +59,44 @@ public struct MobileDiffWebView: UIViewRepresentable {
         }
 
         func detach() {
+            loadTask?.cancel()
+            loadTask = nil
             webView = nil
         }
 
         func apply(state: MobileDiffState) {
             guard let webView else { return }
-            if loadedGeneration != state.generation, let document = state.document {
+            if loadedGeneration != state.generation,
+               pendingGeneration != state.generation,
+               let document = state.document {
                 do {
                     let html = try Self.viewerHTML(document: document, generation: state.generation)
                     guard MobileDiffPatchSchemeHandler.assetsAvailable else {
                         state.fail(message: L10n.string("mobile.diff.assetsMissing", defaultValue: "Diff viewer assets are missing from this build."))
                         return
                     }
-                    patchHandler.configure(html: Data(html.utf8), patch: Data(document.patch.utf8))
-                    loadedGeneration = state.generation
-                    appliedSelection = nil
-                    let url = URL(string: "\(MobileDiffPatchSchemeHandler.scheme)://viewer/index-\(state.generation).html")!
-                    webView.load(URLRequest(url: url))
+                    let generation = state.generation
+                    pendingGeneration = generation
+                    loadTask?.cancel()
+                    loadTask = Task { @MainActor [weak self, weak webView] in
+                        guard let self, let webView else { return }
+                        await patchHandler.configure(
+                            generation: generation,
+                            html: Data(html.utf8),
+                            patch: Data(document.patch.utf8)
+                        )
+                        guard !Task.isCancelled, state.generation == generation else {
+                            if pendingGeneration == generation {
+                                pendingGeneration = nil
+                            }
+                            return
+                        }
+                        loadedGeneration = generation
+                        pendingGeneration = nil
+                        appliedSelection = nil
+                        let url = URL(string: "\(MobileDiffPatchSchemeHandler.scheme)://viewer/index-\(generation).html")!
+                        webView.load(URLRequest(url: url))
+                    }
                 } catch {
                     state.fail(message: error.localizedDescription)
                 }
@@ -164,24 +187,132 @@ final class MobileDiffPatchSchemeHandler: NSObject, WKURLSchemeHandler, @uncheck
             && FileManager.default.fileExists(atPath: resourceURL.appendingPathComponent("diff-viewer/diffs.mjs").path)
     }
 
-    private let lock = NSLock()
-    private var html = Data()
-    private var patch = Data()
+    private let store = MobileDiffPatchStore()
 
-    func configure(html: Data, patch: Data) {
-        lock.lock()
-        self.html = html
-        self.patch = patch
-        lock.unlock()
+    func configure(generation: Int, html: Data, patch: Data) async {
+        await store.configure(generation: generation, html: html, patch: patch)
     }
 
     func webView(_ webView: WKWebView, start urlSchemeTask: any WKURLSchemeTask) {
         guard let url = urlSchemeTask.request.url,
-              url.host == "viewer",
-              let content = content(for: url.path) else {
+              url.host == "viewer" else {
             urlSchemeTask.didFailWithError(URLError(.badURL))
             return
         }
+        let requestID = ObjectIdentifier(urlSchemeTask as AnyObject)
+        let pendingTask = MobileDiffPendingSchemeTask(urlSchemeTask)
+        Task { [store] in
+            guard await store.beginRequest(requestID) else { return }
+            guard let content = await store.content(for: url.path) else {
+                await store.failRequest(requestID, task: pendingTask, error: URLError(.badURL))
+                return
+            }
+            await store.finishRequest(requestID, task: pendingTask, url: url, content: content)
+        }
+    }
+
+    func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {
+        let requestID = ObjectIdentifier(urlSchemeTask as AnyObject)
+        Task { [store] in
+            await store.stopRequest(requestID)
+        }
+    }
+}
+
+private actor MobileDiffPatchStore {
+    private var payloads: [Int: MobileDiffPatchPayload] = [:]
+    private var activeRequests: Set<ObjectIdentifier> = []
+    private var stoppedRequests: Set<ObjectIdentifier> = []
+    private var stoppedRequestOrder: [ObjectIdentifier] = []
+
+    func configure(generation: Int, html: Data, patch: Data) {
+        payloads[generation] = MobileDiffPatchPayload(html: html, patch: patch)
+        for expiredGeneration in payloads.keys.sorted().dropLast(2) {
+            payloads[expiredGeneration] = nil
+        }
+    }
+
+    func content(for requestPath: String) -> MobileDiffPatchContent? {
+        let path = requestPath.drop(while: { $0 == "/" })
+        if let generation = generation(in: path, prefix: "index-", suffix: ".html"),
+           let payload = payloads[generation] {
+            return MobileDiffPatchContent(data: payload.html, mimeType: "text/html")
+        }
+        if let generation = generation(in: path, prefix: "patch/current-", suffix: ".diff"),
+           let payload = payloads[generation] {
+            return MobileDiffPatchContent(data: payload.patch, mimeType: "text/x-diff")
+        }
+        guard path.hasPrefix("webviews-app/") || path.hasPrefix("diff-viewer/"),
+              path.hasSuffix(".mjs") || path.hasSuffix(".js"),
+              let resourceRoot = Bundle.main.resourceURL?.standardizedFileURL else { return nil }
+        let fileURL = resourceRoot.appendingPathComponent(String(path)).standardizedFileURL
+        guard fileURL.path.hasPrefix(resourceRoot.path + "/"),
+              let data = try? Data(contentsOf: fileURL) else { return nil }
+        return MobileDiffPatchContent(data: data, mimeType: "text/javascript")
+    }
+
+    func beginRequest(_ requestID: ObjectIdentifier) -> Bool {
+        guard stoppedRequests.remove(requestID) == nil else {
+            stoppedRequestOrder.removeAll { $0 == requestID }
+            return false
+        }
+        activeRequests.insert(requestID)
+        return true
+    }
+
+    func stopRequest(_ requestID: ObjectIdentifier) {
+        guard activeRequests.remove(requestID) == nil,
+              stoppedRequests.insert(requestID).inserted else { return }
+        stoppedRequestOrder.append(requestID)
+        if stoppedRequestOrder.count > 64 {
+            stoppedRequests.remove(stoppedRequestOrder.removeFirst())
+        }
+    }
+
+    func failRequest(_ requestID: ObjectIdentifier, task: MobileDiffPendingSchemeTask, error: any Error) {
+        guard activeRequests.remove(requestID) != nil else { return }
+        task.fail(with: error)
+    }
+
+    func finishRequest(
+        _ requestID: ObjectIdentifier,
+        task: MobileDiffPendingSchemeTask,
+        url: URL,
+        content: MobileDiffPatchContent
+    ) {
+        guard activeRequests.remove(requestID) != nil else { return }
+        task.finish(url: url, content: content)
+    }
+
+    private func generation(in path: Substring, prefix: String, suffix: String) -> Int? {
+        guard path.hasPrefix(prefix), path.hasSuffix(suffix) else { return nil }
+        return Int(path.dropFirst(prefix.count).dropLast(suffix.count))
+    }
+}
+
+private struct MobileDiffPatchPayload: Sendable {
+    let html: Data
+    let patch: Data
+}
+
+private struct MobileDiffPatchContent: Sendable {
+    let data: Data
+    let mimeType: String
+}
+
+/// WebKit owns this callback token and permits asynchronous scheme responses.
+private final class MobileDiffPendingSchemeTask: @unchecked Sendable {
+    private let task: any WKURLSchemeTask
+
+    init(_ task: any WKURLSchemeTask) {
+        self.task = task
+    }
+
+    func fail(with error: any Error) {
+        task.didFailWithError(error)
+    }
+
+    func finish(url: URL, content: MobileDiffPatchContent) {
         let response = HTTPURLResponse(
             url: url,
             statusCode: 200,
@@ -193,34 +324,9 @@ final class MobileDiffPatchSchemeHandler: NSObject, WKURLSchemeHandler, @uncheck
                 "Cross-Origin-Resource-Policy": "same-origin",
             ]
         )!
-        urlSchemeTask.didReceive(response)
-        urlSchemeTask.didReceive(content.data)
-        urlSchemeTask.didFinish()
-    }
-
-    func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {}
-
-    private func content(for requestPath: String) -> (data: Data, mimeType: String)? {
-        let path = requestPath.drop(while: { $0 == "/" })
-        if path.hasPrefix("index-") && path.hasSuffix(".html") {
-            return (snapshot(\.html), "text/html")
-        }
-        if path.hasPrefix("patch/") && path.hasSuffix(".diff") {
-            return (snapshot(\.patch), "text/x-diff")
-        }
-        guard path.hasPrefix("webviews-app/") || path.hasPrefix("diff-viewer/"),
-              path.hasSuffix(".mjs") || path.hasSuffix(".js"),
-              let resourceRoot = Bundle.main.resourceURL?.standardizedFileURL else { return nil }
-        let fileURL = resourceRoot.appendingPathComponent(String(path)).standardizedFileURL
-        guard fileURL.path.hasPrefix(resourceRoot.path + "/"),
-              let data = try? Data(contentsOf: fileURL) else { return nil }
-        return (data, "text/javascript")
-    }
-
-    private func snapshot(_ keyPath: KeyPath<MobileDiffPatchSchemeHandler, Data>) -> Data {
-        lock.lock()
-        defer { lock.unlock() }
-        return self[keyPath: keyPath]
+        task.didReceive(response)
+        task.didReceive(content.data)
+        task.didFinish()
     }
 }
 #endif
