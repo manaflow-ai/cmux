@@ -220,6 +220,8 @@ import Testing
 
         let rows = try await pairedMacStore.loadAll(stackUserID: "user-1", teamID: nil)
         #expect(!rows.contains { $0.macDeviceID == "test-mac" })
+        let scope = try #require(await store.currentScopeSnapshot())
+        #expect(await store.isForgottenMacDeviceID("test-mac", scope: scope))
     }
 
     @Test func forgettingConnectedFallbackMacDisconnectsItsLiveClient() async throws {
@@ -374,38 +376,6 @@ private func storedMac(
         isActive: isActive,
         stackUserID: "user-1"
     )
-}
-
-private actor ControlledStoredMacReconnectDeadline {
-    private var isArmed = false
-    private var armWaiters: [CheckedContinuation<Void, Never>] = []
-    private var deadlineWaiter: CheckedContinuation<Void, Never>?
-
-    func wait() async {
-        isArmed = true
-        let waiters = armWaiters
-        armWaiters.removeAll()
-        for waiter in waiters {
-            waiter.resume()
-        }
-        await withCheckedContinuation { continuation in
-            deadlineWaiter = continuation
-        }
-    }
-
-    func waitUntilArmed() async {
-        if isArmed { return }
-        await withCheckedContinuation { continuation in
-            armWaiters.append(continuation)
-        }
-    }
-
-    func expire() async {
-        deadlineWaiter?.resume()
-        deadlineWaiter = nil
-        await Task.yield()
-        await Task.yield()
-    }
 }
 
 private extension MobileConnectionLifecycleHealthSnapshot {

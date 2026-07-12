@@ -900,7 +900,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
         feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
         storedMacReconnectDeadline: @escaping @Sendable () async -> Void = {
-            try? await Task.sleep(for: .seconds(10))
+            try? await ContinuousClock().sleep(for: .seconds(10))
         },
         draftStore: (any TerminalDraftStoring)? = nil,
         groupCollapseStore: MobileWorkspaceGroupCollapseStore = MobileWorkspaceGroupCollapseStore()
@@ -1552,6 +1552,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             port: port,
             pairedMacDeviceID: pairedMacDeviceID,
             recordsPairingAttempt: false,
+            clearsForgottenMac: false,
             ifStillCurrent: ifStillCurrent
         )
     }
@@ -1567,6 +1568,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         port: Int,
         pairedMacDeviceID: String? = nil,
         recordsPairingAttempt: Bool,
+        clearsForgottenMac: Bool = true,
         ifStillCurrent: (() -> Bool)? = nil
     ) async {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1618,6 +1620,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 ticket: ticket,
                 allowsStackAuthFallback: true,
                 pairedMacDeviceID: pairedMacDeviceID,
+                clearsForgottenMac: clearsForgottenMac,
                 ifStillCurrent: ifStillCurrent
             )
             guard isCurrentPairingAttempt(attemptID) else { return }
@@ -2882,6 +2885,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// the connection it just established).
     private func persistPairedMacFromTicket(
         _ ticket: CmxAttachTicket,
+        clearsForgottenMac: Bool = true,
         ifStillCurrent: (() -> Bool)? = nil
     ) async {
         guard let pairedMacStore else { return }
@@ -2963,8 +2967,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 if let scope {
                     guard await self.isScopeCurrent(scope) else { return }
                 }
-                await self.clearForgottenMacDeviceID(ticket.macDeviceID, scope: scope)
-                guard ifStillCurrent?() ?? true else { return }
+                if clearsForgottenMac {
+                    await self.clearForgottenMacDeviceID(ticket.macDeviceID, scope: scope)
+                    guard ifStillCurrent?() ?? true else { return }
+                }
                 // A real, reconnectable Mac is now the active paired Mac: record
                 // the persisted hint so the next launch shows RestoringSessionView
                 // during the reconnect window instead of the empty add-device sheet.
@@ -3155,7 +3161,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 if let scope {
                     guard await self.isScopeCurrent(scope) else { return }
                 }
-                await self.clearForgottenMacDeviceID(ticket.macDeviceID, scope: scope)
             } catch {
                 mobileShellLog.error("paired mac display-name upsert failed: \(String(describing: error), privacy: .public)")
             }
@@ -5006,6 +5011,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         ticket: CmxAttachTicket,
         allowsStackAuthFallback: Bool? = nil,
         pairedMacDeviceID: String? = nil,
+        clearsForgottenMac: Bool = true,
         ifStillCurrent: (() -> Bool)? = nil
     ) async throws -> MobilePairingFailureCategory? {
         let generation = UUID()
@@ -5087,7 +5093,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     )
                     let response = try MobileSyncWorkspaceListResponse.decode(resultData)
                     guard isConnectCurrent() else { return nil }
-                    await persistPairedMacFromTicket(ticket, ifStillCurrent: isConnectCurrent)
+                    await persistPairedMacFromTicket(
+                        ticket,
+                        clearsForgottenMac: clearsForgottenMac,
+                        ifStillCurrent: isConnectCurrent
+                    )
                     guard isConnectCurrent() else { return nil }
                     replaceRemoteClient(with: client)
                     startTerminalRefreshPolling()
