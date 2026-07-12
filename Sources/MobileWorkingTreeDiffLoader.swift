@@ -3,6 +3,7 @@ import Foundation
 
 /// Builds a bounded Git working-tree patch for transport to a mobile client.
 final class MobileWorkingTreeDiffLoader: Sendable {
+    private let emptyTreeHash = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
     private let maximumPatchBytes = 6 * 1024 * 1024
     private let maximumUntrackedFiles = 200
     private let maximumPathListBytes = 1024 * 1024
@@ -27,38 +28,31 @@ final class MobileWorkingTreeDiffLoader: Sendable {
             maximumStdoutBytes: 1024
         )).status == 0
         var patch = Data()
-        let trackedArgumentSets = hasHead
-            ? [["diff", "--no-ext-diff", "--no-textconv", "--binary", "HEAD", "--"]]
-            : [
-                ["diff", "--cached", "--no-ext-diff", "--no-textconv", "--binary", "--"],
-                ["diff", "--no-ext-diff", "--no-textconv", "--binary", "--"],
-            ]
-        for arguments in trackedArgumentSets {
-            let tracked = try await runGit(
-                arguments,
-                directory: repositoryRoot,
-                maximumStdoutBytes: maximumPatchBytes - patch.count
-            )
-            guard tracked.status == 0 else {
-                throw MobileWorkingTreeDiffLoadError(code: "git_error", message: "Git diff failed")
-            }
-            guard !tracked.stdoutOverflowed else {
-                throw MobileWorkingTreeDiffLoadError(code: "too_large", message: "Workspace diff is too large to send to this phone")
-            }
-            patch.append(tracked.stdout)
+        let trackedBase = hasHead ? "HEAD" : emptyTreeHash
+        let tracked = try await runGit(
+            ["diff", "--no-ext-diff", "--no-textconv", "--binary", trackedBase, "--"],
+            directory: repositoryRoot,
+            maximumStdoutBytes: maximumPatchBytes
+        )
+        guard !tracked.stdoutOverflowed else {
+            throw MobileWorkingTreeDiffLoadError(code: "too_large", message: "Workspace diff is too large to send to this phone")
         }
+        guard tracked.status == 0 else {
+            throw MobileWorkingTreeDiffLoadError(code: "git_error", message: "Git diff failed")
+        }
+        patch.append(tracked.stdout)
 
         let untracked = try await runGit(
             ["ls-files", "--others", "--exclude-standard", "-z"],
             directory: repositoryRoot,
             maximumStdoutBytes: maximumPathListBytes
         )
-        guard untracked.status == 0 else {
-            throw MobileWorkingTreeDiffLoadError(code: "git_error", message: "Could not list untracked files")
-        }
         let paths = untracked.stdout.split(separator: 0)
         guard !untracked.stdoutOverflowed, paths.count <= maximumUntrackedFiles else {
             throw MobileWorkingTreeDiffLoadError(code: "too_many_files", message: "Workspace has too many untracked files to display")
+        }
+        guard untracked.status == 0 else {
+            throw MobileWorkingTreeDiffLoadError(code: "git_error", message: "Could not list untracked files")
         }
         for pathData in paths {
             guard let path = String(data: Data(pathData), encoding: .utf8), !path.isEmpty else { continue }
@@ -67,11 +61,11 @@ final class MobileWorkingTreeDiffLoader: Sendable {
                 directory: repositoryRoot,
                 maximumStdoutBytes: maximumPatchBytes - patch.count
             )
-            guard result.status == 0 || result.status == 1 else {
-                throw MobileWorkingTreeDiffLoadError(code: "git_error", message: "Could not diff untracked file")
-            }
             guard !result.stdoutOverflowed else {
                 throw MobileWorkingTreeDiffLoadError(code: "too_large", message: "Workspace diff is too large to send to this phone")
+            }
+            guard result.status == 0 || result.status == 1 else {
+                throw MobileWorkingTreeDiffLoadError(code: "git_error", message: "Could not diff untracked file")
             }
             patch.append(result.stdout)
         }
@@ -97,15 +91,19 @@ final class MobileWorkingTreeDiffLoader: Sendable {
         process.standardError = stderr
         process.standardInput = FileHandle.nullDevice
 
+        let cancellation = MobileDiffProcessCancellation(process: process)
         let stdoutFD = stdout.fileHandleForReading.fileDescriptor
         let stderrFD = stderr.fileHandleForReading.fileDescriptor
         let stdoutRead = Task.detached {
-            Self.drain(fileDescriptor: stdoutFD, maximumBytes: max(0, maximumStdoutBytes))
+            Self.drain(
+                fileDescriptor: stdoutFD,
+                maximumBytes: max(0, maximumStdoutBytes),
+                cancellationOnOverflow: cancellation
+            )
         }
         let stderrRead = Task.detached { [maximumErrorBytes] in
             Self.drain(fileDescriptor: stderrFD, maximumBytes: maximumErrorBytes)
         }
-        let cancellation = MobileDiffProcessCancellation(process: process)
 
         let status: Int32
         do {
@@ -142,7 +140,8 @@ final class MobileWorkingTreeDiffLoader: Sendable {
     /// Drains a pipe to EOF while retaining only the caller's bounded prefix.
     private static func drain(
         fileDescriptor: Int32,
-        maximumBytes: Int
+        maximumBytes: Int,
+        cancellationOnOverflow: MobileDiffProcessCancellation? = nil
     ) -> (data: Data, overflowed: Bool) {
         var data = Data()
         var overflowed = false
@@ -155,7 +154,10 @@ final class MobileWorkingTreeDiffLoader: Sendable {
             if count > 0 {
                 let retainedCount = min(count, max(0, maximumBytes - data.count))
                 if retainedCount > 0 { data.append(contentsOf: buffer[0..<retainedCount]) }
-                overflowed = overflowed || count > retainedCount
+                if count > retainedCount, !overflowed {
+                    overflowed = true
+                    cancellationOnOverflow?.cancel()
+                }
             } else if count == 0 {
                 break
             } else if errno != EINTR {

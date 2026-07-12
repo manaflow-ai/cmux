@@ -69,9 +69,13 @@ export function installMobileDiffBridge(
   selectFile: (itemId: string) => void,
 ): () => void {
   const bridgeWindow = window as MobileDiffBridgeWindow;
+  const messageHandler = bridgeWindow.webkit?.messageHandlers?.cmuxMobileDiff;
+  if (generation === null || !messageHandler) {
+    return () => {};
+  }
   const bridge = { selectFile };
   bridgeWindow.__cmuxMobileDiff = bridge;
-  bridgeWindow.webkit?.messageHandlers?.cmuxMobileDiff?.postMessage(
+  messageHandler.postMessage(
     mobileDiffMessage(source, selectedItemId, generation),
   );
   return () => {

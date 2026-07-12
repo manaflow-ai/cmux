@@ -63,11 +63,14 @@ struct MobileDiffTests {
 
         try Data("staged\n".utf8).write(to: repository.appendingPathComponent("staged.txt"))
         try runGit(["add", "staged.txt"], at: repository)
+        try Data("edited after staging\n".utf8).write(to: repository.appendingPathComponent("staged.txt"))
 
         let document = try await MobileWorkingTreeDiffLoader().load(directory: repository.path, title: "Fixture")
         let patch = try #require(document["patch"] as? String)
         #expect(patch.contains("diff --git a/staged.txt b/staged.txt"))
-        #expect(patch.contains("+staged"))
+        #expect(patch.components(separatedBy: "diff --git a/staged.txt b/staged.txt").count == 2)
+        #expect(patch.contains("+edited after staging"))
+        #expect(!patch.contains("+staged"))
     }
 
     @Test func loaderRejectsTruncatedUntrackedFileLists() async throws {
@@ -82,6 +85,20 @@ struct MobileDiffTests {
             Issue.record("Expected too many untracked files to fail")
         } catch let error as MobileWorkingTreeDiffLoadError {
             #expect(error.code == "too_many_files")
+        }
+    }
+
+    @Test func loaderStopsOversizedPatchCapture() async throws {
+        let repository = try makeRepository(named: "oversized")
+        defer { try? FileManager.default.removeItem(at: repository) }
+        try Data(repeating: 65, count: 7 * 1024 * 1024)
+            .write(to: repository.appendingPathComponent("oversized.txt"))
+
+        do {
+            _ = try await MobileWorkingTreeDiffLoader().load(directory: repository.path, title: "Fixture")
+            Issue.record("Expected oversized patch to fail")
+        } catch let error as MobileWorkingTreeDiffLoadError {
+            #expect(error.code == "too_large")
         }
     }
 
