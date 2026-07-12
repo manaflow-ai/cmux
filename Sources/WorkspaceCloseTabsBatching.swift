@@ -39,6 +39,22 @@ struct CloseOtherTabsConfirmationPrompt: Sendable {
 }
 
 extension Workspace {
+    /// Closure overload for hot paths that already have a terminal fallback.
+    /// Known shell activity resolves without touching Ghostty process state.
+    func panelNeedsConfirmClose(
+        panelId: UUID,
+        fallbackNeedsConfirmClose: () -> Bool
+    ) -> Bool {
+        switch panelShellActivityStates[panelId] ?? .unknown {
+        case .promptIdle:
+            return false
+        case .commandRunning:
+            return true
+        case .unknown:
+            return fallbackNeedsConfirmClose()
+        }
+    }
+
     func closeTabsFromContextMenu(_ tabIds: [TabID], skipPinned: Bool = true) {
         let confirmationManager = owningTabManager
             ?? AppDelegate.shared?.tabManagerFor(tabId: id)

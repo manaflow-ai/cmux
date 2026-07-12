@@ -421,39 +421,6 @@ extension MobileShellComposite {
         return workspaceMutationTarget(for: anchorWorkspaceID)
     }
 
-    func workspaceMutationFailure(
-        _ error: any Error,
-        hostDisplayName: String?
-    ) -> MobileWorkspaceMutationFailure {
-        guard let connectionError = error as? MobileShellConnectionError else {
-            return .rejected(hostDisplayName: hostDisplayName)
-        }
-        switch connectionError {
-        case .connectionClosed:
-            return .notConnected(hostDisplayName: hostDisplayName)
-        case .requestTimedOut:
-            return .requestTimedOut(hostDisplayName: hostDisplayName)
-        case .attachTicketExpired, .authorizationFailed, .accountMismatch, .insecureManualRoute:
-            return .authorizationFailed(hostDisplayName: hostDisplayName)
-        case let .rpcError(code, _):
-            let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            if normalizedCode == "confirmation_required" {
-                return .confirmationRequired(hostDisplayName: hostDisplayName)
-            }
-            if normalizedCode == "protected" { return .protected(hostDisplayName: hostDisplayName) }
-            if let normalizedCode,
-               ["unauthorized", "forbidden", "invalid_token", "token_expired", "expired_token", "auth_required", "account_mismatch"].contains(normalizedCode) {
-                return .authorizationFailed(hostDisplayName: hostDisplayName)
-            }
-            if normalizedCode == "unavailable" {
-                return .notConnected(hostDisplayName: hostDisplayName)
-            }
-            return .rejected(hostDisplayName: hostDisplayName)
-        case .invalidResponse:
-            return .rejected(hostDisplayName: hostDisplayName)
-        }
-    }
-
     private func workspaceMutationHostDisplayName(
         target: WorkspaceMutationTarget,
         fallback: String?

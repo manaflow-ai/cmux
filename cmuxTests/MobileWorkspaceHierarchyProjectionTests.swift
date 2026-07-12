@@ -24,13 +24,13 @@ struct MobileWorkspaceHierarchyProjectionTests {
         workspace.updatePanelShellActivityState(panelId: panelID, state: .promptIdle)
         let promptIdleNeedsConfirmation = workspace.panelNeedsConfirmClose(
             panelId: panelID,
-            fallbackNeedsConfirmClose: fallback()
+            fallbackNeedsConfirmClose: fallback
         )
         #expect(!promptIdleNeedsConfirmation)
         workspace.updatePanelShellActivityState(panelId: panelID, state: .commandRunning)
         let commandRunningNeedsConfirmation = workspace.panelNeedsConfirmClose(
             panelId: panelID,
-            fallbackNeedsConfirmClose: fallback()
+            fallbackNeedsConfirmClose: fallback
         )
         #expect(commandRunningNeedsConfirmation)
         #expect(evaluations == 0)
@@ -38,7 +38,7 @@ struct MobileWorkspaceHierarchyProjectionTests {
         workspace.updatePanelShellActivityState(panelId: panelID, state: .unknown)
         let unknownNeedsConfirmation = workspace.panelNeedsConfirmClose(
             panelId: panelID,
-            fallbackNeedsConfirmClose: fallback()
+            fallbackNeedsConfirmClose: fallback
         )
         #expect(!unknownNeedsConfirmation)
         #expect(evaluations == 1)

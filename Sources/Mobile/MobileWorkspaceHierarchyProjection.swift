@@ -180,7 +180,10 @@ struct MobileWorkspaceHierarchyProjection {
                     currentDirectory: directory,
                     paneID: paneIDByTerminalID[terminal.id],
                     canClose: workspace.panels.count > 1 && !workspace.pinnedPanelIds.contains(terminal.id),
-                    requiresCloseConfirmation: workspace.panelNeedsConfirmClose(panelId: terminal.id),
+                    requiresCloseConfirmation: workspace.panelNeedsConfirmClose(
+                        panelId: terminal.id,
+                        fallbackNeedsConfirmClose: { terminal.needsConfirmClose() }
+                    ),
                     isReady: terminal.surface.surface != nil
                 ),
                 isFocused: terminal.id == workspace.focusedPanelId
