@@ -30,6 +30,12 @@ private enum MobileWorkspaceInvalidation: Hashable {
 /// the `@Published` source of truth instead of trying to catch every caller.
 @MainActor
 final class MobileWorkspaceListObserver {
+    typealias DeadlineCancellation = @MainActor () -> Void
+    typealias DeadlineScheduler = @MainActor (
+        TimeInterval,
+        @escaping @MainActor () -> Void
+    ) -> DeadlineCancellation
+
     private weak var tabManager: TabManager?
     /// The app-global notification store, source of each workspace's last-activity
     /// preview line. Weak because the store is app-global and outlives this
@@ -49,14 +55,53 @@ final class MobileWorkspaceListObserver {
     /// drains after 50 ms; sustained churn drains at least every 160 ms. The
     /// keyed latest-wins batch also records whether subscriptions must be
     /// reconciled before hashing the final source-of-truth state.
-    private let invalidationBatcher = LatestWinsBatcher<MobileWorkspaceInvalidation, Bool>(
-        quietDelay: 0.05,
-        maximumDelay: 0.16
-    )
+    private let invalidationBatcher: LatestWinsBatcher<MobileWorkspaceInvalidation, Bool>
+    private let emitWorkspaceUpdated: @MainActor () -> Void
 
-    init(tabManager: TabManager, notificationStore: TerminalNotificationStore? = nil) {
+    convenience init(tabManager: TabManager, notificationStore: TerminalNotificationStore? = nil) {
+        self.init(
+            tabManager: tabManager,
+            notificationStore: notificationStore,
+            invalidationBatcher: LatestWinsBatcher(
+                quietDelay: 0.05,
+                maximumDelay: 0.16
+            ),
+            emitWorkspaceUpdated: {
+                MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
+            }
+        )
+    }
+
+    /// Internal seams used by behavior tests to drive the real observer and
+    /// inspect its boundary effects without sleeping or replacing its model.
+    convenience init(
+        tabManager: TabManager,
+        notificationStore: TerminalNotificationStore? = nil,
+        scheduler: @escaping DeadlineScheduler,
+        emitWorkspaceUpdated: @escaping @MainActor () -> Void
+    ) {
+        self.init(
+            tabManager: tabManager,
+            notificationStore: notificationStore,
+            invalidationBatcher: LatestWinsBatcher(
+                quietDelay: 0.05,
+                maximumDelay: 0.16,
+                scheduler: scheduler
+            ),
+            emitWorkspaceUpdated: emitWorkspaceUpdated
+        )
+    }
+
+    private init(
+        tabManager: TabManager,
+        notificationStore: TerminalNotificationStore?,
+        invalidationBatcher: LatestWinsBatcher<MobileWorkspaceInvalidation, Bool>,
+        emitWorkspaceUpdated: @escaping @MainActor () -> Void
+    ) {
         self.tabManager = tabManager
         self.notificationStore = notificationStore
+        self.invalidationBatcher = invalidationBatcher
+        self.emitWorkspaceUpdated = emitWorkspaceUpdated
         #if DEBUG
         cmuxDebugLog("mobile.observer init tabs=\(tabManager.tabs.count)")
         #endif
@@ -324,7 +369,7 @@ final class MobileWorkspaceListObserver {
         #if DEBUG
         cmuxDebugLog("mobile.observer EMIT workspace.updated hash=\(hash) tabs=\(tabManager.tabs.count) force=\(force)")
         #endif
-        MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
+        emitWorkspaceUpdated()
     }
 
     /// Stable hash of the iOS-facing shape: workspace ids + titles + their
