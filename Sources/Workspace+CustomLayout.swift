@@ -57,7 +57,7 @@ extension Workspace {
         // Create the replacement in the pane that actually hosts firstTerminal
         // (not focusedPaneId — focus may be on a browser/project in another pane).
         if firstTerminal.surface.initialCommand == nil {
-            let processCommand = TerminalProcessCommand.asInitialProcess(trimmed)
+            let processCommand = TerminalProcessCommand(trimmed).initialCommand
             let cwd = firstTerminal.requestedWorkingDirectory
             let targetPaneId = paneId(forPanelId: firstTerminal.id)
                 ?? bonsplitController.focusedPaneId
@@ -199,7 +199,7 @@ extension Workspace {
         }
         guard !parts.isEmpty else { return nil }
         let script = parts.joined(separator: "\n")
-        return TerminalProcessCommand.asInitialProcess(script)
+        return TerminalProcessCommand(script).initialCommand
     }
 
     /// Clears `pendingSetup` after a successful process-as-command launch that
@@ -212,6 +212,25 @@ extension Workspace {
         guard let setup = pendingSetup?.trimmingCharacters(in: .whitespacesAndNewlines),
               !setup.isEmpty else { return }
         pendingSetup = nil
+    }
+
+    /// Typed-input fallback when process-as-command surface replace fails.
+    /// Confirms a terminal panel exists **before** consuming `pendingSetup`.
+    private func applyFallbackTypedInput(
+        panelId: UUID,
+        surface: CmuxSurfaceDefinition,
+        focusPanelId: inout UUID?,
+        pendingSetup: inout String?
+    ) {
+        if let name = surface.name { setPanelCustomTitle(panelId: panelId, title: name) }
+        if surface.focus == true { focusPanelId = panelId }
+        guard let terminal = terminalPanel(for: panelId) else { return }
+        if let input = Self.dequeueInitialTerminalInput(
+            pendingSetup: &pendingSetup,
+            command: surface.command
+        ) {
+            sendInputWhenReady(input, to: terminal)
+        }
     }
 
     private func configureExistingSurface(
@@ -243,14 +262,12 @@ extension Workspace {
                 if surface.focus == true { focusPanelId = panel.id }
             } else {
                 // Replace failed: keep placeholder and type setup/command so work is not lost.
-                if let name = surface.name { setPanelCustomTitle(panelId: panelId, title: name) }
-                if surface.focus == true { focusPanelId = panelId }
-                if let input = Self.dequeueInitialTerminalInput(
-                    pendingSetup: &pendingSetup,
-                    command: surface.command
-                ), let terminal = terminalPanel(for: panelId) {
-                    sendInputWhenReady(input, to: terminal)
-                }
+                applyFallbackTypedInput(
+                    panelId: panelId,
+                    surface: surface,
+                    focusPanelId: &focusPanelId,
+                    pendingSetup: &pendingSetup
+                )
             }
 
         case .terminal:
@@ -276,14 +293,12 @@ extension Workspace {
                 } else {
                     // Process replace failed: fall back to typed input on the placeholder
                     // so single-pane layouts do not silently drop setup/command.
-                    if let name = surface.name { setPanelCustomTitle(panelId: panelId, title: name) }
-                    if surface.focus == true { focusPanelId = panelId }
-                    if let input = Self.dequeueInitialTerminalInput(
-                        pendingSetup: &pendingSetup,
-                        command: surface.command
-                    ), let terminal = terminalPanel(for: panelId) {
-                        sendInputWhenReady(input, to: terminal)
-                    }
+                    applyFallbackTypedInput(
+                        panelId: panelId,
+                        surface: surface,
+                        focusPanelId: &focusPanelId,
+                        pendingSetup: &pendingSetup
+                    )
                 }
             } else {
                 if let name = surface.name { setPanelCustomTitle(panelId: panelId, title: name) }

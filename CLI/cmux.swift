@@ -7499,12 +7499,22 @@ struct CMUXCLI {
         // create — that races interactive shell startup (.zshrc, neofetch, and any
         // other login/rc work) and is not portable across shells. /bin/sh -c is
         // shell-agnostic and does not source the user's interactive login rc.
-        // Keep in lockstep with Sources/TerminalProcessCommand.asInitialProcess.
-        if layoutOpt == nil, let commandText = commandOpt {
-            let trimmed = commandText.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                params["initial_command"] = Self.workspaceCreateProcessCommand(trimmed)
-            }
+        // Keep in lockstep with Sources/TerminalProcessCommand.initialCommand.
+        // Layout surfaces define their own commands; combining --layout with
+        // --command is ambiguous and must not silently drop the flag.
+        let trimmedCommand = commandOpt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if layoutOpt != nil, !trimmedCommand.isEmpty {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.workspace.create.error.commandWithLayout",
+                    defaultValue: "%@: --command cannot be combined with --layout (layout surfaces define their own commands)"
+                ),
+                locale: .current,
+                commandName
+            ))
+        }
+        if layoutOpt == nil, !trimmedCommand.isEmpty {
+            params["initial_command"] = Self.workspaceCreateProcessCommand(trimmedCommand)
         }
         let response = try client.sendV2(method: "workspace.create", params: params)
         let wsId = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
@@ -7521,7 +7531,7 @@ struct CMUXCLI {
     ///
     /// A minimal PATH is injected so user bins and common package-manager locations
     /// (`~/bin`, Homebrew, `/usr/local`) resolve without sourcing the user's
-    /// interactive rc. Must match `TerminalProcessCommand.asInitialProcess` in Sources.
+    /// interactive rc. Must match `TerminalProcessCommand(...).initialCommand` in Sources.
     private static func workspaceCreateProcessCommand(_ command: String) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         // Already a posix process wrapper — leave intact (resume scripts, dock scripts, etc.).
@@ -15774,6 +15784,7 @@ struct CMUXCLI {
               --command <text>     Run as the initial terminal process (process-as-command
                                    via /bin/sh -c; not typed into an interactive shell).
                                    Pane stays open after the command exits (wait-after-command).
+                                   Cannot be combined with --layout.
               --env KEY=VALUE      Set a workspace environment variable. Repeatable.
                                    Reserved CMUX_* variables cannot be overridden.
               --env-file <path>    Load KEY=VALUE lines from a file. Repeatable.
