@@ -169,6 +169,30 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.buttons["MobileTerminalHierarchyRow-terminal-created-4"].waitForExistence(timeout: 3))
     }
 
+    @MainActor
+    func testTerminalHierarchyProtectedCloseExplainsUnpinRecovery() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TERMINAL_HIERARCHY_PREVIEW": "1",
+            "CMUX_UITEST_TERMINAL_HIERARCHY_SCENARIO": "close-protected",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.otherElements["MobileTerminalHierarchySheet"].waitForExistence(timeout: 8))
+        app.buttons["MobileTerminalHierarchyClose-terminal-shell"].tap()
+        let confirmClose = app.buttons.matching(
+            identifier: "MobileTerminalHierarchyCloseConfirm-terminal-shell"
+        ).firstMatch
+        XCTAssertTrue(confirmClose.waitForExistence(timeout: 3))
+        confirmClose.tap()
+
+        XCTAssertTrue(app.staticTexts["Pinned Terminal Protected"].waitForExistence(timeout: 3))
+        let message = app.staticTexts["Unpin this terminal on the Mac before closing it."]
+        XCTAssertTrue(message.exists)
+        XCTAssertEqual(message.label, "Unpin this terminal on the Mac before closing it.")
+        XCTAssertTrue(app.buttons["OK"].exists)
+        XCTAssertFalse(app.staticTexts["Couldn't Update Terminals"].exists)
+    }
+
     /// Regression: fast pinch-zoom must not hang the main thread (the
     /// scene-update watchdog `0x8BADF00D` was killing the app because
     /// libghostty surface calls block on the main thread) and must not

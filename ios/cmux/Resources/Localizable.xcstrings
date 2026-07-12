@@ -9356,6 +9356,18 @@
         "ja": { "stringUnit": { "state": "translated", "value": "ターミナルを閉じる" } }
       }
     },
+    "mobile.terminal.hierarchy.closeProtectedTitle": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pinned Terminal Protected" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "固定されたターミナルは保護されています" } }
+      }
+    },
+    "mobile.terminal.hierarchy.closeProtectedMessage": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unpin this terminal on the Mac before closing it." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このターミナルを閉じる前に、Mac で固定を解除してください。" } }
+      }
+    },
     "mobile.terminal.hierarchy.errorTitle": {
       "extractionState": "manual", "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Couldn't Update Terminals" } },

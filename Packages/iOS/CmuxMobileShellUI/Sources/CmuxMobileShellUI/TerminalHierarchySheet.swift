@@ -29,6 +29,7 @@ struct TerminalHierarchySheet: View {
     @State private var isCloseConfirmationPresented = false
     @State private var mutationFailed = false
     @State private var mutationProtected = false
+    @State private var closeProtected = false
     @State private var showRefreshAlert = false
     @State private var refreshResultIsUnknown = false
     @State private var optimisticTerminalIDsByPane: [MobilePanePreview.ID: [MobileTerminalPreview.ID]] = [:]
@@ -135,6 +136,24 @@ struct TerminalHierarchySheet: View {
                         defaultValue: "Pinned terminals stay before unpinned terminals. Move this terminal without crossing a pinned terminal."
                     )
                 )
+            }
+            .alert(
+                L10n.string(
+                    "mobile.terminal.hierarchy.closeProtectedTitle",
+                    defaultValue: "Pinned Terminal Protected"
+                ),
+                isPresented: $closeProtected
+            ) {
+                Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
+                    .accessibilityIdentifier("MobileTerminalHierarchyCloseProtectedOK")
+            } message: {
+                Text(
+                    L10n.string(
+                        "mobile.terminal.hierarchy.closeProtectedMessage",
+                        defaultValue: "Unpin this terminal on the Mac before closing it."
+                    )
+                )
+                .accessibilityIdentifier("MobileTerminalHierarchyCloseProtectedMessage")
             }
         }
         .accessibilityIdentifier("MobileTerminalHierarchySheet")
@@ -383,18 +402,21 @@ struct TerminalHierarchySheet: View {
               ) else { return }
         clearPendingClose()
         Task { @MainActor in
-            switch await closeTerminal(pendingClose.id, confirmation.confirmed, reservation) {
-            case .success:
+            let result = await closeTerminal(pendingClose.id, confirmation.confirmed, reservation)
+            switch TerminalHierarchyCloseResultPresentation(result) {
+            case .closed:
                 announce(L10n.string("mobile.terminal.hierarchy.closedAnnouncement", defaultValue: "Terminal closed"))
-            case .failure(.confirmationRequired):
+            case .confirmationRequired:
                 self.pendingClose = pendingClose
                 closeConfirmationIncludesRunningProcess = true
                 isCloseConfirmationPresented = true
-            case .failure(.appliedNeedsRefresh):
+            case .appliedNeedsRefresh:
                 presentRefreshRequired(resultIsUnknown: false)
-            case .failure(.resultUnknownNeedsRefresh):
+            case .resultUnknownNeedsRefresh:
                 presentRefreshRequired(resultIsUnknown: true)
-            case .failure:
+            case .protected:
+                closeProtected = true
+            case .failed:
                 mutationFailed = true
             }
         }

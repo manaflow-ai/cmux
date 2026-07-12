@@ -10,6 +10,7 @@ public struct TerminalHierarchyPreviewView: View {
     @State private var hasSimulatedMutationFailure = false
     @State private var reorderGate = MobileTerminalReorderGate()
     private let simulatesMutationFailure: Bool
+    private let simulatesProtectedClose: Bool
 
     /// Creates the preview fixture.
     public init() {
@@ -46,6 +47,7 @@ public struct TerminalHierarchyPreviewView: View {
         _workspace = State(initialValue: workspace)
         _selectedTerminalID = State(initialValue: workspace.selectedTerminalID)
         simulatesMutationFailure = scenario == "error"
+        simulatesProtectedClose = scenario == "close-protected"
     }
 
     /// Renders the deterministic hierarchy fixture for UI verification.
@@ -107,6 +109,9 @@ public struct TerminalHierarchyPreviewView: View {
         if simulatesMutationFailure, !hasSimulatedMutationFailure {
             hasSimulatedMutationFailure = true
             return .failure(.notConnected(hostDisplayName: workspace.macDisplayName))
+        }
+        if simulatesProtectedClose {
+            return .failure(.protected(hostDisplayName: workspace.macDisplayName))
         }
         guard let terminal = workspace.terminals.first(where: { $0.id == terminalID }),
               terminal.canClose else {
