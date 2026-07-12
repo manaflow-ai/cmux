@@ -33,7 +33,7 @@ extension MobileShellComposite {
                 preferActiveTicketTarget: false,
                 listStartedAtFocusRevision: focusRevision
             )
-            markForegroundWorkspaceListApplied()
+            markForegroundWorkspaceListApplied(through: mutationEpoch)
             syncSelectedTerminalForWorkspace()
             return true
         } catch {
@@ -87,10 +87,10 @@ extension MobileShellComposite {
     }
 
     /// Records the newest mutation epoch represented by an installed list.
-    func markForegroundWorkspaceListApplied() {
+    func markForegroundWorkspaceListApplied(through epoch: UInt64) {
         foregroundWorkspaceListAppliedMutationEpoch = max(
             foregroundWorkspaceListAppliedMutationEpoch,
-            foregroundWorkspaceListMutationEpoch
+            epoch
         )
     }
 }

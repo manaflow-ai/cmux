@@ -9,6 +9,43 @@ private let secondaryWorkspaceRefreshLog = Logger(
 )
 
 extension MobileShellComposite {
+    /// A direct aggregation/subscription seed may install only while no newer
+    /// generation-serialized refresh has started for the same connection.
+    func secondaryListReadIsCurrent(
+        macDeviceID: String,
+        subscription: SecondaryMacSubscription,
+        refreshStartedGeneration: UInt64
+    ) -> Bool {
+        secondaryMacSubscriptions[macDeviceID] === subscription
+            && subscription.refreshStartedGeneration == refreshStartedGeneration
+    }
+
+    @discardableResult
+    func installSecondaryListResponseIfCurrent(
+        macID: String,
+        displayName: String?,
+        workspaces: [MobileWorkspacePreview]?,
+        subscription: SecondaryMacSubscription,
+        refreshStartedGeneration: UInt64
+    ) -> Bool {
+        guard secondaryListReadIsCurrent(
+            macDeviceID: macID,
+            subscription: subscription,
+            refreshStartedGeneration: refreshStartedGeneration
+        ) else { return false }
+        if let workspaces {
+            installAuthoritativeSecondaryWorkspaceState(
+                macID: macID,
+                displayName: displayName,
+                workspaces: workspaces,
+                actionCapabilities: subscription.actionCapabilities
+            )
+        } else {
+            markSecondaryMacUnavailable(macID)
+        }
+        return true
+    }
+
     /// Fetch one Mac's workspace list over an existing client while preserving
     /// focus events that arrived after the request began.
     func fetchSecondaryWorkspaces(

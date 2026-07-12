@@ -50,6 +50,7 @@ extension MobileShellComposite {
         }
         let generation = connectionGeneration
         let focusRevision = workspaceFocusRevisionSnapshot()
+        let responseMutationEpoch = foregroundWorkspaceListMutationEpoch
         do {
             var params: [String: Any] = [:]
             if let groupID {
@@ -68,7 +69,7 @@ extension MobileShellComposite {
                 mergeExistingWorkspaces: true,
                 listStartedAtFocusRevision: focusRevision
             )
-            markForegroundWorkspaceListApplied()
+            markForegroundWorkspaceListApplied(through: responseMutationEpoch)
             let createdWorkspace = response.createdWorkspaceID.map(MobileWorkspacePreview.ID.init(rawValue:))
             if let createdWorkspace {
                 setSelectedWorkspaceID(

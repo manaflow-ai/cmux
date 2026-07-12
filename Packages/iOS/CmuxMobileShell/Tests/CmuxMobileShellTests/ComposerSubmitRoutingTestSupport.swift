@@ -1,5 +1,4 @@
 import CMUXMobileCore
-import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
@@ -14,7 +13,7 @@ import Testing
 
 // MARK: - Runtime double
 
-private struct RoutingTestRuntime: MobileSyncRuntime {
+struct RoutingTestRuntime: MobileSyncRuntime {
     var transportFactory: any CmxByteTransportFactory
     var stackAccessTokenProvider: @Sendable () async throws -> String = { "test-stack-token" }
     var stackAccessTokenForceRefresher: @Sendable () async throws -> String = { "test-stack-token" }
@@ -282,7 +281,7 @@ actor RoutingHostRouter {
     }
 }
 
-private struct RoutingTransportFactory: CmxByteTransportFactory {
+struct RoutingTransportFactory: CmxByteTransportFactory {
     let router: RoutingHostRouter
 
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
@@ -423,27 +422,6 @@ func makeRoutingConnectedStore(
         allowsStackAuthFallback: true
     )
     store.foregroundMacDeviceID = "test-mac"
-    return store
-}
-
-/// Build a signed-in store that can run the real secondary aggregation path
-/// while a test supplies an already-connected secondary subscription.
-@MainActor
-func makeRoutingMultiMacStore(
-    router: RoutingHostRouter,
-    pairedMacStore: any MobilePairedMacStoring
-) -> MobileShellComposite {
-    let runtime = RoutingTestRuntime(
-        transportFactory: RoutingTransportFactory(router: router)
-    )
-    let store = MobileShellComposite(
-        runtime: runtime,
-        isSignedIn: true,
-        pairedMacStore: pairedMacStore,
-        identityProvider: StaticIdentityProvider(userID: "user-1"),
-        teamIDProvider: { "team-a" }
-    )
-    store.foregroundMacDeviceID = "foreground-mac"
     return store
 }
 

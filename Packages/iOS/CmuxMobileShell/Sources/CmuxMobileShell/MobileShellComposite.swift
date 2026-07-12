@@ -3551,12 +3551,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // scope.
             guard await isAggregationScopeValid(scope) else { return }
             if let existing = secondaryMacSubscriptions[mac.macDeviceID] {
+                let refreshStartedGeneration = existing.refreshStartedGeneration
                 let previews = await fetchSecondaryWorkspaces(on: existing.client, macDeviceID: mac.macDeviceID)
                 guard await isSecondaryRefreshStillCurrent(
                     macDeviceID: mac.macDeviceID,
                     subscription: existing,
                     scope: scope
                 ) else { continue }
+                guard secondaryListReadIsCurrent(
+                    macDeviceID: mac.macDeviceID, subscription: existing,
+                    refreshStartedGeneration: refreshStartedGeneration) else { continue }
                 if let previews {
                     installAuthoritativeSecondaryWorkspaceState(
                         macID: mac.macDeviceID,
@@ -3662,6 +3666,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         secondaryMacSubscriptions[macID] = subscription
         let displayName = mac.displayName
+        let refreshStartedGeneration = subscription.refreshStartedGeneration
         let previews = await fetchSecondaryWorkspaces(on: client, macDeviceID: macID)
         // The fetch await is another sign-out window: drop the just-opened
         // connection and entry rather than seed another account's workspaces.
@@ -3673,16 +3678,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return
         }
-        if let previews {
-            installAuthoritativeSecondaryWorkspaceState(
-                macID: macID,
-                displayName: displayName,
-                workspaces: previews,
-                actionCapabilities: subscription.actionCapabilities
-            )
-        } else {
-            markSecondaryMacUnavailable(macID)
-        }
+        installSecondaryListResponseIfCurrent(
+            macID: macID, displayName: displayName, workspaces: previews,
+            subscription: subscription, refreshStartedGeneration: refreshStartedGeneration
+        )
         await flushPendingNotificationDismisses(macDeviceID: macID)
         subscription.task = Task { @MainActor [weak self] in
             let stream = await client.subscribe(to: ["workspace.updated", "workspace.focused"])
@@ -3723,7 +3722,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// aggregate. A failed refresh/reconnect should make stale rows visibly
     /// unavailable, not leave them connected/actionable until a stream callback
     /// happens to run.
-    private func markSecondaryMacUnavailable(_ macID: String) {
+    func markSecondaryMacUnavailable(_ macID: String) {
         guard var state = workspacesByMac[macID] else { return }
         state.status = .unavailable
         workspacesByMac[macID] = state
@@ -5182,7 +5181,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 preferActiveTicketTarget: selectedWorkspaceID == nil || selectedWorkspace?.rpcWorkspaceID == activeTicketWorkspaceID,
                 listStartedAtFocusRevision: focusRevision
             )
-            markForegroundWorkspaceListApplied()
+            markForegroundWorkspaceListApplied(through: mutationEpoch)
             return true
         } catch {
             mobileShellLog.info("full mobile workspace list unavailable after scoped attach: \(String(describing: error), privacy: .private)")
@@ -5803,6 +5802,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let requestedWorkspaceID = remoteWorkspaceID(for: rowWorkspaceID)
         let generation = connectionGeneration
         let focusRevision = workspaceFocusRevisionSnapshot()
+        let responseMutationEpoch = foregroundWorkspaceListMutationEpoch
         do {
             var params: [String: Any] = ["workspace_id": requestedWorkspaceID.rawValue]
             if let paneID {
@@ -5823,7 +5823,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 mergeExistingWorkspaces: true,
                 listStartedAtFocusRevision: focusRevision
             )
-            markForegroundWorkspaceListApplied()
+            markForegroundWorkspaceListApplied(through: responseMutationEpoch)
             if selectedWorkspaceID == rowWorkspaceID,
                let createdID = response.createdTerminalID {
                 let createdTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
