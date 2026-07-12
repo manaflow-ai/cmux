@@ -205,20 +205,21 @@ extension CMUXCLI {
         guard values.isEmpty, all || surfaces.count <= 1 else {
             throw CLIError(message: iosSubcommandUsage())
         }
-        let candidates = try iosTargetPayloads(
-            workspace: workspace, client: client, windowOverride: windowOverride
-        )
         let targets: [[String: Any]]
         if all {
             guard surfaces.isEmpty else { throw CLIError(message: iosSubcommandUsage()) }
-            targets = candidates
+            targets = try iosTargetPayloads(
+                workspace: workspace, client: client, windowOverride: windowOverride
+            )
         } else if let surface = surfaces.first {
-            let normalized = try normalizeSurfaceHandle(surface, client: client)
-            targets = candidates.filter {
-                ($0["surface_id"] as? String) == normalized
-                    || ($0["surface_ref"] as? String) == surface
-            }
+            guard workspace == nil else { throw CLIError(message: iosSubcommandUsage()) }
+            targets = [try iosContextPayload(
+                surface: surface, client: client, windowOverride: windowOverride
+            )]
         } else {
+            let candidates = try iosTargetPayloads(
+                workspace: workspace, client: client, windowOverride: windowOverride
+            )
             guard candidates.count == 1 else {
                 throw CLIError(message: String.localizedStringWithFormat(
                     String(
