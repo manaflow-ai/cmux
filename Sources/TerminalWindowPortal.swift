@@ -737,28 +737,25 @@ final class WindowTerminalPortal: NSObject {
         scheduleExternalGeometrySynchronize(forceImmediate: true)
     }
 
-    /// See scheduleExternalGeometrySynchronize: true exactly while ANY
-    /// portal's sync pass runs. Static on purpose — one portal's layout
-    /// pass fires other portals' observers (didResizeSubviews is observed
-    /// with object: nil, and windows host several portals), so a
-    /// per-instance flag just turns the self-echo into cross-portal
-    /// ping-pong. The main thread runs nothing else during a pass, so any
-    /// geometry notification in that window is echo, whoever receives it.
-    private var isSynchronizingExternalGeometry: Bool {
-        get { Self.anyPortalSynchronizingExternalGeometry }
-        set { Self.anyPortalSynchronizingExternalGeometry = newValue }
-    }
-    private static var anyPortalSynchronizingExternalGeometry = false
+    /// The portal whose sync pass is currently on the stack, if any. A
+    /// request arriving for THAT portal during its own pass is not dropped
+    /// — a pass's layout can produce genuinely new geometry (an imposed
+    /// divider correction rides the pass's layoutSubtreeIfNeeded, and its
+    /// notification arrives mid-pass) — it marks a follow-up that the pass
+    /// schedules on exit. Requests for OTHER portals proceed normally.
+    /// Dropping mid-pass requests outright left the final correction
+    /// unapplied forever: the last write predated the settle window and
+    /// nothing ever scheduled again. Termination is unchanged: a follow-up
+    /// whose geometry matches the fingerprint does no layout and emits no
+    /// notifications, so the chain stops one pass after geometry stops.
+    private static var currentlySynchronizingPortalId: ObjectIdentifier?
+    private var resyncRequestedDuringPass = false
 
     fileprivate func scheduleExternalGeometrySynchronize(forceImmediate: Bool) {
-        // Geometry notifications that arrive while OUR OWN sync pass runs
-        // are that pass's echo: the pass lays out hosted split views (which
-        // post didResizeSubviews) and writes hostView.frame (which posts
-        // frameDidChange), and the main thread runs nothing else meanwhile.
-        // Scheduling on them makes the sync self-sustaining — observed as
-        // the main thread pinned at full CPU inside this class under
-        // multi-window churn.
-        guard !isSynchronizingExternalGeometry else { return }
+        if Self.currentlySynchronizingPortalId == ObjectIdentifier(self) {
+            resyncRequestedDuringPass = true
+            return
+        }
         // Coalesce to the latest request so ancestor/frame churn (for example
         // sidebar toggles) doesn't resize the PTY at stale intermediate widths.
         externalGeometrySyncGeneration &+= 1
@@ -872,9 +869,17 @@ final class WindowTerminalPortal: NSObject {
     }
 
     fileprivate func synchronizeAllEntriesFromExternalGeometryChange() {
-        guard !isSynchronizingExternalGeometry else { return }
-        isSynchronizingExternalGeometry = true
-        defer { isSynchronizingExternalGeometry = false }
+        guard Self.currentlySynchronizingPortalId == nil else { return }
+        Self.currentlySynchronizingPortalId = ObjectIdentifier(self)
+        defer {
+            Self.currentlySynchronizingPortalId = nil
+            if resyncRequestedDuringPass {
+                resyncRequestedDuringPass = false
+                DispatchQueue.main.async { [weak self] in
+                    self?.scheduleExternalGeometrySynchronize(forceImmediate: false)
+                }
+            }
+        }
         // Content-based echo cut. A sync pass lays out hosted split views
         // and writes hostView.frame, and the notifications those emit can
         // be DELIVERED AFTER the pass ends (block observers on .main), so
@@ -906,7 +911,7 @@ final class WindowTerminalPortal: NSObject {
             // and passes keep running; once aligned they stop. Without this
             // a pass could stop early with content parked over chrome.
             if let anchor = entry.anchorView, anchor.window != nil {
-                part += "->\(hostView.convert(anchor.bounds, from: anchor).debugDescription)"
+                part += "->\(expectedHostedFrameInHost(for: anchor).debugDescription)"
             }
             parts.append(part)
         }
@@ -1104,6 +1109,18 @@ final class WindowTerminalPortal: NSObject {
         return frameInWindow
     }
 
+    /// THE geometry truth for a hosted view: its anchor's effective
+    /// (ancestor-clipped) rect, converted into host coordinates and snapped
+    /// to device pixels. The frame writer, the sync fingerprint, and the
+    /// misplacement judge must all use this one computation — they briefly
+    /// used three, and a clipped anchor then judged its own correct write
+    /// as misplaced while keeping the fingerprint permanently unsettled.
+    func expectedHostedFrameInHost(for anchorView: NSView) -> NSRect {
+        let frameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
+        let frameInHostRaw = hostView.convert(frameInWindow, from: nil)
+        return Self.pixelSnappedRect(frameInHostRaw, in: hostView)
+    }
+
     private func seededFrameInHost(for anchorView: NSView) -> NSRect? {
         _ = synchronizeHostFrameToReference()
         let frameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
@@ -1168,9 +1185,18 @@ final class WindowTerminalPortal: NSObject {
     func updateEntryVisibility(forHostedId hostedId: ObjectIdentifier, visibleInUI: Bool) -> Bool {
         let needsReattach = visibleInUI && hostedViewNeedsPortalReattachForVisiblePresentation(withId: hostedId)
         guard var entry = entriesByHostedId[hostedId] else { return needsReattach }
+        let becameVisible = visibleInUI && !entry.visibleInUI
         entry.visibleInUI = visibleInUI
         if !visibleInUI { entry.transientRecoveryRetriesRemaining = 0 }
         entriesByHostedId[hostedId] = entry
+        // A view that just became visible may still hold the frame it was
+        // born with (bind can seed from a pre-settle anchor reading, and a
+        // hidden entry's frame is deliberately left alone). Visibility is a
+        // sizing input like any other: it schedules a pass rather than
+        // trusting that some earlier one already ran.
+        if becameVisible {
+            scheduleExternalGeometrySynchronize(forceImmediate: false)
+        }
         return needsReattach
     }
 
@@ -1366,7 +1392,7 @@ final class WindowTerminalPortal: NSObject {
                   !hosted.isHidden,
                   hosted.superview != nil,
                   anchor.window != nil else { continue }
-            let expected = hostView.convert(anchor.bounds, from: anchor)
+            let expected = expectedHostedFrameInHost(for: anchor)
             let actual = hosted.frame
             if abs(expected.origin.x - actual.origin.x) > 1.5
                 || abs(expected.origin.y - actual.origin.y) > 1.5

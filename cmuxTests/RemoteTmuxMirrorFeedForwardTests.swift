@@ -274,6 +274,83 @@ import Testing
         #expect(connection.lastWindowSizes.count == 1)
     }
 
+    @Test func sizingTransactionSettlesAtFixedPointUnderInputStorms() {
+        // Closed-loop convergence property: throw a seeded storm of input
+        // events at the mirror in randomized order — container resizes,
+        // layout reflows, visibility flips — then drain. The transaction
+        // must reach a fixed point (a drain with unchanged inputs does
+        // nothing), and the settled tree must hold exactly the plan for
+        // the FINAL inputs, never a stale intermediate's. This is the
+        // unit-level version of the live fuzz's settle check, and it is
+        // what makes feedback loops structurally impossible: every event
+        // the storm delivers mid-drain only changes data.
+        var state: UInt64 = 0x5EED
+        func rand(_ n: Int) -> Int {
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            return Int(state >> 33) % n
+        }
+        let (mirror, _) = readyMirror(layout: reflow123)
+        mirror.isVisibleForSizing = true
+        mirror.reconcile(layout: reflow123)
+        mirror.performSizingPassNow()
+
+        for _ in 0..<200 {
+            switch rand(4) {
+            case 0:
+                mirror.noteContainerSize(
+                    pointSize: CGSize(
+                        width: CGFloat(500 + rand(900)),
+                        height: CGFloat(400 + rand(400))
+                    ),
+                    scale: 2
+                )
+            case 1:
+                mirror.reconcile(layout: reflow123)
+            case 2:
+                mirror.isVisibleForSizing = false
+                mirror.setNeedsSizingPass()
+            default:
+                mirror.isVisibleForSizing = true
+                mirror.setNeedsSizingPass()
+            }
+            if rand(3) == 0 { mirror.performSizingPassNow() }
+        }
+
+        // Storm over: make the mirror visible and drain to the fixed point.
+        mirror.isVisibleForSizing = true
+        mirror.performSizingPassNow()
+        let settled = Self.imposedExtents(of: mirror.bonsplitController.treeSnapshot())
+        mirror.performSizingPassNow()
+        let again = Self.imposedExtents(of: mirror.bonsplitController.treeSnapshot())
+        #expect(settled == again, "a drain with unchanged inputs must change nothing")
+        #expect(!settled.isEmpty, "the settled tree must hold impositions")
+
+        // The settled impositions are the plan for the FINAL inputs.
+        if let metrics = mirror.nativeLayoutMetrics() {
+            let plan = RemoteTmuxNativeSplitLayout.plan(
+                tree: RemoteTmuxNativeMeasuredSplitTree(
+                    tree: RemoteTmuxNativeSplitTree(layout: mirror.renderedLayout),
+                    metrics: metrics
+                ),
+                metrics: metrics,
+                parentSize: mirror.containerSizePt
+            )
+            var planned: [CGFloat] = []
+            func walk(_ node: RemoteTmuxNativeSplitLayout.Plan) {
+                if case .split(_, _, let extent, let first, let second) = node {
+                    if let extent { planned.append(extent) }
+                    walk(first); walk(second)
+                }
+            }
+            walk(plan)
+            let settledSorted = settled.values.map { CGFloat($0) }.sorted()
+            #expect(
+                settledSorted == planned.sorted().map { $0 },
+                "settled impositions must equal the final inputs' plan"
+            )
+        }
+    }
+
     @Test func degeneratePixelsClampToWorkableFloors() {
         let (mirror, connection) = makeMirror(layout: reflow123, geometry: calibratedGeometry)
         mirror.noteContainerSize(pointSize: CGSize(width: 30, height: 20), scale: 2)

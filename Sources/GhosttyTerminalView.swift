@@ -8105,6 +8105,22 @@ private final class CloudTerminalReconnectOverlayView: NSView {
 }
 
 final class GhosttySurfaceScrollView: NSView {
+#if DEBUG
+    // Tripwire for the cell-ceil overdraw hunt: a hosted view's width
+    // moving by a few points to land on a cell multiple is the bug's exact
+    // signature (anchor N*cell+chrome -> hosted (N+1)*cell). Log who did it.
+    override func setFrameSize(_ newSize: NSSize) {
+        let delta = newSize.width - frame.width
+        if abs(delta) > 0.5, abs(delta) <= 6.5, newSize.width > 20 {
+            let stack = Thread.callStackSymbols.dropFirst(2).prefix(5).joined(separator: " | ")
+            cmuxDebugLog(
+                "surface.frame.nudge w=\(frame.width)->\(newSize.width) h=\(newSize.height) \(stack)"
+            )
+        }
+        super.setFrameSize(newSize)
+    }
+#endif
+
     enum FlashStyle {
         case navigation
         case notification
