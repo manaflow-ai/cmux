@@ -1,7 +1,6 @@
 import CMUXMobileCore
 import Foundation
 import Testing
-
 @testable import CmuxMobileShell
 
 @MainActor
@@ -423,6 +422,7 @@ private final class Harness {
 
     let local = LocalLane()
     let remote = RemoteLane()
+    let deadline = TerminalInteractionDeadlineSignal()
     var delivered: [MobileTerminalRenderGridFrame] = []
     var acceptedRenderRevisions: [UInt64] = []
     var prepareIntentCount = 0
@@ -469,6 +469,7 @@ private final class Harness {
                     remote.pending.append(PendingRemote(request: request, continuation: continuation))
                 }
             },
+            interactionDeadline: { [deadline] in await deadline.wait() },
             prepareIntent: { [weak self] in
                 self?.prepareIntentCount += 1
             },
@@ -495,5 +496,4 @@ private final class Harness {
             }
         )
     }
-
 }

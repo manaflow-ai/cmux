@@ -163,6 +163,7 @@ private final class ClickCausalityHarness {
     var deliveredReconciliations: [Reconciliation] = []
     var replayEpochs: [UInt64] = []
     var epoch: UInt64 = 1
+    let deadline = TerminalInteractionDeadlineSignal()
 
     func makeSession() -> TerminalScrollSession {
         TerminalScrollSession(
@@ -202,6 +203,7 @@ private final class ClickCausalityHarness {
                     ))
                 }
             },
+            interactionDeadline: { [deadline] in await deadline.wait() },
             prepareIntent: {},
             deliverAuthoritative: { [weak self] _, epoch, revision in
                 self?.deliveredReconciliations.append(Reconciliation(epoch: epoch, revision: revision))

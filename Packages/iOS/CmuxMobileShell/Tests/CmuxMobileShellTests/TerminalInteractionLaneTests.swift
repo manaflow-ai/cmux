@@ -7,6 +7,18 @@ import Testing
 @MainActor
 @Suite("Terminal interaction lane")
 struct TerminalInteractionLaneTests {
+    @Test("production interaction deadline is synchronized at 200 milliseconds")
+    func productionInteractionDeadlineIsBounded() {
+        #expect(TerminalScrollSession.interactionDeadlineMilliseconds == 200)
+        #expect(TerminalScrollSession.interactionDeadlineDuration == .milliseconds(200))
+        #expect(TerminalScrollSession.interactionDeadlineDuration <= .milliseconds(200))
+        #expect(TerminalScrollSession.interactionRPCDeadlineNanoseconds == 200_000_000)
+        #expect(
+            TerminalScrollSession.interactionRPCDeadlineNanoseconds
+                == TerminalScrollSession.interactionDeadlineMilliseconds * 1_000_000
+        )
+    }
+
     @Test("scroll deadline releases the newest live frame and requests replay")
     func scrollDeadlineReleasesDeferredFrame() async throws {
         let harness = InteractionLaneHarness()
@@ -148,6 +160,36 @@ struct TerminalInteractionLaneTests {
 }
 
 @MainActor
+final class TerminalInteractionDeadlineSignal {
+    private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+
+    func wait() async {
+        let id = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                waiters[id] = continuation
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.resolve(id: id)
+            }
+        }
+    }
+
+    func fire() {
+        let pending = waiters.values
+        waiters.removeAll()
+        for waiter in pending {
+            waiter.resume()
+        }
+    }
+
+    private func resolve(id: UUID) {
+        waiters.removeValue(forKey: id)?.resume()
+    }
+}
+
+@MainActor
 private final class InteractionLaneHarness {
     enum Event: Equatable {
         case scroll(epoch: UInt64, runs: [Double])
@@ -164,28 +206,7 @@ private final class InteractionLaneHarness {
         let continuation: CheckedContinuation<Bool, Never>
     }
 
-    @MainActor
-    final class DeadlineSignal {
-        private let stream: AsyncStream<Void>
-        private let continuation: AsyncStream<Void>.Continuation
-
-        init() {
-            var continuation: AsyncStream<Void>.Continuation!
-            stream = AsyncStream { continuation = $0 }
-            self.continuation = continuation
-        }
-
-        func wait() async {
-            var iterator = stream.makeAsyncIterator()
-            _ = await iterator.next()
-        }
-
-        func fire() {
-            continuation.yield()
-        }
-    }
-
-    let deadline = DeadlineSignal()
+    let deadline = TerminalInteractionDeadlineSignal()
     var localReceipts: [TerminalSurfaceMutationReceipt] = []
     var barrierReceipts: [TerminalSurfaceMutationReceipt] = []
     var remoteScrolls: [PendingScroll] = []

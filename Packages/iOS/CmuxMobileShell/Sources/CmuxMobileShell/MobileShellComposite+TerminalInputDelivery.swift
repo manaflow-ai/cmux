@@ -49,7 +49,7 @@ extension MobileShellComposite {
         do {
             let responseData = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(method: method, params: params),
-                timeoutNanoseconds: terminalInteractionRPCDeadlineNanoseconds
+                timeoutNanoseconds: TerminalScrollSession.interactionRPCDeadlineNanoseconds
             )
             if isCurrentRemoteOperation(client: client, generation: generation) {
                 handleTerminalInputResponse(responseData, surfaceID: surfaceID)

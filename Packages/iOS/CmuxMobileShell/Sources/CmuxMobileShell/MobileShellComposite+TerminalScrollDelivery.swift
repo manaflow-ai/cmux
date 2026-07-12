@@ -9,8 +9,6 @@ private let terminalScrollDeliveryLog = Logger(
     category: "mobile-shell"
 )
 
-let terminalInteractionRPCDeadlineNanoseconds: UInt64 = 2_000_000_000
-
 extension MobileShellComposite {
     /// Mounts the single optimistic-scroll owner for a rendered surface. The
     /// closures are the only bridge into the UIKit/Ghostty view; RPC ordering,
@@ -239,7 +237,7 @@ extension MobileShellComposite {
                     method: "mobile.terminal.scroll",
                     params: params
                 ),
-                timeoutNanoseconds: terminalInteractionRPCDeadlineNanoseconds
+                timeoutNanoseconds: TerminalScrollSession.interactionRPCDeadlineNanoseconds
             )
             guard remoteClient === client else { return nil }
             let payload = try MobileTerminalScrollResponse.decode(data)
@@ -280,7 +278,7 @@ extension MobileShellComposite {
                         "row": row,
                     ]
                 ),
-                timeoutNanoseconds: terminalInteractionRPCDeadlineNanoseconds
+                timeoutNanoseconds: TerminalScrollSession.interactionRPCDeadlineNanoseconds
             )
             guard remoteClient === client,
                   let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {

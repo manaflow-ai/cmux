@@ -123,7 +123,12 @@ final class TerminalScrollSession {
     }
 
     nonisolated static let maximumQueuedInteractionCount = 64
-    nonisolated static let interactionDeadlineDuration = Duration.seconds(2)
+    nonisolated static let interactionDeadlineMilliseconds: UInt64 = 200
+    nonisolated static let interactionDeadlineDuration = Duration.milliseconds(
+        Int64(interactionDeadlineMilliseconds)
+    )
+    nonisolated static let interactionRPCDeadlineNanoseconds =
+        interactionDeadlineMilliseconds * 1_000_000
 
     let token: UUID
     let surfaceID: String
