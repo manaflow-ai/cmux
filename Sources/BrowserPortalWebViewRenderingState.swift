@@ -116,7 +116,9 @@ extension WKWebView {
     }
 
     func browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsWithoutPresentation(reason: String) {
-        let startsInHiddenWindow = window.map { $0.alphaValue <= 0.01 } ?? false
+        let startsInHiddenWindow = window.map {
+            !$0.isVisible || $0.isMiniaturized || $0.alphaValue <= 0.01
+        } ?? false
         guard window == nil ||
             startsInHiddenWindow ||
             isHiddenOrHasHiddenAncestor ||
@@ -193,7 +195,7 @@ extension WKWebView {
 #endif
             return false
         }
-        guard window.alphaValue > 0.01 else {
+        guard window.isVisible, !window.isMiniaturized, window.alphaValue > 0.01 else {
 #if DEBUG
             cmuxDebugLog(
                 "browser.portal.webview.firstSizedReveal.skip web=\(browserPortalRenderingStateDebugToken(self)) " +
