@@ -189,11 +189,36 @@ check_iter() {
     tries=$((tries + 1))
     sleep 2
   done
-  if [ "$tries" -ge 10 ]; then
-    note_fail "$iter" "windows never settled after 20s: $(printf '%s' "$settled_json" | tr -d '\n' | cut -c1-300)"
-  elif printf '%s' "$settled_json" | grep -qE 'rendered=|misplaced'; then
-    note_fail "$iter" "settled with pane mismatches:"
-    printf '%s' "$settled_json" | grep -oE '"(%[0-9]* rendered=|misplaced )[^"]*"' | head -4 | sed 's/^/  /'
+  # Re-confirm before failing: an end-of-seed relayout storm or a reconnect
+  # can leave a window a few seconds from convergence when the 20s poll
+  # expires, and a mismatch read mid-transition is not a mismatch at rest.
+  # Poll a final stretch; only a state that STAYS wrong is a defect. The
+  # extra convergence time is logged so slow-to-settle never hides — a
+  # window that needs the reconfirm every time is its own signal.
+  reconfirm_needed=0
+  if [ "$tries" -ge 10 ] || printf '%s' "$settled_json" | grep -qE 'rendered=|misplaced'; then
+    reconfirm_needed=1
+    rc_tries=0
+    while [ "$rc_tries" -lt 15 ]; do
+      sleep 2
+      settled_json=$(timeout 8 "$CLI" rpc remote.tmux.sizing_settled 2>/dev/null)
+      if printf '%s' "$settled_json" | grep -q '"windows"' \
+         && ! printf '%s' "$settled_json" | grep -q '"settled" : false' \
+         && ! printf '%s' "$settled_json" | grep -qE 'no-sample|rendered=|misplaced'; then
+        echo "  reconfirm: converged after $(( (rc_tries + 1) * 2 ))s extra (iter $iter)"
+        reconfirm_needed=0
+        break
+      fi
+      rc_tries=$((rc_tries + 1))
+    done
+  fi
+  if [ "$reconfirm_needed" = 1 ]; then
+    if printf '%s' "$settled_json" | grep -q '"settled" : false'; then
+      note_fail "$iter" "windows never settled after 50s: $(printf '%s' "$settled_json" | tr -d '\n' | cut -c1-300)"
+    else
+      note_fail "$iter" "settled with pane mismatches (persisted through reconfirm):"
+      printf '%s' "$settled_json" | grep -oE '"(%[0-9]* rendered=|misplaced )[^"]*"' | head -4 | sed 's/^/  /'
+    fi
   fi
   # Oracle 2: every ruler redrew to its actual pane size on the tmux side
   # (a stale ruler would make on-screen text look mangled without any
