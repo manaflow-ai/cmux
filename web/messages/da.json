@@ -920,6 +920,7 @@
           "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits. Fokus viser også TextBox."
         },
         "notifications": {
+          "focusOnNotification": "Når dette er slået til, og cmux er inaktiv, fokuseres det vindue, workspace og den surface, der udløste en notifikation, som er egnet til skrivebordet. Vellykket fokus markerer terminalnotifikationer som læst og erstatter macOS-banneret; hvis routing til målet mislykkes, bevares banneret og ulæst-statussen.",
           "suppressOnlyFocusedSurface": "Når dette er slået til, trækkes et notifikationsbanner kun automatisk tilbage, når dets surface er præcis den fokuserede surface. Et banner leveret til en ikke-fokuseret surface i det aktuelt synlige workspace bliver vist, indtil du fokuserer på den surface (eller klikker/afviser det), i stedet for at blive trukket tilbage, når workspacet bliver synligt. Fra bevarer den ældre tilbagetrækning baseret på workspace-synlighed."
         },
         "browser": {

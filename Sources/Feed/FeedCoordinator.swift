@@ -887,10 +887,10 @@ private extension FeedCoordinator {
         else { return }
 
         var effectiveEffects = effects
-        let focusOutcome = incomingNotificationFocus?.focusIfNeeded(
-            target: incomingNotificationFocusTarget(requestId: requestId),
+        let focusOutcome = focusIncomingNotificationIfStillAwaiting(
+            requestId: requestId,
             isDesktopDeliveryEnabled: effects.desktop
-        ) ?? .ignored
+        )
         if focusOutcome.suppressesDesktopDelivery {
             effectiveEffects.desktop = false
         }
@@ -989,10 +989,24 @@ private extension FeedCoordinator {
     }
 
     @MainActor
-    func incomingNotificationFocusTarget(requestId: String) -> IncomingNotificationFocusTarget? {
+    func focusIncomingNotificationIfStillAwaiting(
+        requestId: String,
+        isDesktopDeliveryEnabled: Bool
+    ) -> IncomingNotificationFocusOutcome {
+        // Deliberately keep the existing waiter lock across this synchronous,
+        // non-reentrant MainActor route. This linearizes pending validation,
+        // target capture, and focus ahead of a concurrent feed reply without
+        // introducing a second state owner or allowing an answered request to
+        // steal focus between separate lock acquisitions.
         waiterLock.lock()
         defer { waiterLock.unlock() }
-        return waiters[requestId]?.focusTarget
+        guard let waiter = waiters[requestId], waiter.decision == nil else {
+            return .ignored
+        }
+        return incomingNotificationFocus?.focusIfNeeded(
+            target: waiter.focusTarget,
+            isDesktopDeliveryEnabled: isDesktopDeliveryEnabled
+        ) ?? .ignored
     }
 
     @MainActor

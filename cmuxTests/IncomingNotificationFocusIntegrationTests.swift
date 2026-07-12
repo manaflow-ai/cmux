@@ -59,72 +59,74 @@ struct IncomingNotificationFocusIntegrationTests {
 
     @Test("successful automatic focus records the notification as read and suppresses desktop delivery")
     func successfulFocusSuppressesDesktopDelivery() throws {
-        let appDelegate = try #require(AppDelegate.shared)
-        let store = TerminalNotificationStore.shared
-        let manager = TabManager()
-        let focus = IncomingNotificationFocusingFake()
-        focus.outcome = .focusedTarget
-        let originalTabManager = appDelegate.tabManager
-        let originalNotificationStore = appDelegate.notificationStore
-        let originalAppFocusOverride = AppFocusState.overrideIsFocused
-        var deliveredEffects: [TerminalNotificationPolicyEffects] = []
-        var suppressedEffects: [TerminalNotificationPolicyEffects] = []
-
-        store.replaceNotificationsForTesting([])
-        store.configureIncomingNotificationFocus(focus)
-        store.configureNotificationDeliveryHandlerForTesting { _, _, effects in
-            deliveredEffects.append(effects)
-        }
-        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _, effects in
-            suppressedEffects.append(effects)
-        }
-        appDelegate.tabManager = manager
-        appDelegate.notificationStore = store
-        AppFocusState.overrideIsFocused = false
-        defer {
-            store.replaceNotificationsForTesting([])
-            store.configureIncomingNotificationFocus(appDelegate.incomingNotificationFocus)
-            store.resetNotificationDeliveryHandlerForTesting()
-            store.resetSuppressedNotificationFeedbackHandlerForTesting()
-            appDelegate.tabManager = originalTabManager
-            appDelegate.notificationStore = originalNotificationStore
-            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        let result = try withNotificationFocusHarness(outcome: .focusedTarget) { store, manager in
+            let workspace = try #require(manager.selectedWorkspace)
+            let panel = try #require(workspace.focusedTerminalPanel)
+            store.addNotification(
+                tabId: workspace.id,
+                surfaceId: panel.id,
+                title: "Finished",
+                subtitle: "",
+                body: "Ready"
+            )
+            return (
+                notification: try #require(store.notifications.first),
+                target: IncomingNotificationFocusTarget(
+                    workspaceId: workspace.id,
+                    surfaceId: panel.id,
+                    panelId: panel.id
+                )
+            )
         }
 
-        let workspace = try #require(manager.selectedWorkspace)
-        let panel = try #require(workspace.focusedTerminalPanel)
-        store.addNotification(
-            tabId: workspace.id,
-            surfaceId: panel.id,
-            title: "Finished",
-            subtitle: "",
-            body: "Ready"
-        )
-
-        let notification = try #require(store.notifications.first)
+        let notification = result.value.notification
         #expect(notification.isRead)
         #expect(notification.paneFlash == false)
-        #expect(deliveredEffects.isEmpty)
-        #expect(suppressedEffects.count == 1)
-        #expect(suppressedEffects.first?.desktop == false)
-        #expect(suppressedEffects.first?.sound == true)
-        #expect(suppressedEffects.first?.command == true)
-        #expect(focus.desktopDeliveryFlags == [true])
-        let receivedTarget = try #require(focus.targets.first)
-        #expect(receivedTarget == IncomingNotificationFocusTarget(
-            workspaceId: workspace.id,
-            surfaceId: panel.id,
-            panelId: panel.id
-        ))
+        #expect(result.deliveredEffects.isEmpty)
+        #expect(result.suppressedEffects.count == 1)
+        #expect(result.suppressedEffects.first?.desktop == false)
+        #expect(result.suppressedEffects.first?.sound == true)
+        #expect(result.suppressedEffects.first?.command == true)
+        #expect(result.focus.desktopDeliveryFlags == [true])
+        let receivedTarget = try #require(result.focus.targets.first)
+        #expect(receivedTarget == result.value.target)
     }
 
     @Test("fallback activation preserves native delivery and unread state")
     func fallbackPreservesDeliveryAndUnreadState() throws {
+        let result = try withNotificationFocusHarness(outcome: .activatedFallback) { store, manager in
+            let workspace = try #require(manager.selectedWorkspace)
+            let panel = try #require(workspace.focusedTerminalPanel)
+            store.addNotification(
+                tabId: workspace.id,
+                surfaceId: panel.id,
+                title: "Finished",
+                subtitle: "",
+                body: "Ready"
+            )
+            return try #require(store.notifications.first)
+        }
+
+        #expect(result.value.isRead == false)
+        #expect(result.deliveredEffects.count == 1)
+        #expect(result.deliveredEffects.first?.desktop == true)
+        #expect(result.suppressedEffects.isEmpty)
+    }
+
+    private func withNotificationFocusHarness<Value>(
+        outcome: IncomingNotificationFocusOutcome,
+        perform: (TerminalNotificationStore, TabManager) throws -> Value
+    ) throws -> (
+        value: Value,
+        focus: IncomingNotificationFocusingFake,
+        deliveredEffects: [TerminalNotificationPolicyEffects],
+        suppressedEffects: [TerminalNotificationPolicyEffects]
+    ) {
         let appDelegate = try #require(AppDelegate.shared)
         let store = TerminalNotificationStore.shared
         let manager = TabManager()
         let focus = IncomingNotificationFocusingFake()
-        focus.outcome = .activatedFallback
+        focus.outcome = outcome
         let originalTabManager = appDelegate.tabManager
         let originalNotificationStore = appDelegate.notificationStore
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
@@ -152,20 +154,7 @@ struct IncomingNotificationFocusIntegrationTests {
             AppFocusState.overrideIsFocused = originalAppFocusOverride
         }
 
-        let workspace = try #require(manager.selectedWorkspace)
-        let panel = try #require(workspace.focusedTerminalPanel)
-        store.addNotification(
-            tabId: workspace.id,
-            surfaceId: panel.id,
-            title: "Finished",
-            subtitle: "",
-            body: "Ready"
-        )
-
-        let notification = try #require(store.notifications.first)
-        #expect(notification.isRead == false)
-        #expect(deliveredEffects.count == 1)
-        #expect(deliveredEffects.first?.desktop == true)
-        #expect(suppressedEffects.isEmpty)
+        let value = try perform(store, manager)
+        return (value, focus, deliveredEffects, suppressedEffects)
     }
 }

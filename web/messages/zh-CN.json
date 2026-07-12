@@ -920,6 +920,7 @@
           "focusTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中聚焦测试版 TextBox 输入。聚焦也会显示 TextBox。"
         },
         "notifications": {
+          "focusOnNotification": "启用后，当 cmux 处于非活跃状态时，将焦点切换到产生符合桌面通知条件的通知的窗口、workspace 和 Surface。成功聚焦会将终端通知标记为已读并替代 macOS 横幅；目标路由失败时会保留横幅和未读状态。",
           "suppressOnlyFocusedSurface": "启用后，仅当通知横幅的 Surface 恰好是当前聚焦的 Surface 时，该横幅才会自动撤回。对于当前可见 workspace 中未聚焦的 Surface 所投递的横幅，在你聚焦该 Surface（或点击/关闭它）之前会一直显示，而不会在 workspace 变为可见时被撤回。关闭则保留旧的基于 workspace 可见性的撤回行为。"
         },
         "browser": {
