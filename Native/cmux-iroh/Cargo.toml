@@ -18,7 +18,7 @@ crate-type = ["staticlib"]
 # Pinned exactly: 1.0.0-rc.1 is the newest published iroh as of 2026-06-11 and
 # the version the FFI spike proved (experiments/iroh-swift-ffi-spike). Bump
 # deliberately and re-run the spike proof, see README.md.
-iroh = "=1.0.0-rc.1"
+iroh = "=1.0.2"
 serde_json = "1.0"
 tokio = { version = "1.48", features = ["rt-multi-thread", "time"] }
 
