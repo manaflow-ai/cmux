@@ -1,5 +1,7 @@
 import AppKit
 import CmuxBrowser
+import CmuxFoundation
+import CmuxSettings
 import SwiftUI
 
 extension OmnibarPaneChrome {
