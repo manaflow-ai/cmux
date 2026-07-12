@@ -318,6 +318,9 @@ final class RemoteTmuxControlConnection {
     ///   outage fails the re-attach (→ `.ended`) instead of being silently recreated.
     private func spawnProcess(createIfMissing: Bool) throws {
         // A fresh control stream cannot retain the prior parser or command FIFO.
+        #if DEBUG
+        cmuxDebugLog("remote.stream.reset pendingCommands=\(pendingCommands.count) createIfMissing=\(createIfMissing)")
+        #endif
         parser = RemoteTmuxControlStreamParser()
         pendingCommands.removeAll()
         resetWindowListRequestCoalescing()

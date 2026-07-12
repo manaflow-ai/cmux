@@ -9,6 +9,17 @@ extension RemoteTmuxControlConnection {
         // misalign the positional correlation.
         guard !pendingCommands.isEmpty else { return }
         let kind = pendingCommands.removeFirst()
+        #if DEBUG
+        switch kind {
+        case .paneRects, .listWindows:
+            cmuxDebugLog(
+                "remote.fifo.dequeue \(kind) depth=\(pendingCommands.count)"
+                    + " err=\(isError ? 1 : 0) firstLine=\(lines.first.map { String($0.prefix(40)) } ?? "-")"
+            )
+        default:
+            break
+        }
+        #endif
         defer {
             if case .listWindows = kind {
                 completeWindowListRequest()

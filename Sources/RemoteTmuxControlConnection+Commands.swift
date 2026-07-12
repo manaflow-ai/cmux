@@ -93,7 +93,10 @@ extension RemoteTmuxControlConnection {
     /// and a trailing empty field must survive line splitting).
     @discardableResult
     func requestPaneRects(windowId: Int, generation: Int) -> Bool {
-        sendInternal(
+        #if DEBUG
+        cmuxDebugLog("remote.rects.request @\(windowId) gen=\(generation)")
+        #endif
+        return sendInternal(
             "list-panes -t @\(windowId) -F \"#{pane_id} #{pane_left} #{pane_top} #{pane_width} #{pane_height} #{pane_active} #{pane-border-status} :#{T:pane-border-format}\"",
             kind: .paneRects(windowId, generation)
         )
@@ -180,11 +183,13 @@ extension RemoteTmuxControlConnection {
     /// hits the conservative no-reflow default on a slow link.
     func seedPane(paneId: Int) {
         requestPaneReflow(paneId: paneId)
-        subscribePaneReflow(paneId: paneId)
         capturePane(paneId: paneId)
         requestPanePath(paneId: paneId)
-        subscribePanePath(paneId: paneId)
-        subscribePaneHeader(paneId: paneId)
+        // One batched refresh-client for all three live subscriptions
+        // instead of three separate sends — see subscribePaneAll. Under
+        // churn this is the difference between the command FIFO keeping up
+        // with tmux and backing up into minutes-long non-convergence.
+        subscribePaneAll(paneId: paneId)
     }
 
     func reseedAfterReconnect() {
