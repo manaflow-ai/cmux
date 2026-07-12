@@ -1,98 +1,6 @@
 import CMUXMobileCore
 import Foundation
 
-struct TerminalScrollPrefetchWindow: Equatable, Sendable {
-    static let largeWindowRows = 600
-    static let oppositeDirectionGuardRows = 120
-    static let refreshDistanceRows = 120.0
-
-    let rowsBeforeViewport: Int
-    let rowsAfterViewport: Int
-
-    static func directional(for lines: Double) -> Self {
-        if lines >= 0 {
-            return Self(
-                rowsBeforeViewport: largeWindowRows,
-                rowsAfterViewport: oppositeDirectionGuardRows
-            )
-        }
-        return Self(
-            rowsBeforeViewport: oppositeDirectionGuardRows,
-            rowsAfterViewport: largeWindowRows
-        )
-    }
-}
-
-struct TerminalScrollRequest: Equatable, Sendable {
-    static let maximumDirectionalRuns = 4_096
-
-    let surfaceID: String
-    var interactionEpoch: UInt64
-    var clientRevision: UInt64
-    var lines: Double
-    var col: Int
-    var row: Int
-    var prefetchWindow: TerminalScrollPrefetchWindow?
-    var directionalRuns: [MobileTerminalScrollRun]
-
-    init(
-        surfaceID: String,
-        interactionEpoch: UInt64,
-        clientRevision: UInt64,
-        lines: Double,
-        col: Int,
-        row: Int,
-        prefetchWindow: TerminalScrollPrefetchWindow?
-    ) {
-        self.surfaceID = surfaceID
-        self.interactionEpoch = interactionEpoch
-        self.clientRevision = clientRevision
-        self.lines = lines
-        self.col = col
-        self.row = row
-        self.prefetchWindow = prefetchWindow
-        self.directionalRuns = lines == 0
-            ? []
-            : [MobileTerminalScrollRun(lines: lines, col: col, row: row)]
-    }
-
-    mutating func append(_ newer: Self) -> Bool {
-        precondition(surfaceID == newer.surfaceID)
-        precondition(interactionEpoch == newer.interactionEpoch)
-        var combinedRuns = directionalRuns
-        for run in newer.directionalRuns {
-            if let lastIndex = combinedRuns.indices.last,
-               combinedRuns[lastIndex].lines.sign == run.lines.sign,
-               combinedRuns[lastIndex].col == run.col,
-               combinedRuns[lastIndex].row == run.row {
-                combinedRuns[lastIndex].lines += run.lines
-            } else {
-                combinedRuns.append(run)
-            }
-            guard combinedRuns.count <= Self.maximumDirectionalRuns else {
-                return false
-            }
-        }
-        lines += newer.lines
-        clientRevision = newer.clientRevision
-        col = newer.col
-        row = newer.row
-        directionalRuns = combinedRuns
-        if let newerWindow = newer.prefetchWindow {
-            prefetchWindow = newerWindow
-        }
-        return true
-    }
-}
-
-struct TerminalScrollResponse: Sendable {
-    let accepted: Bool
-    let interactionEpoch: UInt64
-    let clientRevision: UInt64
-    let renderRevision: UInt64?
-    let renderGrid: MobileTerminalRenderGridFrame?
-}
-
 /// One mounted surface's complete optimistic-scroll transaction owner.
 ///
 /// Local Ghostty work and Mac RPC work drain independently so network latency
@@ -105,13 +13,14 @@ final class TerminalScrollSession {
     typealias ApplyLocal = @MainActor @Sendable (_ runs: [MobileTerminalScrollRun]) async -> Bool
     typealias CancelLocal = @MainActor @Sendable () -> Void
     typealias SendRemote = @MainActor @Sendable (TerminalScrollRequest) async -> TerminalScrollResponse?
+    typealias SupportsOrderedRemoteRuns = @MainActor @Sendable () -> Bool
     typealias PrepareIntent = @MainActor @Sendable () -> Void
     typealias DeliverAuthoritative = @MainActor @Sendable (
         _ frame: MobileTerminalRenderGridFrame,
         _ interactionEpoch: UInt64,
         _ clientRevision: UInt64
     ) -> Bool
-    typealias AcceptAuthoritativeRevision = @MainActor @Sendable (_ renderRevision: UInt64) -> Void
+    typealias CompleteGridlessAuthoritative = @MainActor @Sendable (_ renderRevision: UInt64?) -> Bool
     typealias ReconciliationDidComplete = @MainActor @Sendable () -> Void
     typealias RequestReplay = @MainActor @Sendable (_ interactionEpoch: UInt64) -> Void
     typealias AdvanceEpoch = @MainActor @Sendable () -> UInt64
@@ -122,9 +31,10 @@ final class TerminalScrollSession {
     private let applyLocal: ApplyLocal
     private let cancelLocal: CancelLocal
     private let sendRemote: SendRemote
+    private let supportsOrderedRemoteRuns: SupportsOrderedRemoteRuns
     private let prepareIntent: PrepareIntent
     private let deliverAuthoritative: DeliverAuthoritative
-    private let acceptAuthoritativeRevision: AcceptAuthoritativeRevision
+    private let completeGridlessAuthoritative: CompleteGridlessAuthoritative
     private let reconciliationDidComplete: ReconciliationDidComplete
     private let requestReplay: RequestReplay
     private let advanceEpoch: AdvanceEpoch
@@ -162,9 +72,10 @@ final class TerminalScrollSession {
         applyLocal: @escaping ApplyLocal,
         cancelLocal: @escaping CancelLocal,
         sendRemote: @escaping SendRemote,
+        supportsOrderedRemoteRuns: @escaping SupportsOrderedRemoteRuns = { false },
         prepareIntent: @escaping PrepareIntent,
         deliverAuthoritative: @escaping DeliverAuthoritative,
-        acceptAuthoritativeRevision: @escaping AcceptAuthoritativeRevision,
+        completeGridlessAuthoritative: @escaping CompleteGridlessAuthoritative,
         reconciliationDidComplete: @escaping ReconciliationDidComplete,
         requestReplay: @escaping RequestReplay,
         advanceEpoch: @escaping AdvanceEpoch
@@ -175,9 +86,10 @@ final class TerminalScrollSession {
         self.applyLocal = applyLocal
         self.cancelLocal = cancelLocal
         self.sendRemote = sendRemote
+        self.supportsOrderedRemoteRuns = supportsOrderedRemoteRuns
         self.prepareIntent = prepareIntent
         self.deliverAuthoritative = deliverAuthoritative
-        self.acceptAuthoritativeRevision = acceptAuthoritativeRevision
+        self.completeGridlessAuthoritative = completeGridlessAuthoritative
         self.reconciliationDidComplete = reconciliationDidComplete
         self.requestReplay = requestReplay
         self.advanceEpoch = advanceEpoch
@@ -328,7 +240,21 @@ final class TerminalScrollSession {
         remoteInFlight = request
         remoteTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let response = await self.sendRemote(request)
+            let plannedRequests = request.plannedRPCRequests(
+                supportsOrderedRuns: self.supportsOrderedRemoteRuns()
+            )
+            var response: TerminalScrollResponse?
+            for plannedRequest in plannedRequests {
+                guard !Task.isCancelled else { return }
+                guard let plannedResponse = await self.sendRemote(plannedRequest),
+                      plannedResponse.accepted,
+                      plannedResponse.interactionEpoch == request.interactionEpoch,
+                      plannedResponse.clientRevision == request.clientRevision else {
+                    self.completeRemote(request, response: nil)
+                    return
+                }
+                response = plannedResponse
+            }
             self.completeRemote(request, response: response)
         }
     }
@@ -385,8 +311,9 @@ final class TerminalScrollSession {
             }
             return
         }
-        if let renderRevision = response.renderRevision {
-            acceptAuthoritativeRevision(renderRevision)
+        guard completeGridlessAuthoritative(response.renderRevision) else {
+            recoverFromLaneFailure()
+            return
         }
         completeReconciliation(
             interactionEpoch: response.interactionEpoch,

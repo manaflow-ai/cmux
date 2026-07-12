@@ -32,6 +32,9 @@ extension MobileShellComposite {
             sendRemote: { [weak self] request in
                 await self?.performTerminalScroll(request)
             },
+            supportsOrderedRemoteRuns: { [weak self] in
+                self?.supportedHostCapabilities.contains(MobileTerminalScrollRun.orderedRunsCapability) == true
+            },
             prepareIntent: { [weak self] in
                 self?.prepareTerminalOutputForOptimisticScroll(surfaceID: surfaceID)
             },
@@ -46,8 +49,11 @@ extension MobileShellComposite {
                     )
                 ) ?? false
             },
-            acceptAuthoritativeRevision: { [weak self] revision in
-                self?.acceptTerminalRenderRevision(revision, surfaceID: surfaceID)
+            completeGridlessAuthoritative: { [weak self] revision in
+                self?.completeGridlessTerminalScrollReconciliation(
+                    surfaceID: surfaceID,
+                    renderRevision: revision
+                ) ?? false
             },
             reconciliationDidComplete: { [weak self] in
                 self?.flushDeferredTerminalRenderGridEvent(surfaceID: surfaceID)
@@ -133,17 +139,21 @@ extension MobileShellComposite {
                 "client_id": clientID,
                 "interaction_epoch": Int(clamping: request.interactionEpoch),
                 "client_scroll_revision": Int(clamping: request.clientRevision),
-                "delta_lines": request.lines,
-                "delta_runs": request.directionalRuns.map { run in
+                "col": request.col,
+                "row": request.row,
+            ]
+            switch request.wireEncoding {
+            case .legacyScalar:
+                params["delta_lines"] = request.lines
+            case .orderedRuns:
+                params["delta_runs"] = request.directionalRuns.map { run in
                     [
                         "lines": run.lines,
                         "col": run.col,
                         "row": run.row,
                     ] as [String: Any]
-                },
-                "col": request.col,
-                "row": request.row,
-            ]
+                }
+            }
             if let window = request.prefetchWindow {
                 params["prefetch_before_rows"] = window.rowsBeforeViewport
                 params["prefetch_after_rows"] = window.rowsAfterViewport

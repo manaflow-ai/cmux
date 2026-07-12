@@ -74,6 +74,54 @@ extension MobileShellComposite {
         )
     }
 
+    /// Flushes a deferred event before a gridless scroll acknowledgement raises
+    /// the render-revision floor. The deferred entry is retained until delivery
+    /// succeeds, so an equal-revision frame cannot be removed and then rejected.
+    @discardableResult
+    func completeGridlessTerminalScrollReconciliation(
+        surfaceID: String,
+        renderRevision: UInt64?
+    ) -> Bool {
+        if let deferred = deferredTerminalRenderGridEventsBySurfaceID[surfaceID] {
+            if deferred.requiresReplay {
+                deferredTerminalRenderGridEventsBySurfaceID.removeValue(forKey: surfaceID)
+                if let renderRevision {
+                    acceptTerminalRenderRevision(renderRevision, surfaceID: surfaceID)
+                }
+                MobileDebugLog.anchormux("sync.render_grid_deferred_replay surface=\(surfaceID)")
+                requestTerminalReplay(surfaceID: surfaceID)
+                return true
+            }
+            if let frame = deferred.frame {
+                if let renderRevision,
+                   frame.renderRevision.map({ $0 < renderRevision }) ?? true {
+                    deferredTerminalRenderGridEventsBySurfaceID.removeValue(forKey: surfaceID)
+                    acceptTerminalRenderRevision(renderRevision, surfaceID: surfaceID)
+                    MobileDebugLog.anchormux(
+                        "sync.render_grid_deferred_behind_ack surface=\(surfaceID) ack=\(renderRevision) deferred=\(frame.renderRevision ?? 0)"
+                    )
+                    requestTerminalReplay(surfaceID: surfaceID)
+                    return true
+                }
+                guard deliverAuthoritativeTerminalRenderGrid(
+                    frame,
+                    expectedSurfaceID: surfaceID,
+                    source: "scroll_gridless_reconcile"
+                ) else {
+                    deferredTerminalRenderGridEventsBySurfaceID.removeValue(forKey: surfaceID)
+                    MobileDebugLog.anchormux("sync.render_grid_deferred_delivery_failed surface=\(surfaceID)")
+                    requestTerminalReplay(surfaceID: surfaceID)
+                    return true
+                }
+                deferredTerminalRenderGridEventsBySurfaceID.removeValue(forKey: surfaceID)
+            }
+        }
+        if let renderRevision {
+            acceptTerminalRenderRevision(renderRevision, surfaceID: surfaceID)
+        }
+        return true
+    }
+
     /// Abandon the current yielded terminal-output chunk after the local render
     /// surface reset. The abandoned bytes may have been applied to the old
     /// Ghostty surface or may still be behind a wedged worker queue, so continuing

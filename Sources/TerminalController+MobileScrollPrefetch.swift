@@ -2,8 +2,6 @@ import CMUXMobileCore
 import Foundation
 
 extension TerminalController {
-    nonisolated static let mobileScrollDirectionalRunLimit = 4_096
-
     /// Scrollback rows included in a cold-attach render-grid replay snapshot.
     /// Live render-grid events carry no scrollback; the phone keeps its own
     /// bounded Ghostty scrollback mirror and scrolls that mirror locally while
@@ -122,7 +120,7 @@ extension TerminalController {
             )]
         }
         guard let objects = rawRuns as? [[String: Any]],
-              objects.count <= Self.mobileScrollDirectionalRunLimit else {
+              objects.count <= MobileTerminalScrollRun.maximumOrderedBatchCount else {
             return nil
         }
         var runs: [MobileTerminalScrollRun] = []

@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 
 extension MobileHostService {
@@ -23,6 +24,7 @@ extension MobileHostService {
             "terminal.bytes.v1",
             "terminal.render_grid.v1",
             "terminal.replay.v1",
+            MobileTerminalScrollRun.orderedRunsCapability,
             "terminal.viewport.v1",
             "workspace.actions.v1",
             "workspace.read_state.v1",

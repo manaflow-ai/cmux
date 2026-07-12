@@ -132,10 +132,17 @@ struct DeferredTerminalRenderGridEvent: Equatable, Sendable {
 /// the whole viewport are replaceable while the iOS surface is still applying a
 /// prior chunk, so fast scroll gestures can skip obsolete intermediate frames.
 struct TerminalOutputDeliveryQueue: Sendable {
+    private struct PendingEntry: Sendable {
+        var delivery: TerminalOutputDelivery
+        var optimisticGeneration: UInt64
+    }
+
     private var inFlight: TerminalOutputDelivery?
     private var inFlightClaimed = false
-    private var pending: [TerminalOutputDelivery] = []
+    private var pending: [PendingEntry] = []
     private var pendingHeadIndex = 0
+    private(set) var optimisticInvalidationGeneration: UInt64 = 0
+    private(set) var pendingTraversalCount = 0
 
     var isIdle: Bool {
         inFlight == nil && pendingCount == 0
@@ -189,7 +196,7 @@ struct TerminalOutputDeliveryQueue: Sendable {
     /// remain ordered. Returns the newly promoted delivery, if the yielded
     /// current frame itself was discarded.
     mutating func discardUnclaimedForOptimisticScroll() -> TerminalOutputDelivery? {
-        discardPendingOptimisticScrollDeliveries()
+        optimisticInvalidationGeneration &+= 1
         guard inFlight?.isSupersededByOptimisticScroll == true, !inFlightClaimed else { return nil }
         inFlight = popPending()
         inFlightClaimed = false
@@ -201,16 +208,24 @@ struct TerminalOutputDeliveryQueue: Sendable {
         inFlightClaimed = false
         pending.removeAll(keepingCapacity: false)
         pendingHeadIndex = 0
+        optimisticInvalidationGeneration = 0
+        pendingTraversalCount = 0
     }
 
     private mutating func appendPending(_ delivery: TerminalOutputDelivery) {
         if let replacementScope = delivery.replacementScope,
            let lastIndex = pending.indices.last,
            lastIndex >= pendingHeadIndex,
-           pending[lastIndex].replacementScope == replacementScope {
-            pending[lastIndex] = delivery
+           pending[lastIndex].delivery.replacementScope == replacementScope {
+            pending[lastIndex] = PendingEntry(
+                delivery: delivery,
+                optimisticGeneration: optimisticInvalidationGeneration
+            )
         } else {
-            pending.append(delivery)
+            pending.append(PendingEntry(
+                delivery: delivery,
+                optimisticGeneration: optimisticInvalidationGeneration
+            ))
         }
     }
 
@@ -221,16 +236,17 @@ struct TerminalOutputDeliveryQueue: Sendable {
     }
 
     private mutating func popPending() -> TerminalOutputDelivery? {
-        guard pendingHeadIndex < pending.count else { return nil }
-        let next = pending[pendingHeadIndex]
-        pendingHeadIndex += 1
-        compactPendingStorageIfNeeded()
-        return next
-    }
-
-    private mutating func discardPendingOptimisticScrollDeliveries() {
-        guard pendingHeadIndex < pending.count else { return }
-        pending = pending[pendingHeadIndex...].filter { !$0.isSupersededByOptimisticScroll }
-        pendingHeadIndex = 0
+        while pendingHeadIndex < pending.count {
+            let entry = pending[pendingHeadIndex]
+            pendingHeadIndex += 1
+            pendingTraversalCount += 1
+            compactPendingStorageIfNeeded()
+            if entry.optimisticGeneration != optimisticInvalidationGeneration,
+               entry.delivery.isSupersededByOptimisticScroll {
+                continue
+            }
+            return entry.delivery
+        }
+        return nil
     }
 }
