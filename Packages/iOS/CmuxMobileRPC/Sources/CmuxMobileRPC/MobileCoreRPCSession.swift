@@ -150,7 +150,7 @@ actor MobileCoreRPCSession {
             continuation = cont
         }
         listeners[id] = EventListener(topics: topics, continuation: continuation)
-        continuation.onTermination = { [weak self] _ in
+        continuation.onTermination = { @Sendable [weak self] _ in
             guard let self else { return }
             Task { await self.removeListener(id: id) }
         }
