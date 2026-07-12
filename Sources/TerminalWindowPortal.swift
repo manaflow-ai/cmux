@@ -1410,6 +1410,33 @@ final class WindowTerminalPortal: NSObject {
 
 #endif
 
+#if DEBUG
+    /// Walks the widest anchor's superview chain — the SwiftUI-side half of
+    /// the geometry, which the hosted-side dumps never see. The first view
+    /// wider than the window on THIS side names whoever answers a size
+    /// proposal with a content-derived ideal.
+    func debugLogWidestAnchorChain() {
+        var widest: (NSView, CGFloat)?
+        for entry in entriesByHostedId.values {
+            guard let anchor = entry.anchorView, anchor.window != nil else { continue }
+            if widest == nil || anchor.bounds.width > widest!.1 {
+                widest = (anchor, anchor.bounds.width)
+            }
+        }
+        guard let (anchor, _) = widest else { return }
+        var node: NSView? = anchor
+        var depth = 0
+        while let current = node, depth < 60 {
+            cmuxDebugLog(
+                "portal.anchor.chain [\(depth)] \(String(describing: type(of: current)))"
+                    + " w=\(Int(current.frame.width))"
+            )
+            node = current.superview
+            depth += 1
+        }
+    }
+#endif
+
     private func scheduleDeferredFullSynchronizeAll() {
         guard !hasDeferredFullSyncScheduled else { return }
         hasDeferredFullSyncScheduled = true
@@ -1950,7 +1977,10 @@ enum TerminalWindowPortalRegistry {
 #if DEBUG
     @MainActor
     static func misplacedHostedViewDescriptions(for window: NSWindow) -> [String] {
-        portalsByWindowId[ObjectIdentifier(window)]?.misplacedHostedViewDescriptions() ?? []
+        let portal = portalsByWindowId[ObjectIdentifier(window)]
+        let out = portal?.misplacedHostedViewDescriptions() ?? []
+        if !out.isEmpty { portal?.debugLogWidestAnchorChain() }
+        return out
     }
 #endif
 #if DEBUG

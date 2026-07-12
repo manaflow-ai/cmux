@@ -1735,6 +1735,15 @@ struct ContentView: View {
         let retiringWorkspaceId = self.retiringWorkspaceId
 
         return ZStack {
+            // Workspaces are PAGES: each renders at the container's size and
+            // must never contribute its own. Without the pinned frames below,
+            // this keep-alive stack sizes to its LARGEST child, a hidden
+            // workspace never lays out smaller (so the maximum only ever
+            // ratchets up), and the selected workspace stretches to fill the
+            // inflated union — one point of internal overgrowth anywhere
+            // becomes permanent, compounding window-wide growth (observed
+            // live at 5,000+ points inside a 1,728-point window).
+            GeometryReader { workspaceArea in
             ZStack {
                 ForEach(mountedWorkspaces) { tab in
                     let isSelectedWorkspace = selectedWorkspaceId == tab.id
@@ -1767,11 +1776,16 @@ struct ContentView: View {
                             )
                         }
                     )
+                    .frame(
+                        width: max(1, workspaceArea.size.width),
+                        height: max(1, workspaceArea.size.height)
+                    )
                     .opacity(presentation.renderOpacity)
                     .allowsHitTesting(isSelectedWorkspace)
                     .accessibilityHidden(!presentation.isRenderedVisible)
                     .zIndex(isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0))
                 }
+            }
             }
             .opacity(sidebarSelectionState.selection == .tabs ? 1 : 0)
             .allowsHitTesting(sidebarSelectionState.selection == .tabs)
