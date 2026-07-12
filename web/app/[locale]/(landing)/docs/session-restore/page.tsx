@@ -1,5 +1,5 @@
 import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { DocsSchema } from "../docs-schema";
 import { Link } from "@/i18n/navigation";
 import { Callout } from "@/app/[locale]/components/callout";
@@ -12,10 +12,20 @@ export async function generateMetadata({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "docs.sessionRestore" });
+  const alternates = buildAlternates(locale, "/docs/session-restore");
+  const title = t("metaTitle");
+  const description = seoDescription(locale, t("metaDescription"));
   return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/docs/session-restore"),
+    title,
+    description,
+    alternates,
+    openGraph: {
+      ...openGraphDefaults(locale, "article"),
+      title,
+      description,
+      url: alternates.canonical,
+    },
+    twitter: twitterSummary(locale, title, description),
   };
 }
 
@@ -106,6 +116,12 @@ cmux surface resume clear --checkpoint work`}</CodeBlock>
             <td>OMP</td>
             <td><code>omp</code></td>
             <td><code>omp --session &lt;id&gt;</code></td>
+            <td>{t("none")}</td>
+          </tr>
+          <tr>
+            <td>Campfire</td>
+            <td><code>campfire</code></td>
+            <td><code>campfire --session &lt;id&gt;</code></td>
             <td>{t("none")}</td>
           </tr>
           <tr>

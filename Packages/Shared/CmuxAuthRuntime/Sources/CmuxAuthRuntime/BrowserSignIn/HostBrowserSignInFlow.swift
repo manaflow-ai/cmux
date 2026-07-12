@@ -22,6 +22,9 @@ public final class HostBrowserSignInFlow {
     private let callbackRouter: AuthCallbackRouter
     private let makeSignInURL: @MainActor (_ callbackState: String) -> URL
     private let callbackScheme: @MainActor () -> String
+    /// Opens a URL in the user's default browser. Returns `true` when the
+    /// launch was handed to a browser, `false` when it could not be opened.
+    @ObservationIgnored private let openExternalURL: @MainActor (URL) -> Bool
     private let clock: any Clock<Duration>
     private let browserAttemptTimeout: TimeInterval
     private let slowSignInThreshold: TimeInterval
@@ -34,6 +37,7 @@ public final class HostBrowserSignInFlow {
     @ObservationIgnored private var slowSignInHintTask: Task<Void, Never>?
     @ObservationIgnored private var nextAttemptID: UInt64 = 0
     @ObservationIgnored private var activeAttemptID: UInt64?
+    @ObservationIgnored private var handedOffAttemptID: UInt64?
     @ObservationIgnored private var activeCallbackState: String?
     @ObservationIgnored private var pendingManualCallbackState: String?
     @ObservationIgnored private var pendingFallbackCallbackState: String?
@@ -47,6 +51,7 @@ public final class HostBrowserSignInFlow {
         callbackRouter: AuthCallbackRouter,
         makeSignInURL: @escaping @MainActor (_ callbackState: String) -> URL,
         callbackScheme: @escaping @MainActor () -> String,
+        openExternalURL: @escaping @MainActor (URL) -> Bool,
         clock: any Clock<Duration> = ContinuousClock(),
         browserAttemptTimeout: TimeInterval = 10 * 60,
         slowSignInThreshold: TimeInterval = 30
@@ -57,6 +62,7 @@ public final class HostBrowserSignInFlow {
         self.callbackRouter = callbackRouter
         self.makeSignInURL = makeSignInURL
         self.callbackScheme = callbackScheme
+        self.openExternalURL = openExternalURL
         self.clock = clock
         self.browserAttemptTimeout = browserAttemptTimeout
         self.slowSignInThreshold = slowSignInThreshold
@@ -66,7 +72,7 @@ public final class HostBrowserSignInFlow {
     /// Reuses a handed-off attempt; otherwise cancels the previous popup.
     public func beginSignIn() {
         log.log("auth.browser.beginSignIn signedIn=\(coordinator.isAuthenticated) signingIn=\(isSigningIn)")
-        if activeAttemptID != nil, !isPresentingSignIn {
+        if let activeAttemptID, handedOffAttemptID == activeAttemptID {
             isPresentingSignIn = true
             signInIsSlow = true
             return
@@ -256,10 +262,29 @@ public final class HostBrowserSignInFlow {
                         self.log.log("auth.browser.session.completion.ignored id=\(attemptID) reason=staleNonAuthCallback active=\(self.activeAttemptID.map(String.init) ?? "nil")")
                         return
                     }
-                    // Stop the UI spinner while the socket waiter remains parked for Safari's AppDelegate callback.
                     self.pendingFallbackCallbackState = self.activeCallbackState
-                    self.isPresentingSignIn = false
                     self.cancelSlowSignInHint()
+                    self.signInIsSlow = true
+                    if self.handedOffAttemptID != attemptID, let state = self.activeCallbackState {
+                        self.log.log("auth.browser.handoff.continueInDefaultBrowser attempt=\(attemptID)")
+                        if self.openExternalURL(self.makeSignInURL(state)) {
+                            // Browser launched: keep the attempt parked so the
+                            // eventual cmux://auth-callback resumes it. Open at
+                            // most once per attempt.
+                            self.handedOffAttemptID = attemptID
+                        } else {
+                            // No browser launched, so nothing will call back.
+                            // End the attempt with a failure instead of parking
+                            // the awaited sign-in until the timeout, so callers
+                            // and the UI stop waiting and the user can retry.
+                            self.log.log("auth.browser.handoff.openFailed attempt=\(attemptID)")
+                            self.resumeActiveSessionContinuation(
+                                returning: .failed(reason: "browser_open_failed"),
+                                reason: "handoffOpenFailed",
+                                expectedAttemptID: attemptID
+                            )
+                        }
+                    }
                     return
                 }
                 self.resumeActiveSessionContinuation(returning: result, reason: "sessionCompletion", expectedAttemptID: attemptID)
@@ -295,6 +320,7 @@ public final class HostBrowserSignInFlow {
         cancelAttemptTimeout()
         cancelSlowSignInHint()
         activeAttemptID = nil
+        handedOffAttemptID = nil
         activeCallbackState = nil
         activeSession = nil
         isSigningIn = false
@@ -312,6 +338,7 @@ public final class HostBrowserSignInFlow {
         cancelAttemptTimeout()
         cancelSlowSignInHint()
         activeAttemptID = nil
+        handedOffAttemptID = nil
         activeCallbackState = nil
         pendingFallbackCallbackState = nil
         activeSession?.cancel()
@@ -463,37 +490,5 @@ public final class HostBrowserSignInFlow {
 
     private func makeCallbackState() -> String {
         UUID().uuidString.lowercased()
-    }
-
-    private func authCallbackState(from url: URL) -> String? {
-        URLComponents(url: url, resolvingAgainstBaseURL: false)?
-            .queryItems?
-            .first(where: { $0.name == "cmux_auth_state" })?
-            .value
-    }
-
-    private func redactedAuthState(_ state: String) -> String {
-        "\(state.prefix(8))..."
-    }
-
-    private func authCallbackSummary(_ url: URL) -> String {
-        let scheme = url.scheme ?? "nil"
-        let target = url.host ?? url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-            .queryItems?
-            .map(\.name)
-            .joined(separator: ",") ?? ""
-        return "scheme=\(scheme) target=\(target.isEmpty ? "nil" : target) queryKeys=\(queryItems.isEmpty ? "none" : queryItems)"
-    }
-
-    private func sessionResultSummary(_ result: HostBrowserAuthSessionResult) -> String {
-        switch result {
-        case let .callback(url):
-            return "result=callback \(authCallbackSummary(url))"
-        case let .cancelled(reason):
-            return "result=cancelled reason=\(reason)"
-        case let .failed(reason):
-            return "result=failed reason=\(reason)"
-        }
     }
 }

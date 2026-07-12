@@ -161,10 +161,8 @@ extension CMUXCLI {
                   isDirectory.boolValue else {
                 return
             }
-            let diffsAsset = standardized.appendingPathComponent("diffs.mjs", isDirectory: false)
-            let treesAsset = standardized.appendingPathComponent("trees.mjs", isDirectory: false)
-            guard fileManager.fileExists(atPath: diffsAsset.path),
-                  fileManager.fileExists(atPath: treesAsset.path) else {
+            guard (try? diffViewerBundledAssetFileURL(relativePath: "diffs.mjs", in: standardized)) != nil,
+                  (try? diffViewerBundledAssetFileURL(relativePath: "trees.mjs", in: standardized)) != nil else {
                 return
             }
             candidates.append(standardized)

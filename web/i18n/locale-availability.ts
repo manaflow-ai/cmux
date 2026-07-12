@@ -15,6 +15,17 @@ export const remoteTmuxDocsLocales = [
   "ja",
 ] as const satisfies readonly Locale[];
 
+// These routes currently ship page copy and metadata only in English and Japanese.
+export const fallbackContentLocales = [
+  "en",
+  "ja",
+] as const satisfies readonly Locale[];
+
+export const fallbackContentPaths = [
+  "/pricing",
+  "/docs/agent-integrations/oh-my-pi",
+] as const;
+
 export function hasFeatureWorkflowContent(
   locale: string,
 ): locale is (typeof featureWorkflowContentLocales)[number] {
@@ -49,11 +60,48 @@ export function featureWorkflowDocRequestForPathname(
   return null;
 }
 
+export function hasFallbackContent(
+  locale: string,
+): locale is (typeof fallbackContentLocales)[number] {
+  return fallbackContentLocales.includes(
+    locale as (typeof fallbackContentLocales)[number],
+  );
+}
+
+export function fallbackContentRequestForPathname(
+  pathname: string,
+): {
+  path: (typeof fallbackContentPaths)[number];
+  locale: Locale | null;
+} | null {
+  const { locale, path } = unprefixLocale(pathname);
+  if (
+    fallbackContentPaths.includes(
+      path as (typeof fallbackContentPaths)[number],
+    )
+  ) {
+    return {
+      path: path as (typeof fallbackContentPaths)[number],
+      locale,
+    };
+  }
+  return null;
+}
+
 function unprefixLocale(pathname: string): { locale: Locale | null; path: string } {
+  let decoded: string;
+  try {
+    decoded = decodeURI(pathname)
+      .replace(/\\/gu, "%5C")
+      .replace(/[\t\n\r]/gu, "")
+      .replace(/\/+/gu, "/");
+  } catch {
+    return { locale: null, path: pathname };
+  }
   const normalized =
-    pathname.length > 1 && pathname.endsWith("/")
-      ? pathname.slice(0, -1)
-      : pathname;
+    decoded.length > 1 && decoded.endsWith("/")
+      ? decoded.slice(0, -1)
+      : decoded;
   for (const locale of locales) {
     if (normalized === `/${locale}`) {
       return { locale, path: "/" };

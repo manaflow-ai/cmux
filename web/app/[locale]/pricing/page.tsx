@@ -7,7 +7,16 @@ import { PRO_CHECKOUT_URL, TEAM_CHECKOUT_URL } from "../../lib/billing";
 import { DOWNLOAD_CONFIRMATION_HREF } from "../../lib/download";
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import { resolveProPlanStatus } from "../../../services/billing/pro";
-import { buildAlternates } from "../../../i18n/seo";
+import {
+  buildAlternates,
+  openGraphDefaults,
+  twitterSummary,
+} from "../../../i18n/seo";
+import { pricingSeoCopy } from "../../../i18n/audited-seo";
+import {
+  fallbackContentLocales,
+  hasFallbackContent,
+} from "../../../i18n/locale-availability";
 import {
   CurrentPlanBadge,
   DisabledButton,
@@ -42,10 +51,30 @@ export async function generateMetadata({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "pricing" });
+  const siteMeta = await getTranslations({ locale, namespace: "meta" });
+  const contentLocale = hasFallbackContent(locale) ? locale : "en";
+  const { title, description } = pricingSeoCopy(
+    contentLocale,
+    t,
+    siteMeta,
+    SHOW_VAULT ? "metaDescription" : "metaDescriptionNoVault",
+  );
+  const alternates = buildAlternates(
+    contentLocale,
+    "/pricing",
+    fallbackContentLocales,
+  );
   return {
-    title: t("metaTitle"),
-    description: SHOW_VAULT ? t("metaDescription") : t("metaDescriptionNoVault"),
-    alternates: buildAlternates(locale, "/pricing"),
+    title,
+    description,
+    alternates,
+    openGraph: {
+      ...openGraphDefaults(contentLocale, "website"),
+      title,
+      description,
+      url: alternates.canonical,
+    },
+    twitter: twitterSummary(contentLocale, title, description),
   };
 }
 
