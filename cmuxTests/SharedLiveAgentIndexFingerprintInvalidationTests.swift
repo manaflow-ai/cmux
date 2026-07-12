@@ -11,6 +11,86 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct SharedLiveAgentIndexFingerprintInvalidationTests {
+    @Test
+    func processScopeFingerprintChangesAcrossExec() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        func fingerprint(name: String, path: String) -> Set<String> {
+            let process = CmuxTopProcessInfo(
+                pid: 42,
+                parentPID: 1,
+                name: name,
+                path: path,
+                ttyDevice: nil,
+                cmuxWorkspaceID: workspaceID,
+                cmuxSurfaceID: surfaceID,
+                cmuxAttributionReason: "test",
+                processGroupID: 42,
+                terminalProcessGroupID: 42,
+                cpuPercent: 0,
+                residentBytes: 0,
+                virtualBytes: 0,
+                threadCount: 1
+            )
+            let snapshot = CmuxTopProcessSnapshot(
+                processes: [process],
+                sampledAt: Date(),
+                includesProcessDetails: true
+            )
+            return SharedLiveAgentIndexLoader.processScopeFingerprint(from: snapshot)
+        }
+
+        #expect(
+            fingerprint(name: "cmux-agent-shim", path: "/usr/local/bin/cmux-agent-shim")
+                != fingerprint(name: "claude", path: "/usr/local/bin/claude"),
+            "A same-PID exec must invalidate process-scoped resume metadata."
+        )
+    }
+
+    @Test
+    func fingerprintMismatchInvalidatesPublishedIndex() async {
+        let now = Date()
+        let hookDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-published-index-invalidation-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: hookDirectory) }
+        let cachedResult: SharedLiveAgentIndex.LoadResult = (
+            index: .empty,
+            surfaceResumeBindingIndex: .empty,
+            liveAgentProcessFingerprint: [],
+            processScopeFingerprint: ["scope-a"],
+            forkValidatedPanels: []
+        )
+        let sharedIndex = SharedLiveAgentIndex(
+            processScopeFingerprintProvider: { ["scope-b"] },
+            hookStoreDirectoryProvider: { hookDirectory.path },
+            dateProvider: { now }
+        )
+        sharedIndex.applyReloadedResult(
+            cachedResult,
+            validationPanelsByPanelID: [:],
+            generationID: UUID()
+        )
+        sharedIndex.latestCompletedLoadResult = cachedResult
+        sharedIndex.latestCompletedAt = now
+        for ordinal in 1 ... SharedLiveAgentIndex.maximumConcurrentPhysicalLoads {
+            let generationID = UUID()
+            sharedIndex.refreshGenerationsByID[generationID] = .init(
+                id: generationID,
+                ordinal: UInt64(ordinal),
+                phase: .capturing,
+                publication: .scoped,
+                validationPanelsByPanelID: [:]
+            )
+        }
+
+        _ = await sharedIndex.resumeIndexesRefreshingIfNeeded(maximumAge: 60)
+
+        #expect(
+            sharedIndex.cachedIndex() == nil,
+            "A process-scope mismatch must invalidate the separately published index."
+        )
+    }
+
     @Test(arguments: [false, true])
     func expiredCacheIsRejectedWhenRefreshIsUnavailable(joinExistingRefresh: Bool) async {
         var now = Date()
