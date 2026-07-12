@@ -722,11 +722,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var createWorkspaceTaskGroupID: MobileWorkspaceGroupPreview.ID?
     private var createTerminalTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
-    private var foregroundWorkspaceListMutationEpoch: UInt64 = 0
+    var foregroundWorkspaceListMutationEpoch: UInt64 = 0
     /// The user pull-to-refresh round-trip, kept on its own handle so the
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
-    private var pullToRefreshTask: Task<Bool, Never>?
+    var pullToRefreshTask: Task<Bool, Never>?
     private var aggregateWorkspaceRefreshTask: Task<Void, Never>?
     var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?
@@ -7398,7 +7398,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// transport) are caught and logged, leaving the existing list intact, because
     /// ``applyRemoteWorkspaceList(_:preferActiveTicketTarget:mergeExistingWorkspaces:)``
     /// runs only on a successful decode.
-    private func reloadWorkspaceListFromMac() async -> Bool {
+    func reloadWorkspaceListFromMac() async -> Bool {
         guard let client = remoteClient else { return false }
         let mutationEpoch = foregroundWorkspaceListMutationEpoch
         do {
@@ -7473,22 +7473,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         pullToRefreshTask = task
         return await task.value
-    }
-
-    /// Starts a foreground read after a mutation acknowledgement. An older pull
-    /// may contain the pre-mutation hierarchy, so it must settle before this read.
-    func refreshForegroundWorkspaceListAfterMutation() async -> Bool {
-        advanceForegroundWorkspaceListMutationEpoch()
-        if let inFlight = pullToRefreshTask {
-            _ = await inFlight.value
-        }
-        guard connectionState == .connected, remoteClient != nil else { return false }
-        return await reloadWorkspaceListFromMac()
-    }
-
-    /// Invalidates foreground list reads that started before a mutation response.
-    func advanceForegroundWorkspaceListMutationEpoch() {
-        foregroundWorkspaceListMutationEpoch &+= 1
     }
 
     /// Refresh the foreground Mac workspace list and re-aggregate secondary Macs.

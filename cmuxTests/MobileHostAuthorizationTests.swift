@@ -960,25 +960,19 @@ struct MobileHostAuthorizationTests {
             portOrdinal: 0
         )
         let initial = MobileWorkspaceListObserver.summaryHash(
-            for: [workspace],
-            groups: [],
-            selectedTabID: workspace.id,
-            previewSignatures: [:]
+            for: [workspace], groups: [],
+            selectedTabID: workspace.id, previewSignatures: [:]
         )
         workspace.currentDirectory = "/tmp/mobile-b"
         let afterWorkspaceDirectory = MobileWorkspaceListObserver.summaryHash(
-            for: [workspace],
-            groups: [],
-            selectedTabID: workspace.id,
-            previewSignatures: [:]
+            for: [workspace], groups: [],
+            selectedTabID: workspace.id, previewSignatures: [:]
         )
         #expect(initial != afterWorkspaceDirectory)
         workspace.panelDirectories[UUID()] = "/tmp/mobile-terminal"
         let afterTerminalDirectory = MobileWorkspaceListObserver.summaryHash(
-            for: [workspace],
-            groups: [],
-            selectedTabID: workspace.id,
-            previewSignatures: [:]
+            for: [workspace], groups: [],
+            selectedTabID: workspace.id, previewSignatures: [:]
         )
         #expect(afterWorkspaceDirectory != afterTerminalDirectory)
     }
