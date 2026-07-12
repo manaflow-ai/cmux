@@ -737,9 +737,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var pullToRefreshTask: Task<Bool, Never>?
     var pullToRefreshTaskID: UUID?
     var aggregateWorkspaceRefreshTask: Task<Void, Never>?
-    #if DEBUG
-    var aggregateWorkspaceRefreshStartCountForTesting = 0
-    #endif
+    var aggregateWorkspaceRefreshTaskID: UUID?
     var createWorkspaceTaskID: UUID?
     var connectionGeneration: UUID
     private var connectionAttemptGeneration: UUID
@@ -987,6 +985,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pullToRefreshTask = nil
         self.pullToRefreshTaskID = nil
         self.aggregateWorkspaceRefreshTask = nil
+        self.aggregateWorkspaceRefreshTaskID = nil
         self.createWorkspaceTaskID = nil
         self.connectionGeneration = UUID()
         self.connectionAttemptGeneration = UUID()
@@ -5225,6 +5224,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pullToRefreshTaskID = nil
         aggregateWorkspaceRefreshTask?.cancel()
         aggregateWorkspaceRefreshTask = nil
+        aggregateWorkspaceRefreshTaskID = nil
         foregroundWorkspaceMutationRefreshTask?.cancel()
         foregroundWorkspaceMutationRefreshTask = nil
         foregroundWorkspaceMutationRefreshTaskID = nil
@@ -7344,12 +7344,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await inFlight.value
             return
         }
-        #if DEBUG
-        aggregateWorkspaceRefreshStartCountForTesting += 1
-        #endif
+        let taskID = UUID()
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.aggregateWorkspaceRefreshTask = nil }
+            defer {
+                if self.aggregateWorkspaceRefreshTaskID == taskID {
+                    self.aggregateWorkspaceRefreshTask = nil
+                    self.aggregateWorkspaceRefreshTaskID = nil
+                }
+            }
             _ = await self.refreshForegroundWorkspaceList()
             // Re-aggregate the other Macs too, so pull-to-refresh surfaces
             // workspaces created on a secondary Mac since the last fetch.
@@ -7358,6 +7361,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
         aggregateWorkspaceRefreshTask = task
+        aggregateWorkspaceRefreshTaskID = taskID
         await task.value
     }
 
