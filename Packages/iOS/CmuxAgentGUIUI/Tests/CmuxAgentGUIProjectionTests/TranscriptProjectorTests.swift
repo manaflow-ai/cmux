@@ -44,7 +44,11 @@ struct TranscriptProjectorTests {
             Self.agent(seq: 4, text: "final"),
         ])).rows
         let summaryRow = try #require(rows.first { if case .activitySummary = $0.rowKind { true } else { false } })
-        let expectedTurn = TranscriptTurnID(journalID: Self.journal, promptSeq: EntrySeq(rawValue: 1))
+        let expectedTurn = TranscriptTurnID(
+            journalID: Self.journal,
+            promptSeq: EntrySeq(rawValue: 1),
+            segmentAnchorSeq: EntrySeq(rawValue: 1)
+        )
 
         #expect(summaryRow.rowID == .activitySummary(expectedTurn))
         #expect(summaryRow.turnID == expectedTurn)
@@ -63,7 +67,11 @@ struct TranscriptProjectorTests {
             Self.tool(seq: 1, name: "ls", detail: "Sources"),
             Self.agent(seq: 2, text: "answer"),
         ])).rows
-        let prelude = TranscriptTurnID(journalID: Self.journal, promptSeq: nil)
+        let prelude = TranscriptTurnID(
+            journalID: Self.journal,
+            promptSeq: nil,
+            segmentAnchorSeq: EntrySeq(rawValue: 1)
+        )
 
         #expect(rows.contains { $0.rowID == .activitySummary(prelude) })
         #expect(rows.row(seq: 2)?.turnID == prelude)
@@ -88,7 +96,11 @@ struct TranscriptProjectorTests {
             ))),
         ], sessionPhase: .working))
 
-        let latestTurn = TranscriptTurnID(journalID: latestJournal, promptSeq: nil)
+        let latestTurn = TranscriptTurnID(
+            journalID: latestJournal,
+            promptSeq: nil,
+            segmentAnchorSeq: EntrySeq(rawValue: 2)
+        )
         #expect(rows.rows.contains { $0.turnID == latestTurn })
         #expect(!rows.rows.contains { row in
             row.turnID?.journalID == latestJournal && row.turnID?.promptSeq == EntrySeq(rawValue: 1)
@@ -113,17 +125,111 @@ struct TranscriptProjectorTests {
     }
 
     @Test
+    func liveTurnKeepsPromptIdentityAcrossHole() {
+        let hole = EntryRange(lowerBound: EntrySeq(rawValue: 3), upperBound: EntrySeq(rawValue: 4))
+        let rows = projector.project(TranscriptProjectionInput(
+            entries: [
+                Self.user(seq: 1, text: "prompt"),
+                Self.tool(seq: 2, name: "rg", detail: "before hole"),
+                Self.tool(seq: 5, name: "bash", detail: "after hole"),
+            ],
+            holes: [hole],
+            sessionPhase: .working
+        )).rows
+        let liveTurn = TranscriptTurnID(
+            journalID: Self.journal,
+            promptSeq: EntrySeq(rawValue: 1),
+            segmentAnchorSeq: EntrySeq(rawValue: 5)
+        )
+
+        #expect(rows.row(seq: 5)?.turnID == liveTurn)
+        #expect(rows.row(seq: 5)?.isActivityItem == true)
+        #expect(rows.row(seq: 2) == nil)
+        #expect(rows.activitySummaries.flatMap(\.items).map(\.id).contains(
+            .entry(journalID: Self.journal, seq: EntrySeq(rawValue: 2))
+        ))
+    }
+
+    @Test
+    func noPromptPreludeSegmentsAcrossHoleBothRender() {
+        let hole = EntryRange(lowerBound: EntrySeq(rawValue: 2), upperBound: EntrySeq(rawValue: 4))
+        let rows = projector.project(TranscriptProjectionInput(
+            entries: [
+                Self.tool(seq: 1, name: "rg", detail: "first prelude segment"),
+                Self.tool(seq: 5, name: "ls", detail: "second prelude segment"),
+            ],
+            holes: [hole]
+        )).rows
+
+        #expect(rows.activitySummaries.count == 2)
+        #expect(Set(rows.activitySummaries.compactMap { $0.turnID }).count == 2)
+        #expect(Set(rows.activitySummaries.flatMap(\.items).map(\.id)) == Set([
+            .entry(journalID: Self.journal, seq: EntrySeq(rawValue: 1)),
+            .entry(journalID: Self.journal, seq: EntrySeq(rawValue: 5)),
+        ]))
+        #expect(rows.activitySummaries.allSatisfy { $0.turnID?.promptSeq == nil })
+    }
+
+    @Test
+    func idlePromptedTurnAcrossHoleKeepsBothActivitySegments() {
+        let hole = EntryRange(lowerBound: EntrySeq(rawValue: 3), upperBound: EntrySeq(rawValue: 4))
+        let input = TranscriptProjectionInput(
+            entries: [
+                Self.user(seq: 1, text: "prompt"),
+                Self.tool(seq: 2, name: "rg", detail: "before hole"),
+                Self.tool(seq: 5, name: "ls", detail: "after hole"),
+            ],
+            holes: [hole]
+        )
+        let first = projector.project(input)
+        let rows = first.rows
+
+        #expect(rows.activitySummaries.count == 2)
+        #expect(Set(rows.activitySummaries.compactMap { $0.turnID }).count == 2)
+        #expect(Set(rows.activitySummaries.flatMap(\.items).map(\.id)) == Set([
+            .entry(journalID: Self.journal, seq: EntrySeq(rawValue: 2)),
+            .entry(journalID: Self.journal, seq: EntrySeq(rawValue: 5)),
+        ]))
+        #expect(rows.activitySummaries.allSatisfy {
+            $0.turnID?.promptSeq == EntrySeq(rawValue: 1)
+        })
+        let second = projector.project(input, previousRows: rows)
+        #expect(second.rows.map(\.rowID) == rows.map(\.rowID))
+        #expect(second.diff.appliedOperationCount == 0)
+    }
+
+    @Test
+    func idlePromptedTurnAcrossDayHeaderKeepsBothActivitySegments() {
+        let rows = projector.project(TranscriptProjectionInput(
+            entries: [
+                Self.user(seq: 1, text: "prompt"),
+                Self.tool(seq: 2, name: "rg", detail: "first day"),
+                Self.tool(seq: 3, name: "ls", detail: "second day"),
+            ],
+            dayKey: { tick in tick < 3 ? "first day" : "second day" }
+        )).rows
+
+        #expect(rows.activitySummaries.count == 2)
+        #expect(Set(rows.activitySummaries.compactMap { $0.turnID }).count == 2)
+        #expect(Set(rows.activitySummaries.flatMap(\.items).map(\.id)) == Set([
+            .entry(journalID: Self.journal, seq: EntrySeq(rawValue: 2)),
+            .entry(journalID: Self.journal, seq: EntrySeq(rawValue: 3)),
+        ]))
+    }
+
+    @Test
     func completedActivitySummarizesDeterministicallyAndUnknownFailsOpen() throws {
         let rows = projector.project(TranscriptProjectionInput(entries: [
             Self.user(seq: 1, text: "prompt"),
             Self.tool(seq: 2, name: "rg", detail: "Theme"),
             Self.file(seq: 3, path: "Theme.swift"),
-            Self.unknown(seq: 4, rawKind: "future-event"),
+            Self.tool(seq: 4, name: "apply_patch", detail: "Theme.swift"),
+            Self.unknown(seq: 5, rawKind: "future-event"),
         ])).rows
         let row = try #require(rows.first { if case .activitySummary = $0.rowKind { true } else { false } })
         guard case .activitySummary(let summary) = row.rowKind else { return }
 
-        #expect(summary.commandCount == 1)
+        #expect(summary.commandCount == 2)
         #expect(summary.searchedCode)
         #expect(summary.editedFileCount == 1)
         #expect(summary.eventCount == 1)
@@ -346,9 +452,23 @@ private extension [TranscriptRow] {
     func row(seq: Int) -> TranscriptRow? {
         first { $0.rowID == .entry(journalID: JournalID(rawValue: "journal"), seq: EntrySeq(rawValue: seq)) }
     }
+
+    var activitySummaries: [(turnID: TranscriptTurnID?, items: [TranscriptActivityItem])] {
+        compactMap { row in
+            guard case .activitySummary(let summary) = row.rowKind else { return nil }
+            return (turnID: row.turnID, items: summary.items)
+        }
+    }
 }
 
 private extension TranscriptRow {
+    var isActivityItem: Bool {
+        if case .activityItem = rowKind {
+            return true
+        }
+        return false
+    }
+
     var agentText: String? {
         if case .proseAgent(let text, _) = rowKind {
             return text

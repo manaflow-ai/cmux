@@ -7,8 +7,10 @@ struct TranscriptRowContentView: View {
     let row: TranscriptRow
     let spacing: TranscriptRowSpacing
     let theme: AgentGUITheme
+    let isActivitySummaryExpanded: Bool
     let answeringAskID: String?
     let failedAskID: String?
+    let onToggleActivitySummary: () -> Void
     let onAnswer: (PendingAsk, Int) -> Void
     let onShowTerminal: () -> Void
 
@@ -42,7 +44,12 @@ struct TranscriptRowContentView: View {
         case .genericActivity(let activity):
             activityRow(activity)
         case .activitySummary(let summary):
-            TranscriptActivitySummaryView(summary: summary, theme: theme)
+            TranscriptActivitySummaryView(
+                isExpanded: isActivitySummaryExpanded,
+                summary: summary,
+                theme: theme,
+                onToggleExpanded: onToggleActivitySummary
+            )
                 .padding(.horizontal, 24)
                 .padding(.top, spacing.top)
                 .padding(.bottom, spacing.bottom)

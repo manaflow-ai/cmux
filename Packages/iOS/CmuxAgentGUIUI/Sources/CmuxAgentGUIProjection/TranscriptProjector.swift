@@ -28,8 +28,9 @@ public struct TranscriptProjector: Sendable {
         }
         var entryIndex = 0
         var lastDayKey: String?
+        var lastPromptSeqByJournal: [JournalID: EntrySeq] = [:]
         var turn: TranscriptTurnAccumulator?
-        let latestTurnID = Self.latestTurnID(in: entryContexts)
+        let latestTurnID = Self.latestTurnID(in: entryContexts, holes: input.holes)
         for hole in input.holes {
             while entryIndex < entryContexts.count,
                   entryContexts[entryIndex].entry.seq < hole.lowerBound {
@@ -38,6 +39,7 @@ public struct TranscriptProjector: Sendable {
                     input: input,
                     latestTurnID: latestTurnID,
                     lastDayKey: &lastDayKey,
+                    lastPromptSeqByJournal: &lastPromptSeqByJournal,
                     turn: &turn,
                     rows: &chronological
                 )
@@ -61,6 +63,7 @@ public struct TranscriptProjector: Sendable {
                 input: input,
                 latestTurnID: latestTurnID,
                 lastDayKey: &lastDayKey,
+                lastPromptSeqByJournal: &lastPromptSeqByJournal,
                 turn: &turn,
                 rows: &chronological
             )
@@ -102,6 +105,7 @@ public struct TranscriptProjector: Sendable {
         input: TranscriptProjectionInput,
         latestTurnID: TranscriptTurnID?,
         lastDayKey: inout String?,
+        lastPromptSeqByJournal: inout [JournalID: EntrySeq],
         turn: inout TranscriptTurnAccumulator?,
         rows: inout [TranscriptRow]
     ) {
@@ -115,8 +119,13 @@ public struct TranscriptProjector: Sendable {
         }
         if case .userMessage = context.entry.content.payload {
             flush(&turn, input: input, latestTurnID: latestTurnID, rows: &rows)
+            lastPromptSeqByJournal[context.entry.journalID] = context.entry.seq
             turn = TranscriptTurnAccumulator(
-                id: TranscriptTurnID(journalID: context.entry.journalID, promptSeq: context.entry.seq),
+                id: TranscriptTurnID(
+                    journalID: context.entry.journalID,
+                    promptSeq: context.entry.seq,
+                    segmentAnchorSeq: context.entry.seq
+                ),
                 user: context
             )
             return
@@ -124,7 +133,11 @@ public struct TranscriptProjector: Sendable {
         if turn?.id.journalID != context.entry.journalID {
             flush(&turn, input: input, latestTurnID: latestTurnID, rows: &rows)
             turn = TranscriptTurnAccumulator(
-                id: TranscriptTurnID(journalID: context.entry.journalID, promptSeq: nil)
+                id: TranscriptTurnID(
+                    journalID: context.entry.journalID,
+                    promptSeq: lastPromptSeqByJournal[context.entry.journalID],
+                    segmentAnchorSeq: context.entry.seq
+                )
             )
         }
         turn?.append(context)
@@ -197,19 +210,55 @@ public struct TranscriptProjector: Sendable {
         rows.append(contentsOf: turnRows)
     }
 
-    private static func latestTurnID(in contexts: [EntryContext]) -> TranscriptTurnID? {
-        guard let latest = contexts.last else {
-            return nil
+    private static func latestTurnID(
+        in contexts: [EntryContext],
+        holes: [EntryRange]
+    ) -> TranscriptTurnID? {
+        var entryIndex = 0
+        var lastDayKey: String?
+        var lastPromptSeqByJournal: [JournalID: EntrySeq] = [:]
+        var currentTurnID: TranscriptTurnID?
+        var latestSeenTurnID: TranscriptTurnID?
+
+        func appendIdentity(_ context: EntryContext) {
+            if let dayKey = context.dayKey, lastDayKey != dayKey {
+                currentTurnID = nil
+                lastDayKey = dayKey
+            }
+            if case .userMessage = context.entry.content.payload {
+                lastPromptSeqByJournal[context.entry.journalID] = context.entry.seq
+                currentTurnID = TranscriptTurnID(
+                    journalID: context.entry.journalID,
+                    promptSeq: context.entry.seq,
+                    segmentAnchorSeq: context.entry.seq
+                )
+            } else if currentTurnID?.journalID != context.entry.journalID {
+                currentTurnID = TranscriptTurnID(
+                    journalID: context.entry.journalID,
+                    promptSeq: lastPromptSeqByJournal[context.entry.journalID],
+                    segmentAnchorSeq: context.entry.seq
+                )
+            }
+            latestSeenTurnID = currentTurnID
         }
-        let prompt = contexts.last(where: {
-            guard $0.entry.journalID == latest.entry.journalID else { return false }
-            if case .userMessage = $0.entry.content.payload { return true }
-            return false
-        })
-        return TranscriptTurnID(
-            journalID: prompt?.entry.journalID ?? latest.entry.journalID,
-            promptSeq: prompt?.entry.seq
-        )
+
+        for hole in holes {
+            while entryIndex < contexts.count,
+                  contexts[entryIndex].entry.seq < hole.lowerBound {
+                appendIdentity(contexts[entryIndex])
+                entryIndex += 1
+            }
+            currentTurnID = nil
+            while entryIndex < contexts.count,
+                  hole.contains(contexts[entryIndex].entry.seq) {
+                entryIndex += 1
+            }
+        }
+        while entryIndex < contexts.count {
+            appendIdentity(contexts[entryIndex])
+            entryIndex += 1
+        }
+        return latestSeenTurnID
     }
 
     private static func entryRow(
@@ -274,7 +323,8 @@ public struct TranscriptProjector: Sendable {
     }
 
     private static func activitySummary(items: [TranscriptActivityItem]) -> TranscriptActivitySummary {
-        var editedFileCount = 0
+        var fileEditCount = 0
+        var toolEditCount = 0
         var readFileCount = 0
         var searchedCode = false
         var listedFiles = false
@@ -283,14 +333,14 @@ public struct TranscriptProjector: Sendable {
         for item in items {
             switch item.kind {
             case .file:
-                editedFileCount += 1
+                fileEditCount += 1
             case .tool, .command:
                 commandCount += 1
                 let tokens = Set(item.summary.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init))
                 if !tokens.isDisjoint(with: ["read", "cat", "sed", "nl", "open"]) { readFileCount += 1 }
                 if !tokens.isDisjoint(with: ["rg", "grep", "search"]) { searchedCode = true }
                 if !tokens.isDisjoint(with: ["ls", "find", "list"]) { listedFiles = true }
-                if !tokens.isDisjoint(with: ["edit", "write", "apply_patch", "patch"]) { editedFileCount += 1 }
+                if !tokens.isDisjoint(with: ["edit", "write", "apply_patch", "patch"]) { toolEditCount += 1 }
             case .assistant:
                 break
             case .thought, .question, .permission, .status, .attachment, .unknown:
@@ -298,7 +348,7 @@ public struct TranscriptProjector: Sendable {
             }
         }
         return TranscriptActivitySummary(
-            editedFileCount: editedFileCount,
+            editedFileCount: max(fileEditCount, toolEditCount),
             readFileCount: readFileCount,
             searchedCode: searchedCode,
             listedFiles: listedFiles,

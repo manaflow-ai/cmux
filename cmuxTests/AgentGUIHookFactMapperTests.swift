@@ -11,21 +11,41 @@ import Testing
 #endif
 
 @Suite struct AgentGUIHookFactMapperTests {
-    @Test func processKindRequiresStructuredLaunchMetadata() {
+    @Test func processKindUsesPreciseExecutableNamesWithoutRequiringLaunchMetadata() {
         #expect(AgentProcessObservationSource.agentKind(
-            arguments: ["codex_report.py"],
+            arguments: ["/usr/local/bin/claude"],
             environment: [:],
-            processName: "python"
-        ) == .unknown("unknown"))
+            processName: "claude"
+        ) == .claude)
         #expect(AgentProcessObservationSource.agentKind(
-            arguments: ["claude.log"],
+            arguments: ["/usr/local/bin/node", "/x/claude"],
             environment: [:],
-            processName: "cat"
-        ) == .unknown("unknown"))
-        #expect(AgentProcessObservationSource.agentKind(
-            arguments: [],
-            environment: ["CMUX_AGENT_LAUNCH_KIND": "codex"],
             processName: "node"
+        ) == .claude)
+        #expect(AgentProcessObservationSource.agentKind(
+            arguments: ["/usr/bin/grep", "claude"],
+            environment: [:],
+            processName: "grep"
+        ) == .unknown("unknown"))
+        #expect(AgentProcessObservationSource.agentKind(
+            arguments: ["/usr/local/bin/claude-notes"],
+            environment: [:],
+            processName: "claude-notes"
+        ) == .unknown("unknown"))
+        #expect(AgentProcessObservationSource.agentKind(
+            arguments: ["/usr/local/bin/my-codex-tool"],
+            environment: [:],
+            processName: "my-codex-tool"
+        ) == .unknown("unknown"))
+        #expect(AgentProcessObservationSource.agentKind(
+            arguments: ["/usr/local/bin/codex"],
+            environment: ["CMUX_AGENT_LAUNCH_KIND": "claude"],
+            processName: "codex"
+        ) == .claude)
+        #expect(AgentProcessObservationSource.agentKind(
+            arguments: ["/opt/homebrew/bin/codex"],
+            environment: [:],
+            processName: "codex"
         ) == .codex)
     }
 

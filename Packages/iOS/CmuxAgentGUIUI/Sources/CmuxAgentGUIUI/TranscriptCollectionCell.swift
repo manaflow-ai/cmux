@@ -34,8 +34,10 @@ final class TranscriptCollectionCell: UICollectionViewListCell {
         row: TranscriptRow,
         spacing: TranscriptRowSpacing,
         theme: AgentGUITheme,
+        isActivitySummaryExpanded: Bool,
         answeringAskID: String?,
         failedAskID: String?,
+        onToggleActivitySummary: @escaping () -> Void,
         onAnswer: @escaping (PendingAsk, Int) -> Void,
         onShowTerminal: @escaping () -> Void
     ) {
@@ -47,8 +49,10 @@ final class TranscriptCollectionCell: UICollectionViewListCell {
                 row: row,
                 spacing: rowSpacing,
                 theme: theme,
+                isActivitySummaryExpanded: isActivitySummaryExpanded,
                 answeringAskID: answeringAskID,
                 failedAskID: failedAskID,
+                onToggleActivitySummary: onToggleActivitySummary,
                 onAnswer: onAnswer,
                 onShowTerminal: onShowTerminal
             )

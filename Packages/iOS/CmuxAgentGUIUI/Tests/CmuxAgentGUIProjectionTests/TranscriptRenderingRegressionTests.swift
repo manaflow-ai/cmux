@@ -124,6 +124,114 @@ import UIKit
         #expect(cell.contentView.backgroundColor == UIColor.clear)
     }
 
+    @Test func reusedSummaryCellDoesNotCarryExpansionToAnotherTurn() {
+        let theme = AgentGUITheme(terminalTheme: .monokai)
+        let cell = TranscriptCollectionCell(frame: CGRect(x: 0, y: 0, width: 390, height: 200))
+        let expandedRow = Self.summaryRow(journal: "summary-a", promptSeq: 1)
+        let collapsedRow = Self.summaryRow(journal: "summary-b", promptSeq: 2)
+
+        cell.configure(
+            row: expandedRow,
+            spacing: TranscriptRowSpacing(top: 0, bottom: 0),
+            theme: theme,
+            isActivitySummaryExpanded: true,
+            answeringAskID: nil,
+            failedAskID: nil,
+            onToggleActivitySummary: {},
+            onAnswer: { _, _ in },
+            onShowTerminal: {}
+        )
+        let expandedHeight = Self.fittingHeight(of: cell)
+
+        cell.configure(
+            row: collapsedRow,
+            spacing: TranscriptRowSpacing(top: 0, bottom: 0),
+            theme: theme,
+            isActivitySummaryExpanded: false,
+            answeringAskID: nil,
+            failedAskID: nil,
+            onToggleActivitySummary: {},
+            onAnswer: { _, _ in },
+            onShowTerminal: {}
+        )
+        let collapsedHeight = Self.fittingHeight(of: cell)
+
+        #expect(cell.row?.turnID == collapsedRow.turnID)
+        #expect(collapsedHeight < expandedHeight)
+    }
+
+    @Test func projectionPrunesExpansionStateForDepartedTurns() {
+        let controller = TranscriptListViewController(theme: AgentGUITheme(terminalTheme: .monokai))
+        let departedTurn = TranscriptTurnID(
+            journalID: JournalID(rawValue: "departed"),
+            promptSeq: EntrySeq(rawValue: 1),
+            segmentAnchorSeq: EntrySeq(rawValue: 1)
+        )
+        controller.expandedActivityTurnIDs.insert(departedTurn)
+
+        controller.apply(input: TranscriptProjectionInput(entries: []))
+
+        #expect(controller.expandedActivityTurnIDs.isEmpty)
+    }
+
+    @Test func summaryToggleLeavesVisibleCellLayersAnimationFree() throws {
+        let controller = TranscriptListViewController(theme: AgentGUITheme(terminalTheme: .monokai))
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        let journal = JournalID(rawValue: "animation-free-toggle")
+        controller.apply(input: TranscriptProjectionInput(entries: [
+            EntrySnapshot(
+                journalID: journal,
+                seq: EntrySeq(rawValue: 1),
+                kind: .userMessage,
+                content: EntryContent(
+                    contentHash: 1,
+                    payload: .userMessage(UserMessagePayload(
+                        text: "Prompt",
+                        attachmentCount: 0,
+                        hasImage: false
+                    ))
+                ),
+                version: EntityVersion(rawValue: 1)
+            ),
+            EntrySnapshot(
+                journalID: journal,
+                seq: EntrySeq(rawValue: 2),
+                kind: .toolRun,
+                content: EntryContent(
+                    contentHash: 2,
+                    payload: .toolRun(ToolRunPayload(
+                        toolName: "rg",
+                        argumentSummary: "Sources",
+                        isTerminal: false,
+                        isRunning: false
+                    ))
+                ),
+                version: EntityVersion(rawValue: 2)
+            ),
+        ]))
+        controller.view.layoutIfNeeded()
+        controller.collectionView.layoutIfNeeded()
+        let summaryRow = try #require(controller.rowsByID.values.first {
+            if case .activitySummary = $0.rowKind { return true }
+            return false
+        })
+        let summaryCell = try #require(controller.collectionView.visibleCells.first {
+            ($0 as? TranscriptCollectionCell)?.row?.rowID == summaryRow.rowID
+        } as? TranscriptCollectionCell)
+
+        controller.toggleActivitySummary(row: summaryRow)
+        controller.collectionView.layoutIfNeeded()
+
+        #expect(controller.collectionView.layer.animationKeys()?.isEmpty != false)
+        #expect(summaryCell.layer.animationKeys()?.isEmpty != false)
+        #expect(summaryCell.contentView.layer.animationKeys()?.isEmpty != false)
+        #expect(controller.collectionView.visibleCells.allSatisfy {
+            ($0.layer.animationKeys() ?? []).isEmpty
+                && ($0.contentView.layer.animationKeys() ?? []).isEmpty
+        })
+    }
+
     @Test func tallFixtureAndBurstAppendImmediatelyUpdateProjection() {
         let model = TranscriptDemoModel()
 
@@ -177,6 +285,47 @@ import UIKit
         #expect(controller.collectionView.contentOffset == offset)
         #expect(controller.currentTheme == replacement)
         #expect(controller.pillHost?.rootView.theme == replacement)
+    }
+
+    private static func summaryRow(journal: String, promptSeq: Int) -> TranscriptRow {
+        let journalID = JournalID(rawValue: journal)
+        let turnID = TranscriptTurnID(
+            journalID: journalID,
+            promptSeq: EntrySeq(rawValue: promptSeq),
+            segmentAnchorSeq: EntrySeq(rawValue: promptSeq)
+        )
+        let items = (1...2).map { seq in
+            TranscriptActivityItem(
+                id: .entry(journalID: journalID, seq: EntrySeq(rawValue: seq + promptSeq)),
+                kind: .tool,
+                summary: "Activity \(seq)",
+                isRunning: false
+            )
+        }
+        return TranscriptRow(
+            rowID: .activitySummary(turnID),
+            rowKind: .activitySummary(TranscriptActivitySummary(
+                editedFileCount: 0,
+                readFileCount: 0,
+                searchedCode: false,
+                listedFiles: false,
+                commandCount: items.count,
+                eventCount: 0,
+                items: items
+            )),
+            turnID: turnID,
+            endsTurn: true
+        )
+    }
+
+    private static func fittingHeight(of cell: TranscriptCollectionCell) -> CGFloat {
+        cell.setNeedsLayout()
+        cell.layoutIfNeeded()
+        return cell.contentView.systemLayoutSizeFitting(
+            CGSize(width: cell.bounds.width, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        ).height
     }
 }
 #endif

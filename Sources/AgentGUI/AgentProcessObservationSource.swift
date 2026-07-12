@@ -86,9 +86,25 @@ final class AgentProcessObservationSource {
         )
     }
 
-    nonisolated static func agentKind(arguments _: [String], environment: [String: String], processName _: String) -> AgentKind {
+    nonisolated static func agentKind(arguments: [String], environment: [String: String], processName _: String) -> AgentKind {
         if let launchKind = normalized(environment["CMUX_AGENT_LAUNCH_KIND"]) {
             return AgentKind(rawValue: launchKind)
+        }
+        guard let executable = arguments.first else {
+            return .unknown("unknown")
+        }
+        let executableName = URL(fileURLWithPath: executable).lastPathComponent.lowercased()
+        var candidateNames = [executableName]
+        let runtimeLaunchers = Set(["node", "bun", "deno", "python", "python3", "sh", "bash", "zsh"])
+        if runtimeLaunchers.contains(executableName),
+           let launchedPath = arguments.dropFirst().first(where: { !$0.hasPrefix("-") }) {
+            candidateNames.append(URL(fileURLWithPath: launchedPath).lastPathComponent.lowercased())
+        }
+        if candidateNames.contains("claude") {
+            return .claude
+        }
+        if candidateNames.contains("codex") {
+            return .codex
         }
         return .unknown("unknown")
     }

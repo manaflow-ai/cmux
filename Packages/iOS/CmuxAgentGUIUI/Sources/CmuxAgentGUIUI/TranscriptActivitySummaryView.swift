@@ -3,22 +3,15 @@ import CmuxAgentGUIProjection
 import SwiftUI
 
 struct TranscriptActivitySummaryView: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isExpanded = false
-
+    let isExpanded: Bool
     let summary: TranscriptActivitySummary
     let theme: AgentGUITheme
+    let onToggleExpanded: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             Button {
-                if reduceMotion {
-                    isExpanded.toggle()
-                } else {
-                    withAnimation(.easeOut(duration: 0.16)) {
-                        isExpanded.toggle()
-                    }
-                }
+                onToggleExpanded()
             } label: {
                 HStack(spacing: 7) {
                     Image(systemName: "chevron.right")
@@ -51,7 +44,6 @@ struct TranscriptActivitySummaryView: View {
                         TranscriptActivityItemView(item: item, theme: theme)
                     }
                 }
-                .transition(reduceMotion ? .identity : .opacity)
             }
         }
     }

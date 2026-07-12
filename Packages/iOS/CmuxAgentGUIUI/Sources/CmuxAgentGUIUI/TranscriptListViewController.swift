@@ -33,6 +33,7 @@ public import UIKit
     private var bottomMaskView: TranscriptPinnedBottomMaskView?
     var answeringAskID: String?
     var failedAskID: String?
+    var expandedActivityTurnIDs = Set<TranscriptTurnID>()
     var onAnswer: (PendingAsk, Int) -> Void = { _, _ in }
     var onShowTerminal: () -> Void = {}
 
@@ -229,8 +230,10 @@ public import UIKit
                 row: row,
                 spacing: spacing,
                 theme: currentTheme,
+                isActivitySummaryExpanded: row.turnID.map(expandedActivityTurnIDs.contains) ?? false,
                 answeringAskID: answeringAskID,
                 failedAskID: failedAskID,
+                onToggleActivitySummary: { [weak self] in self?.toggleActivitySummary(row: row) },
                 onAnswer: onAnswer,
                 onShowTerminal: onShowTerminal
             )
@@ -248,6 +251,7 @@ public import UIKit
         _ rows: [TranscriptRow],
         diff: TranscriptProjectionDiff
     ) {
+        pruneExpandedActivityTurns(retaining: rows)
         cancelActiveScrollTransition()
         let policy = TranscriptMutationApplyPolicy(
             scrollIsInteracting: isScrollInteractionActive,
