@@ -98,6 +98,28 @@ extension CLINotifyProcessIntegrationRegressionTests {
             },
             "The relay TTY binding must win over a conflicting pid_binding: \(state.snapshot())"
         )
+
+        let surfaceOnlyStart = state.snapshot().count
+        var surfaceOnlyEnvironment = environment
+        surfaceOnlyEnvironment["CMUX_WORKSPACE_ID"] = staleWorkspaceID
+        surfaceOnlyEnvironment["CMUX_SURFACE_ID"] = staleSurfaceID
+        let surfaceOnlyResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "prompt-submit", "--surface", surfaceID],
+            environment: surfaceOnlyEnvironment,
+            standardInput: #"{"session_id":"relay-surface-only","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            timeout: 10
+        )
+        XCTAssertFalse(surfaceOnlyResult.timedOut, surfaceOnlyResult.stderr)
+        XCTAssertEqual(surfaceOnlyResult.status, 0, surfaceOnlyResult.stderr)
+        let surfaceOnlyCommands = Array(state.snapshot().dropFirst(surfaceOnlyStart))
+        XCTAssertTrue(surfaceOnlyCommands.contains { $0.contains(#""method":"system.resolve_terminal""#) })
+        XCTAssertTrue(surfaceOnlyCommands.contains {
+            $0.hasPrefix("set_status ") && $0.contains("--tab=\(workspaceID)") && $0.contains("--panel=\(surfaceID)")
+        })
+        XCTAssertFalse(surfaceOnlyCommands.contains {
+            $0.hasPrefix("set_status ") && $0.contains("--tab=\(staleWorkspaceID)")
+        })
     }
 
     func testClaudeRelayHookWithoutTTYBindingFailsClosed() throws {
@@ -225,10 +247,26 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testClaudeSurfaceOnlyHookUsesLiveWorkspaceInsteadOfMappedWorkspace() throws {
+        let outcome = try runClaudeTargetedResolverScenario(response: .bindingSuccess)
+        XCTAssertFalse(outcome.result.timedOut, outcome.result.stderr)
+        XCTAssertEqual(outcome.result.status, 0, outcome.result.stderr)
+        XCTAssertTrue(outcome.commands.contains { $0.contains(#""method":"system.resolve_terminal""#) })
+        XCTAssertTrue(outcome.commands.contains {
+            $0.hasPrefix("set_status ")
+                && $0.contains("--tab=\(outcome.workspaceId)")
+                && $0.contains("--panel=\(outcome.surfaceId)")
+        }, "Surface-only routing must derive its workspace from live ownership: \(outcome.commands)")
+        XCTAssertFalse(outcome.commands.contains {
+            $0.hasPrefix("set_status ") && $0.contains("33333333-3333-3333-3333-333333333333")
+        })
+    }
+
     private enum TargetedResolverResponse: Sendable {
         case failure
         case emptySuccess
         case malformedSuccess
+        case bindingSuccess
     }
 
     private func runClaudeTargetedResolverScenario(
@@ -247,6 +285,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .appendingPathComponent("cmux-claude-targeted-resolver-\(UUID().uuidString)", isDirectory: true)
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let staleWorkspaceId = "33333333-3333-3333-3333-333333333333"
+        let staleSurfaceId = "44444444-4444-4444-4444-444444444444"
         let sessionId = "targeted-resolver-session"
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
@@ -256,6 +296,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
 
         let stateURL = root.appendingPathComponent("claude-hook-sessions.json")
+        if case .bindingSuccess = response {
+            let now = Date().timeIntervalSince1970
+            try JSONSerialization.data(withJSONObject: [
+                "version": 1,
+                "sessions": [sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": staleWorkspaceId,
+                    "surfaceId": staleSurfaceId,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ]],
+            ]).write(to: stateURL, options: .atomic)
+        }
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state, connectionCount: 2) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
@@ -286,9 +339,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
                             "pid_binding": NSNull(),
                         ]
                     )
+                case .bindingSuccess:
+                    return self.terminalResolverResponse(id: id, workspaceId: workspaceId, surfaceId: surfaceId)
                 }
             case "surface.list":
-                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                let requestedWorkspace = (payload["params"] as? [String: Any])?["workspace_id"] as? String
+                return self.surfaceListResponse(
+                    id: id,
+                    surfaceId: requestedWorkspace == staleWorkspaceId ? staleSurfaceId : surfaceId
+                )
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
             default:
@@ -300,21 +359,28 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
         }
 
+        var arguments = ["hooks", "claude", "notification"]
+        var environment = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_CLI_TTY_NAME": "remote-or-stale-tty",
+            "CMUX_CLAUDE_PID": "42424",
+            "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+        ]
+        if case .bindingSuccess = response {
+            arguments += ["--surface", surfaceId]
+            environment["CMUX_WORKSPACE_ID"] = staleWorkspaceId
+            environment["CMUX_SURFACE_ID"] = staleSurfaceId
+        }
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["hooks", "claude", "notification"],
-            environment: [
-                "HOME": root.path,
-                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                "CMUX_SOCKET_PATH": socketPath,
-                "CMUX_WORKSPACE_ID": workspaceId,
-                "CMUX_SURFACE_ID": surfaceId,
-                "CMUX_CLI_TTY_NAME": "remote-or-stale-tty",
-                "CMUX_CLAUDE_PID": "42424",
-                "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
-                "CMUX_CLI_SENTRY_DISABLED": "1",
-                "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
-            ],
+            arguments: arguments,
+            environment: environment,
             standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"Notification","message":"Claude needs your input"}"#,
             timeout: 5
         )
