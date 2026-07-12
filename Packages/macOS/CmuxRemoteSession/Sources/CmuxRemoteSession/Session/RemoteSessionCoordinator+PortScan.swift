@@ -1,13 +1,9 @@
+internal import CmuxCore
 public import Foundation
 
 // Remote listening-port discovery: TTY-scoped scan bursts kicked by shell
-// activity, with host-wide/delta polling fallbacks for shells without our
-// command hooks. Faithful lift; the coalesce/burst `asyncAfter` chains became
-// injected-clock tasks with token/generation guards. The 0.2s coalesce delay
-// and the per-reason burst offsets are identical, and burst wakeups keep the
-// legacy absolute cadence (each sleep covers the delta between offsets and
-// the scan itself runs on the serial queue without delaying later wakeups,
-// exactly like the legacy absolute-deadline `asyncAfter`).
+// activity, with polling fallbacks for shells without command hooks. Injected-
+// clock tasks preserve the legacy coalesce and absolute burst cadence.
 extension RemoteSessionCoordinator {
     static let remotePortScanCoalesceDelayMilliseconds = 200
 
@@ -27,12 +23,8 @@ extension RemoteSessionCoordinator {
         }
     }
 
-    /// Enables or disables remote listening-port discovery on the coordinator
-    /// queue. The app derives the flag from the sidebar ports-visibility
-    /// settings (`sidebar.showPorts` and `sidebar.hideAllDetails`): disabling
-    /// tears down any active poll timer and in-flight scan burst and stops
-    /// every ssh-spawning scan; enabling resumes polling when the daemon is
-    /// ready and re-arms a TTY-scoped refresh so ports repopulate promptly.
+    /// Enables or disables remote listening-port discovery on the coordinator queue.
+    /// Disabling stops ssh scans; enabling resumes polling and TTY refreshes.
     public func updateRemotePortScanningEnabled(_ enabled: Bool) {
         queue.async { [weak self] in
             self?.updateRemotePortScanningEnabledLocked(enabled)
@@ -63,12 +55,8 @@ extension RemoteSessionCoordinator {
         }
     }
 
-    /// Tears down every ssh-spawning port-scan activity and clears detected
-    /// ports. Mirrors the scan teardown on the proxy-error path so a disabled
-    /// scanner leaves no poll timer, burst, or stale ports behind, and resets
-    /// the hidden poll/bootstrap bookkeeping (delta baseline, retry budget) so
-    /// re-enabling resumes like a fresh scanner start rather than against
-    /// pre-disable state.
+    /// Tears down every ssh-spawning scan, clears ports, and resets poll and
+    /// bootstrap bookkeeping so re-enabling starts from a clean state.
     private func suspendRemotePortScanningLocked() {
         remotePortScanGeneration &+= 1
         remotePortScanBurstTask?.cancel()
@@ -79,7 +67,7 @@ extension RemoteSessionCoordinator {
         cancelRemotePortScanCoalesceLocked()
         cancelBootstrapRemoteTTYRetryLocked()
         bootstrapRemoteTTYRetryCount = 0
-        remoteScannedPortsByPanel.removeAll()
+        remotePortScanSnapshot.reset()
         stopRemotePortPollingLocked()
         polledRemotePorts = []
         remotePortPollBaselinePorts = nil
@@ -103,13 +91,15 @@ extension RemoteSessionCoordinator {
             !previousTTYNames.isEmpty
             ? keepPolledRemotePortsUntilTTYScan
             : shouldUseFallbackRemotePortPollingLocked() && !polledRemotePorts.isEmpty && !nextTTYNames.isEmpty
-        remoteScannedPortsByPanel = remoteScannedPortsByPanel.filter { panelId, _ in
-            guard let oldTTY = previousTTYNames[panelId],
-                  let newTTY = nextTTYNames[panelId] else {
-                return false
-            }
-            return oldTTY == newTTY
-        }
+        let unchangedPanelIds = Set(nextTTYNames.compactMap { panelId, newTTY in
+            previousTTYNames[panelId] == newTTY ? panelId : nil
+        })
+        remotePortScanSnapshot.reconcile(
+            scannedPorts: [:],
+            scannedKeys: unchangedPanelIds,
+            trackedKeys: unchangedPanelIds,
+            completeness: .incomplete
+        )
         remotePortScanTTYNames = nextTTYNames
         if nextTTYNames.isEmpty {
             keepPolledRemotePortsUntilTTYScan = false
@@ -214,14 +204,20 @@ extension RemoteSessionCoordinator {
         guard remotePortScanningEnabled else { return }
         let ttyNamesByPanel = remotePortScanTTYNames
         guard !ttyNamesByPanel.isEmpty else {
-            remoteScannedPortsByPanel.removeAll()
+            remotePortScanSnapshot.reset()
             keepPolledRemotePortsUntilTTYScan = false
             publishPortsSnapshotLocked()
             return
         }
 
         do {
-            remoteScannedPortsByPanel = try scanRemotePortsByPanelLocked(ttyNamesByPanel: ttyNamesByPanel)
+            let scannedPorts = try scanRemotePortsByPanelLocked(ttyNamesByPanel: ttyNamesByPanel)
+            remotePortScanSnapshot.reconcile(
+                scannedPorts: scannedPorts,
+                scannedKeys: Set(ttyNamesByPanel.keys),
+                trackedKeys: Set(ttyNamesByPanel.keys),
+                completeness: .complete
+            )
             keepPolledRemotePortsUntilTTYScan = false
             polledRemotePorts = []
             publishPortsSnapshotLocked()

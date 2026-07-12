@@ -1,3 +1,4 @@
+import CmuxCore
 import CmuxFoundation
 import Foundation
 
@@ -36,6 +37,9 @@ final class PortScanner: @unchecked Sendable {
     /// Workspaces with active agent PID tracking that need background rescans.
     private var trackedAgentWorkspaces: Set<UUID> = []
     private var lastAgentPortsByWorkspace: [UUID: [Int]] = [:]
+    /// Stable publication state shared by every best-effort local scan path.
+    private var panelPortSnapshot = PortScanSnapshotReconciler<PanelKey>()
+    private var agentPortSnapshot = PortScanSnapshotReconciler<UUID>()
     private var forceAgentResultWorkspaces: Set<UUID> = []
     private var trackedAgentScanningPaused = false
 
@@ -68,6 +72,7 @@ final class PortScanner: @unchecked Sendable {
         queue.async { [self] in
             let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
             guard ttyNames[key] != ttyName else { return }
+            panelPortSnapshot.remove(keys: [key])
             ttyNames[key] = ttyName
         }
     }
@@ -77,6 +82,7 @@ final class PortScanner: @unchecked Sendable {
             let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
             ttyNames.removeValue(forKey: key)
             pendingKicks.remove(key)
+            panelPortSnapshot.remove(keys: [key])
         }
     }
 
@@ -206,24 +212,32 @@ final class PortScanner: @unchecked Sendable {
         let ttyList = uniqueTTYs.joined(separator: ",")
 
         // 1. ps -t tty1,tty2,... -o pid=,tty=
-        let pidToTTY = ttyList.isEmpty ? [:] : runPS(ttyList: ttyList)
-        let agentPidToWorkspaces = expandAgentProcessTree(agentPIDsByWorkspace: agentPIDsByWorkspace)
+        let psScan = ttyList.isEmpty
+            ? (values: [Int: String](), completeness: PortScanCompleteness.complete)
+            : runPS(ttyList: ttyList)
+        let agentProcessScan = expandAgentProcessTree(agentPIDsByWorkspace: agentPIDsByWorkspace)
+        let pidToTTY = psScan.values
+        let agentPidToWorkspaces = agentProcessScan.values
 
         let allPids = Set(pidToTTY.keys).union(agentPidToWorkspaces.keys)
         guard !allPids.isEmpty else {
             let panelResults = panelSnapshot.map { ($0.key, [Int]()) }
             deliverResults(
                 panelResults,
+                panelTTYs: panelSnapshot,
                 workspaceIds: workspaceIds,
                 agentPortsByWorkspace: [:],
-                agentRevisions: agentRevisions
+                agentRevisions: agentRevisions,
+                panelCompleteness: psScan.completeness,
+                agentCompleteness: agentProcessScan.completeness
             )
             return
         }
 
         // 2. lsof -nP -a -p <all_pids> -iTCP -sTCP:LISTEN -F pn
         let pidsCsv = allPids.sorted().map(String.init).joined(separator: ",")
-        let pidToPorts = runLsof(pidsCsv: pidsCsv)
+        let lsofScan = runLsof(pidsCsv: pidsCsv)
+        let pidToPorts = lsofScan.values
 
         // 3. Join: PID→TTY + PID→ports → TTY→ports
         var portsByTTY: [String: Set<Int>] = [:]
@@ -249,9 +263,12 @@ final class PortScanner: @unchecked Sendable {
 
         deliverResults(
             results,
+            panelTTYs: panelSnapshot,
             workspaceIds: workspaceIds,
             agentPortsByWorkspace: agentPortsByWorkspace,
-            agentRevisions: agentRevisions
+            agentRevisions: agentRevisions,
+            panelCompleteness: Self.combinedCompleteness(psScan.completeness, lsofScan.completeness),
+            agentCompleteness: Self.combinedCompleteness(agentProcessScan.completeness, lsofScan.completeness)
         )
     }
 
@@ -260,6 +277,7 @@ final class PortScanner: @unchecked Sendable {
         let normalizedPIDs = Set(agentPIDs.filter { $0 > 0 })
         if normalizedPIDs.isEmpty {
             trackedAgentWorkspaces.remove(workspaceId)
+            agentPortSnapshot.remove(keys: [workspaceId])
         } else {
             trackedAgentWorkspaces.insert(workspaceId)
         }
@@ -303,11 +321,13 @@ final class PortScanner: @unchecked Sendable {
         let agentRevisions = agentRevisionSnapshot(for: workspaceIds)
         guard let agentPIDsProvider else {
             trackedAgentWorkspaces.removeAll()
+            agentPortSnapshot.reset()
             updateAgentScanTimerLocked()
             deliverAgentResults(
                 workspaceIds: workspaceIds,
                 agentPortsByWorkspace: [:],
-                agentRevisions: agentRevisions
+                agentRevisions: agentRevisions,
+                completeness: .complete
             )
             return
         }
@@ -340,6 +360,7 @@ final class PortScanner: @unchecked Sendable {
         let inactiveWorkspaceIds = workspaceIds.subtracting(normalizedPIDsByWorkspace.keys)
         if !inactiveWorkspaceIds.isEmpty {
             trackedAgentWorkspaces.subtract(inactiveWorkspaceIds)
+            agentPortSnapshot.remove(keys: inactiveWorkspaceIds)
             forceAgentResultWorkspaces.formUnion(inactiveWorkspaceIds)
             updateAgentScanTimerLocked()
         }
@@ -358,18 +379,21 @@ final class PortScanner: @unchecked Sendable {
     ) {
         guard !workspaceIds.isEmpty else { return }
 
-        let agentPidToWorkspaces = expandAgentProcessTree(agentPIDsByWorkspace: agentPIDsByWorkspace)
+        let agentProcessScan = expandAgentProcessTree(agentPIDsByWorkspace: agentPIDsByWorkspace)
+        let agentPidToWorkspaces = agentProcessScan.values
         guard !agentPidToWorkspaces.isEmpty else {
             deliverAgentResults(
                 workspaceIds: workspaceIds,
                 agentPortsByWorkspace: [:],
-                agentRevisions: agentRevisions
+                agentRevisions: agentRevisions,
+                completeness: agentProcessScan.completeness
             )
             return
         }
 
         let pidsCsv = agentPidToWorkspaces.keys.sorted().map(String.init).joined(separator: ",")
-        let pidToPorts = runLsof(pidsCsv: pidsCsv)
+        let lsofScan = runLsof(pidsCsv: pidsCsv)
+        let pidToPorts = lsofScan.values
         var agentPortsByWorkspace: [UUID: Set<Int>] = [:]
         for (pid, ports) in pidToPorts {
             guard let workspaceIdsForPid = agentPidToWorkspaces[pid] else { continue }
@@ -381,35 +405,51 @@ final class PortScanner: @unchecked Sendable {
         deliverAgentResults(
             workspaceIds: workspaceIds,
             agentPortsByWorkspace: agentPortsByWorkspace,
-            agentRevisions: agentRevisions
+            agentRevisions: agentRevisions,
+            completeness: Self.combinedCompleteness(agentProcessScan.completeness, lsofScan.completeness)
         )
     }
 
     private func deliverResults(
         _ panelResults: [(PanelKey, [Int])],
+        panelTTYs: [PanelKey: String],
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
-        agentRevisions: [UUID: UInt64]
+        agentRevisions: [UUID: UInt64],
+        panelCompleteness: PortScanCompleteness,
+        agentCompleteness: PortScanCompleteness
     ) {
+        let scannedPorts = Dictionary(uniqueKeysWithValues: panelResults.filter { key, _ in
+            ttyNames[key] == panelTTYs[key]
+        })
+        let trackedKeys = Set(ttyNames.keys)
+        let stableSnapshot = panelPortSnapshot.reconcile(
+            scannedPorts: scannedPorts,
+            scannedKeys: Set(scannedPorts.keys),
+            trackedKeys: trackedKeys,
+            completeness: panelCompleteness
+        )
         let panelCallback = onPortsUpdated
         if let panelCallback {
             Task { @MainActor in
-                for (key, ports) in panelResults {
-                    panelCallback(key.workspaceId, key.panelId, ports)
+                for key in trackedKeys {
+                    panelCallback(key.workspaceId, key.panelId, stableSnapshot[key] ?? [])
                 }
             }
         }
         deliverAgentResults(
             workspaceIds: workspaceIds,
             agentPortsByWorkspace: agentPortsByWorkspace,
-            agentRevisions: agentRevisions
+            agentRevisions: agentRevisions,
+            completeness: agentCompleteness
         )
     }
 
     private func deliverAgentResults(
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
-        agentRevisions: [UUID: UInt64]
+        agentRevisions: [UUID: UInt64],
+        completeness: PortScanCompleteness
     ) {
         guard let agentCallback = onAgentPortsUpdated else { return }
         Task { [weak self] in
@@ -417,7 +457,8 @@ final class PortScanner: @unchecked Sendable {
             let validatedResults = await self.validatedAgentResults(
                 workspaceIds: workspaceIds,
                 agentPortsByWorkspace: agentPortsByWorkspace,
-                agentRevisions: agentRevisions
+                agentRevisions: agentRevisions,
+                completeness: completeness
             )
             guard !validatedResults.isEmpty else { return }
             let appliedResults = await MainActor.run {
@@ -463,15 +504,28 @@ final class PortScanner: @unchecked Sendable {
     private func validatedAgentResults(
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
-        agentRevisions: [UUID: UInt64]
+        agentRevisions: [UUID: UInt64],
+        completeness: PortScanCompleteness
     ) async -> [(workspaceId: UUID, ports: [Int], revision: UInt64)] {
         await withCheckedContinuation { continuation in
             queue.async { [self] in
                 var results: [(workspaceId: UUID, ports: [Int], revision: UInt64)] = []
+                let validWorkspaceIds = Set(workspaceIds.filter { workspaceId in
+                    agentRevisionByWorkspace[workspaceId, default: 0] == agentRevisions[workspaceId, default: 0]
+                })
+                let scannedPorts = agentPortsByWorkspace
+                    .filter { validWorkspaceIds.contains($0.key) }
+                    .mapValues { Array($0) }
+                let stableSnapshot = agentPortSnapshot.reconcile(
+                    scannedPorts: scannedPorts,
+                    scannedKeys: validWorkspaceIds,
+                    trackedKeys: trackedAgentWorkspaces,
+                    completeness: completeness
+                )
                 for workspaceId in workspaceIds.sorted(by: { $0.uuidString < $1.uuidString }) {
                     let expectedRevision = agentRevisions[workspaceId, default: 0]
-                    guard agentRevisionByWorkspace[workspaceId, default: 0] == expectedRevision else { continue }
-                    let ports = Array(agentPortsByWorkspace[workspaceId] ?? []).sorted()
+                    guard validWorkspaceIds.contains(workspaceId) else { continue }
+                    let ports = stableSnapshot[workspaceId] ?? []
                     let previousPorts = lastAgentPortsByWorkspace[workspaceId]
                     if !forceAgentResultWorkspaces.contains(workspaceId) {
                         guard previousPorts != ports else { continue }
@@ -494,170 +548,5 @@ final class PortScanner: @unchecked Sendable {
         let nextRevision = agentRevisionByWorkspace[workspaceId, default: 0] &+ 1
         agentRevisionByWorkspace[workspaceId] = nextRevision
         return nextRevision
-    }
-
-    // MARK: - Process helpers
-
-    static func captureStandardOutput(
-        executablePath: String,
-        arguments: [String]
-    ) -> String? {
-        autoreleasepool {
-            let process = Process()
-            let stdoutPipe = Pipe()
-            let stdoutReadHandle = stdoutPipe.fileHandleForReading
-            let stdoutWriteHandle = stdoutPipe.fileHandleForWriting
-
-            process.executableURL = URL(fileURLWithPath: executablePath)
-            process.arguments = arguments
-            process.standardInput = FileHandle.nullDevice
-            process.standardOutput = stdoutPipe
-            process.standardError = FileHandle.nullDevice
-
-            defer {
-                try? stdoutReadHandle.close()
-                try? stdoutWriteHandle.close()
-            }
-
-            do {
-                try process.run()
-            } catch {
-                return nil
-            }
-
-            // Close the parent's write end before reading. This is required:
-            // The pipe reader blocks until EOF, which only occurs when every
-            // write-fd holder (parent + child) has closed its copy. Keeping the
-            // parent's copy open would deadlock the read. The defer below is a
-            // safety net for the error path (process.run() throws), not a
-            // substitute for this explicit close.
-            try? stdoutWriteHandle.close()
-            let data = stdoutReadHandle.readDataToEndOfFileOrEmpty()
-            process.waitUntilExit()
-
-            guard let output = String(data: data, encoding: .utf8) else {
-                return nil
-            }
-            return output
-        }
-    }
-
-    private func expandAgentProcessTree(agentPIDsByWorkspace: [UUID: Set<Int>]) -> [Int: Set<UUID>] {
-        let normalizedRoots = agentPIDsByWorkspace.reduce(into: [UUID: Set<Int>]()) { partial, item in
-            let valid = Set(item.value.filter { $0 > 0 })
-            guard !valid.isEmpty else { return }
-            partial[item.key] = valid
-        }
-        guard !normalizedRoots.isEmpty else { return [:] }
-
-        var pidToWorkspaces: [Int: Set<UUID>] = [:]
-        var queue: [(pid: Int, workspaceId: UUID)] = []
-        for (workspaceId, roots) in normalizedRoots {
-            for pid in roots {
-                if pidToWorkspaces[pid, default: []].insert(workspaceId).inserted {
-                    queue.append((pid, workspaceId))
-                }
-            }
-        }
-
-        let parentByPid = runAllProcesses()
-        guard !parentByPid.isEmpty else { return pidToWorkspaces }
-
-        var childrenByParent: [Int: [Int]] = [:]
-        for (pid, parentPid) in parentByPid {
-            childrenByParent[parentPid, default: []].append(pid)
-        }
-
-        var index = 0
-        while index < queue.count {
-            let (pid, workspaceId) = queue[index]
-            index += 1
-
-            for childPid in childrenByParent[pid] ?? [] {
-                if pidToWorkspaces[childPid, default: []].insert(workspaceId).inserted {
-                    queue.append((childPid, workspaceId))
-                }
-            }
-        }
-
-        return pidToWorkspaces
-    }
-
-    private func runPS(ttyList: String) -> [Int: String] {
-        // `ps -t tty1,tty2,... -o pid=,tty=` — targeted scan, much cheaper than -ax.
-        guard let output = Self.captureStandardOutput(
-            executablePath: "/bin/ps",
-            arguments: ["-t", ttyList, "-o", "pid=,tty="]
-        ) else {
-            return [:]
-        }
-
-        var mapping: [Int: String] = [:]
-        for line in output.split(separator: "\n") {
-            let parts = line.split(whereSeparator: \.isWhitespace)
-            guard parts.count >= 2,
-                  let pid = Int(parts[0]) else { continue }
-            mapping[pid] = String(parts[1])
-        }
-        return mapping
-    }
-
-    private func runAllProcesses() -> [Int: Int] {
-        guard let output = Self.captureStandardOutput(
-            executablePath: "/bin/ps",
-            arguments: ["-ax", "-o", "pid=,ppid="]
-        ) else {
-            return [:]
-        }
-
-        var mapping: [Int: Int] = [:]
-        for line in output.split(separator: "\n") {
-            let parts = line.split(whereSeparator: \.isWhitespace)
-            guard parts.count >= 2,
-                  let pid = Int(parts[0]),
-                  let parentPid = Int(parts[1]) else { continue }
-            mapping[pid] = parentPid
-        }
-        return mapping
-    }
-
-    private func runLsof(pidsCsv: String) -> [Int: Set<Int>] {
-        // `lsof -nP -a -p <pids> -iTCP -sTCP:LISTEN -F pn`
-        guard let output = Self.captureStandardOutput(
-            executablePath: "/usr/sbin/lsof",
-            arguments: ["-nP", "-a", "-p", pidsCsv, "-iTCP", "-sTCP:LISTEN", "-Fpn"]
-        ) else {
-            return [:]
-        }
-
-        // Parse lsof -F output: lines starting with 'p' = PID, 'n' = name (host:port).
-        var result: [Int: Set<Int>] = [:]
-        var currentPid: Int?
-        for line in output.split(separator: "\n") {
-            guard let first = line.first else { continue }
-            switch first {
-            case "p":
-                currentPid = Int(line.dropFirst())
-            case "n":
-                guard let pid = currentPid else { continue }
-                var name = String(line.dropFirst())
-                // Strip remote endpoint if present.
-                if let arrowIdx = name.range(of: "->") {
-                    name = String(name[..<arrowIdx.lowerBound])
-                }
-                // Port is after the last colon.
-                if let colonIdx = name.lastIndex(of: ":") {
-                    let portStr = name[name.index(after: colonIdx)...]
-                    // Strip anything non-numeric.
-                    let cleaned = portStr.prefix(while: \.isNumber)
-                    if let port = Int(cleaned), port > 0, port <= 65535 {
-                        result[pid, default: []].insert(port)
-                    }
-                }
-            default:
-                break
-            }
-        }
-        return result
     }
 }

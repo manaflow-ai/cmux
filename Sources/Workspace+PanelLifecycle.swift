@@ -292,10 +292,10 @@ extension Workspace {
     }
 
     func refreshTrackedAgentPorts() {
-        agentListeningPorts.removeAll(keepingCapacity: false)
+        // Preserve the published snapshot until PortScanner reconciles the new
+        // process tree; eagerly clearing here made every PID refresh flicker.
         let remainingAgentPIDs = Set(agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
         PortScanner.shared.refreshAgentPorts(workspaceId: id, agentPIDs: remainingAgentPIDs)
-        recomputeListeningPorts()
     }
 
     @discardableResult
