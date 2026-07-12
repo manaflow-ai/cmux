@@ -76,6 +76,14 @@ https://github.com/manaflow-ai/ghostty/pull/106.
    and frees them after formatting, so full `read-screen` and clipboard reads
    no longer make cold history resident. Temporary decode allocation failures
    propagate as `OutOfMemory` through Zig and C formatter APIs.
+9. `ghostty_surface_read_screen_tail_vt` lets cmux preserve terminal history
+   while replacing a completed remote-command surface. Ghostty derives the
+   newest physical-row suffix from `PageList` pins and formats VT into a fixed
+   byte buffer, halving the suffix on overflow so output is never cut inside a
+   control sequence or UTF-8 codepoint. The formatter preserves SGR conceal,
+   wide/grapheme cells, and compressed-page ownership. Upstream conflicts should
+   keep this beside the existing embedded read-text APIs and retain
+   `PageListFormatter.pagePreservingState` rather than restoring cold pages.
 
 Verified with Zig 0.15.2: compression, formatter, selection activity, and
 libghostty-vt compression tests,

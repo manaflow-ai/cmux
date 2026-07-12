@@ -1,48 +1,15 @@
-import CMUXMobileCore
 import CmuxTerminal
 import Foundation
 
 extension Workspace {
-    /// Captures only Ghostty's bounded history tail plus the current viewport.
+    /// Captures a byte-bounded VT reconstruction of Ghostty's actual history tail.
     @MainActor
     static func boundedRemoteDisconnectScrollback(
         terminalPanel: TerminalPanel,
-        lineLimit: Int
+        lineLimit: Int,
+        byteLimit: Int
     ) -> String? {
-        guard lineLimit > 0,
-              let frame = terminalPanel.surface.mobileRenderGridFrame(
-                  stateSeq: 0,
-                  scrollbackLines: lineLimit
-              )?.frame else {
-            return nil
-        }
-        return remoteDisconnectScrollbackText(from: frame)
-    }
-
-    static func remoteDisconnectScrollbackText(from frame: MobileTerminalRenderGridFrame) -> String? {
-        var lines = remoteDisconnectRows(count: frame.scrollbackRows, spans: frame.scrollbackSpans)
-        lines.append(contentsOf: frame.plainRows())
-        while lines.last?.allSatisfy(\.isWhitespace) == true { lines.removeLast() }
-        guard !lines.isEmpty else { return nil }
-        return lines.joined(separator: "\n") + "\n"
-    }
-
-    private static func remoteDisconnectRows(
-        count: Int,
-        spans: [MobileTerminalRenderGridFrame.RowSpan]
-    ) -> [String] {
-        var lines = Array(repeating: "", count: count)
-        for span in spans.sorted(by: {
-            $0.row == $1.row ? $0.column < $1.column : $0.row < $1.row
-        }) where lines.indices.contains(span.row) {
-            if lines[span.row].count < span.column {
-                lines[span.row].append(String(repeating: " ", count: span.column - lines[span.row].count))
-            }
-            lines[span.row].append(span.text)
-            let padding = max(0, (span.cellWidth ?? span.text.count) - span.text.count)
-            if padding > 0 { lines[span.row].append(String(repeating: " ", count: padding)) }
-        }
-        return lines
+        terminalPanel.surface.boundedScreenTailVT(maxRows: lineLimit, maxBytes: byteLimit)
     }
 
     /// Writes a small shell wrapper that keeps a disconnected remote terminal visible.
@@ -93,8 +60,8 @@ extension Workspace {
         fi
         # Append newline + color codes ourselves rather than trusting the translator to
         # preserve them in every locale.
-        printf '\\033[1;33m'
-        printf "$cmux_disconnect_ended_format" "$cmux_disconnect_target"
+        printf '\\033[1;33m' >&2
+        printf "$cmux_disconnect_ended_format" "$cmux_disconnect_target" >&2
         printf '\\033[0m\\n' >&2
         # Remove ourselves so /tmp doesn't accumulate these wrappers across sessions.
         /bin/rm -f -- "$0" 2>/dev/null || true

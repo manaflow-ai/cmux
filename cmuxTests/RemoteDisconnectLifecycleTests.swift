@@ -1,4 +1,3 @@
-import CMUXMobileCore
 import Foundation
 import Testing
 
@@ -69,23 +68,6 @@ struct RemoteDisconnectLifecycleTests {
         defer { Self.removeTransitionArtifacts(workspace: workspace, panelIds: [panel.id]) }
         #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
         #expect(!workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(panel.id))
-    }
-
-    @Test func boundedFrameTextKeepsScrollbackBeforeViewport() throws {
-        let frame = try MobileTerminalRenderGridFrame(
-            surfaceID: UUID().uuidString,
-            stateSeq: 0,
-            columns: 20,
-            rows: 2,
-            rowSpans: [.init(row: 0, column: 0, text: "current")],
-            scrollbackRows: 2,
-            scrollbackSpans: [
-                .init(row: 0, column: 0, text: "older"),
-                .init(row: 1, column: 0, text: "newer"),
-            ]
-        )
-
-        #expect(Workspace.remoteDisconnectScrollbackText(from: frame) == "older\nnewer\ncurrent\n")
     }
 
     private static func remoteConfiguration() -> WorkspaceRemoteConfiguration {

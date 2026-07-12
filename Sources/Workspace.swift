@@ -6315,14 +6315,14 @@ final class Workspace: Identifiable, ObservableObject {
         }
         let capturedScrollback = Self.boundedRemoteDisconnectScrollback(
             terminalPanel: panel,
-            lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal
+            lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal,
+            byteLimit: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
         )
-        let rawScrollback = if capturedScrollback?.contains(where: { !$0.isWhitespace }) == true {
+        let scrollback = if capturedScrollback?.contains(where: { !$0.isWhitespace }) == true {
             capturedScrollback
         } else {
-            restoredTerminalScrollbackByPanelId[surfaceId]
+            SessionPersistencePolicy.truncatedScrollback(restoredTerminalScrollbackByPanelId[surfaceId])
         }
-        let scrollback = SessionPersistencePolicy.truncatedScrollback(rawScrollback)
         guard let placeholderCommand = Self.remoteDisconnectPlaceholderScript(
             target: pendingRemoteDisconnectReplacement.target,
             reconnectCommand: pendingRemoteDisconnectReplacement.reconnectCommand,
@@ -6331,9 +6331,11 @@ final class Workspace: Identifiable, ObservableObject {
         guard respawnTerminalSurface(
             panelId: surfaceId,
             command: placeholderCommand,
+            workingDirectory: currentDirectory,
             waitAfterCommand: true,
             replayScrollback: scrollback
         ) != nil else {
+            try? FileManager.default.removeItem(atPath: placeholderCommand)
             return true
         }
         pendingRemoteDisconnectReplacementsBySurfaceId.removeValue(forKey: surfaceId)
