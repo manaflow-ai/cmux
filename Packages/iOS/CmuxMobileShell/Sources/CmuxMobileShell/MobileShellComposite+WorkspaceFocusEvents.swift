@@ -150,46 +150,75 @@ extension MobileShellComposite {
 
 extension MobileWorkspacePreview {
     mutating func applyFocusSnapshot(_ event: MobileWorkspaceFocusEvent) {
-        let paneID = event.focusedPaneID.map(MobilePanePreview.ID.init(rawValue:))
-        let terminalID = event.selectedTerminalID.map(MobileTerminalPreview.ID.init(rawValue:))
-        focusedPaneID = paneID
-        selectedTerminalID = terminalID
-        for index in panes.indices {
-            panes[index].isFocused = panes[index].id == paneID
-        }
-        for index in terminals.indices {
-            terminals[index].isFocused = terminals[index].id == terminalID
-        }
+        applyValidatedFocusSnapshot(
+            paneID: event.focusedPaneID.map(MobilePanePreview.ID.init(rawValue:)),
+            terminalID: event.selectedTerminalID.map(MobileTerminalPreview.ID.init(rawValue:))
+        )
     }
 
     mutating func preserveFocusSnapshot(from existing: MobileWorkspacePreview) {
-        if let existingPaneID = existing.focusedPaneID {
-            if panes.contains(where: { $0.id == existingPaneID }) {
-                focusedPaneID = existingPaneID
-                let focusedPaneIDs = Set(existing.panes.filter(\.isFocused).map(\.id))
-                for index in panes.indices {
-                    panes[index].isFocused = focusedPaneIDs.contains(panes[index].id)
-                }
-            }
-        } else {
+        applyValidatedFocusSnapshot(
+            paneID: existing.focusedPaneID,
+            terminalID: existing.selectedTerminalID
+        )
+    }
+
+    private mutating func applyValidatedFocusSnapshot(
+        paneID: MobilePanePreview.ID?,
+        terminalID: MobileTerminalPreview.ID?
+    ) {
+        switch ValidatedFocusDimension(
+            requestedID: paneID,
+            isAvailable: { requestedID in panes.contains(where: { $0.id == requestedID }) }
+        ) {
+        case .clear:
             focusedPaneID = nil
             for index in panes.indices {
                 panes[index].isFocused = false
             }
-        }
-        if let existingTerminalID = existing.selectedTerminalID {
-            if terminals.contains(where: { $0.id == existingTerminalID }) {
-                selectedTerminalID = existingTerminalID
-                let focusedTerminalIDs = Set(existing.terminals.filter(\.isFocused).map(\.id))
-                for index in terminals.indices {
-                    terminals[index].isFocused = focusedTerminalIDs.contains(terminals[index].id)
-                }
+        case .apply(let appliedPaneID):
+            focusedPaneID = appliedPaneID
+            for index in panes.indices {
+                panes[index].isFocused = panes[index].id == appliedPaneID
             }
-        } else {
+        case .unchanged:
+            break
+        }
+
+        switch ValidatedFocusDimension(
+            requestedID: terminalID,
+            isAvailable: { requestedID in terminals.contains(where: { $0.id == requestedID }) }
+        ) {
+        case .clear:
             selectedTerminalID = nil
             for index in terminals.indices {
                 terminals[index].isFocused = false
             }
+        case .apply(let appliedTerminalID):
+            selectedTerminalID = appliedTerminalID
+            for index in terminals.indices {
+                terminals[index].isFocused = terminals[index].id == appliedTerminalID
+            }
+        case .unchanged:
+            break
+        }
+    }
+}
+
+private enum ValidatedFocusDimension<ID: Equatable> {
+    case clear
+    case apply(ID)
+    case unchanged
+
+    init(requestedID: ID?, isAvailable: (ID) -> Bool) {
+        guard let requestedID else {
+            self = .clear
+            return
+        }
+        if isAvailable(requestedID) {
+            self = .apply(requestedID)
+        } else {
+            self = .unchanged
         }
     }
 }
