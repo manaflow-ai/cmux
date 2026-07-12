@@ -69,39 +69,33 @@ extension CMUXCLI {
         if let preferred = nonEmptyClaudeHookIdentifier(preferred),
            let resolved = strictClaudeHookWorkspaceId(preferred, client: client) {
             guard preferCallerTTYOverFallback else { return resolved }
-            // The targeted resolver uses a short-lived app-side process cache,
-            // so every implicit mapped hook can reject a stale binding without
-            // paying for `debug.terminals` or a `system.top` process tree.
-            if let resolution = callerTerminalBinding?() {
-                guard !resolution.isAmbiguous else { return nil }
-                if let binding = resolution.binding {
-                    guard normalizedHandleValue(binding.workspaceId) == normalizedHandleValue(resolved),
-                          claudeHookSurfaceIsListed(
-                              binding.surfaceId,
-                              workspaceId: binding.workspaceId,
-                              client: client
-                          ) else {
-                        return nil
-                    }
-                    if let preferredSurface = nonEmptyClaudeHookIdentifier(preferredSurface),
-                       claudeHookSurfaceIsListed(preferredSurface, workspaceId: resolved, client: client),
-                       normalizedHandleValue(preferredSurface) != normalizedHandleValue(binding.surfaceId) {
-                        return nil
-                    }
-                }
+            // Every implicit mapped hook requires a positive live terminal
+            // binding. Missing proof fails closed instead of accepting saved
+            // or ambient identity.
+            guard let resolution = callerTerminalBinding?(),
+                  !resolution.isAmbiguous,
+                  let binding = resolution.binding,
+                  normalizedHandleValue(binding.workspaceId) == normalizedHandleValue(resolved),
+                  claudeHookSurfaceIsListed(
+                      binding.surfaceId,
+                      workspaceId: binding.workspaceId,
+                      client: client
+                  ) else {
+                return nil
+            }
+            if let preferredSurface = nonEmptyClaudeHookIdentifier(preferredSurface),
+               claudeHookSurfaceIsListed(preferredSurface, workspaceId: resolved, client: client),
+               normalizedHandleValue(preferredSurface) != normalizedHandleValue(binding.surfaceId) {
+                return nil
             }
             return resolved
         }
-        if preferCallerTTYOverFallback,
-           let callerWorkspaceId = uniqueCallerWorkspaceIdForClaudeHook(
+        if preferCallerTTYOverFallback {
+            guard callerTerminalBinding != nil else { return nil }
+            return uniqueCallerWorkspaceIdForClaudeHook(
                callerTerminalBinding: callerTerminalBinding,
                client: client
-           ) {
-            return callerWorkspaceId
-        }
-        if preferCallerTTYOverFallback,
-           callerTerminalBinding?().isAmbiguous == true {
-            return nil
+            )
         }
         if let fallback = nonEmptyClaudeHookIdentifier(fallback),
            let resolved = strictClaudeHookWorkspaceId(fallback, client: client) {
