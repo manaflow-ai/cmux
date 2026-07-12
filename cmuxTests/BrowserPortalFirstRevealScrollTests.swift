@@ -216,6 +216,45 @@ struct BrowserPortalFirstRevealScrollTests {
         #expect(!webView.frameSizeCalls.contains { size($0, approximatelyEquals: nudgedSize) })
     }
 
+    @Test func localInlineHostDefersNudgeUntilViewAndWindowAreVisible() async {
+        let fixture = makeWindowFixture()
+        defer { fixture.window.orderOut(nil) }
+        let host = WebViewRepresentable.HostContainerView(frame: fixture.anchor.frame)
+        fixture.window.contentView?.addSubview(host)
+        let slot = host.ensureLocalInlineSlotView()
+        host.layoutSubtreeIfNeeded()
+
+        let webView = RecordingWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        webView.browserPortalPrepareForHiddenHostAdoption()
+        slot.addSubview(webView)
+        host.pinHostedWebView(webView, in: slot)
+        webView.frameSizeCalls.removeAll()
+        let revealedSize = slot.bounds.size
+        let nudgedSize = NSSize(width: revealedSize.width, height: max(1, revealedSize.height - 1))
+
+        host.isHidden = true
+        host.refreshHostedWebKitPresentation(reason: "unitTestLocalInlineHiddenAncestor")
+
+        #expect(webView.browserPortalNeedsFirstSizedRevealNudge)
+        #expect(!webView.frameSizeCalls.contains { size($0, approximatelyEquals: nudgedSize) })
+
+        host.isHidden = false
+        fixture.window.alphaValue = 0
+        host.refreshHostedWebKitPresentation(reason: "unitTestLocalInlineAlphaZeroWindow")
+
+        #expect(webView.browserPortalNeedsFirstSizedRevealNudge)
+        #expect(!webView.frameSizeCalls.contains { size($0, approximatelyEquals: nudgedSize) })
+
+        fixture.window.alphaValue = 1
+        host.refreshHostedWebKitPresentation(reason: "unitTestLocalInlineVisibleReveal")
+        await waitForNextMainTurn()
+
+        #expect(webView.frameSizeCalls.filter { size($0, approximatelyEquals: nudgedSize) }.count == 1)
+        #expect(webView.frameSizeCalls.contains { size($0, approximatelyEquals: revealedSize) })
+        #expect(size(webView.frame.size, approximatelyEquals: revealedSize))
+        #expect(!webView.browserPortalNeedsFirstSizedRevealNudge)
+    }
+
     @Test func localInlineHostCompanionSkipsAndClearsPendingNudge() async {
         let fixture = makeWindowFixture()
         defer { fixture.window.orderOut(nil) }
@@ -335,5 +374,77 @@ struct BrowserPortalFirstRevealScrollTests {
         #expect(webView.frameSizeCalls.contains { size($0, approximatelyEquals: nudgedSize) })
         #expect(size(webView.frame.size, approximatelyEquals: revealedSize))
         #expect(!webView.browserPortalNeedsFirstSizedRevealNudge)
+    }
+
+    @Test func nextTurnRestoreSurvivesOriginChange() async {
+        let fixture = makeWindowFixture()
+        defer { fixture.window.orderOut(nil) }
+        let originalFrame = NSRect(x: 0, y: 0, width: 300, height: 180)
+        let webView = RecordingWebView(
+            frame: originalFrame,
+            configuration: WKWebViewConfiguration()
+        )
+        fixture.window.contentView?.addSubview(webView)
+        webView.browserPortalNotifyHidden(reason: "unitTestOriginChangeRestore")
+
+        let fired = webView.browserPortalApplyFirstSizedRevealGeometryNudgeIfNeeded(
+            reason: "unitTestOriginChangeRestore",
+            hasCompanionWKSubviews: false,
+            managedByExternalFullscreenWindow: false
+        )
+        let movedOrigin = NSPoint(x: 25, y: 30)
+        webView.setFrameOrigin(movedOrigin)
+        await waitForNextMainTurn()
+
+        #expect(fired)
+        #expect(webView.frame.origin == movedOrigin)
+        #expect(size(webView.frame.size, approximatelyEquals: originalFrame.size))
+    }
+
+    @Test func nextTurnRestoreSurvivesDetachment() async {
+        let fixture = makeWindowFixture()
+        defer { fixture.window.orderOut(nil) }
+        let originalSize = NSSize(width: 300, height: 180)
+        let webView = RecordingWebView(
+            frame: NSRect(origin: .zero, size: originalSize),
+            configuration: WKWebViewConfiguration()
+        )
+        fixture.window.contentView?.addSubview(webView)
+        webView.browserPortalNotifyHidden(reason: "unitTestDetachmentRestore")
+
+        let fired = webView.browserPortalApplyFirstSizedRevealGeometryNudgeIfNeeded(
+            reason: "unitTestDetachmentRestore",
+            hasCompanionWKSubviews: false,
+            managedByExternalFullscreenWindow: false
+        )
+        webView.removeFromSuperview()
+        await waitForNextMainTurn()
+
+        #expect(fired)
+        #expect(webView.window == nil)
+        #expect(size(webView.frame.size, approximatelyEquals: originalSize))
+    }
+
+    @Test func nextTurnRestoreDoesNotOverwriteRealSizeChange() async {
+        let fixture = makeWindowFixture()
+        defer { fixture.window.orderOut(nil) }
+        let webView = RecordingWebView(
+            frame: NSRect(x: 0, y: 0, width: 300, height: 180),
+            configuration: WKWebViewConfiguration()
+        )
+        fixture.window.contentView?.addSubview(webView)
+        webView.browserPortalNotifyHidden(reason: "unitTestRealSizeChange")
+
+        let fired = webView.browserPortalApplyFirstSizedRevealGeometryNudgeIfNeeded(
+            reason: "unitTestRealSizeChange",
+            hasCompanionWKSubviews: false,
+            managedByExternalFullscreenWindow: false
+        )
+        let resizedSize = NSSize(width: 320, height: 200)
+        webView.setFrameSize(resizedSize)
+        await waitForNextMainTurn()
+
+        #expect(fired)
+        #expect(size(webView.frame.size, approximatelyEquals: resizedSize))
     }
 }
