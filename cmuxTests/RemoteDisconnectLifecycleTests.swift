@@ -74,6 +74,11 @@ struct RemoteDisconnectLifecycleTests {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         let panel = try #require(workspace.focusedTerminalPanel)
+        let sibling = try #require(workspace.newTerminalSplit(
+            from: panel.id,
+            orientation: .horizontal,
+            focus: false
+        ))
         workspace.configureRemoteConnection(Self.remoteConfiguration(), autoConnect: false)
         workspace.restoredTerminalScrollbackByPanelId[panel.id] = "remote-output\n"
 
@@ -92,7 +97,29 @@ struct RemoteDisconnectLifecycleTests {
         #expect(manager.tabs.contains(where: { $0.id == workspace.id }))
         #expect(secondPlaceholder.surface !== firstPlaceholder.surface)
         #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
-        #expect(workspace.remoteConnectionState == .disconnected)
+        #expect(workspace.isRemoteTerminalSurface(sibling.id))
+        #expect(workspace.remoteConnectionState == .connected)
+    }
+
+    @Test func failedLegacyWrapperReplacementRetainsRemoteOwnership() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        workspace.configureRemoteConnection(Self.remoteConfiguration(), autoConnect: false)
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panel.id, relayPort: 64007)
+        let invalidDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-disconnect-not-directory-\(UUID().uuidString)")
+        try Data("file".utf8).write(to: invalidDirectory)
+        defer { try? FileManager.default.removeItem(at: invalidDirectory) }
+
+        let replacement = workspace.createReplacementTerminalPanel(temporaryDirectory: invalidDirectory)
+
+        #expect(replacement.surface.initialCommand == "/usr/bin/false")
+        #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(replacement.id))
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: replacement.id)
+        defer { Self.removeTransitionArtifacts(workspace: workspace, panelIds: [replacement.id]) }
+        #expect(workspace.panels[replacement.id] != nil)
+        #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(replacement.id))
     }
 
     private static func remoteConfiguration() -> WorkspaceRemoteConfiguration {
