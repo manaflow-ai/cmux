@@ -1,5 +1,4 @@
 public import CMUXMobileCore
-import Darwin
 import Foundation
 
 /// Pure routing/trust policy that decides which attach routes may carry Stack auth
@@ -10,9 +9,11 @@ import Foundation
 /// connection.
 ///
 /// The Stack-bearer-token gate (``routeAllowsStackAuth(_:)``) is intentionally
-/// restricted to the **Tailscale tunnel or loopback**: Tailscale is
-/// WireGuard-encrypted, and loopback never leaves the machine. Iroh sessions
-/// authenticate RPC out of band and never carry a Stack bearer token. Plain
+/// restricted to **loopback**, which never leaves the machine. iOS cannot prove
+/// that a generic packet-tunnel interface belongs to Tailscale's authenticated
+/// control plane, so a Tailscale-address heuristic is insufficient for sending
+/// an account credential over plaintext TCP. Iroh sessions authenticate RPC out
+/// of band and never carry a Stack bearer token. Plain
 /// private-LAN and `.local`/Bonjour hosts are dialed
 /// over unencrypted TCP (``CmxNetworkByteTransport`` uses `NWParameters(tls: nil)`),
 /// so they are excluded from the Stack-auth-allowed set even though they may still
@@ -66,13 +67,8 @@ public struct MobileShellRouteAuthPolicy {
     /// Whether the given route is trusted enough to carry the Stack bearer token.
     ///
     /// The Stack `stack_access_token` is the owner's account credential, so it must
-    /// only ever traverse the Tailscale tunnel or loopback. This predicate gates
-    /// every Stack-token-send site and returns `true` only for:
-    ///
-    /// - `.tailscale` to a numeric Tailscale address (`100.64.0.0/10` or
-    ///   `fd7a:115c:a1e0::/48`). The network transport separately proves and
-    ///   binds the live Tailscale interface before any bearer write.
-    /// - `.debugLoopback` to a loopback host, which never leaves the machine.
+    /// only ever traverse loopback. This predicate gates every Stack-token-send
+    /// site and returns `true` only for `.debugLoopback` to a loopback host.
     ///
     /// Plain private-LAN (`192.168/16`, `10/8`, `172.16/12`, link-local) and
     /// `.local`/Bonjour hosts are deliberately **excluded**: they are dialed over
@@ -82,14 +78,12 @@ public struct MobileShellRouteAuthPolicy {
     /// Iroh routes always return `false`. Their authenticated session context
     /// authorizes RPC without disclosing the account bearer token to the peer.
     /// - Parameter route: The candidate attach route.
-    /// - Returns: `true` only for Tailscale-tunnel and loopback routes.
+    /// - Returns: `true` only for a loopback route.
     public static func routeAllowsStackAuth(_ route: CmxAttachRoute) -> Bool {
         switch (route.kind, route.endpoint) {
         case (.debugLoopback, let .hostPort(host, _)):
             return isLoopbackHost(host)
-        case (.tailscale, let .hostPort(host, _)):
-            return isTailscaleHost(host)
-        case (.iroh, .peer):
+        case (.tailscale, .hostPort), (.iroh, .peer):
             return false
         default:
             return false
@@ -146,14 +140,14 @@ public struct MobileShellRouteAuthPolicy {
         return isLoopbackHost(host)
     }
 
-    /// Whether a manual host should warn the user that it is neither loopback nor Tailscale.
+    /// Whether a manual host should warn that it cannot carry account credentials.
     /// - Parameter host: The manually typed host.
-    /// - Returns: `true` when the host is valid but outside the loopback/Tailscale trust set.
+    /// - Returns: `true` for every valid host outside loopback.
     public static func manualHostNeedsTrustWarning(_ host: String) -> Bool {
         guard let normalizedHost = normalizedManualNetworkHost(host) else {
             return false
         }
-        return !isLoopbackHost(normalizedHost) && !isTailscaleHost(normalizedHost)
+        return !isLoopbackHost(normalizedHost)
     }
 
     private static func normalizedManualNetworkHost(_ host: String) -> String? {
@@ -172,27 +166,6 @@ public struct MobileShellRouteAuthPolicy {
             return false
         }
         return octets[0] == 127
-    }
-
-    private static func isTailscaleHost(_ host: String) -> Bool {
-        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return isTailscaleIPv4Host(normalizedHost) || isTailscaleIPv6Host(normalizedHost)
-    }
-
-    private static func isTailscaleIPv4Host(_ host: String) -> Bool {
-        guard let octets = ipv4Octets(host) else {
-            return false
-        }
-        guard octets[0] == 100 && (64...127).contains(octets[1]) else {
-            return false
-        }
-        if octets[1] == 100, octets[2] == 0 || octets[2] == 100 {
-            return false
-        }
-        if octets[1] == 115, octets[2] == 92 || octets[2] == 93 {
-            return false
-        }
-        return true
     }
 
     private static func ipv4Octets(_ host: String) -> [Int]? {
@@ -215,13 +188,4 @@ public struct MobileShellRouteAuthPolicy {
         return octets
     }
 
-    private static func isTailscaleIPv6Host(_ host: String) -> Bool {
-        var address = in6_addr()
-        let parsed = host.withCString { pointer in
-            inet_pton(AF_INET6, pointer, &address)
-        }
-        guard parsed == 1 else { return false }
-        let bytes = withUnsafeBytes(of: &address) { Array($0) }
-        return bytes.starts(with: [0xFD, 0x7A, 0x11, 0x5C, 0xA1, 0xE0])
-    }
 }

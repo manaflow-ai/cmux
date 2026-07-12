@@ -432,13 +432,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scan the Mac's Iroh QR when possible. Manual host and port is a legacy fallback for a numeric Tailscale address only."
+            "value": "Scan the Mac's Iroh QR. Manual host and port is only for loopback development in the simulator."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "可能な場合はMacのIroh QRをスキャンしてください。ホストとポートの手入力は、数値のTailscaleアドレス専用の従来互換フォールバックです。"
+            "value": "MacのIroh QRをスキャンしてください。ホストとポートの手入力は、シミュレータのループバック開発専用です。"
           }
         }
       }
@@ -466,13 +466,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "mac.example.net or 192.168.1.20"
+            "value": "127.0.0.1 (simulator only)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "mac.example.net または 192.168.1.20"
+            "value": "127.0.0.1（シミュレータのみ）"
           }
         }
       }
@@ -517,13 +517,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Manual host and port bypasses Iroh. Only a numeric Tailscale address can carry account credentials; LAN, DNS, and other VPN addresses are not authorized."
+            "value": "Manual host and port bypasses Iroh. Account credentials are allowed only over simulator loopback; use the Mac's Iroh QR for physical devices."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ホストとポートの手入力はIrohを経由しません。アカウント認証情報を送信できるのは数値のTailscaleアドレスだけです。LAN、DNS、その他のVPNアドレスは許可されません。"
+            "value": "ホストとポートの手入力はIrohを経由しません。アカウント認証情報はシミュレータのループバックでのみ送信できます。実機ではMacのIroh QRを使用してください。"
           }
         }
       }
@@ -2761,13 +2761,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Pair iPhone in cmux on your Mac and scan its Iroh code. cmux saves the verified Mac identity and reconnects automatically. Private networks may speed up an admitted Iroh connection; numeric Tailscale also supports older clients."
+            "value": "Open Pair iPhone in cmux on your Mac and scan its Iroh code. cmux saves the verified Mac identity and reconnects automatically. Tailscale, another VPN, or the same LAN may speed up the authenticated Iroh connection."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macのcmuxで「iPhoneをペアリング」を開き、Irohコードをスキャンします。cmuxは検証済みのMac IDを保存して自動的に再接続します。プライベートネットワークは認証済みのIroh接続を高速化でき、数値のTailscaleアドレスは旧クライアントにも対応します。"
+            "value": "Macのcmuxで「iPhoneをペアリング」を開き、Irohコードをスキャンします。cmuxは検証済みのMac IDを保存して自動的に再接続します。Tailscale、別のVPN、または同じLANにより、認証済みのIroh接続が高速になる場合があります。"
           }
         }
       }
@@ -4852,13 +4852,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "After cmux admits both devices over Iroh, Tailscale, another VPN, or the same LAN may become a faster direct path. Manual host and port is a legacy fallback for numeric Tailscale addresses only."
+            "value": "After cmux admits both devices over Iroh, Tailscale, another VPN, or the same LAN may become a faster direct path. The Iroh session keeps peer identity and application traffic authenticated on every path."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxがIroh上で両方の端末を認証した後、Tailscale、別のVPN、または同じLANが、より高速な直接経路になる場合があります。ホストとポートの手入力は、数値のTailscaleアドレス専用の従来互換フォールバックです。"
+            "value": "cmuxがIroh上で両方の端末を認証した後、Tailscale、別のVPN、または同じLANが、より高速な直接経路になる場合があります。Irohセッションは、どの経路でもピアIDとアプリ通信を認証します。"
           }
         }
       }

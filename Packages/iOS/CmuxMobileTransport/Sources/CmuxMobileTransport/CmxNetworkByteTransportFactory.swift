@@ -5,7 +5,6 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
     public var supportedKinds: [CmxAttachTransportKind]
     public var maximumReceiveLength: Int
     public var connectTimeoutNanoseconds: UInt64
-    private let tailscaleRouteAuthority: any CmxTailscaleRouteAuthorizing
 
     public init(
         supportedKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback],
@@ -15,19 +14,6 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
         self.supportedKinds = supportedKinds
         self.maximumReceiveLength = maximumReceiveLength
         self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
-        tailscaleRouteAuthority = CmxSystemTailscaleRouteAuthority()
-    }
-
-    init(
-        supportedKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback],
-        maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength,
-        connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds,
-        tailscaleRouteAuthority: any CmxTailscaleRouteAuthorizing
-    ) {
-        self.supportedKinds = supportedKinds
-        self.maximumReceiveLength = maximumReceiveLength
-        self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
-        self.tailscaleRouteAuthority = tailscaleRouteAuthority
     }
 
     public func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
@@ -49,7 +35,8 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
         )
     }
 
-    /// Preserves authorization intent so Tailscale can bind the proven tunnel.
+    /// Preserves authorization intent so plaintext routes fail closed unless
+    /// they are local simulator loopback.
     public func makeTransport(
         for request: CmxByteTransportRequest
     ) throws -> any CmxByteTransport {
@@ -69,16 +56,10 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
 
         switch route.kind {
         case .tailscale:
-            guard let peerAddress = CmxTailscaleIPAddress(host),
-                  peerAddress.isTailscalePeerAddress else {
-                throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
-            }
-            return CmxPreparingTailscaleByteTransport(
-                request: request,
-                tailscaleRouteAuthority: tailscaleRouteAuthority,
-                maximumReceiveLength: maximumReceiveLength,
-                connectTimeoutNanoseconds: connectTimeoutNanoseconds
-            )
+            // Network.framework exposes only a generic packet-tunnel interface.
+            // It cannot prove that the tunnel belongs to Tailscale's authenticated
+            // control plane, so plaintext TCP must never carry a Stack bearer.
+            throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
         case .debugLoopback:
             guard CmxLoopbackHost().matches(route) else {
                 throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable

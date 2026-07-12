@@ -116,7 +116,7 @@ struct OnboardingPage: Sendable {
             ),
             body: L10n.string(
                 "mobile.onboarding.pairBody",
-                defaultValue: "Open Pair iPhone in cmux on your Mac and scan its Iroh code. cmux saves the verified Mac identity and reconnects automatically. Private networks may speed up an admitted Iroh connection; numeric Tailscale also supports older clients."
+                defaultValue: "Open Pair iPhone in cmux on your Mac and scan its Iroh code. cmux saves the verified Mac identity and reconnects automatically. Tailscale, another VPN, or the same LAN may speed up the authenticated Iroh connection."
             )
         )
     }

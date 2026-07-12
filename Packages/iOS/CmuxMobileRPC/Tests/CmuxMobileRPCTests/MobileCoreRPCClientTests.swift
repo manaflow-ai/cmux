@@ -349,7 +349,7 @@ import Testing
         // The status probe is unauthenticated by design. It must not touch the
         // refreshing Stack token provider because a best-effort probe timeout
         // can poison the real auth path.
-        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 58465)
         let probe = try await sentHostStatusProbe(
             route: route,
             stackAccessToken: "test-stack-token",
@@ -363,7 +363,7 @@ import Testing
         // Signed-out probe: a failing token provider must not fail the
         // request. The probe still goes out (reachability needs no auth) and
         // the host simply answers identity-free.
-        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 58465)
         let probe = try await sentHostStatusProbe(route: route, stackAccessToken: nil)
         #expect(probe?.hasAuth == false)
     }
@@ -378,7 +378,7 @@ import Testing
     }
 
     @Test func workspaceActionsCarryMacWideAttachTicketContext() async throws {
-        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 58465)
         let transport = QueuedCancellationProbeTransport()
         let runtime = TestMobileSyncRuntime(
             transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),

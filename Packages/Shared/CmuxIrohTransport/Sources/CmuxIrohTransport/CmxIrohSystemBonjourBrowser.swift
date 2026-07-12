@@ -9,7 +9,7 @@ typealias CmxIrohBonjourBrowseHandler = @Sendable (
     String?,
     String?,
     String?
-) async -> Void
+) -> Void
 
 typealias CmxIrohBonjourResolveHandler = @Sendable (
     Int32,
@@ -65,6 +65,93 @@ private final class CmxIrohBonjourBrowseCallbackBox: @unchecked Sendable {
     }
 }
 
+private struct CmxIrohBonjourRawBrowseEvent: Sendable {
+    enum Key: Hashable, Sendable {
+        case service(CmxIrohBonjourServiceID, added: Bool)
+        case error(Int32)
+    }
+
+    let key: Key
+    let flags: DNSServiceFlags
+    let interfaceIndex: UInt32
+    let errorCode: Int32
+    let serviceName: String?
+    let regtype: String?
+    let domain: String?
+}
+
+/// Validates and coalesces the synchronous DNS-SD callback before it reaches
+/// Swift concurrency. One bounded stream consumer replaces one unbounded Task
+/// per unauthenticated LAN record.
+private final class CmxIrohBonjourBrowseIngress: @unchecked Sendable {
+    private let lock = NSLock()
+    private let continuation: AsyncStream<CmxIrohBonjourRawBrowseEvent>.Continuation
+    private var enqueuedKeys: Set<CmxIrohBonjourRawBrowseEvent.Key> = []
+
+    init(continuation: AsyncStream<CmxIrohBonjourRawBrowseEvent>.Continuation) {
+        self.continuation = continuation
+    }
+
+    func offer(
+        flags: DNSServiceFlags,
+        interfaceIndex: UInt32,
+        errorCode: Int32,
+        serviceName: String?,
+        regtype: String?,
+        domain: String?
+    ) {
+        let event: CmxIrohBonjourRawBrowseEvent
+        if errorCode != kDNSServiceErr_NoError {
+            event = CmxIrohBonjourRawBrowseEvent(
+                key: .error(errorCode),
+                flags: flags,
+                interfaceIndex: interfaceIndex,
+                errorCode: errorCode,
+                serviceName: nil,
+                regtype: nil,
+                domain: nil
+            )
+        } else {
+            guard interfaceIndex != 0,
+                  let serviceName,
+                  CmxIrohLANRendezvousAliasGenerator.isCanonicalAlias(serviceName),
+                  let regtype,
+                  let domain,
+                  regtype == "\(CmxIrohLANAdvertisement.serviceType).",
+                  domain == CmxIrohLANAdvertisement.domain else { return }
+            let id = CmxIrohBonjourServiceID(
+                serviceName: serviceName,
+                interfaceIndex: interfaceIndex
+            )
+            let added = flags & DNSServiceFlags(kDNSServiceFlagsAdd) != 0
+            event = CmxIrohBonjourRawBrowseEvent(
+                key: .service(id, added: added),
+                flags: flags,
+                interfaceIndex: interfaceIndex,
+                errorCode: errorCode,
+                serviceName: serviceName,
+                regtype: regtype,
+                domain: domain
+            )
+        }
+
+        let shouldYield = lock.withLock { enqueuedKeys.insert(event.key).inserted }
+        guard shouldYield else { return }
+        if case .dropped = continuation.yield(event) {
+            consumed(event.key)
+        }
+    }
+
+    func consumed(_ key: CmxIrohBonjourRawBrowseEvent.Key) {
+        lock.withLock { _ = enqueuedKeys.remove(key) }
+    }
+
+    func finish() {
+        continuation.finish()
+        lock.withLock { enqueuedKeys.removeAll(keepingCapacity: false) }
+    }
+}
+
 private final class CmxIrohBonjourResolveCallbackBox: @unchecked Sendable {
     let handler: CmxIrohBonjourResolveHandler
 
@@ -83,16 +170,7 @@ private let cmxIrohBonjourBrowseCallback: DNSServiceBrowseReply = {
     let name = serviceName.map(String.init(cString:))
     let type = regtype.map(String.init(cString:))
     let domain = replyDomain.map(String.init(cString:))
-    Task {
-        await handler(
-            flags,
-            interfaceIndex,
-            errorCode,
-            name,
-            type,
-            domain
-        )
-    }
+    handler(flags, interfaceIndex, errorCode, name, type, domain)
 }
 
 private let cmxIrohBonjourResolveCallback: DNSServiceResolveReply = {
@@ -254,6 +332,11 @@ public actor CmxIrohSystemBonjourBrowser: CmxIrohBonjourBrowsing {
         let deadlineTask: Task<Void, Never>
     }
 
+    private struct QueuedResolve: Sendable {
+        let regtype: String
+        let domain: String
+    }
+
     private static let defaultMaximumPendingResolves = 16
     private static let defaultResolveTimeout: TimeInterval = 5
 
@@ -263,7 +346,11 @@ public actor CmxIrohSystemBonjourBrowser: CmxIrohBonjourBrowsing {
     private let resolveTimeout: TimeInterval
     private var browseOperation: (any CmxIrohBonjourOperation)?
     private var browseToken: UUID?
+    private var browseIngress: CmxIrohBonjourBrowseIngress?
+    private var browseEventTask: Task<Void, Never>?
     private var pending: [CmxIrohBonjourServiceID: PendingResolve] = [:]
+    private var queued: [CmxIrohBonjourServiceID: QueuedResolve] = [:]
+    private var queuedOrder: [CmxIrohBonjourServiceID] = []
     private var observers: [
         UUID: AsyncStream<CmxIrohBonjourBrowserEvent>.Continuation
     ] = [:]
@@ -314,13 +401,25 @@ public actor CmxIrohSystemBonjourBrowser: CmxIrohBonjourBrowsing {
     private func startBrowsing() {
         let token = UUID()
         browseToken = token
+        let (events, continuation) = AsyncStream.makeStream(
+            of: CmxIrohBonjourRawBrowseEvent.self,
+            bufferingPolicy: .bufferingOldest(64)
+        )
+        let ingress = CmxIrohBonjourBrowseIngress(continuation: continuation)
+        browseIngress = ingress
+        browseEventTask = Task { [weak self] in
+            for await event in events {
+                guard !Task.isCancelled else { break }
+                await self?.consumeBrowseEvent(token: token, event: event)
+                ingress.consumed(event.key)
+            }
+        }
         do {
             browseOperation = try dnsService.startBrowse(
                 serviceType: CmxIrohLANAdvertisement.serviceType,
                 domain: CmxIrohLANAdvertisement.domain
-            ) { [weak self] flags, interfaceIndex, errorCode, name, type, domain in
-                await self?.handleBrowse(
-                    token: token,
+            ) { flags, interfaceIndex, errorCode, name, type, domain in
+                ingress.offer(
                     flags: flags,
                     interfaceIndex: interfaceIndex,
                     errorCode: errorCode,
@@ -330,12 +429,35 @@ public actor CmxIrohSystemBonjourBrowser: CmxIrohBonjourBrowsing {
                 )
             }
         } catch let error as CmxIrohBonjourDNSServiceError {
+            ingress.finish()
+            browseEventTask?.cancel()
+            browseEventTask = nil
+            browseIngress = nil
             browseToken = nil
             publishError(error.code)
         } catch {
+            ingress.finish()
+            browseEventTask?.cancel()
+            browseEventTask = nil
+            browseIngress = nil
             browseToken = nil
             publishError(Int32(kDNSServiceErr_Unknown))
         }
+    }
+
+    private func consumeBrowseEvent(
+        token: UUID,
+        event: CmxIrohBonjourRawBrowseEvent
+    ) {
+        handleBrowse(
+            token: token,
+            flags: event.flags,
+            interfaceIndex: event.interfaceIndex,
+            errorCode: event.errorCode,
+            serviceName: event.serviceName,
+            regtype: event.regtype,
+            domain: event.domain
+        )
     }
 
     private func handleBrowse(
@@ -368,6 +490,7 @@ public actor CmxIrohSystemBonjourBrowser: CmxIrohBonjourBrowsing {
         if added {
             startResolve(id: id, regtype: regtype, domain: domain)
         } else {
+            removeQueuedResolve(id)
             stopResolve(id)
             publish(.removed(id))
         }
@@ -378,8 +501,19 @@ public actor CmxIrohSystemBonjourBrowser: CmxIrohBonjourBrowsing {
         regtype: String,
         domain: String
     ) {
-        guard pending[id] == nil,
-              pending.count < maximumPendingResolves else { return }
+        guard pending[id] == nil, queued[id] == nil else { return }
+        guard pending.count < maximumPendingResolves else {
+            enqueueResolve(id: id, regtype: regtype, domain: domain)
+            return
+        }
+        startResolveNow(id: id, regtype: regtype, domain: domain)
+    }
+
+    private func startResolveNow(
+        id: CmxIrohBonjourServiceID,
+        regtype: String,
+        domain: String
+    ) {
         let token = UUID()
         do {
             let operation = try dnsService.startResolve(
@@ -413,8 +547,34 @@ public actor CmxIrohSystemBonjourBrowser: CmxIrohBonjourBrowsing {
             )
         } catch let error as CmxIrohBonjourDNSServiceError {
             publishError(error.code)
+            drainQueuedResolves()
         } catch {
             publishError(Int32(kDNSServiceErr_Unknown))
+            drainQueuedResolves()
+        }
+    }
+
+    private func enqueueResolve(
+        id: CmxIrohBonjourServiceID,
+        regtype: String,
+        domain: String
+    ) {
+        let maximumQueuedResolves = max(64, maximumPendingResolves * 4)
+        guard queued.count < maximumQueuedResolves else { return }
+        queued[id] = QueuedResolve(regtype: regtype, domain: domain)
+        queuedOrder.append(id)
+    }
+
+    private func removeQueuedResolve(_ id: CmxIrohBonjourServiceID) {
+        guard queued.removeValue(forKey: id) != nil else { return }
+        queuedOrder.removeAll { $0 == id }
+    }
+
+    private func drainQueuedResolves() {
+        while pending.count < maximumPendingResolves, !queuedOrder.isEmpty {
+            let id = queuedOrder.removeFirst()
+            guard let resolve = queued.removeValue(forKey: id) else { continue }
+            startResolveNow(id: id, regtype: resolve.regtype, domain: resolve.domain)
         }
     }
 
@@ -467,14 +627,21 @@ public actor CmxIrohSystemBonjourBrowser: CmxIrohBonjourBrowsing {
         pending[id] = nil
         resolve.deadlineTask.cancel()
         resolve.operation.cancel()
+        drainQueuedResolves()
     }
 
     private func stopOperations() {
         browseToken = nil
+        browseIngress?.finish()
+        browseIngress = nil
+        browseEventTask?.cancel()
+        browseEventTask = nil
         let currentBrowseOperation = browseOperation
         browseOperation = nil
         let resolves = Array(pending.values)
         pending.removeAll(keepingCapacity: false)
+        queued.removeAll(keepingCapacity: false)
+        queuedOrder.removeAll(keepingCapacity: false)
         for resolve in resolves { resolve.deadlineTask.cancel() }
         for resolve in resolves { resolve.operation.cancel() }
         currentBrowseOperation?.cancel()

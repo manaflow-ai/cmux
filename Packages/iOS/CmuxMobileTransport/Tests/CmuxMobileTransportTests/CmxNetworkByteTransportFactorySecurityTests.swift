@@ -1,29 +1,6 @@
 import CMUXMobileCore
-import Network
 import Testing
 @testable import CmuxMobileTransport
-
-private enum RejectingTailscaleAuthorityError: Error {
-    case rejected
-}
-
-private actor RejectingTailscaleAuthority: CmxTailscaleRouteAuthorizing {
-    private(set) var preparationCount = 0
-
-    func prepare(
-        request _: CmxByteTransportRequest
-    ) throws -> CmxPreparedTailscaleRoute {
-        preparationCount += 1
-        throw RejectingTailscaleAuthorityError.rejected
-    }
-
-    func validate(
-        proof _: CmxTailscaleRouteProof,
-        connectionPath _: NWPath
-    ) throws {
-        throw RejectingTailscaleAuthorityError.rejected
-    }
-}
 
 @Suite struct CmxTransportFactorySecurityTests {
     @Test func buildsLoopbackTransportWithExplicitAuthorizationIntent() throws {
@@ -103,14 +80,10 @@ private actor RejectingTailscaleAuthority: CmxTailscaleRouteAuthorizing {
             expectedPeerDeviceID: "mac-1",
             authorizationMode: .stackBearer
         )
-        let authority = RejectingTailscaleAuthority()
-        let factory = CmxNetworkByteTransportFactory(
-            tailscaleRouteAuthority: authority
-        )
+        let factory = CmxNetworkByteTransportFactory()
 
         #expect(throws: CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable) {
             _ = try factory.makeTransport(for: request)
         }
-        #expect(await authority.preparationCount == 0)
     }
 }

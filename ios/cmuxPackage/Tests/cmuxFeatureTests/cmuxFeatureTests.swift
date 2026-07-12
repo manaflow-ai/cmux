@@ -1864,16 +1864,8 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func manualHostPairingUsesNetworkRouteForTailscaleIP() async throws {
-    let attachRoute = try hostPortRoute(
-        kind: .tailscale,
-        host: "100.71.210.41",
-        port: CmxMobileDefaults.defaultHostPort
-    )
-    let responses = ScriptedTransportResponses([
-        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "tailscale-ip-workspace"),
-        try rpcWorkspaceListFrame(workspaceID: "tailscale-ip-workspace", title: "Tailscale IP Workspace"),
-    ])
+@Test func manualHostPairingRejectsTailscaleIPWithoutSendingStackToken() async throws {
+    let responses = ScriptedTransportResponses([])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses),
@@ -1884,20 +1876,12 @@ final class TerminalOutputCollector {
     store.signIn()
     await store.connectManualHost(name: "Work Mac", host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
 
-    let route = try #require(store.activeRoute)
-    #expect(store.phase == .workspaces)
-    #expect(store.connectionState == .connected)
-    #expect(store.connectionError == nil)
-    #expect(store.connectedHostName == "Work Mac")
-    #expect(route.kind == .tailscale)
-    if case let .hostPort(host, port) = route.endpoint {
-        #expect(host == "100.71.210.41")
-        #expect(port == CmxMobileDefaults.defaultHostPort)
-    } else {
-        Issue.record("manual Tailscale IP route should use host/port")
-    }
-    let attachTicketRequest = try #require(try await responses.sentRequests().first { $0.method == "mobile.attach_ticket.create" })
-    #expect(attachTicketRequest.stackAccessToken == "stack-token-for-tailscale-ip")
+    #expect(store.phase == .pairing)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.activeTicket == nil)
+    #expect(store.activeRoute == nil)
+    #expect(store.connectionError == "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
+    #expect(try await responses.sentRequests().isEmpty)
 }
 
 @MainActor

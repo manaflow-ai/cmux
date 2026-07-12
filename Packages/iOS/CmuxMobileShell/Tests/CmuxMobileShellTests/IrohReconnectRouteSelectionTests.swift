@@ -45,7 +45,7 @@ extension ReconnectRouteSelectionTests {
         #expect(factory.attemptedKinds() == [.iroh])
     }
 
-    @Test func legacyMacWithoutIrohStillReconnectsOverTailscale() async throws {
+    @Test func legacyMacWithoutIrohFailsClosedInsteadOfSendingBearerOverTCP() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
         let box = TransportBox()
@@ -59,10 +59,8 @@ extension ReconnectRouteSelectionTests {
             )
         )
 
-        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        let attemptedKinds = factory.attemptedKinds()
-        #expect(!attemptedKinds.isEmpty)
-        #expect(attemptedKinds.allSatisfy { $0 == .tailscale })
+        #expect(!(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")))
+        #expect(factory.attemptedKinds().isEmpty)
     }
 
     @Test func switchingToIrohCapableMacUsesPinnedIrohRoute() async throws {

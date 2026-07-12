@@ -150,7 +150,7 @@ struct SetupHelpView: View {
 
                 Text(L10n.string(
                     "mobile.setupHelp.lanBody",
-                    defaultValue: "After cmux admits both devices over Iroh, Tailscale, another VPN, or the same LAN may become a faster direct path. Manual host and port is a legacy fallback for numeric Tailscale addresses only."
+                    defaultValue: "After cmux admits both devices over Iroh, Tailscale, another VPN, or the same LAN may become a faster direct path. The Iroh session keeps peer identity and application traffic authenticated on every path."
                 ))
                 .font(.footnote)
                 .foregroundStyle(.secondary)

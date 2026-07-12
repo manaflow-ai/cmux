@@ -31,6 +31,7 @@ struct CmxIrohSystemBonjourBrowserTests {
         for alias in canonicalAliases(count: 20) {
             await dnsService.emitAdded(serviceName: alias)
         }
+        await dnsService.waitForResolveStartCount(2)
 
         let snapshot = dnsService.snapshot()
         #expect(snapshot.resolveStarts.count == 2)
@@ -67,6 +68,7 @@ struct CmxIrohSystemBonjourBrowserTests {
         #expect(await clock.pendingSleepCount() == 0)
 
         await dnsService.emitAdded(serviceName: aliases[1])
+        await dnsService.waitForResolveStartCount(2)
         let snapshot = dnsService.snapshot()
         #expect(snapshot.resolveStarts == aliases)
         #expect(snapshot.activeResolveCount == 1)
@@ -94,9 +96,11 @@ struct CmxIrohSystemBonjourBrowserTests {
 
         await dnsService.emitAdded(serviceName: aliases[0])
         await dnsService.emitAdded(serviceName: aliases[1])
+        await dnsService.waitForResolveStartCount(1)
         #expect(dnsService.snapshot().resolveStarts == [aliases[0]])
 
         await dnsService.emitResolved(serviceName: aliases[0])
+        await dnsService.waitForResolveStartCount(2)
 
         #expect(dnsService.snapshot().resolveStarts == aliases)
         #expect(dnsService.snapshot().maximumActiveResolveCount == 1)
@@ -258,6 +262,7 @@ private final class TestBonjourDNSService: CmxIrohBonjourDNSService, @unchecked 
     private var cancelledResolveIDs: Set<UUID> = []
     private var browseCancellationCount = 0
     private var cancellationWaiters: [CheckedContinuation<Void, Never>] = []
+    private var resolveStartWaiters: [CheckedContinuation<Void, Never>] = []
 
     func startBrowse(
         serviceType _: String,
@@ -281,14 +286,18 @@ private final class TestBonjourDNSService: CmxIrohBonjourDNSService, @unchecked 
         handler: @escaping CmxIrohBonjourResolveHandler
     ) throws -> any CmxIrohBonjourOperation {
         let operationID = UUID()
-        lock.withLock {
+        let waiters: [CheckedContinuation<Void, Never>] = lock.withLock {
             resolveStarts.append(id.serviceName)
             resolves[operationID] = ResolveEntry(
                 serviceName: id.serviceName,
                 handler: handler
             )
             maximumActiveResolveCount = max(maximumActiveResolveCount, resolves.count)
+            let waiters = resolveStartWaiters
+            resolveStartWaiters.removeAll(keepingCapacity: false)
+            return waiters
         }
+        for waiter in waiters { waiter.resume() }
         return TestBonjourOperation { [weak self] in
             self?.cancelResolve(id: operationID)
         }
@@ -296,7 +305,7 @@ private final class TestBonjourDNSService: CmxIrohBonjourDNSService, @unchecked 
 
     func emitAdded(serviceName: String, interfaceIndex: UInt32 = 4) async {
         let handler = lock.withLock { browseHandler }
-        await handler?(
+        handler?(
             DNSServiceFlags(kDNSServiceFlagsAdd),
             interfaceIndex,
             Int32(kDNSServiceErr_NoError),
@@ -337,6 +346,19 @@ private final class TestBonjourDNSService: CmxIrohBonjourDNSService, @unchecked 
                 let resumeImmediately = lock.withLock {
                     if cancelledResolveIDs.count >= expectedCount { return true }
                     cancellationWaiters.append(continuation)
+                    return false
+                }
+                if resumeImmediately { continuation.resume() }
+            }
+        }
+    }
+
+    func waitForResolveStartCount(_ expectedCount: Int) async {
+        while snapshot().resolveStarts.count < expectedCount {
+            await withCheckedContinuation { continuation in
+                let resumeImmediately = lock.withLock {
+                    if resolveStarts.count >= expectedCount { return true }
+                    resolveStartWaiters.append(continuation)
                     return false
                 }
                 if resumeImmediately { continuation.resume() }

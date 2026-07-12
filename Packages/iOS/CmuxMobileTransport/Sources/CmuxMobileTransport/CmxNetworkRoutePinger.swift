@@ -37,7 +37,7 @@ public struct CmxNetworkRoutePinger: CmxRoutePinging {
             transport = try factory.makeTransport(for: request)
         } catch {
             // Empty host, bad port, unsupported endpoint, or unavailable
-            // interface-bound Tailscale route: nothing safe to dial.
+            // Raw Tailscale TCP cannot prove peer identity before bearer use.
             return .unsupportedRoute
         }
 
@@ -72,8 +72,6 @@ public struct CmxNetworkRoutePinger: CmxRoutePinging {
              .authorizationIntentRequired, .unsupportedAuthorizationMode,
              .tailscaleAuthorizationUnavailable:
             return .unsupportedRoute
-        case .tailscaleAuthorizationChanged:
-            return .unreachable
         case .notConnected, .alreadyClosed, .receiveAlreadyInProgress,
              .sendAlreadyInProgress, .receiveFailed, .sendFailed:
             return .failed(description: String(describing: error))

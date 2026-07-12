@@ -52,7 +52,7 @@ struct PairingView: View {
                     .accessibilityIdentifier("MobileAddDeviceNameField")
 
                     TextField(
-                        L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "mac.example.net or 192.168.1.20"),
+                        L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "127.0.0.1 (simulator only)"),
                         text: $host
                     )
                     .focused($focusedField, equals: .host)
@@ -73,7 +73,7 @@ struct PairingView: View {
                 } footer: {
                     Text(L10n.string(
                         "mobile.addDevice.help",
-                        defaultValue: "Scan the Mac's Iroh QR when possible. Manual host and port is a legacy fallback for a numeric Tailscale address only."
+                        defaultValue: "Scan the Mac's Iroh QR. Manual host and port is only for loopback development in the simulator."
                     ))
                 }
                 .overlay(alignment: .topLeading) {
@@ -279,7 +279,7 @@ struct PairingView: View {
         }
         return L10n.string(
             "mobile.addDevice.manualRouteWarning",
-            defaultValue: "Manual host and port bypasses Iroh. Only a numeric Tailscale address can carry account credentials; LAN, DNS, and other VPN addresses are not authorized."
+            defaultValue: "Manual host and port bypasses Iroh. Account credentials are allowed only over simulator loopback; use the Mac's Iroh QR for physical devices."
         )
     }
 
