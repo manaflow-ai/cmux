@@ -21,7 +21,13 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
         _ controller: WKWebExtensionController,
         focusedWindowFor extensionContext: WKWebExtensionContext
     ) -> (any WKWebExtensionWindow)? {
-        popouts(for: extensionContext).first(where: \.isKeyWindow) ?? windowAdapter
+        guard let focusedWindow = focusedWebExtensionWindow(for: NSApp.keyWindow) else {
+            return nil
+        }
+        if let popout = focusedWindow as? BrowserWebExtensionPopoutWindowController {
+            return popout.extensionContext === extensionContext ? popout : nil
+        }
+        return focusedWindow
     }
 
     private func popouts(for extensionContext: WKWebExtensionContext) -> [BrowserWebExtensionPopoutWindowController] {
@@ -63,10 +69,10 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
             support: self
         )
         popouts.append(popout)
-        controller.didOpenWindow(popout)
-        controller.didOpenTab(popout.tab)
+        extensionContext.didOpenWindow(popout)
+        extensionContext.didOpenTab(popout.tab)
         if popout.isKeyWindow {
-            controller.didFocusWindow(popout)
+            extensionContext.didFocusWindow(popout)
         }
         completionHandler(popout, nil)
     }

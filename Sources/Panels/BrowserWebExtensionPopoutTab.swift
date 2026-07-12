@@ -12,31 +12,32 @@ final class BrowserWebExtensionPopoutTab: NSObject, WKWebExtensionTab {
     }
 
     func window(for context: WKWebExtensionContext) -> (any WKWebExtensionWindow)? {
-        controller
+        controller?.owns(context) == true ? controller : nil
     }
 
     func indexInWindow(for context: WKWebExtensionContext) -> Int {
-        0
+        controller?.owns(context) == true ? 0 : NSNotFound
     }
 
     func webView(for context: WKWebExtensionContext) -> WKWebView? {
-        controller?.webView
+        controller?.owns(context) == true ? controller?.webView : nil
     }
 
     func url(for context: WKWebExtensionContext) -> URL? {
-        controller?.webView.url
+        controller?.owns(context) == true ? controller?.webView.url : nil
     }
 
     func title(for context: WKWebExtensionContext) -> String? {
-        controller?.webView.title
+        controller?.owns(context) == true ? controller?.webView.title : nil
     }
 
     func isSelected(for context: WKWebExtensionContext) -> Bool {
-        true
+        controller?.owns(context) == true
     }
 
     func isLoadingComplete(for context: WKWebExtensionContext) -> Bool {
-        guard let webView = controller?.webView else { return true }
+        guard controller?.owns(context) == true,
+              let webView = controller?.webView else { return true }
         return !webView.isLoading
     }
 
@@ -46,6 +47,7 @@ final class BrowserWebExtensionPopoutTab: NSObject, WKWebExtensionTab {
         completionHandler: @escaping (Error?) -> Void
     ) {
         guard let controller,
+              controller.owns(context),
               controller.canLoadExtensionRequestedURL(url) else {
             completionHandler(NSError(domain: "cmux.webExtension.popup", code: 1))
             return
@@ -55,7 +57,11 @@ final class BrowserWebExtensionPopoutTab: NSObject, WKWebExtensionTab {
     }
 
     func close(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
-        controller?.closeFromExtensionOrUser()
+        guard let controller, controller.owns(context) else {
+            completionHandler(NSError(domain: "cmux.webExtension.popup", code: 2))
+            return
+        }
+        controller.closeFromExtensionOrUser()
         completionHandler(nil)
     }
 }

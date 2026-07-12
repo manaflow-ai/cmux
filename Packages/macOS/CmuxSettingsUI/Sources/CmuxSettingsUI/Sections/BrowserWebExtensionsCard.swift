@@ -346,10 +346,6 @@ struct BrowserWebExtensionsCard: View {
         return result
     }
 
-    private func standardizedPath(_ path: String) -> String {
-        URL(fileURLWithPath: path).browserWebExtensionStandardizedPath
-    }
-
     private func standardizedResourcePath(for entry: BrowserWebExtensionEntry) -> String {
         entry.standardizedResourceRootPath
     }

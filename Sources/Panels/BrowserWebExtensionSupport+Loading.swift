@@ -24,6 +24,7 @@ extension BrowserWebExtensionSupport {
         let planner = BrowserWebExtensionReconciliationPlanner()
         let plan = planner.plan(
             settingsEntries: entries,
+            previousSettingsEntries: configuredSettingsEntries,
             environmentPaths: Self.environmentExtensionPaths(),
             loadedEntries: loadedByEntryID.values.map {
                 BrowserWebExtensionReconciliationPlanner.LoadedEntry(
@@ -32,6 +33,7 @@ extension BrowserWebExtensionSupport {
                 )
             }
         )
+        configuredSettingsEntries = entries
 
         var failedUnloadEntries: [BrowserWebExtensionEntry] = []
         for entry in plan.unloadEntries {
@@ -51,6 +53,10 @@ extension BrowserWebExtensionSupport {
             )
             rebuildActionSnapshots()
             return
+        }
+
+        for entry in plan.permissionStateRemovalEntries {
+            removePermissionState(entryID: entry.id, standardizedPath: entry.standardizedPath)
         }
 
         guard canApplyWebExtensionLoad(generation: generation) else { return }
@@ -148,12 +154,12 @@ extension BrowserWebExtensionSupport {
     func setToolbarButtonVisible(_ visible: Bool, entryID: String) {
         guard let settingsStore, let settingsKey else { return }
         Task { @MainActor in
-            var entries = await settingsStore.value(for: settingsKey)
-            guard let index = entries.firstIndex(where: { $0.id == entryID }),
-                  entries[index].effectiveShowsToolbarButton != visible else { return }
-            entries[index].showsToolbarButton = visible ? nil : false
             do {
-                try await settingsStore.set(entries, for: settingsKey)
+                try await settingsStore.update(settingsKey) { entries in
+                    guard let index = entries.firstIndex(where: { $0.id == entryID }),
+                          entries[index].effectiveShowsToolbarButton != visible else { return }
+                    entries[index].showsToolbarButton = visible ? nil : false
+                }
             } catch {
 #if DEBUG
                 cmuxDebugLog("browser.webext.toolbarVisibility saveFailed id=\(entryID) error=\(error.localizedDescription)")
@@ -275,14 +281,13 @@ extension BrowserWebExtensionSupport {
         planner: BrowserWebExtensionReconciliationPlanner
     ) async {
         guard let settingsStore, let settingsKey else { return }
-        let settingsEntries = await settingsStore.value(for: settingsKey)
-        let restoredEntries = planner.rollbackEntriesAfterFailedUnloads(
-            settingsEntries: settingsEntries,
-            failedEntries: failedEntries
-        )
-        guard restoredEntries != settingsEntries else { return }
         do {
-            try await settingsStore.set(restoredEntries, for: settingsKey)
+            try await settingsStore.update(settingsKey) { settingsEntries in
+                settingsEntries = planner.rollbackEntriesAfterFailedUnloads(
+                    settingsEntries: settingsEntries,
+                    failedEntries: failedEntries
+                )
+            }
         } catch {
             for entry in failedEntries {
                 recordLoadError(error.localizedDescription, entryID: entry.id)

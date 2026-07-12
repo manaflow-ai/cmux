@@ -83,6 +83,10 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
         window.isKeyWindow
     }
 
+    func owns(_ context: WKWebExtensionContext) -> Bool {
+        extensionContext === context
+    }
+
     func closeFromExtensionOrUser() {
         guard window.delegate === self else { return }
         window.delegate = nil
@@ -100,11 +104,11 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
     // MARK: - WKWebExtensionWindow
 
     func tabs(for context: WKWebExtensionContext) -> [any WKWebExtensionTab] {
-        [tab]
+        owns(context) ? [tab] : []
     }
 
     func activeTab(for context: WKWebExtensionContext) -> (any WKWebExtensionTab)? {
-        tab
+        owns(context) ? tab : nil
     }
 
     func windowType(for context: WKWebExtensionContext) -> WKWebExtension.WindowType {
@@ -120,20 +124,29 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
     }
 
     func frame(for context: WKWebExtensionContext) -> CGRect {
-        window.frame
+        owns(context) ? window.frame : .null
     }
 
     func screenFrame(for context: WKWebExtensionContext) -> CGRect {
-        window.screen?.frame ?? NSScreen.main?.frame ?? .null
+        guard owns(context) else { return .null }
+        return window.screen?.frame ?? NSScreen.main?.frame ?? .null
     }
 
     func focus(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
+        guard owns(context) else {
+            completionHandler(NSError(domain: "cmux.webExtension.popup", code: 2))
+            return
+        }
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
         completionHandler(nil)
     }
 
     func close(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
+        guard owns(context) else {
+            completionHandler(NSError(domain: "cmux.webExtension.popup", code: 2))
+            return
+        }
         closeFromExtensionOrUser()
         completionHandler(nil)
     }

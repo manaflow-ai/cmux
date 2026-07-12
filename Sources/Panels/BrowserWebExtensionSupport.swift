@@ -40,6 +40,8 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     /// extensions can't persist a visibility toggle).
     @ObservationIgnored
     var settingsBackedEntryIDs: Set<String> = []
+    @ObservationIgnored
+    var configuredSettingsEntries: [BrowserWebExtensionEntry] = []
 
     @ObservationIgnored
     var settingsObservationTask: Task<Void, Never>?
@@ -258,12 +260,28 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     }
 
     func noteWindowBecameKey(_ window: NSWindow) {
-        let focusedWindow = webExtensionWindow(for: window)
+        let focusedWindow = focusedWebExtensionWindow(for: window)
         if (focusedWindow as AnyObject?) === windowAdapter,
            let panelID = activePanelID(in: window) {
             noteActivated(panelID: panelID)
         }
-        controller.didFocusWindow(focusedWindow)
+        notifyFocusedWindow(focusedWindow)
+    }
+
+    private func notifyFocusedWindow(_ focusedWindow: (any WKWebExtensionWindow)?) {
+        guard let popout = focusedWindow as? BrowserWebExtensionPopoutWindowController,
+              let owningContext = popout.extensionContext else {
+            controller.didFocusWindow(focusedWindow)
+            return
+        }
+        for record in loadedRecordsInOrder {
+            record.context.didFocusWindow(record.context === owningContext ? popout : nil)
+        }
+    }
+
+    func focusedWebExtensionWindow(for keyWindow: NSWindow?) -> (any WKWebExtensionWindow)? {
+        guard let keyWindow else { return nil }
+        return webExtensionWindow(for: keyWindow)
     }
 
     func webExtensionWindow(for window: NSWindow) -> (any WKWebExtensionWindow)? {
@@ -397,8 +415,9 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     func popoutDidClose(_ popout: BrowserWebExtensionPopoutWindowController) {
         guard popouts.contains(where: { $0 === popout }) else { return }
         popouts.removeAll { $0 === popout }
-        controller.didCloseTab(popout.tab, windowIsClosing: true)
-        controller.didCloseWindow(popout)
+        guard let extensionContext = popout.extensionContext else { return }
+        extensionContext.didCloseTab(popout.tab, windowIsClosing: true)
+        extensionContext.didCloseWindow(popout)
     }
 }
 

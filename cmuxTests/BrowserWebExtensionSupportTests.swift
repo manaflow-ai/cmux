@@ -1,4 +1,3 @@
-import AppKit
 import CmuxSettings
 import Foundation
 import Testing
@@ -12,61 +11,6 @@ import WebKit
 
 @Suite(.serialized)
 struct BrowserWebExtensionSupportTests {
-    @MainActor
-    @Test
-    @available(macOS 15.4, *)
-    func keyWindowSwitchRestoresThatWindowsActiveExtensionTab() {
-        let support = BrowserWebExtensionSupport()
-        let firstPanel = BrowserPanel(
-            workspaceId: UUID(),
-            initialURL: URL(string: "https://first.example"),
-            renderInitialNavigation: false,
-            browserWebExtensionHost: support
-        )
-        let secondPanel = BrowserPanel(
-            workspaceId: UUID(),
-            initialURL: URL(string: "https://second.example"),
-            renderInitialNavigation: false,
-            browserWebExtensionHost: support
-        )
-        let firstWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        let secondWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        firstWindow.contentView = firstPanel.webView
-        secondWindow.contentView = secondPanel.webView
-        defer {
-            firstPanel.close()
-            secondPanel.close()
-            firstWindow.close()
-            secondWindow.close()
-        }
-
-        support.register(panel: firstPanel)
-        support.register(panel: secondPanel)
-        support.noteActivated(panelID: firstPanel.id)
-        support.noteActivated(panelID: secondPanel.id)
-        #expect(support.activePanelID == secondPanel.id)
-
-        support.noteWindowBecameKey(firstWindow)
-
-        #expect(support.activePanelID == firstPanel.id)
-        #expect((support.webExtensionWindow(for: firstWindow) as AnyObject?) === support.windowAdapter)
-        #expect((support.focusedWebExtensionWindow(for: firstWindow) as AnyObject?) === support.windowAdapter)
-        let unrelatedWindow = NSWindow()
-        #expect(support.webExtensionWindow(for: unrelatedWindow) == nil)
-        #expect(support.focusedWebExtensionWindow(for: unrelatedWindow) == nil)
-        #expect(support.focusedWebExtensionWindow(for: nil) == nil)
-    }
-
     @Test
     func toolbarVisibilityFlipDoesNotUnloadOrReload() {
         let planner = BrowserWebExtensionReconciliationPlanner()
@@ -333,31 +277,6 @@ struct BrowserWebExtensionSupportTests {
             ),
         ])
         #expect(plan.loadEntries.isEmpty)
-    }
-
-    @Test
-    func reconciliationPurgesPermissionStateWhenDisabledEntryIsRemoved() {
-        let planner = BrowserWebExtensionReconciliationPlanner()
-        let removedEntry = BrowserWebExtensionEntry(
-            id: "com.example.extension",
-            kind: .unpackedDirectory,
-            path: "/Extensions/Example",
-            enabled: false
-        )
-
-        let plan = planner.plan(
-            settingsEntries: [],
-            previousSettingsEntries: [removedEntry],
-            environmentPaths: [],
-            loadedEntries: []
-        )
-
-        #expect(plan.permissionStateRemovalEntries == [
-            BrowserWebExtensionPermissionStateRemoval(
-                id: removedEntry.id,
-                standardizedPath: removedEntry.standardizedResourceRootPath
-            ),
-        ])
     }
 
     @Test

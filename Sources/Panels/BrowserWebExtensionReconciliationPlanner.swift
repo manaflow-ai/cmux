@@ -1,13 +1,14 @@
 import CmuxSettings
 import Foundation
 
-struct BrowserWebExtensionReconciliationPlanner {
+struct BrowserWebExtensionReconciliationPlanner: Sendable {
     typealias LoadedEntry = BrowserWebExtensionReconciliationLoadedEntry
     typealias UnloadEntry = BrowserWebExtensionReconciliationUnloadEntry
     typealias Plan = BrowserWebExtensionReconciliationPlan
 
     func plan(
         settingsEntries: [BrowserWebExtensionEntry],
+        previousSettingsEntries: [BrowserWebExtensionEntry] = [],
         environmentPaths: [String],
         loadedEntries: [LoadedEntry]
     ) -> Plan {
@@ -37,10 +38,29 @@ struct BrowserWebExtensionReconciliationPlanner {
             return loaded.standardizedPath != Self.standardizedResourceRootPath(for: entry)
         }
 
+        var seenPermissionStateRemovals = Set<String>()
+        let permissionStateRemovalEntries: [BrowserWebExtensionPermissionStateRemoval] =
+            previousSettingsEntries.compactMap { previous -> BrowserWebExtensionPermissionStateRemoval? in
+                let previousPath = Self.standardizedResourceRootPath(for: previous)
+                let currentPath = settingsEntries
+                    .first(where: { $0.id == previous.id })
+                    .map(Self.standardizedResourceRootPath(for:))
+                guard currentPath != previousPath else { return nil }
+                let identity = "\(previous.id)\n\(previousPath)"
+                guard seenPermissionStateRemovals.insert(identity).inserted else { return nil }
+                return BrowserWebExtensionPermissionStateRemoval(
+                    id: previous.id,
+                    standardizedPath: previousPath
+                )
+            }.sorted {
+                ($0.id, $0.standardizedPath) < ($1.id, $1.standardizedPath)
+            }
+
         return Plan(
             desiredEntries: desiredEntries,
             unloadEntries: unloadEntries,
-            loadEntries: loadEntries
+            loadEntries: loadEntries,
+            permissionStateRemovalEntries: permissionStateRemovalEntries
         )
     }
 

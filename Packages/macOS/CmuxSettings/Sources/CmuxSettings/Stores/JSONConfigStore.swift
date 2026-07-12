@@ -117,6 +117,33 @@ public actor JSONConfigStore {
     public func set<Value>(_ value: Value, for key: JSONKey<Value>) throws {
         try mutateRoot { root in
             key.path.assign(value.encodeForJSON(), in: &root)
+            return true
+        }
+    }
+
+    /// Atomically updates the latest value for a key inside the store actor.
+    ///
+    /// Use this for read-modify-write operations so concurrent callers cannot
+    /// overwrite each other's changes with stale snapshots.
+    ///
+    /// - Parameters:
+    ///   - key: The JSON-backed setting to update.
+    ///   - mutation: A synchronous mutation applied to the latest stored value.
+    /// - Returns: `true` when the mutation changed the value and wrote the file.
+    /// - Throws: Errors from reading, encoding, or writing the config file.
+    @discardableResult
+    public func update<Value>(
+        _ key: JSONKey<Value>,
+        mutation: @Sendable (inout Value) -> Void
+    ) throws -> Bool {
+        try mutateRoot { root in
+            let raw = key.path.lookup(in: root)
+            var value = Value.decodeFromJSON(raw) ?? key.defaultValue
+            let originalValue = value
+            mutation(&value)
+            guard value != originalValue else { return false }
+            key.path.assign(value.encodeForJSON(), in: &root)
+            return true
         }
     }
 
@@ -128,6 +155,7 @@ public actor JSONConfigStore {
     public func reset<Value>(_ key: JSONKey<Value>) throws {
         try mutateRoot { root in
             key.path.remove(in: &root)
+            return true
         }
     }
 
@@ -334,13 +362,14 @@ public actor JSONConfigStore {
     /// target's data. A single mutation reads and writes through one resolution
     /// snapshot, so a concurrent retarget serializes against the write instead
     /// of splitting the operation across two targets.
-    private func mutateRoot(_ mutate: (inout [String: Any]) -> Void) throws {
+    @discardableResult
+    private func mutateRoot(_ mutate: (inout [String: Any]) -> Bool) throws -> Bool {
         // Write through a symlink to its target rather than at the link path:
         // an atomic write is a temp-file + `rename()`, which would replace the
         // link itself with a regular file and break a dotfiles-managed config.
         let writeURL = Self.resolvedWriteURL(for: fileURL)
         var root = cacheIsCurrent(for: writeURL.path) ? cachedRoot : try readFromDisk(at: writeURL)
-        mutate(&root)
+        guard mutate(&root) else { return false }
 
         let parent = writeURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
@@ -365,5 +394,6 @@ public actor JSONConfigStore {
         for continuation in subscribers.values {
             continuation.yield(())
         }
+        return true
     }
 }
