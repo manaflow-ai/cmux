@@ -381,7 +381,7 @@ import Testing
         #expect(store.connectionLifecycle.resourceSnapshot.pendingRequestCount == 0)
     }
 
-    @Test func teamChangeReplaysStoredMacRecoveryAfterRetiredTaskDrains() async throws {
+    @Test func repeatedTeamChangesReplayStoredMacRecoveryForLatestScope() async throws {
         let team = MutableTeamID("team-a")
         let pairedMacStore = DelayedTeamPairedMacStore(
             recordsByTeam: [:],
@@ -403,11 +403,17 @@ import Testing
         #expect(await oldReconnect.value == false)
         #expect(await pairedMacStore.currentLoadStartCount(teamID: "team-b") == 0)
 
+        await team.set("team-c")
+        store.currentTeamDidChange()
+        #expect(await pairedMacStore.currentLoadStartCount(teamID: "team-b") == 0)
+        #expect(await pairedMacStore.currentLoadStartCount(teamID: "team-c") == 0)
+
         await pairedMacStore.release(teamID: "team-a")
 
         #expect(try await pollUntil {
-            await pairedMacStore.currentLoadStartCount(teamID: "team-b") == 1
+            await pairedMacStore.currentLoadStartCount(teamID: "team-c") == 1
         })
+        #expect(await pairedMacStore.currentLoadStartCount(teamID: "team-b") == 0)
         #expect(try await pollUntil {
             store.connectionResourceSnapshotForTesting().activeEpisodeCount == 0
                 && store.connectionResourceSnapshotForTesting().retiredLifecycleTaskCount == 0
