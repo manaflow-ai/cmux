@@ -33,8 +33,10 @@ struct MobileWorkspacePaneHierarchyFidelityTests {
     @Test func focusingAnotherPaneChangesOnlyScopedFocusSignature() throws {
         let (workspace, ordered) = try makeWorkspaceWithSplitTerminals()
         let before = MobileWorkspaceListObserver.summaryHash(
-            tabs: [workspace],
-            selectedTabID: workspace.id
+            for: [workspace],
+            groups: [],
+            selectedTabID: workspace.id,
+            previewSignatures: [:]
         )
         let focusedBefore = MobileWorkspaceListObserver.focusedHierarchySignature(for: workspace)
 
@@ -42,8 +44,10 @@ struct MobileWorkspacePaneHierarchyFidelityTests {
 
         #expect(workspace.focusedPanelId == ordered[1])
         let after = MobileWorkspaceListObserver.summaryHash(
-            tabs: [workspace],
-            selectedTabID: workspace.id
+            for: [workspace],
+            groups: [],
+            selectedTabID: workspace.id,
+            previewSignatures: [:]
         )
         let focusedAfter = MobileWorkspaceListObserver.focusedHierarchySignature(for: workspace)
         #expect(before == after, "generic list updates must not duplicate scoped focus events")
@@ -60,8 +64,10 @@ struct MobileWorkspacePaneHierarchyFidelityTests {
         #expect(panes.count == 2)
         let movedTabID = try #require(workspace.surfaceIdFromPanelId(ordered[1]))
         let before = MobileWorkspaceListObserver.summaryHash(
-            tabs: [workspace],
-            selectedTabID: workspace.id
+            for: [workspace],
+            groups: [],
+            selectedTabID: workspace.id,
+            previewSignatures: [:]
         )
 
         #expect(workspace.bonsplitController.moveTab(movedTabID, toPane: panes[1], atIndex: 0))
@@ -69,8 +75,10 @@ struct MobileWorkspacePaneHierarchyFidelityTests {
         #expect(workspace.orderedPanelIds == initialFlatOrder)
         #expect(workspace.orderedPanelIds.last == split.id)
         let after = MobileWorkspaceListObserver.summaryHash(
-            tabs: [workspace],
-            selectedTabID: workspace.id
+            for: [workspace],
+            groups: [],
+            selectedTabID: workspace.id,
+            previewSignatures: [:]
         )
         #expect(before != after, "pane membership is mobile payload state")
     }
