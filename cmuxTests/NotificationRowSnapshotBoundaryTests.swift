@@ -388,6 +388,59 @@ struct NotificationRowSnapshotBoundaryTests {
         #expect(surfaceView.performedBindingActions == ["scroll_to_bottom", "scroll_to_bottom"])
     }
 
+    /// Verifies that a persistently unavailable runtime cannot turn every
+    /// scrollbar packet into another notification restore attempt.
+    @Test func openingNotificationBoundsRejectedBindingActionRetries() {
+        let surfaceView = NotificationScrollRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = GhosttyScrollbar(
+            c: ghostty_action_scrollbar_s(total: 400, offset: 356, len: 44)
+        )
+        surfaceView.bindingActionResults = [false, false, false]
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let position = TerminalNotificationScrollPosition(row: 0, totalRows: 400)
+
+        #expect(!hostedView.restoreNotificationScrollPosition(position))
+
+        let readyScrollbar = GhosttyScrollbar(
+            c: ghostty_action_scrollbar_s(total: 400, offset: 356, len: 44)
+        )
+        for _ in 0 ..< 3 {
+            NotificationCenter.default.post(
+                name: .ghosttyDidUpdateScrollbar,
+                object: surfaceView,
+                userInfo: [GhosttyNotificationKey.scrollbar: readyScrollbar]
+            )
+        }
+
+        #expect(surfaceView.performedBindingActions == ["scroll_to_bottom", "scroll_to_bottom"])
+    }
+
+    /// Verifies that direct user scroll input supersedes a pending notification
+    /// restore after Ghostty rejects its first binding action.
+    @Test func userScrollCancelsRejectedNotificationRestore() {
+        let surfaceView = NotificationScrollRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = GhosttyScrollbar(
+            c: ghostty_action_scrollbar_s(total: 400, offset: 356, len: 44)
+        )
+        surfaceView.bindingActionResults = [false, true]
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let position = TerminalNotificationScrollPosition(row: 0, totalRows: 400)
+
+        #expect(!hostedView.restoreNotificationScrollPosition(position))
+        NotificationCenter.default.post(name: .ghosttyDidReceiveWheelScroll, object: surfaceView)
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [
+                GhosttyNotificationKey.scrollbar: GhosttyScrollbar(
+                    c: ghostty_action_scrollbar_s(total: 400, offset: 356, len: 44)
+                )
+            ]
+        )
+
+        #expect(surfaceView.performedBindingActions == ["scroll_to_bottom"])
+    }
+
     /// Verifies that legacy positions without a captured row count preserve
     /// their distance from the current live bottom.
     @Test func openingLegacyNotificationPreservesBottomRelativeViewport() {
