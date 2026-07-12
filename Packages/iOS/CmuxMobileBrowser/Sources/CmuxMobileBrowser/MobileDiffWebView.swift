@@ -111,7 +111,7 @@ public struct MobileDiffWebView: UIViewRepresentable {
                               error == nil,
                               value as? Bool == true,
                               state.selectedFileID == selectedFileID else { return }
-                        appliedSelection = selectedFileID
+                        self.appliedSelection = selectedFileID
                     }
                 }
             }
