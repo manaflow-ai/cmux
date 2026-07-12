@@ -47,6 +47,51 @@ struct MobileRecoveryStressFreeDrainTests {
         #expect(result.freeDrained, "the old surface free should drain after forced render-pipeline recovery")
     }
 
+    @Test("two hundred recoveries converge to the current container geometry")
+    func twoHundredRecoveriesConvergeToCurrentContainerGeometry() async throws {
+        let runtime = try GhosttyRuntime.shared()
+        let coordinator = MobileRecoveryStressCoordinator(
+            configuration: MobileRecoveryStressConfiguration(cycles: 200)
+        )
+        let view = GhosttySurfaceView(runtime: runtime, delegate: coordinator, fontSize: 10)
+        view.autoFocusOnWindowAttach = false
+        coordinator.surfaceView = view
+
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        view.frame = window.bounds
+        window.addSubview(view)
+        window.isHidden = false
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        defer {
+            coordinator.stop()
+            view.prepareForDismantle()
+            view.removeFromSuperview()
+            window.isHidden = true
+        }
+
+        try await waitForMountedSurface(view)
+        coordinator.start()
+
+        let converged = await waitUntil(timeout: .seconds(15)) {
+            guard view.recoveryStressSnapshot().generation >= 200 else { return false }
+            let geometry = view.debugGeometrySnapshotForTesting()
+            let cellWidth = geometry.cellPixelSize.width / max(1, geometry.screenScale)
+            let cellHeight = geometry.cellPixelSize.height / max(1, geometry.screenScale)
+            return geometry.effectiveGrid == nil
+                && abs(geometry.boundsSize.width - window.bounds.width) < 0.5
+                && abs(geometry.boundsSize.height - window.bounds.height) < 0.5
+                && geometry.renderRect.width > 0
+                && geometry.renderRect.height > 0
+                && geometry.viewportRect.width - geometry.renderRect.width <= cellWidth + 1
+                && geometry.viewportRect.height - geometry.renderRect.height <= cellHeight + 1
+        }
+        #expect(
+            converged,
+            "PASS must wait until synthetic viewport pins are released and the renderer fills the current viewport"
+        )
+    }
+
     private func makeHarness() throws -> Harness {
         let runtime = try GhosttyRuntime.shared()
         let delegate = Delegate()
