@@ -79,6 +79,56 @@ struct MobileWorkspaceHierarchyProjectionTests {
         #expect(digest(requiresCloseConfirmation: false) == digest(requiresCloseConfirmation: true))
     }
 
+    @Test func observerDigestSkipsUnknownActivityFallbackWhilePayloadSamplesIt() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalID = try #require(workspace.focusedPanelId)
+        workspace.updatePanelShellActivityState(panelId: terminalID, state: .unknown)
+
+        var digestFallbackEvaluations = 0
+        let digestWithoutConfirmation = MobileWorkspaceListProjection.digest(
+            tabs: [workspace],
+            groups: [],
+            selectedTabID: workspace.id,
+            previewSignatures: [:],
+            fallbackNeedsConfirmClose: { _, sampledID in
+                #expect(sampledID == terminalID)
+                digestFallbackEvaluations += 1
+                return false
+            }
+        )
+        let digestWithConfirmation = MobileWorkspaceListProjection.digest(
+            tabs: [workspace],
+            groups: [],
+            selectedTabID: workspace.id,
+            previewSignatures: [:],
+            fallbackNeedsConfirmClose: { _, sampledID in
+                #expect(sampledID == terminalID)
+                digestFallbackEvaluations += 1
+                return true
+            }
+        )
+
+        #expect(digestFallbackEvaluations == 0)
+        #expect(digestWithoutConfirmation == digestWithConfirmation)
+
+        var payloadFallbackEvaluations = 0
+        let payload = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: nil,
+            fallbackNeedsConfirmClose: { sampledID in
+                #expect(sampledID == terminalID)
+                payloadFallbackEvaluations += 1
+                return true
+            }
+        )
+        let terminals = try #require(payload["terminals"] as? [[String: Any]])
+        let terminal = try #require(terminals.first)
+        #expect(payloadFallbackEvaluations == 1)
+        #expect(terminal["requires_close_confirmation"] as? Bool == true)
+    }
+
     @Test func directTerminalFocusSampleMatchesFullProjection() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)

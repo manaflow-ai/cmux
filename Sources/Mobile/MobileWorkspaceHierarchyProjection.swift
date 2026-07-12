@@ -15,6 +15,21 @@ struct MobileWorkspaceHierarchyProjection {
 
     @MainActor
     init(workspace: Workspace, previewSignature: Int? = nil) {
+        self.init(
+            workspace: workspace,
+            previewSignature: previewSignature,
+            fallbackNeedsConfirmClose: { panelID in
+                workspace.terminalPanel(for: panelID)?.needsConfirmClose() ?? false
+            }
+        )
+    }
+
+    @MainActor
+    init(
+        workspace: Workspace,
+        previewSignature: Int? = nil,
+        fallbackNeedsConfirmClose: (UUID) -> Bool
+    ) {
         let focusValue = FocusValue(workspace: workspace)
         let paneIDs = workspace.bonsplitController.allPaneIds
         var paneIDByTerminalID: [UUID: UUID] = [:]
@@ -60,7 +75,7 @@ struct MobileWorkspaceHierarchyProjection {
                     canClose: workspace.panels.count > 1 && !workspace.pinnedPanelIds.contains(terminal.id),
                     requiresCloseConfirmation: workspace.panelNeedsConfirmClose(
                         panelId: terminal.id,
-                        fallbackNeedsConfirmClose: { terminal.needsConfirmClose() }
+                        fallbackNeedsConfirmClose: { fallbackNeedsConfirmClose(terminal.id) }
                     ),
                     isReady: terminal.surface.surface != nil
                 ),

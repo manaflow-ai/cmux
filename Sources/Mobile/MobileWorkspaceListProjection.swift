@@ -41,7 +41,8 @@ struct MobileWorkspaceListProjection: Hashable {
         tabs: [Workspace],
         groups: [WorkspaceGroup],
         selectedTabID: UUID?,
-        previewSignatures: [UUID: Int]
+        previewSignatures: [UUID: Int],
+        fallbackNeedsConfirmClose: ((Workspace, UUID) -> Bool)? = nil
     ) -> Int {
         var hasher = Hasher()
         hasher.combine(MobileWorkspaceHierarchyProjection.schemaVersion)
@@ -60,7 +61,13 @@ struct MobileWorkspaceListProjection: Hashable {
         for workspace in tabs {
             let list = MobileWorkspaceHierarchyProjection(
                 workspace: workspace,
-                previewSignature: previewSignatures[workspace.id]
+                previewSignature: previewSignatures[workspace.id],
+                fallbackNeedsConfirmClose: { panelID in
+                    if let fallbackNeedsConfirmClose {
+                        return fallbackNeedsConfirmClose(workspace, panelID)
+                    }
+                    return workspace.terminalPanel(for: panelID)?.needsConfirmClose() ?? false
+                }
             ).list
             list.hashObserverIdentity(into: &hasher)
         }
