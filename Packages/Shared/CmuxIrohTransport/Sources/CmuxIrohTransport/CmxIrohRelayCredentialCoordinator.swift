@@ -3,6 +3,9 @@ public import Foundation
 
 /// Keeps endpoint-scoped relay credentials fresh without recreating the endpoint.
 public actor CmxIrohRelayCredentialCoordinator {
+    private static let minimumUsefulValidity: TimeInterval = 10
+    private static let postExpiryRetryDelay: TimeInterval = 1
+
     private struct Binding: Equatable, Sendable {
         let id: String
         let endpointIdentity: CmxIrohPeerIdentity
@@ -151,10 +154,39 @@ public actor CmxIrohRelayCredentialCoordinator {
                 return
             } catch {
                 guard isCurrent(revision), !Task.isCancelled else { return }
-                deadline = clock.now().addingTimeInterval(retryDelay)
-                retryDelay = min(retryDelay * 2, 30 * 60)
+                let now = clock.now()
+                deadline = retryDeadline(now: now, backoff: retryDelay)
+                if let expiresAt = installedCredential?.expiresAt,
+                   let deadline,
+                   deadline > expiresAt {
+                    retryDelay = 60
+                } else {
+                    retryDelay = min(retryDelay * 2, 30 * 60)
+                }
             }
         }
+    }
+
+    /// Keeps refresh retries inside the useful lifetime of an installed token.
+    ///
+    /// Exponential backoff alone can place the first retry at expiry because
+    /// five-minute relay tokens refresh only one minute early. Halving the
+    /// remaining lifetime preserves multiple bounded attempts. Once too little
+    /// validity remains for a useful mint-and-install round trip, retry just
+    /// after expiry and reset the backoff instead of growing a long outage.
+    private func retryDeadline(now: Date, backoff: TimeInterval) -> Date {
+        guard let expiresAt = installedCredential?.expiresAt,
+              now < expiresAt else {
+            return now.addingTimeInterval(backoff)
+        }
+        let remainingValidity = expiresAt.timeIntervalSince(now)
+        guard remainingValidity > Self.minimumUsefulValidity else {
+            return expiresAt.addingTimeInterval(Self.postExpiryRetryDelay)
+        }
+        return min(
+            now.addingTimeInterval(backoff),
+            now.addingTimeInterval(remainingValidity / 2)
+        )
     }
 
     private func install(
