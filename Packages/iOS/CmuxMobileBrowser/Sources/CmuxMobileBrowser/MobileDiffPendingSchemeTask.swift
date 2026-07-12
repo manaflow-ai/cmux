@@ -3,7 +3,7 @@ import Foundation
 import WebKit
 
 /// Safety: WebKit owns this callback token and permits asynchronous responses;
-/// `MobileDiffSchemeTaskLifetime` prevents callbacks after synchronous stop.
+/// `MobileDiffSchemeTaskLifetime` serializes callbacks with cancellation.
 final class MobileDiffPendingSchemeTask: @unchecked Sendable {
     private let task: any WKURLSchemeTask
 

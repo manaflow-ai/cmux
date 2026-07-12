@@ -26,20 +26,23 @@ final class MobileDiffPatchSchemeHandler: NSObject, WKURLSchemeHandler, @uncheck
         }
         let requestID = ObjectIdentifier(urlSchemeTask as AnyObject)
         let pendingTask = MobileDiffPendingSchemeTask(urlSchemeTask)
-        taskLifetime.register(requestID)
         Task { [store, taskLifetime] in
+            await taskLifetime.register(requestID)
             guard let content = await store.content(for: url.path) else {
-                _ = taskLifetime.performCallback(requestID) { pendingTask.fail(with: URLError(.badURL)) }
-                taskLifetime.finish(requestID)
+                _ = await taskLifetime.performCallback(requestID) { pendingTask.fail(with: URLError(.badURL)) }
+                await taskLifetime.finish(requestID)
                 return
             }
-            _ = taskLifetime.performCallback(requestID) { pendingTask.finish(url: url, content: content) }
-            taskLifetime.finish(requestID)
+            _ = await taskLifetime.performCallback(requestID) { pendingTask.finish(url: url, content: content) }
+            await taskLifetime.finish(requestID)
         }
     }
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {
-        taskLifetime.stop(ObjectIdentifier(urlSchemeTask as AnyObject))
+        let requestID = ObjectIdentifier(urlSchemeTask as AnyObject)
+        Task { [taskLifetime] in
+            await taskLifetime.stop(requestID)
+        }
     }
 }
 #endif

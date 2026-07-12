@@ -1,43 +1,22 @@
-import Foundation
-
-/// Keeps WebKit scheme-task callbacks from outliving a synchronous `stop` call.
-///
-/// WebKit may stop a request while its payload is being loaded asynchronously.
-/// The protocol's synchronous stop boundary cannot await an actor, so one
-/// condition protects task membership and callback counts. Removing the task and
-/// waiting for callbacks already in flight guarantees no callback can begin after
-/// `stop(_:)` returns.
-final class MobileDiffSchemeTaskLifetime: @unchecked Sendable {
-    private let condition = NSCondition()
+/// Serializes WebKit scheme-task callbacks and cancellation without blocking WebKit.
+actor MobileDiffSchemeTaskLifetime {
     private var activeTasks: Set<ObjectIdentifier> = []
-    private var callbacksInFlight: [ObjectIdentifier: Int] = [:]
+    private var stoppedBeforeRegistration: Set<ObjectIdentifier> = []
 
     func register(_ taskID: ObjectIdentifier) {
-        condition.lock()
+        if stoppedBeforeRegistration.remove(taskID) != nil {
+            return
+        }
         activeTasks.insert(taskID)
-        callbacksInFlight[taskID] = 0
-        condition.unlock()
     }
 
-    func performCallback(_ taskID: ObjectIdentifier, _ callback: () -> Void) -> Bool {
-        condition.lock()
-        guard activeTasks.contains(taskID) else {
-            condition.unlock()
-            return false
-        }
-        callbacksInFlight[taskID, default: 0] += 1
-        condition.unlock()
-
+    func performCallback(
+        _ taskID: ObjectIdentifier,
+        _ callback: @Sendable () -> Void
+    ) -> Bool {
+        guard activeTasks.contains(taskID) else { return false }
         callback()
-
-        condition.lock()
-        callbacksInFlight[taskID, default: 1] -= 1
-        if callbacksInFlight[taskID] == 0 {
-            condition.broadcast()
-        }
-        let isActive = activeTasks.contains(taskID)
-        condition.unlock()
-        return isActive
+        return true
     }
 
     func finish(_ taskID: ObjectIdentifier) {
@@ -45,15 +24,8 @@ final class MobileDiffSchemeTaskLifetime: @unchecked Sendable {
     }
 
     func stop(_ taskID: ObjectIdentifier) {
-        condition.lock()
-        guard activeTasks.remove(taskID) != nil else {
-            condition.unlock()
-            return
+        if activeTasks.remove(taskID) == nil {
+            stoppedBeforeRegistration.insert(taskID)
         }
-        while callbacksInFlight[taskID, default: 0] > 0 {
-            condition.wait()
-        }
-        callbacksInFlight[taskID] = nil
-        condition.unlock()
     }
 }

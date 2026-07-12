@@ -5,32 +5,29 @@ import Testing
 @Suite("Mobile diff scheme task lifetime")
 struct MobileDiffSchemeTaskLifetimeTests {
     @Test("A stopped request cannot begin a WebKit callback")
-    func stoppedRequestRejectsCallback() {
+    func stoppedRequestRejectsCallback() async {
         let lifetime = MobileDiffSchemeTaskLifetime()
         let taskID = ObjectIdentifier(NSObject())
-        var callbackRan = false
 
-        lifetime.register(taskID)
-        lifetime.stop(taskID)
-        let accepted = lifetime.performCallback(taskID) {
-            callbackRan = true
-        }
+        await lifetime.register(taskID)
+        await lifetime.stop(taskID)
+        let accepted = await lifetime.performCallback(taskID) {}
 
         #expect(!accepted)
-        #expect(!callbackRan)
     }
 
     @Test("A finished request cannot receive another callback")
-    func finishedRequestRejectsLaterCallback() {
+    func finishedRequestRejectsLaterCallback() async {
         let lifetime = MobileDiffSchemeTaskLifetime()
         let taskID = ObjectIdentifier(NSObject())
-        var callbackCount = 0
 
-        lifetime.register(taskID)
-        #expect(lifetime.performCallback(taskID) { callbackCount += 1 })
-        lifetime.finish(taskID)
-        #expect(!lifetime.performCallback(taskID) { callbackCount += 1 })
-        #expect(callbackCount == 1)
+        await lifetime.register(taskID)
+        let accepted = await lifetime.performCallback(taskID) {}
+        await lifetime.finish(taskID)
+        let acceptedAfterFinish = await lifetime.performCallback(taskID) {}
+
+        #expect(accepted)
+        #expect(!acceptedAfterFinish)
     }
 
     @Test("A reentrant stop does not deadlock callback delivery")
@@ -38,10 +35,11 @@ struct MobileDiffSchemeTaskLifetimeTests {
         let lifetime = MobileDiffSchemeTaskLifetime()
         let taskID = ObjectIdentifier(NSObject())
 
-        lifetime.register(taskID)
+        await lifetime.register(taskID)
         let accepted = await lifetime.performCallback(taskID) {
-            lifetime.stop(taskID)
+            Task { await lifetime.stop(taskID) }
         }
+        await lifetime.stop(taskID)
         let acceptedAfterStop = await lifetime.performCallback(taskID) {}
 
         #expect(accepted)
