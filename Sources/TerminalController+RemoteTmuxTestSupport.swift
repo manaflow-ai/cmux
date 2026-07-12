@@ -224,6 +224,16 @@ extension TerminalController {
                                 mismatches.append(detail)
                             }
                         }
+                        // Geometry the grids cannot see: hosted terminal
+                        // views whose frame drifted off their anchor draw
+                        // OVER chrome (tab strips, dividers, neighbors)
+                        // even when every grid is exact.
+                        if let anyView = mirror.panelsByPaneId.values.first?.hostedView,
+                           let hostWindow = anyView.window {
+                            for desc in TerminalWindowPortalRegistry.misplacedHostedViewDescriptions(for: hostWindow) {
+                                mismatches.append("misplaced \(desc)")
+                            }
+                        }
                         windows.append([
                             "window": windowId,
                             "claimed": claimed.map { "\($0.0)x\($0.1)" } ?? "none",

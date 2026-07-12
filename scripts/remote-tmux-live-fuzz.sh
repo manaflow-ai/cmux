@@ -148,9 +148,9 @@ check_iter() {
   done
   if [ "$tries" -ge 10 ]; then
     note_fail "$iter" "windows never settled after 20s: $(printf '%s' "$settled_json" | tr -d '\n' | cut -c1-300)"
-  elif printf '%s' "$settled_json" | grep -q 'rendered='; then
+  elif printf '%s' "$settled_json" | grep -qE 'rendered=|misplaced'; then
     note_fail "$iter" "settled with pane mismatches:"
-    printf '%s' "$settled_json" | grep -o '"%[0-9]* rendered=[^"]*"' | head -4 | sed 's/^/  /'
+    printf '%s' "$settled_json" | grep -oE '"(%[0-9]* rendered=|misplaced )[^"]*"' | head -4 | sed 's/^/  /'
   fi
   # Oracle 2: every ruler redrew to its actual pane size on the tmux side
   # (a stale ruler would make on-screen text look mangled without any

@@ -848,25 +848,13 @@ final class WindowTerminalPortal: NSObject {
               let reference = installedReferenceView else {
             return false
         }
-        var frameInContainer = container.convert(reference.bounds, from: reference)
+        let frameInContainer = container.convert(reference.bounds, from: reference)
         let hasFiniteFrame =
             frameInContainer.origin.x.isFinite &&
             frameInContainer.origin.y.isFinite &&
             frameInContainer.size.width.isFinite &&
             frameInContainer.size.height.isFinite
         guard hasFiniteFrame else { return false }
-        // The host mirrors ON-SCREEN geometry, and nothing larger than the
-        // window's content is on screen. The SwiftUI reference view can
-        // report a content-derived size that exceeds the window (SwiftUI
-        // children may exceed their proposals), and adopting it verbatim
-        // makes every hosted layout pass pay for the oversized tree — the
-        // probe caught this host at 4,241 points inside a 1,728-point
-        // window, with the display cycle relaying the excess every frame.
-        if let bound = container.window?.contentLayoutRect.size,
-           bound.width > 1, bound.height > 1 {
-            frameInContainer.size.width = min(frameInContainer.size.width, bound.width)
-            frameInContainer.size.height = min(frameInContainer.size.height, bound.height)
-        }
 
         if !Self.rectApproximatelyEqual(hostView.frame, frameInContainer) {
             CATransaction.begin()
@@ -912,7 +900,15 @@ final class WindowTerminalPortal: NSObject {
         if let container = installedContainerView { parts.append("c\(container.frame.debugDescription)") }
         if let reference = installedReferenceView { parts.append("r\(reference.frame.debugDescription)") }
         for (id, entry) in entriesByHostedId.sorted(by: { $0.key.hashValue < $1.key.hashValue }) {
-            parts.append("e\(id.hashValue):\(entry.hostedView?.frame.debugDescription ?? "gone")")
+            var part = "e\(id.hashValue):\(entry.hostedView?.frame.debugDescription ?? "gone")"
+            // The anchor's expected rect is part of the pass's INPUT: while
+            // a hosted view disagrees with its anchor the signature differs
+            // and passes keep running; once aligned they stop. Without this
+            // a pass could stop early with content parked over chrome.
+            if let anchor = entry.anchorView, anchor.window != nil {
+                part += "->\(hostView.convert(anchor.bounds, from: anchor).debugDescription)"
+            }
+            parts.append(part)
         }
         return parts.joined(separator: "|")
     }
@@ -1311,6 +1307,20 @@ final class WindowTerminalPortal: NSObject {
     }
 
     func synchronizeHostedViewForAnchor(_ anchorView: NSView, syncLayout: Bool = true) {
+        // Anchor geometry callbacks fire for every layout pass — including
+        // the passes our own syncs run — and treating each one as a
+        // synchronous full-portal sync (hierarchy layout + every hosted
+        // view + a deferred follow-up) kept the display cycle busy
+        // indefinitely under churn. Outside a live drag they coalesce into
+        // the scheduled pass like every other trigger; during a drag the
+        // immediate path below keeps the dragged split visually glued.
+        let interactive = hostView.inLiveResize
+            || window?.inLiveResize == true
+            || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
+        guard interactive else {
+            scheduleExternalGeometrySynchronize(forceImmediate: false)
+            return
+        }
         guard ensureInstalled(syncLayout: syncLayout) else { return }
         if syncLayout {
             synchronizeLayoutHierarchy()
@@ -1340,6 +1350,39 @@ final class WindowTerminalPortal: NSObject {
             }
         }
     }
+
+#if DEBUG
+    /// Hosted views whose frame has drifted from their anchor's — the
+    /// definitive "terminal drawn over chrome" detector: the portal paints
+    /// hosted content ABOVE SwiftUI at the anchor's rect, so any divergence
+    /// means content is covering something it should not (tab strips,
+    /// dividers, a neighbor pane). Returns one description per offender.
+    func misplacedHostedViewDescriptions() -> [String] {
+        var out: [String] = []
+        for (_, entry) in entriesByHostedId {
+            guard let hosted = entry.hostedView,
+                  let anchor = entry.anchorView,
+                  entry.visibleInUI,
+                  !hosted.isHidden,
+                  hosted.superview != nil,
+                  anchor.window != nil else { continue }
+            let expected = hostView.convert(anchor.bounds, from: anchor)
+            let actual = hosted.frame
+            if abs(expected.origin.x - actual.origin.x) > 1.5
+                || abs(expected.origin.y - actual.origin.y) > 1.5
+                || abs(expected.width - actual.width) > 1.5
+                || abs(expected.height - actual.height) > 1.5 {
+                out.append(
+                    "hosted=\(portalDebugToken(hosted))"
+                        + " actual=\(portalDebugFrame(actual))"
+                        + " anchor=\(portalDebugFrame(expected))"
+                )
+            }
+        }
+        return out
+    }
+
+#endif
 
     private func scheduleDeferredFullSynchronizeAll() {
         guard !hasDeferredFullSyncScheduled else { return }
@@ -1878,6 +1921,12 @@ final class WindowTerminalPortal: NSObject {
 
 @MainActor
 enum TerminalWindowPortalRegistry {
+#if DEBUG
+    @MainActor
+    static func misplacedHostedViewDescriptions(for window: NSWindow) -> [String] {
+        portalsByWindowId[ObjectIdentifier(window)]?.misplacedHostedViewDescriptions() ?? []
+    }
+#endif
 #if DEBUG
     static var isPointerDragActiveForTesting = false
 #endif
