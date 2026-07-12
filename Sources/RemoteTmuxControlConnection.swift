@@ -147,6 +147,13 @@ final class RemoteTmuxControlConnection {
     /// The last size any writer requested per window — per-window dedup
     /// baseline and the reconnect re-pin table.
     var lastWindowSizes: [Int: (Int, Int)] = [:]
+    /// What the SERVER has actually been sent, per window — the dedup
+    /// baseline. Distinct from ``lastWindowSizes`` (what callers requested):
+    /// a request made while the connection is attaching is recorded but not
+    /// sent, and deduping against the request table then suppressed every
+    /// retry of a size the server never saw — a claim wedged at attach
+    /// stayed wedged for the connection's lifetime.
+    var sentWindowSizes: [Int: (Int, Int)] = [:]
     /// The most recent window a size was requested for — the deterministic
     /// choice when the old-server fallback must replay one size session-wide.
     var lastSizeRequestWindowId: Int?

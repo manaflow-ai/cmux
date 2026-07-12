@@ -188,6 +188,10 @@ extension RemoteTmuxControlConnection {
     }
 
     func reseedAfterReconnect() {
+        // The fresh ssh client has been sent nothing: the dedup baseline
+        // must reset with it, or requests matching pre-drop sends would be
+        // suppressed against a server that no longer has them.
+        sentWindowSizes.removeAll()
         if let size = lastClientSize {
             send("refresh-client -C \(size.columns)x\(size.rows)")
         }

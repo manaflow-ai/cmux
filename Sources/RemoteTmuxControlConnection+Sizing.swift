@@ -75,7 +75,7 @@ extension RemoteTmuxControlConnection {
         // fallback the server holds ONE size, so a window's own last request
         // being unchanged does not mean the server still has it (another
         // window may have re-sized the session since).
-        if supportsPerWindowSize, let last = lastWindowSizes[windowId], last == (columns, rows),
+        if supportsPerWindowSize, let sent = sentWindowSizes[windowId], sent == (columns, rows),
            connectionState == .connected {
             return
         }
@@ -112,6 +112,7 @@ extension RemoteTmuxControlConnection {
     /// Sends the per-window form, tagging the command so an `%error` reply
     /// can flip the capability off and replay via the session-wide path.
     func sendPerWindowSize(windowId: Int, columns: Int, rows: Int) {
+        sentWindowSizes[windowId] = (columns, rows)
         _ = sendInternal(
             "refresh-client -C '@\(windowId):\(columns)x\(rows)'",
             kind: .perWindowSize(windowId)
