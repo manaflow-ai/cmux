@@ -2,6 +2,58 @@ internal import CmuxMobileRPC
 internal import CmuxMobileShellModel
 
 extension MobileShellComposite {
+    func foregroundWorkspaceRowIDs() -> Set<MobileWorkspacePreview.ID> {
+        let stateKey: String
+        if let foregroundMacDeviceID, workspacesByMac[foregroundMacDeviceID] != nil {
+            stateKey = foregroundMacDeviceID
+        } else {
+            stateKey = Self.foregroundAnonymousKey
+        }
+        guard let state = workspacesByMac[stateKey] else { return [] }
+        return Set(state.workspaces.compactMap { stateWorkspace in
+            workspaces.first { workspace in
+                workspace.rpcWorkspaceID == stateWorkspace.rpcWorkspaceID
+                    && (stateKey == Self.foregroundAnonymousKey
+                        ? workspace.macDeviceID == nil
+                        : workspace.macDeviceID == stateKey)
+            }?.id
+        })
+    }
+
+    func workspaceRowIDs(
+        ownedByMacDeviceID macDeviceID: String?
+    ) -> Set<MobileWorkspacePreview.ID> {
+        Set(workspaces.compactMap { workspace in
+            if let macDeviceID, !macDeviceID.isEmpty {
+                return workspace.macDeviceID == macDeviceID ? workspace.id : nil
+            }
+            return workspace.macDeviceID == nil ? workspace.id : nil
+        })
+    }
+
+    /// Installs a full secondary-Mac list and reconciles hierarchy recovery for
+    /// both surviving and remotely removed workspace rows.
+    func installAuthoritativeSecondaryWorkspaceState(
+        macID: String,
+        displayName: String?,
+        workspaces: [MobileWorkspacePreview],
+        actionCapabilities: MobileWorkspaceActionCapabilities
+    ) {
+        let previousWorkspaceIDs = workspaceRowIDs(ownedByMacDeviceID: macID)
+        workspacesByMac[macID] = MacWorkspaceState(
+            macDeviceID: macID,
+            displayName: displayName,
+            workspaces: workspaces,
+            status: .connected,
+            actionCapabilities: actionCapabilities
+        )
+        terminalReorderGate.reconcileAfterAuthoritativeRefresh(
+            workspaceIDs: previousWorkspaceIDs.union(
+                workspaceRowIDs(ownedByMacDeviceID: macID)
+            )
+        )
+    }
+
     /// Coalesced full-list refresh for a secondary Mac driven by
     /// `workspace.updated` pushes. Each task performs at most one leading and
     /// one trailing pass, then hands any newer request to a fresh bounded task.
@@ -30,11 +82,10 @@ extension MobileShellComposite {
                 subscription.refreshFinishedGeneration = generation
                 if let previews {
                     subscription.refreshCompletedGeneration = generation
-                    self.workspacesByMac[macID] = MacWorkspaceState(
-                        macDeviceID: macID,
+                    self.installAuthoritativeSecondaryWorkspaceState(
+                        macID: macID,
                         displayName: displayName,
                         workspaces: previews,
-                        status: .connected,
                         actionCapabilities: subscription.actionCapabilities
                     )
                 }

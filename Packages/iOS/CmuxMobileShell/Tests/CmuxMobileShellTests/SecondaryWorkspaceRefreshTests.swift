@@ -87,6 +87,59 @@ import Testing
 }
 
 @MainActor
+@Test func successfulForegroundRefreshReopensHierarchyForRemovedWorkspace() async throws {
+    let router = RoutingHostRouter()
+    let store = MobileShellComposite(
+        connectionState: .connected,
+        workspaces: MobileShellComposite.preview().workspaces
+    )
+    try installFreshRemoteClient(on: store, router: router)
+    let removedWorkspaceID = try #require(store.workspaces.first?.id)
+    store.terminalReorderGate.requireRefresh(workspaceID: removedWorkspaceID)
+
+    #expect(await store.refreshForegroundWorkspaceList())
+
+    #expect(store.terminalReorderGate.canMutate(workspaceID: removedWorkspaceID))
+}
+
+@MainActor
+@Test func successfulSecondaryRefreshPrunesRemovedWorkspaceRecovery() throws {
+    let store = MobileShellComposite.preview()
+    let foreground = MobileWorkspacePreview(
+        id: "foreground-workspace",
+        macDeviceID: "mac-a",
+        name: "Foreground",
+        terminals: []
+    )
+    let secondary = MobileWorkspacePreview(
+        id: "secondary-workspace",
+        macDeviceID: "mac-b",
+        name: "Secondary",
+        terminals: []
+    )
+    store.setWorkspaceStatesForTesting(
+        [
+            "mac-a": MacWorkspaceState(macDeviceID: "mac-a", workspaces: [foreground]),
+            "mac-b": MacWorkspaceState(macDeviceID: "mac-b", workspaces: [secondary]),
+        ],
+        foregroundMacDeviceID: "mac-a"
+    )
+    let removedWorkspaceID = try #require(
+        store.workspaces.first(where: { $0.macDeviceID == "mac-b" })?.id
+    )
+    store.terminalReorderGate.requireRefresh(workspaceID: removedWorkspaceID)
+
+    store.installAuthoritativeSecondaryWorkspaceState(
+        macID: "mac-b",
+        displayName: "Secondary Mac",
+        workspaces: [],
+        actionCapabilities: .none
+    )
+
+    #expect(store.terminalReorderGate.canMutate(workspaceID: removedWorkspaceID))
+}
+
+@MainActor
 @Test func concurrentForegroundMutationRefreshesShareNewestSuccess() async throws {
     let router = RoutingHostRouter()
     let store = MobileShellComposite(

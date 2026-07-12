@@ -310,7 +310,10 @@ struct TerminalHierarchySheet: View {
 
     private func presentedPane(_ pane: TerminalHierarchyPaneSnapshot) -> TerminalHierarchyPaneSnapshot {
         guard let optimisticIDs = optimisticTerminalIDsByPane[pane.id] else { return pane }
-        let rowsByID = Dictionary(uniqueKeysWithValues: pane.rows.map { ($0.id, $0) })
+        let rowsByID = Dictionary(
+            pane.rows.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         return TerminalHierarchyPaneSnapshot(
             id: pane.id,
             spatialIndex: pane.spatialIndex,

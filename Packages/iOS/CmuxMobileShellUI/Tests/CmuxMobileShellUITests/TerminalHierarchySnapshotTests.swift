@@ -93,3 +93,23 @@ import Testing
     #expect(snapshot.panes[0].rows.first?.isSelected == true)
     #expect(snapshot.connectionStatus == .unavailable)
 }
+
+@Test func hierarchySnapshotDeduplicatesMalformedPaneMembership() throws {
+    let workspace = MobileWorkspacePreview(
+        id: "workspace-duplicate-membership",
+        name: "Duplicate membership",
+        terminals: [MobileTerminalPreview(id: "terminal-a", name: "Shell")],
+        panes: [
+            MobilePanePreview(
+                id: "pane-a",
+                spatialIndex: 0,
+                terminalIDs: ["terminal-a", "terminal-a"]
+            ),
+        ]
+    )
+
+    let pane = try #require(
+        TerminalHierarchySnapshot(workspace: workspace, selectedTerminalID: nil).panes.first
+    )
+    #expect(pane.rows.map(\.id) == ["terminal-a"])
+}

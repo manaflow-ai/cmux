@@ -50,6 +50,22 @@ import Testing
 }
 
 @MainActor
+@Test func authoritativeRefreshReopensAndPrunesHierarchyMutationGates() {
+    let gate = MobileTerminalReorderGate()
+    gate.requireRefresh(workspaceID: "refreshed-workspace")
+    gate.requireRefresh(workspaceID: "removed-workspace")
+    gate.requireRefresh(workspaceID: "other-mac-workspace")
+
+    gate.reconcileAfterAuthoritativeRefresh(
+        workspaceIDs: ["refreshed-workspace", "removed-workspace"]
+    )
+
+    #expect(gate.canMutate(workspaceID: "refreshed-workspace"))
+    #expect(gate.canMutate(workspaceID: "removed-workspace"))
+    #expect(!gate.canMutate(workspaceID: "other-mac-workspace"))
+}
+
+@MainActor
 @Test func rejectedReorderReleasesItsReservation() async throws {
     let store = MobileShellComposite.preview()
     let pane = MobilePanePreview(

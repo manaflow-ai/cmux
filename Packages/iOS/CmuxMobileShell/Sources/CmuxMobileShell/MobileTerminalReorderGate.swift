@@ -68,6 +68,14 @@ public final class MobileTerminalReorderGate {
         }
     }
 
+    /// Reopens workspaces represented by a successful authoritative list read.
+    /// Callers include prior IDs so remotely removed rows cannot leave stale state.
+    func reconcileAfterAuthoritativeRefresh(
+        workspaceIDs: Set<MobileWorkspacePreview.ID>
+    ) {
+        refreshRequiredWorkspaceIDs.subtract(workspaceIDs)
+    }
+
     func owns(_ reservation: MobileTerminalReorderReservation) -> Bool {
         activeReservation == reservation
     }

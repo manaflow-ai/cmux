@@ -24,11 +24,13 @@ struct TerminalHierarchySnapshot: Equatable {
             }
         }
         panes = workspace.resolvedPanes.map { pane in
-            TerminalHierarchyPaneSnapshot(
+            var seenTerminalIDs: Set<MobileTerminalPreview.ID> = []
+            return TerminalHierarchyPaneSnapshot(
                 id: pane.id,
                 spatialIndex: pane.spatialIndex,
                 isFocused: pane.isFocused,
                 rows: pane.terminalIDs.compactMap { terminalID in
+                    guard seenTerminalIDs.insert(terminalID).inserted else { return nil }
                     guard let terminal = terminalsByID[terminalID] else { return nil }
                     return TerminalHierarchyRowSnapshot(
                         id: terminal.id,

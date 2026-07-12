@@ -2495,11 +2495,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         replaceRemoteClient(with: sub.client)
         foregroundMacDeviceID = macID
         supportedHostCapabilities = sub.supportedHostCapabilities
-        workspacesByMac[macID] = MacWorkspaceState(
-            macDeviceID: macID,
+        installAuthoritativeSecondaryWorkspaceState(
+            macID: macID,
             displayName: displayName,
             workspaces: previews,
-            status: .connected,
             actionCapabilities: sub.actionCapabilities
         )
         // The previous foreground's live client was just replaced; drop its stale
@@ -3589,11 +3588,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     scope: scope
                 ) else { continue }
                 if let previews {
-                    workspacesByMac[mac.macDeviceID] = MacWorkspaceState(
-                        macDeviceID: mac.macDeviceID,
+                    installAuthoritativeSecondaryWorkspaceState(
+                        macID: mac.macDeviceID,
                         displayName: mac.displayName,
                         workspaces: previews,
-                        status: .connected,
                         actionCapabilities: existing.actionCapabilities
                     )
                 } else {
@@ -3706,11 +3704,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         if let previews {
-            workspacesByMac[macID] = MacWorkspaceState(
-                macDeviceID: macID,
+            installAuthoritativeSecondaryWorkspaceState(
+                macID: macID,
                 displayName: displayName,
                 workspaces: previews,
-                status: .connected,
                 actionCapabilities: subscription.actionCapabilities
             )
         } else {
@@ -7501,6 +7498,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         mergeExistingWorkspaces: Bool = false,
         groupsAreAuthoritative: Bool = true
     ) {
+        let previousForegroundWorkspaceIDs: Set<MobileWorkspacePreview.ID> =
+            mergeExistingWorkspaces
+                ? []
+                : foregroundWorkspaceRowIDs()
         let remoteWorkspaces = remoteWorkspacesPreservingSnapshots(from: response)
         // Write the foreground Mac's per-Mac state; `workspaces` / `workspaceGroups`
         // recompute from the source of truth automatically (no explicit merge or
@@ -7517,6 +7518,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
         setForegroundWorkspaceState(
             workspaces: remoteWorkspaces, groups: groups, merge: mergeExistingWorkspaces)
+        let refreshedWorkspaceIDs = Set(response.workspaces.compactMap { remote in
+            rowWorkspaceID(
+                forRemoteWorkspaceID: MobileWorkspacePreview.ID(rawValue: remote.id),
+                macDeviceID: foregroundMacDeviceID
+            )
+        })
+        terminalReorderGate.reconcileAfterAuthoritativeRefresh(
+            workspaceIDs: previousForegroundWorkspaceIDs.union(refreshedWorkspaceIDs)
+        )
         if preferActiveTicketTarget, selectActiveTicketTargetIfAvailable() {
             return
         }
