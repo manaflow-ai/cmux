@@ -4,6 +4,12 @@ import Foundation
 
 @MainActor
 extension MobileShellComposite {
+    var hasStoredMacReconnectDemand: Bool {
+        connectionLifecycle.isReconnectingStoredMac
+            || connectionLifecycleRetiredTask != nil
+            || connectionLifecycleReconnectPendingAfterRetirement
+    }
+
     /// The first reachable host/port route to a Mac, in priority order.
     ///
     /// When `preferNonLoopback` is set (physical devices), a real route

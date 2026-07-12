@@ -1202,7 +1202,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// never drops the terminal the user is in (the chosen "keep session, re-scope
     /// lists" behavior).
     public func currentTeamDidChange() {
-        let wasReconnectingStoredMac = connectionLifecycle.isReconnectingStoredMac
+        let shouldReplayStoredMacReconnect = hasStoredMacReconnectDemand
         resetConnectionLifecycle()
         secondaryAggregationScopeGeneration &+= 1
         // Presence: cancel + re-subscribe so the online dots reflect the new team
@@ -1236,7 +1236,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacs = []
         forgottenMacDeviceIDsByScope = [:]
         registryDevices = []
-        if wasReconnectingStoredMac {
+        if shouldReplayStoredMacReconnect {
             restartStoredMacReconnectAfterScopeChange()
         }
     }
