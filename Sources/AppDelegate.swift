@@ -1831,7 +1831,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         terminateKillWatchdogTask = nil
         // A cancelled quit ends this terminate request; the next quit must reply again.
         if !shouldTerminate {
-            updaterAbandonsRelaunchPreparation()
             didReplyToTerminate = false
             isAwaitingTerminateKills = false
         }
@@ -4403,9 +4402,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let contexts = sortedMainWindowContextsForSessionSnapshot()
 
         guard !contexts.isEmpty else { return (nil, false) }
-        let restorableAgentIndex = suppliedRestorableAgentIndex
-            ?? SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-            ?? .empty
+        let restorableAgentIndex = suppliedRestorableAgentIndex ?? .empty
 
         var windows: [SessionWindowSnapshot] = []
         var removedCrashDiagnosticState = false

@@ -232,21 +232,25 @@ final class SharedLiveAgentIndex {
         maximumAge: TimeInterval = 60
     ) async -> ProcessDetectedResumeIndexes? {
         ensureWatchingHookStoreDirectory()
-        if refreshTailID != nil {
-            let task = requestRefresh(
-                freshness: .joinCurrentGeneration,
-                publication: .scoped,
-                validating: nil
-            )
-            return await task.value.map(ProcessDetectedResumeIndexes.init)
-        }
-        if case .some = latestCompletedLoadResult,
-           let latestCompletedAt,
-           dateProvider().timeIntervalSince(latestCompletedAt) < maximumAge {
+        while true {
+            if refreshTailID != nil {
+                let task = requestRefresh(
+                    freshness: .joinCurrentGeneration,
+                    publication: .scoped,
+                    validating: nil
+                )
+                return await task.value.map(ProcessDetectedResumeIndexes.init)
+            }
+            guard case .some = latestCompletedLoadResult,
+                  let latestCompletedAt,
+                  dateProvider().timeIntervalSince(latestCompletedAt) < maximumAge else {
+                break
+            }
             let processScopeFingerprintProvider = self.processScopeFingerprintProvider
             let currentProcessScopeFingerprint = await Task.detached(priority: .utility) {
                 processScopeFingerprintProvider()
             }.value
+            guard refreshTailID == nil else { continue }
             if let currentResult = self.latestCompletedLoadResult,
                let currentCompletedAt = self.latestCompletedAt,
                dateProvider().timeIntervalSince(currentCompletedAt) < maximumAge,

@@ -112,7 +112,7 @@ extension AppDelegate {
         terminationPreparationTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let resumeIndexes = await self.confirmedTerminationSessionCapture.capture {
-                await self.terminationResumeIndexCoordinator.load()
+                await self.terminationResumeIndexCoordinator.loadForNewTerminationAttempt()
             }
             guard !Task.isCancelled else { return }
             if let resumeIndexes {
