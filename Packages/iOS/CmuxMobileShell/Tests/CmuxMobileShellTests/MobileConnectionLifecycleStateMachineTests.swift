@@ -40,6 +40,79 @@ import Testing
         #expect(reducer.activeEpisode == nil)
     }
 
+    @Test func recoveryPresentationStateBelongsToTheLifecycleOwner() {
+        var reducer = MobileConnectionLifecycleStateMachine()
+        #expect(!reducer.isRecovering)
+        #expect(!reducer.recoveryFailed)
+
+        guard case .start(let failedEpisode) = reducer.request(
+            .networkPathChanged,
+            health: .disconnected
+        ) else {
+            Issue.record("network recovery must start one episode")
+            return
+        }
+        #expect(reducer.isRecovering)
+        #expect(!reducer.recoveryFailed)
+
+        #expect(reducer.complete(
+            id: failedEpisode.id,
+            health: .disconnected,
+            succeeded: false
+        ) == nil)
+        #expect(!reducer.isRecovering)
+        #expect(reducer.recoveryFailed)
+
+        guard case .start(let retryEpisode) = reducer.request(
+            .manualRetry,
+            health: .disconnected
+        ) else {
+            Issue.record("manual retry must replace failure with an owned episode")
+            return
+        }
+        #expect(reducer.isRecovering)
+        #expect(!reducer.recoveryFailed)
+
+        #expect(reducer.complete(
+            id: retryEpisode.id,
+            health: .healthy,
+            succeeded: true
+        ) == nil)
+        #expect(!reducer.isRecovering)
+        #expect(!reducer.recoveryFailed)
+    }
+
+    @Test func twoHundredMixedCyclesKeepLifecycleResourcesBounded() {
+        var reducer = MobileConnectionLifecycleStateMachine()
+
+        for cycle in 0..<200 {
+            let health: MobileConnectionLifecycleHealthSnapshot = cycle.isMultiple(of: 2)
+                ? .healthy
+                : .disconnected
+            guard case .start(let episode) = reducer.request(
+                .networkPathChanged,
+                health: health
+            ) else {
+                Issue.record("cycle \(cycle) must start one episode")
+                return
+            }
+            #expect(reducer.request(.presenceRoutesChanged, health: health) == nil)
+
+            let active = reducer.resourceSnapshot
+            #expect(active.activeEpisodeCount == 1)
+            #expect(active.pendingRequestCount == 0)
+
+            #expect(reducer.complete(
+                id: episode.id,
+                health: health,
+                succeeded: true
+            ) == nil)
+            let idle = reducer.resourceSnapshot
+            #expect(idle.activeEpisodeCount == 0)
+            #expect(idle.pendingRequestCount == 0)
+        }
+    }
+
     @Test func connectedRecoveryTriggersRepairTheStreamWithoutReplacingTheClient() {
         for trigger in [
             MobileConnectionLifecycleTrigger.networkPathChanged,

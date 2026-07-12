@@ -8,4 +8,27 @@ import Testing
     @Test func moduleLinks() {
         #expect(Bool(true))
     }
+
+    @Test func knownMacRecoveryKeepsTheWorkspaceShellMounted() {
+        #expect(MobileRootWorkspaceShellPolicy.keepsWorkspaceShellMounted(
+            isConnected: true,
+            hasKnownPairedMac: true,
+            isRestoringStoredMac: false
+        ))
+        #expect(MobileRootWorkspaceShellPolicy.keepsWorkspaceShellMounted(
+            isConnected: false,
+            hasKnownPairedMac: true,
+            isRestoringStoredMac: true
+        ))
+        #expect(MobileRootWorkspaceShellPolicy.keepsWorkspaceShellMounted(
+            isConnected: false,
+            hasKnownPairedMac: true,
+            isRestoringStoredMac: false
+        ))
+        #expect(!MobileRootWorkspaceShellPolicy.keepsWorkspaceShellMounted(
+            isConnected: false,
+            hasKnownPairedMac: false,
+            isRestoringStoredMac: false
+        ))
+    }
 }
