@@ -72,6 +72,10 @@ struct ViewerNavigationTests {
         _ = try await webView.evaluateJavaScript("window.__cmuxNativeNavigationCalls = []")
         #expect(webView.handleViewerNavigationKey(Self.keyEvent("g", timestamp: 10)))
         #expect(webView.handleViewerNavigationKey(Self.keyEvent("g", timestamp: 11)))
+        let staleChordCalls = try #require(
+            try await webView.evaluateJavaScript("window.__cmuxNativeNavigationCalls") as? [[String: Any]]
+        )
+        #expect(staleChordCalls.isEmpty, "an expired chord must not navigate")
         #expect(webView.handleViewerNavigationKey(Self.keyEvent("g", timestamp: 11.1)))
         let expiredChordCalls = try #require(
             try await webView.evaluateJavaScript("window.__cmuxNativeNavigationCalls") as? [[String: Any]]

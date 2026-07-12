@@ -1775,6 +1775,10 @@ html { scroll-behavior: smooth; }
   window.__cmuxPerformViewerNavigationAction = function(action) {
     return CmuxViewerNavigation.performAction(action, markdownScroller());
   };
+  CmuxViewerNavigation.installManualInputReset({
+    target: document,
+    getScroller: markdownScroller
+  });
 })();
 </script>
 </body>

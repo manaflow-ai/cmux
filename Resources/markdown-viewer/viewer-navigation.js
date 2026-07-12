@@ -84,6 +84,28 @@
     scroller.scrollTo({ top: target, behavior: 'smooth' });
   }
 
+  function installManualInputReset(options) {
+    var target = options && options.target;
+    var getScroller = options && options.getScroller;
+    if (!target || typeof target.addEventListener !== 'function' || typeof getScroller !== 'function') {
+      return function() {};
+    }
+
+    function clearSmoothTarget() {
+      var scroller = getScroller();
+      if (scroller) { smoothTargets.delete(scroller); }
+    }
+
+    target.addEventListener('wheel', clearSmoothTarget, true);
+    target.addEventListener('touchstart', clearSmoothTarget, true);
+    target.addEventListener('pointerdown', clearSmoothTarget, true);
+    return function() {
+      target.removeEventListener('wheel', clearSmoothTarget, true);
+      target.removeEventListener('touchstart', clearSmoothTarget, true);
+      target.removeEventListener('pointerdown', clearSmoothTarget, true);
+    };
+  }
+
   function install(options) {
     var target = options && options.target;
     var getScroller = options && options.getScroller;
@@ -102,6 +124,7 @@
     }).filter(function(entry) { return entry.shortcut; });
     var pending = null;
     var pendingTimer = 0;
+    var disposeManualInputReset = installManualInputReset({ target: target, getScroller: getScroller });
 
     function clearPending() {
       pending = null;
@@ -109,11 +132,6 @@
         global.clearTimeout(pendingTimer);
         pendingTimer = 0;
       }
-    }
-
-    function clearSmoothTarget() {
-      var scroller = getScroller();
-      if (scroller) { smoothTargets.delete(scroller); }
     }
 
     function listener(event) {
@@ -142,17 +160,16 @@
     }
 
     target.addEventListener('keydown', listener);
-    target.addEventListener('wheel', clearSmoothTarget, true);
-    target.addEventListener('touchstart', clearSmoothTarget, true);
-    target.addEventListener('pointerdown', clearSmoothTarget, true);
     return function() {
       clearPending();
       target.removeEventListener('keydown', listener);
-      target.removeEventListener('wheel', clearSmoothTarget, true);
-      target.removeEventListener('touchstart', clearSmoothTarget, true);
-      target.removeEventListener('pointerdown', clearSmoothTarget, true);
+      disposeManualInputReset();
     };
   }
 
-  global.CmuxViewerNavigation = { install: install, performAction: performAction };
+  global.CmuxViewerNavigation = {
+    install: install,
+    installManualInputReset: installManualInputReset,
+    performAction: performAction
+  };
 })(globalThis);

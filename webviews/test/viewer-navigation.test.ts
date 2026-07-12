@@ -81,6 +81,29 @@ test("viewer navigation leaves editable controls and unbound shortcuts alone", (
   dispose();
 });
 
+test("direct viewer actions reset their smooth target after manual input", () => {
+  dom = new JSDOM("<!doctype html><html><body><div id='viewer'></div></body></html>");
+  const viewer = dom.window.document.getElementById("viewer") as HTMLElement;
+  Object.defineProperties(viewer, {
+    clientHeight: { value: 600 },
+    scrollHeight: { value: 2_400 },
+  });
+  const tops: number[] = [];
+  viewer.scrollTo = ((options: ScrollToOptions) => { tops.push(Number(options.top)); }) as typeof viewer.scrollTo;
+  const dispose = CmuxViewerNavigation.installManualInputReset({
+    target: dom.window.document,
+    getScroller: () => viewer,
+  });
+
+  CmuxViewerNavigation.performAction("diffViewerScrollDown", viewer);
+  viewer.scrollTop = 600;
+  dom.window.document.dispatchEvent(new dom.window.WheelEvent("wheel", { bubbles: true }));
+  CmuxViewerNavigation.performAction("diffViewerScrollDown", viewer);
+
+  expect(tops).toEqual([72, 672]);
+  dispose();
+});
+
 function shortcut(key: string, modifiers: Record<string, boolean> = {}) {
   return { first: { key, command: false, control: false, option: false, shift: false, ...modifiers } };
 }
