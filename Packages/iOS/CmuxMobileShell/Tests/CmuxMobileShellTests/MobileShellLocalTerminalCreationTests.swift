@@ -3,6 +3,23 @@ import Testing
 @testable import CmuxMobileShell
 
 @MainActor
+@Test func remoteCreateDoesNotSendPresentationOnlyLegacyPaneID() {
+    let store = MobileShellComposite.preview()
+    var workspace = MobileWorkspacePreview(
+        id: "workspace-legacy",
+        name: "Legacy project",
+        terminals: [MobileTerminalPreview(id: "terminal-a", name: "shell")]
+    )
+    workspace.actionCapabilities.supportsTerminalCreateInPane = true
+
+    #expect(workspace.terminalCreationPaneID == "workspace-legacy-legacy-pane")
+    #expect(store.remoteTerminalCreationPaneID(
+        in: workspace,
+        explicitPaneID: nil
+    ) == nil)
+}
+
+@MainActor
 @Test func createTerminalFallsBackFromStalePaneWithoutDanglingMembership() throws {
     let store = MobileShellComposite.preview()
     let workspace = MobileWorkspacePreview(

@@ -76,3 +76,21 @@ import Testing
 
     #expect(store.terminalReorderGate.canMutate(workspaceID: "missing-workspace"))
 }
+
+@MainActor
+@Test func rejectedCloseReleasesItsReservation() async throws {
+    let store = MobileShellComposite.preview()
+    let reservation = try #require(store.terminalReorderGate.reserve(
+        workspaceID: "missing-workspace",
+        paneID: "missing-pane"
+    ))
+
+    _ = await store.closeTerminal(
+        workspaceID: "missing-workspace",
+        terminalID: "missing-terminal",
+        confirmed: false,
+        reservation: reservation
+    )
+
+    #expect(store.terminalReorderGate.canMutate(workspaceID: "missing-workspace"))
+}

@@ -7,12 +7,20 @@ extension MobileShellComposite {
     public func closeTerminal(
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID,
-        confirmed: Bool
+        confirmed: Bool,
+        reservation: MobileTerminalReorderReservation
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
+        guard terminalReorderGate.owns(reservation) else {
+            return .failure(.busy(hostDisplayName: workspaceHostDisplayName(for: workspaceID)))
+        }
+        defer {
+            terminalReorderGate.finish(reservation)
+        }
         guard let workspace = workspaces.first(where: { $0.id == workspaceID }),
               workspace.actionCapabilities.supportsTerminalCloseActions,
               let terminal = workspace.terminals.first(where: { $0.id == terminalID }),
-              terminal.canClose else {
+              terminal.canClose,
+              reservation.workspaceID == workspaceID else {
             return .failure(.rejected(hostDisplayName: workspaceHostDisplayName(for: workspaceID)))
         }
         let paneIDs = terminal.paneID.map { workspace.terminals(in: $0).map(\.id) } ?? []

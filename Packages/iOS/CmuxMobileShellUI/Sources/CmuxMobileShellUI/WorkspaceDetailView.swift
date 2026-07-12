@@ -26,7 +26,11 @@ struct WorkspaceDetailView: View {
         MobileTerminalReorderIntent,
         MobileTerminalReorderReservation
     ) async -> Result<Void, MobileWorkspaceMutationFailure>
-    let closeTerminal: (MobileTerminalPreview.ID, Bool) async -> Result<Void, MobileWorkspaceMutationFailure>
+    let closeTerminal: (
+        MobileTerminalPreview.ID,
+        Bool,
+        MobileTerminalReorderReservation
+    ) async -> Result<Void, MobileWorkspaceMutationFailure>
     let renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
     let setWorkspaceUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     /// Close this workspace on the Mac. When `nil`, the close affordance is

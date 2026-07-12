@@ -100,8 +100,10 @@ public struct TerminalHierarchyPreviewView: View {
 
     private func closeTerminal(
         _ terminalID: MobileTerminalPreview.ID,
-        _ confirmed: Bool
+        _ confirmed: Bool,
+        reservation: MobileTerminalReorderReservation
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
+        defer { reorderGate.finish(reservation) }
         if simulatesMutationFailure, !hasSimulatedMutationFailure {
             hasSimulatedMutationFailure = true
             return .failure(.notConnected(hostDisplayName: workspace.macDisplayName))

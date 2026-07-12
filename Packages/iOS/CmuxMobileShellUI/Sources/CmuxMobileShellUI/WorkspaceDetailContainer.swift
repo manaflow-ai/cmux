@@ -53,11 +53,12 @@ struct WorkspaceDetailContainer: View {
                             reservation: reservation
                         )
                     },
-                    closeTerminal: { terminalID, confirmed in
+                    closeTerminal: { terminalID, confirmed, reservation in
                         await store.closeTerminal(
                             workspaceID: workspace.id,
                             terminalID: terminalID,
-                            confirmed: confirmed
+                            confirmed: confirmed,
+                            reservation: reservation
                         )
                     },
                     renameWorkspace: workspace.actionCapabilities.supportsWorkspaceActions ? renameWorkspace : nil,

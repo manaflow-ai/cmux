@@ -2503,7 +2503,7 @@ struct TerminalStreamTests {
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
 
     let subscribeRequests = try await waitForRequestCount("mobile.events.subscribe", count: 1, router: router)
-    #expect(subscribeRequests.first?.topics == ["workspace.updated", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"])
+    #expect(subscribeRequests.first?.topics == ["workspace.updated", "workspace.focused", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"])
 
     collector.mount(store: store, surfaceID: "live-terminal")
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)

@@ -16,7 +16,11 @@ struct TerminalHierarchySheet: View {
         MobileTerminalReorderIntent,
         MobileTerminalReorderReservation
     ) async -> Result<Void, MobileWorkspaceMutationFailure>
-    let closeTerminal: (MobileTerminalPreview.ID, Bool) async -> Result<Void, MobileWorkspaceMutationFailure>
+    let closeTerminal: (
+        MobileTerminalPreview.ID,
+        Bool,
+        MobileTerminalReorderReservation
+    ) async -> Result<Void, MobileWorkspaceMutationFailure>
     let refreshTerminals: () async -> Bool
 
     @Environment(\.dismiss) private var dismiss
@@ -346,8 +350,7 @@ struct TerminalHierarchySheet: View {
         let confirmed = closeConfirmationIncludesRunningProcess
         clearPendingClose()
         Task { @MainActor in
-            defer { reorderGate.finish(reservation) }
-            switch await closeTerminal(pendingClose.id, confirmed) {
+            switch await closeTerminal(pendingClose.id, confirmed, reservation) {
             case .success:
                 announce(L10n.string("mobile.terminal.hierarchy.closedAnnouncement", defaultValue: "Terminal closed"))
             case .failure(.confirmationRequired):

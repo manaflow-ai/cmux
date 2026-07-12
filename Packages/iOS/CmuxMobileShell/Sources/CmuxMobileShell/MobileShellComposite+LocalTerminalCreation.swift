@@ -2,6 +2,19 @@ public import CmuxMobileShellModel
 internal import CmuxMobileSupport
 
 extension MobileShellComposite {
+    /// Resolves a real host pane for a remote create. Compatibility panes are
+    /// presentation-only and must never be sent to the host as stable IDs.
+    func remoteTerminalCreationPaneID(
+        in workspace: MobileWorkspacePreview?,
+        explicitPaneID: MobilePanePreview.ID?
+    ) -> MobilePanePreview.ID? {
+        guard let workspace,
+              workspace.actionCapabilities.supportsTerminalCreateInPane else { return nil }
+        if let explicitPaneID { return explicitPaneID }
+        guard !workspace.panes.isEmpty else { return nil }
+        return workspace.terminalCreationPaneID
+    }
+
     /// Creates and selects a preview/local terminal in one exact pane.
     func createLocalTerminal(
         in workspaceID: MobileWorkspacePreview.ID?,
