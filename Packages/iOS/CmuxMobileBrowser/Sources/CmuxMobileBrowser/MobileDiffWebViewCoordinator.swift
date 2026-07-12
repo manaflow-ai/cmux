@@ -1,8 +1,8 @@
 #if canImport(UIKit)
 import CmuxMobileShellModel
 import CmuxMobileSupport
-import Foundation
-import WebKit
+public import Foundation
+public import WebKit
 
 /// Coordinates native selection state, WebKit navigation, and renderer messages.
 @MainActor
