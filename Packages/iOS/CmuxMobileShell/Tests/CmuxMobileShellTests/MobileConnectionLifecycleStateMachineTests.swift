@@ -26,6 +26,55 @@ import Testing
         #expect(reducer.request(.networkPathChanged, health: .healthy) == nil)
     }
 
+    @Test func foregroundActivationCannotReplaceOwnedReconnectWithQueuedRecovery() {
+        let now = Date()
+        var reducer = MobileConnectionLifecycleStateMachine()
+        let reconnect = reducer.requestStoredMacReconnect(
+            stackUserID: "user-1",
+            health: .disconnected
+        )
+        guard case .start(let reconnectEpisode) = reconnect.effect else {
+            Issue.record("stored Mac reconnect must start one owned episode")
+            return
+        }
+
+        reducer.becameInactive(at: now)
+        #expect(reducer.request(.networkPathChanged, health: .healthy) == nil)
+        #expect(reducer.request(.presenceRoutesChanged, health: .healthy) == nil)
+        #expect(reducer.resourceSnapshot.pendingRequestCount == 2)
+
+        let foregroundEffect = reducer.becameActive(
+            at: now.addingTimeInterval(31),
+            shortDwellThreshold: 30,
+            health: .healthy,
+            reconnectStackUserID: "user-1"
+        )
+        #expect(foregroundEffect == nil)
+        #expect(reducer.activeEpisode?.id == reconnectEpisode.id)
+        #expect(reducer.activeEpisode?.requestIDs == [reconnect.id])
+        #expect(reducer.resourceSnapshot.pendingRequestCount == 3)
+
+        guard case .start(let repairEpisode) = reducer.complete(
+            id: reconnectEpisode.id,
+            health: .healthy
+        ) else {
+            Issue.record("completing the reconnect must start all deferred foreground repair")
+            return
+        }
+        #expect(reducer.drainCompletedRequestIDs() == [reconnect.id])
+        #expect(repairEpisode.kind == .streamRepair)
+        #expect(repairEpisode.triggers == [
+            .networkPathChanged,
+            .presenceRoutesChanged,
+            .foregroundResume,
+        ])
+        #expect(reducer.complete(id: repairEpisode.id, health: .healthy) == nil)
+        #expect(reducer.drainCompletedRequestIDs().isEmpty)
+        #expect(reducer.activeEpisode == nil)
+        #expect(reducer.resourceSnapshot.activeEpisodeCount == 0)
+        #expect(reducer.resourceSnapshot.pendingRequestCount == 0)
+    }
+
     @Test func staleCompletionAndResetCannotCommit() {
         var reducer = MobileConnectionLifecycleStateMachine()
         guard case .start(let episode) = reducer.request(.manualRetry, health: .healthy) else {
