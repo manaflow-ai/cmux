@@ -51,7 +51,7 @@ public final class MobileDiffWebViewCoordinator: NSObject, WKNavigationDelegate,
                 loadTask?.cancel()
                 loadTask = Task { @MainActor [weak self, weak webView] in
                     guard let self, let webView else { return }
-                    await patchHandler.configure(
+                    patchHandler.configure(
                         generation: generation,
                         html: Data(html.utf8),
                         patch: Data(document.patch.utf8)

@@ -14,7 +14,7 @@ extension TerminalController {
         }
         do {
             let document = try await mobileWorkingTreeDiffCoordinator.load(
-                key: workspace.id.uuidString,
+                key: "\(workspace.id.uuidString):\(URL(fileURLWithPath: directory).standardizedFileURL.path)",
                 directory: directory,
                 title: workspace.title
             )

@@ -4,16 +4,10 @@ import Foundation
 actor MobileWorkingTreeDiffCoordinator {
     typealias Loader = @Sendable (String, String) async throws -> MobileWorkingTreeDiffPayload
 
-    private struct InFlightLoad {
-        let id: UUID
-        let task: Task<MobileWorkingTreeDiffPayload, any Error>
-        var waiters: Set<UUID>
-    }
-
     private let maximumConcurrentLoads: Int
     private let loader: Loader
     private var activeLoadCount = 0
-    private var inFlightLoads: [String: InFlightLoad] = [:]
+    private var inFlightLoads: [String: MobileWorkingTreeDiffInFlightLoad] = [:]
     private var slotWaiters: [(UUID, CheckedContinuation<Void, any Error>)] = []
 
     init(
@@ -48,7 +42,7 @@ actor MobileWorkingTreeDiffCoordinator {
                     throw error
                 }
             }
-            inFlightLoads[key] = InFlightLoad(id: loadID, task: task, waiters: [waiterID])
+            inFlightLoads[key] = MobileWorkingTreeDiffInFlightLoad(id: loadID, task: task, waiters: [waiterID])
         }
 
         return try await withTaskCancellationHandler {

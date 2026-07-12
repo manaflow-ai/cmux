@@ -1,6 +1,7 @@
 import Foundation
 
-actor MobileDiffPatchStore {
+@MainActor
+final class MobileDiffPatchStore {
     private var payloads: [Int: MobileDiffPatchPayload] = [:]
 
     func configure(generation: Int, html: Data, patch: Data) {
