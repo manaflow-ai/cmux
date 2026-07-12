@@ -67,12 +67,15 @@ struct MobileDiffTests {
         }
         try Data("selected\n".utf8).write(to: selectedRepository.appendingPathComponent("selected.txt"))
         try Data("redirected\n".utf8).write(to: redirectedRepository.appendingPathComponent("redirected.txt"))
+        let nestedWorkspace = selectedRepository.appendingPathComponent("nested/workspace", isDirectory: true)
+        try FileManager.default.createDirectory(at: nestedWorkspace, withIntermediateDirectories: true)
         var environment = ProcessInfo.processInfo.environment
         environment["GIT_DIR"] = redirectedRepository.appendingPathComponent(".git").path
         environment["GIT_WORK_TREE"] = redirectedRepository.path
+        environment["GIT_CEILING_DIRECTORIES"] = selectedRepository.appendingPathComponent("nested").path
 
         let document = try await MobileWorkingTreeDiffLoader(environment: environment)
-            .load(directory: selectedRepository.path, title: "Fixture")
+            .load(directory: nestedWorkspace.path, title: "Fixture")
         let patch = try #require(document["patch"] as? String)
 
         #expect(document["repository_root"] as? String == selectedRepository.path)
