@@ -159,24 +159,7 @@ struct TerminalHierarchySheet: View {
             }
             .terminalHierarchyResultUnknownRefreshedAlert(isPresented: $mutationResultUnknownRefreshed)
             .terminalHierarchyCloseUnavailableAlert(isPresented: $closeUnavailable)
-            .alert(
-                L10n.string(
-                    "mobile.terminal.hierarchy.moveUnavailableTitle",
-                    defaultValue: "Terminal Move Unavailable"
-                ),
-                isPresented: $moveUnavailable
-            ) {
-                Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
-                    .accessibilityIdentifier("MobileTerminalHierarchyMoveUnavailableOK")
-            } message: {
-                Text(
-                    L10n.string(
-                        "mobile.terminal.hierarchy.moveUnavailableMessage",
-                        defaultValue: "Another terminal change started first. Wait for it to finish, then try moving this terminal again."
-                    )
-                )
-                .accessibilityIdentifier("MobileTerminalHierarchyMoveUnavailableMessage")
-            }
+            .terminalHierarchyMoveUnavailableAlert(isPresented: $moveUnavailable)
         }
         .accessibilityIdentifier("MobileTerminalHierarchySheet")
     }
