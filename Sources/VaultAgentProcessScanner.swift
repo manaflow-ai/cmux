@@ -50,6 +50,9 @@ extension RestorableAgentSessionIndex {
         capturedAt: TimeInterval,
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        },
+        codexRolloutPathProvider: (Int) -> String? = {
+            CodexRolloutProcessResolver.openWritableRolloutPath(pid: $0)
         }
     ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
         // KERN_PROCARGS2 argv/env decoding is the expensive unit of this scan; memoize so
@@ -71,6 +74,13 @@ extension RestorableAgentSessionIndex {
             scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey,
             processArgumentsProvider: cachedProcessArguments
         )
+        resolved.merge(processDetectedCodexSnapshots(
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt,
+            scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey,
+            processArgumentsProvider: cachedProcessArguments,
+            codexRolloutPathProvider: codexRolloutPathProvider
+        )) { existing, _ in existing }
         resolved.merge(processDetectedForkParentFallbackSnapshots(processSnapshot: processSnapshot, capturedAt: capturedAt, scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey, processArgumentsProvider: cachedProcessArguments)) { existing, _ in existing }
         guard !registry.registrations.isEmpty else { return resolved }
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
@@ -151,19 +161,6 @@ extension RestorableAgentSessionIndex {
         }
 
         return resolved
-    }
-
-    static func processLooksLikeOpenCode(
-        processName: String,
-        processPath: String?,
-        arguments: [String]
-    ) -> Bool {
-        VaultObservedAgentProcess(
-            processName: processName,
-            processPath: processPath,
-            arguments: arguments,
-            environment: [:]
-        ).isOpenCodeProcess
     }
 
     static func openCodeExecutablePathForProcess(

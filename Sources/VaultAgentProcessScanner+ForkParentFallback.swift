@@ -101,7 +101,7 @@ extension RestorableAgentSessionIndex {
             environment: environment
         ),
            let parentSessionId = arguments.codexForkFallbackParentSessionId,
-           let launchCommand = codexForkFallbackLaunchCommand(
+           let launchCommand = processDetectedCodexLaunchCommand(
                 processName: processName,
                 processPath: processPath,
                 arguments: arguments,
@@ -248,7 +248,7 @@ extension RestorableAgentSessionIndex {
             || lowered.contains("/claude/versions/")
     }
 
-    private static func processLooksLikeCodex(
+    static func processLooksLikeCodex(
         processName: String,
         processPath: String?,
         arguments: [String],
@@ -275,7 +275,7 @@ extension RestorableAgentSessionIndex {
         )
     }
 
-    private static func codexForkFallbackLaunchCommand(
+    static func processDetectedCodexLaunchCommand(
         processName: String,
         processPath: String?,
         arguments: [String],
@@ -309,6 +309,7 @@ extension RestorableAgentSessionIndex {
         arguments: [String],
         environment: [String: String]
     ) -> String {
+        if let captured = matchingCapturedCodexExecutable(arguments: arguments, processPath: processPath, environment: environment) { return captured }
         if let argumentExecutable = normalized(arguments.first),
            executableBasename(argumentExecutable).compare("codex", options: [.caseInsensitive, .literal]) == .orderedSame {
             return argumentExecutable

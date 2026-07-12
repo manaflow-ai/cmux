@@ -453,47 +453,12 @@ extension AgentChatSessionRegistry {
     /// libproc: the path of a `~/.codex/sessions/**/rollout-*.jsonl` the process
     /// holds open (codex keeps its rollout open for writing), or nil.
     nonisolated static func openCodexRolloutPath(pid: Int) -> String? {
-        let listSize = proc_pidinfo(pid_t(pid), PROC_PIDLISTFDS, 0, nil, 0)
-        guard listSize > 0 else { return nil }
-        let count = Int(listSize) / MemoryLayout<proc_fdinfo>.stride
-        guard count > 0 else { return nil }
-        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: count)
-        let used = proc_pidinfo(pid_t(pid), PROC_PIDLISTFDS, 0, &fds, listSize)
-        guard used > 0 else { return nil }
-        let actual = Int(used) / MemoryLayout<proc_fdinfo>.stride
-        for index in 0..<min(actual, fds.count) {
-            guard fds[index].proc_fdtype == UInt32(PROX_FDTYPE_VNODE) else { continue }
-            var info = vnode_fdinfowithpath()
-            let size = proc_pidfdinfo(
-                pid_t(pid),
-                fds[index].proc_fd,
-                PROC_PIDFDVNODEPATHINFO,
-                &info,
-                Int32(MemoryLayout<vnode_fdinfowithpath>.size)
-            )
-            guard size > 0 else { continue }
-            let path = withUnsafeBytes(of: &info.pvip.vip_path) { raw -> String in
-                guard let base = raw.baseAddress else { return "" }
-                return String(cString: base.assumingMemoryBound(to: CChar.self))
-            }
-            if path.hasSuffix(".jsonl"), path.contains("/.codex/sessions/") {
-                return path
-            }
-        }
-        return nil
+        CodexRolloutProcessResolver.openWritableRolloutPath(pid: pid)
     }
-
-    private nonisolated static let uuidLikeRegex = try? NSRegularExpression(
-        pattern: "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-    )
 
     /// The first UUID-shaped substring (matches both standard UUIDs and codex's
     /// UUIDv7 rollout ids), or nil.
     nonisolated static func firstUUIDLike(in string: String) -> String? {
-        guard let regex = uuidLikeRegex else { return nil }
-        let range = NSRange(string.startIndex..., in: string)
-        guard let match = regex.firstMatch(in: string, options: [], range: range),
-              let matchRange = Range(match.range, in: string) else { return nil }
-        return String(string[matchRange])
+        CodexRolloutProcessResolver.firstUUIDLike(in: string)
     }
 }

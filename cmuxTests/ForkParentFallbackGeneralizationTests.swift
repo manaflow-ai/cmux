@@ -256,6 +256,58 @@ struct ForkParentFallbackGeneralizationTests {
         #expect(entry.snapshot.sessionId == "oc-session")
     }
 
+    @Test func conflictingCodexRolloutsInOnePanelStayUnresolved() throws {
+        let fixture = try Fixture.make()
+        defer { fixture.cleanup() }
+        let firstPID = 5_201
+        let secondPID = 5_202
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: [firstPID, secondPID].map { pid in
+                CmuxTopProcessInfo(
+                    pid: pid,
+                    parentPID: 1,
+                    name: "codex",
+                    path: "/usr/local/bin/codex",
+                    ttyDevice: nil,
+                    cmuxWorkspaceID: fixture.workspaceId,
+                    cmuxSurfaceID: fixture.forkPanelId,
+                    cmuxAttributionReason: "cmux-test",
+                    processGroupID: firstPID,
+                    terminalProcessGroupID: firstPID,
+                    cpuPercent: 0,
+                    residentBytes: 0,
+                    virtualBytes: 0,
+                    threadCount: 1
+                )
+            },
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let processArguments = processArguments(
+            fixture: fixture,
+            argv: ["/usr/local/bin/codex", "resume"],
+            launchKind: "codex"
+        )
+        let sessionByPID = [
+            firstPID: "019f53cf-3333-7333-8333-333333333333",
+            secondPID: "019f53cf-4444-7444-8444-444444444444",
+        ]
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: fixture.fileManager,
+            processSnapshot: processSnapshot,
+            capturedAt: 42,
+            processArgumentsProvider: { sessionByPID[$0] == nil ? nil : processArguments },
+            codexRolloutPathProvider: { pid in
+                sessionByPID[pid].map {
+                    "/tmp/.codex/sessions/2026/07/11/rollout-2026-07-11T12-00-00-\($0).jsonl"
+                }
+            }
+        )
+
+        #expect(detected[fixture.forkKey] == nil)
+    }
+
     private struct Fixture {
         let fileManager: FileManager
         let root: URL

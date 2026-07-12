@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # cmux codex wrapper - per-invocation Codex hook injection + launch detection.
 #
 # When running inside a cmux terminal (CMUX_SURFACE_ID is set), this wrapper
