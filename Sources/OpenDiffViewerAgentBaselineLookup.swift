@@ -100,6 +100,20 @@ extension AppDelegate {
         surfaceId: UUID,
         sessionId: String
     ) -> String? {
+        latestAgentTurnDiffCandidate(
+            storeURL: storeURL,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            sessionId: sessionId
+        )?.repoRoot
+    }
+
+    nonisolated static func latestAgentTurnDiffCandidate(
+        storeURL: URL,
+        workspaceId: UUID,
+        surfaceId: UUID,
+        sessionId: String
+    ) -> (repoRoot: String, capturedAt: TimeInterval)? {
         guard let data = try? Data(contentsOf: storeURL),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let records = object["records"] as? [[String: Any]] else {
@@ -125,7 +139,7 @@ extension AppDelegate {
             let capturedAt = (record["capturedAt"] as? NSNumber)?.doubleValue ?? 0
             return (repoRoot, capturedAt)
         }
-        return candidates.max(by: { $0.capturedAt < $1.capturedAt })?.repoRoot
+        return candidates.max(by: { $0.capturedAt < $1.capturedAt })
     }
 
     nonisolated static func latestAgentTurnDiffContext(
@@ -134,17 +148,25 @@ extension AppDelegate {
         surfaceId: UUID,
         sessionId: String
     ) -> OpenDiffViewerAgentBaselineContext? {
+        var best: (context: OpenDiffViewerAgentBaselineContext, capturedAt: TimeInterval)?
         for storeURL in storeURLs {
-            if let repoRoot = latestAgentTurnDiffRepoRoot(
+            guard let candidate = latestAgentTurnDiffCandidate(
                 storeURL: storeURL,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 sessionId: sessionId
-            ) {
-                return OpenDiffViewerAgentBaselineContext(repoRoot: repoRoot, storeURL: storeURL)
+            ) else {
+                continue
             }
+            if let best, candidate.capturedAt <= best.capturedAt {
+                continue
+            }
+            best = (
+                OpenDiffViewerAgentBaselineContext(repoRoot: candidate.repoRoot, storeURL: storeURL),
+                candidate.capturedAt
+            )
         }
-        return nil
+        return best?.context
     }
 
     nonisolated static func openDiffViewerAgentContextTaskKey(
