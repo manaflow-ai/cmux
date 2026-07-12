@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { App } from "../src/App";
+import { adjacentItemId, App } from "../src/App";
 import { createDiffViewerStatus } from "../src/status";
 
 type FetchMock = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> | Response;
@@ -193,6 +193,18 @@ test("layout toggle persists user choice while explicit payload layout wins", as
   );
 
   expect(dom.window.document.documentElement.dataset.layout).toBe("unified");
+});
+
+test("adjacent diff file navigation moves in order and stops at the edges", () => {
+  const items = [{ id: "one" }, { id: "two" }, { id: "three" }] as any;
+
+  expect(adjacentItemId("one", items, 1)).toBe("two");
+  expect(adjacentItemId("two", items, -1)).toBe("one");
+  expect(adjacentItemId("three", items, 1)).toBe("three");
+  expect(adjacentItemId("one", items, -1)).toBe("one");
+  expect(adjacentItemId("missing", items, 1)).toBe("one");
+  expect(adjacentItemId("missing", items, -1)).toBe("three");
+  expect(adjacentItemId("missing", [], 1)).toBe("");
 });
 
 function createDom(): JSDOM {

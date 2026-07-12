@@ -266,7 +266,6 @@ export function App({ config, initialStatus }: ConfigProps) {
   useRenderDiff(config, label, dispatch, latestState);
   useCommentsBootstrap(bridgeAvailable ? repoRoot : null, comments.onLoaded);
   useViewerNavigation(payload.shortcuts ?? {}, viewerContainerRef);
-  useKeyboardShortcuts(payload.shortcuts ?? {}, dispatch);
   useOptionsDismiss(state.optionsOpen, dispatch);
 
   const renderCommentAnnotation = (annotation: CommentAnnotation, item: DiffItem) => {
@@ -328,6 +327,13 @@ export function App({ config, initialStatus }: ConfigProps) {
       treePath: state.treeSource?.treePathByItemId.get(target),
     });
   };
+  const jumpAdjacentFile = (direction: -1 | 1) => {
+    const target = adjacentItemId(state.activeItemId, state.items, direction);
+    if (target) {
+      scrollToItem(target);
+    }
+  };
+  useKeyboardShortcuts(payload.shortcuts ?? {}, dispatch, jumpAdjacentFile);
   const setStatus = (status: DiffViewerStatus) => {
     applyDiffViewerStatusToDocument(status);
     dispatch({ type: "set-status", status });
@@ -1473,23 +1479,65 @@ function usePageDataAttributes(state: AppState) {
 function useKeyboardShortcuts(
   shortcuts: any,
   dispatch: React.Dispatch<AppAction>,
+  onJumpAdjacentFile: (direction: -1 | 1) => void,
 ) {
   useEffect(() => {
-    const fileSearchShortcut = normalizeShortcut(shortcuts.diffViewerOpenFileSearch);
+    const bindings = [
+      {
+        shortcut: normalizeShortcut(shortcuts.diffViewerOpenFileSearch),
+        run: () => dispatch({ type: "set-file-search-open", open: true }),
+      },
+      {
+        shortcut: normalizeShortcut(shortcuts.diffViewerNextFile),
+        run: () => onJumpAdjacentFile(1),
+      },
+      {
+        shortcut: normalizeShortcut(shortcuts.diffViewerPreviousFile),
+        run: () => onJumpAdjacentFile(-1),
+      },
+    ].filter((binding): binding is { shortcut: ShortcutBinding; run: () => void } => binding.shortcut != null);
+    let pending: { shortcut: ShortcutBinding; run: () => void } | null = null;
+    let pendingTimer = 0;
+    const clearPending = () => {
+      pending = null;
+      if (pendingTimer) {
+        window.clearTimeout(pendingTimer);
+        pendingTimer = 0;
+      }
+    };
     const listener = (event: KeyboardEvent) => {
       if (event.defaultPrevented || isTypingShortcutTarget(event.target)) {
         return;
       }
-      if (shortcutMatchesEvent(fileSearchShortcut, event)) {
+      if (pending) {
+        if (shortcutStrokeMatchesEvent(pending.shortcut.second, event)) {
+          event.preventDefault();
+          pending.run();
+          clearPending();
+          return;
+        }
+        clearPending();
+      }
+      for (const binding of bindings) {
+        if (!shortcutStrokeMatchesEvent(binding.shortcut.first, event)) {
+          continue;
+        }
         event.preventDefault();
-        dispatch({ type: "set-file-search-open", open: true });
+        if (binding.shortcut.second) {
+          pending = binding;
+          pendingTimer = window.setTimeout(clearPending, 700);
+        } else {
+          binding.run();
+        }
+        return;
       }
     };
     document.addEventListener("keydown", listener);
     return () => {
+      clearPending();
       document.removeEventListener("keydown", listener);
     };
-  }, [dispatch, shortcuts]);
+  }, [dispatch, onJumpAdjacentFile, shortcuts]);
 }
 
 function useViewerNavigation(
@@ -1561,10 +1609,6 @@ function normalizeShortcutStroke(rawStroke: any): ShortcutStroke {
   };
 }
 
-function shortcutMatchesEvent(shortcut: ShortcutBinding | null, event: KeyboardEvent): boolean {
-  return Boolean(shortcut && !shortcut.second && shortcutStrokeMatchesEvent(shortcut.first, event));
-}
-
 function shortcutStrokeMatchesEvent(stroke: ShortcutStroke | null, event: KeyboardEvent): boolean {
   if (!stroke || event.metaKey !== stroke.command || event.ctrlKey !== stroke.control || event.altKey !== stroke.option) {
     return false;
@@ -1595,6 +1639,18 @@ function scrollTargetForItem(itemId: string, items: DiffItem[]): string {
     return itemId;
   }
   return items[0]?.id ?? "";
+}
+
+export function adjacentItemId(activeItemId: string, items: DiffItem[], direction: -1 | 1): string {
+  if (items.length === 0) {
+    return "";
+  }
+  const currentIndex = items.findIndex((item) => item.id === activeItemId);
+  if (currentIndex < 0) {
+    return direction > 0 ? items[0].id : items[items.length - 1].id;
+  }
+  const targetIndex = Math.max(0, Math.min(items.length - 1, currentIndex + direction));
+  return items[targetIndex].id;
 }
 
 function getInitialFileTreeRowCount(): number {

@@ -33,9 +33,6 @@ final class MarkdownWebView: WKWebView {
 
     private var needsRenderingReattach = false
     private var pendingViewerNavigationChordPrefix: ShortcutStroke?
-#if DEBUG
-    var onViewerNavigationActionForTesting: ((KeyboardShortcutSettings.Action) -> Void)?
-#endif
 
     private static let viewerNavigationActions: [KeyboardShortcutSettings.Action] = [
         .diffViewerScrollDown,
@@ -94,9 +91,6 @@ final class MarkdownWebView: WKWebView {
     }
 
     private func performViewerNavigationAction(_ action: KeyboardShortcutSettings.Action) {
-#if DEBUG
-        onViewerNavigationActionForTesting?(action)
-#endif
         evaluateJavaScript("window.__cmuxPerformViewerNavigationAction?.('\(action.rawValue)')")
     }
 

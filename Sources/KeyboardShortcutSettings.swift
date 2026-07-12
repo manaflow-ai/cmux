@@ -188,6 +188,8 @@ enum KeyboardShortcutSettings {
         case diffViewerScrollToBottom
         case diffViewerScrollToTop
         case diffViewerOpenFileSearch
+        case diffViewerNextFile
+        case diffViewerPreviousFile
 
         var id: String { rawValue }
 
@@ -310,6 +312,8 @@ enum KeyboardShortcutSettings {
             case .diffViewerScrollToBottom: return String(localized: "shortcut.diffViewerScrollToBottom.label", defaultValue: "Viewers: Scroll to Bottom")
             case .diffViewerScrollToTop: return String(localized: "shortcut.diffViewerScrollToTop.label", defaultValue: "Viewers: Scroll to Top")
             case .diffViewerOpenFileSearch: return String(localized: "shortcut.diffViewerOpenFileSearch.label", defaultValue: "Diff Viewer: Open File Search")
+            case .diffViewerNextFile: return String(localized: "shortcut.diffViewerNextFile.label", defaultValue: "Diff Viewer: Next File")
+            case .diffViewerPreviousFile: return String(localized: "shortcut.diffViewerPreviousFile.label", defaultValue: "Diff Viewer: Previous File")
             }
         }
 
@@ -595,6 +599,16 @@ enum KeyboardShortcutSettings {
                 )
             case .diffViewerOpenFileSearch:
                 return StoredShortcut(key: "/", command: false, shift: false, option: false, control: false)
+            case .diffViewerNextFile:
+                return StoredShortcut(
+                    first: ShortcutStroke(key: "]", command: false, shift: false, option: false, control: false),
+                    second: ShortcutStroke(key: "f", command: false, shift: false, option: false, control: false)
+                )
+            case .diffViewerPreviousFile:
+                return StoredShortcut(
+                    first: ShortcutStroke(key: "[", command: false, shift: false, option: false, control: false),
+                    second: ShortcutStroke(key: "f", command: false, shift: false, option: false, control: false)
+                )
             }
         }
 
@@ -622,6 +636,8 @@ enum KeyboardShortcutSettings {
                  .diffViewerScrollToBottom,
                  .diffViewerScrollToTop,
                  .diffViewerOpenFileSearch,
+                 .diffViewerNextFile,
+                 .diffViewerPreviousFile,
                  .fileExplorerOpenSelection,
                  .fileExplorerOpenSelectionFinderAlias:
                 return true
@@ -644,7 +660,9 @@ enum KeyboardShortcutSettings {
                  .diffViewerScrollUpEmacs,
                  .diffViewerScrollToBottom,
                  .diffViewerScrollToTop,
-                 .diffViewerOpenFileSearch:
+                 .diffViewerOpenFileSearch,
+                 .diffViewerNextFile,
+                 .diffViewerPreviousFile:
                 return true
             default:
                 return false

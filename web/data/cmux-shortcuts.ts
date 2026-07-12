@@ -469,6 +469,20 @@ export const shortcutCategories: ShortcutCategory[] = [
         description: { en: "Open diff file search", ja: "差分ファイル検索を開く" },
         note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
       },
+      {
+        id: "diffViewerNextFile",
+        combos: [["]", "F"]],
+        description: { en: "Jump to next diff file", ja: "次の差分ファイルへ移動" },
+        note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
+        configValue: '["]", "f"]',
+      },
+      {
+        id: "diffViewerPreviousFile",
+        combos: [["[", "F"]],
+        description: { en: "Jump to previous diff file", ja: "前の差分ファイルへ移動" },
+        note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
+        configValue: '["[", "f"]',
+      },
     ],
   },
   {

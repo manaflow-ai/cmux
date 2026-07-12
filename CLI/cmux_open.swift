@@ -602,6 +602,8 @@ extension CMUXCLI {
         case scrollToBottom = "diffViewerScrollToBottom"
         case scrollToTop = "diffViewerScrollToTop"
         case openFileSearch = "diffViewerOpenFileSearch"
+        case nextFile = "diffViewerNextFile"
+        case previousFile = "diffViewerPreviousFile"
 
         var defaultShortcut: DiffViewerShortcut {
             switch self {
@@ -626,6 +628,10 @@ extension CMUXCLI {
                 )
             case .openFileSearch:
                 return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "/"))
+            case .nextFile:
+                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "]"), second: DiffViewerShortcutStroke(key: "f"))
+            case .previousFile:
+                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "["), second: DiffViewerShortcutStroke(key: "f"))
             }
         }
     }

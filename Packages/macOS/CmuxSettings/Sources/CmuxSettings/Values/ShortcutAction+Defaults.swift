@@ -9,6 +9,16 @@ extension ShortcutAction {
                 first: ShortcutStroke(key: "g"),
                 second: ShortcutStroke(key: "g")
             )
+        case .diffViewerNextFile:
+            return StoredShortcut(
+                first: ShortcutStroke(key: "]"),
+                second: ShortcutStroke(key: "f")
+            )
+        case .diffViewerPreviousFile:
+            return StoredShortcut(
+                first: ShortcutStroke(key: "["),
+                second: ShortcutStroke(key: "f")
+            )
         default:
             return defaultStroke.map { StoredShortcut(first: $0) }
         }
@@ -138,6 +148,8 @@ extension ShortcutAction {
         case .diffViewerScrollToBottom: return ShortcutStroke(key: "g", shift: true)
         case .diffViewerScrollToTop: return nil
         case .diffViewerOpenFileSearch: return ShortcutStroke(key: "/")
+        case .diffViewerNextFile: return nil
+        case .diffViewerPreviousFile: return nil
         }
     }
 }

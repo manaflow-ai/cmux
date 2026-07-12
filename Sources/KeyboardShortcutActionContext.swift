@@ -150,7 +150,7 @@ extension KeyboardShortcutSettings.Action {
              .diffViewerScrollDownEmacs, .diffViewerScrollUpEmacs, .diffViewerScrollToBottom,
              .diffViewerScrollToTop:
             return .viewerPanel
-        case .diffViewerOpenFileSearch:
+        case .diffViewerOpenFileSearch, .diffViewerNextFile, .diffViewerPreviousFile:
             return .browserPanel
         case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions,
              .switchRightSidebarToFeed, .switchRightSidebarToDock, .fileExplorerOpenSelection,
