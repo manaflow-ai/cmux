@@ -18,6 +18,10 @@ struct RemotePTYEndedLifecycleRegistry {
         transportKey: String,
         attachmentKey: RemotePTYAttachmentKey
     ) {
+        let supersededKeys = entries.compactMap { key, entry in
+            entry.attachmentKey == attachmentKey && key != lifecycleKey ? key : nil
+        }
+        for supersededKey in supersededKeys { remove(supersededKey) }
         let entry = Entry(transportKey: transportKey, attachmentKey: attachmentKey)
         if entries.updateValue(entry, forKey: lifecycleKey) == nil {
             insertionOrder.append(lifecycleKey)
