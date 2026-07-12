@@ -67,6 +67,32 @@ extension MobileShellComposite {
         return receipt
     }
 
+    func invalidateQueuedTerminalScrollReconciliations(surfaceID: String) {
+        guard let continuation = terminalByteContinuationsBySurfaceID[surfaceID],
+              let streamToken = terminalOutputStreamTokensBySurfaceID[surfaceID],
+              var queue = terminalOutputQueuesBySurfaceID[surfaceID] else {
+            return
+        }
+        let result = queue.invalidateScrollReconciliations()
+        terminalOutputQueuesBySurfaceID[surfaceID] = queue
+        switch result {
+        case .advanced(let immediate):
+            if let immediate {
+                continuation.yield(MobileTerminalOutputChunk(
+                    mutation: immediate.mutation,
+                    streamToken: streamToken,
+                    deliveryID: immediate.deliveryID
+                ))
+            }
+        case .claimed:
+            let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+            MobileDebugLog.anchormux(
+                "terminal.output.input_claimed_reconciliation surface=\(surfaceID)"
+            )
+            requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+        }
+    }
+
     func resetTerminalMutationQueue(surfaceID: String, remove: Bool = false) {
         if var queue = terminalOutputQueuesBySurfaceID[surfaceID] {
             queue.reset()

@@ -57,6 +57,12 @@ final class TerminalScrollSession {
         let row: Int
     }
 
+    struct PendingClickIntent {
+        let id: UUID
+        let col: Int
+        let row: Int
+    }
+
     enum PendingClickState {
         case waiting(id: UUID, col: Int, row: Int)
         case waitingForBarrier(id: UUID, col: Int, row: Int)
@@ -103,6 +109,7 @@ final class TerminalScrollSession {
     var remoteTask: Task<Void, Never>?
     var barrierTask: Task<Void, Never>?
     var pendingClick: PendingClickState?
+    var pendingClicks = BoundedFIFO<PendingClickIntent>(capacity: maximumQueuedInteractionCount)
     var postClickIntents = BoundedFIFO<PendingScrollIntent>(capacity: maximumQueuedInteractionCount)
     var postClickNeedsSettlement = false
     var needsBottomSnap = true
@@ -193,19 +200,13 @@ final class TerminalScrollSession {
     func interactionDidBegin() {}
 
     func submitClick(col: Int, row: Int) {
-        let clampedCol = max(0, col)
-        let clampedRow = max(0, row)
-        if let pendingClick {
-            switch pendingClick {
-            case .waiting(let id, _, _):
-                self.pendingClick = .waiting(id: id, col: clampedCol, row: clampedRow)
-            case .waitingForBarrier, .sending:
-                break
-            }
+        let intent = PendingClickIntent(id: UUID(), col: max(0, col), row: max(0, row))
+        guard pendingClick != nil else {
+            pendingClick = .waiting(id: intent.id, col: intent.col, row: intent.row)
+            tryBeginClickBarrier()
             return
         }
-        pendingClick = .waiting(id: UUID(), col: clampedCol, row: clampedRow)
-        tryBeginClickBarrier()
+        if !pendingClicks.append(intent) { recoverFromLaneFailure() }
     }
 
     func interactionDidEnd() {
@@ -376,6 +377,7 @@ final class TerminalScrollSession {
         remotePending.removeAll()
         pendingResponse = nil
         pendingClick = nil
+        pendingClicks.removeAll()
         postClickIntents.removeAll()
         postClickNeedsSettlement = false
         interactionEpoch = nextEpoch

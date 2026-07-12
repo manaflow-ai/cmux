@@ -105,6 +105,8 @@ struct TerminalScrollClickCausalityTests {
         try await requireEventually { harness.remoteClicks.count == 2 }
         #expect(harness.remoteClicks[1].col == 9)
         #expect(harness.remoteClicks[1].row == 10)
+        harness.remoteClicks[1].continuation.resume(returning: true)
+        try await requireEventually { session.pendingClick == nil }
     }
 
     @Test("click queue overflow recovers instead of growing or dropping silently")

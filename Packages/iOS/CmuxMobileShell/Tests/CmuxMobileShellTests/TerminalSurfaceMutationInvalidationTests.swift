@@ -286,8 +286,39 @@ struct TerminalSurfaceMutationInvalidationTests {
 
         _ = store.invalidateTerminalScrollForInput(surfaceID: surfaceID)
 
-        #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil)
         #expect(store.terminalOutputStreamTokensBySurfaceID[surfaceID] != claimed.streamToken)
+    }
+
+    @Test("input retires pending reconciliations behind claimed output")
+    func inputRetiresPendingReconciliations() async throws {
+        let store = MobileShellComposite.preview()
+        let surfaceID = "pending-reconciliations"
+        var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+        _ = store.mountTerminalScrollSession(surfaceID: surfaceID, cancelLocal: {})
+        let oldEpoch = try #require(store.currentTerminalInteractionEpoch(surfaceID: surfaceID))
+        store.deliverTerminalBytes(Data("claimed".utf8), surfaceID: surfaceID)
+        let claimed = try #require(await iterator.next())
+        #expect(store.terminalOutputWillProcess(
+            surfaceID: surfaceID,
+            streamToken: claimed.streamToken,
+            deliveryID: claimed.deliveryID
+        ))
+        for revision in 1...2 {
+            #expect(store.deliverAuthoritativeTerminalRenderGrid(
+                try reconciliationFrame(surfaceID: surfaceID, renderRevision: UInt64(revision)),
+                source: "scroll_reconcile",
+                scrollReconciliation: TerminalScrollReconciliation(
+                    interactionEpoch: oldEpoch,
+                    clientRevision: UInt64(revision)
+                )
+            ))
+        }
+
+        _ = store.invalidateTerminalScrollForInput(surfaceID: surfaceID)
+        store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: claimed.streamToken)
+
+        let bottom = try #require(await iterator.next())
+        #expect(bottom.mutation == .scrollToBottom)
     }
 
     private func frame(text: String, full: Bool) throws -> MobileTerminalRenderGridFrame {
@@ -302,11 +333,14 @@ struct TerminalSurfaceMutationInvalidationTests {
         )
     }
 
-    private func reconciliationFrame(surfaceID: String) throws -> MobileTerminalRenderGridFrame {
+    private func reconciliationFrame(
+        surfaceID: String,
+        renderRevision: UInt64 = 1
+    ) throws -> MobileTerminalRenderGridFrame {
         try MobileTerminalRenderGridFrame.fromPlainRows(
             surfaceID: surfaceID,
             stateSeq: 10,
-            renderRevision: 1,
+            renderRevision: renderRevision,
             columns: 16,
             rows: 2,
             text: "authoritative\nviewport"

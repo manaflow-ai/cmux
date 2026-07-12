@@ -79,7 +79,11 @@ extension TerminalScrollSession {
         case .click(_, _, _, let clickID):
             guard pendingClick?.id == clickID else { break }
             pendingClick = nil
-            flushPostClickIntents()
+            if let next = pendingClicks.removeFirst() {
+                pendingClick = .waiting(id: next.id, col: next.col, row: next.row)
+            } else {
+                flushPostClickIntents()
+            }
         }
 
         drainRemote()

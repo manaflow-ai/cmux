@@ -262,9 +262,15 @@ struct TerminalOutputDeliveryQueue: Sendable {
         let receipt: TerminalSurfaceMutationReceipt
     }
 
+    enum ScrollReconciliationInvalidationResult {
+        case advanced(TerminalOutputDelivery?)
+        case claimed
+    }
+
     private struct PendingEntry: Sendable {
         var delivery: TerminalOutputDelivery
         var optimisticGeneration: UInt64
+        var reconciliationGeneration: UInt64
     }
 
     private static let maximumQueuedInteractionCount = 64
@@ -274,6 +280,7 @@ struct TerminalOutputDeliveryQueue: Sendable {
     private var pendingHeadIndex = 0
     private var queuedInteractionCount = 0
     private(set) var optimisticInvalidationGeneration: UInt64 = 0
+    private var reconciliationInvalidationGeneration: UInt64 = 0
     private(set) var pendingTraversalCount = 0
 
     var isIdle: Bool {
@@ -369,6 +376,17 @@ struct TerminalOutputDeliveryQueue: Sendable {
         return true
     }
 
+    mutating func invalidateScrollReconciliations() -> ScrollReconciliationInvalidationResult {
+        reconciliationInvalidationGeneration &+= 1
+        guard inFlight?.scrollReconciliation != nil else {
+            return .advanced(nil)
+        }
+        guard !inFlightClaimed else { return .claimed }
+        inFlight = popPending()
+        inFlightClaimed = false
+        return .advanced(inFlight)
+    }
+
     mutating func reset() {
         inFlight?.resolveReceipt(false)
         for index in pendingHeadIndex..<pending.count {
@@ -380,6 +398,7 @@ struct TerminalOutputDeliveryQueue: Sendable {
         pendingHeadIndex = 0
         queuedInteractionCount = 0
         optimisticInvalidationGeneration = 0
+        reconciliationInvalidationGeneration = 0
         pendingTraversalCount = 0
     }
 
@@ -403,7 +422,8 @@ struct TerminalOutputDeliveryQueue: Sendable {
            pending[lastIndex].delivery.replacementScope == replacementScope {
             pending[lastIndex] = PendingEntry(
                 delivery: delivery,
-                optimisticGeneration: optimisticInvalidationGeneration
+                optimisticGeneration: optimisticInvalidationGeneration,
+                reconciliationGeneration: reconciliationInvalidationGeneration
             )
             return false
         } else if mergeLocalScroll,
@@ -415,7 +435,8 @@ struct TerminalOutputDeliveryQueue: Sendable {
         } else {
             pending.append(PendingEntry(
                 delivery: delivery,
-                optimisticGeneration: optimisticInvalidationGeneration
+                optimisticGeneration: optimisticInvalidationGeneration,
+                reconciliationGeneration: reconciliationInvalidationGeneration
             ))
             return true
         }
@@ -435,6 +456,10 @@ struct TerminalOutputDeliveryQueue: Sendable {
             compactPendingStorageIfNeeded()
             if entry.optimisticGeneration != optimisticInvalidationGeneration,
                entry.delivery.isSupersededByOptimisticScroll {
+                continue
+            }
+            if entry.reconciliationGeneration != reconciliationInvalidationGeneration,
+               entry.delivery.scrollReconciliation != nil {
                 continue
             }
             return entry.delivery

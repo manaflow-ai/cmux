@@ -142,7 +142,11 @@ extension MobileShellComposite {
     @discardableResult
     func invalidateTerminalScrollForInput(surfaceID: String) -> UInt64? {
         deferredTerminalRenderGridEventsBySurfaceID.removeValue(forKey: surfaceID)
-        return terminalScrollSessionsBySurfaceID[surfaceID]?.invalidateForInput()
+        guard let epoch = terminalScrollSessionsBySurfaceID[surfaceID]?.invalidateForInput() else {
+            return nil
+        }
+        invalidateQueuedTerminalScrollReconciliations(surfaceID: surfaceID)
+        return epoch
     }
 
     @discardableResult
