@@ -32,7 +32,11 @@ struct CmxIrohRelayCredentialCoordinatorTests {
             bootstrap: response
         )
 
-        #expect(await clockEvents.next() == .sleep(fixture.refreshAfter))
+        guard case let .sleep(deadline) = await clockEvents.next() else {
+            Issue.record("Expected the relay refresh sleep")
+            return
+        }
+        #expect(deadline == fixture.refreshAfter)
         let updates = await endpoint.observedRelayUpdates()
         #expect(updates.count == 1)
         #expect(updates[0].map(\.url) == fixture.relayURLs)
@@ -64,7 +68,11 @@ struct CmxIrohRelayCredentialCoordinatorTests {
             endpointIdentity: fixture.identity
         )
 
-        #expect(await clockEvents.next() == .sleep(fixture.refreshAfter))
+        guard case let .sleep(deadline) = await clockEvents.next() else {
+            Issue.record("Expected the relay refresh sleep")
+            return
+        }
+        #expect(deadline == fixture.refreshAfter)
         #expect(await broker.observedBindingIDs() == [fixture.bindingID])
         #expect(await endpoint.observedRelayUpdates().count == 1)
         #expect(try await supervisor.activeEndpoint().identity() == fixture.identity)
@@ -92,7 +100,11 @@ struct CmxIrohRelayCredentialCoordinatorTests {
             endpointIdentity: fixture.identity
         )
 
-        #expect(await clockEvents.next() == .sleep(fixture.now.addingTimeInterval(60)))
+        guard case let .sleep(deadline) = await clockEvents.next() else {
+            Issue.record("Expected the relay retry sleep")
+            return
+        }
+        #expect(deadline == fixture.now.addingTimeInterval(60))
         #expect(await broker.observedBindingIDs() == [fixture.bindingID])
         #expect(await endpoint.observedRelayUpdates().isEmpty)
         #expect(try await supervisor.activeEndpoint().identity() == fixture.identity)

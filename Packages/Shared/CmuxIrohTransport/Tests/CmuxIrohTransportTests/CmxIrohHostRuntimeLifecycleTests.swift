@@ -299,8 +299,7 @@ extension CmxIrohHostRuntimeTests {
 
         await endpoint.emit(.networkChanged)
         await broker.waitForRegistrationCount(2)
-        // Give the runtime actor a bounded window to apply the refresh result.
-        try await ContinuousClock().sleep(for: .milliseconds(50))
+        await runtime.waitForRegistrationRefreshForTesting()
 
         #expect(await runtime.snapshot().state == .active)
         #expect(await endpoint.observedCloseCallCount() == 0)
@@ -308,4 +307,10 @@ extension CmxIrohHostRuntimeTests {
         await runtime.stop()
     }
 
+}
+
+extension CmxIrohHostRuntime {
+    func waitForRegistrationRefreshForTesting() async {
+        await registrationRefreshTask?.value
+    }
 }

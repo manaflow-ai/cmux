@@ -185,7 +185,8 @@ public actor CmxIrohClientOfflinePolicyCache {
             try requireCurrent(epoch)
         }
         guard let stored = record.targets.first(where: {
-            $0.binding.deviceID == expectedDeviceID
+            CmxIrohDeviceID($0.binding.deviceID)
+                == CmxIrohDeviceID(expectedDeviceID)
                 && $0.binding.endpointID == expectedEndpointID
         }) else {
             try requireCurrent(epoch)

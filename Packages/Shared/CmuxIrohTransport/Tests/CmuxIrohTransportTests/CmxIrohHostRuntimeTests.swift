@@ -307,13 +307,6 @@ actor HostRuntimeBindingRecorder {
     func count() -> Int { recordedCount }
 }
 
-actor HostRuntimeDeactivationRecorder {
-    private var recorded: [String?] = []
-
-    func record(_ bindingID: String?) { recorded.append(bindingID) }
-    func values() -> [String?] { recorded }
-}
-
 actor HostRuntimeLANRefreshRecorder {
     private var recordedCount = 0
     private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]

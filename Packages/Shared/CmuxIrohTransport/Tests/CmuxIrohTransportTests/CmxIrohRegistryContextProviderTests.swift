@@ -64,7 +64,6 @@ struct CmxIrohRegistryContextProviderTests {
             hints: [relay],
             expectedPeerDeviceID: fixture.acceptor.deviceID.uppercased()
         )
-
         let publicContext = try await provider.context(for: request)
 
         #expect(await recorder.callCount() == 0)
@@ -86,7 +85,6 @@ struct CmxIrohRegistryContextProviderTests {
         #expect(authorization.pathHints == [lanHint])
     }
 }
-
 enum TestRegistryBrokerFailure: CaseIterable, CustomStringConvertible {
     case tls
     case decode

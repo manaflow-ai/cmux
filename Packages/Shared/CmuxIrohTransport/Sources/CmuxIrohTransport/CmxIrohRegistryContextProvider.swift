@@ -125,7 +125,8 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             throw CmxIrohRegistryContextError.targetBindingUnavailable
         }
         guard let expectedPeerDeviceID = request.expectedPeerDeviceID,
-              Self.canonicalDeviceID(expectedPeerDeviceID) == targetBinding.deviceID else {
+              CmxIrohDeviceID(expectedPeerDeviceID)
+                == CmxIrohDeviceID(targetBinding.deviceID) else {
             throw CmxIrohRegistryContextError.targetDeviceMismatch
         }
         guard targetBinding.pairingEnabled else {
@@ -251,7 +252,8 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
               case let .peer(targetIdentity, _) = request.route.endpoint,
               let authority = lanAuthorities[targetIdentity],
               authority.target.endpointID == targetIdentity,
-              authority.target.deviceID == expectedDeviceID else {
+              CmxIrohDeviceID(authority.target.deviceID)
+                == CmxIrohDeviceID(expectedDeviceID) else {
             return context
         }
         let lanHints = await localFallbackHints(
@@ -470,13 +472,6 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         } catch {
             return nil
         }
-    }
-
-    private static func canonicalDeviceID(_ value: String) -> String? {
-        guard let uuid = UUID(uuidString: value) else { return nil }
-        let canonical = uuid.uuidString.lowercased()
-        guard value.lowercased() == canonical else { return nil }
-        return canonical
     }
 
     private static func requireMatchingGrantExpiry(

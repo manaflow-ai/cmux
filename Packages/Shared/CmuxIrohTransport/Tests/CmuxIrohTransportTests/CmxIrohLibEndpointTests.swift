@@ -72,7 +72,9 @@ struct CmxIrohLibEndpointTests {
             return networkChanges
         }
 
-        try await Task.sleep(for: .milliseconds(100))
+        for _ in 0 ..< 100 {
+            await Task.yield()
+        }
         await endpoint.close()
 
         #expect(await collected.value < 32)

@@ -32,8 +32,7 @@ extension CmxIrohHostRuntimeTests {
 
         await endpoint.emit(.networkChanged)
         await broker.waitForRegistrationCount(2)
-        // Give the runtime actor a bounded window to finish fail-closed teardown.
-        try await ContinuousClock().sleep(for: .milliseconds(50))
+        await deactivations.waitForCount(1)
 
         #expect(await runtime.snapshot().state == .failed)
         #expect(await endpoint.observedCloseCallCount() == 1)
