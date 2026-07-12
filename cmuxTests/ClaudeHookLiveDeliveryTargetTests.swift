@@ -141,6 +141,55 @@ struct ClaudeHookLiveDeliveryTargetTests {
         #expect(record?["surfaceId"] as? String == Self.liveSurfaceId)
     }
 
+    /// The workspace listing lags the app's panel map: the recorded surface is
+    /// not in the resolved workspace's listing, yet the app confirms the same
+    /// workspace still owns it. The identity surface must win over the
+    /// focused-surface fallback even when the re-homed workspace is unchanged.
+    @Test func stopPrefersRehomedIdentitySurfaceInSameWorkspace() throws {
+        let context = try Harness.makeContext(name: "same-workspace-rehome")
+        defer { context.cleanup() }
+        let sessionId = "same-workspace-rehome-session"
+
+        try Harness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: sessionId,
+            workspaceId: Self.liveWorkspaceId,
+            surfaceId: Self.liveSurfaceId,
+            cwd: context.root.path
+        )
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.fallbackSurfaceId]],
+            pidTarget: nil,
+            surfaceTargets: [Self.liveSurfaceId: Self.liveWorkspaceId]
+        )
+
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        environment["CMUX_CLAUDE_PID"] = "43214"
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "stop"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"Stop","cwd":"\#(context.root.path)","last_assistant_message":"All done"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let commands = context.state.snapshot()
+        #expect(
+            commands.contains { $0.hasPrefix("notify_target_async \(Self.liveWorkspaceId) \(Self.liveSurfaceId) ") },
+            "Notification must land on the identity surface confirmed by the app, not the focused-surface fallback; saw \(commands)"
+        )
+        #expect(
+            !commands.contains { $0.contains("notify_target_async \(Self.liveWorkspaceId) \(Self.fallbackSurfaceId)") },
+            "Notification must not land on the focused-surface fallback when the app confirms the identity surface; saw \(commands)"
+        )
+    }
+
     /// SessionStart with a stale `debug.terminals` tty row pointing at another
     /// agent's pane (issue #7391 genesis): the live pid target must win so the
     /// session record is born correct.

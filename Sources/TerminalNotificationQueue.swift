@@ -135,6 +135,18 @@ final class TerminalMutationBus: @unchecked Sendable {
         }
     }
 
+    /// Surface-scoped pending notifications are keyed by their enqueue-time
+    /// (claimed) workspace id, but delivery retargets them to the workspace
+    /// that owns the surface at delivery time (#7939). The surface is
+    /// therefore the canonical identity: a newer notification for a surface
+    /// supersedes every pending one for that surface, regardless of which
+    /// workspace each stale claim named.
+    nonisolated func discardPendingNotifications(forSurfaceId surfaceId: UUID) {
+        discardPendingNotifications { notification, _ in
+            notification.key.surfaceId == surfaceId
+        }
+    }
+
     private func enqueueNotification(_ notification: QueuedTerminalNotification, coalesces: Bool) {
         let shouldScheduleDrain: Bool
         let removedCount: Int
@@ -418,7 +430,15 @@ extension TerminalController {
             claimedTabId: tabId,
             surfaceId: surfaceId
         ) ?? (tabId: tabId, surfaceId: surfaceId)
-        TerminalMutationBus.shared.discardPendingNotifications(forTabId: target.tabId, surfaceId: target.surfaceId)
+        // Discard superseded pending notifications by their canonical identity:
+        // for surface-scoped notifications that is the surface alone — pending
+        // entries may sit under a different stale claimed workspace key yet
+        // would still be retargeted to this same pane at delivery time.
+        if let liveSurfaceId = target.surfaceId {
+            TerminalMutationBus.shared.discardPendingNotifications(forSurfaceId: liveSurfaceId)
+        } else {
+            TerminalMutationBus.shared.discardPendingNotifications(forTabId: target.tabId, surfaceId: nil)
+        }
 #if DEBUG
         cmuxDebugLog(
             "notification.sync.deliver workspace=\(target.tabId.uuidString.prefix(8)) surface=\(target.surfaceId?.uuidString.prefix(8) ?? "nil") claimedWorkspace=\(tabId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count)"

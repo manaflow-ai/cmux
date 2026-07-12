@@ -124,6 +124,58 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
         )
     }
 
+    func testSyncDeliverySupersedesPendingNotificationUnderStaleClaimedKey() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+
+        // An older async notification still queued under the stale claimed
+        // workspace key...
+        TerminalMutationBus.shared.enqueueNotification(
+            tabId: fixture.claimedWorkspace.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Working",
+            body: "Old queued"
+        )
+        // ...must be superseded by a newer synchronous notification for the
+        // same surface, even though sync delivery retargets to the owning
+        // workspace — a different queue key than the stale claim.
+        TerminalController.shared.deliverNotificationSynchronously(
+            tabId: fixture.claimedWorkspace.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "New sync"
+        )
+        TerminalMutationBus.shared.drainForTesting()
+
+        let recorded = fixture.store.notifications.filter { $0.title == "Claude Code" }
+        XCTAssertEqual(
+            recorded.map(\.body),
+            ["New sync"],
+            "A stale-keyed pending notification must not survive (or replace) the newer synchronous one for the same surface"
+        )
+        XCTAssertEqual(recorded.map(\.tabId), [fixture.owningWorkspace.id])
+    }
+
+    func testResolveDeliveryTargetToleratesOutOfRangePid() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+
+        // A 64-bit pid beyond pid_t range (any socket caller controls this
+        // value) must not trap; it degrades to the surface probe like any
+        // unresolvable pid.
+        let result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: [
+            "pid": Int(Int32.max) + 1,
+            "surface_id": fixture.panelId.uuidString,
+        ])
+        guard case .ok(let payload) = result, let dict = payload as? [String: Any] else {
+            return XCTFail("Expected surface-sourced resolution for an out-of-range pid, got \(result)")
+        }
+        XCTAssertEqual(dict["source"] as? String, "surface")
+        XCTAssertEqual(dict["workspace_id"] as? String, fixture.owningWorkspace.id.uuidString)
+    }
+
     func testTTYDeviceMatchRequiresUniqueSurface() {
         let w1 = UUID(), s1 = UUID(), w2 = UUID(), s2 = UUID()
         let bindings: [(workspaceId: UUID, surfaceId: UUID, ttyDevice: Int64)] = [

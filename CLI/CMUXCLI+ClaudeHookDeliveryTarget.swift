@@ -11,10 +11,12 @@
 //      subsequent upsert.
 //   2. the legacy chain (session record → caller tty → spawn env), each
 //      validated against a live workspace (unchanged from #7228).
-//   3. moved-pane re-home (`agent.resolve_delivery_target {surface_id}`) —
-//      when the identity surface exists but no longer lives in the resolved
-//      workspace, deliver to the workspace that currently owns it (#5781)
-//      instead of borrowing the old workspace's focused surface.
+//   3. identity-surface re-home (`agent.resolve_delivery_target
+//      {surface_id}`) — when the legacy chain would fall back to the resolved
+//      workspace's focused surface, ask the app which workspace currently
+//      owns the identity surface and deliver to that pane instead (#5781
+//      pane moves; also heals a workspace listing that lags the app's panel
+//      map when the owner is the same workspace).
 //
 // Explicit --workspace/--surface flags bypass the live probes entirely, and an
 // app without the resolver method degrades to the legacy chain unchanged.
@@ -89,9 +91,13 @@ extension CMUXCLI {
             client: client
         )
         if !resolvedSurface.isAuthoritative, probesAllowed {
-            // The identity surface is not listed in the resolved workspace —
-            // the pane moved. Deliver to its current workspace instead of the
-            // old workspace's focused surface.
+            // The legacy chain fell back to a focused-surface guess: the
+            // identity surface was not in the resolved workspace's listing.
+            // If the app confirms which workspace currently owns the identity
+            // surface, that answer wins — whether the pane moved workspaces
+            // (#5781) or the listing merely lagged the app's panel map and
+            // the owner is the same workspace (a same-workspace answer still
+            // outranks the focused-surface guess).
             let rehomed = rehomedClaudeHookDeliveryTarget(
                 surfaceId: mappedSession?.surfaceId,
                 claimedWorkspaceId: workspaceId,
@@ -101,7 +107,7 @@ extension CMUXCLI {
                 claimedWorkspaceId: workspaceId,
                 client: client
             )
-            if let rehomed, rehomed.workspaceId != workspaceId {
+            if let rehomed {
                 return rehomed
             }
         }

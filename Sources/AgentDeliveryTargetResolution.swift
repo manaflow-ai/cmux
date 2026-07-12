@@ -74,6 +74,12 @@ extension AppDelegate {
 
         var ttyTarget: AgentDeliveryTargetCandidate?
         if let ttyDevice = identity.ttyDevice {
+            // Bounded: one fast `stat` per live surface (the same per-surface
+            // scan `WorkspaceConfigActionCapture` performs), and only at
+            // turn-level hook frequency — per-tool PreToolUse hooks set
+            // `allowsLiveProbe = false` on the CLI side. The env probe below
+            // is cached per process start-time key (positive hits are
+            // permanent), so it does not re-read procargs per hook.
             var bindings: [(workspaceId: UUID, surfaceId: UUID, ttyDevice: Int64)] = []
             for manager in agentDeliveryTabManagers() {
                 for workspace in manager.tabs {
@@ -159,8 +165,11 @@ extension TerminalController {
         guard let appDelegate = AppDelegate.shared else {
             return .err(code: "unavailable", message: "AppDelegate not available", data: nil)
         }
-        if let pid = v2Int(params, "pid"), pid > 0,
-           let target = appDelegate.liveAgentDeliveryTarget(forAgentPID: pid_t(pid)) {
+        // `pid_t(exactly:)` rejects out-of-range values (a socket caller can
+        // pass any 64-bit integer) instead of trapping; they fall through to
+        // the surface/workspace probes like any unresolvable pid.
+        if let pid = v2Int(params, "pid"), pid > 0, let agentPid = pid_t(exactly: pid),
+           let target = appDelegate.liveAgentDeliveryTarget(forAgentPID: agentPid) {
             return .ok([
                 "workspace_id": target.workspaceId.uuidString,
                 "surface_id": target.surfaceId.uuidString,
