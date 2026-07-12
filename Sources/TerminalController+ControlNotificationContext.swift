@@ -52,6 +52,23 @@ extension TerminalController: ControlNotificationContext {
             return .workspaceNotFound(workspaceID: nil)
         }
         guard ws.panels[surfaceID] != nil else {
+            // Moved pane (issue #7939): a pane keeps its surface id across
+            // workspace moves, so resolve the surface's CURRENT owner before
+            // rejecting a claim the routing selectors no longer satisfy.
+            if let owner = AppDelegate.shared?.workspaceContainingPanel(panelId: surfaceID) {
+                deliverNotificationSynchronously(
+                    tabId: owner.workspace.id,
+                    surfaceId: surfaceID,
+                    title: title,
+                    subtitle: subtitle,
+                    body: body
+                )
+                return .delivered(
+                    workspaceID: owner.workspace.id,
+                    surfaceID: surfaceID,
+                    windowID: AppDelegate.shared?.windowId(for: owner.tabManager)
+                )
+            }
             return .surfaceNotFound(surfaceID)
         }
         deliverNotificationSynchronously(
@@ -79,10 +96,34 @@ extension TerminalController: ControlNotificationContext {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
+        // Moved pane (issue #7939): the surface id is the pane's stable
+        // identity, so when the claimed workspace no longer owns it (or was
+        // closed), deliver to the workspace that owns the surface NOW instead
+        // of rejecting the stale claim.
+        func rehomedDelivery() -> ControlNotificationTargetedDeliveryResolution? {
+            guard let owner = AppDelegate.shared?.workspaceContainingPanel(
+                panelId: surfaceID,
+                preferredWorkspaceId: workspaceID
+            ), owner.workspace.id != workspaceID else { return nil }
+            deliverNotificationSynchronously(
+                tabId: owner.workspace.id,
+                surfaceId: surfaceID,
+                title: title,
+                subtitle: subtitle,
+                body: body
+            )
+            return .delivered(
+                workspaceID: owner.workspace.id,
+                surfaceID: surfaceID,
+                windowID: AppDelegate.shared?.windowId(for: owner.tabManager)
+            )
+        }
         guard let ws = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+            if let rehomed = rehomedDelivery() { return rehomed }
             return .workspaceNotFound(workspaceID: workspaceID)
         }
         guard ws.panels[surfaceID] != nil else {
+            if let rehomed = rehomedDelivery() { return rehomed }
             return .surfaceNotFound(surfaceID)
         }
         deliverNotificationSynchronously(

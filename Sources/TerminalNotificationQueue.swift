@@ -130,17 +130,21 @@ final class TerminalMutationBus: @unchecked Sendable {
     }
 
     nonisolated func discardPendingNotifications(forTabId tabId: UUID, surfaceId: UUID?) {
-        discardPendingNotifications { notification, _ in
-            notification.key.tabId == tabId && notification.key.surfaceId == surfaceId
+        // Surface-scoped discards use the canonical surface identity (below);
+        // matching the enqueue-time claimed key would let a stale-keyed entry
+        // outlive a clear for the live pane and resurrect the notification.
+        guard let surfaceId else {
+            discardPendingNotifications { notification, _ in
+                notification.key.tabId == tabId && notification.key.surfaceId == nil
+            }
+            return
         }
+        discardPendingNotifications(forSurfaceId: surfaceId)
     }
 
-    /// Surface-scoped pending notifications are keyed by their enqueue-time
-    /// (claimed) workspace id, but delivery retargets them to the workspace
-    /// that owns the surface at delivery time (#7939). The surface is
-    /// therefore the canonical identity: a newer notification for a surface
-    /// supersedes every pending one for that surface, regardless of which
-    /// workspace each stale claim named.
+    /// Pending entries are keyed by their enqueue-time (claimed) workspace but
+    /// DELIVER to the surface's live owner (#7939), so the surface alone is
+    /// the canonical identity for discarding, superseding, and clearing.
     nonisolated func discardPendingNotifications(forSurfaceId surfaceId: UUID) {
         discardPendingNotifications { notification, _ in
             notification.key.surfaceId == surfaceId
@@ -430,10 +434,8 @@ extension TerminalController {
             claimedTabId: tabId,
             surfaceId: surfaceId
         ) ?? (tabId: tabId, surfaceId: surfaceId)
-        // Discard superseded pending notifications by their canonical identity:
-        // for surface-scoped notifications that is the surface alone — pending
-        // entries may sit under a different stale claimed workspace key yet
-        // would still be retargeted to this same pane at delivery time.
+        // Supersede pending notifications by canonical identity: stale-keyed
+        // entries for this surface would retarget to this same pane at drain.
         if let liveSurfaceId = target.surfaceId {
             TerminalMutationBus.shared.discardPendingNotifications(forSurfaceId: liveSurfaceId)
         } else {

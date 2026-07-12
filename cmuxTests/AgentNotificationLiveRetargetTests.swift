@@ -1,4 +1,5 @@
 import AppKit
+import CmuxControlSocket
 import XCTest
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -174,6 +175,89 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
         }
         XCTAssertEqual(dict["source"] as? String, "surface")
         XCTAssertEqual(dict["workspace_id"] as? String, fixture.owningWorkspace.id.uuidString)
+    }
+
+    func testSurfaceScopedClearDiscardsStaleKeyedPendingNotification() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+
+        // Queued under the stale claimed workspace key...
+        TerminalMutationBus.shared.enqueueNotification(
+            tabId: fixture.claimedWorkspace.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Stale queued"
+        )
+        // ...then the pane (live workspace) is cleared BEFORE the queue
+        // drains: the stale-keyed pending entry must not outlive the clear
+        // and resurrect the notification the user just dismissed.
+        fixture.store.clearNotifications(
+            forTabId: fixture.owningWorkspace.id,
+            surfaceId: fixture.panelId
+        )
+        TerminalMutationBus.shared.drainForTesting()
+
+        XCTAssertTrue(
+            fixture.store.notifications.filter { $0.title == "Claude Code" }.isEmpty,
+            "A cleared pane must stay cleared; the stale-keyed pending entry must not deliver after the clear"
+        )
+        XCTAssertFalse(
+            fixture.store.hasUnreadNotification(forTabId: fixture.owningWorkspace.id, surfaceId: fixture.panelId)
+        )
+    }
+
+    func testCreateForCallerFollowsMovedPreferredSurface() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+
+        // `cmux notify` from a moved pane: spawn-time CMUX_WORKSPACE_ID is
+        // stale but CMUX_SURFACE_ID is the pane's stable identity — the
+        // notification must follow the surface, not fall back to the stale
+        // workspace's focused pane.
+        let result = TerminalController.shared.v2NotificationCreateForCaller(params: [
+            "preferred_workspace_id": fixture.claimedWorkspace.id.uuidString,
+            "preferred_surface_id": fixture.panelId.uuidString,
+            "title": "Caller notify",
+            "body": "Body",
+        ])
+        guard case .ok(let payload) = result, let dict = payload as? [String: Any] else {
+            return XCTFail("Expected delivery, got \(result)")
+        }
+        XCTAssertEqual(dict["workspace_id"] as? String, fixture.owningWorkspace.id.uuidString)
+        XCTAssertEqual(dict["surface_id"] as? String, fixture.panelId.uuidString)
+        let recorded = fixture.store.notifications.filter { $0.title == "Caller notify" }
+        XCTAssertEqual(recorded.map(\.tabId), [fixture.owningWorkspace.id])
+        XCTAssertEqual(recorded.first?.surfaceId, fixture.panelId)
+    }
+
+    func testCreateForTargetFollowsMovedSurface() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: false,
+            windowID: nil,
+            groupID: nil,
+            workspaceID: fixture.claimedWorkspace.id,
+            surfaceID: nil,
+            paneID: nil
+        )
+        let resolution = TerminalController.shared.controlNotificationCreateForTarget(
+            routing: routing,
+            workspaceID: fixture.claimedWorkspace.id,
+            surfaceID: fixture.panelId,
+            title: "Target notify",
+            subtitle: "",
+            body: "Body"
+        )
+        guard case .delivered(let workspaceID, let surfaceID, _) = resolution else {
+            return XCTFail("A moved surface must be re-homed, not rejected; got \(resolution)")
+        }
+        XCTAssertEqual(workspaceID, fixture.owningWorkspace.id)
+        XCTAssertEqual(surfaceID, fixture.panelId)
+        let recorded = fixture.store.notifications.filter { $0.title == "Target notify" }
+        XCTAssertEqual(recorded.map(\.tabId), [fixture.owningWorkspace.id])
     }
 
     func testTTYDeviceMatchRequiresUniqueSurface() {
