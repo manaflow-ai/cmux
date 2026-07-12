@@ -100,3 +100,109 @@ final class TerminalNotificationBackpressureTests: XCTestCase {
         XCTAssertEqual(Set(acceptedState.2).count, acceptedState.2.count)
     }
 }
+
+@MainActor
+final class TerminalNotificationSessionReplacementTests: XCTestCase {
+    func testReplacementTransfersLiveAndRestoredNotificationsToRebuiltTargets() {
+        let store = TerminalNotificationStore.shared
+        let oldTabId = UUID()
+        let newTabId = UUID()
+        let oldSurfaceId = UUID()
+        let newSurfaceId = UUID()
+        let restoredId = UUID()
+        let lateId = UUID()
+        let duringReleaseId = UUID()
+        let unrelatedTabId = UUID()
+        let unrelatedSurfaceId = UUID()
+        let unrelatedId = UUID()
+        defer { store.replaceNotificationsForTesting([]) }
+
+        let liveCanonical = notification(
+            id: restoredId,
+            tabId: oldTabId,
+            surfaceId: oldSurfaceId,
+            title: "Live canonical",
+            createdAt: Date(timeIntervalSince1970: 20),
+            isRead: true
+        )
+        let lateLive = notification(
+            id: lateId,
+            tabId: oldTabId,
+            surfaceId: oldSurfaceId,
+            title: "Late live",
+            createdAt: Date(timeIntervalSince1970: 30),
+            isRead: false
+        )
+        let unrelated = notification(
+            id: unrelatedId,
+            tabId: unrelatedTabId,
+            surfaceId: unrelatedSurfaceId,
+            title: "Unrelated",
+            createdAt: Date(timeIntervalSince1970: 5),
+            isRead: false
+        )
+        store.replaceNotificationsForTesting([liveCanonical, lateLive, unrelated])
+
+        let restoredReplay = notification(
+            id: restoredId,
+            tabId: newTabId,
+            surfaceId: newSurfaceId,
+            title: "Persisted replay",
+            createdAt: Date(timeIntervalSince1970: 10),
+            isRead: false
+        )
+        store.restoreSessionNotifications(
+            [restoredReplay],
+            forTabId: newTabId,
+            replacingTabId: oldTabId,
+            panelIdMap: [oldSurfaceId: newSurfaceId]
+        )
+
+        let duringRelease = notification(
+            id: duringReleaseId,
+            tabId: oldTabId,
+            surfaceId: oldSurfaceId,
+            title: "During release",
+            createdAt: Date(timeIntervalSince1970: 40),
+            isRead: false
+        )
+        store.replaceNotificationsForTesting(store.notifications + [duringRelease])
+        store.transferSessionNotifications(
+            fromTabId: oldTabId,
+            toTabId: newTabId,
+            panelIdMap: [oldSurfaceId: newSurfaceId]
+        )
+
+        XCTAssertEqual(store.notifications.map(\.id), [duringReleaseId, lateId, restoredId, unrelatedId])
+        XCTAssertEqual(store.notifications.first(where: { $0.id == restoredId })?.title, "Live canonical")
+        XCTAssertEqual(store.notifications.first(where: { $0.id == restoredId })?.isRead, true)
+        XCTAssertEqual(store.notifications.first(where: { $0.id == restoredId })?.tabId, newTabId)
+        XCTAssertEqual(store.notifications.first(where: { $0.id == restoredId })?.surfaceId, newSurfaceId)
+        XCTAssertEqual(store.notifications.first(where: { $0.id == lateId })?.tabId, newTabId)
+        XCTAssertEqual(store.notifications.first(where: { $0.id == lateId })?.surfaceId, newSurfaceId)
+        XCTAssertEqual(store.notifications.first(where: { $0.id == duringReleaseId })?.tabId, newTabId)
+        XCTAssertEqual(store.notifications.first(where: { $0.id == duringReleaseId })?.surfaceId, newSurfaceId)
+        XCTAssertEqual(store.notifications.first(where: { $0.id == unrelatedId }), unrelated)
+        XCTAssertEqual(Set(store.notifications.map(\.id)).count, store.notifications.count)
+    }
+
+    private func notification(
+        id: UUID,
+        tabId: UUID,
+        surfaceId: UUID,
+        title: String,
+        createdAt: Date,
+        isRead: Bool
+    ) -> TerminalNotification {
+        TerminalNotification(
+            id: id,
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: title,
+            subtitle: "",
+            body: "",
+            createdAt: createdAt,
+            isRead: isRead
+        )
+    }
+}

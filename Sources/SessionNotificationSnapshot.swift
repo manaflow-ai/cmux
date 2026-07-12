@@ -66,6 +66,61 @@ struct SessionNotificationSnapshot: Codable, Sendable {
 }
 
 extension TerminalNotificationStore {
+    func transferSessionNotifications(
+        fromTabId: UUID,
+        toTabId: UUID,
+        panelIdMap: [UUID: UUID]
+    ) {
+        let merged = Self.mergeRestoredSessionNotifications(
+            existing: notifications,
+            restored: [],
+            tabId: toTabId,
+            replacingTabId: fromTabId,
+            panelIdMap: panelIdMap
+        )
+        applySessionNotificationMerge(merged)
+    }
+
+    nonisolated static func mergeRestoredSessionNotifications(
+        existing: [TerminalNotification],
+        restored: [TerminalNotification],
+        tabId: UUID,
+        replacingTabId: UUID?,
+        panelIdMap: [UUID: UUID]
+    ) -> [TerminalNotification] {
+        var canonicalById: [UUID: TerminalNotification] = [:]
+        for candidate in restored where candidate.tabId == tabId {
+            if let canonical = canonicalById[candidate.id] {
+                if notificationRestoreCanonicalPrecedes(candidate, canonical) {
+                    canonicalById[candidate.id] = candidate
+                }
+            } else {
+                canonicalById[candidate.id] = candidate
+            }
+        }
+
+        var merged = existing
+        if let replacingTabId {
+            for index in merged.indices where merged[index].tabId == replacingTabId {
+                let current = merged[index]
+                let restoredLocation = canonicalById[current.id]
+                let surfaceId = restoredLocation.map(\.surfaceId)
+                    ?? current.surfaceId.flatMap { panelIdMap[$0] }
+                let panelId = restoredLocation.map(\.panelId)
+                    ?? current.panelId.flatMap { panelIdMap[$0] }
+                merged[index] = current.replacingLocation(
+                    tabId: tabId,
+                    surfaceId: surfaceId,
+                    panelId: panelId
+                )
+            }
+        }
+
+        var knownIds = Set(merged.map(\.id))
+        merged.append(contentsOf: canonicalById.values.filter { knownIds.insert($0.id).inserted })
+        return merged.sorted(by: notificationSortPrecedes)
+    }
+
     nonisolated static func notificationRestoreCanonicalPrecedes(
         _ lhs: TerminalNotification,
         _ rhs: TerminalNotification
@@ -102,5 +157,24 @@ extension TerminalNotificationStore {
         key.append(notification.scrollPosition?.totalRows.map(String.init) ?? "")
         key.append(contentsOf: clickActionKey)
         return key
+    }
+}
+
+private extension TerminalNotification {
+    func replacingLocation(tabId: UUID, surfaceId: UUID?, panelId: UUID?) -> TerminalNotification {
+        TerminalNotification(
+            id: id,
+            tabId: tabId,
+            surfaceId: surfaceId,
+            panelId: panelId,
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            createdAt: createdAt,
+            isRead: isRead,
+            paneFlash: paneFlash,
+            scrollPosition: scrollPosition,
+            clickAction: clickAction
+        )
     }
 }

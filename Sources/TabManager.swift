@@ -5879,16 +5879,6 @@ extension TabManager {
         )
     }
 
-    private func releaseRestoredAwayWorkspace(_ workspace: Workspace) {
-        // Session restore replaces the bootstrap workspace objects with freshly
-        // restored ones. Tear the old graph down after the atomic swap so late
-        // panel/socket callbacks cannot keep mutating hidden pre-restore state.
-        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
-        workspace.teardownAllPanels()
-        workspace.teardownRemoteConnection()
-        workspace.owningTabManager = nil
-    }
-
     private static func normalizedCloudVMSessionRestoreWorkspaces<S: Sequence>(
         _ snapshots: S,
         selectedWorkspaceIndex: Int?
@@ -6064,9 +6054,12 @@ extension TabManager {
         let existingIds = Set(newTabs.map(\.id))
         pruneBackgroundWorkspaceLoads(existingIds: existingIds)
         sidebarMultiSelection.intersectSelection(with: existingIds)
-        for workspace in previousTabs {
-            releaseRestoredAwayWorkspace(workspace)
-        }
+        releaseRestoredAwayWorkspaces(
+            previousTabs,
+            originalWorkspaceIds: restoredOriginalWorkspaceIds,
+            replacements: newTabs,
+            panelIdMaps: restoredPanelIdsByWorkspaceIndex
+        )
         for workspace in newTabs {
             let terminalPanels = workspace.panels.values.compactMap { $0 as? TerminalPanel }
             for terminalPanel in terminalPanels {

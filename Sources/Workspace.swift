@@ -286,7 +286,7 @@ extension Workspace {
         } else {
             AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
         }
-        AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
+        AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id, replacingTabId: snapshot.workspaceId, panelIdMap: oldToNewPanelIds)
         syncUnreadBadgeStateForAllPanels()
         return oldToNewPanelIds
     }

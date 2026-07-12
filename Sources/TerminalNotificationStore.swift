@@ -1534,22 +1534,26 @@ final class TerminalNotificationStore: ObservableObject {
         emitNotificationsDismissed(ids: [id.uuidString], drainedSuperseded: supersededDrained)
     }
 
-    func restoreSessionNotifications(_ restoredNotifications: [TerminalNotification], forTabId tabId: UUID) {
+    func restoreSessionNotifications(
+        _ restoredNotifications: [TerminalNotification],
+        forTabId tabId: UUID,
+        replacingTabId: UUID? = nil,
+        panelIdMap: [UUID: UUID] = [:]
+    ) {
         clearFocusedReadIndicator(forTabId: tabId)
-        var canonicalById: [UUID: TerminalNotification] = [:]
-        for candidate in restoredNotifications
-        where candidate.tabId == tabId && !indexes.ids.contains(candidate.id) {
-            if let canonical = canonicalById[candidate.id] {
-                if Self.notificationRestoreCanonicalPrecedes(candidate, canonical) {
-                    canonicalById[candidate.id] = candidate
-                }
-            } else {
-                canonicalById[candidate.id] = candidate
-            }
-        }
-        let unseenRestored = canonicalById.values.sorted(by: Self.notificationSortPrecedes)
-        guard !unseenRestored.isEmpty else { return }
-        notifications = (notifications + unseenRestored).sorted(by: Self.notificationSortPrecedes)
+        let merged = Self.mergeRestoredSessionNotifications(
+            existing: notifications,
+            restored: restoredNotifications,
+            tabId: tabId,
+            replacingTabId: replacingTabId,
+            panelIdMap: panelIdMap
+        )
+        applySessionNotificationMerge(merged)
+    }
+
+    func applySessionNotificationMerge(_ merged: [TerminalNotification]) {
+        guard merged != notifications else { return }
+        notifications = merged
     }
 
     private func replaceNotificationsForClear(_ next: [TerminalNotification]) { suppressNotificationDiffPublishing = true; notifications = next; suppressNotificationDiffPublishing = false }
