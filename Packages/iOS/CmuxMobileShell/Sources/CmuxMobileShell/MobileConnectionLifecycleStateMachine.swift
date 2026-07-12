@@ -43,11 +43,21 @@ struct MobileConnectionLifecycleStateMachine {
         isForegroundActive = true
         let dwell = inactiveSince.map { date.timeIntervalSince($0) } ?? shortDwellThreshold
         inactiveSince = nil
+        let shouldRequestForegroundRecovery = dwell >= shortDwellThreshold
+            || !health.hasHealthyEventStream
 
+        if activeEpisode != nil {
+            guard shouldRequestForegroundRecovery else { return nil }
+            return request(
+                .foregroundResume,
+                health: health,
+                reconnectStackUserID: reconnectStackUserID
+            )
+        }
         if !pendingRequests.isEmpty {
             return startNextPendingEpisode(health: health)
         }
-        guard dwell >= shortDwellThreshold || !health.hasHealthyEventStream else {
+        guard shouldRequestForegroundRecovery else {
             return nil
         }
         return request(
@@ -177,6 +187,7 @@ struct MobileConnectionLifecycleStateMachine {
     private mutating func startNextPendingEpisode(
         health: MobileConnectionLifecycleHealthSnapshot
     ) -> MobileConnectionLifecycleEffect? {
+        guard activeEpisode == nil else { return nil }
         guard let selectedTrigger = highestPriorityTrigger(
             in: Set(pendingRequests.map(\.trigger))
         ),
