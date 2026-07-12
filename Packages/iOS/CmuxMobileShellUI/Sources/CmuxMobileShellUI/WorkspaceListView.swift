@@ -216,6 +216,7 @@ struct WorkspaceListView: View {
     }
 
     var body: some View {
+        let storedMacRecovery = storedMacRecoveryPresentation
         let currentMachineSnapshots = liveMachineSnapshots
         let currentVisibleMacSelection = visibleMacSelection
         let currentFilterMenuPresentMachineIDs = filterMenuPresentMachineIDs
@@ -247,13 +248,13 @@ struct WorkspaceListView: View {
                     MobileMacConnectionStatusRow(
                         host: host,
                         status: connectionStatus,
-                        showsSpinner: isRestoringStoredMac,
-                        titleOverride: nil,
-                        descriptionOverride: nil,
-                        retry: isRestoringStoredMac && store != nil
+                        showsSpinner: storedMacRecovery.showsSpinner,
+                        titleOverride: storedMacRecovery.title,
+                        descriptionOverride: storedMacRecovery.description,
+                        retry: storedMacRecovery.showsRetry && store != nil
                             ? { store?.retryMobileConnection() }
                             : nil,
-                        addDevice: isRestoringStoredMac ? showAddDevice : nil,
+                        addDevice: storedMacRecovery.showsAddDevice ? showAddDevice : nil,
                         reconnect: reconnect
                     )
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
@@ -480,6 +481,15 @@ struct WorkspaceListView: View {
             connectionRecoveryFailed: store?.connectionRecoveryFailed ?? false,
             isRecoveringConnection: store?.isRecoveringConnection ?? false,
             connectionStatus: connectionStatus
+        )
+    }
+
+    var storedMacRecoveryPresentation: WorkspaceListStoredMacRecoveryPresentation {
+        WorkspaceListStoredMacRecoveryPresentation(
+            isRestoring: isRestoringStoredMac,
+            recoveryFailed: store?.connectionRecoveryFailed ?? false,
+            error: store?.connectionError,
+            guidance: store?.connectionErrorGuidance
         )
     }
 

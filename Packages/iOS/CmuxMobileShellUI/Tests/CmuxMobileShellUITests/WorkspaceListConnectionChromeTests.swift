@@ -87,6 +87,36 @@ import Testing
         #expect(view.connectionChrome == .macStatusRow)
     }
 
+    @Test func storedMacDeadlineFailureShowsLocalizedGuidanceAndBothActions() {
+        let presentation = WorkspaceListStoredMacRecoveryPresentation(
+            isRestoring: false,
+            recoveryFailed: true,
+            error: "Still loading",
+            guidance: "Retry or add this computer again."
+        )
+
+        #expect(!presentation.showsSpinner)
+        #expect(presentation.title == "Still loading")
+        #expect(presentation.description == "Retry or add this computer again.")
+        #expect(presentation.showsRetry)
+        #expect(presentation.showsAddDevice)
+    }
+
+    @Test func activeStoredMacReconnectKeepsActionsWithoutPublishingFailureCopy() {
+        let presentation = WorkspaceListStoredMacRecoveryPresentation(
+            isRestoring: true,
+            recoveryFailed: false,
+            error: nil,
+            guidance: nil
+        )
+
+        #expect(presentation.showsSpinner)
+        #expect(presentation.title == nil)
+        #expect(presentation.description == nil)
+        #expect(presentation.showsRetry)
+        #expect(presentation.showsAddDevice)
+    }
+
     private func chrome(
         hasStore: Bool = true,
         connectionRequiresReauth: Bool = false,

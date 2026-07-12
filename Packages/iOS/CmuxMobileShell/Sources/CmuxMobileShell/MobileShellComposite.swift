@@ -580,6 +580,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     let runtime: (any MobileSyncRuntime)?
     let pairedMacStore: (any MobilePairedMacStoring)?
+    /// Suspends until the lifecycle owner's stored-Mac reconnect lease expires.
+    /// Injected so tests can expire an episode without wall-clock sleeps.
+    let storedMacReconnectDeadline: @Sendable () async -> Void
     private let pairedMacRestoreBoundary: PairedMacRestoreBoundary?
     /// Best-effort, team-scoped lookup of fresher attach routes from the device
     /// registry. Optional and failure-tolerant: when `nil` or unreachable,
@@ -896,6 +899,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         diagnosticLog: DiagnosticLog? = nil,
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
         feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
+        storedMacReconnectDeadline: @escaping @Sendable () async -> Void = {
+            try? await Task.sleep(for: .seconds(10))
+        },
         draftStore: (any TerminalDraftStoring)? = nil,
         groupCollapseStore: MobileWorkspaceGroupCollapseStore = MobileWorkspaceGroupCollapseStore()
     ) {
@@ -903,6 +909,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.draftStore = draftStore
         self.groupCollapseStore = groupCollapseStore
         self.pairedMacStore = pairedMacStore
+        self.storedMacReconnectDeadline = storedMacReconnectDeadline
         self.pairedMacRestoreBoundary = pairedMacRestoreBoundary
         self.deviceRegistry = deviceRegistry
         self.presence = presence
@@ -1012,6 +1019,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             continuation.resume()
         }
         connectionLifecycleTask?.cancel()
+        connectionLifecycleDeadlineTask?.cancel()
         presenceTask?.cancel()
         networkPathObservationTask?.cancel()
         terminalEventListenerTask?.cancel()
@@ -1409,6 +1417,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private(set) var networkPathObservationTask: Task<Void, Never>?
     var connectionLifecycle = MobileConnectionLifecycleStateMachine()
     var connectionLifecycleTask: Task<Void, Never>?
+    var connectionLifecycleDeadlineTask: Task<Void, Never>?
     var connectionLifecycleRequestWaiters: [UInt64: CheckedContinuation<Void, Never>] = [:]
 
     /// Begin observing meaningful network path changes (Wi-Fi<->cellular,
@@ -1442,6 +1451,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectionLifecycle.prepareForStoredMacReconnect()
         }
         requestConnectionLifecycleRecovery(.manualRetry)
+    }
+
+    /// Publishes the localized terminal state for the lifecycle owner's overall
+    /// stored-Mac reconnect deadline. Kept on the store so the same owner that
+    /// resolves the episode also owns its user-visible failure result.
+    func applyStoredMacReconnectDeadlineFailure() {
+        connectionError = L10n.string(
+            "mobile.loading.timeout.title",
+            defaultValue: "Still loading"
+        )
+        connectionErrorGuidance = L10n.string(
+            "mobile.loading.timeout.message",
+            defaultValue: "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry or add this computer again."
+        )
     }
 
     /// Yield automatic recovery ownership before the user enters manual pairing.

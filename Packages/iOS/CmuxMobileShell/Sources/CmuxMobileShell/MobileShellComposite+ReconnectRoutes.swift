@@ -95,6 +95,8 @@ extension MobileShellComposite {
         invalidateStoredMacReconnectAttempt()
         connectionLifecycleTask?.cancel()
         connectionLifecycleTask = nil
+        connectionLifecycleDeadlineTask?.cancel()
+        connectionLifecycleDeadlineTask = nil
         reconcileMacConnectionStatusAfterLifecycleReset(
             canceledStreamRepair: canceledStreamRepair
         )
@@ -138,6 +140,7 @@ extension MobileShellComposite {
     ) {
         guard case .start(let episode) = effect else { return }
         connectionLifecycleTask?.cancel()
+        connectionLifecycleDeadlineTask?.cancel()
         connectionLifecycleTask = Task { @MainActor [weak self] in
             guard let self, self.connectionLifecycle.ownsEpisode(episode.id) else { return }
             switch episode.kind {
@@ -173,10 +176,37 @@ extension MobileShellComposite {
                 self.connectionLifecycleTask = nil
             }
         }
+        if episode.kind == .reconnect {
+            let deadline = storedMacReconnectDeadline
+            connectionLifecycleDeadlineTask = Task { @MainActor [weak self] in
+                await deadline()
+                guard !Task.isCancelled else { return }
+                self?.expireStoredMacReconnectEpisode(id: episode.id)
+            }
+        } else {
+            connectionLifecycleDeadlineTask = nil
+        }
+    }
+
+    /// Expires exactly the reconnect episode that armed this deadline. The
+    /// episode identity guard makes a late, cancellation-insensitive deadline
+    /// harmless after success, sign-out, manual pairing, or replacement.
+    private func expireStoredMacReconnectEpisode(id: UInt64) {
+        guard connectionLifecycle.ownsEpisode(id),
+              connectionLifecycle.activeEpisode?.kind == .reconnect else { return }
+        let operation = connectionLifecycleTask
+        connectionLifecycleTask = nil
+        connectionLifecycleDeadlineTask = nil
+        operation?.cancel()
+        invalidateStoredMacReconnectAttempt()
+        applyStoredMacReconnectDeadlineFailure()
+        finishConnectionLifecycleEpisode(id: id, succeeded: false)
     }
 
     func finishConnectionLifecycleEpisode(id: UInt64, succeeded: Bool = true) {
         guard connectionLifecycle.ownsEpisode(id) else { return }
+        connectionLifecycleDeadlineTask?.cancel()
+        connectionLifecycleDeadlineTask = nil
         let recoveryWasFailed = connectionLifecycle.recoveryFailed
         let effect = connectionLifecycle.complete(
             id: id,
