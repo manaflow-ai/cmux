@@ -114,6 +114,16 @@ struct MobileDiffTests {
         #expect(!patch.contains("blocking-pipe"))
     }
 
+    @Test func processCancellationLatchesBeforeLaunch() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+        let cancellation = MobileDiffProcessCancellation(process: process)
+
+        cancellation.cancel()
+
+        #expect(!cancellation.beginLaunch())
+    }
+
     private func makeRepository(named name: String) throws -> URL {
         let repository = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-mobile-diff-\(name)-\(UUID().uuidString)", isDirectory: true)
