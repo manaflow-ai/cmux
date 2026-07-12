@@ -39,12 +39,19 @@ public struct PromptLineTurnDetector: Sendable {
     }
 
     private static let maximumLogicalLineBytes = 4_096
+    private static let maximumCSIParameterBytes = 12
 
     private let configuration: PromptLineTurnDetectionConfiguration
     private let maximumWaitingPromptLineByteCount: Int
     private let promptVisibleByteCount: Int
     private var phase: Phase = .stable(.seekingInitialPrompt)
     private var controlSequence: ControlSequence = .none
+    /// CSI parameter/intermediate bytes of the sequence being parsed, so the
+    /// terminator can distinguish line-rewriting controls (CSI 2K, CSI 1G)
+    /// from inert ones (SGR, cursor shifts). Overlong sequences are treated
+    /// as inert rather than growing the buffer.
+    private var csiParameterBytes: [UInt8] = []
+    private var csiParameterOverflowed = false
     private var logicalLine: [UInt8] = []
     private var logicalLineOverflowed = false
     /// Visible bytes currently in `logicalLine`, maintained incrementally so
@@ -204,6 +211,11 @@ public struct PromptLineTurnDetector: Sendable {
         case .csi:
             if (0x40...0x7E).contains(byte) {
                 controlSequence = .none
+                handleCSITerminator(byte)
+            } else if csiParameterBytes.count < Self.maximumCSIParameterBytes {
+                csiParameterBytes.append(byte)
+            } else {
+                csiParameterOverflowed = true
             }
             return
         case .osc:
@@ -223,6 +235,8 @@ public struct PromptLineTurnDetector: Sendable {
         switch byte {
         case 0x1B:
             controlSequence = .escape
+            csiParameterBytes.removeAll(keepingCapacity: true)
+            csiParameterOverflowed = false
         case 0x0A, 0x0D:
             invalidatePendingPrompt()
             handleLineBoundary()
@@ -320,6 +334,39 @@ public struct PromptLineTurnDetector: Sendable {
             completedTurnCount: 1,
             delay: configuration.confirmationDelay
         ))
+    }
+
+    /// Handles a completed CSI sequence. REPL readline implementations
+    /// (Ollama's liner among them) redraw their prompt line in place with
+    /// "cursor to column 1" (CSI G / CSI 1G) and "erase entire line"
+    /// (CSI 2K) instead of CR/LF — a model-load spinner emits dozens of such
+    /// frames. Both rewrite the visible line from its start, so the logical
+    /// line resets exactly as it does for a carriage return, minus the
+    /// submission boundary: an erased or overwritten line was never
+    /// submitted. Erase-to-right (bare CSI K) is not a full-line rewrite and
+    /// stays inert because the detector does not track cursor columns.
+    private mutating func handleCSITerminator(_ terminator: UInt8) {
+        defer {
+            csiParameterBytes.removeAll(keepingCapacity: true)
+            csiParameterOverflowed = false
+        }
+        guard !csiParameterOverflowed else { return }
+        switch terminator {
+        case UInt8(ascii: "G"):
+            guard csiParameterBytes.isEmpty ||
+                csiParameterBytes == [UInt8(ascii: "1")] ||
+                csiParameterBytes == [UInt8(ascii: "0")] else {
+                return
+            }
+            invalidatePendingPrompt()
+            resetLogicalLine()
+        case UInt8(ascii: "K"):
+            guard csiParameterBytes == [UInt8(ascii: "2")] else { return }
+            invalidatePendingPrompt()
+            resetLogicalLine()
+        default:
+            break
+        }
     }
 
     private mutating func invalidatePendingPrompt() {
