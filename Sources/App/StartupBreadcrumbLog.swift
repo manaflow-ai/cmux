@@ -25,7 +25,7 @@ nonisolated enum StartupBreadcrumbLog {
             records.reserveCapacity(self.capacity)
         }
 
-        /// Returns true only when the caller must schedule the single drain task.
+        /// Returns true only when the caller must schedule the single drain.
         mutating func enqueue(_ record: Record) -> Bool {
             if records.count < capacity {
                 records.append(record)
@@ -50,27 +50,30 @@ nonisolated enum StartupBreadcrumbLog {
         }
     }
 
-    private actor DeferredWriter {
-        private var buffer = DeferredBuffer(capacity: StartupBreadcrumbLog.maxDeferredRecordCount)
-        private var drainTask: Task<Void, Never>?
+    private final class DeferredWriter: @unchecked Sendable {
+        private let buffer = OSAllocatedUnfairLock(
+            initialState: DeferredBuffer(capacity: StartupBreadcrumbLog.maxDeferredRecordCount)
+        )
+        private let queue = DispatchQueue(
+            label: "com.cmuxterm.startup-breadcrumb-writer",
+            qos: .utility
+        )
 
         func enqueue(_ record: Record) {
-            guard buffer.enqueue(record) else { return }
-            drainTask = Task { [weak self] in
-                // Yield once so a synchronous restore burst reaches the actor before the first write.
-                await Task.yield()
-                await self?.drain()
+            let shouldScheduleDrain = buffer.withLock { buffer in
+                buffer.enqueue(record)
+            }
+            guard shouldScheduleDrain else { return }
+            queue.async { [weak self] in
+                self?.drain()
             }
         }
 
-        private func drain() async {
-            while let batch = buffer.takeBatch() {
+        private func drain() {
+            while let batch = buffer.withLock({ buffer in buffer.takeBatch() }) {
                 let records = StartupBreadcrumbLog.records(in: batch)
-                await Task.detached(priority: .utility) {
-                    StartupBreadcrumbLog.write(records)
-                }.value
+                StartupBreadcrumbLog.write(records)
             }
-            drainTask = nil
         }
     }
 
@@ -80,20 +83,7 @@ nonisolated enum StartupBreadcrumbLog {
     private static let maxDeferredRecordCount = 512
     private static let maxLogByteCount = 4 * 1024 * 1024
     private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app", category: "StartupBreadcrumbLog")
-    private static let deferredContinuation: AsyncStream<Record>.Continuation = {
-        let writer = DeferredWriter()
-        let (stream, continuation) = AsyncStream<Record>.makeStream(
-            bufferingPolicy: .bufferingNewest(maxDeferredRecordCount)
-        )
-        // Process-lifetime consumer: the bounded stream is the synchronous,
-        // lock-free handoff from restore code to the actor-owned batch.
-        Task.detached(priority: .utility) {
-            for await record in stream {
-                await writer.enqueue(record)
-            }
-        }
-        return continuation
-    }()
+    private static let deferredWriter = DeferredWriter()
     private static let reservedFieldKeys: Set<String> = [
         "timestamp",
         "event",
@@ -113,9 +103,7 @@ nonisolated enum StartupBreadcrumbLog {
     static func appendBatched(_ event: String, fields: [String: String] = [:]) {
         guard isEnabled else { return }
         let record = record(event: event, fields: fields)
-        if case .dropped = deferredContinuation.yield(record) {
-            logger.warning("cmux startup breadcrumb input buffer dropped an old record")
-        }
+        deferredWriter.enqueue(record)
     }
 
     private static func record(event: String, fields: [String: String]) -> Record {
