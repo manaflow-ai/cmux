@@ -3,6 +3,7 @@ import {
   mobileDiffCompletionMessages,
   mobileDiffFiles,
   mobileDiffMessage,
+  mobileDiffRenderFailed,
   mobileDiffSelectionMessage,
 } from "../src/mobile-diff-bridge";
 
@@ -23,6 +24,11 @@ test("mobile diff bridge preserves file order and stats", () => {
     { id: "app", path: "Sources/App.swift", added: 12, deleted: 3 },
     { id: "readme", path: "README.md", added: 2, deleted: 0 },
   ]);
+});
+
+test("empty diffs are ready states, not render failures", () => {
+  expect(mobileDiffRenderFailed({ error: true, message: "No changes" }, "No changes")).toBe(false);
+  expect(mobileDiffRenderFailed({ error: true, message: "Render failed" }, "No changes")).toBe(true);
 });
 
 test("completion republishes the current renderer selection after the file index", () => {
