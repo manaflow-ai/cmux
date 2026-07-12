@@ -32,7 +32,7 @@ extension Notification.Name {
     static let reactGrabDidCopySelection = Notification.Name("cmux.reactGrabDidCopySelection")
 }
 
-nonisolated private struct SocketLineProcessingResult: Sendable {
+private struct SocketLineProcessingResult: Sendable {
     let response: String?
     let authenticated: Bool
 }
@@ -46,14 +46,14 @@ nonisolated private struct SocketLineProcessingResult: Sendable {
 /// instance per command, `v2MainSync` mutates it in place (no per-hop
 /// allocation), and the end-of-command debug log on the same thread reads the
 /// totals. It never crosses threads, so it is intentionally not Sendable.
-nonisolated private final class SocketCommandMainHopAccumulator {
+private final class SocketCommandMainHopAccumulator {
     var queueWaitNanos: UInt64 = 0
     var bodyNanos: UInt64 = 0
     var hopCount: Int = 0
 }
 #endif
 
-nonisolated private struct RemotePTYSocketTarget {
+private struct RemotePTYSocketTarget {
     let controller: RemoteSessionCoordinator?
     let windowId: UUID?
     let windowRef: Any

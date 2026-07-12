@@ -70,7 +70,7 @@ struct AgentChatThemePayload: Codable, Equatable {
     }
 }
 
-private nonisolated struct AgentChatThemeSyncState {
+private struct AgentChatThemeSyncState {
     var observersInstalled = false
     var debouncedTask: Task<Void, Never>?
 }

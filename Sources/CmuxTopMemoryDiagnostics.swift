@@ -27,7 +27,7 @@ struct CmuxTopProcessAttribution: Hashable, Sendable {
     }
 }
 
-nonisolated extension CmuxTopProcessSnapshot {
+extension CmuxTopProcessSnapshot {
     func memoryDiagnosticPayload(
         appPID: Int = Int(Darwin.getpid()),
         topGroupLimit: Int = cmuxTopMemoryDiagnosticDefaultGroupLimit,

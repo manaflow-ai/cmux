@@ -129,7 +129,7 @@ struct CmuxTopProcessScope: Sendable, Equatable {
     }
 }
 
-nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
+final class CmuxTopProcessSnapshot: @unchecked Sendable {
     let sampledAt: Date
     private let includesProcessDetails: Bool
     private let includesCMUXScope: Bool

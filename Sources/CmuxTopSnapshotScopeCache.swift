@@ -8,7 +8,7 @@ struct CmuxTopProcessScopeCacheKey: Hashable {
     let startMicroseconds: Int
 }
 
-private nonisolated struct CmuxTopProcessScopeCacheValue {
+private struct CmuxTopProcessScopeCacheValue {
     // nil means "this process was probed and has no cmux scope". A negative entry
     // is honored as a hit only until `negativeExpiresAtNanos`, so a non-cmux
     // process is re-probed at most once per TTL window instead of on every
@@ -47,7 +47,7 @@ private nonisolated let cmuxTopScopeCache = OSAllocatedUnfairLock(
     initialState: [CmuxTopProcessScopeCacheKey: CmuxTopProcessScopeCacheValue]()
 )
 
-nonisolated extension CmuxTopProcessSnapshot {
+extension CmuxTopProcessSnapshot {
     static func scopeCacheKey(from kinfo: kinfo_proc) -> CmuxTopProcessScopeCacheKey {
         let startTime = kinfo.kp_proc.p_un.__p_starttime
         return CmuxTopProcessScopeCacheKey(
@@ -281,7 +281,7 @@ nonisolated extension CmuxTopProcessSnapshot {
     }
 }
 
-nonisolated extension CmuxTopProcessArguments {
+extension CmuxTopProcessArguments {
     func matchesCMUXScope(workspaceId: UUID, surfaceId: UUID) -> Bool {
         guard let scope = CmuxTopProcessSnapshot.cmuxScope(arguments: arguments, environment: environment) else {
             return false
