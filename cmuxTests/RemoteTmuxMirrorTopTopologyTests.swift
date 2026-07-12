@@ -132,4 +132,24 @@ struct RemoteTmuxMirrorTopTopologyTests {
         let commandLines = commands.split(separator: "\n").map(String.init)
         #expect(commandLines.last == "select-pane -t @3.%\(targetTmuxPaneID)")
     }
+
+    /// A single-pane session window has no window mirror, so its control pane
+    /// projection reuses the display panel as both container and surface.
+    /// Focusing that panel must take the ordinary workspace focus path: the
+    /// mirror intercept re-entering itself with the same identity would
+    /// recurse without bound, and it must not mint a select-pane command that
+    /// the pre-projection focus path never sent.
+    @Test func singlePaneSessionWindowFocusUsesTheNormalPath() throws {
+        let harness = try RemoteTmuxSessionMirrorLayoutHarness()
+        defer { harness.tearDown() }
+
+        let panel = try #require(harness.singlePanePanel(tmuxPaneID: 11))
+        let location = try #require(harness.workspace.remoteTmuxControlPane(surfaceID: panel.id))
+        #expect(location.containerPanelID == panel.id)
+
+        let baselinePendingCount = harness.connection.pendingCommandKindsForTesting.count
+        harness.workspace.focusPanel(panel.id)
+        #expect(harness.workspace.focusedPanelId == panel.id)
+        #expect(harness.connection.pendingCommandKindsForTesting.count == baselinePendingCount)
+    }
 }
