@@ -22,4 +22,14 @@ extension MobileShellComposite {
         }
         return workspaceMutationFailure(error, hostDisplayName: hostDisplayName)
     }
+
+    func reconciledWorkspaceMutationFailure(
+        _ error: any Error,
+        hostDisplayName: String?
+    ) -> MobileWorkspaceMutationFailure {
+        if workspaceMutationMayHaveApplied(error) {
+            return .resultUnknownRefreshed(hostDisplayName: hostDisplayName)
+        }
+        return workspaceMutationFailure(error, hostDisplayName: hostDisplayName)
+    }
 }

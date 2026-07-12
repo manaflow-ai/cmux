@@ -40,7 +40,7 @@ extension WorkspaceShellView {
         }
     }
 
-    private func workspaceActionFailureMessage(
+    func workspaceActionFailureMessage(
         action: WorkspaceActionToastAction,
         failure: MobileWorkspaceMutationFailure
     ) -> String {
@@ -54,6 +54,12 @@ extension WorkspaceShellView {
             return L10n.string(
                 "mobile.workspaceAction.failure.resultUnknownNeedsRefresh",
                 defaultValue: "The result is unknown. Refresh to load the latest state."
+            )
+        }
+        if case .resultUnknownRefreshed = failure {
+            return L10n.string(
+                "mobile.workspaceAction.failure.resultUnknownRefreshed",
+                defaultValue: "Latest workspace state loaded. Verify the change."
             )
         }
         return String.localizedStringWithFormat(
@@ -112,6 +118,11 @@ extension WorkspaceShellView {
             return L10n.string(
                 "mobile.workspaceAction.failure.resultUnknownNeedsRefresh",
                 defaultValue: "The result is unknown. Refresh to load the latest state."
+            )
+        case .resultUnknownRefreshed:
+            return L10n.string(
+                "mobile.workspaceAction.failure.resultUnknownRefreshed",
+                defaultValue: "Latest workspace state loaded. Verify the change."
             )
         case let .notConnected(hostDisplayName):
             if let hostDisplayName = trimmedWorkspaceActionHostDisplayName(hostDisplayName) {

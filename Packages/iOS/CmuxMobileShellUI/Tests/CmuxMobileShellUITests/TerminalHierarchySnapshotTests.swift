@@ -1,3 +1,4 @@
+import CmuxMobileShell
 import CmuxMobileShellModel
 import Testing
 @testable import CmuxMobileShellUI
@@ -139,6 +140,20 @@ import Testing
     #expect(TerminalHierarchyCloseResultPresentation(
         .failure(.rejected(hostDisplayName: "Test Mac"))
     ) == .failed)
+}
+
+@MainActor
+@Test func workspaceAmbiguousRefreshedResultUsesVerificationCopy() {
+    let view = WorkspaceShellView(store: MobileShellComposite.preview(), signOut: {})
+
+    #expect(view.workspaceActionFailureMessage(
+        action: .renameWorkspace,
+        failure: .resultUnknownRefreshed(hostDisplayName: "Test Mac")
+    ) == "Latest workspace state loaded. Verify the change.")
+    #expect(view.workspaceActionFailureMessage(
+        action: .renameWorkspace,
+        failure: .rejected(hostDisplayName: nil)
+    ).contains("Couldn't rename workspace"))
 }
 
 @Test func hierarchySnapshotHandlesEmptyAndSingleTerminalWorkspaces() {

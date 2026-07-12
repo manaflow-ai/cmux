@@ -377,7 +377,7 @@ extension MobileShellComposite {
             if !reconciled {
                 return .failure(unreconciledWorkspaceMutationFailure(error, hostDisplayName: hostDisplayName))
             }
-            return .failure(workspaceMutationFailure(error, hostDisplayName: hostDisplayName))
+            return .failure(reconciledWorkspaceMutationFailure(error, hostDisplayName: hostDisplayName))
         }
         // Re-sync the authoritative list for the Mac we actually mutated.
         guard await refreshAfterWorkspaceMutation(target) else {

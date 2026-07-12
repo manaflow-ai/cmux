@@ -9090,6 +9090,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "結果を確認できません。最新の状態を読み込むには更新してください。" } }
       }
     },
+    "mobile.workspaceAction.failure.resultUnknownRefreshed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Latest workspace state loaded. Verify the change." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "最新のワークスペース状態を読み込みました。変更を確認してください。" } }
+      }
+    },
     "mobile.workspaceAction.failure.message": {
       "extractionState": "manual",
       "localizations": {
@@ -9414,6 +9421,18 @@
       "extractionState": "manual", "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "The Mac may have applied the change. Refresh before making another change." } },
         "ja": { "stringUnit": { "state": "translated", "value": "Mac で変更が適用された可能性があります。別の変更を行う前に更新してください。" } }
+      }
+    },
+    "mobile.terminal.hierarchy.resultUnknownRefreshedTitle": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal State Refreshed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナル状態を更新しました" } }
+      }
+    },
+    "mobile.terminal.hierarchy.resultUnknownRefreshedMessage": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Latest terminal state loaded. Verify the change." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "最新のターミナル状態を読み込みました。変更を確認してください。" } }
       }
     },
     "mobile.terminal.hierarchy.refreshAction": {

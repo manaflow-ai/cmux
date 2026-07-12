@@ -30,6 +30,7 @@ struct TerminalHierarchySheet: View {
     @State private var mutationFailed = false
     @State private var mutationProtected = false
     @State private var closeProtected = false
+    @State private var mutationResultUnknownRefreshed = false
     @State private var showRefreshAlert = false
     @State private var refreshResultIsUnknown = false
     @State private var optimisticTerminalIDsByPane: [MobilePanePreview.ID: [MobileTerminalPreview.ID]] = [:]
@@ -154,6 +155,16 @@ struct TerminalHierarchySheet: View {
                     )
                 )
                 .accessibilityIdentifier("MobileTerminalHierarchyCloseProtectedMessage")
+            }
+            .alert(
+                L10n.string("mobile.terminal.hierarchy.resultUnknownRefreshedTitle", defaultValue: "Terminal State Refreshed"),
+                isPresented: $mutationResultUnknownRefreshed
+            ) {
+                Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
+            } message: {
+                Text(
+                    L10n.string("mobile.terminal.hierarchy.resultUnknownRefreshedMessage", defaultValue: "Latest terminal state loaded. Verify the change.")
+                )
             }
         }
         .accessibilityIdentifier("MobileTerminalHierarchySheet")
@@ -345,6 +356,8 @@ struct TerminalHierarchySheet: View {
                     presentRefreshRequired(resultIsUnknown: false)
                 } else if case .failure(.resultUnknownNeedsRefresh) = result {
                     presentRefreshRequired(resultIsUnknown: true)
+                } else if case .failure(.resultUnknownRefreshed) = result {
+                    mutationResultUnknownRefreshed = true
                 } else if case .failure(.protected) = result {
                     mutationProtected = true
                 } else {
@@ -414,6 +427,8 @@ struct TerminalHierarchySheet: View {
                 presentRefreshRequired(resultIsUnknown: false)
             case .resultUnknownNeedsRefresh:
                 presentRefreshRequired(resultIsUnknown: true)
+            case .resultUnknownRefreshed:
+                mutationResultUnknownRefreshed = true
             case .protected:
                 closeProtected = true
             case .failed:
