@@ -8725,11 +8725,11 @@ struct ContentView: View {
         if let terminalView = TerminalWindowPortalRegistry.terminalViewAtWindowPoint(windowPoint, in: window),
            let workspaceId = terminalView.tabId,
            let panelId = terminalView.terminalSurface?.id,
-           tabManager.tabs.contains(where: { $0.id == workspaceId }) {
+           let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) {
             return CommandPaletteRestoreFocusTarget(
                 workspaceId: workspaceId,
                 panelId: panelId,
-                intent: .terminal(.surface)
+                intent: workspace.panels[panelId]?.captureFocusIntent(in: window) ?? .terminal(.surface)
             )
         }
 
@@ -8747,7 +8747,7 @@ struct ContentView: View {
                 return CommandPaletteRestoreFocusTarget(
                     workspaceId: workspace.id,
                     panelId: panelId,
-                    intent: .browser(.webView)
+                    intent: panel.captureFocusIntent(in: window) ?? .browser(.webView)
                 )
             }
         }

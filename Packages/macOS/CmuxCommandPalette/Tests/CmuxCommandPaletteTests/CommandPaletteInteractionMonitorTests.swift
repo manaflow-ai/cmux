@@ -52,6 +52,11 @@ struct CommandPaletteInteractionMonitorTests {
         #expect(overlayView.commandPalettePanelContains(windowPoint: panelCenter) == true)
         #expect(overlayView.commandPalettePanelContains(windowPoint: NSPoint(x: 20, y: 20)) == false)
         #expect(NSView().commandPalettePanelContains(windowPoint: .zero) == nil)
+        let unlaidOutHost = NSView()
+        let unlaidOutMarker = CommandPalettePanelHitRegionView(frame: .zero)
+        unlaidOutMarker.identifier = CommandPalettePanelHitRegionView.interfaceIdentifier
+        unlaidOutHost.addSubview(unlaidOutMarker)
+        #expect(unlaidOutHost.commandPalettePanelContains(windowPoint: .zero) == nil)
 
         let monitor = CommandPaletteInteractionMonitor()
         var dismissCount = 0

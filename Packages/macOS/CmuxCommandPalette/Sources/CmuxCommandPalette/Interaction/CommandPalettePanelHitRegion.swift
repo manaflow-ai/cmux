@@ -36,7 +36,8 @@ public extension NSView {
     /// - Parameter windowPoint: A point in the receiver's window coordinate space.
     /// - Returns: Whether the point is inside the panel, or `nil` before marker mounting.
     func commandPalettePanelContains(windowPoint: NSPoint) -> Bool? {
-        guard let marker = commandPalettePanelHitRegionDescendant() else { return nil }
+        guard let marker = commandPalettePanelHitRegionDescendant(),
+              !marker.bounds.isEmpty else { return nil }
         return marker.bounds.contains(marker.convert(windowPoint, from: nil))
     }
 
