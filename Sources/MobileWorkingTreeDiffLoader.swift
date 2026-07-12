@@ -123,7 +123,7 @@ final class MobileWorkingTreeDiffLoader: Sendable {
             guard !path.isEmpty else { continue }
             guard Self.isDiffableUntrackedFile(path, repositoryRoot: repositoryRoot) else { continue }
             let result = try await runGit(
-                ["diff", "--no-index", "--no-textconv", "--binary", "--", "/dev/null", path],
+                ["diff", "--no-index", "--no-ext-diff", "--no-textconv", "--binary", "--", "/dev/null", path],
                 directory: repositoryRoot,
                 maximumStdoutBytes: maximumPatchBytes - patch.count
             )
