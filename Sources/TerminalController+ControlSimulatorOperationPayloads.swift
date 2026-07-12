@@ -108,6 +108,6 @@ private func simulatorAccessibilityNodePayload(
     ])
 }
 
-private func invalidSimulatorOperation(_ message: String) -> SimulatorFailure {
+func invalidSimulatorOperation(_ message: String) -> SimulatorFailure {
     SimulatorFailure(code: "invalid_params", message: message, isRecoverable: true)
 }
