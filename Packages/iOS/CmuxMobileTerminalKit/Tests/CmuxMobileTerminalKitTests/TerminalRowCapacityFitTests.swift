@@ -68,23 +68,31 @@ struct TerminalRowCapacityFitTests {
     }
 
     @Test("destination-font reporting follows fit hysteresis until font changes")
-    func destinationFontReportingFollowsFitHysteresis() {
-        #expect(!TerminalRowCapacityFit.shouldReportDestinationFont(
+    func destinationFontReportingFollowsFitHysteresis() throws {
+        let baseFit = try #require(TerminalRowCapacityFit(
+            containerPixelHeight: 1_200,
+            cellPixelHeight: 18,
+            liveFontSize: 12
+        ))
+        let fitted = try #require(TerminalRowCapacityFit(
+            containerPixelHeight: 1_200,
+            cellPixelHeight: 21,
+            liveFontSize: 14
+        ))
+
+        #expect(!baseFit.shouldReportDestinationFont(
             renderedRows: 50,
             effectiveRows: 49,
-            liveFontSize: 12,
             baseFontSize: 12
         ))
-        #expect(TerminalRowCapacityFit.shouldReportDestinationFont(
+        #expect(baseFit.shouldReportDestinationFont(
             renderedRows: 50,
             effectiveRows: 48,
-            liveFontSize: 12,
             baseFontSize: 12
         ))
-        #expect(TerminalRowCapacityFit.shouldReportDestinationFont(
+        #expect(fitted.shouldReportDestinationFont(
             renderedRows: 49,
             effectiveRows: 49,
-            liveFontSize: 14,
             baseFontSize: 12
         ))
     }

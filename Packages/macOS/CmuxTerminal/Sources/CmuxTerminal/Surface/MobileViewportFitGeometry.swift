@@ -1,5 +1,11 @@
 import Foundation
 
+private func mobileViewportScaleRatio(from current: Double, to destination: Double) -> Double {
+    guard current.isFinite, current > 0,
+          destination.isFinite, destination > 0 else { return 1 }
+    return destination / current
+}
+
 nonisolated struct MobileViewportScaleProjection: Equatable {
     let xRatio: Double
     let yRatio: Double
@@ -10,8 +16,8 @@ nonisolated struct MobileViewportScaleProjection: Equatable {
         destinationXScale: Double,
         destinationYScale: Double
     ) {
-        xRatio = Self.ratio(from: currentXScale, to: destinationXScale)
-        yRatio = Self.ratio(from: currentYScale, to: destinationYScale)
+        xRatio = mobileViewportScaleRatio(from: currentXScale, to: destinationXScale)
+        yRatio = mobileViewportScaleRatio(from: currentYScale, to: destinationYScale)
     }
 
     func cellWidth(_ value: Double) -> Double { value * xRatio }
@@ -26,11 +32,6 @@ nonisolated struct MobileViewportScaleProjection: Equatable {
         destinationYScale: 1
     )
 
-    private static func ratio(from current: Double, to destination: Double) -> Double {
-        guard current.isFinite, current > 0,
-              destination.isFinite, destination > 0 else { return 1 }
-        return destination / current
-    }
 }
 
 /// Pure pixel and font-fit math for Mac panes mirroring a mobile terminal viewport.
