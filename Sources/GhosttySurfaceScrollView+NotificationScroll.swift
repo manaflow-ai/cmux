@@ -14,7 +14,10 @@ extension GhosttySurfaceScrollView {
 
     @discardableResult
     func restoreNotificationScrollPosition(_ position: TerminalNotificationScrollPosition?) -> Bool {
-        guard let position else { return false }
+        guard let position else {
+            clearPendingNotificationScrollRestore()
+            return false
+        }
         pendingNotificationScrollPosition = position
         pendingNotificationScrollRestoreAttemptsRemaining = 2
         return restorePendingNotificationScrollPositionIfReady()
@@ -53,5 +56,10 @@ extension GhosttySurfaceScrollView {
     func clearPendingNotificationScrollRestore() {
         pendingNotificationScrollPosition = nil
         pendingNotificationScrollRestoreAttemptsRemaining = 0
+    }
+
+    func cancelPendingNotificationScrollRestoreForUserInput() {
+        guard pendingNotificationScrollPosition != nil else { return }
+        clearPendingNotificationScrollRestore()
     }
 }

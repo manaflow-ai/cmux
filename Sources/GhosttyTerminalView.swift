@@ -5654,6 +5654,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func keyDown(with event: NSEvent) {
+        terminalSurface?.hostedView.cancelPendingNotificationScrollRestoreForUserInput()
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         let phaseTotalStart = ProcessInfo.processInfo.systemUptime
@@ -8211,7 +8212,6 @@ final class GhosttySurfaceScrollView: NSView {
     }
     private(set) var searchFocusTarget: SearchFocusTarget = .searchField
 
-
 #if DEBUG
     private var lastDropZoneOverlayLogSignature: String?
     private var lastDragGeometryLogSignature: String?
@@ -8694,7 +8694,7 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.pendingExplicitWheelScroll = true
-            self?.clearPendingNotificationScrollRestore()
+            self?.cancelPendingNotificationScrollRestoreForUserInput()
         })
 
         observers.append(NotificationCenter.default.addObserver(
@@ -11383,7 +11383,6 @@ final class GhosttySurfaceScrollView: NSView {
         }
 
         allowExplicitScrollbarSync = false
-
         if didChangeGeometry {
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
@@ -11394,9 +11393,9 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func handleLiveScroll() {
+        cancelPendingNotificationScrollRestoreForUserInput()
         let cellHeight = surfaceView.cellSize.height
         guard cellHeight > 0 else { return }
-
         let visibleRect = scrollView.contentView.documentVisibleRect
         let documentHeight = documentView.frame.height
         let scrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
@@ -11424,13 +11423,14 @@ final class GhosttySurfaceScrollView: NSView {
             pendingExplicitWheelScroll = false
         }
         surfaceView.scrollbar = scrollbar
-        _ = restorePendingNotificationScrollPositionIfReady()
         let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
             _ = synchronizeGeometryAndContent()
+            _ = restorePendingNotificationScrollPositionIfReady()
             return
         }
         synchronizeScrollView()
+        _ = restorePendingNotificationScrollPositionIfReady()
     }
 
     @discardableResult
