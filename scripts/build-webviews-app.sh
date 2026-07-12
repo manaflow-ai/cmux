@@ -6,6 +6,10 @@ SRC_DIR="$ROOT/webviews"
 OUT_DIR="$ROOT/Resources/markdown-viewer/webviews-app"
 MARKED_JS="$ROOT/Resources/markdown-viewer/marked.min.js"
 
+escape_inline_script() {
+  /usr/bin/perl -0pe 's{</script}{<\\/script}ig; s{<!--}{<\\!--}g' "$1"
+}
+
 write_agent_session_html() {
   out_dir="$1"
   agent_session_js="$out_dir/agent-session.js"
@@ -28,10 +32,10 @@ write_agent_session_html() {
     printf '  <body data-cmux-webview-kind="agent-session" data-codex-window-type="electron">\n'
     printf '    <main id="root"></main>\n'
     printf '    <script>\n'
-    /usr/bin/perl -0pe 's{</script}{<\\/script}ig; s{<!--}{<\\!--}g' "$MARKED_JS"
+    escape_inline_script "$MARKED_JS"
     printf '\n    </script>\n'
     printf '    <script>\n'
-    /usr/bin/perl -0pe 's{</script}{<\/script}ig; s{<!--}{<\!--}g' "$agent_session_js"
+    escape_inline_script "$agent_session_js"
     printf '\n    </script>\n'
     printf '  </body>\n'
     printf '</html>\n'
