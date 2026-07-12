@@ -80,7 +80,10 @@ struct TerminalScrollClickCausalityTests {
             try await requireEventually { harness.remoteClicks.count == index + 1 }
             harness.remoteClicks[index].continuation.resume(returning: true)
         }
-        try await requireEventually { session.pendingClick == nil }
+        try await requireEventually {
+            if case .idle = session.phase { return true }
+            return false
+        }
 
         #expect(harness.remoteClicks.map(\.col) == [1, 3, 5])
         #expect(harness.remoteClicks.map(\.row) == [2, 4, 6])
@@ -106,7 +109,10 @@ struct TerminalScrollClickCausalityTests {
         #expect(harness.remoteClicks[1].col == 9)
         #expect(harness.remoteClicks[1].row == 10)
         harness.remoteClicks[1].continuation.resume(returning: true)
-        try await requireEventually { session.pendingClick == nil }
+        try await requireEventually {
+            if case .idle = session.phase { return true }
+            return false
+        }
     }
 
     @Test("click queue overflow recovers instead of growing or dropping silently")

@@ -13,6 +13,11 @@ struct BoundedFIFO<Element> {
         return storage[head]
     }
 
+    var last: Element? {
+        guard count > 0 else { return nil }
+        return storage[(head + count - 1) % storage.count]
+    }
+
     mutating func append(_ element: Element) -> Bool {
         guard count < storage.count else { return false }
         let index = (head + count) % storage.count

@@ -173,8 +173,8 @@ struct TerminalScrollSessionTests {
         #expect(harness.delivered.isEmpty)
     }
 
-    @Test("input epoch invalidates old local and remote completions")
-    func inputInvalidatesOldCompletions() async throws {
+    @Test("recovery fences old local and remote completions before queued input")
+    func recoveryFencesOldCompletionsBeforeInput() async throws {
         let harness = Harness()
         let session = harness.makeSession()
 
@@ -187,10 +187,11 @@ struct TerminalScrollSessionTests {
         let remote = try #require(harness.remote.pending.first)
         harness.remote.pending.removeFirst()
 
-        let firstInputEpoch = session.invalidateForInput()
-        let secondInputEpoch = session.invalidateForInput()
-        #expect(firstInputEpoch == 2)
-        #expect(secondInputEpoch == 3)
+        session.recoverFromLaneFailure()
+        _ = session.submitInput(.fence)
+        _ = session.submitInput(.fence)
+        try await requireEventually { session.interactionEpoch == 4 }
+        #expect(harness.replayEpochs == [2])
         #expect(harness.cancelLocalCount == 2)
         #expect(harness.bottomSnapCount == 1)
         #expect(!session.shouldDeferLiveRenderGrid)
@@ -203,18 +204,31 @@ struct TerminalScrollSessionTests {
     }
 
     @Test("a new scroll episode permits exactly one new input snap")
-    func newScrollRearmsInputSnap() {
+    func newScrollRearmsInputSnap() async throws {
         let harness = Harness()
         let session = harness.makeSession()
 
-        _ = session.invalidateForInput()
-        _ = session.invalidateForInput()
+        _ = session.submitInput(.fence)
+        _ = session.submitInput(.fence)
+        try await requireEventually { session.interactionEpoch == 3 }
         #expect(harness.bottomSnapCount == 1)
 
         session.submit(lines: -3, col: 2, row: 4)
-        session.submitClick(col: 5, row: 6)
-        _ = session.invalidateForInput()
-        _ = session.invalidateForInput()
+        try await requireEventually {
+            harness.remote.pending.count == 1 && harness.local.pending.count == 1
+        }
+        let remote = harness.remote.pending.removeFirst()
+        let local = harness.local.pending.removeFirst()
+        remote.continuation.resume(returning: response(for: remote.request, renderRevision: 20))
+        local.continuation.resume(returning: true)
+        try await requireEventually { harness.delivered.count == 1 }
+        session.authoritativeDidApply(
+            interactionEpoch: remote.request.interactionEpoch,
+            clientRevision: remote.request.clientRevision
+        )
+        _ = session.submitInput(.fence)
+        _ = session.submitInput(.fence)
+        try await requireEventually { session.interactionEpoch == 5 }
 
         #expect(harness.bottomSnapCount == 2)
         #expect(harness.cancelLocalCount == 4)
@@ -240,6 +254,9 @@ struct TerminalScrollSessionTests {
         harness.local.pending.removeFirst()
         local.continuation.resume(returning: true)
         try await requireEventually { harness.delivered.count == 1 }
+        session.authoritativeDidApply(
+            interactionEpoch: first.request.interactionEpoch, clientRevision: first.request.clientRevision
+        )
 
         session.interactionDidEnd()
         try await requireEventually { harness.remote.pending.count == 1 }
@@ -265,6 +282,12 @@ struct TerminalScrollSessionTests {
         scroll.continuation.resume(returning: response(for: scroll.request, renderRevision: 40))
 
         session.interactionDidEnd()
+        let local = harness.local.pending.removeFirst()
+        local.continuation.resume(returning: true)
+        try await requireEventually { harness.delivered.count == 1 }
+        session.authoritativeDidApply(
+            interactionEpoch: scroll.request.interactionEpoch, clientRevision: scroll.request.clientRevision
+        )
         try await requireEventually { harness.remote.pending.count == 1 }
         let settlement = harness.remote.pending.removeFirst()
         settlement.continuation.resume(returning: TerminalScrollResponse(
@@ -275,8 +298,6 @@ struct TerminalScrollSessionTests {
             renderGrid: nil
         ))
 
-        let local = harness.local.pending.removeFirst()
-        local.continuation.resume(returning: true)
         try await requireEventually {
             !harness.delivered.isEmpty || !harness.acceptedRenderRevisions.isEmpty
         }

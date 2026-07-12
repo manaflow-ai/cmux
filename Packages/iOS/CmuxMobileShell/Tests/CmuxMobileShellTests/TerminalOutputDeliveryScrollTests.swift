@@ -26,8 +26,9 @@ import Testing
     await router.setHoldFirstTerminalScroll(true)
     let store = try await makeRoutingConnectedStore(router: router)
     let surfaceID = RoutingHostRouter.terminalA
-    let token = store.mountTerminalScrollSession(surfaceID: surfaceID, cancelLocal: {})
-    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    let mounted = store.mountTerminalSurfaceOutput(surfaceID: surfaceID, cancelLocal: {})
+    let token = mounted.scrollSessionToken
+    var iterator = mounted.output.makeAsyncIterator()
 
     store.scrollTerminal(surfaceID: surfaceID, lines: -5, col: 2, row: 3)
     let local = try #require(await iterator.next())

@@ -32,16 +32,22 @@ import Testing
     store.requestTerminalReplay(surfaceID: surfaceID, interactionEpoch: oldEpoch)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCount + 1)
 
-    let firstInputEpoch = try #require(store.invalidateTerminalScrollForInput(surfaceID: surfaceID))
-    let secondInputEpoch = try #require(store.invalidateTerminalScrollForInput(surfaceID: surfaceID))
+    let session = try #require(store.terminalScrollSessionsBySurfaceID[surfaceID])
+    _ = session.submitInput(.fence)
+    let firstInputEpoch = session.interactionEpoch
+    _ = session.submitInput(.fence)
     #expect(firstInputEpoch != oldEpoch)
-    #expect(secondInputEpoch != firstInputEpoch)
-    await router.releaseAllHeld()
-    await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCount + 2)
-
     let bottom = try #require(await iterator.next())
     #expect(bottom.mutation == .scrollToBottom)
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: bottom.streamToken)
+    let secondAdvanced = try await pollUntil {
+        store.currentTerminalInteractionEpoch(surfaceID: surfaceID) != firstInputEpoch
+    }
+    #expect(secondAdvanced)
+    let secondInputEpoch = try #require(store.currentTerminalInteractionEpoch(surfaceID: surfaceID))
+    #expect(secondInputEpoch != firstInputEpoch)
+    await router.releaseAllHeld()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCount + 2)
 
     let fresh = try #require(await iterator.next())
     #expect(String(data: fresh.data, encoding: .utf8) == "fresh-replay")

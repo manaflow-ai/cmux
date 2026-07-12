@@ -52,7 +52,7 @@ struct TerminalInputScrollToBottomTests {
         let store = MobileShellComposite.preview()
         let surfaceID = "input-scroll-to-bottom"
         let delegate = InputCollectingDelegate { [weak store] _ in
-            _ = store?.invalidateTerminalScrollForInput(surfaceID: surfaceID)
+            _ = store?.terminalScrollSessionsBySurfaceID[surfaceID]?.submitInput(.fence)
         }
         let view = GhosttySurfaceView(runtime: runtime, delegate: delegate, fontSize: 10)
         // The xctest host has no window scene, so a Metal present can never

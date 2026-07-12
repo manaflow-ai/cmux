@@ -48,7 +48,9 @@ import Testing
     }
     #expect(registered)
     _ = store.mountTerminalScrollSession(surfaceID: surfaceID, cancelLocal: {})
-    let inputEpoch = try #require(store.invalidateTerminalScrollForInput(surfaceID: surfaceID))
+    let session = try #require(store.terminalScrollSessionsBySurfaceID[surfaceID])
+    _ = session.submitInput(.fence)
+    let inputEpoch = session.interactionEpoch
 
     consumer.cancel()
     await consumer.value

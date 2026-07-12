@@ -9,6 +9,8 @@ private let terminalScrollDeliveryLog = Logger(
     category: "mobile-shell"
 )
 
+let terminalInteractionRPCDeadlineNanoseconds: UInt64 = 2_000_000_000
+
 extension MobileShellComposite {
     /// Mounts the single optimistic-scroll owner for a rendered surface. The
     /// closures are the only bridge into the UIKit/Ghostty view; RPC ordering,
@@ -63,10 +65,20 @@ extension MobileShellComposite {
                     row: row
                 ) ?? false
             },
+            sendInput: { [weak self] surfaceID, epoch, input in
+                await self?.performTerminalInput(
+                    input,
+                    surfaceID: surfaceID,
+                    interactionEpoch: epoch
+                ) ?? false
+            },
             supportsOrderedRemoteRuns: { [weak self] in
                 self?.supportedHostCapabilities.contains(MobileTerminalScrollRun.orderedRunsCapability) == true
             },
             prepareIntent: {},
+            prepareInput: { [weak self] in
+                self?.invalidateQueuedTerminalScrollReconciliations(surfaceID: surfaceID)
+            },
             deliverAuthoritative: { [weak self] frame, epoch, revision in
                 self?.deliverAuthoritativeTerminalRenderGrid(
                     frame,
@@ -156,14 +168,15 @@ extension MobileShellComposite {
         )
     }
 
-    @discardableResult
-    func invalidateTerminalScrollForInput(surfaceID: String) -> UInt64? {
-        deferredTerminalRenderGridEventsBySurfaceID.removeValue(forKey: surfaceID)
-        guard let epoch = terminalScrollSessionsBySurfaceID[surfaceID]?.invalidateForInput() else {
-            return nil
+    func submitTerminalInputIntent(
+        _ input: TerminalInputIntent,
+        surfaceID: String
+    ) async -> Bool {
+        if terminalScrollSessionsBySurfaceID[surfaceID] == nil {
+            _ = mountTerminalScrollSession(surfaceID: surfaceID, cancelLocal: {})
         }
-        invalidateQueuedTerminalScrollReconciliations(surfaceID: surfaceID)
-        return epoch
+        guard let session = terminalScrollSessionsBySurfaceID[surfaceID] else { return false }
+        return await session.submitInput(input).value
     }
 
     @discardableResult
@@ -221,10 +234,13 @@ extension MobileShellComposite {
                     window.rowsAfterViewport
                 )
             }
-            let data = try await client.sendRequest(MobileCoreRPCClient.requestData(
-                method: "mobile.terminal.scroll",
-                params: params
-            ))
+            let data = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "mobile.terminal.scroll",
+                    params: params
+                ),
+                timeoutNanoseconds: terminalInteractionRPCDeadlineNanoseconds
+            )
             guard remoteClient === client else { return nil }
             let payload = try MobileTerminalScrollResponse.decode(data)
             return TerminalScrollResponse(
@@ -252,17 +268,20 @@ extension MobileShellComposite {
         }
         do {
             let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
-            let data = try await client.sendRequest(MobileCoreRPCClient.requestData(
-                method: "mobile.terminal.mouse",
-                params: [
-                    "workspace_id": remoteWorkspaceID.rawValue,
-                    "surface_id": surfaceID,
-                    "client_id": clientID,
-                    "interaction_epoch": Int(clamping: interactionEpoch),
-                    "col": col,
-                    "row": row,
-                ]
-            ))
+            let data = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "mobile.terminal.mouse",
+                    params: [
+                        "workspace_id": remoteWorkspaceID.rawValue,
+                        "surface_id": surfaceID,
+                        "client_id": clientID,
+                        "interaction_epoch": Int(clamping: interactionEpoch),
+                        "col": col,
+                        "row": row,
+                    ]
+                ),
+                timeoutNanoseconds: terminalInteractionRPCDeadlineNanoseconds
+            )
             guard remoteClient === client,
                   let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 return false

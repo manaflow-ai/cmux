@@ -5891,55 +5891,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID
     ) async {
-        guard let client = remoteClient else {
-            #if DEBUG
-            mobileShellLog.info("skip remote terminal input remoteClient=0")
-            #endif
-            return
-        }
-        let generation = connectionGeneration
-        let interactionEpoch = invalidateTerminalScrollForInput(
+        _ = await submitTerminalInputIntent(
+            .text(text, workspaceID: workspaceID.rawValue),
             surfaceID: terminalID.rawValue
         )
-        do {
-            #if DEBUG
-            mobileShellLog.debug("send remote terminal input byteCount=\(text.utf8.count, privacy: .public) workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private)")
-            #endif
-            let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
-            let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
-            var params: [String: Any] = [
-                "workspace_id": remoteWorkspaceID.rawValue,
-                "surface_id": terminalID.rawValue,
-                "text": text,
-                "client_id": clientID,
-            ]
-            if let interactionEpoch {
-                params["interaction_epoch"] = Int(clamping: interactionEpoch)
-            }
-            if let viewportSize = reportedViewportSizesByTerminalKey[key] {
-                params["viewport_columns"] = viewportSize.columns
-                params["viewport_rows"] = viewportSize.rows
-                // Carry the dedicated-report generation so the Mac's fence can
-                // reject this piggyback if it arrives after a newer report or
-                // a clear (request tasks can reorder in transit).
-                if let generation = viewportReportGenerationsBySurfaceID[terminalID.rawValue] {
-                    params["viewport_generation"] = Int(clamping: generation)
-                }
-            }
-            let responseData = try await client.sendRequest(
-                MobileCoreRPCClient.requestData(
-                    method: "terminal.input",
-                    params: params
-                )
-            )
-            guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
-            handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
-        } catch {
-            guard generation == connectionGeneration else { return }
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
-            markMacConnectionUnavailableIfNeeded(after: error)
-            applyOperationalError(error)
-        }
     }
 
     /// - Returns: `true` when the Mac acknowledged the paste, `false` when there
@@ -5973,64 +5928,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID
     ) async -> Bool {
-        guard let client = remoteClient else {
-            #if DEBUG
-            mobileShellLog.info("skip remote terminal paste remoteClient=0")
-            #endif
-            return false
-        }
-        let generation = connectionGeneration
-        let interactionEpoch = invalidateTerminalScrollForInput(
+        await submitTerminalInputIntent(
+            .paste(text, submitKey: submitKey, workspaceID: workspaceID.rawValue),
             surfaceID: terminalID.rawValue
         )
-        do {
-            #if DEBUG
-            mobileShellLog.debug("send remote terminal paste byteCount=\(text.utf8.count, privacy: .public) submit=\(submitKey, privacy: .public) workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private)")
-            #endif
-            let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
-            let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
-            var params: [String: Any] = [
-                "workspace_id": remoteWorkspaceID.rawValue,
-                "surface_id": terminalID.rawValue,
-                "text": text,
-                "submit_key": submitKey,
-                "client_id": clientID,
-            ]
-            if let interactionEpoch {
-                params["interaction_epoch"] = Int(clamping: interactionEpoch)
-            }
-            if let viewportSize = reportedViewportSizesByTerminalKey[key] {
-                params["viewport_columns"] = viewportSize.columns
-                params["viewport_rows"] = viewportSize.rows
-                // Carry the dedicated-report generation so the Mac's fence can
-                // reject this piggyback if it arrives after a newer report or
-                // a clear (request tasks can reorder in transit).
-                if let generation = viewportReportGenerationsBySurfaceID[terminalID.rawValue] {
-                    params["viewport_generation"] = Int(clamping: generation)
-                }
-            }
-            let responseData = try await client.sendRequest(
-                MobileCoreRPCClient.requestData(
-                    method: "terminal.paste",
-                    params: params
-                )
-            )
-            // The Mac acked the paste: the text is applied regardless of whether a
-            // reconnect superseded this client while the request was in flight.
-            // Only the per-connection response bookkeeping is generation-guarded;
-            // returning failure here would keep the composer draft and a retry
-            // would paste the same block twice.
-            if isCurrentRemoteOperation(client: client, generation: generation) {
-                handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
-            }
-            return true
-        } catch {
-            guard generation == connectionGeneration else { return false }
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return false }
-            markMacConnectionUnavailableIfNeeded(after: error)
-            applyOperationalError(error)
-            return false
-        }
     }
 
     /// Forward an image the user pasted on the phone to the currently selected
@@ -6093,47 +5994,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID
     ) async -> Bool {
-        guard let client = remoteClient else { return false }
-        let generation = connectionGeneration
-        let interactionEpoch = invalidateTerminalScrollForInput(
+        await submitTerminalInputIntent(
+            .image(data, format: format, workspaceID: workspaceID.rawValue),
             surfaceID: terminalID.rawValue
         )
-        do {
-            #if DEBUG
-            mobileShellLog.debug("send remote terminal paste image byteCount=\(data.count, privacy: .public) format=\(format, privacy: .public)")
-            #endif
-            let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
-            var params: [String: Any] = [
-                "workspace_id": remoteWorkspaceID.rawValue,
-                "surface_id": terminalID.rawValue,
-                "image_base64": data.base64EncodedString(),
-                "image_format": format,
-                "client_id": clientID,
-            ]
-            if let interactionEpoch {
-                params["interaction_epoch"] = Int(clamping: interactionEpoch)
-            }
-            let responseData = try await client.sendRequest(
-                MobileCoreRPCClient.requestData(
-                    method: "terminal.paste_image",
-                    params: params
-                )
-            )
-            // The Mac acked the image: treat it as applied even if a reconnect
-            // superseded this client mid-flight (only the per-connection response
-            // bookkeeping is generation-guarded), so a retry does not re-send the
-            // same image.
-            if isCurrentRemoteOperation(client: client, generation: generation) {
-                handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
-            }
-            return true
-        } catch {
-            guard generation == connectionGeneration else { return false }
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return false }
-            markMacConnectionUnavailableIfNeeded(after: error)
-            applyOperationalError(error)
-            return false
-        }
     }
 
     private var terminalEventStreamID: String {
@@ -6689,7 +6553,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private func handleTerminalInputResponse(_ data: Data, surfaceID: String) {
+    func handleTerminalInputResponse(_ data: Data, surfaceID: String) {
         guard hasTerminalOutputSink(surfaceID: surfaceID),
               let payload = try? MobileTerminalInputResponse.decode(data),
               let remoteSeq = payload.terminalSeq else {

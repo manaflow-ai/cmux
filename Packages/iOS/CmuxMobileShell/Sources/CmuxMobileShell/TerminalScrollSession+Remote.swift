@@ -1,126 +1,200 @@
 import Foundation
 
 extension TerminalScrollSession {
-    func enqueueRemote(_ interaction: RemoteInteraction) {
-        guard remoteInFlight != nil || remotePending.count > 0 else {
-            startRemote(interaction)
+    func startNextIntentIfIdle() {
+        guard case .idle = phase, let intent = removeNextIntent() else { return }
+        switch intent {
+        case .scroll(let scroll): startScroll(scroll)
+        case .settlement: startSettlement()
+        case .click(let col, let row): startClick(col: col, row: row)
+        case .input(let input): startInput(input)
+        }
+    }
+
+    private func startScroll(_ scroll: ScrollIntent) {
+        guard let first = scroll.runs.first else {
+            startNextIntentIfIdle()
             return
         }
-        if case .scroll(let newerRequest) = interaction.kind {
-            var matchedPendingScroll = false
-            let appended = remotePending.mutateLast { pending in
-                guard case .scroll(var request) = pending.kind,
-                      request.interactionEpoch == newerRequest.interactionEpoch else {
-                    return false
-                }
-                matchedPendingScroll = true
-                guard request.append(newerRequest) else { return false }
-                pending.kind = .scroll(request)
-                return true
-            }
-            if matchedPendingScroll {
-                if !appended { recoverFromLaneFailure() }
+        prepareIntent()
+        lastDirectionLines = first.lines
+        lastCol = first.col
+        lastRow = first.row
+        var nextRevision = latestClientRevision &+ UInt64(scroll.submissionCount)
+        if nextRevision == 0 { nextRevision = 1 }
+        var request = TerminalScrollRequest(
+            surfaceID: surfaceID,
+            interactionEpoch: interactionEpoch,
+            clientRevision: nextRevision,
+            lines: first.lines,
+            col: first.col,
+            row: first.row,
+            prefetchWindow: prefetchWindow(for: first.lines)
+        )
+        for run in scroll.runs.dropFirst() {
+            let appended = request.append(TerminalScrollRequest(
+                surfaceID: surfaceID,
+                interactionEpoch: interactionEpoch,
+                clientRevision: nextRevision,
+                lines: run.lines,
+                col: run.col,
+                row: run.row,
+                prefetchWindow: prefetchWindow(for: run.lines)
+            ))
+            guard appended else {
+                recoverFromLaneFailure()
                 return
             }
+            lastDirectionLines = run.lines
+            lastCol = run.col
+            lastRow = run.row
         }
-        if !remotePending.append(interaction) { recoverFromLaneFailure() }
+        if request.prefetchWindow == nil {
+            request.prefetchWindow = scroll.inheritedPrefetchWindow
+        }
+        latestClientRevision = nextRevision
+        startScrollTransaction(
+            request,
+            localReceipts: scroll.localReceipts
+        )
     }
 
-    private func drainRemote() {
-        guard remoteInFlight == nil, let next = remotePending.removeFirst() else { return }
-        startRemote(next)
+    private func startSettlement() {
+        guard latestClientRevision > 0 else {
+            startNextIntentIfIdle()
+            return
+        }
+        let request = TerminalScrollRequest(
+            surfaceID: surfaceID,
+            interactionEpoch: interactionEpoch,
+            clientRevision: latestClientRevision,
+            lines: 0,
+            col: lastCol,
+            row: lastRow,
+            prefetchWindow: .directional(for: lastDirectionLines)
+        )
+        startScrollTransaction(request, localReceipts: nil)
     }
 
-    private func startRemote(_ interaction: RemoteInteraction) {
-        remoteInFlight = interaction
-        remoteTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            switch interaction.kind {
-            case .scroll(let request):
-                let plannedRequests = request.plannedRPCRequests(
-                    supportsOrderedRuns: self.supportsOrderedRemoteRuns()
-                )
-                var response: TerminalScrollResponse?
-                for plannedRequest in plannedRequests {
-                    guard !Task.isCancelled else { return }
-                    guard let plannedResponse = await self.sendRemote(plannedRequest),
-                          plannedResponse.accepted,
-                          plannedResponse.interactionEpoch == request.interactionEpoch,
-                          plannedResponse.clientRevision == request.clientRevision else {
-                        self.completeRemote(interaction, response: nil, succeeded: false)
-                        return
-                    }
-                    response = plannedResponse
+    private func startScrollTransaction(
+        _ request: TerminalScrollRequest,
+        localReceipts: [TerminalSurfaceMutationReceipt]?
+    ) {
+        let id = UUID()
+        let requiresLocalApply = localReceipts != nil
+        phase = .scroll(ScrollTransaction(
+            id: id,
+            request: request,
+            requiresLocalApply: requiresLocalApply,
+            localApplied: !requiresLocalApply
+        ))
+        if requiresLocalApply {
+            let receipts: [TerminalSurfaceMutationReceipt]
+            if let localReceipts, !localReceipts.isEmpty {
+                receipts = localReceipts
+            } else {
+                receipts = [enqueueLocal(request.directionalRuns)]
+            }
+            localTask = Task { @MainActor [weak self] in
+                var applied = true
+                for receipt in receipts where applied {
+                    applied = await receipt.value
                 }
-                self.completeRemote(interaction, response: response, succeeded: true)
-            case .click(let epoch, let col, let row, _):
-                let succeeded = await self.sendClick(self.surfaceID, epoch, col, row)
-                self.completeRemote(interaction, response: nil, succeeded: succeeded)
+                guard !Task.isCancelled else { return }
+                self?.scrollLocalDidComplete(id: id, applied: applied)
             }
         }
+        remoteTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let planned = request.plannedRPCRequests(
+                supportsOrderedRuns: self.supportsOrderedRemoteRuns()
+            )
+            var response: TerminalScrollResponse?
+            for plannedRequest in planned {
+                guard !Task.isCancelled,
+                      let plannedResponse = await self.sendRemote(plannedRequest),
+                      plannedResponse.accepted,
+                      plannedResponse.interactionEpoch == request.interactionEpoch,
+                      plannedResponse.clientRevision == request.clientRevision else {
+                    guard !Task.isCancelled else { return }
+                    self.scrollRemoteDidComplete(id: id, response: nil, succeeded: false)
+                    return
+                }
+                response = plannedResponse
+            }
+            guard !Task.isCancelled else { return }
+            self.scrollRemoteDidComplete(id: id, response: response, succeeded: true)
+        }
+        deadlineTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.interactionDeadline()
+            guard !Task.isCancelled else { return }
+            self.scrollDeadlineDidFire(id: id)
+        }
     }
 
-    private func completeRemote(
-        _ interaction: RemoteInteraction,
-        response: TerminalScrollResponse?,
-        succeeded: Bool
-    ) {
-        guard remoteInFlight?.id == interaction.id else { return }
-        remoteInFlight = nil
-        remoteTask = nil
-        guard succeeded else {
+    private func scrollLocalDidComplete(id: UUID, applied: Bool) {
+        guard case .scroll(var transaction) = phase, transaction.id == id else { return }
+        localTask = nil
+        guard applied else {
             recoverFromLaneFailure()
             return
         }
-
-        switch interaction.kind {
-        case .scroll(let request):
-            recordScrollResponse(response, for: request)
-        case .click(_, _, _, let clickID):
-            guard pendingClick?.id == clickID else { break }
-            pendingClick = nil
-            if let next = pendingClicks.removeFirst() {
-                pendingClick = .waiting(id: next.id, col: next.col, row: next.row)
-            } else {
-                flushPostClickIntents()
-            }
-        }
-
-        drainRemote()
-        reconcileIfReady()
-        tryBeginClickBarrier()
+        transaction.localApplied = true
+        latestLocallyAppliedRevision = max(
+            latestLocallyAppliedRevision,
+            transaction.request.clientRevision
+        )
+        phase = .scroll(transaction)
+        reconcileScrollIfReady(id: id)
     }
 
-    private func recordScrollResponse(
-        _ response: TerminalScrollResponse?,
-        for request: TerminalScrollRequest
+    private func scrollRemoteDidComplete(
+        id: UUID,
+        response: TerminalScrollResponse?,
+        succeeded: Bool
     ) {
-        guard request.interactionEpoch == interactionEpoch, let response else { return }
-        if response.clientRevision == latestClientRevision {
-            if pendingResponse?.renderGrid == nil || response.renderGrid != nil {
-                pendingResponse = response
-            }
-        } else if response.renderGrid != nil {
-            remotePending.mutateFirst { pending in
-                guard case .scroll(var pendingRequest) = pending.kind,
-                      pendingRequest.prefetchWindow == nil else {
-                    return
-                }
-                pendingRequest.prefetchWindow = request.prefetchWindow
-                pending.kind = .scroll(pendingRequest)
-            }
-        }
-    }
-
-    func reconcileIfReady() {
-        guard let response = pendingResponse,
-              response.interactionEpoch == interactionEpoch,
-              response.clientRevision == latestClientRevision,
-              latestLocallyAppliedRevision >= response.clientRevision else {
+        guard case .scroll(var transaction) = phase, transaction.id == id else { return }
+        remoteTask = nil
+        guard succeeded, let response else {
+            recoverFromLaneFailure()
             return
         }
-        pendingResponse = nil
+        if intents.first?.isOptimisticallyAppliedScroll == true {
+            if let inheritedWindow = transaction.request.prefetchWindow {
+                intents.mutateFirst { intent in
+                    guard case .scroll(var scroll) = intent,
+                          scroll.inheritedPrefetchWindow == nil else { return }
+                    scroll.inheritedPrefetchWindow = inheritedWindow
+                    intent = .scroll(scroll)
+                }
+            }
+            cancelPhaseTasks()
+            phase = .idle
+            startNextIntentIfIdle()
+            return
+        }
+        transaction.remoteCompleted = true
+        transaction.response = response
+        phase = .scroll(transaction)
+        reconcileScrollIfReady(id: id)
+    }
+
+    private func reconcileScrollIfReady(id: UUID) {
+        guard case .scroll(var transaction) = phase,
+              transaction.id == id,
+              transaction.localApplied,
+              transaction.remoteCompleted,
+              let response = transaction.response else { return }
+        if intents.first?.isOptimisticallyAppliedScroll == true {
+            cancelPhaseTasks()
+            phase = .idle
+            startNextIntentIfIdle()
+            return
+        }
         if let frame = response.renderGrid {
+            transaction.awaitingAuthoritative = true
+            phase = .scroll(transaction)
             guard deliverAuthoritative(
                 frame,
                 response.interactionEpoch,
@@ -135,71 +209,132 @@ extension TerminalScrollSession {
             recoverFromLaneFailure()
             return
         }
-        completeReconciliation(
-            interactionEpoch: response.interactionEpoch,
-            clientRevision: response.clientRevision
-        )
+        finishScroll(transaction)
     }
 
-    func tryBeginClickBarrier() {
-        guard case .waiting(let id, let col, let row) = pendingClick,
-              !isAwaitingAuthoritativeReconciliation,
-              localInFlight == nil,
-              localPending.count == 0,
-              remoteInFlight == nil,
-              remotePending.count == 0,
-              pendingResponse == nil else {
-            return
-        }
+    func authoritativeDidApply(interactionEpoch: UInt64, clientRevision: UInt64) {
+        guard case .scroll(let transaction) = phase,
+              transaction.awaitingAuthoritative,
+              transaction.request.interactionEpoch == interactionEpoch,
+              transaction.request.clientRevision == clientRevision else { return }
+        finishScroll(transaction)
+    }
+
+    private func finishScroll(_ transaction: ScrollTransaction) {
+        latestReconciledRevision = transaction.request.clientRevision
+        cancelPhaseTasks()
+        phase = .idle
+        reconciliationDidComplete()
+        startNextIntentIfIdle()
+    }
+
+    private func scrollDeadlineDidFire(id: UUID) {
+        guard case .scroll(let transaction) = phase, transaction.id == id else { return }
+        recoverFromLaneFailure()
+    }
+
+    private func startClick(col: Int, row: Int) {
+        let transaction = ClickTransaction(id: UUID(), col: col, row: row, epoch: nil)
         let receipt = enqueueBarrier()
-        pendingClick = .waitingForBarrier(id: id, col: col, row: row)
+        phase = .clickBarrier(transaction)
         barrierTask = Task { @MainActor [weak self] in
             let applied = await receipt.value
-            self?.completeClickBarrier(id: id, col: col, row: row, applied: applied)
+            guard !Task.isCancelled else { return }
+            self?.clickBarrierDidComplete(id: transaction.id, applied: applied)
         }
     }
 
-    private func completeClickBarrier(
-        id: UUID,
-        col: Int,
-        row: Int,
-        applied: Bool
-    ) {
-        guard case .waitingForBarrier(let pendingID, _, _) = pendingClick,
-              pendingID == id else {
-            return
-        }
+    private func clickBarrierDidComplete(id: UUID, applied: Bool) {
+        guard case .clickBarrier(var transaction) = phase, transaction.id == id else { return }
         barrierTask = nil
         guard applied else {
             recoverFromLaneFailure()
             return
         }
-        advanceForClick(nextEpoch: advanceEpoch())
-        pendingClick = .sending(id: id, epoch: interactionEpoch, col: col, row: row)
-        enqueueRemote(RemoteInteraction(
-            id: UUID(),
-            kind: .click(epoch: interactionEpoch, col: col, row: row, clickID: id)
-        ))
-    }
-
-    private func flushPostClickIntents() {
-        while let intent = postClickIntents.removeFirst() {
-            submitInCurrentEpoch(lines: intent.lines, col: intent.col, row: intent.row)
-        }
-        if postClickNeedsSettlement {
-            postClickNeedsSettlement = false
-            enqueueSettlement()
+        transaction.epoch = advanceToNextEpoch()
+        phase = .clickSend(transaction)
+        remoteTask = Task { @MainActor [weak self] in
+            guard let self, let epoch = transaction.epoch else { return }
+            let succeeded = await self.sendClick(
+                self.surfaceID,
+                epoch,
+                transaction.col,
+                transaction.row
+            )
+            guard !Task.isCancelled else { return }
+            self.clickDidComplete(id: transaction.id, succeeded: succeeded)
         }
     }
 
-    func advanceForClick(nextEpoch: UInt64) {
-        pendingResponse = nil
-        interactionEpoch = nextEpoch
-        latestClientRevision = 0
-        latestLocallyAppliedRevision = 0
-        latestReconciledRevision = 0
-        isAwaitingAuthoritativeReconciliation = false
-        accumulatedRowsSincePrefetch = 0
-        hasPrimedPrefetch = false
+    private func clickDidComplete(id: UUID, succeeded: Bool) {
+        guard case .clickSend(let transaction) = phase, transaction.id == id else { return }
+        remoteTask = nil
+        guard succeeded else {
+            recoverFromLaneFailure()
+            return
+        }
+        phase = .idle
+        startNextIntentIfIdle()
+    }
+
+    private func startInput(_ input: InputTransaction) {
+        prepareInput()
+        var transaction = input
+        transaction.epoch = advanceToNextEpoch()
+        guard input.snapGeneration > consumedBottomSnapGeneration else {
+            startInputSend(transaction)
+            return
+        }
+        lastDirectionLines = 1
+        let receipt = enqueueScrollToBottom()
+        phase = .inputSnap(transaction)
+        inputTask = Task { @MainActor [weak self] in
+            let applied = await receipt.value
+            guard !Task.isCancelled else { return }
+            self?.inputSnapDidComplete(
+                id: transaction.id,
+                generation: transaction.snapGeneration,
+                applied: applied
+            )
+        }
+    }
+
+    private func inputSnapDidComplete(id: UUID, generation: UInt64, applied: Bool) {
+        guard case .inputSnap(let transaction) = phase, transaction.id == id else { return }
+        inputTask = nil
+        if applied {
+            consumedBottomSnapGeneration = max(consumedBottomSnapGeneration, generation)
+        }
+        startInputSend(transaction)
+    }
+
+    private func startInputSend(_ transaction: InputTransaction) {
+        guard let epoch = transaction.epoch else {
+            transaction.receipt.resolve(false)
+            phase = .idle
+            startNextIntentIfIdle()
+            return
+        }
+        if case .fence = transaction.input {
+            transaction.receipt.resolve(true)
+            phase = .idle
+            startNextIntentIfIdle()
+            return
+        }
+        phase = .inputSend(transaction)
+        inputTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let succeeded = await self.sendInput(self.surfaceID, epoch, transaction.input)
+            guard !Task.isCancelled else { return }
+            self.inputDidComplete(id: transaction.id, succeeded: succeeded)
+        }
+    }
+
+    private func inputDidComplete(id: UUID, succeeded: Bool) {
+        guard case .inputSend(let transaction) = phase, transaction.id == id else { return }
+        inputTask = nil
+        transaction.receipt.resolve(succeeded)
+        phase = .idle
+        startNextIntentIfIdle()
     }
 }

@@ -137,8 +137,8 @@ struct TerminalSurfaceMutationInvalidationTests {
         }
 
         #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.pendingCount == 1)
-        #expect(store.terminalScrollSessionsBySurfaceID[surfaceID]?.localPending.count == 0)
-        #expect(store.terminalScrollSessionsBySurfaceID[surfaceID]?.latestClientRevision == 100)
+        #expect(store.terminalScrollSessionsBySurfaceID[surfaceID]?.queuedInteractionCount == 1)
+        #expect(store.terminalScrollSessionsBySurfaceID[surfaceID]?.latestClientRevision == 1)
 
         let head = try #require(await iterator.next())
         #expect(store.terminalOutputWillProcess(
@@ -188,23 +188,18 @@ struct TerminalSurfaceMutationInvalidationTests {
         }
     }
 
-    @Test("input snap stays behind admitted scroll and ahead of later output")
+    @Test("input snap mutation stays behind admitted scroll and ahead of later output")
     func inputSnapUsesCausalStream() async throws {
         let store = MobileShellComposite.preview()
         let surfaceID = "input-snap"
-        var momentumCancellationCount = 0
         var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
-        _ = store.mountTerminalScrollSession(surfaceID: surfaceID) {
-            momentumCancellationCount += 1
-        }
         store.deliverTerminalBytes(Data("before".utf8), surfaceID: surfaceID)
-        store.scrollTerminal(surfaceID: surfaceID, lines: -4, col: 1, row: 2)
-        let firstInputEpoch = store.invalidateTerminalScrollForInput(surfaceID: surfaceID)
-        let secondInputEpoch = store.invalidateTerminalScrollForInput(surfaceID: surfaceID)
+        _ = store.enqueueTerminalLocalScrollMutation(
+            surfaceID: surfaceID,
+            runs: [MobileTerminalScrollRun(lines: -4, col: 1, row: 2)]
+        )
+        _ = store.enqueueTerminalScrollToBottomMutation(surfaceID: surfaceID)
         store.deliverTerminalBytes(Data("after".utf8), surfaceID: surfaceID)
-
-        #expect(firstInputEpoch != secondInputEpoch)
-        #expect(momentumCancellationCount == 2)
 
         var mutations: [MobileTerminalSurfaceMutation] = []
         for _ in 0..<4 {
@@ -247,7 +242,9 @@ struct TerminalSurfaceMutationInvalidationTests {
         ))
         let stale = try #require(await iterator.next())
 
-        let newEpoch = try #require(store.invalidateTerminalScrollForInput(surfaceID: surfaceID))
+        let session = try #require(store.terminalScrollSessionsBySurfaceID[surfaceID])
+        _ = session.submitInput(.fence)
+        let newEpoch = session.interactionEpoch
         let staleClaimed = store.terminalOutputWillProcess(
             surfaceID: surfaceID,
             streamToken: stale.streamToken,
@@ -284,7 +281,7 @@ struct TerminalSurfaceMutationInvalidationTests {
             deliveryID: claimed.deliveryID
         ))
 
-        _ = store.invalidateTerminalScrollForInput(surfaceID: surfaceID)
+        _ = store.terminalScrollSessionsBySurfaceID[surfaceID]?.submitInput(.fence)
 
         #expect(store.terminalOutputStreamTokensBySurfaceID[surfaceID] != claimed.streamToken)
     }
@@ -314,7 +311,7 @@ struct TerminalSurfaceMutationInvalidationTests {
             ))
         }
 
-        _ = store.invalidateTerminalScrollForInput(surfaceID: surfaceID)
+        _ = store.terminalScrollSessionsBySurfaceID[surfaceID]?.submitInput(.fence)
         store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: claimed.streamToken)
 
         let bottom = try #require(await iterator.next())

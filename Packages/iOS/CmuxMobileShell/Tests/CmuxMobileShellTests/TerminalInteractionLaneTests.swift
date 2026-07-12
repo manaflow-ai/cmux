@@ -38,6 +38,7 @@ struct TerminalInteractionLaneTests {
         let inputReceipt = session.submitInput(.text("x", workspaceID: "workspace-1"))
 
         #expect(harness.events.isEmpty)
+        #expect(harness.momentumCancellationCount == 1)
         let barrier = try #require(harness.barrierReceipts.first)
         barrier.resolve(true)
         try await requireEventually { harness.remoteClicks.count == 1 }
@@ -135,11 +136,10 @@ struct TerminalInteractionLaneTests {
         let first = harness.remoteScrolls[0]
         harness.localReceipts[0].resolve(true)
         first.continuation.resume(returning: harness.response(for: first.request))
-        try await requireEventually { harness.deliveredReconciliations.count == 1 }
-        session.authoritativeDidApply(interactionEpoch: 1, clientRevision: 1)
-
         try await requireEventually { harness.remoteScrolls.count == 2 }
         #expect(harness.remoteScrolls[1].request.directionalRuns.map(\.lines) == [-3, 2])
+        session.cancelForUnmount(nextEpoch: 2)
+        harness.remoteScrolls[1].continuation.resume(returning: nil)
     }
 
     private func requireEventually(_ condition: @MainActor () async -> Bool) async throws {
@@ -164,19 +164,24 @@ private final class InteractionLaneHarness {
         let continuation: CheckedContinuation<Bool, Never>
     }
 
+    @MainActor
     final class DeadlineSignal {
-        private var continuation: CheckedContinuation<Void, Never>?
-        private var fired = false
+        private let stream: AsyncStream<Void>
+        private let continuation: AsyncStream<Void>.Continuation
+
+        init() {
+            var continuation: AsyncStream<Void>.Continuation!
+            stream = AsyncStream { continuation = $0 }
+            self.continuation = continuation
+        }
 
         func wait() async {
-            if fired { return }
-            await withCheckedContinuation { continuation = $0 }
+            var iterator = stream.makeAsyncIterator()
+            _ = await iterator.next()
         }
 
         func fire() {
-            fired = true
-            continuation?.resume()
-            continuation = nil
+            continuation.yield()
         }
     }
 
@@ -191,6 +196,7 @@ private final class InteractionLaneHarness {
     var flushedFrames: [String] = []
     var replayEpochs: [UInt64] = []
     var bottomSnapCount = 0
+    var momentumCancellationCount = 0
     var supportsOrderedRuns = false
     var epoch: UInt64 = 1
 
@@ -214,7 +220,9 @@ private final class InteractionLaneHarness {
                 receipt.resolve(true)
                 return receipt
             },
-            cancelLocal: {},
+            cancelLocal: { [weak self] in
+                self?.momentumCancellationCount += 1
+            },
             sendRemote: { [weak self] request in
                 self?.events.append(.scroll(
                     epoch: request.interactionEpoch,
@@ -234,7 +242,7 @@ private final class InteractionLaneHarness {
                 }
             },
             sendInput: { [weak self] _, epoch, input in
-                guard case .text(let text, _) = input else { return false }
+                guard case .text(let text, _) = input else { return true }
                 self?.events.append(.input(epoch: epoch, text: text))
                 return true
             },
