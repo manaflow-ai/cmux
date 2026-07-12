@@ -419,6 +419,8 @@ struct NotificationRowSnapshotBoundaryTests {
         let position = TerminalNotificationScrollPosition(row: 100, totalRows: 400)
         #expect(!hostedView.restoreNotificationScrollPosition(position))
 
+        postScrollbar(notificationScrollbar(total: 100, offset: 56, len: 44), to: surfaceView)
+        #expect(surfaceView.performedBindingActions.isEmpty)
         postScrollbar(notificationScrollbar(total: 400, offset: 0, len: 44), to: surfaceView)
         #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
         #expect(hostedView.allowExplicitScrollbarSync)

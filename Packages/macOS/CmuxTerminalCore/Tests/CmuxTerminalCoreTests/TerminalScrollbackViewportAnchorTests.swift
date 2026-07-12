@@ -43,6 +43,17 @@ import Testing
         #expect(anchor.topRow(in: scrollbar(total: 450, offset: 406, visible: 44)) == 218)
     }
 
+    /// A historical anchor waits until its captured bottom edge exists.
+    @Test func waitsForHistoricalRowsToBecomeAddressable() {
+        let anchor = TerminalScrollbackViewportAnchor(
+            rowsBelowViewport: 10,
+            capturedTotalRows: 400
+        )
+
+        #expect(anchor.topRow(in: scrollbar(total: 100, offset: 56, visible: 44)) == nil)
+        #expect(anchor.topRow(in: scrollbar(total: 400, offset: 356, visible: 44)) == 346)
+    }
+
     /// Restoration clamps trimmed history and waits for nonzero viewport geometry.
     @Test func clampsToCurrentHistoryAndRequiresVisibleRows() {
         let anchor = TerminalScrollbackViewportAnchor(
