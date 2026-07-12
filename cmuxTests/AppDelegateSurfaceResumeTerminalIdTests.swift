@@ -353,6 +353,14 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
         registerMainWindow(app: app, window: secondWindow, windowId: secondWindowId, manager: secondManager)
         let refreshedPayload = try terminalResolverPayload(["tty_name": ttyName])
         XCTAssertEqual((refreshedPayload["tty_bindings"] as? [[String: Any]])?.count, 2)
+
+        let relayScopedPayload = try terminalResolverPayload([
+            "tty_name": ttyName,
+            "_cmux_authenticated_relay_workspace_id": firstWorkspace.id.uuidString,
+        ])
+        let scopedBindings = try XCTUnwrap(relayScopedPayload["tty_bindings"] as? [[String: Any]])
+        XCTAssertEqual(scopedBindings.count, 1)
+        XCTAssertEqual(scopedBindings.first?["workspace_id"] as? String, firstWorkspace.id.uuidString)
     }
 
     func testSystemResolveTerminalRejectsInheritedScopeWithoutUniqueLiveTTY() throws {

@@ -27,6 +27,7 @@ extension RemoteCLIRelayServer {
         private let localSocketPath: String
         private let relayID: String
         private let relayToken: Data
+        private let ownerWorkspaceID: UUID?
         private let commandRewriter: (Data) -> Data
         private let queue: DispatchQueue
         private let clock: any RemoteProxyRetryClock
@@ -47,6 +48,7 @@ extension RemoteCLIRelayServer {
             localSocketPath: String,
             relayID: String,
             relayToken: Data,
+            ownerWorkspaceID: UUID?,
             commandRewriter: @escaping (Data) -> Data,
             queue: DispatchQueue,
             clock: any RemoteProxyRetryClock,
@@ -56,6 +58,7 @@ extension RemoteCLIRelayServer {
             self.localSocketPath = localSocketPath
             self.relayID = relayID
             self.relayToken = relayToken
+            self.ownerWorkspaceID = ownerWorkspaceID
             self.commandRewriter = commandRewriter
             self.queue = queue
             self.clock = clock

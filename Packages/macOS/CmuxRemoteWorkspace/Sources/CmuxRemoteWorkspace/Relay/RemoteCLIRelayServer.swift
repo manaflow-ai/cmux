@@ -30,6 +30,7 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
     private let localSocketPath: String
     private let relayID: String
     private let relayToken: Data
+    private let ownerWorkspaceID: UUID?
     private let commandRewriter: any RemoteRelayCommandRewriting
     private let clock: any RemoteProxyRetryClock
     private let queue = DispatchQueue(label: "com.cmux.remote-ssh.cli-relay.\(UUID().uuidString)", qos: .utility)
@@ -56,6 +57,7 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
         localSocketPath: String,
         relayID: String,
         relayTokenHex: String,
+        ownerWorkspaceID: UUID? = nil,
         commandRewriter: any RemoteRelayCommandRewriting,
         clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock()
     ) throws {
@@ -67,6 +69,7 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
         self.localSocketPath = localSocketPath
         self.relayID = relayID
         self.relayToken = relayToken
+        self.ownerWorkspaceID = ownerWorkspaceID
         self.commandRewriter = commandRewriter
         self.clock = clock
     }
@@ -183,6 +186,7 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
             localSocketPath: localSocketPath,
             relayID: relayID,
             relayToken: relayToken,
+            ownerWorkspaceID: ownerWorkspaceID,
             commandRewriter: { [weak self] commandLine in
                 self?.rewriteCommandLineLocked(commandLine) ?? commandLine
             },

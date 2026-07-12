@@ -180,10 +180,12 @@ struct RemoteCLIRelayServerTests {
         let unixServer = try FakeUnixSocketServer(response: Data("{\"ok\":true,\"result\":42}\n".utf8))
         defer { unixServer.close() }
         let rewriter = RecordingRelayRewriter()
+        let ownerWorkspaceID = UUID()
         let server = try RemoteCLIRelayServer(
             localSocketPath: unixServer.path,
             relayID: "relay-1",
             relayTokenHex: tokenHex,
+            ownerWorkspaceID: ownerWorkspaceID,
             commandRewriter: rewriter
         )
         defer { server.stop() }
@@ -218,11 +220,24 @@ struct RemoteCLIRelayServerTests {
         })
 
         // Forward one command; response comes from the fake unix socket.
-        client.send(Data("workspace.list {}\n".utf8))
+        let command: [String: Any] = [
+            "id": "relay-test",
+            "method": "system.resolve_terminal",
+            "params": ["tty_name": "pts/0"],
+        ]
+        client.send(try JSONSerialization.data(withJSONObject: command) + Data([0x0A]))
         #expect(client.wait { data, closed in
             String(decoding: data, as: UTF8.self).contains("\"result\":42") && closed
         })
-        #expect(String(decoding: unixServer.request, as: UTF8.self) == "rewritten:workspace.list {}\n")
+        let forwarded = String(decoding: unixServer.request, as: UTF8.self)
+        #expect(forwarded.hasPrefix("rewritten:"))
+        let forwardedJSON = String(forwarded.dropFirst("rewritten:".count))
+        let forwardedData = try #require(forwardedJSON.data(using: .utf8))
+        let forwardedObject = try #require(
+            JSONSerialization.jsonObject(with: forwardedData) as? [String: Any]
+        )
+        let forwardedParams = try #require(forwardedObject["params"] as? [String: Any])
+        #expect(forwardedParams["_cmux_authenticated_relay_workspace_id"] as? String == ownerWorkspaceID.uuidString)
         let call = try #require(rewriter.calls.first)
         #expect(call.workspace == [workspaceAlias.remote: workspaceAlias.local])
         #expect(call.surface.isEmpty)
