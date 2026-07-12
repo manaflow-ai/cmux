@@ -144,7 +144,7 @@ actor RoutingHostRouter {
         let id = info.id
         switch method {
         case "workspace.list", "mobile.workspace.list":
-            await workspaceListGate.beforeResponse()
+            let workspaceTitle = await workspaceListGate.beforeResponse() ?? "Routing Workspace"
             if rejectWorkspaceList {
                 return try? Self.errorFrame(id: id, message: "workspace.list rejected")
             }
@@ -152,7 +152,7 @@ actor RoutingHostRouter {
                 "workspaces": [
                     [
                         "id": Self.workspaceID,
-                        "title": "Routing Workspace",
+                        "title": workspaceTitle,
                         "current_directory": "/tmp/route",
                         "is_selected": true,
                         "terminals": [

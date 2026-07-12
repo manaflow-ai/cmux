@@ -59,9 +59,31 @@ import Testing
     let mutationRefresh = Task { await store.refreshForegroundWorkspaceListAfterMutation() }
     await router.workspaceListGate.releaseFirst()
 
-    #expect(await olderPull.value)
+    #expect(!(await olderPull.value))
     #expect(await mutationRefresh.value)
     #expect(await router.workspaceListGate.requestCount() == 2)
+}
+
+@MainActor
+@Test func foregroundMutationRefreshRejectsOlderEventResponse() async throws {
+    let router = RoutingHostRouter()
+    let store = MobileShellComposite(
+        connectionState: .connected,
+        workspaces: MobileShellComposite.preview().workspaces
+    )
+    try installFreshRemoteClient(on: store, router: router)
+    await router.workspaceListGate.setHoldFirst(true)
+    await router.workspaceListGate.setUsesOrdinalTitles(true)
+    let olderEventRefresh = try #require(store.scheduleWorkspaceListRefreshFromEvent())
+    await router.workspaceListGate.waitUntilFirstReached()
+
+    let mutationRefresh = await store.refreshForegroundWorkspaceListAfterMutation()
+    await router.workspaceListGate.releaseFirst()
+    await olderEventRefresh.value
+
+    #expect(mutationRefresh)
+    #expect(await router.workspaceListGate.requestCount() == 2)
+    #expect(store.workspaces.first?.name == "Fresh Workspace")
 }
 
 @MainActor

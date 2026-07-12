@@ -61,6 +61,7 @@ extension MobileShellComposite {
             guard isCurrentRemoteOperation(client: client, generation: generation), !Task.isCancelled else {
                 return .success(())
             }
+            advanceForegroundWorkspaceListMutationEpoch()
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
             let createdWorkspace = response.createdWorkspaceID.map(MobileWorkspacePreview.ID.init(rawValue:))
             if let createdWorkspace {

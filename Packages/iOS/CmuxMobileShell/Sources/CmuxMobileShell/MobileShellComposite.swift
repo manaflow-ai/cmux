@@ -722,6 +722,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var createWorkspaceTaskGroupID: MobileWorkspaceGroupPreview.ID?
     private var createTerminalTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
+    private var foregroundWorkspaceListMutationEpoch: UInt64 = 0
     /// The user pull-to-refresh round-trip, kept on its own handle so the
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
@@ -5173,6 +5174,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         generation: UUID,
         timeoutNanoseconds: UInt64? = nil
     ) async -> Bool {
+        let mutationEpoch = foregroundWorkspaceListMutationEpoch
         guard MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
               let attachToken = activeTicket?.authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
               !attachToken.isEmpty else {
@@ -5187,7 +5189,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 timeoutNanoseconds: timeoutNanoseconds ?? runtime?.pairingRequestTimeoutNanoseconds
             )
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
-            guard isCurrentRemoteConnection(client: client, generation: generation) else {
+            guard isCurrentRemoteConnection(client: client, generation: generation),
+                  mutationEpoch == foregroundWorkspaceListMutationEpoch else {
                 return false
             }
             let activeTicketWorkspaceID = activeTicket.map { MobileWorkspacePreview.ID(rawValue: $0.workspaceID) }
@@ -5833,6 +5836,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
             guard isCurrentRemoteOperation(client: client, generation: generation),
                   !Task.isCancelled else { return }
+            advanceForegroundWorkspaceListMutationEpoch()
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
             if selectedWorkspaceID == rowWorkspaceID,
                let createdID = response.createdTerminalID {
@@ -7369,8 +7373,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
     }
 
-    private func scheduleWorkspaceListRefreshFromEvent() {
-        guard remoteClient != nil else { return }
+    @discardableResult
+    func scheduleWorkspaceListRefreshFromEvent() -> Task<Void, Never>? {
+        guard remoteClient != nil else { return nil }
         // Keep the event path's "latest event wins" semantics: a `workspace.updated`
         // arriving mid-fetch restarts the fetch so the applied list reflects the
         // change the Mac pushed *after* this fetch started. This cancels only the
@@ -7381,6 +7386,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             defer { self?.workspaceListRefreshTask = nil }
             _ = await self?.reloadWorkspaceListFromMac()
         }
+        return workspaceListRefreshTask
     }
 
     /// Re-fetch the authoritative workspace list from the connected Mac and apply
@@ -7394,6 +7400,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// runs only on a successful decode.
     private func reloadWorkspaceListFromMac() async -> Bool {
         guard let client = remoteClient else { return false }
+        let mutationEpoch = foregroundWorkspaceListMutationEpoch
         do {
             let request = try MobileCoreRPCClient.requestData(method: "mobile.workspace.list", params: [:])
             let data = try await client.sendRequest(
@@ -7401,7 +7408,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 timeoutNanoseconds: runtime?.rpcRequestTimeoutNanoseconds
             )
             let response = try MobileSyncWorkspaceListResponse.decode(data)
-            guard remoteClient === client, connectionState == .connected else { return false }
+            guard remoteClient === client,
+                  connectionState == .connected,
+                  mutationEpoch == foregroundWorkspaceListMutationEpoch else { return false }
             applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)
             syncSelectedTerminalForWorkspace()
             return true
@@ -7469,11 +7478,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Starts a foreground read after a mutation acknowledgement. An older pull
     /// may contain the pre-mutation hierarchy, so it must settle before this read.
     func refreshForegroundWorkspaceListAfterMutation() async -> Bool {
+        advanceForegroundWorkspaceListMutationEpoch()
         if let inFlight = pullToRefreshTask {
             _ = await inFlight.value
         }
         guard connectionState == .connected, remoteClient != nil else { return false }
         return await reloadWorkspaceListFromMac()
+    }
+
+    /// Invalidates foreground list reads that started before a mutation response.
+    func advanceForegroundWorkspaceListMutationEpoch() {
+        foregroundWorkspaceListMutationEpoch &+= 1
     }
 
     /// Refresh the foreground Mac workspace list and re-aggregate secondary Macs.
