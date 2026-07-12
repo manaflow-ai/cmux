@@ -104,6 +104,13 @@ import Testing
     #expect(secondRefresh)
     #expect(await firstRefresh.value)
     #expect(await router.workspaceListGate.requestCount() == 2)
+    #expect(store.foregroundWorkspaceMutationRefreshTask == nil)
+}
+
+@Test func terminalSubscriptionsIncludeScopedWorkspaceFocusTopic() {
+    #expect(MobileShellComposite.TerminalOutputTransport.hybrid.eventTopics.contains("workspace.focused"))
+    #expect(MobileShellComposite.TerminalOutputTransport.renderGrid.eventTopics.contains("workspace.focused"))
+    #expect(MobileShellComposite.TerminalOutputTransport.rawBytes.eventTopics.contains("workspace.focused"))
 }
 
 @MainActor

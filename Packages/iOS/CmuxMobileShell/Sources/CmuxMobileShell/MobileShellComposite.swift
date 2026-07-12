@@ -43,11 +43,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var eventTopics: [String] {
             switch self {
             case .hybrid:
-                return ["workspace.updated", "terminal.bytes", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"]
+                return ["workspace.updated", "workspace.focused", "terminal.bytes", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"]
             case .renderGrid:
-                return ["workspace.updated", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"]
+                return ["workspace.updated", "workspace.focused", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"]
             case .rawBytes:
-                return ["workspace.updated", "terminal.bytes", "terminal.set_font", "notification.dismissed", "notification.badge"]
+                return ["workspace.updated", "workspace.focused", "terminal.bytes", "terminal.set_font", "notification.dismissed", "notification.badge"]
             }
         }
 
@@ -725,6 +725,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var foregroundWorkspaceListMutationEpoch: UInt64 = 0
     var foregroundWorkspaceListAppliedMutationEpoch: UInt64 = 0
     var foregroundWorkspaceMutationRefreshTask: Task<ForegroundWorkspaceMutationRefreshResult, Never>?
+    var foregroundWorkspaceMutationRefreshTaskID: UUID?
     /// The user pull-to-refresh round-trip, kept on its own handle so the
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
@@ -1037,6 +1038,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceListRefreshTask?.cancel()
         pullToRefreshTask?.cancel()
         aggregateWorkspaceRefreshTask?.cancel()
+        foregroundWorkspaceMutationRefreshTask?.cancel()
         cancelAllTerminalReplayTasks()
         teardownSecondaryMacSubscriptions()
         if let remoteClient {
@@ -3716,13 +3718,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         await flushPendingNotificationDismisses(macDeviceID: macID)
         subscription.task = Task { @MainActor [weak self] in
-            let stream = await client.subscribe(to: ["workspace.updated"])
+            let stream = await client.subscribe(to: ["workspace.updated", "workspace.focused"])
             await self?.enableSecondaryEventSubscription(on: client, streamID: subscription.streamID)
             for await event in stream {
                 guard let self, !Task.isCancelled else { break }
                 // Stop if this subscription was replaced/torn down.
                 guard self.secondaryMacSubscriptions[macID]?.client === client else { break }
-                if event.topic == "workspace.updated" {
+                if event.topic == "workspace.focused" {
+                    if let focusEvent = MobileWorkspaceFocusEvent(payloadJSON: event.payloadJSON) {
+                        self.applyWorkspaceFocusEvent(focusEvent, macID: macID)
+                    }
+                } else if event.topic == "workspace.updated" {
                     if let focusEvent = MobileWorkspaceFocusEvent(payloadJSON: event.payloadJSON) {
                         self.applyWorkspaceFocusEvent(focusEvent, macID: macID)
                         continue
@@ -3783,7 +3789,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func enableSecondaryEventSubscription(on client: MobileCoreRPCClient, streamID: String) async {
         guard let request = try? MobileCoreRPCClient.requestData(
             method: "mobile.events.subscribe",
-            params: ["stream_id": streamID, "topics": ["workspace.updated"]]
+            params: ["stream_id": streamID, "topics": ["workspace.updated", "workspace.focused"]]
         ) else { return }
         _ = try? await client.sendRequest(request)
     }
@@ -5281,6 +5287,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pullToRefreshTask = nil
         aggregateWorkspaceRefreshTask?.cancel()
         aggregateWorkspaceRefreshTask = nil
+        foregroundWorkspaceMutationRefreshTask?.cancel()
+        foregroundWorkspaceMutationRefreshTask = nil
+        foregroundWorkspaceMutationRefreshTaskID = nil
         cancelAllTerminalReplayTasks()
     }
 
@@ -6309,7 +6318,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // it resets the liveness window (not just render_grid events).
                 self.recordTerminalEventStreamLiveness()
                 self.markMacConnectionHealthy()
-                if event.topic == "workspace.updated" {
+                if event.topic == "workspace.focused" {
+                    if let focusEvent = MobileWorkspaceFocusEvent(payloadJSON: event.payloadJSON) {
+                        self.applyWorkspaceFocusEvent(focusEvent, macID: nil)
+                    }
+                } else if event.topic == "workspace.updated" {
                     if let focusEvent = MobileWorkspaceFocusEvent(payloadJSON: event.payloadJSON) {
                         self.applyWorkspaceFocusEvent(focusEvent, macID: nil)
                     } else {
@@ -7391,38 +7404,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             _ = await self?.reloadWorkspaceListFromMac()
         }
         return workspaceListRefreshTask
-    }
-
-    /// Re-fetch the authoritative workspace list from the connected Mac and apply
-    /// it, awaiting the round-trip to completion.
-    ///
-    /// This is the single shared re-sync the `workspace.updated` event refresh and
-    /// the user's pull-to-refresh both funnel through, so the list never has two
-    /// divergent fetch paths. A no-op when not connected. Errors (offline / wedged
-    /// transport) are caught and logged, leaving the existing list intact, because
-    /// ``applyRemoteWorkspaceList(_:preferActiveTicketTarget:mergeExistingWorkspaces:)``
-    /// runs only on a successful decode.
-    func reloadWorkspaceListFromMac() async -> Bool {
-        guard let client = remoteClient else { return false }
-        let mutationEpoch = foregroundWorkspaceListMutationEpoch
-        do {
-            let request = try MobileCoreRPCClient.requestData(method: "mobile.workspace.list", params: [:])
-            let data = try await client.sendRequest(
-                request,
-                timeoutNanoseconds: runtime?.rpcRequestTimeoutNanoseconds
-            )
-            let response = try MobileSyncWorkspaceListResponse.decode(data)
-            guard remoteClient === client,
-                  connectionState == .connected,
-                  mutationEpoch == foregroundWorkspaceListMutationEpoch else { return false }
-            applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)
-            markForegroundWorkspaceListApplied()
-            syncSelectedTerminalForWorkspace()
-            return true
-        } catch {
-            mobileShellLog.error("workspace list event refresh failed: \(String(describing: error), privacy: .private)")
-            return false
-        }
     }
 
     /// Pull-to-refresh entry point: re-sync the workspace list from the connected

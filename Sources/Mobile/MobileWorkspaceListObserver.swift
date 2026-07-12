@@ -233,7 +233,7 @@ final class MobileWorkspaceListObserver {
         guard focusedHierarchySignatures[workspace.id] != signature else { return }
         focusedHierarchySignatures[workspace.id] = signature
         mobileWorkspaceObserverLog.debug(
-            "emitting workspace.updated for focused hierarchy workspace=\(workspace.id, privacy: .public)"
+            "emitting workspace.focused hierarchy workspace=\(workspace.id, privacy: .public)"
         )
         var payload: [String: Any] = [
             "kind": "focus",
@@ -249,7 +249,7 @@ final class MobileWorkspaceListObserver {
         } else {
             payload["selected_terminal_id"] = NSNull()
         }
-        MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: payload)
+        MobileHostService.shared.emitEvent(topic: "workspace.focused", payload: payload)
     }
 
     static func focusedHierarchySignature(for workspace: Workspace) -> Int {
