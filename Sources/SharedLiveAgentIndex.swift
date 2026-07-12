@@ -244,7 +244,6 @@ final class SharedLiveAgentIndex {
                 validating: nil
             )
             return await task.value.map(ProcessDetectedResumeIndexes.init)
-                ?? latestCompletedLoadResult.map(ProcessDetectedResumeIndexes.init)
         }
         if case .some = latestCompletedLoadResult,
            let latestCompletedAt,
@@ -276,7 +275,7 @@ final class SharedLiveAgentIndex {
         if let result = await task.value {
             return ProcessDetectedResumeIndexes(result)
         }
-        return latestCompletedLoadResult.map(ProcessDetectedResumeIndexes.init)
+        return nil
     }
 
     /// Returns the newest completed coordinated capture immediately on the main actor.
