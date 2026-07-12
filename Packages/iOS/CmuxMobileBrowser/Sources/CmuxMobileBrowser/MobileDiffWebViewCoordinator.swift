@@ -31,6 +31,7 @@ public final class MobileDiffWebViewCoordinator: NSObject, WKNavigationDelegate,
         loadTask = nil
         renderTimeoutTask?.cancel()
         renderTimeoutTask = nil
+        patchHandler.cancelAll()
         webView = nil
     }
 

@@ -1,28 +1,20 @@
 import Foundation
 
-@MainActor
-final class MobileDiffPatchStore {
-    private let assetLoader: @Sendable (URL?) -> [String: MobileDiffPatchContent]
+actor MobileDiffPatchStore {
+    private let dataLoader: @Sendable (URL) -> Data?
     private let resourceRoot: URL?
-    private var assets: [String: MobileDiffPatchContent]?
+    private var assets: [String: MobileDiffPatchContent] = [:]
     private var payloads: [Int: MobileDiffPatchPayload] = [:]
 
     init(
         resourceRoot: URL? = Bundle.main.resourceURL,
-        assetLoader: @escaping @Sendable (URL?) -> [String: MobileDiffPatchContent] = mobileDiffLoadBundledAssets
+        dataLoader: @escaping @Sendable (URL) -> Data? = mobileDiffLoadAssetData
     ) {
         self.resourceRoot = resourceRoot
-        self.assetLoader = assetLoader
+        self.dataLoader = dataLoader
     }
 
-    func configure(generation: Int, html: Data, patch: Data) async {
-        if assets == nil {
-            let assetLoader = assetLoader
-            let resourceRoot = resourceRoot
-            assets = await Task.detached(priority: .userInitiated) {
-                assetLoader(resourceRoot)
-            }.value
-        }
+    func configure(generation: Int, html: Data, patch: Data) {
         payloads[generation] = MobileDiffPatchPayload(html: html, patch: patch)
         for expiredGeneration in payloads.keys.sorted().dropLast(2) {
             payloads[expiredGeneration] = nil
@@ -39,7 +31,17 @@ final class MobileDiffPatchStore {
            let payload = payloads[generation] {
             return MobileDiffPatchContent(data: payload.patch, mimeType: "text/x-diff")
         }
-        return assets?[String(path)]
+        let assetPath = String(path)
+        if let cached = assets[assetPath] { return cached }
+        guard (path.hasPrefix("webviews-app/") || path.hasPrefix("diff-viewer/")),
+              path.hasSuffix(".mjs") || path.hasSuffix(".js"),
+              let resourceRoot = resourceRoot?.standardizedFileURL else { return nil }
+        let fileURL = resourceRoot.appendingPathComponent(assetPath).standardizedFileURL
+        guard fileURL.path.hasPrefix(resourceRoot.path + "/"),
+              let data = dataLoader(fileURL) else { return nil }
+        let content = MobileDiffPatchContent(data: data, mimeType: "text/javascript")
+        assets[assetPath] = content
+        return content
     }
 
     private func generation(in path: Substring, prefix: String, suffix: String) -> Int? {
@@ -50,25 +52,6 @@ final class MobileDiffPatchStore {
 }
 
 // lint:allow File-scope pure helper required by the cmux package-design policy.
-private func mobileDiffLoadBundledAssets(
-    resourceRoot: URL?
-) -> [String: MobileDiffPatchContent] {
-    guard let resourceRoot = resourceRoot?.standardizedFileURL else { return [:] }
-    var assets: [String: MobileDiffPatchContent] = [:]
-    for directoryName in ["webviews-app", "diff-viewer"] {
-        let directory = resourceRoot.appendingPathComponent(directoryName, isDirectory: true)
-        guard let enumerator = FileManager().enumerator(
-            at: directory,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else { continue }
-        for case let fileURL as URL in enumerator {
-            guard fileURL.pathExtension == "mjs" || fileURL.pathExtension == "js",
-                  (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
-                  let data = try? Data(contentsOf: fileURL) else { continue }
-            let relativePath = String(fileURL.standardizedFileURL.path.dropFirst(resourceRoot.path.count + 1))
-            assets[relativePath] = MobileDiffPatchContent(data: data, mimeType: "text/javascript")
-        }
-    }
-    return assets
+private func mobileDiffLoadAssetData(_ url: URL) -> Data? {
+    try? Data(contentsOf: url, options: .mappedIfSafe)
 }

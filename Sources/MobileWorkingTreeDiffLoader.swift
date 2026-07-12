@@ -117,7 +117,10 @@ final class MobileWorkingTreeDiffLoader: Sendable {
             throw MobileWorkingTreeDiffLoadError(code: "git_error", message: "Could not list untracked files")
         }
         for pathData in paths {
-            guard let path = String(data: Data(pathData), encoding: .utf8), !path.isEmpty else { continue }
+            guard let path = String(data: Data(pathData), encoding: .utf8) else {
+                throw MobileWorkingTreeDiffLoadError(code: "invalid_data", message: "Workspace contains a file path that is not valid UTF-8")
+            }
+            guard !path.isEmpty else { continue }
             guard Self.isDiffableUntrackedFile(path, repositoryRoot: repositoryRoot) else { continue }
             let result = try await runGit(
                 ["diff", "--no-index", "--no-textconv", "--binary", "--", "/dev/null", path],
