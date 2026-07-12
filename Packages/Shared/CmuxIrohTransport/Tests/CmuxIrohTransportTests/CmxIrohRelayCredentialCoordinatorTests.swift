@@ -112,6 +112,46 @@ struct CmxIrohRelayCredentialCoordinatorTests {
     }
 
     @Test
+    func refreshFailureRetriesBeforeInstalledCredentialSafetyDeadline() async throws {
+        let fixture = try RelayCoordinatorFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.identity)
+        let supervisor = try await fixture.activeSupervisor(endpoint: endpoint)
+        let broker = TestRelayTokenBroker(steps: [.failure])
+        let clock = TestRelayClock(now: fixture.now)
+        var clockEvents = clock.events().makeAsyncIterator()
+        let expiresAt = fixture.now.addingTimeInterval(5 * 60)
+        let refreshAfter = expiresAt.addingTimeInterval(-60)
+        let coordinator = CmxIrohRelayCredentialCoordinator(
+            supervisor: supervisor,
+            broker: broker,
+            managedRelayURLs: Set(fixture.relayURLs),
+            clock: clock,
+            jitter: { _, refreshAfter in refreshAfter }
+        )
+
+        try await coordinator.activate(
+            bindingID: fixture.bindingID,
+            endpointIdentity: fixture.identity,
+            bootstrap: try fixture.response(
+                refreshAfter: refreshAfter,
+                expiresAt: expiresAt
+            )
+        )
+        #expect(await clockEvents.next() == .sleep(refreshAfter))
+
+        clock.advance(to: refreshAfter)
+
+        guard case let .sleep(retryDeadline) = await clockEvents.next() else {
+            Issue.record("Expected a relay retry before credential expiry")
+            return
+        }
+        #expect(retryDeadline == expiresAt.addingTimeInterval(-30))
+        #expect(retryDeadline < expiresAt)
+        #expect(await broker.observedEndpointIDs() == [fixture.identity])
+        await coordinator.deactivate()
+    }
+
+    @Test
     func mismatchedBootstrapFleetNeverMutatesEndpoint() async throws {
         let fixture = try RelayCoordinatorFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.identity)
@@ -191,7 +231,9 @@ private final class TestRelayClock: CmxIrohRelayClock, @unchecked Sendable {
         case cancelled
     }
 
-    private let currentDate: Date
+    private let lock = NSLock()
+    private var currentDate: Date
+    private var sleepers: [UUID: CheckedContinuation<Void, any Error>] = [:]
     private let eventStream: AsyncStream<Event>
     private let continuation: AsyncStream<Event>.Continuation
 
@@ -203,20 +245,47 @@ private final class TestRelayClock: CmxIrohRelayClock, @unchecked Sendable {
     }
 
     func now() -> Date {
-        currentDate
+        lock.withLock { currentDate }
     }
 
     func sleep(until deadline: Date) async throws {
         continuation.yield(.sleep(deadline))
+        let id = UUID()
         try await withTaskCancellationHandler {
-            try await Task<Never, Never>.sleep(for: .seconds(24 * 60 * 60))
+            try Task.checkCancellation()
+            try await withCheckedThrowingContinuation { sleeper in
+                lock.withLock {
+                    sleepers[id] = sleeper
+                }
+                if Task.isCancelled {
+                    cancelSleep(id: id)
+                }
+            }
         } onCancel: {
-            continuation.yield(.cancelled)
+            cancelSleep(id: id)
+        }
+    }
+
+    func advance(to date: Date) {
+        let pending = lock.withLock { () -> [CheckedContinuation<Void, any Error>] in
+            currentDate = date
+            defer { sleepers.removeAll() }
+            return Array(sleepers.values)
+        }
+        for sleeper in pending {
+            sleeper.resume()
         }
     }
 
     func events() -> AsyncStream<Event> {
         eventStream
+    }
+
+    private func cancelSleep(id: UUID) {
+        let sleeper = lock.withLock { sleepers.removeValue(forKey: id) }
+        guard let sleeper else { return }
+        continuation.yield(.cancelled)
+        sleeper.resume(throwing: CancellationError())
     }
 }
 
@@ -263,14 +332,16 @@ private struct RelayCoordinatorFixture: Sendable {
     }
 
     func response(
-        relayURLs: [String]? = nil
+        relayURLs: [String]? = nil,
+        refreshAfter: Date? = nil,
+        expiresAt: Date? = nil
     ) throws -> CmxIrohRelayTokenResponse {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let object: [String: Any] = [
             "token": "abc234",
-            "expires_at": formatter.string(from: expiresAt),
-            "refresh_after": formatter.string(from: refreshAfter),
+            "expires_at": formatter.string(from: expiresAt ?? self.expiresAt),
+            "refresh_after": formatter.string(from: refreshAfter ?? self.refreshAfter),
             "relay_fleet": relayURLs ?? self.relayURLs,
         ]
         return try JSONDecoder().decode(
