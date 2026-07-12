@@ -237,6 +237,33 @@ struct RemoteProxyBrokerPTYLifecycleRestartTests {
         #expect(!tunnel.ptyCalls.contains { $0.name == "acknowledgePTYLifecycleIfKnown" })
     }
 
+    @Test("explicit acknowledgement removes its attachment generation index")
+    func explicitAcknowledgementRemovesAttachmentGenerationIndex() throws {
+        let provider = FakeTunnelProvider()
+        let broker = RemoteProxyBroker(tunnelProvider: provider, clock: ManualRetryClock())
+        let configuration = makeConfiguration()
+        let lease = broker.acquire(configuration: configuration, remotePath: "/r/p") { _ in }
+        defer { lease.release() }
+
+        _ = try broker.startPTYBridge(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "generation",
+            attachmentID: "surface",
+            command: nil,
+            requireExisting: true
+        )
+        #expect(broker.currentPTYLifecycleByAttachment.count == 1)
+
+        try broker.acknowledgePTYLifecycle(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "generation"
+        )
+
+        #expect(broker.currentPTYLifecycleByAttachment.isEmpty)
+    }
+
     @Test("forced local proxy port is used verbatim")
     func forcedLocalProxyPort() throws {
         let provider = FakeTunnelProvider()

@@ -43,6 +43,30 @@ struct RemoteDisconnectLifecycleTests {
         #expect(workspace.isRemoteTerminalSurface(third.id))
     }
 
+    @Test func sameConfigurationReconnectPreservesSiblingPlaceholderOwnership() throws {
+        let workspace = Workspace()
+        let configuration = Self.remoteConfiguration()
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        let first = try #require(workspace.focusedTerminalPanel)
+        let second = try #require(workspace.newTerminalSplit(
+            from: first.id,
+            orientation: .horizontal,
+            focus: false
+        ))
+        defer { Self.removeTransitionArtifacts(workspace: workspace, panelIds: [first.id, second.id]) }
+
+        for panel in [first, second] {
+            workspace.restoredTerminalScrollbackByPanelId[panel.id] = "remote-output\n"
+            workspace.markRemoteTerminalSessionEnded(surfaceId: panel.id, relayPort: 64007)
+            #expect(workspace.transitionRemoteTerminalToDisconnectedPlaceholder(surfaceId: panel.id))
+        }
+        #expect(workspace.remoteDisconnectPlaceholderPanelIds == Set([first.id, second.id]))
+
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+
+        #expect(workspace.remoteDisconnectPlaceholderPanelIds == Set([first.id, second.id]))
+    }
+
     @Test func wrapperCreationFailurePreservesOriginalDeadSurface() throws {
         let workspace = Workspace()
         workspace.configureRemoteConnection(Self.remoteConfiguration(), autoConnect: false)

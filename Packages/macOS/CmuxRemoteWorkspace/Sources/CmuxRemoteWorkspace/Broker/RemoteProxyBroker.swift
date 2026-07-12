@@ -47,7 +47,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.cmux.remote-ssh.proxy-broker", qos: .utility)
     private var entries: [String: Entry] = [:]
     private var ptyLifecycleOwners: [RemotePTYLifecycleKey: (transportKey: String, attachmentKey: RemotePTYAttachmentKey)] = [:]
-    private var currentPTYLifecycleByAttachment: [RemotePTYAttachmentKey: RemotePTYLifecycleKey] = [:]
+    internal private(set) var currentPTYLifecycleByAttachment: [RemotePTYAttachmentKey: RemotePTYLifecycleKey] = [:]
 
     /// Creates a broker.
     ///
