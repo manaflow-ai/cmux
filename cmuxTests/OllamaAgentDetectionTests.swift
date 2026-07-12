@@ -143,6 +143,34 @@ struct OllamaAgentDetectionTests {
         #expect(RestorableAgentKind.ollama.restoreMode == .relaunchCommand)
     }
 
+    @Test("Inherited claude launch env does not misidentify an ollama process")
+    func inheritedLaunchKindDoesNotOverrideExecutableIdentity() throws {
+        // A pane that launched claude exports CMUX_AGENT_LAUNCH_* to every
+        // descendant process. An `ollama run` started later in that pane must
+        // be identified by its own executable, not the inherited env.
+        let inheritedEnvironment = [
+            "CMUX_AGENT_LAUNCH_KIND": "claude",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/Users/user/.local/bin/claude",
+        ]
+        let definition = try #require(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            processName: "ollama",
+            processPath: "/usr/local/Cellar/ollama/0.31.1/libexec/ollama",
+            arguments: ["ollama", "run", "qwen3:0.6b"],
+            environment: inheritedEnvironment
+        ))
+        #expect(definition.id == "ollama")
+        #expect(definition.promptTurnDetection != nil)
+
+        // The wrapper that actually launched claude keeps its env identity.
+        let wrapper = try #require(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            processName: "zsh",
+            processPath: "/bin/zsh",
+            arguments: ["/bin/zsh", "-lic", "exec \"$CMUX_AGENT_LAUNCH_EXECUTABLE\""],
+            environment: inheritedEnvironment
+        ))
+        #expect(wrapper.id == "claude")
+    }
+
     @Test("Textbox agent detection recognizes interactive Ollama sessions")
     func textBoxAgentDetectionRecognizesOllama() {
         #expect(TextBoxAgentDetection.supportsAgentPrefixes(context: "restoredAgent:ollama"))
