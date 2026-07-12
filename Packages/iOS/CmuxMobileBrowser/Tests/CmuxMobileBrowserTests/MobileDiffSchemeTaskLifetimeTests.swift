@@ -32,4 +32,19 @@ struct MobileDiffSchemeTaskLifetimeTests {
         #expect(!lifetime.performCallback(taskID) { callbackCount += 1 })
         #expect(callbackCount == 1)
     }
+
+    @Test("A reentrant stop does not deadlock callback delivery")
+    func reentrantStopReturnsAndRejectsLaterCallbacks() async {
+        let lifetime = MobileDiffSchemeTaskLifetime()
+        let taskID = ObjectIdentifier(NSObject())
+
+        lifetime.register(taskID)
+        let accepted = await lifetime.performCallback(taskID) {
+            lifetime.stop(taskID)
+        }
+        let acceptedAfterStop = await lifetime.performCallback(taskID) {}
+
+        #expect(accepted)
+        #expect(!acceptedAfterStop)
+    }
 }
