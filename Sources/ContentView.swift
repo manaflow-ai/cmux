@@ -8747,7 +8747,7 @@ struct ContentView: View {
                 return CommandPaletteRestoreFocusTarget(
                     workspaceId: workspace.id,
                     panelId: panelId,
-                    intent: panel.captureFocusIntent(in: window) ?? .browser(.webView)
+                    intent: panel.captureFocusIntent(in: window)
                 )
             }
         }
