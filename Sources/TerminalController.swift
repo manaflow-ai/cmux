@@ -334,6 +334,7 @@ class TerminalController {
             v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)
             v2ConsumedBrowserDownloadKeysBySurface.removeValue(forKey: surfaceId)
             v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
+            mobileRenderRevisionsBySurfaceID.removeValue(forKey: surfaceId)
             v2BrowserElementRefs = v2BrowserElementRefs.filter { $0.value.surfaceId != surfaceId }
             controlCommandCoordinator.removeRef(kind: .surface, uuid: surfaceId)
         }

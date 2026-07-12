@@ -2447,17 +2447,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         cursorOverlayLayer?.isHidden = true
     }
 
-    /// Shared reaction to user-produced terminal input (typing, backspace,
-    /// escape sequences, paste): restart the cursor blink and optimistically
-    /// snap the local mirror to the bottom of scrollback. The mirror is
-    /// display-only — the Mac echoes input at the prompt — so a user who types
-    /// while scrolled up would otherwise keep looking at old scrollback and
-    /// read the terminal as frozen. Passive output never forces this jump;
-    /// only explicit user input does (plus the one-time initial-output scroll
-    /// in `scrollInitialOutputToBottomIfNeeded`).
+    /// Shared immediate reaction to user-produced terminal input: restart the
+    /// cursor blink and stop UIKit momentum. The shell owns the ordered Ghostty
+    /// bottom snap through the surface mutation stream.
     private func handleUserProducedInput() {
         resetCursorBlink()
-        cancelScrollInteractionAndSnapToBottom()
+        cancelScrollMomentum()
     }
 
     /// Reset cursor to visible and restart blink cycle (call on user input).

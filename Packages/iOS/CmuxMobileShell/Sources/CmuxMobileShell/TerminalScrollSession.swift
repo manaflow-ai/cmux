@@ -105,6 +105,9 @@ final class TerminalScrollSession {
     var pendingClick: PendingClickState?
     var postClickIntents = BoundedFIFO<PendingScrollIntent>(capacity: maximumQueuedInteractionCount)
     var postClickNeedsSettlement = false
+    var needsBottomSnap = true
+    var bottomSnapReceiptGeneration: UInt64 = 0
+    var bottomSnapReceiptTask: Task<Void, Never>?
     var accumulatedRowsSincePrefetch = 0.0
     var hasPrimedPrefetch = false
     var lastDirectionLines = 1.0
@@ -153,6 +156,7 @@ final class TerminalScrollSession {
 
     func submit(lines: Double, col: Int, row: Int) {
         guard lines != 0 else { return }
+        needsBottomSnap = true
         if pendingClick != nil {
             let appended = postClickIntents.append(PendingScrollIntent(
                 lines: lines,
@@ -214,18 +218,22 @@ final class TerminalScrollSession {
     }
 
     func invalidateForInput() -> UInt64 {
-        invalidate(nextEpoch: advanceEpoch(), snapToBottom: true)
-        _ = enqueueScrollToBottom()
+        invalidate(nextEpoch: advanceEpoch(), cancelLocalInteraction: true)
+        enqueueBottomSnapIfNeeded()
         return interactionEpoch
     }
 
     func invalidateForRecovery() -> UInt64 {
-        invalidate(nextEpoch: advanceEpoch(), snapToBottom: false)
+        needsBottomSnap = true
+        invalidate(nextEpoch: advanceEpoch(), cancelLocalInteraction: false)
         return interactionEpoch
     }
 
     func cancelForUnmount(nextEpoch: UInt64) {
-        invalidate(nextEpoch: nextEpoch, snapToBottom: false)
+        bottomSnapReceiptGeneration &+= 1
+        bottomSnapReceiptTask?.cancel()
+        bottomSnapReceiptTask = nil
+        invalidate(nextEpoch: nextEpoch, cancelLocalInteraction: false)
     }
 
     var shouldDeferLiveRenderGrid: Bool {
@@ -334,11 +342,28 @@ final class TerminalScrollSession {
 
     func recoverFromLaneFailure() {
         let nextEpoch = advanceEpoch()
-        invalidate(nextEpoch: nextEpoch, snapToBottom: false)
+        needsBottomSnap = true
+        invalidate(nextEpoch: nextEpoch, cancelLocalInteraction: false)
         requestReplay(nextEpoch)
     }
 
-    private func invalidate(nextEpoch: UInt64, snapToBottom: Bool) {
+    private func enqueueBottomSnapIfNeeded() {
+        guard needsBottomSnap else { return }
+        needsBottomSnap = false
+        bottomSnapReceiptGeneration &+= 1
+        if bottomSnapReceiptGeneration == 0 { bottomSnapReceiptGeneration = 1 }
+        let generation = bottomSnapReceiptGeneration
+        let receipt = enqueueScrollToBottom()
+        bottomSnapReceiptTask?.cancel()
+        bottomSnapReceiptTask = Task { @MainActor [weak self] in
+            let applied = await receipt.value
+            guard let self, self.bottomSnapReceiptGeneration == generation else { return }
+            self.bottomSnapReceiptTask = nil
+            if !applied { self.needsBottomSnap = true }
+        }
+    }
+
+    private func invalidate(nextEpoch: UInt64, cancelLocalInteraction: Bool) {
         localReceiptTask?.cancel()
         localReceiptTask = nil
         remoteTask?.cancel()
@@ -360,6 +385,6 @@ final class TerminalScrollSession {
         isAwaitingAuthoritativeReconciliation = false
         accumulatedRowsSincePrefetch = 0
         hasPrimedPrefetch = false
-        if snapToBottom { cancelLocal() }
+        if cancelLocalInteraction { cancelLocal() }
     }
 }

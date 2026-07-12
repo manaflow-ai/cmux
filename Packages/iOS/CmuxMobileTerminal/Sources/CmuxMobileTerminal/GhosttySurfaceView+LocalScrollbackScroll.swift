@@ -113,14 +113,6 @@ extension GhosttySurfaceView {
         }
     }
 
-    /// Stops native momentum and queues a bottom snap after any already-running
-    /// local operation. Input, recovery, and detach all route through the
-    /// mounted scroll session and call this single invalidation entrypoint.
-    public func cancelScrollInteractionAndSnapToBottom() {
-        cancelScrollMomentum()
-        enqueueScrollToBottom()
-    }
-
     /// Stops UIKit drag/deceleration without mutating Ghostty. The shell then
     /// inserts the bottom snap into its causal surface mutation stream.
     public func cancelScrollMomentum() {
