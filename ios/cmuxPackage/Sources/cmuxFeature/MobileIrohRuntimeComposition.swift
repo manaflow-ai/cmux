@@ -45,8 +45,8 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         }
     }
 
-    private static let relayDeployment = CmxIrohRelayDeployment.current
-    private static let managedRelayURLs = relayDeployment.urls
+    nonisolated private static let relayDeployment = CmxIrohRelayDeployment.current
+    nonisolated private static let managedRelayURLs = relayDeployment.urls
     private static let capabilities = ["mobile-rpc-v1", "multistream-v1"]
 
     /// The stable factory registered before debug-loopback and Tailscale fallbacks.
