@@ -121,9 +121,15 @@ actor PromptTurnNotificationHandler {
         if inFlightPID == foregroundPID {
             inFlightPID = nil
             inFlightVerification = nil
-            cachedForegroundPID = foregroundPID
-            cachedDefinition = definition
-            hasCachedIdentity = true
+            // Cache positive identifications only. A nil result can be a
+            // transient inspection failure (for example a race with exec);
+            // caching it would suppress notifications for the rest of that
+            // process's lifetime.
+            if let definition {
+                cachedForegroundPID = foregroundPID
+                cachedDefinition = definition
+                hasCachedIdentity = true
+            }
         }
         return definition?.id == agentID ? definition : nil
     }
