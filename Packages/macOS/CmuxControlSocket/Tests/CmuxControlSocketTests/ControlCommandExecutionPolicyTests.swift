@@ -52,11 +52,18 @@ struct ControlCommandExecutionPolicyTests {
         }
     }
 
+    @Test func feedJumpRunsOffMainBecauseItReadsHookState() {
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "feed.jump")
+                == .socketWorker(mainThreadCallable: false)
+        )
+    }
+
     @Test func everythingElseRunsOnTheMainActor() {
         for method in [
             "workspace.create", "browser.url.get",
             "browser.open_split", "browser.get.title", "browser.frame.main",
-            "mobile.terminal.create", "feed.jump", "vmx.create", "",
+            "mobile.terminal.create", "vmx.create", "",
             // Focus-intent verbs stay on the main lane until the mutations
             // tranche decides them deliberately.
             "surface.focus", "workspace.select", "pane.focus", "window.focus",
