@@ -165,7 +165,7 @@ import Testing
         #expect(second.id == .init(rawValue: "surface-2"))
     }
 
-    @Test func coldRestoreKeepsWorkspaceAssociationIdentityPageAndSelection() throws {
+    @Test func coldRestoreKeepsWorkspaceAssociationIdentityPageAndSelection() async throws {
         let suiteName = "BrowserSurfaceStoreTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
@@ -195,6 +195,7 @@ import Testing
             title: "Workspace B"
         )
         firstStore.showNonBrowserSurface(for: "ws-b")
+        await firstStore.flushPersistence()
 
         let restored = BrowserSurfaceStore(
             defaultURL: nil,
@@ -285,7 +286,7 @@ import Testing
         #expect(defaults.data(forKey: "cmux.mobile.browserSurfaces.v1") == nil)
     }
 
-    @Test func accountOrTeamMismatchFailsClosedAndDeletesOwnerArchive() throws {
+    @Test func accountOrTeamMismatchFailsClosedAndDeletesOwnerArchive() async throws {
         let suiteName = "BrowserSurfaceStoreTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
@@ -295,6 +296,7 @@ import Testing
         let first = BrowserSurfaceStore(defaultURL: nil, persistenceDefaults: defaults)
         first.setPersistenceScope(owner)
         _ = first.openBrowser(for: "ws-1")
+        await first.flushPersistence()
 
         let otherAccount = BrowserSurfaceStore(defaultURL: nil, persistenceDefaults: defaults)
         otherAccount.setPersistenceScope(.init(userID: "user-b", teamID: "team-a"))
@@ -303,6 +305,7 @@ import Testing
 
         first.setPersistenceScope(owner)
         _ = first.openBrowser(for: "ws-2")
+        await first.flushPersistence()
         let otherTeam = BrowserSurfaceStore(defaultURL: nil, persistenceDefaults: defaults)
         otherTeam.setPersistenceScope(.init(userID: "user-a", teamID: "team-b"))
         #expect(otherTeam.browser(for: "ws-2") == nil)

@@ -228,6 +228,33 @@ import Testing
         #expect(immediateWrites == [false])
     }
 
+    @Test func successfulUntitledNavigationClearsPriorTitle() {
+        let state = makeState()
+        state.navigationDidFinish(
+            url: URL(string: "https://example.com/titled")!,
+            title: "Titled"
+        )
+
+        state.navigationDidStart()
+        state.pageTitleDidChange(nil)
+        #expect(state.title == "Titled")
+        state.navigationDidFinish(
+            url: URL(string: "https://example.com/untitled")!,
+            title: ""
+        )
+
+        #expect(state.title == nil)
+    }
+
+    @Test func idlePageCanClearItsTitle() {
+        let state = makeState()
+        state.navigationDidFinish(title: "Single-page app")
+
+        state.pageTitleDidChange("")
+
+        #expect(state.title == nil)
+    }
+
     @Test func provisionalFailureRecordsRecoveryWithoutDiscardingCommittedPage() {
         let committedURL = URL(string: "https://example.com/committed")!
         let failedURL = URL(string: "https://example.com/failed")!

@@ -284,8 +284,12 @@ public final class BrowserSurfaceState: Identifiable {
     /// changes must persist independently of completed navigations.
     /// - Parameter title: The latest page title reported by WebKit.
     func pageTitleDidChange(_ title: String?) {
-        guard let title, !title.isEmpty, self.title != title else { return }
-        self.title = title
+        let normalizedTitle = title.flatMap { $0.isEmpty ? nil : $0 }
+        // WebKit clears `title` while a new page is provisional. Keep the
+        // committed title until success so a provisional failure restores it.
+        guard normalizedTitle != nil || !isLoading,
+              self.title != normalizedTitle else { return }
+        self.title = normalizedTitle
         persistDurableState?(false)
     }
 
@@ -303,9 +307,7 @@ public final class BrowserSurfaceState: Identifiable {
                 addressText = url.absoluteString
             }
         }
-        if let title, !title.isEmpty {
-            self.title = title
-        }
+        self.title = title.flatMap { $0.isEmpty ? nil : $0 }
         lastErrorMessage = nil
         lastFailedURL = nil
         lastFailureWasProvisional = false

@@ -30,6 +30,9 @@ public final class BrowserSurfaceStore {
     /// Equality-filtered, per-workspace values read by lazy-grid consumers.
     private var snapshotSourcesByWorkspace: [String: BrowserSurfaceSnapshotSource]
 
+    /// Value snapshots used for copy-on-write persistence handoff.
+    private var durableSnapshotsByWorkspace: [String: BrowserSurfaceSnapshot]
+
     /// Produces a fresh, unique surface id. Injected so tests are deterministic.
     private let makeSurfaceID: () -> BrowserSurfaceState.ID
 
@@ -42,6 +45,9 @@ public final class BrowserSurfaceStore {
 
     /// UserDefaults key for the versioned snapshot array.
     private let persistenceKey: String
+
+    /// Ordered archive writer. Scheduled page churn never encodes on the main actor.
+    private let archiveWriter: BrowserSurfaceArchiveWriter?
 
     /// The authenticated owner allowed to read and write the persisted archive.
     private var persistenceScope: BrowserPersistenceScope?
@@ -79,9 +85,13 @@ public final class BrowserSurfaceStore {
         self.defaultURL = defaultURL
         self.persistenceDefaults = persistenceDefaults
         self.persistenceKey = persistenceKey
+        self.archiveWriter = persistenceDefaults.map {
+            BrowserSurfaceArchiveWriter(defaults: $0, key: persistenceKey)
+        }
         self.surfacesByWorkspace = [:]
         self.selectedBrowserWorkspaceIDs = []
         self.snapshotSourcesByWorkspace = [:]
+        self.durableSnapshotsByWorkspace = [:]
         self.persistenceScope = nil
         self.scheduledPersistenceTask = nil
         #if canImport(WebKit)
@@ -104,10 +114,12 @@ public final class BrowserSurfaceStore {
         hasPendingPersistence = false
         if persistenceScope != nil {
             persistenceDefaults?.removeObject(forKey: persistenceKey)
+            archiveWriter?.enqueueRemoval()
         }
         surfacesByWorkspace.removeAll()
         selectedBrowserWorkspaceIDs.removeAll()
         snapshotSourcesByWorkspace.removeAll()
+        durableSnapshotsByWorkspace.removeAll()
         persistenceScope = newScope
         #if canImport(WebKit)
         if let newScope, let persistenceDefaults {
@@ -221,9 +233,7 @@ public final class BrowserSurfaceStore {
         let surface = BrowserSurfaceState(id: makeSurfaceID(), initialURL: defaultURL)
         surfacesByWorkspace[workspace.rawValue] = surface
         selectedBrowserWorkspaceIDs.insert(workspace.rawValue)
-        snapshotSourcesByWorkspace[workspace.rawValue] = BrowserSurfaceSnapshotSource(
-            value: makeSnapshot(workspaceID: workspace.rawValue, surface: surface)
-        )
+        refreshSnapshot(workspaceID: workspace.rawValue, surface: surface)
         installPersistenceCallback(on: surface, workspaceID: workspace.rawValue)
         persistImmediately()
         return surface
@@ -261,6 +271,7 @@ public final class BrowserSurfaceStore {
         surfacesByWorkspace.removeValue(forKey: key)
         selectedBrowserWorkspaceIDs.remove(key)
         snapshotSourcesByWorkspace.removeValue(forKey: key)
+        durableSnapshotsByWorkspace.removeValue(forKey: key)
         persistImmediately()
     }
 
@@ -284,6 +295,7 @@ public final class BrowserSurfaceStore {
             if surfacesByWorkspace.removeValue(forKey: alias) != nil {
                 selectedBrowserWorkspaceIDs.remove(alias)
                 snapshotSourcesByWorkspace.removeValue(forKey: alias)
+                durableSnapshotsByWorkspace.removeValue(forKey: alias)
                 didChange = true
             }
         }
@@ -303,6 +315,7 @@ public final class BrowserSurfaceStore {
             surfacesByWorkspace.removeValue(forKey: workspaceID)
             selectedBrowserWorkspaceIDs.remove(workspaceID)
             snapshotSourcesByWorkspace.removeValue(forKey: workspaceID)
+            durableSnapshotsByWorkspace.removeValue(forKey: workspaceID)
             didChange = true
         }
         guard didChange else { return }
@@ -324,6 +337,7 @@ public final class BrowserSurfaceStore {
               let surface = surfacesByWorkspace.removeValue(forKey: oldKey) else { return }
         surfacesByWorkspace[newKey] = surface
         let source = snapshotSourcesByWorkspace.removeValue(forKey: oldKey)
+        durableSnapshotsByWorkspace.removeValue(forKey: oldKey)
         snapshotSourcesByWorkspace[newKey] = source ?? BrowserSurfaceSnapshotSource(
             value: makeSnapshot(workspaceID: newKey, surface: surface)
         )
@@ -342,7 +356,9 @@ public final class BrowserSurfaceStore {
         surfacesByWorkspace.removeAll()
         selectedBrowserWorkspaceIDs.removeAll()
         snapshotSourcesByWorkspace.removeAll()
+        durableSnapshotsByWorkspace.removeAll()
         persistenceDefaults?.removeObject(forKey: persistenceKey)
+        archiveWriter?.enqueueRemoval()
     }
 
     private func installPersistenceCallbacks() {
@@ -389,6 +405,7 @@ public final class BrowserSurfaceStore {
                 selectedBrowserWorkspaceIDs.insert(snapshot.workspaceID)
             }
             snapshotSourcesByWorkspace[snapshot.workspaceID] = BrowserSurfaceSnapshotSource(value: snapshot)
+            durableSnapshotsByWorkspace[snapshot.workspaceID] = snapshot
         }
     }
 
@@ -396,7 +413,7 @@ public final class BrowserSurfaceStore {
         scheduledPersistenceTask?.cancel()
         scheduledPersistenceTask = nil
         hasPendingPersistence = false
-        persist()
+        enqueuePersistence()
     }
 
     private func schedulePersistence() {
@@ -411,7 +428,7 @@ public final class BrowserSurfaceStore {
                 } catch {
                     return
                 }
-                self.persist()
+                self.enqueuePersistence()
                 guard self.hasPendingPersistence else {
                     self.scheduledPersistenceTask = nil
                     return
@@ -420,15 +437,20 @@ public final class BrowserSurfaceStore {
         }
     }
 
-    private func persist() {
-        guard let persistenceDefaults, let persistenceScope else { return }
-        let snapshots = surfacesByWorkspace.keys.sorted().compactMap { workspaceID -> BrowserSurfaceSnapshot? in
-            guard let surface = surfacesByWorkspace[workspaceID] else { return nil }
-            return makeSnapshot(workspaceID: workspaceID, surface: surface)
-        }
-        let archive = BrowserSurfaceArchive(scope: persistenceScope, surfaces: snapshots)
-        guard let data = try? JSONEncoder().encode(archive) else { return }
-        persistenceDefaults.set(data, forKey: persistenceKey)
+    private func enqueuePersistence() {
+        guard let archiveWriter, let persistenceScope else { return }
+        archiveWriter.enqueueWrite(
+            scope: persistenceScope,
+            snapshotsByWorkspace: durableSnapshotsByWorkspace
+        )
+    }
+
+    /// Waits until archive requests already submitted by this store finish.
+    ///
+    /// This is useful at explicit durability boundaries and in persistence tests;
+    /// normal UI updates never wait for JSON encoding or defaults I/O.
+    func flushPersistence() async {
+        await archiveWriter?.flush()
     }
 
     private func makeSnapshot(workspaceID: String, surface: BrowserSurfaceState) -> BrowserSurfaceSnapshot {
@@ -445,6 +467,7 @@ public final class BrowserSurfaceStore {
     private func refreshSnapshot(workspaceID: String, surface: BrowserSurfaceState?) {
         guard let surface else { return }
         let snapshot = makeSnapshot(workspaceID: workspaceID, surface: surface)
+        durableSnapshotsByWorkspace[workspaceID] = snapshot
         if let source = snapshotSourcesByWorkspace[workspaceID] {
             source.update(snapshot)
         } else {

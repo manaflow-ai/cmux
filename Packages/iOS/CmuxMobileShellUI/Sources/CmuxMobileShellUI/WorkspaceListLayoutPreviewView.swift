@@ -14,6 +14,7 @@ import SwiftUI
 public struct WorkspaceListLayoutPreviewView: View {
     @State private var selectedWorkspaceID: MobileWorkspacePreview.ID? = "workspace-main"
     @State private var selectedTerminalID: MobileTerminalPreview.ID? = "terminal-build"
+    @State private var macSelection: WorkspaceMacSelection = .all
     @State private var browserStore = BrowserSurfaceStore(defaultURL: URL(string: "https://cmux.dev/"))
 
     public init() {}
@@ -58,6 +59,24 @@ public struct WorkspaceListLayoutPreviewView: View {
                 WorkspaceDetailDelayedTerminalPreviewView()
             } else if UITestConfig.workspaceDetailDelayedTerminalPreviewEnabled {
                 WorkspaceDetailDelayedTerminalPreviewView()
+            } else if UITestConfig.workspaceListLegacyFixtureEnabled {
+                NavigationStack {
+                    WorkspaceListView(
+                        workspaces: workspaces,
+                        selectedWorkspaceID: selectedWorkspaceID,
+                        host: L10n.string("mobile.preview.mockMacName", defaultValue: "Visual Mock Mac"),
+                        connectionStatus: .connected,
+                        navigationStyle: .push,
+                        wrapWorkspaceTitles: false,
+                        previewLineLimit: MobileDisplaySettings.defaultWorkspacePreviewLineCount,
+                        unreadIndicatorLeftShift: MobileDisplaySettings.defaultUnreadIndicatorLeftShift,
+                        profilePictureLeftShift: MobileDisplaySettings.defaultProfilePictureLeftShift,
+                        profilePictureSize: MobileDisplaySettings.defaultProfilePictureSize,
+                        selectWorkspace: selectWorkspace,
+                        createWorkspace: createWorkspace,
+                        macSelection: $macSelection
+                    )
+                }
             } else {
                 NavigationStack {
                     WorkspaceSurfaceGridView(

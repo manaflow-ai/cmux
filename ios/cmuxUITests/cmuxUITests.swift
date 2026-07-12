@@ -101,6 +101,7 @@ final class cmuxUITests: XCTestCase {
     func testWorkspaceMacPickerUsesComputerCopy() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_LEGACY_FIXTURE": "1",
         ])
         defer { app.terminate() }
 
@@ -2011,9 +2012,7 @@ final class cmuxUITests: XCTestCase {
             "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
         ])
         if !workspaceTitleElement(in: app).waitForExistence(timeout: 4) {
-            let row = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
-            XCTAssertTrue(row.waitForExistence(timeout: 8))
-            row.tap()
+            try? openSelectedWorkspaceIfNeeded(app)
         }
         XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
@@ -2045,10 +2044,25 @@ final class cmuxUITests: XCTestCase {
             return
         }
 
-        let row = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
-        XCTAssertTrue(row.waitForExistence(timeout: 8))
-        row.tap()
+        let gridCard = firstSurfaceGridTerminalCard(in: app)
+        if gridCard.waitForExistence(timeout: 8) {
+            gridCard.tap()
+        } else {
+            let row = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+            XCTAssertTrue(row.waitForExistence(timeout: 8))
+            row.tap()
+        }
         XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
+    }
+
+    @MainActor
+    private func firstSurfaceGridTerminalCard(in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(
+                format: "identifier BEGINSWITH %@",
+                "MobileSurfaceGridCard-terminal-"
+            ))
+            .firstMatch
     }
 
     @MainActor
@@ -2116,10 +2130,12 @@ final class cmuxUITests: XCTestCase {
         line: UInt = #line
     ) {
         let workspaceRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+        let surfaceGridCard = firstSurfaceGridTerminalCard(in: app)
+        let surfaceGrid = app.descendants(matching: .any)["MobileWorkspaceSurfaceGrid"]
         let terminalSurface = app.otherElements["MobileTerminalSurface"]
         let expectation = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
-                workspaceRow.exists || terminalSurface.exists
+                workspaceRow.exists || surfaceGridCard.exists || surfaceGrid.exists || terminalSurface.exists
             },
             object: app
         )
