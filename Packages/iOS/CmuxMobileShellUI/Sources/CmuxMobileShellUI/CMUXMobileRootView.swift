@@ -11,12 +11,12 @@ import SwiftUI
 import AppKit
 #endif
 
-enum MobileRootWorkspaceShellPolicy {
-    static func keepsWorkspaceShellMounted(
-        isConnected: Bool,
-        hasKnownPairedMac: Bool,
-        isRestoringStoredMac: Bool
-    ) -> Bool {
+struct MobileRootWorkspaceShellPolicy {
+    let isConnected: Bool
+    let hasKnownPairedMac: Bool
+    let isRestoringStoredMac: Bool
+
+    var keepsWorkspaceShellMounted: Bool {
         isConnected || hasKnownPairedMac || isRestoringStoredMac
     }
 }
@@ -356,11 +356,11 @@ struct CMUXMobileRootView: View {
     }
 
     private var keepsWorkspaceShellMounted: Bool {
-        MobileRootWorkspaceShellPolicy.keepsWorkspaceShellMounted(
+        MobileRootWorkspaceShellPolicy(
             isConnected: store.connectionState == .connected,
             hasKnownPairedMac: store.hasKnownPairedMac,
             isRestoringStoredMac: shouldShowRestoringStoredMac
-        )
+        ).keepsWorkspaceShellMounted
     }
 
     private var hasActiveAttachTicketAuthentication: Bool {

@@ -10,25 +10,25 @@ import Testing
     }
 
     @Test func knownMacRecoveryKeepsTheWorkspaceShellMounted() {
-        #expect(MobileRootWorkspaceShellPolicy.keepsWorkspaceShellMounted(
+        #expect(MobileRootWorkspaceShellPolicy(
             isConnected: true,
             hasKnownPairedMac: true,
             isRestoringStoredMac: false
-        ))
-        #expect(MobileRootWorkspaceShellPolicy.keepsWorkspaceShellMounted(
+        ).keepsWorkspaceShellMounted)
+        #expect(MobileRootWorkspaceShellPolicy(
             isConnected: false,
             hasKnownPairedMac: true,
             isRestoringStoredMac: true
-        ))
-        #expect(MobileRootWorkspaceShellPolicy.keepsWorkspaceShellMounted(
+        ).keepsWorkspaceShellMounted)
+        #expect(MobileRootWorkspaceShellPolicy(
             isConnected: false,
             hasKnownPairedMac: true,
             isRestoringStoredMac: false
-        ))
-        #expect(!MobileRootWorkspaceShellPolicy.keepsWorkspaceShellMounted(
+        ).keepsWorkspaceShellMounted)
+        #expect(!MobileRootWorkspaceShellPolicy(
             isConnected: false,
             hasKnownPairedMac: false,
             isRestoringStoredMac: false
-        ))
+        ).keepsWorkspaceShellMounted)
     }
 }
