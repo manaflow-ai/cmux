@@ -368,13 +368,13 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.buttons["MobileWorkspaceTitleRenameMenuItem"].waitForExistence(timeout: 4))
         XCTAssertTrue(app.buttons["MobileWorkspaceTitleReadStateMenuItem"].exists)
         XCTAssertTrue(app.buttons["MobileWorkspaceTitleCloseMenuItem"].exists)
-        XCTAssertFalse(app.buttons["MobileNewTerminalMenuItem"].exists)
+        XCTAssertFalse(app.buttons["MobileTerminalHierarchyNewTerminal"].exists)
         dismissOpenMenu(in: app)
 
         tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
         let freshBackButton = app.buttons["MobileWorkspaceBackButton"]
         let freshTitleMenu = workspaceTitleElement(in: app)
-        let freshTerminalDropdown = app.buttons["MobileTerminalDropdown"]
+        let freshTerminalDropdown = app.buttons["MobileTerminalHierarchyButton"]
         assertWorkspaceToolbarVisible(
             backButton: freshBackButton,
             titleMenu: freshTitleMenu,
@@ -401,19 +401,19 @@ final class cmuxUITests: XCTestCase {
         assertToolbarOverflowButtonDoesNotExist(in: app)
         assertBackButtonFrameStaysCompactAroundPress(freshBackButton, in: app)
 
-        tap(app.buttons["MobileTerminalDropdown"], in: app)
+        tap(app.buttons["MobileTerminalHierarchyButton"], in: app)
         assertTerminalMenuItemExists("workspace-3-terminal-1", in: app)
         assertMenuButtonDoesNotExist("MobileWorkspaceTitleRenameMenuItem", in: app)
         assertMenuButtonDoesNotExist("MobileWorkspaceTitleReadStateMenuItem", in: app)
         assertMenuButtonDoesNotExist("MobileWorkspaceTitleCloseMenuItem", in: app)
-        tapMenuItem(app.buttons["MobileNewTerminalMenuItem"], in: app)
+        tapMenuItem(app.buttons["MobileTerminalHierarchyNewTerminal"], in: app)
         await assertHostSelection(
             workspaceID: "workspace-3",
             terminalID: "workspace-3-terminal-2",
             server: server
         )
 
-        tap(app.buttons["MobileTerminalDropdown"], in: app)
+        tap(app.buttons["MobileTerminalHierarchyButton"], in: app)
         assertTerminalMenuItemExists("workspace-3-terminal-2", in: app)
     }
 
@@ -422,7 +422,7 @@ final class cmuxUITests: XCTestCase {
         let app = launchWorkspaceDetailDelayedTerminalPreviewApp()
         let backButton = app.buttons["MobileWorkspaceBackButton"]
         let titleMenu = workspaceTitleElement(in: app)
-        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+        let terminalDropdown = app.buttons["MobileTerminalHierarchyButton"]
 
         assertWorkspaceToolbarVisible(
             backButton: backButton,
@@ -457,7 +457,7 @@ final class cmuxUITests: XCTestCase {
         ])
         let backButton = app.buttons["MobileWorkspaceBackButton"]
         let titleMenu = workspaceTitleElement(in: app)
-        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+        let terminalDropdown = app.buttons["MobileTerminalHierarchyButton"]
 
         RunLoop.current.run(until: Date().addingTimeInterval(2.5))
         assertWorkspaceToolbarVisible(
@@ -482,7 +482,7 @@ final class cmuxUITests: XCTestCase {
         let backButton = app.buttons["MobileWorkspaceBackButton"]
         let titleMenu = workspaceTitleElement(in: app)
         let chatButton = app.buttons["MobileWorkspaceAgentChatButton"]
-        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+        let terminalDropdown = app.buttons["MobileTerminalHierarchyButton"]
 
         RunLoop.current.run(until: Date().addingTimeInterval(2.5))
         assertWorkspaceToolbarVisible(
@@ -502,13 +502,11 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     func testWorkspaceDetailToolbarSurvivesCreateWorkspaceDelayedTerminalLifecycle() throws {
         let app = launchWorkspaceDetailCreateDelayedTerminalPreviewApp()
-        let initialTerminalDropdown = app.buttons["MobileTerminalDropdown"]
-        tap(initialTerminalDropdown, in: app)
-        tapMenuItem(app.buttons["MobileNewWorkspaceMenuItem"], in: app)
+        tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
 
         let backButton = app.buttons["MobileWorkspaceBackButton"]
         let titleMenu = workspaceTitleElement(in: app)
-        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+        let terminalDropdown = app.buttons["MobileTerminalHierarchyButton"]
 
         assertWorkspaceToolbarVisible(
             backButton: backButton,
@@ -545,7 +543,7 @@ final class cmuxUITests: XCTestCase {
         let app = try launchConnectedApp(port: port)
         try openSelectedWorkspaceIfNeeded(app)
 
-        tap(app.buttons["MobileTerminalDropdown"], in: app)
+        tap(app.buttons["MobileTerminalHierarchyButton"], in: app)
         assertTerminalMenuItemExists("terminal-build", in: app)
         let target = scrollTerminalMenuToItem("terminal-extra-24", in: app)
         tapMenuItem(target, in: app)
@@ -557,12 +555,12 @@ final class cmuxUITests: XCTestCase {
     func testTerminalDropdownKeepsBottomScrollDuringWorkspaceRefresh() throws {
         let app = launchWorkspaceDetailRefreshingTerminalMenuPreviewApp()
 
-        tap(app.buttons["MobileTerminalDropdown"], in: app)
+        tap(app.buttons["MobileTerminalHierarchyButton"], in: app)
         assertTerminalMenuItemExists("terminal-build", in: app)
         let target = scrollTerminalMenuToItem("terminal-extra-24", in: app)
         XCTAssertTrue(target.isHittable, "Bottom terminal must be visible before refresh pulses start.")
 
-        let refreshedTarget = app.buttons["MobileTerminalMenuItem-terminal-extra-24"]
+        let refreshedTarget = app.buttons["MobileTerminalHierarchyRow-terminal-extra-24"]
         let deadline = Date().addingTimeInterval(3.0)
         while Date() < deadline {
             XCTAssertTrue(
@@ -572,7 +570,7 @@ final class cmuxUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         tapMenuItem(refreshedTarget, in: app)
-        let selectedValue = app.buttons["MobileTerminalDropdown"].value as? String ?? ""
+        let selectedValue = app.buttons["MobileTerminalHierarchyButton"].value as? String ?? ""
         XCTAssertTrue(
             selectedValue.contains("Terminal 24"),
             "Selecting the bottom terminal should update the picker value. value=\(selectedValue)"
@@ -588,8 +586,8 @@ final class cmuxUITests: XCTestCase {
         let app = try launchConnectedApp(port: port)
         try openSelectedWorkspaceIfNeeded(app)
 
-        tap(app.buttons["MobileTerminalDropdown"], in: app)
-        tapMenuItem(app.buttons["MobileTerminalMenuItem-terminal-tui"], in: app)
+        tap(app.buttons["MobileTerminalHierarchyButton"], in: app)
+        tapMenuItem(app.buttons["MobileTerminalHierarchyRow-terminal-tui"], in: app)
         await assertHostSelection(workspaceID: "workspace-main", terminalID: "terminal-tui", server: server)
         await assertTerminalReplay(terminalID: "terminal-tui", server: server)
 
@@ -855,7 +853,7 @@ final class cmuxUITests: XCTestCase {
 
         XCTAssertTrue(app.buttons["MobileWorkspaceTitleRenameMenuItem"].waitForExistence(timeout: 4))
         XCTAssertTrue(app.buttons["MobileWorkspaceTitleReadStateMenuItem"].exists)
-        XCTAssertFalse(app.buttons["MobileNewTerminalMenuItem"].exists)
+        XCTAssertFalse(app.buttons["MobileTerminalHierarchyNewTerminal"].exists)
     }
 
     @MainActor
@@ -889,7 +887,7 @@ final class cmuxUITests: XCTestCase {
 
         tapCompactToolbarTitleMenu(titleMenu, in: app)
         XCTAssertTrue(app.buttons["MobileWorkspaceTitleRenameMenuItem"].waitForExistence(timeout: 4))
-        XCTAssertFalse(app.buttons["MobileNewTerminalMenuItem"].exists)
+        XCTAssertFalse(app.buttons["MobileTerminalHierarchyNewTerminal"].exists)
     }
 
     /// Regression for WhatsApp-style chat keyboard tracking: focusing the chat
@@ -1999,7 +1997,7 @@ final class cmuxUITests: XCTestCase {
             "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
         ])
         XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
-        XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["MobileTerminalHierarchyButton"].waitForExistence(timeout: 8))
         return app
     }
 
@@ -2015,7 +2013,7 @@ final class cmuxUITests: XCTestCase {
             row.tap()
         }
         XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
-        XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["MobileTerminalHierarchyButton"].waitForExistence(timeout: 8))
         return app
     }
 
@@ -2133,8 +2131,8 @@ final class cmuxUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws {
-        tap(app.buttons["MobileTerminalDropdown"], in: app, file: file, line: line)
-        tapMenuItem(app.buttons["MobileTerminalMenuItem-terminal-tui"], in: app, file: file, line: line)
+        tap(app.buttons["MobileTerminalHierarchyButton"], in: app, file: file, line: line)
+        tapMenuItem(app.buttons["MobileTerminalHierarchyRow-terminal-tui"], in: app, file: file, line: line)
         await assertHostSelection(
             workspaceID: "workspace-main",
             terminalID: "terminal-tui",
@@ -2184,7 +2182,7 @@ final class cmuxUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        let item = app.buttons["MobileTerminalMenuItem-\(terminalID)"]
+        let item = app.buttons["MobileTerminalHierarchyRow-\(terminalID)"]
         XCTAssertTrue(
             item.waitForExistence(timeout: 4),
             "Expected terminal menu to contain \(terminalID).",
@@ -2230,7 +2228,7 @@ final class cmuxUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) -> XCUIElement {
-        let item = app.buttons["MobileTerminalMenuItem-\(terminalID)"]
+        let item = app.buttons["MobileTerminalHierarchyRow-\(terminalID)"]
         let deadline = Date().addingTimeInterval(8)
         while Date() < deadline {
             if item.exists, item.isHittable {

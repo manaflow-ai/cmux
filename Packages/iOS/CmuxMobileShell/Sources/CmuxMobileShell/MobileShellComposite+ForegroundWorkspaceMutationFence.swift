@@ -17,6 +17,7 @@ extension MobileShellComposite {
     func reloadWorkspaceListFromMac() async -> Bool {
         guard let client = remoteClient else { return false }
         let mutationEpoch = foregroundWorkspaceListMutationEpoch
+        let focusRevision = workspaceFocusRevisionSnapshot()
         do {
             let request = try MobileCoreRPCClient.requestData(method: "mobile.workspace.list", params: [:])
             let data = try await client.sendRequest(
@@ -27,7 +28,11 @@ extension MobileShellComposite {
             guard remoteClient === client,
                   connectionState == .connected,
                   mutationEpoch == foregroundWorkspaceListMutationEpoch else { return false }
-            applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)
+            applyRemoteWorkspaceList(
+                response,
+                preferActiveTicketTarget: false,
+                listStartedAtFocusRevision: focusRevision
+            )
             markForegroundWorkspaceListApplied()
             syncSelectedTerminalForWorkspace()
             return true

@@ -218,3 +218,32 @@ import Testing
     #expect(updated.panes.first(where: { $0.id == "pane-right" })?.isFocused == true)
     #expect(updated.terminals.first(where: { $0.id == "terminal-b" })?.isFocused == true)
 }
+
+@MainActor
+@Test func newerWorkspaceFocusEventSurvivesOlderForegroundListResponse() async throws {
+    let router = RoutingHostRouter()
+    let store = try await makeRoutingConnectedStore(router: router)
+    store.setWorkspaceStatesForTesting(
+        [
+            "test-mac": MacWorkspaceState(
+                macDeviceID: "test-mac",
+                workspaces: store.workspaces
+            ),
+        ],
+        foregroundMacDeviceID: "test-mac"
+    )
+    await router.workspaceListGate.setHoldFirst(true)
+    let refresh = try #require(store.scheduleWorkspaceListRefreshFromEvent())
+    await router.workspaceListGate.waitUntilFirstReached()
+    let event = try #require(MobileWorkspaceFocusEvent(payloadJSON: Data("""
+    {"kind":"focus","workspace_id":"ws-route","focused_pane_id":null,"selected_terminal_id":"term-route-b"}
+    """.utf8)))
+
+    store.applyWorkspaceFocusEvent(event, macID: nil)
+    await router.workspaceListGate.releaseFirst()
+    await refresh.value
+
+    let workspace = try #require(store.workspaces.first(where: { $0.rpcWorkspaceID == "ws-route" }))
+    #expect(workspace.selectedTerminalID == "term-route-b")
+    #expect(workspace.terminals.first(where: { $0.id == "term-route-b" })?.isFocused == true)
+}

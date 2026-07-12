@@ -724,6 +724,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var workspaceListRefreshTask: Task<Void, Never>?
     var foregroundWorkspaceListMutationEpoch: UInt64 = 0
     var foregroundWorkspaceListAppliedMutationEpoch: UInt64 = 0
+    @ObservationIgnored var workspaceFocusEventRevision: UInt64 = 0
+    @ObservationIgnored var workspaceFocusEventRevisionsByMac: [String: [String: UInt64]] = [:]
     var foregroundWorkspaceMutationRefreshTask: Task<ForegroundWorkspaceMutationRefreshResult, Never>?
     var foregroundWorkspaceMutationRefreshTaskID: UUID?
     /// The user pull-to-refresh round-trip, kept on its own handle so the
@@ -3491,34 +3493,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    /// Fetch one Mac's workspace list over an EXISTING client, tagged with its
-    /// `macDeviceID`. Nil on any failure (best-effort; an unreachable Mac just
-    /// contributes nothing).
-    func fetchSecondaryWorkspaces(
-        on client: MobileCoreRPCClient,
-        macDeviceID: String
-    ) async -> [MobileWorkspacePreview]? {
-        guard let runtime else { return nil }
-        do {
-            let requestData = try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:])
-            let resultData = try await client.sendRequest(
-                requestData,
-                timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
-            )
-            let response = try MobileSyncWorkspaceListResponse.decode(resultData)
-            return response.workspaces.map { remote in
-                var workspace = MobileWorkspacePreview(remote: remote)
-                workspace.macDeviceID = macDeviceID
-                return workspace
-            }
-        } catch {
-            mobileShellLog.warning(
-                "secondary workspace fetch failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
-            )
-            return nil
-        }
-    }
-
     /// Ensure a live read-only subscription exists for every signed-in paired Mac
     /// that is NOT the foreground connection, and drop subscriptions for Macs that
     /// disappeared or became the foreground. Each subscription keeps its
@@ -4979,6 +4953,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             for workspaceListRequest in workspaceListRequests {
                 do {
+                    let focusRevision = workspaceFocusRevisionSnapshot()
                     let requestTimeoutNanoseconds: UInt64
                     if let connectionAttemptStartedAt {
                         requestTimeoutNanoseconds = boundedPairingRequestTimeoutNanoseconds(
@@ -5032,7 +5007,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget,
                         // Scoped requests omit groups; only a non-scoped (full) list
                         // is authoritative for the device-local collapse store.
-                        groupsAreAuthoritative: !workspaceListRequest.isScoped
+                        groupsAreAuthoritative: !workspaceListRequest.isScoped,
+                        listStartedAtFocusRevision: focusRevision
                     )
                     // Drop the now-stale previous-foreground/anonymous snapshot so it
                     // doesn't linger in the aggregate (it's re-added as a secondary
@@ -5181,6 +5157,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         timeoutNanoseconds: UInt64? = nil
     ) async -> Bool {
         let mutationEpoch = foregroundWorkspaceListMutationEpoch
+        let focusRevision = workspaceFocusRevisionSnapshot()
         guard MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
               let attachToken = activeTicket?.authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
               !attachToken.isEmpty else {
@@ -5202,7 +5179,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let activeTicketWorkspaceID = activeTicket.map { MobileWorkspacePreview.ID(rawValue: $0.workspaceID) }
             applyRemoteWorkspaceList(
                 response,
-                preferActiveTicketTarget: selectedWorkspaceID == nil || selectedWorkspace?.rpcWorkspaceID == activeTicketWorkspaceID
+                preferActiveTicketTarget: selectedWorkspaceID == nil || selectedWorkspace?.rpcWorkspaceID == activeTicketWorkspaceID,
+                listStartedAtFocusRevision: focusRevision
             )
             markForegroundWorkspaceListApplied()
             return true
@@ -5832,6 +5810,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               let rowWorkspaceID = explicitWorkspaceID ?? selectedWorkspace?.id else { return }
         let requestedWorkspaceID = remoteWorkspaceID(for: rowWorkspaceID)
         let generation = connectionGeneration
+        let focusRevision = workspaceFocusRevisionSnapshot()
         do {
             var params: [String: Any] = ["workspace_id": requestedWorkspaceID.rawValue]
             if let paneID {
@@ -5847,7 +5826,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard isCurrentRemoteOperation(client: client, generation: generation),
                   !Task.isCancelled else { return }
             advanceForegroundWorkspaceListMutationEpoch()
-            applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
+            applyRemoteWorkspaceList(
+                response,
+                mergeExistingWorkspaces: true,
+                listStartedAtFocusRevision: focusRevision
+            )
             markForegroundWorkspaceListApplied()
             if selectedWorkspaceID == rowWorkspaceID,
                let createdID = response.createdTerminalID {
@@ -7496,13 +7479,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ response: MobileSyncWorkspaceListResponse,
         preferActiveTicketTarget: Bool = false,
         mergeExistingWorkspaces: Bool = false,
-        groupsAreAuthoritative: Bool = true
+        groupsAreAuthoritative: Bool = true,
+        listStartedAtFocusRevision: UInt64
     ) {
         let previousForegroundWorkspaceIDs: Set<MobileWorkspacePreview.ID> =
             mergeExistingWorkspaces
                 ? []
                 : foregroundWorkspaceRowIDs()
-        let remoteWorkspaces = remoteWorkspacesPreservingSnapshots(from: response)
+        let remoteWorkspaces = remoteWorkspacesPreservingSnapshots(
+            from: response,
+            listStartedAtFocusRevision: listStartedAtFocusRevision
+        )
         // Write the foreground Mac's per-Mac state; `workspaces` / `workspaceGroups`
         // recompute from the source of truth automatically (no explicit merge or
         // publish). Group sections are authoritative only on a full-list response:
@@ -7527,6 +7514,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReorderGate.reconcileAfterAuthoritativeRefresh(
             workspaceIDs: previousForegroundWorkspaceIDs.union(refreshedWorkspaceIDs)
         )
+        if !mergeExistingWorkspaces {
+            pruneWorkspaceFocusRevisions(
+                macID: foregroundMacDeviceID,
+                retainingRemoteWorkspaceIDs: Set(response.workspaces.map(\.id))
+            )
+        }
         if preferActiveTicketTarget, selectActiveTicketTargetIfAvailable() {
             return
         }
@@ -7547,7 +7540,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func remoteWorkspacesPreservingSnapshots(
-        from response: MobileSyncWorkspaceListResponse
+        from response: MobileSyncWorkspaceListResponse,
+        listStartedAtFocusRevision: UInt64
     ) -> [MobileWorkspacePreview] {
         response.workspaces.map { remoteWorkspace in
             var workspace = MobileWorkspacePreview(remote: remoteWorkspace)
@@ -7569,6 +7563,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 terminal.viewportFit = existingTerminal.viewportFit
                 return terminal
             }
+            preserveNewerWorkspaceFocusIfNeeded(
+                in: &workspace,
+                from: existingWorkspace,
+                macID: foregroundMacID,
+                listStartedAtFocusRevision: listStartedAtFocusRevision
+            )
             return workspace
         }
     }

@@ -1,7 +1,53 @@
 internal import CmuxMobileRPC
 internal import CmuxMobileShellModel
+internal import Foundation
+internal import OSLog
+
+private let secondaryWorkspaceRefreshLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
+    category: "mobile-shell"
+)
 
 extension MobileShellComposite {
+    /// Fetch one Mac's workspace list over an existing client while preserving
+    /// focus events that arrived after the request began.
+    func fetchSecondaryWorkspaces(
+        on client: MobileCoreRPCClient,
+        macDeviceID: String
+    ) async -> [MobileWorkspacePreview]? {
+        guard let runtime else { return nil }
+        let focusRevision = workspaceFocusRevisionSnapshot()
+        do {
+            let requestData = try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:])
+            let resultData = try await client.sendRequest(
+                requestData,
+                timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
+            )
+            let response = try MobileSyncWorkspaceListResponse.decode(resultData)
+            return response.workspaces.map { remote in
+                var workspace = MobileWorkspacePreview(remote: remote)
+                workspace.macDeviceID = macDeviceID
+                if let existingWorkspace = workspaces.first(where: {
+                    $0.rpcWorkspaceID == workspace.rpcWorkspaceID
+                        && $0.macDeviceID == macDeviceID
+                }) {
+                    preserveNewerWorkspaceFocusIfNeeded(
+                        in: &workspace,
+                        from: existingWorkspace,
+                        macID: macDeviceID,
+                        listStartedAtFocusRevision: focusRevision
+                    )
+                }
+                return workspace
+            }
+        } catch {
+            secondaryWorkspaceRefreshLog.warning(
+                "secondary workspace fetch failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
+            )
+            return nil
+        }
+    }
+
     func foregroundWorkspaceRowIDs() -> Set<MobileWorkspacePreview.ID> {
         let stateKey: String
         if let foregroundMacDeviceID, workspacesByMac[foregroundMacDeviceID] != nil {
@@ -51,6 +97,10 @@ extension MobileShellComposite {
             workspaceIDs: previousWorkspaceIDs.union(
                 workspaceRowIDs(ownedByMacDeviceID: macID)
             )
+        )
+        pruneWorkspaceFocusRevisions(
+            macID: macID,
+            retainingRemoteWorkspaceIDs: Set(workspaces.map { $0.rpcWorkspaceID.rawValue })
         )
     }
 
