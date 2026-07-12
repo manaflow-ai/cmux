@@ -979,10 +979,10 @@ func browserLoadRequest(_ request: URLRequest, in webView: WKWebView) -> WKNavig
     let nudgeReason = "navigationStart:\(url.scheme?.lowercased() ?? "none")"
     if url.isFileURL {
         guard let readAccessURL = browserReadAccessURL(forLocalFileURL: url) else { return nil }
-        webView.browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsUnsized(reason: nudgeReason)
+        webView.browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsWithoutPresentation(reason: nudgeReason)
         return webView.loadFileURL(url, allowingReadAccessTo: readAccessURL)
     }
-    webView.browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsUnsized(reason: nudgeReason)
+    webView.browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsWithoutPresentation(reason: nudgeReason)
     return webView.load(browserPreparedNavigationRequest(request))
 }
 
@@ -4232,6 +4232,7 @@ final class BrowserPanel: Panel, ObservableObject {
             webView.frame = contentView.bounds
             webView.autoresizingMask = [.width, .height]
             contentView.addSubview(webView)
+            webView.browserPortalNotifyHidden(reason: "backgroundPreload:\(reason)")
             return true
         }
 
@@ -4260,6 +4261,7 @@ final class BrowserPanel: Panel, ObservableObject {
         window.contentView = contentView
         backgroundPreloadWindow = window
         window.orderFrontRegardless()
+        webView.browserPortalNotifyHidden(reason: "backgroundPreload:\(reason)")
 
 #if DEBUG
         cmuxDebugLog(
