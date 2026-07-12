@@ -3,12 +3,9 @@ import os
 @testable import CmuxMobileAnalytics
 
 final class ConsentAwareRecordingUploader: AnalyticsUploading, Sendable {
-    private struct State: Sendable {
-        var isEnabled = true
-        var uploadedEvents: [AnalyticsEvent] = []
-    }
-
-    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let state = OSAllocatedUnfairLock(
+        initialState: (isEnabled: true, uploadedEvents: [AnalyticsEvent]())
+    )
 
     var uploadedEvents: [AnalyticsEvent] {
         state.withLock { $0.uploadedEvents }

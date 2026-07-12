@@ -58,11 +58,6 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         case barrier(UUID)
     }
 
-    private struct PendingEvent: Sendable {
-        let event: AnalyticsEvent
-        let consentGeneration: UInt64
-    }
-
     private let uploader: any AnalyticsUploading
     private let consent: any AnalyticsConsentProviding
     private let clock: any Clock<Duration>
@@ -79,7 +74,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
 
     private var superProperties: [String: AnalyticsValue] = [:]
     private var distinctID: String?
-    private var pending: [PendingEvent] = []
+    private var pending: [AnalyticsPendingEvent] = []
     private var barriers: [UUID: CheckedContinuation<Void, Never>] = [:]
     private var consumerTask: Task<Void, Never>?
     private var cadenceTask: Task<Void, Never>?
@@ -280,7 +275,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
     ) {
         var merged = superProperties
         for (key, value) in properties { merged[key] = value }
-        pending.append(PendingEvent(
+        pending.append(AnalyticsPendingEvent(
             event: AnalyticsEvent(
                 name: name,
                 properties: merged,

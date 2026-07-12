@@ -83,6 +83,7 @@ export async function withAccountDeletionAnalyticsForwardLease<T>(
   userIds: readonly string[],
   operation: () => Promise<T>,
   releaseLeaseWhen: (value: T) => boolean = () => true,
+  now: () => Date = () => new Date(),
 ): Promise<AccountDeletionIdentityOperationResult<T>> {
   const identitiesByHash = new Map<string, string>();
   for (const userId of userIds) {
@@ -97,8 +98,6 @@ export async function withAccountDeletionAnalyticsForwardLease<T>(
   }
 
   const operationId = randomUUID();
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + ACCOUNT_ANALYTICS_FORWARD_LEASE_MS);
   const reservation = await db.transaction(async (tx) => {
     // Every account mutation and deletion start uses this same lock namespace.
     // Sorted acquisition avoids deadlocks for anonymous batches containing more
@@ -112,11 +111,16 @@ export async function withAccountDeletionAnalyticsForwardLease<T>(
     if (await hasBlockingAccountDeletionIdentityHashes(tx, identities.map(([hash]) => hash))) {
       return { kind: "blocked" } as const;
     }
+    // Start the lease only after every advisory lock and tombstone check. A
+    // contended transaction must not begin PostHog I/O with an already-expired
+    // reservation that account deletion can prune underneath it.
+    const reservedAt = now();
+    const expiresAt = new Date(reservedAt.getTime() + ACCOUNT_ANALYTICS_FORWARD_LEASE_MS);
     // Ordinary analytics traffic prunes expired leases for every identity.
     // This bounds retained rows to the ingress volume within one lease window,
     // including after an outage populated one-off anonymous identities.
     await tx.delete(accountAnalyticsForwardLeases).where(
-      lt(accountAnalyticsForwardLeases.expiresAt, now),
+      lt(accountAnalyticsForwardLeases.expiresAt, reservedAt),
     );
     await tx.insert(accountAnalyticsForwardLeases).values(
       identities.map(([userIdHash]) => ({ operationId, userIdHash, expiresAt })),

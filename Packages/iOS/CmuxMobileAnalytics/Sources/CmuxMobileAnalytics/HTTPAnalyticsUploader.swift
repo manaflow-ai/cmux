@@ -76,21 +76,22 @@ public struct HTTPAnalyticsUploader: AnalyticsUploading {
         guard let url = URL(string: apiBaseURL + path) else { return .drop }
         guard let payload = try? JSONSerialization.data(withJSONObject: body) else { return .drop }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = payload
-        if let accessToken = await tokenProvider.accessToken() {
-            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        }
-        if let refreshToken = await tokenProvider.refreshToken() {
-            request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
-        }
-
         let id = UUID()
         let startGate = AnalyticsUploadStartGate()
         let task = Task<AnalyticsUploadResult, Never> { [self] in
             await startGate.wait()
+            guard !Task.isCancelled else { return .drop }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = payload
+            if let accessToken = await tokenProvider.accessToken() {
+                request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            }
+            guard !Task.isCancelled else { return .drop }
+            if let refreshToken = await tokenProvider.refreshToken() {
+                request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+            }
             guard !Task.isCancelled else { return .drop }
             return await perform(request: request, label: label)
         }

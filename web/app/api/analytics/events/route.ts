@@ -116,9 +116,15 @@ export function makeAnalyticsEventsHandler(dependencies: AnalyticsEventsDependen
     // deleted. In that case the old account id becomes client-supplied input, so
     // check both the authenticated identity and every accepted client distinct id
     // against durable deletion tombstones before PostHog can recreate the person.
-    const identityCandidates = user
-      ? [user.id]
-      : accepted.flatMap((event) => (event.distinctID ? [event.distinctID] : []));
+    const identityCandidates = [
+      ...(user
+        ? [user.id]
+        : accepted.flatMap((event) => (event.distinctID ? [event.distinctID] : []))),
+      ...accepted.flatMap((event) => {
+        const anonymousAlias = event.properties.$anon_distinct_id;
+        return typeof anonymousAlias === "string" ? [anonymousAlias] : [];
+      }),
+    ];
     const forwardResult = await withAccountDeletionAnalyticsForwardLease(
       dependencies.db(),
       identityCandidates,
