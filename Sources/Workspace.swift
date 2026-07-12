@@ -2198,7 +2198,10 @@ final class Workspace: Identifiable, ObservableObject {
         set { surfaceRegistry.surfaceTTYNames = newValue }
     }
     private var remoteSessionController: RemoteSessionCoordinator?
-    private var pendingRemoteForegroundAuthToken: String?
+    private enum RemoteForegroundAuthenticationPhase: Equatable {
+        case readyBeforeConfiguration(token: String), authenticating(token: String)
+    }
+    private var remoteForegroundAuthenticationPhase: RemoteForegroundAuthenticationPhase?
     var activeRemoteSessionControllerID: UUID?
     private var remoteLastErrorFingerprint: String?
     private var remoteLastDaemonErrorFingerprint: String?
@@ -5213,12 +5216,12 @@ final class Workspace: Identifiable, ObservableObject {
         previousController?.stop()
         applyRemoteProxyEndpointUpdate(nil)
         applyBrowserRemoteWorkspaceStatusToPanels()
-
         let foregroundAuthToken = Self.normalizedForegroundAuthToken(configuration.foregroundAuthToken)
-        let shouldAutoConnect =
-            autoConnect
-            || (foregroundAuthToken != nil && foregroundAuthToken == pendingRemoteForegroundAuthToken)
-        pendingRemoteForegroundAuthToken = nil
+        let foregroundAuthenticationWasReady = foregroundAuthToken.map {
+            remoteForegroundAuthenticationPhase == .readyBeforeConfiguration(token: $0)
+        } ?? false
+        let shouldAutoConnect = autoConnect || foregroundAuthenticationWasReady
+        remoteForegroundAuthenticationPhase = nil
         if configuration.transport == .websocket,
            configuration.daemonWebSocketEndpoint == nil {
             remoteConnectionState = .connected
@@ -5227,12 +5230,12 @@ final class Workspace: Identifiable, ObservableObject {
             return
         }
         guard shouldAutoConnect else {
-            remoteConnectionState = .disconnected
+            remoteForegroundAuthenticationPhase = foregroundAuthToken.map { .authenticating(token: $0) }
+            remoteConnectionState = foregroundAuthToken == nil ? .disconnected : .connecting
             applyBrowserRemoteWorkspaceStatusToPanels()
             postRemoteConnectionPresentationDidChange()
             return
         }
-
         remoteConnectionState = .connecting
         applyBrowserRemoteWorkspaceStatusToPanels()
         postRemoteConnectionPresentationDidChange()
@@ -5339,19 +5342,16 @@ final class Workspace: Identifiable, ObservableObject {
         guard let foregroundAuthToken = Self.normalizedForegroundAuthToken(token) else {
             return
         }
-
         guard let remoteConfiguration else {
-            pendingRemoteForegroundAuthToken = foregroundAuthToken
+            remoteForegroundAuthenticationPhase = .readyBeforeConfiguration(token: foregroundAuthToken)
             return
         }
-
         guard Self.normalizedForegroundAuthToken(remoteConfiguration.foregroundAuthToken) == foregroundAuthToken else {
             return
         }
-
-        pendingRemoteForegroundAuthToken = nil
-        guard remoteConnectionState == .disconnected else { return }
-        reconnectRemoteConnection()
+        guard remoteForegroundAuthenticationPhase == .authenticating(token: foregroundAuthToken) else { return }
+        remoteForegroundAuthenticationPhase = nil
+        configureRemoteConnection(remoteConfiguration, autoConnect: true)
     }
 
     func disconnectRemoteConnection(clearConfiguration: Bool = false, disconnectedDetail: String? = nil) {
@@ -5367,7 +5367,7 @@ final class Workspace: Identifiable, ObservableObject {
         activeRemoteSessionControllerID = nil
         remoteSessionController = nil
         previousController?.stop()
-        pendingRemoteForegroundAuthToken = nil
+        remoteForegroundAuthenticationPhase = nil
         remoteDisconnectPlaceholderPanelIds.formUnion(activeRemoteTerminalSurfaceIds)
         activeRemoteTerminalSurfaceIds.removeAll()
         let remoteDirectoryPanelIdsToClear = clearConfiguration ? remoteDirectoryTrustRequiredPanelIds.union(remoteDirectoryReportPanelIds) : []
@@ -9406,7 +9406,7 @@ final class Workspace: Identifiable, ObservableObject {
         trigger: FocusPanelTrigger = .standard,
         focusIntent: PanelFocusIntent? = nil
     ) {
-        guard !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
+        guard !remoteTmuxMirrorInterceptsFocusPanel(panelId, previousHostedView: previousHostedView, trigger: trigger, focusIntent: focusIntent) else { return }
         markExplicitFocusIntent(on: panelId)
         if let browserPanel = panels[panelId] as? BrowserPanel {
             browserPanel.noteWebExtensionActivated()

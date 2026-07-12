@@ -1,5 +1,5 @@
 import { getTranslations } from "next-intl/server";
-import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
+import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
 import { Link } from "@/i18n/navigation";
 import { Callout } from "@/app/[locale]/components/callout";
@@ -11,22 +11,11 @@ export async function generateMetadata({
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "docs.sessionRestore" });
-  const alternates = buildAlternates(locale, "/docs/session-restore");
-  const title = t("metaTitle");
-  const description = seoDescription(locale, t("metaDescription"));
-  return {
-    title,
-    description,
-    alternates,
-    openGraph: {
-      ...openGraphDefaults(locale, "article"),
-      title,
-      description,
-      url: alternates.canonical,
-    },
-    twitter: twitterSummary(locale, title, description),
-  };
+  return auditedDocsMetadata({
+    locale,
+    pageKey: "sessionRestore",
+    path: "/docs/session-restore",
+  });
 }
 
 export default async function SessionRestorePage({
