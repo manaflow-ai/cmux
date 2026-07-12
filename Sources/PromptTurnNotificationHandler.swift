@@ -1,3 +1,4 @@
+import CmuxTerminalCore
 import Foundation
 
 /// Debounces prompt candidates and verifies their exact foreground process before notifying.
