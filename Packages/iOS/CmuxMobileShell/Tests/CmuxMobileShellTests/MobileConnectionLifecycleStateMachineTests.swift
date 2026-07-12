@@ -26,6 +26,45 @@ import Testing
         #expect(reducer.request(.networkPathChanged, health: .healthy) == nil)
     }
 
+    @Test func shortForegroundResumeDefersSilentAttachedStreamToLivenessOwner() {
+        let now = Date()
+        var shortAttached = MobileConnectionLifecycleStateMachine()
+        shortAttached.becameInactive(at: now)
+
+        #expect(shortAttached.becameActive(
+            at: now.addingTimeInterval(20),
+            shortDwellThreshold: 30,
+            health: .attachedButSilent
+        ) == nil)
+        #expect(shortAttached.activeEpisode == nil)
+        #expect(shortAttached.resourceSnapshot.activeEpisodeCount == 0)
+        #expect(shortAttached.resourceSnapshot.pendingRequestCount == 0)
+
+        var missingTopology = MobileConnectionLifecycleStateMachine()
+        missingTopology.becameInactive(at: now)
+        guard case .start(let missingTopologyEpisode) = missingTopology.becameActive(
+            at: now.addingTimeInterval(20),
+            shortDwellThreshold: 30,
+            health: .missingListener
+        ) else {
+            Issue.record("short foreground resume must recover missing stream topology")
+            return
+        }
+        #expect(missingTopologyEpisode.triggers == [.foregroundResume])
+
+        var longAttached = MobileConnectionLifecycleStateMachine()
+        longAttached.becameInactive(at: now)
+        guard case .start(let longDwellEpisode) = longAttached.becameActive(
+            at: now.addingTimeInterval(31),
+            shortDwellThreshold: 30,
+            health: .attachedButSilent
+        ) else {
+            Issue.record("long foreground resume must recover an attached stream")
+            return
+        }
+        #expect(longDwellEpisode.triggers == [.foregroundResume])
+    }
+
     @Test func foregroundActivationCannotReplaceOwnedReconnectWithQueuedRecovery() {
         let now = Date()
         var reducer = MobileConnectionLifecycleStateMachine()
@@ -351,6 +390,26 @@ private extension MobileConnectionLifecycleHealthSnapshot {
         Self(
             connected: false,
             hasClient: false,
+            hasListener: false,
+            eventStreamFresh: false,
+            canReconnectPersistedMac: true
+        )
+    }
+
+    static var attachedButSilent: Self {
+        Self(
+            connected: true,
+            hasClient: true,
+            hasListener: true,
+            eventStreamFresh: false,
+            canReconnectPersistedMac: true
+        )
+    }
+
+    static var missingListener: Self {
+        Self(
+            connected: true,
+            hasClient: true,
             hasListener: false,
             eventStreamFresh: false,
             canReconnectPersistedMac: true
