@@ -2,8 +2,8 @@ internal import CmuxMobileAnalytics
 internal import Foundation
 
 // Safety: the app composition root is the single owner that calls `arm`.
-// Notification callbacks enqueue onto the private serial lifecycle queue;
-// all mutable transition state is confined to that queue after setup.
+// Initial transition state is installed before the observer becomes reachable;
+// notification callbacks then confine every transition to the lifecycle queue.
 /// Watches the shared telemetry-consent setting for process-lifetime transitions.
 ///
 /// UserDefaults changes are observed through `UserDefaults.didChangeNotification`,
@@ -33,17 +33,15 @@ public final class MobileCrashRevocationWatcher: @unchecked Sendable {
         if let token, let center { center.removeObserver(token) }
         let initialIsEnabled = consent.isTelemetryEnabled
         center = notificationCenter
-        if initialIsEnabled {
-            onEnable()
-        } else {
-            onInitiallyDisabled()
-        }
         let enableAction = CrashLifecycleAction(body: onEnable)
         let revokeAction = CrashLifecycleAction(body: onRevoke)
-        lifecycleQueue.async { [self] in
-            isEnabled = initialIsEnabled
-            self.onEnable = enableAction
-            self.onRevoke = revokeAction
+        isEnabled = initialIsEnabled
+        self.onEnable = enableAction
+        self.onRevoke = revokeAction
+        if initialIsEnabled {
+            enableAction.body()
+        } else {
+            onInitiallyDisabled()
         }
         token = notificationCenter.addObserver(
             forName: UserDefaults.didChangeNotification,
@@ -56,6 +54,12 @@ public final class MobileCrashRevocationWatcher: @unchecked Sendable {
                 isEnabled = nextIsEnabled
                 (nextIsEnabled ? self.onEnable : self.onRevoke)?.body()
             }
+        }
+        let reconciledIsEnabled = consent.isTelemetryEnabled
+        lifecycleQueue.async { [self] in
+            guard reconciledIsEnabled != isEnabled else { return }
+            isEnabled = reconciledIsEnabled
+            (reconciledIsEnabled ? self.onEnable : self.onRevoke)?.body()
         }
     }
 }

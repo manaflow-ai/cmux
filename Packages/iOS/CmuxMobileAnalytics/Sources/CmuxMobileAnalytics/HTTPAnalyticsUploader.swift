@@ -95,7 +95,7 @@ public struct HTTPAnalyticsUploader: AnalyticsUploading {
             guard !Task.isCancelled else { return .drop }
             return await perform(request: request, label: label)
         }
-        guard await taskRegistry.register(task, id: id) else {
+        guard taskRegistry.register(task, id: id) else {
             task.cancel()
             startGate.open()
             return .drop

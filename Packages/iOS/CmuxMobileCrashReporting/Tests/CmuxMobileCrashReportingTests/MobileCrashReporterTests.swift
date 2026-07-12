@@ -216,6 +216,29 @@ private struct FixedConsent: AnalyticsConsentProviding {
 
     }
 
+    @Test func launchReconcilesConsentRevokedWhileCrashSDKStarts() {
+        let consent = CrashTestToggleConsent(enabled: true)
+        let revoked = DispatchSemaphore(value: 0)
+        let center = NotificationCenter()
+
+        MobileCrashReporter().startIfEnabled(
+            consent: consent,
+            arguments: ["cmux"],
+            environment: [:],
+            notificationCenter: center,
+            revocationWatcher: MobileCrashReporter.RevocationWatcher(),
+            start: { _ in
+                consent.setEnabled(false)
+                center.post(name: UserDefaults.didChangeNotification, object: nil)
+            },
+            close: { revoked.signal() },
+            purgeCache: {},
+            crash: {}
+        )
+
+        #expect(revoked.wait(timeout: .now() + 1) == .success)
+    }
+
     @Test func midSessionOptInStartsSDKWithoutRelaunch() {
         let consent = CrashTestToggleConsent(enabled: false)
         let counter = CrashTestCounter()

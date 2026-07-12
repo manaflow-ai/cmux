@@ -1,5 +1,3 @@
-internal import os
-
 /// Synchronous consent state shared by fire-and-forget callers and the actor.
 ///
 /// A generation makes an event captured before a revoke permanently stale even
@@ -8,15 +6,16 @@ internal import os
 /// race where UserDefaults reads enabled before its notification re-enables the
 /// uploader.
 final class AnalyticsConsentGenerationGate: Sendable {
-    // lint:allow lock - sanctioned synchronous capture seam; an actor hop would reopen the consent-generation race.
-    private let state: OSAllocatedUnfairLock<(isEnabled: Bool, generation: UInt64)>
+    private let state: AnalyticsCriticalState<(isEnabled: Bool, generation: UInt64)>
 
     init(isEnabled: Bool) {
-        state = .init(initialState: (isEnabled: isEnabled, generation: 0))
+        state = AnalyticsCriticalState(
+            initialValue: (isEnabled: isEnabled, generation: 0)
+        )
     }
 
     func snapshot() -> AnalyticsConsentSnapshot {
-        state.withLock {
+        state.withCriticalRegion {
             AnalyticsConsentSnapshot(isEnabled: $0.isEnabled, generation: $0.generation)
         }
     }
@@ -29,7 +28,7 @@ final class AnalyticsConsentGenerationGate: Sendable {
         basedOn base: AnalyticsConsentSnapshot,
         publish: @Sendable (AnalyticsConsentSnapshot) -> Void
     ) -> AnalyticsConsentSnapshot {
-        state.withLock { state in
+        state.withCriticalRegion { state in
             guard state.generation == base.generation else { return base }
             guard state.isEnabled != observedEnabled else {
                 return AnalyticsConsentSnapshot(
@@ -49,7 +48,7 @@ final class AnalyticsConsentGenerationGate: Sendable {
     }
 
     func allows(_ snapshot: AnalyticsConsentSnapshot) -> Bool {
-        state.withLock { state in
+        state.withCriticalRegion { state in
             state.isEnabled && state.generation == snapshot.generation
         }
     }

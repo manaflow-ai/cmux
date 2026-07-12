@@ -18,6 +18,7 @@ import Testing
             timestamp: Date(timeIntervalSince1970: 1_000_000)
         )
 
+        uploader.setUploadsEnabled(true)
         let upload = Task { await uploader.upload([event]) }
         await tokenProvider.accessStarted.wait()
         uploader.setUploadsEnabled(false)
