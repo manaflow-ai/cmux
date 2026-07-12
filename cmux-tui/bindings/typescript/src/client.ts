@@ -480,8 +480,10 @@ export class CmuxClient {
         return { ...event, data: decodeBase64(event.data) } as DecodedAttachEvent;
       }
       case "resized": {
-        if (typeof event.replay !== "string") throw new Error("resized replay is not base64 text");
-        return { ...event, replay: decodeBase64(event.replay) } as DecodedAttachEvent;
+        const encoded = typeof event.data === "string" ? event.data : event.replay;
+        if (typeof encoded !== "string") throw new Error("resized data is not base64 text");
+        const data = decodeBase64(encoded);
+        return { ...event, data, replay: data } as DecodedAttachEvent;
       }
       default: return event as DecodedAttachEvent;
     }
