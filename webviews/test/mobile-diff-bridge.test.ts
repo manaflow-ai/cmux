@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test";
-import { mobileDiffFiles, mobileDiffMessage, mobileDiffSelectionMessage } from "../src/mobile-diff-bridge";
+import {
+  mobileDiffCompletionMessages,
+  mobileDiffFiles,
+  mobileDiffMessage,
+  mobileDiffSelectionMessage,
+} from "../src/mobile-diff-bridge";
 
 test("mobile diff bridge preserves file order and stats", () => {
   const source = {
@@ -17,6 +22,13 @@ test("mobile diff bridge preserves file order and stats", () => {
   expect(mobileDiffFiles(source)).toEqual([
     { id: "app", path: "Sources/App.swift", added: 12, deleted: 3 },
     { id: "readme", path: "README.md", added: 2, deleted: 0 },
+  ]);
+});
+
+test("completion republishes the current renderer selection after the file index", () => {
+  expect(mobileDiffCompletionMessages(null, "item-2", 7)).toEqual([
+    { type: "files", files: [], generation: 7 },
+    { type: "selection", selectedItemId: "item-2", generation: 7 },
   ]);
 });
 
