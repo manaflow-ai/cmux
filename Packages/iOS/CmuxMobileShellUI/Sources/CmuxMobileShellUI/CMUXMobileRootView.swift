@@ -11,16 +11,6 @@ import SwiftUI
 import AppKit
 #endif
 
-struct MobileRootWorkspaceShellPolicy {
-    let isConnected: Bool
-    let hasKnownPairedMac: Bool
-    let isRestoringStoredMac: Bool
-
-    var keepsWorkspaceShellMounted: Bool {
-        isConnected || hasKnownPairedMac || isRestoringStoredMac
-    }
-}
-
 struct CMUXMobileRootView: View {
     @Bindable var store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase

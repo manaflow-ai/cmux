@@ -676,7 +676,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// precondition: a prior generation's server subscription keeps pushing
     /// across re-subscribes) so events arriving during the round-trip are
     /// consumed, not buffered invisibly behind the await.
-    private var terminalSubscriptionStartTask: Task<Void, Never>?
+    private(set) var terminalSubscriptionStartTask: Task<Void, Never>?
     // Liveness watchdog for the render-grid push subscription. The `for await`
     // listener loop blocks indefinitely if the underlying connection half-dies
     // (network blip, Mac stops pushing, background/foreground cycle): the
@@ -691,7 +691,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     // `mobile.events.subscribe` probe (same stream id, current topics) and
     // only tears down + re-subscribes + replays when the host fails to answer
     // it.
-    private var renderGridLivenessTimer: (any DispatchSourceTimer)?
+    private(set) var renderGridLivenessTimer: (any DispatchSourceTimer)?
     private var renderGridLivenessListenerID: UUID?
     /// The in-flight liveness probe spawned by a silence-threshold crossing.
     /// Single-flight: ticks while a probe is pending are no-ops. The paired
@@ -699,7 +699,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// probe holding it may clear the slot, so a cancelled probe from an older
     /// generation completing late cannot free or clobber a newer generation's
     /// in-flight slot.
-    private var renderGridLivenessProbeTask: Task<Void, Never>?
+    private(set) var renderGridLivenessProbeTask: Task<Void, Never>?
     private var renderGridLivenessProbeID: UUID?
     var lastTerminalEventAt: Date?
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
@@ -789,7 +789,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// zoom (the grid reflows automatically). Mirrors
     /// ``terminalByteContinuationsBySurfaceID`` so the font signal rides the same
     /// per-surface fan-out shape as render-grid output.
-    private var terminalLiveFontContinuationsBySurfaceID: [String: AsyncStream<Float32>.Continuation]
+    private(set) var terminalLiveFontContinuationsBySurfaceID: [String: AsyncStream<Float32>.Continuation]
     /// Per-surface identity token for the live-font continuation above. A
     /// same-surface remount replaces the continuation (and this token) before the
     /// old cancelled stream's termination cleanup runs; the cleanup only tears
@@ -1399,7 +1399,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var connectionRequiresReauth: Bool = false
 
     private var networkPathObservationStarted = false
-    private var networkPathObservationTask: Task<Void, Never>?
+    private(set) var networkPathObservationTask: Task<Void, Never>?
     var connectionLifecycle = MobileConnectionLifecycleStateMachine()
     var connectionLifecycleTask: Task<Void, Never>?
     var connectionLifecycleRequestWaiters: [UInt64: CheckedContinuation<Void, Never>] = [:]
@@ -3953,25 +3953,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func foregroundMacDeviceIDForTesting() -> String? { foregroundMacDeviceID }
     func storedMacReconnectGenerationForTesting() -> Int { storedMacReconnectGeneration }
 
-    func connectionResourceSnapshotForTesting() -> MobileConnectionResourceSnapshot {
-        let lifecycle = connectionLifecycle.resourceSnapshot
-        return MobileConnectionResourceSnapshot(
-            activeEpisodeCount: lifecycle.activeEpisodeCount,
-            pendingRequestCount: lifecycle.pendingRequestCount,
-            lifecycleTaskCount: connectionLifecycleTask == nil ? 0 : 1,
-            lifecycleWaiterCount: connectionLifecycleRequestWaiters.count,
-            networkObserverCount: networkPathObservationTask == nil ? 0 : 1,
-            primaryTransportCount: remoteClient == nil ? 0 : 1,
-            secondaryTransportCount: secondaryMacSubscriptions.count,
-            listenerTaskCount: terminalEventListenerTask == nil ? 0 : 1,
-            subscriptionTaskCount: terminalSubscriptionStartTask == nil ? 0 : 1,
-            livenessProbeCount: renderGridLivenessProbeTask == nil ? 0 : 1,
-            livenessTimerCount: renderGridLivenessTimer == nil ? 0 : 1,
-            replayTaskCount: terminalReplayTasksBySurfaceID.count,
-            byteContinuationCount: terminalByteContinuationsBySurfaceID.count,
-            liveFontContinuationCount: terminalLiveFontContinuationsBySurfaceID.count
-        )
-    }
     #endif
 
     func invalidateStoredMacReconnectAttempt() { storedMacReconnectGeneration &+= 1 }
@@ -7603,25 +7584,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         selectedTerminalID = workspaces.first?.terminals.first?.id
     }
 }
-
-#if DEBUG
-struct MobileConnectionResourceSnapshot: Equatable {
-    let activeEpisodeCount: Int
-    let pendingRequestCount: Int
-    let lifecycleTaskCount: Int
-    let lifecycleWaiterCount: Int
-    let networkObserverCount: Int
-    let primaryTransportCount: Int
-    let secondaryTransportCount: Int
-    let listenerTaskCount: Int
-    let subscriptionTaskCount: Int
-    let livenessProbeCount: Int
-    let livenessTimerCount: Int
-    let replayTaskCount: Int
-    let byteContinuationCount: Int
-    let liveFontContinuationCount: Int
-}
-#endif
 
 private extension MobileWorkspacePreview {
     var preferredTerminal: MobileTerminalPreview? {

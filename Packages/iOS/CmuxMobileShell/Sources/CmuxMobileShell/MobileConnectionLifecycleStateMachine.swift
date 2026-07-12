@@ -254,11 +254,6 @@ struct MobileConnectionLifecycleStateMachine {
     }
 }
 
-struct MobileConnectionLifecycleResourceSnapshot: Equatable {
-    let activeEpisodeCount: Int
-    let pendingRequestCount: Int
-}
-
 private extension MobileConnectionLifecycleEpisode {
     func canAbsorb(
         kind requestedKind: MobileConnectionLifecycleRecoveryKind,
