@@ -484,6 +484,23 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// retry budgets and no event dedup anywhere.
     func performSizingPassNow() {
         sizingPassScheduled = false
+        // Re-clamp the stored container against the live hosting window
+        // before reading inputs. A first measurement taken before the
+        // window was visible (fresh connect) banks a display-width fallback
+        // that no later geometry callback corrects if the container's point
+        // size never changes again; re-validating here lets the very next
+        // pass shrink it to the real window and re-claim, with no reliance
+        // on another callback firing.
+        if let window = panelsByPaneId.values.first?.hostedView.window,
+           window.isVisible, var size = containerSizePt {
+            let bound = window.contentLayoutRect.size
+            if bound.width > 1, bound.height > 1,
+               size.width > bound.width + 0.5 || size.height > bound.height + 0.5 {
+                size.width = min(size.width, bound.width)
+                size.height = min(size.height, bound.height)
+                containerSizePt = size
+            }
+        }
         let inputs = currentSizingInputs()
         if inputs == lastCompletedSizingInputs { return }
         lastCompletedSizingInputs = inputs
