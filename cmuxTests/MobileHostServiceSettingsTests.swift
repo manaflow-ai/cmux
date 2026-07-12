@@ -115,7 +115,7 @@ struct MobileHostServiceSettingsTests {
 @MainActor
 @Suite(.serialized)
 struct MobileTerminalScrollHandlerTests {
-    @Test func cleanupRetiresOnlyRequestedSurfaceRenderRevision() {
+    @Test func cleanupRetiresOnlyRequestedSurfaceMobileOrderingState() {
         let controller = TerminalController.shared
         let removedSurfaceID = UUID()
         let retainedSurfaceID = UUID()
@@ -124,11 +124,15 @@ struct MobileTerminalScrollHandlerTests {
         #expect(controller.advanceMobileRenderRevision(surfaceID: removedSurfaceID) == 1)
         #expect(controller.advanceMobileRenderRevision(surfaceID: retainedSurfaceID) == 1)
         #expect(controller.advanceMobileRenderRevision(surfaceID: retainedSurfaceID) == 2)
+        controller.mobileInteractionEpochsBySurfaceID[removedSurfaceID] = ["client-a": 4]
+        controller.mobileInteractionEpochsBySurfaceID[retainedSurfaceID] = ["client-b": 7]
 
         controller.cleanupSurfaceState(surfaceIds: [removedSurfaceID])
 
         #expect(controller.mobileRenderRevisionsBySurfaceID[removedSurfaceID] == nil)
         #expect(controller.mobileRenderRevisionsBySurfaceID[retainedSurfaceID] == 2)
+        #expect(controller.mobileInteractionEpochsBySurfaceID[removedSurfaceID] == nil)
+        #expect(controller.mobileInteractionEpochsBySurfaceID[retainedSurfaceID] == ["client-b": 7])
     }
 
     @Test func orderedRunPayloadAccepts32AndRejects33BeforeExecution() {

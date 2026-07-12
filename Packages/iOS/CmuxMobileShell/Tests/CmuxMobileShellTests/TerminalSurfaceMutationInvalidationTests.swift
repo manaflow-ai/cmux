@@ -229,6 +229,67 @@ struct TerminalSurfaceMutationInvalidationTests {
         #expect(String(decoding: after.data, as: UTF8.self) == "after")
     }
 
+    @Test("input retires an unclaimed reconciliation from the previous epoch")
+    func inputRetiresUnclaimedReconciliation() async throws {
+        let store = MobileShellComposite.preview()
+        let surfaceID = "unclaimed-reconciliation"
+        var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+        _ = store.mountTerminalScrollSession(surfaceID: surfaceID, cancelLocal: {})
+        let oldEpoch = try #require(store.currentTerminalInteractionEpoch(surfaceID: surfaceID))
+        let reconciliation = try reconciliationFrame(surfaceID: surfaceID)
+        #expect(store.deliverAuthoritativeTerminalRenderGrid(
+            reconciliation,
+            source: "scroll_reconcile",
+            scrollReconciliation: TerminalScrollReconciliation(
+                interactionEpoch: oldEpoch,
+                clientRevision: 1
+            )
+        ))
+        let stale = try #require(await iterator.next())
+
+        let newEpoch = try #require(store.invalidateTerminalScrollForInput(surfaceID: surfaceID))
+        let staleClaimed = store.terminalOutputWillProcess(
+            surfaceID: surfaceID,
+            streamToken: stale.streamToken,
+            deliveryID: stale.deliveryID
+        )
+
+        #expect(newEpoch != oldEpoch)
+        #expect(!staleClaimed)
+        guard !staleClaimed else { return }
+        let bottom = try #require(await iterator.next())
+        #expect(bottom.mutation == .scrollToBottom)
+    }
+
+    @Test("input forces replay recovery when an old reconciliation is claimed")
+    func inputRecoversClaimedReconciliation() async throws {
+        let store = MobileShellComposite.preview()
+        let surfaceID = "claimed-reconciliation"
+        var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+        _ = store.mountTerminalScrollSession(surfaceID: surfaceID, cancelLocal: {})
+        let oldEpoch = try #require(store.currentTerminalInteractionEpoch(surfaceID: surfaceID))
+        let reconciliation = try reconciliationFrame(surfaceID: surfaceID)
+        #expect(store.deliverAuthoritativeTerminalRenderGrid(
+            reconciliation,
+            source: "scroll_reconcile",
+            scrollReconciliation: TerminalScrollReconciliation(
+                interactionEpoch: oldEpoch,
+                clientRevision: 1
+            )
+        ))
+        let claimed = try #require(await iterator.next())
+        #expect(store.terminalOutputWillProcess(
+            surfaceID: surfaceID,
+            streamToken: claimed.streamToken,
+            deliveryID: claimed.deliveryID
+        ))
+
+        _ = store.invalidateTerminalScrollForInput(surfaceID: surfaceID)
+
+        #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil)
+        #expect(store.terminalOutputStreamTokensBySurfaceID[surfaceID] != claimed.streamToken)
+    }
+
     private func frame(text: String, full: Bool) throws -> MobileTerminalRenderGridFrame {
         try MobileTerminalRenderGridFrame.fromPlainRows(
             surfaceID: "terminal",
@@ -238,6 +299,17 @@ struct TerminalSurfaceMutationInvalidationTests {
             text: "\(text)\nrow",
             full: full,
             changedRows: full ? nil : [0]
+        )
+    }
+
+    private func reconciliationFrame(surfaceID: String) throws -> MobileTerminalRenderGridFrame {
+        try MobileTerminalRenderGridFrame.fromPlainRows(
+            surfaceID: surfaceID,
+            stateSeq: 10,
+            renderRevision: 1,
+            columns: 16,
+            rows: 2,
+            text: "authoritative\nviewport"
         )
     }
 }
