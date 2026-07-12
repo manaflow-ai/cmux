@@ -31,10 +31,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try? FileManager.default.removeItem(at: root)
         }
 
-        let serverHandled = startMockServer(
+        // A missing live identity may fail closed before any socket request.
+        // Record requests if they occur without requiring a connection.
+        startDetachedMockServer(
             listenerFD: listenerFD,
-            state: state,
-            fulfillWhen: { $0.contains(#""method":"system.resolve_terminal""#) }
+            state: state
         ) { line in
             guard let payload = self.jsonObject(line) else { return "OK" }
             guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
@@ -108,7 +109,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
