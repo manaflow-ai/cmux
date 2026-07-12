@@ -7818,6 +7818,9 @@ final class Workspace: Identifiable, ObservableObject {
             cleanupControllerSurfaceState: false
         )
         GhosttyApp.terminalSurfaceRegistry.unregister(oldPanel.surface)
+        SessionScrollbackReplayStore.removeReplayFile(
+            atPath: oldPanel.surface.startupEnvironmentValue(SessionScrollbackReplayStore.environmentKey)
+        )
         oldPanel.surface.teardownSurface()
 
         let replacementPanel = TerminalPanel(

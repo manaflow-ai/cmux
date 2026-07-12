@@ -1859,6 +1859,11 @@ enum SessionScrollbackReplayStore {
         return [environmentKey: replayFileURL.path]
     }
 
+    static func removeReplayFile(atPath path: String?) {
+        guard let path, !path.isEmpty else { return }
+        try? FileManager.default.removeItem(atPath: path)
+    }
+
     private static func normalizedScrollback(_ scrollback: String?) -> String? {
         guard let scrollback else { return nil }
         guard scrollback.contains(where: { !$0.isWhitespace }) else { return nil }
