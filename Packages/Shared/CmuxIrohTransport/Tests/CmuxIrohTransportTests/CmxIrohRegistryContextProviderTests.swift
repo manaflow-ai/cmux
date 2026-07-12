@@ -11,7 +11,7 @@ func opaqueProfileID(_ label: String) -> String {
 @Suite
 struct CmxIrohRegistryContextProviderTests {
     @Test
-    func bonjourFallbackIsLazyAndAddsOnlyGenerationAuthorizedLANHints() async throws {
+    func bonjourFallbackAcceptsLegacyUppercaseDeviceUUID() async throws {
         let fixture = try RegistryFixture()
         let relay = try CmxIrohPathHint(
             kind: .relayURL,
@@ -60,7 +60,10 @@ struct CmxIrohRegistryContextProviderTests {
             },
             now: { fixture.now }
         )
-        let request = try fixture.request(hints: [relay])
+        let request = try fixture.request(
+            hints: [relay],
+            expectedPeerDeviceID: fixture.acceptor.deviceID.uppercased()
+        )
 
         let publicContext = try await provider.context(for: request)
 
