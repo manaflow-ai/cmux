@@ -35,7 +35,7 @@ let sql: Sql | null = null;
 const DEVICE_A = "11111111-1111-4111-8111-111111111111";
 const DEVICE_B = "22222222-2222-4222-8222-222222222222";
 const IROH_ENDPOINT_ID = "a".repeat(64);
-const APPROVED_IROH_RELAY = "https://use1-1.relay.lawrence.cmux.iroh.link/";
+const APPROVED_IROH_RELAY = "https://use4.relay.cmux.dev/";
 
 const legacyTailscaleRoute = {
   id: "legacy",

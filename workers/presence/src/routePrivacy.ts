@@ -2,10 +2,13 @@
 // The Worker cannot import from `web/` because each deployment has its own
 // build root. Exact URLs are intentional: arbitrary relay URLs are path hints.
 export const APPROVED_IROH_RELAY_URLS = [
-  "https://euc1-1.relay.lawrence.cmux.iroh.link/",
-  "https://use1-1.relay.lawrence.cmux.iroh.link/",
-  "https://usw1-1.relay.lawrence.cmux.iroh.link/",
-  "https://aps1-1.relay.lawrence.cmux.iroh.link/",
+  "https://usc1.relay.cmux.dev/",
+  "https://usw1.relay.cmux.dev/",
+  "https://use4.relay.cmux.dev/",
+  "https://euw4.relay.cmux.dev/",
+  "https://apne1.relay.cmux.dev/",
+  "https://apse1.relay.cmux.dev/",
+  "https://ape1.relay.cmux.dev/",
 ] as const;
 
 const APPROVED_IROH_RELAY_URL_SET: ReadonlySet<string> = new Set(APPROVED_IROH_RELAY_URLS);
