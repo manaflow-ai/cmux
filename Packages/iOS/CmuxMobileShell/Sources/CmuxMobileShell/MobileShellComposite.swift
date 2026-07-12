@@ -4049,11 +4049,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) {
         let targetWorkspaceID = workspaceID ?? selectedWorkspace?.id
         let targetWorkspace = workspaces.first(where: { $0.id == targetWorkspaceID })
-        let targetPaneID = remoteTerminalCreationPaneID(
-            in: targetWorkspace,
-            explicitPaneID: explicitPaneID
-        )
         guard remoteClient == nil else {
+            let targetPaneID = remoteTerminalCreationPaneID(
+                in: targetWorkspace,
+                explicitPaneID: explicitPaneID
+            )
             // Bail BEFORE pinning selection when a create is already in flight,
             // so a second "+" on another workspace can't strand the UI on that
             // workspace with no new terminal while the earlier RPC still runs.
@@ -4074,7 +4074,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return
         }
-        createLocalTerminal(in: targetWorkspaceID, paneID: targetPaneID)
+        createLocalTerminal(in: targetWorkspaceID, paneID: explicitPaneID)
     }
 
     /// Select the active terminal by id without changing workspace selection.

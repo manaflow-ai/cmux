@@ -10,14 +10,12 @@ public struct TerminalHierarchyPreviewView: View {
     @State private var hasSimulatedMutationFailure = false
     @State private var reorderGate = MobileTerminalReorderGate()
     @State private var isCloseUnavailablePresented: Bool
-    @State private var isMoveUnavailablePresented = false
     private let simulatesMutationFailure: Bool
     private let simulatesProtectedClose: Bool
     private let simulatesResultUnknownRefreshed: Bool
-    private let showsMoveUnavailableControl: Bool
 
     /// Creates the preview fixture.
-    @MainActor public init() {
+    public init() {
         let scenario = ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_HIERARCHY_SCENARIO"]
             ?? ProcessInfo.processInfo.arguments.first(where: {
                 $0.hasPrefix("CMUX_UITEST_TERMINAL_HIERARCHY_SCENARIO=")
@@ -51,59 +49,26 @@ public struct TerminalHierarchyPreviewView: View {
         _workspace = State(initialValue: workspace)
         _selectedTerminalID = State(initialValue: workspace.selectedTerminalID)
         _isCloseUnavailablePresented = State(initialValue: scenario == "close-unavailable")
-        let reorderGate = MobileTerminalReorderGate()
-        if scenario == "move-unavailable" {
-            _ = reorderGate.reserve(workspaceID: workspace.id, paneID: "pane-left")
-        }
-        _reorderGate = State(initialValue: reorderGate)
         simulatesMutationFailure = scenario == "error"
         simulatesProtectedClose = scenario == "close-protected"
         simulatesResultUnknownRefreshed = scenario == "result-unknown-refreshed"
-        showsMoveUnavailableControl = scenario == "move-unavailable"
     }
 
     /// Renders the deterministic hierarchy fixture for UI verification.
     public var body: some View {
-        VStack(spacing: 0) {
-            if showsMoveUnavailableControl {
-                Button("Move Shell Later", action: attemptMoveLater)
-                    .accessibilityIdentifier("MobileTerminalHierarchyPreviewMoveLater")
-            }
-            TerminalHierarchySheet(
-                snapshot: hierarchySnapshot,
-                createTerminal: createTerminal,
-                selectTerminal: { selectedTerminalID = $0 },
-                reorderGate: reorderGate,
-                reorderTerminal: reorderTerminal,
-                closeTerminal: closeTerminal,
-                refreshTerminals: { true }
-            )
-        }
-        .terminalHierarchyCloseUnavailableAlert(isPresented: $isCloseUnavailablePresented)
-        .terminalHierarchyMoveUnavailableAlert(isPresented: $isMoveUnavailablePresented)
-    }
-
-    private var hierarchySnapshot: TerminalHierarchySnapshot {
-        TerminalHierarchySnapshot(workspace: workspace, selectedTerminalID: selectedTerminalID)
-    }
-
-    private func attemptMoveLater() {
-        guard let pane = hierarchySnapshot.panes.first(where: { $0.id == "pane-left" }),
-              let action = TerminalHierarchyMoveAction(
-                  source: IndexSet(integer: 0),
-                  destination: 2,
-                  pane: pane
-              ) else { return }
-        action.perform(
-            workspaceID: hierarchySnapshot.workspaceID,
+        TerminalHierarchySheet(
+            snapshot: TerminalHierarchySnapshot(
+                workspace: workspace,
+                selectedTerminalID: selectedTerminalID
+            ),
+            createTerminal: createTerminal,
+            selectTerminal: { selectedTerminalID = $0 },
             reorderGate: reorderGate,
             reorderTerminal: reorderTerminal,
-            updateOptimisticOrder: { _ in }
-        ) { outcome in
-            if case .unavailable = outcome {
-                isMoveUnavailablePresented = true
-            }
-        }
+            closeTerminal: closeTerminal,
+            refreshTerminals: { true }
+        )
+        .terminalHierarchyCloseUnavailableAlert(isPresented: $isCloseUnavailablePresented)
     }
 
     private func createTerminal() {

@@ -340,20 +340,20 @@ struct TerminalHierarchySheet: View {
     }
 
     private func presentMoveOutcome(_ outcome: TerminalHierarchyMoveActionOutcome) {
-        switch outcome {
+        switch TerminalHierarchyMoveResultPresentation(outcome) {
         case .unavailable:
             moveUnavailable = true
-        case .completed(.success):
+        case .reordered:
             announce(L10n.string("mobile.terminal.hierarchy.reorderedAnnouncement", defaultValue: "Terminal order updated"))
-        case .completed(.failure(.appliedNeedsRefresh)):
+        case .appliedNeedsRefresh:
             presentRefreshRequired(resultIsUnknown: false)
-        case .completed(.failure(.resultUnknownNeedsRefresh)):
+        case .resultUnknownNeedsRefresh:
             presentRefreshRequired(resultIsUnknown: true)
-        case .completed(.failure(.resultUnknownRefreshed)):
+        case .resultUnknownRefreshed:
             mutationResultUnknownRefreshed = true
-        case .completed(.failure(.protected)):
+        case .protected:
             mutationProtected = true
-        case .completed(.failure):
+        case .failed:
             mutationFailed = true
         }
     }
