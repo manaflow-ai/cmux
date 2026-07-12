@@ -366,3 +366,95 @@ import Testing
     #expect(workspace.selectedTerminalID == "term-route-b")
     #expect(workspace.terminals.first(where: { $0.id == "term-route-b" })?.isFocused == true)
 }
+
+@MainActor
+@Test func stalePostCloseFocusEventCannotRestoreRemovedTerminal() throws {
+    let workspaceID = MobileWorkspacePreview.ID(rawValue: RoutingHostRouter.workspaceID)
+    let closingTerminalID = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalA)
+    let survivorID = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalB)
+    let closingPaneID = MobilePanePreview.ID(rawValue: "pane-left")
+    let existingWorkspace = MobileWorkspacePreview(
+        id: workspaceID,
+        name: "Routing Workspace",
+        terminals: [
+            MobileTerminalPreview(
+                id: closingTerminalID,
+                name: "A",
+                paneID: closingPaneID,
+                isFocused: true
+            ),
+            MobileTerminalPreview(id: survivorID, name: "B", paneID: "pane-right"),
+        ],
+        panes: [
+            MobilePanePreview(
+                id: closingPaneID,
+                spatialIndex: 0,
+                isFocused: true,
+                terminalIDs: [closingTerminalID]
+            ),
+            MobilePanePreview(
+                id: "pane-right",
+                spatialIndex: 1,
+                terminalIDs: [survivorID]
+            ),
+        ],
+        focusedPaneID: closingPaneID,
+        selectedTerminalID: closingTerminalID
+    )
+    let store = MobileShellComposite(workspaces: [existingWorkspace])
+    store.selectedWorkspaceID = workspaceID
+    store.selectTerminal(closingTerminalID)
+    let listStartedAtFocusRevision = store.workspaceFocusRevisionSnapshot()
+    let staleEvent = try #require(MobileWorkspaceFocusEvent(payloadJSON: Data("""
+    {"kind":"focus","workspace_id":"ws-route","focused_pane_id":"pane-left","selected_terminal_id":"term-route-a"}
+    """.utf8)))
+    store.applyWorkspaceFocusEvent(staleEvent, macID: nil)
+    let staleWorkspace = try #require(store.workspaces.first)
+    var refreshed = MobileWorkspacePreview(
+        id: workspaceID,
+        name: "Routing Workspace",
+        terminals: [
+            MobileTerminalPreview(
+                id: survivorID,
+                name: "B",
+                paneID: "pane-right",
+                isFocused: true
+            ),
+        ],
+        panes: [
+            MobilePanePreview(
+                id: "pane-right",
+                spatialIndex: 0,
+                isFocused: true,
+                terminalIDs: [survivorID]
+            ),
+        ],
+        focusedPaneID: "pane-right",
+        selectedTerminalID: survivorID
+    )
+    store.preserveNewerWorkspaceFocusIfNeeded(
+        in: &refreshed,
+        from: staleWorkspace,
+        macID: nil,
+        listStartedAtFocusRevision: listStartedAtFocusRevision
+    )
+    store.replaceForegroundWorkspaceState([refreshed])
+    let merged = try #require(store.workspaces.first)
+    let fallback = MobileTerminalCloseFallback(
+        closedTerminalID: closingTerminalID,
+        selectedTerminalID: closingTerminalID,
+        orderedTerminalIDs: [closingTerminalID]
+    )
+    store.selectTerminal(
+        fallback.resolvedSelection(
+            availableTerminalIDs: Set(merged.terminals.map(\.id))
+        ) ?? merged.selectedTerminalID ?? merged.terminals.first?.id
+    )
+
+    #expect(merged.terminals.map(\.id) == [survivorID])
+    #expect(merged.focusedPaneID == "pane-right")
+    #expect(merged.selectedTerminalID == survivorID)
+    #expect(merged.panes.first?.isFocused == true)
+    #expect(merged.terminals.first?.isFocused == true)
+    #expect(store.selectedTerminalID == survivorID)
+}
