@@ -1,9 +1,6 @@
 /// Bounded, broker-queue-confined state for a lifecycle that ended before its wrapper RPC arrived.
 struct RemotePTYEndedLifecycleRegistry {
-    struct Entry {
-        let transportKey: String
-        let attachmentKey: RemotePTYAttachmentKey
-    }
+    typealias Entry = (transportKey: String, attachmentKey: RemotePTYAttachmentKey)
 
     /// Caps delayed-wrapper reconciliation without retaining every surface on a shared transport.
     static let capacity = 256
@@ -40,6 +37,13 @@ struct RemotePTYEndedLifecycleRegistry {
     mutating func remove(_ lifecycleKey: RemotePTYLifecycleKey) {
         guard entries.removeValue(forKey: lifecycleKey) != nil else { return }
         insertionOrder.removeAll { $0 == lifecycleKey }
+    }
+
+    mutating func removeAll(forAttachmentKey attachmentKey: RemotePTYAttachmentKey) {
+        let matchingKeys = entries.compactMap { key, entry in
+            entry.attachmentKey == attachmentKey ? key : nil
+        }
+        for matchingKey in matchingKeys { remove(matchingKey) }
     }
 
     mutating func removeAll(forTransportKey transportKey: String) {

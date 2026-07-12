@@ -45,9 +45,11 @@ public final class RemoteProxyBroker: @unchecked Sendable {
     private let clock: any RemoteProxyRetryClock
     private let queue = DispatchQueue(label: "com.cmux.remote-ssh.proxy-broker", qos: .utility)
     private var entries: [String: Entry] = [:]
-    private var ptyLifecycleOwners: [RemotePTYLifecycleKey: (transportKey: String, attachmentKey: RemotePTYAttachmentKey)] = [:]
-    internal private(set) var currentPTYLifecycleByAttachment: [RemotePTYAttachmentKey: RemotePTYLifecycleKey] = [:]
-    private var endedPTYLifecycles = RemotePTYEndedLifecycleRegistry()
+    private let ptyLifecycleOwnership = RemotePTYLifecycleOwnershipRegistry()
+
+    var currentPTYLifecycleByAttachment: [RemotePTYAttachmentKey: RemotePTYLifecycleKey] {
+        ptyLifecycleOwnership.currentByAttachment
+    }
     /// Creates a broker.
     ///
     /// - Parameters:
@@ -173,26 +175,14 @@ public final class RemoteProxyBroker: @unchecked Sendable {
                 throw Self.ptyTunnelNotReadyError()
             }
             let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
-            endedPTYLifecycles.remove(lifecycleKey)
-            if let owner = ptyLifecycleOwners.removeValue(forKey: lifecycleKey), currentPTYLifecycleByAttachment[owner.attachmentKey] == lifecycleKey {
-                currentPTYLifecycleByAttachment.removeValue(forKey: owner.attachmentKey)
-            }
+            ptyLifecycleOwnership.acknowledge(lifecycleKey)
         }
     }
     /// Claims a generation and enqueues retirement against its exact transport.
     @discardableResult
     public func acknowledgePTYLifecycleAfterWrapperEnd(sessionID: String, lifecycleID: String) -> Bool {
         let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
-        let ownership = queue.sync { () -> (transportKey: String, wasCurrent: Bool)? in
-            if let owner = ptyLifecycleOwners.removeValue(forKey: lifecycleKey) {
-                let wasCurrent = currentPTYLifecycleByAttachment[owner.attachmentKey] == lifecycleKey
-                if wasCurrent { currentPTYLifecycleByAttachment.removeValue(forKey: owner.attachmentKey) }
-                endedPTYLifecycles.remove(lifecycleKey)
-                return (owner.transportKey, wasCurrent)
-            }
-            guard let ended = endedPTYLifecycles.take(lifecycleKey) else { return nil }
-            return (ended.transportKey, currentPTYLifecycleByAttachment[ended.attachmentKey] == nil)
-        }
+        let ownership = ptyLifecycleOwnership.claimAfterWrapperEnd(lifecycleKey)
         guard let ownership else { return false }
         queue.async { [weak self] in
             guard let self, let entry = self.entries[ownership.transportKey] else { return }
@@ -271,21 +261,18 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             ) { [weak self] in
                 guard let self else { return }
                 self.queue.async {
-                    guard self.ptyLifecycleOwners[lifecycleKey]?.transportKey == ownerKey else { return }
-                    self.ptyLifecycleOwners.removeValue(forKey: lifecycleKey)
-                    if self.currentPTYLifecycleByAttachment[attachmentKey] == lifecycleKey {
-                        self.currentPTYLifecycleByAttachment.removeValue(forKey: attachmentKey)
-                        self.endedPTYLifecycles.record(
-                            lifecycleKey,
-                            transportKey: ownerKey,
-                            attachmentKey: attachmentKey
-                        )
-                    }
+                    self.ptyLifecycleOwnership.recordEnded(
+                        lifecycleKey: lifecycleKey,
+                        transportKey: ownerKey,
+                        attachmentKey: attachmentKey
+                    )
                 }
             }
-            endedPTYLifecycles.remove(lifecycleKey)
-            ptyLifecycleOwners[lifecycleKey] = (ownerKey, attachmentKey)
-            currentPTYLifecycleByAttachment[attachmentKey] = lifecycleKey
+            ptyLifecycleOwnership.register(
+                lifecycleKey: lifecycleKey,
+                transportKey: ownerKey,
+                attachmentKey: attachmentKey
+            )
             return endpoint
         }
     }
@@ -421,9 +408,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         cancelRestartLocked(entry)
         stopEntryRuntimeLocked(entry, preservePTYLifecycle: false)
         entries.removeValue(forKey: key)
-        ptyLifecycleOwners = ptyLifecycleOwners.filter { $0.value.transportKey != key }
-        currentPTYLifecycleByAttachment = currentPTYLifecycleByAttachment.filter { $0.key.transportKey != key }
-        endedPTYLifecycles.removeAll(forTransportKey: key)
+        ptyLifecycleOwnership.removeAll(forTransportKey: key)
     }
 
     private func stopEntryRuntimeLocked(_ entry: Entry, preservePTYLifecycle: Bool) {
