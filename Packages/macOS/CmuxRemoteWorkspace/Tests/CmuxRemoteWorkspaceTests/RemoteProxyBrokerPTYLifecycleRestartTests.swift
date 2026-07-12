@@ -231,10 +231,15 @@ struct RemoteProxyBrokerPTYLifecycleRestartTests {
         tunnel.reportLifecycleEnded(sessionID: "session", lifecycleID: "unused")
         _ = try broker.listPTY(configuration: configuration)
 
-        broker.acknowledgePTYLifecycleAfterWrapperEnd(sessionID: "session", lifecycleID: "unused")
+        let generationWasCurrent = broker.acknowledgePTYLifecycleAfterWrapperEnd(
+            sessionID: "session",
+            lifecycleID: "unused"
+        )
         _ = try broker.listPTY(configuration: configuration)
 
-        #expect(!tunnel.ptyCalls.contains { $0.name == "acknowledgePTYLifecycleIfKnown" })
+        #expect(generationWasCurrent)
+        #expect(tunnel.ptyCalls.contains { $0.name == "acknowledgePTYLifecycleIfKnown" })
+        #expect(!broker.acknowledgePTYLifecycleAfterWrapperEnd(sessionID: "session", lifecycleID: "unused"))
     }
 
     @Test("explicit acknowledgement removes its attachment generation index")
