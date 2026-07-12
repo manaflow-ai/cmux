@@ -170,3 +170,109 @@ import Testing
     #expect(refreshed.selectedTerminalID == nil)
     #expect(refreshed.terminals.allSatisfy { !$0.isFocused })
 }
+
+@MainActor
+@Test func unknownFocusEventDimensionsDoNotOverrideAuthoritativeListFocus() throws {
+    let oldPaneID = MobilePanePreview.ID(rawValue: "pane-old")
+    let oldTerminalID = MobileTerminalPreview.ID(rawValue: "terminal-old")
+    let newPaneID = MobilePanePreview.ID(rawValue: "pane-new")
+    let newTerminalID = MobileTerminalPreview.ID(rawValue: "terminal-new")
+    let existing = MobileWorkspacePreview(
+        id: "workspace-create-race",
+        name: "Create race",
+        terminals: [
+            MobileTerminalPreview(id: oldTerminalID, name: "Old", paneID: oldPaneID, isFocused: true),
+        ],
+        panes: [
+            MobilePanePreview(id: oldPaneID, spatialIndex: 0, isFocused: true, terminalIDs: [oldTerminalID]),
+        ],
+        focusedPaneID: oldPaneID,
+        selectedTerminalID: oldTerminalID
+    )
+    let store = MobileShellComposite(workspaces: [existing])
+    let listStartedAtFocusRevision = store.workspaceFocusRevisionSnapshot()
+    let event = try #require(MobileWorkspaceFocusEvent(payloadJSON: Data("""
+    {"kind":"focus","workspace_id":"workspace-create-race","focused_pane_id":"pane-new","selected_terminal_id":"terminal-new"}
+    """.utf8)))
+
+    store.applyWorkspaceFocusEvent(event, macID: nil)
+
+    var authoritative = MobileWorkspacePreview(
+        id: "workspace-create-race",
+        name: "Create race",
+        terminals: [
+            MobileTerminalPreview(id: oldTerminalID, name: "Old", paneID: oldPaneID),
+            MobileTerminalPreview(id: newTerminalID, name: "New", paneID: newPaneID, isFocused: true),
+        ],
+        panes: [
+            MobilePanePreview(id: oldPaneID, spatialIndex: 0, terminalIDs: [oldTerminalID]),
+            MobilePanePreview(id: newPaneID, spatialIndex: 1, isFocused: true, terminalIDs: [newTerminalID]),
+        ],
+        focusedPaneID: newPaneID,
+        selectedTerminalID: newTerminalID
+    )
+    let current = try #require(store.workspaces.first)
+    store.preserveNewerWorkspaceFocusIfNeeded(
+        in: &authoritative,
+        from: current,
+        macID: nil,
+        listStartedAtFocusRevision: listStartedAtFocusRevision
+    )
+
+    #expect(authoritative.focusedPaneID == newPaneID)
+    #expect(authoritative.selectedTerminalID == newTerminalID)
+}
+
+@MainActor
+@Test func mixedFocusEventPreservesOnlyItsAppliedDimension() throws {
+    let oldPaneID = MobilePanePreview.ID(rawValue: "pane-old")
+    let oldTerminalID = MobileTerminalPreview.ID(rawValue: "terminal-old")
+    let newPaneID = MobilePanePreview.ID(rawValue: "pane-new")
+    let newTerminalID = MobileTerminalPreview.ID(rawValue: "terminal-new")
+    let existing = MobileWorkspacePreview(
+        id: "workspace-mixed-race",
+        name: "Mixed race",
+        terminals: [
+            MobileTerminalPreview(id: oldTerminalID, name: "Old", paneID: oldPaneID, isFocused: true),
+        ],
+        panes: [
+            MobilePanePreview(id: oldPaneID, spatialIndex: 0, isFocused: true, terminalIDs: [oldTerminalID]),
+        ],
+        focusedPaneID: oldPaneID,
+        selectedTerminalID: oldTerminalID
+    )
+    let store = MobileShellComposite(workspaces: [existing])
+    let listStartedAtFocusRevision = store.workspaceFocusRevisionSnapshot()
+    let event = try #require(MobileWorkspaceFocusEvent(payloadJSON: Data("""
+    {"kind":"focus","workspace_id":"workspace-mixed-race","focused_pane_id":null,"selected_terminal_id":"terminal-new"}
+    """.utf8)))
+
+    store.applyWorkspaceFocusEvent(event, macID: nil)
+
+    var authoritative = MobileWorkspacePreview(
+        id: "workspace-mixed-race",
+        name: "Mixed race",
+        terminals: [
+            MobileTerminalPreview(id: oldTerminalID, name: "Old", paneID: oldPaneID),
+            MobileTerminalPreview(id: newTerminalID, name: "New", paneID: newPaneID, isFocused: true),
+        ],
+        panes: [
+            MobilePanePreview(id: oldPaneID, spatialIndex: 0, terminalIDs: [oldTerminalID]),
+            MobilePanePreview(id: newPaneID, spatialIndex: 1, isFocused: true, terminalIDs: [newTerminalID]),
+        ],
+        focusedPaneID: newPaneID,
+        selectedTerminalID: newTerminalID
+    )
+    let current = try #require(store.workspaces.first)
+    store.preserveNewerWorkspaceFocusIfNeeded(
+        in: &authoritative,
+        from: current,
+        macID: nil,
+        listStartedAtFocusRevision: listStartedAtFocusRevision
+    )
+
+    #expect(authoritative.focusedPaneID == nil)
+    #expect(authoritative.panes.allSatisfy { !$0.isFocused })
+    #expect(authoritative.selectedTerminalID == newTerminalID)
+    #expect(authoritative.terminals.first(where: { $0.id == newTerminalID })?.isFocused == true)
+}

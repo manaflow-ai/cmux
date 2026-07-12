@@ -2,6 +2,7 @@ import Testing
 import AppKit
 import Bonsplit
 import CmuxCore
+import Combine
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -98,6 +99,45 @@ struct MobileWorkspaceListFidelityTests {
             selectedTabID: workspace.id, previewSignatures: [:]
         )
         #expect(before != after, "a pure reorder must change the mobile summary hash")
+    }
+
+    @Test func pinningTerminalInStableOrderChangesObserverProjectionAndCloseability() throws {
+        let (workspace, ordered) = try makeWorkspaceWithTabTerminals(count: 2)
+        let terminalID = try #require(ordered.first)
+        let orderBefore = workspace.orderedPanelIds
+        let hashBefore = MobileWorkspaceListObserver.summaryHash(
+            for: [workspace], groups: [],
+            selectedTabID: workspace.id, previewSignatures: [:]
+        )
+        let payloadBefore = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: terminalID
+        )
+        let terminalBefore = try #require((payloadBefore["terminals"] as? [[String: Any]])?.first)
+        #expect(terminalBefore["can_close"] as? Bool == true)
+
+        var publisherWakeups = 0
+        let cancellable = workspace.$pinnedPanelIds.dropFirst().sink { _ in
+            publisherWakeups += 1
+        }
+        workspace.setPanelPinned(panelId: terminalID, pinned: true)
+        withExtendedLifetime(cancellable) {}
+
+        #expect(workspace.orderedPanelIds == orderBefore, "pinning the first tab must preserve its order")
+        #expect(publisherWakeups == 1, "the pinned-panel source must wake its observer")
+        let hashAfter = MobileWorkspaceListObserver.summaryHash(
+            for: [workspace], groups: [],
+            selectedTabID: workspace.id, previewSignatures: [:]
+        )
+        #expect(hashAfter != hashBefore, "pinning changes terminal closeability and must change the projection")
+        let payloadAfter = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: terminalID
+        )
+        let terminalAfter = try #require((payloadAfter["terminals"] as? [[String: Any]])?.first)
+        #expect(terminalAfter["can_close"] as? Bool == false)
     }
 
     @Test func renamingTerminalChangesObserverHashAndDisplayedTitle() throws {

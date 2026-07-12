@@ -39,6 +39,34 @@ struct MobileWorkspacePanePayloadTests {
         #expect(terminals.allSatisfy { $0["pane_id"] as? String == paneID.id.uuidString })
     }
 
+    @Test func browserSelectionHasNoProjectedTerminalAndChangesScopedFocusSignature() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let terminalID = try #require(workspace.focusedTerminalPanel?.id)
+        let terminalSignature = MobileWorkspaceListObserver.focusedHierarchySignature(for: workspace)
+        let browser = try #require(workspace.newBrowserSurface(
+            inPane: paneID,
+            focus: true,
+            creationPolicy: .restoration
+        ))
+
+        #expect(workspace.focusedPanelId == browser.id)
+        #expect(workspace.focusedTerminalPanel == nil)
+        let browserSignature = MobileWorkspaceListObserver.focusedHierarchySignature(for: workspace)
+        #expect(browserSignature != terminalSignature, "browser selection must change the scoped focus value")
+
+        let payload = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: nil
+        )
+        #expect(payload["selected_terminal_id"] is NSNull)
+        let terminals = try #require(payload["terminals"] as? [[String: Any]])
+        let terminal = try #require(terminals.first(where: { $0["id"] as? String == terminalID.uuidString }))
+        #expect(terminal["is_focused"] as? Bool == false)
+    }
+
     @Test func backgroundTerminalReorderPreservesMacPaneAndTabFocus() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
