@@ -31,11 +31,21 @@ public struct PromptLineTurnDetector: Sendable {
     private static let maximumLogicalLineBytes = 4_096
 
     private let configuration: PromptLineTurnDetectionConfiguration
+    private let maximumWaitingPromptLineByteCount: Int
     private var phase: Phase = .stable(.seekingInitialPrompt)
     private var controlSequence: ControlSequence = .none
     private var logicalLine: [UInt8] = []
     private var logicalLineOverflowed = false
+    /// Visible bytes currently in `logicalLine`, maintained incrementally so
+    /// per-byte evaluation stays O(1) on the PTY read thread.
+    private var visibleByteCount = 0
     private var nextConfirmationIdentifier: UInt64 = 0
+
+    /// Increments when an echoed submission starts a new turn.
+    ///
+    /// Callers can compare this value after each consumed chunk to bind the
+    /// turn to the process that received the submission.
+    public private(set) var submissionCount: UInt64 = 0
 
     /// The current prompt boundary awaiting debounce confirmation, if any.
     public private(set) var pendingConfirmation: PromptLineTurnConfirmation?
@@ -51,6 +61,8 @@ public struct PromptLineTurnDetector: Sendable {
     /// - Parameter configuration: The exact prompt that brackets interactive turns.
     public init(configuration: PromptLineTurnDetectionConfiguration) {
         self.configuration = configuration
+        self.maximumWaitingPromptLineByteCount =
+            configuration.waitingPromptLineBytes.map(\.count).max() ?? 0
         logicalLine.reserveCapacity(configuration.promptBytes.count + 64)
     }
 
@@ -133,8 +145,10 @@ public struct PromptLineTurnDetector: Sendable {
             resetLogicalLine()
         case 0x08, 0x7F:
             invalidatePendingPrompt()
-            if !logicalLineOverflowed, !logicalLine.isEmpty {
-                logicalLine.removeLast()
+            if !logicalLineOverflowed, let removed = logicalLine.popLast() {
+                if Self.isVisibleContentByte(removed) {
+                    visibleByteCount -= 1
+                }
             }
             evaluateLogicalLine()
         case 0x20...0x7E, 0x80...0xFF:
@@ -152,19 +166,33 @@ public struct PromptLineTurnDetector: Sendable {
         guard !logicalLineOverflowed else { return }
         guard logicalLine.count < Self.maximumLogicalLineBytes else {
             logicalLine.removeAll(keepingCapacity: true)
+            visibleByteCount = 0
             logicalLineOverflowed = true
             markOutputObserved()
             return
         }
         logicalLine.append(byte)
+        if Self.isVisibleContentByte(byte) {
+            visibleByteCount += 1
+        }
     }
 
     private mutating func evaluateLogicalLine() {
+        // Fast path: a line longer than every waiting-prompt pattern can
+        // neither equal nor prefix one, so only output observation remains.
+        // Together with the incremental visible-byte count this keeps the
+        // per-byte cost constant on the PTY read thread.
+        if !logicalLineOverflowed, logicalLine.count > maximumWaitingPromptLineByteCount {
+            if visibleByteCount > 0 {
+                markOutputObserved()
+            }
+            return
+        }
         guard !logicalLineOverflowed,
               configuration.waitingPromptLineBytes.contains(logicalLine),
               case .stable(let stablePhase) = phase else {
             if !configuration.waitingPromptLineBytes.contains(where: { $0.starts(with: logicalLine) }),
-               containsVisibleContent(logicalLine) {
+               visibleByteCount > 0 {
                 markOutputObserved()
             }
             return
@@ -207,6 +235,7 @@ public struct PromptLineTurnDetector: Sendable {
             let submission = logicalLine.dropFirst(configuration.promptBytes.count)
             if containsVisibleContent(submission) {
                 phase = .stable(.awaitingPrompt(observedOutput: false))
+                submissionCount &+= 1
             }
         case .awaitingPrompt:
             markOutputObserved()
@@ -218,7 +247,7 @@ public struct PromptLineTurnDetector: Sendable {
     private mutating func markOutputObserved() {
         guard case .stable(.awaitingPrompt(let observedOutput)) = phase,
               !observedOutput,
-              containsVisibleContent(logicalLine),
+              visibleByteCount > 0,
               !configuration.waitingPromptLineBytes.contains(logicalLine) else {
             return
         }
@@ -231,14 +260,17 @@ public struct PromptLineTurnDetector: Sendable {
         confirmationRevision &+= 1
     }
 
+    private static func isVisibleContentByte(_ byte: UInt8) -> Bool {
+        byte > 0x20 && byte != 0x7F
+    }
+
     private func containsVisibleContent<S: Sequence>(_ bytes: S) -> Bool where S.Element == UInt8 {
-        bytes.contains { byte in
-            byte > 0x20 && byte != 0x7F
-        }
+        bytes.contains(where: Self.isVisibleContentByte)
     }
 
     private mutating func resetLogicalLine() {
         logicalLine.removeAll(keepingCapacity: true)
         logicalLineOverflowed = false
+        visibleByteCount = 0
     }
 }

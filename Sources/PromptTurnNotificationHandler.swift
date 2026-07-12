@@ -7,6 +7,8 @@ actor PromptTurnNotificationHandler {
     private let surfaceID: UUID
 
     private var latestRevisionByAgentID: [String: UInt64] = [:]
+    private var latestSubmissionCountByAgentID: [String: UInt64] = [:]
+    private var turnForegroundPIDByAgentID: [String: Int] = [:]
     private var debounceTasksByAgentID: [String: Task<Void, Never>] = [:]
 
     private var cachedForegroundPID: Int?
@@ -30,10 +32,22 @@ actor PromptTurnNotificationHandler {
     /// Replaces the pending candidate for an agent with a newer detector revision.
     func update(
         agentID: String,
+        submissionCount: UInt64,
         revision: UInt64,
         confirmation: PromptLineTurnConfirmation?,
         deadline: ContinuousClock.Instant?
-    ) {
+    ) async {
+        if submissionCount > latestSubmissionCountByAgentID[agentID, default: 0] {
+            latestSubmissionCountByAgentID[agentID] = submissionCount
+            // Bind the turn to the process that received the submission so a
+            // prompt from a later process in the same pane cannot complete a
+            // turn it never ran. A nil foreground PID clears the binding and
+            // fails closed at the delivery deadline.
+            turnForegroundPIDByAgentID[agentID] = await Self.foregroundProcessID(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID
+            )
+        }
         guard revision > latestRevisionByAgentID[agentID, default: 0] else { return }
         latestRevisionByAgentID[agentID] = revision
         debounceTasksByAgentID.removeValue(forKey: agentID)?.cancel()
@@ -64,10 +78,12 @@ actor PromptTurnNotificationHandler {
         guard latestRevisionByAgentID[agentID] == revision else { return }
         debounceTasksByAgentID.removeValue(forKey: agentID)
         guard confirmation.confirmedTurnCount > 0,
+              let turnPID = turnForegroundPIDByAgentID[agentID],
               let foregroundPID = await Self.foregroundProcessID(
                   workspaceID: workspaceID,
                   surfaceID: surfaceID
               ),
+              foregroundPID == turnPID,
               let definition = await verifiedDefinition(
                   foregroundPID: foregroundPID,
                   agentID: agentID

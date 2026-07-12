@@ -1,5 +1,6 @@
 import CmuxTerminalCore
 import Foundation
+import os
 
 /// Per-surface state owned by libghostty's serialized PTY read callback.
 ///
@@ -11,7 +12,22 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         let agentID: String
         var detector: PromptLineTurnDetector
         var forwardedRevision: UInt64 = 0
+        var forwardedSubmissionCount: UInt64 = 0
         var confirmationDeadline: ContinuousClock.Instant?
+    }
+
+    /// The latest detector state queued for the notification actor.
+    private struct AgentForward: Sendable {
+        let agentID: String
+        let submissionCount: UInt64
+        let revision: UInt64
+        let confirmation: PromptLineTurnConfirmation?
+        let deadline: ContinuousClock.Instant?
+    }
+
+    private struct ForwardQueue {
+        var pending: [AgentForward] = []
+        var draining = false
     }
 
     let workspaceID: UUID
@@ -19,6 +35,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     private let clock = ContinuousClock()
     private let notificationHandler: PromptTurnNotificationHandler
     private var detectors: [DetectorBinding]
+    private let forwardQueue = OSAllocatedUnfairLock(initialState: ForwardQueue())
 
     init(
         workspaceID: UUID,
@@ -52,32 +69,73 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
             }
 
             detectors[index].detector.consume(bytes)
-            forwardConfirmationChangeIfNeeded(at: index, now: now)
+            forwardDetectorChangeIfNeeded(at: index, now: now)
         }
     }
 
-    private func forwardConfirmationChangeIfNeeded(
+    private func forwardDetectorChangeIfNeeded(
         at index: Int,
         now: ContinuousClock.Instant
     ) {
         let revision = detectors[index].detector.confirmationRevision
-        guard revision != detectors[index].forwardedRevision else { return }
+        let submissionCount = detectors[index].detector.submissionCount
+        guard revision != detectors[index].forwardedRevision ||
+            submissionCount != detectors[index].forwardedSubmissionCount else {
+            return
+        }
         detectors[index].forwardedRevision = revision
+        detectors[index].forwardedSubmissionCount = submissionCount
 
         let confirmation = detectors[index].detector.pendingConfirmation
         let deadline = confirmation.map {
             now.advanced(by: $0.delay)
         }
         detectors[index].confirmationDeadline = deadline
-        let agentID = detectors[index].agentID
+        enqueue(AgentForward(
+            agentID: detectors[index].agentID,
+            submissionCount: submissionCount,
+            revision: revision,
+            confirmation: confirmation,
+            deadline: deadline
+        ))
+    }
+
+    /// Coalesces to the latest state per agent and keeps at most one drain
+    /// task in flight, so sustained PTY output can never fan out unbounded
+    /// tasks or queue memory. The single drain task also preserves per-agent
+    /// ordering into the notification actor.
+    private func enqueue(_ forward: AgentForward) {
+        let startDrain = forwardQueue.withLock { state in
+            if let existing = state.pending.firstIndex(where: { $0.agentID == forward.agentID }) {
+                state.pending[existing] = forward
+            } else {
+                state.pending.append(forward)
+            }
+            guard !state.draining else { return false }
+            state.draining = true
+            return true
+        }
+        guard startDrain else { return }
         let notificationHandler = notificationHandler
+        let forwardQueue = forwardQueue
         Task {
-            await notificationHandler.update(
-                agentID: agentID,
-                revision: revision,
-                confirmation: confirmation,
-                deadline: deadline
-            )
+            while true {
+                let next: AgentForward? = forwardQueue.withLock { state in
+                    guard !state.pending.isEmpty else {
+                        state.draining = false
+                        return nil
+                    }
+                    return state.pending.removeFirst()
+                }
+                guard let next else { return }
+                await notificationHandler.update(
+                    agentID: next.agentID,
+                    submissionCount: next.submissionCount,
+                    revision: next.revision,
+                    confirmation: next.confirmation,
+                    deadline: next.deadline
+                )
+            }
         }
     }
 }

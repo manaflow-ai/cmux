@@ -95,6 +95,49 @@ struct PromptLineTurnDetectorTests {
         #expect(detector.confirm(confirmation) == 1)
     }
 
+    @Test("Each echoed submission increments the submission count once")
+    func submissionCountTracksEchoedSubmissions() throws {
+        var detector = readyDetector()
+        #expect(detector.submissionCount == 0)
+
+        detector.consume(Data("first\r\n".utf8))
+        #expect(detector.submissionCount == 1)
+
+        detector.consume(Data("output\r\n>>> ".utf8))
+        let confirmation = try #require(detector.pendingConfirmation)
+        #expect(detector.confirm(confirmation) == 1)
+        #expect(detector.submissionCount == 1)
+
+        detector.consume(Data("second\r\n".utf8))
+        #expect(detector.submissionCount == 2)
+    }
+
+    @Test("A pathological run of invisible bytes cannot wedge turn detection")
+    func longInvisiblePrefixLineRemainsDetectable() throws {
+        var detector = readyDetector()
+        detector.consume(Data("ask\r\n".utf8))
+
+        detector.consume(Data(String(repeating: " ", count: 8_192).utf8))
+        #expect(detector.pendingConfirmation == nil)
+
+        detector.consume(Data("\r\nvisible tail\r\n>>> ".utf8))
+        let confirmation = try #require(detector.pendingConfirmation)
+        #expect(detector.confirm(confirmation) == 1)
+    }
+
+    @Test("Backspaced typing that restores the prompt can still confirm a turn")
+    func backspaceRestoresPromptCandidate() throws {
+        var detector = readyDetector()
+        detector.consume(Data("ask\r\nanswer\r\n".utf8))
+
+        detector.consume(Data(">>> x".utf8))
+        #expect(detector.pendingConfirmation == nil)
+
+        detector.consume(Data("\u{7F}".utf8))
+        let confirmation = try #require(detector.pendingConfirmation)
+        #expect(detector.confirm(confirmation) == 1)
+    }
+
     private func readyDetector() -> PromptLineTurnDetector {
         var detector = PromptLineTurnDetector(configuration: configuration)
         detector.consume(Data(">>> ".utf8))
