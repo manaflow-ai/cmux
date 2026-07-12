@@ -74,54 +74,55 @@ final class MobileWorkingTreeDiffLoader: Sendable {
             maximumStdoutBytes: 1024
         )).status == 0
         var patch = Data()
-        let trackedBase: String
+        var individualPaths: [Data] = []
         if hasHead {
-            trackedBase = "HEAD"
-        } else {
-            let emptyTree = try await runGit(
-                ["hash-object", "-w", "-t", "tree", "--stdin"],
+            let tracked = try await runGit(
+                ["diff", "--no-ext-diff", "--no-textconv", "--binary", "HEAD", "--"],
                 directory: repositoryRoot,
-                maximumStdoutBytes: 256
+                maximumStdoutBytes: maximumPatchBytes
             )
-            guard emptyTree.status == 0,
-                  let hash = String(data: emptyTree.stdout, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                  !hash.isEmpty else {
-                throw MobileWorkingTreeDiffLoadError(code: "git_error", message: "Could not identify the empty Git tree")
+            guard !tracked.stdoutOverflowed else {
+                throw MobileWorkingTreeDiffLoadError(code: "too_large", message: "Workspace diff is too large to send to this phone")
             }
-            trackedBase = hash
+            guard tracked.status == 0 else {
+                throw MobileWorkingTreeDiffLoadError(code: "git_error", message: "Git diff failed")
+            }
+            patch.append(tracked.stdout)
+        } else {
+            let indexed = try await runGit(
+                ["ls-files", "-z"],
+                directory: repositoryRoot,
+                maximumStdoutBytes: maximumPathListBytes
+            )
+            guard !indexed.stdoutOverflowed else {
+                throw MobileWorkingTreeDiffLoadError(code: "too_many_files", message: "Workspace has too many files to display")
+            }
+            guard indexed.status == 0 else {
+                throw MobileWorkingTreeDiffLoadError(code: "git_error", message: "Could not list indexed files")
+            }
+            individualPaths = indexed.stdout.split(separator: 0).map(Data.init)
         }
-        let tracked = try await runGit(
-            ["diff", "--no-ext-diff", "--no-textconv", "--binary", trackedBase, "--"],
-            directory: repositoryRoot,
-            maximumStdoutBytes: maximumPatchBytes
-        )
-        guard !tracked.stdoutOverflowed else {
-            throw MobileWorkingTreeDiffLoadError(code: "too_large", message: "Workspace diff is too large to send to this phone")
-        }
-        guard tracked.status == 0 else {
-            throw MobileWorkingTreeDiffLoadError(code: "git_error", message: "Git diff failed")
-        }
-        patch.append(tracked.stdout)
 
         let untracked = try await runGit(
             ["ls-files", "--others", "--exclude-standard", "-z"],
             directory: repositoryRoot,
             maximumStdoutBytes: maximumPathListBytes
         )
-        let paths = untracked.stdout.split(separator: 0)
-        guard !untracked.stdoutOverflowed, paths.count <= maximumUntrackedFiles else {
-            throw MobileWorkingTreeDiffLoadError(code: "too_many_files", message: "Workspace has too many untracked files to display")
+        let untrackedPaths = untracked.stdout.split(separator: 0).map(Data.init)
+        guard !untracked.stdoutOverflowed,
+              individualPaths.count + untrackedPaths.count <= maximumUntrackedFiles else {
+            throw MobileWorkingTreeDiffLoadError(code: "too_many_files", message: "Workspace has too many files to display")
         }
         guard untracked.status == 0 else {
             throw MobileWorkingTreeDiffLoadError(code: "git_error", message: "Could not list untracked files")
         }
-        for pathData in paths {
-            guard let path = String(data: Data(pathData), encoding: .utf8) else {
+        individualPaths.append(contentsOf: untrackedPaths)
+        for pathData in individualPaths {
+            guard let path = String(data: pathData, encoding: .utf8) else {
                 throw MobileWorkingTreeDiffLoadError(code: "invalid_data", message: "Workspace contains a file path that is not valid UTF-8")
             }
             guard !path.isEmpty else { continue }
-            guard Self.isDiffableUntrackedFile(path, repositoryRoot: repositoryRoot) else { continue }
+            guard Self.isDiffableFile(path, repositoryRoot: repositoryRoot) else { continue }
             let result = try await runGit(
                 ["diff", "--no-index", "--no-ext-diff", "--no-textconv", "--binary", "--", "/dev/null", path],
                 directory: repositoryRoot,
@@ -217,7 +218,7 @@ final class MobileWorkingTreeDiffLoader: Sendable {
         return sanitized
     }
 
-    private static func isDiffableUntrackedFile(_ path: String, repositoryRoot: String) -> Bool {
+    private static func isDiffableFile(_ path: String, repositoryRoot: String) -> Bool {
         var metadata = stat()
         let fullPath = URL(fileURLWithPath: repositoryRoot).appendingPathComponent(path).path
         guard lstat(fullPath, &metadata) == 0 else { return false }
