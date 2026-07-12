@@ -1417,7 +1417,10 @@ extension Workspace {
                 : nil
             let requestedWorkingDirectory =
                 localWorkingDirectory ?? (startupHandlesWorkingDirectory ? workingDirectory : nil)
-            let restoredAgentWillRunStartupCommand = restoredAgentResumeLaunch?.initialCommand != nil || (restoredBindingLaunch?.initialCommand != nil && resumeBinding?.isAgentHookBinding == true)
+            let restoredAgentWillRunStartupCommand = restorableAgent != nil && (
+                restoredAgentResumeLaunch?.initialCommand != nil ||
+                (restoredBindingLaunch?.initialCommand != nil && resumeBinding?.isAgentHookBinding == true)
+            )
             let restoredAgentWillRunStartupInput = restoredAgentResumeLaunch?.initialInput != nil || (restoredBindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true)
             logSessionRestoreTerminalPanelBinding(snapshot: snapshot, resumeBinding: resumeBinding, approvedBinding: effectiveResumeBindingForStartup, bindingLaunch: restoredBindingLaunch, agentLaunch: restoredAgentResumeLaunch, startupCommand: restoredStartupCommand, startupInput: restoredStartupInput)
 #if DEBUG
