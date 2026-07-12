@@ -1,3 +1,5 @@
+import CMUXMobileCore
+import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
@@ -158,6 +160,64 @@ import Testing
     #expect(await firstRefresh.value)
     #expect(await router.workspaceListGate.requestCount() == 2)
     #expect(store.foregroundWorkspaceMutationRefreshTask == nil)
+}
+
+@MainActor
+@Test func olderSecondaryAggregationCannotOverwritePostMutationRefresh() async throws {
+    let router = RoutingHostRouter()
+    await router.workspaceListGate.setHoldFirst(true)
+    await router.workspaceListGate.setUsesOrdinalTitles(true)
+    let macID = "secondary-generation"
+    let route = try CmxAttachRoute(
+        id: "debug_loopback_secondary_generation",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56587)
+    )
+    let pairedMacStore = DelayedTeamPairedMacStore(
+        recordsByTeam: [
+            "team-a": [
+                MobilePairedMac(
+                    macDeviceID: macID,
+                    displayName: "Secondary Mac",
+                    routes: [route],
+                    createdAt: Date(timeIntervalSince1970: 1),
+                    lastSeenAt: Date(timeIntervalSince1970: 2),
+                    isActive: false,
+                    stackUserID: "user-1",
+                    teamID: "team-a"
+                ),
+            ],
+        ],
+        blockedTeams: []
+    )
+    let store = makeRoutingMultiMacStore(router: router, pairedMacStore: pairedMacStore)
+    try installSecondaryClient(on: store, macDeviceID: macID, router: router)
+    let subscription = try #require(store.secondaryMacSubscriptions[macID])
+    let target = WorkspaceMutationTarget(
+        client: subscription.client,
+        isForeground: false,
+        macDeviceID: macID
+    )
+
+    let olderAggregation = Task { @MainActor in
+        await store.refreshSecondaryMacWorkspaces()
+    }
+    await router.workspaceListGate.waitUntilFirstReached()
+    let mutationRefresh = Task { @MainActor in
+        await store.refreshAfterWorkspaceMutation(target)
+    }
+    await router.workspaceListGate.waitUntilRequestCount(2)
+    #expect(await mutationRefresh.value)
+    let refreshedWorkspaceID = try #require(
+        store.workspaces.first(where: { $0.macDeviceID == macID })?.id
+    )
+    store.terminalReorderGate.requireRefresh(workspaceID: refreshedWorkspaceID)
+
+    await router.workspaceListGate.releaseFirst()
+    await olderAggregation.value
+
+    #expect(store.workspaces.first(where: { $0.macDeviceID == macID })?.name == "Fresh Workspace")
+    #expect(!store.terminalReorderGate.canMutate(workspaceID: refreshedWorkspaceID))
 }
 
 @Test func terminalSubscriptionsIncludeScopedWorkspaceFocusTopic() {

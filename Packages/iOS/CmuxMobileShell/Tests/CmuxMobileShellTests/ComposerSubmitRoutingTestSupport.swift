@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
@@ -208,6 +209,7 @@ actor RoutingHostRouter {
                     [
                         "id": Self.workspaceID,
                         "title": "Routing Workspace",
+                        "is_selected": false,
                         "terminals": [],
                     ],
                     [
@@ -374,7 +376,8 @@ func makeRoutingConnectedStore(
     pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(
         defaults: UserDefaults(suiteName: "routing-dismiss-\(UUID().uuidString)")!
     ),
-    macScopedWorkspaceMutations: Bool = false
+    macScopedWorkspaceMutations: Bool = false,
+    connectionState: MobileConnectionState = .disconnected
 ) async throws -> MobileShellComposite {
     let runtime = RoutingTestRuntime(
         transportFactory: RoutingTransportFactory(router: router)
@@ -386,6 +389,7 @@ func makeRoutingConnectedStore(
     let store = MobileShellComposite(
         runtime: runtime,
         isSignedIn: true,
+        connectionState: connectionState,
         workspaces: [
             MobileWorkspacePreview(
                 id: .init(rawValue: RoutingHostRouter.workspaceID),
@@ -419,6 +423,27 @@ func makeRoutingConnectedStore(
         allowsStackAuthFallback: true
     )
     store.foregroundMacDeviceID = "test-mac"
+    return store
+}
+
+/// Build a signed-in store that can run the real secondary aggregation path
+/// while a test supplies an already-connected secondary subscription.
+@MainActor
+func makeRoutingMultiMacStore(
+    router: RoutingHostRouter,
+    pairedMacStore: any MobilePairedMacStoring
+) -> MobileShellComposite {
+    let runtime = RoutingTestRuntime(
+        transportFactory: RoutingTransportFactory(router: router)
+    )
+    let store = MobileShellComposite(
+        runtime: runtime,
+        isSignedIn: true,
+        pairedMacStore: pairedMacStore,
+        identityProvider: StaticIdentityProvider(userID: "user-1"),
+        teamIDProvider: { "team-a" }
+    )
+    store.foregroundMacDeviceID = "foreground-mac"
     return store
 }
 

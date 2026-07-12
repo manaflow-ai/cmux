@@ -91,4 +91,27 @@ import Testing
         #expect(await router.recordedWorkspaceCreateCount() == 1)
         #expect(await router.recordedWorkspaceCreateGroupIDs() == ["group-a"])
     }
+
+    @Test func createResponseCannotCreditLaterMutationEpoch() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstWorkspaceCreate(true)
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            connectionState: .connected
+        )
+
+        let create = Task { @MainActor in
+            await store.createWorkspaceRequest()
+        }
+        await router.awaitFirstWorkspaceCreateReached()
+        let laterMutationEpoch = store.advanceForegroundWorkspaceListMutationEpoch()
+
+        await router.releaseFirstWorkspaceCreate()
+        let createResult = await create.value
+        guard case .success = createResult else {
+            return #expect(Bool(false), "workspace create should succeed: \(createResult)")
+        }
+
+        #expect(store.foregroundWorkspaceListAppliedMutationEpoch < laterMutationEpoch)
+    }
 }
