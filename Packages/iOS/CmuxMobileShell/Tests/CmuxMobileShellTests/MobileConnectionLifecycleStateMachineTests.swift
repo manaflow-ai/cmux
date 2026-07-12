@@ -379,6 +379,61 @@ import Testing
     }
 
     @MainActor
+    @Test func manualRetrySupersedesAnOwnedStoredMacReconnect() {
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: DelayedTeamPairedMacStore(
+                recordsByTeam: [:],
+                blockedTeams: []
+            ),
+            identityProvider: StaticIdentityProvider(userID: "user-1")
+        )
+        let oldRequest = store.connectionLifecycle.requestStoredMacReconnect(
+            stackUserID: "user-1",
+            health: .disconnected
+        )
+        guard case .start(let oldEpisode) = oldRequest.effect else {
+            Issue.record("stored Mac reconnect must start one owned episode")
+            return
+        }
+
+        store.retryMobileConnection()
+
+        let replacement = store.connectionLifecycle.activeEpisode
+        #expect(replacement?.id != oldEpisode.id)
+        #expect(replacement?.kind == .reconnect)
+        #expect(replacement?.triggers == [.manualRetry])
+        #expect(!store.didFinishStoredMacReconnectAttempt)
+    }
+
+    @MainActor
+    @Test func manualPairingCancelsOwnedReconnectAndResolvesItsCaller() async {
+        let pairedMacStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [:],
+            blockedTeams: [""]
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedMacStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1")
+        )
+        let reconnect = Task { @MainActor in
+            await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        await pairedMacStore.waitUntilLoadStarted(teamID: nil)
+        defer { Task { await pairedMacStore.release(teamID: nil) } }
+
+        store.prepareForManualPairing()
+
+        #expect(await reconnect.value == false)
+        #expect(store.connectionLifecycle.activeEpisode == nil)
+        #expect(store.connectionLifecycle.resourceSnapshot.activeEpisodeCount == 0)
+        #expect(store.connectionLifecycle.resourceSnapshot.pendingRequestCount == 0)
+        #expect(store.connectionLifecycleRequestWaiters.isEmpty)
+        #expect(store.didFinishStoredMacReconnectAttempt)
+    }
+
+    @MainActor
     @Test func teamChangeReplacesStoredMacRecoveryWithNewScopeEpisode() {
         let store = MobileShellComposite(
             isSignedIn: true,
