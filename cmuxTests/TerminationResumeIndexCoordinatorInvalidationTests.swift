@@ -13,6 +13,49 @@ import Testing
 @Suite("Termination resume-index invalidation", .serialized)
 struct TerminationResumeIndexCoordinatorInvalidationTests {
     @Test
+    func cancelledOrdinaryQuitPreservesUpdaterRelaunchPreparation() async throws {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        defer { AppDelegate.shared = previousAppDelegate }
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let directory = try Self.temporaryDirectory(named: "updater-preparation")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                Self.loadResult(
+                    checkpointId: "updater-prepared",
+                    workspaceId: workspaceId,
+                    panelId: panelId
+                )
+            },
+            processScopeFingerprintProvider: { [] },
+            hookStoreDirectoryProvider: { directory.path }
+        )
+
+        _ = await app.terminationResumeIndexCoordinator.load(coordinatedBy: sharedIndex)
+        #expect(
+            Self.checkpoint(
+                in: app.terminationResumeIndexCoordinator.current(),
+                workspaceId: workspaceId,
+                panelId: panelId
+            ) == "updater-prepared"
+        )
+
+        app.replyToTerminateOnce(false)
+
+        #expect(
+            Self.checkpoint(
+                in: app.terminationResumeIndexCoordinator.current(),
+                workspaceId: workspaceId,
+                panelId: panelId
+            ) == "updater-prepared",
+            "Cancelling an unrelated quit must not abandon the updater-owned relaunch preparation."
+        )
+    }
+
+    @Test
     func invalidationClearsCompletedAuthority() async throws {
         let workspaceId = UUID()
         let panelId = UUID()

@@ -138,6 +138,77 @@ struct SharedLiveAgentIndexFingerprintInvalidationTests {
         )
     }
 
+    @Test
+    func refreshStartedDuringFingerprintValidationBecomesAuthoritative() async {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let fingerprintStarted = DispatchSemaphore(value: 0)
+        let releaseFingerprint = DispatchSemaphore(value: 0)
+        defer { releaseFingerprint.signal() }
+        let now = Date.now
+        let hookDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-refresh-during-fingerprint-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: hookDirectory) }
+        let cachedResult: SharedLiveAgentIndex.LoadResult = (
+            index: SharedLiveAgentIndexLoadCoalescingTests.index(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                sessionId: "cached-session"
+            ),
+            surfaceResumeBindingIndex: .empty,
+            liveAgentProcessFingerprint: [],
+            processScopeFingerprint: ["scope"],
+            forkValidatedPanels: []
+        )
+        let refreshResult: SharedLiveAgentIndex.LoadResult = (
+            index: SharedLiveAgentIndexLoadCoalescingTests.index(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                sessionId: "refresh-session"
+            ),
+            surfaceResumeBindingIndex: .empty,
+            liveAgentProcessFingerprint: [],
+            processScopeFingerprint: ["scope"],
+            forkValidatedPanels: []
+        )
+        let sharedIndex = SharedLiveAgentIndex(
+            processScopeFingerprintProvider: {
+                fingerprintStarted.signal()
+                releaseFingerprint.wait()
+                return ["scope"]
+            },
+            hookStoreDirectoryProvider: { hookDirectory.path },
+            dateProvider: { now }
+        )
+        sharedIndex.latestCompletedLoadResult = cachedResult
+        sharedIndex.latestCompletedAt = now
+
+        let read = Task { @MainActor in
+            await sharedIndex.resumeIndexesRefreshingIfNeeded(maximumAge: 60)
+        }
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: fingerprintStarted))
+        let generationID = UUID()
+        sharedIndex.refreshGenerationsByID[generationID] = .init(
+            id: generationID,
+            ordinal: 1,
+            phase: .capturing,
+            publication: .scoped,
+            validationPanelsByPanelID: [:]
+        )
+        sharedIndex.refreshTasksByID[generationID] = Task { refreshResult }
+        sharedIndex.refreshTailID = generationID
+        releaseFingerprint.signal()
+
+        let result = await read.value
+        let sessionId = result?.restorableAgentIndex
+            .snapshot(workspaceId: workspaceId, panelId: panelId)?
+            .sessionId
+        #expect(
+            sessionId == "refresh-session",
+            "A refresh that starts during cache validation must supersede the older cached result."
+        )
+    }
+
     @Test(arguments: [false, true])
     func expiredCacheIsRejectedWhenRefreshIsUnavailable(joinExistingRefresh: Bool) async {
         var now = Date()
