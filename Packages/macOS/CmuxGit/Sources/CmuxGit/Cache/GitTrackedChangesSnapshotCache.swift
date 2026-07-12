@@ -61,6 +61,7 @@ public actor GitTrackedChangesSnapshotCache {
     }
 
     private let maximumEntryCount: Int
+    nonisolated let runtimeMetricsRecorder: CmuxGitRuntimeMetrics
     private var entriesByKey: [
         GitTrackedChangesSnapshotCacheKey: GitTrackedChangesSnapshotCacheEntry
     ] = [:]
@@ -74,6 +75,15 @@ public actor GitTrackedChangesSnapshotCache {
     /// - Parameter maximumEntryCount: Maximum completed snapshots retained.
     public init(maximumEntryCount: Int = 256) {
         self.maximumEntryCount = max(1, maximumEntryCount)
+        self.runtimeMetricsRecorder = GitMetadataService.runtimeMetrics
+    }
+
+    init(
+        maximumEntryCount: Int = 256,
+        runtimeMetricsRecorder: CmuxGitRuntimeMetrics
+    ) {
+        self.maximumEntryCount = max(1, maximumEntryCount)
+        self.runtimeMetricsRecorder = runtimeMetricsRecorder
     }
 
     func snapshot(
@@ -87,7 +97,7 @@ public actor GitTrackedChangesSnapshotCache {
             authority: authority
         )
         guard let snapshot = entriesByKey[key]?.snapshot else { return nil }
-        GitMetadataService.recordTrackedStatusCacheHit()
+        runtimeMetricsRecorder.recordTrackedStatusCacheHit()
         return snapshot
     }
 
@@ -98,13 +108,14 @@ public actor GitTrackedChangesSnapshotCache {
         load: @escaping @Sendable () -> GitTrackedChangesSnapshot
     ) async -> GitTrackedChangesSnapshot? {
         guard !Task.isCancelled else { return nil }
+        runtimeMetricsRecorder.recordTrackedStatusRequest()
         let key = GitTrackedChangesSnapshotCacheKey(
             repository: repository,
             indexStatSignature: indexStatSignature,
             authority: authority
         )
         if let snapshot = entriesByKey[key]?.snapshot {
-            GitMetadataService.recordTrackedStatusCacheHit()
+            runtimeMetricsRecorder.recordTrackedStatusCacheHit()
             return snapshot
         }
 
@@ -162,7 +173,7 @@ public actor GitTrackedChangesSnapshotCache {
             return
         }
         if var inFlight = inFlightSnapshotsByKey[key] {
-            GitMetadataService.recordTrackedStatusInFlightJoin()
+            runtimeMetricsRecorder.recordTrackedStatusInFlightJoin()
             inFlight.waitersByID[waiterID] = waiter
             inFlightSnapshotsByKey[key] = inFlight
             return

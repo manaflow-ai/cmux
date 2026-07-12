@@ -32,16 +32,19 @@ public final class PullRequestPollService: PullRequestProbing {
 
     // MARK: Dependencies
 
-    // Resolves slugs for candidate seeds (stateless CmuxGit reader).
-    let gitMetadataService: GitMetadataService
-    // Fetches and matches GitHub PRs (stateless CmuxGit pipeline).
-    let probeService: PullRequestProbeService
+    // Runs slug resolution and GitHub fetches off-main. The production
+    // executor wraps the stateless CmuxGit services; tests inject a gated
+    // executor at this exact remote-fetch boundary.
+    let refreshExecutor: any PullRequestRefreshExecuting
     // Drives the poll deadline and mobile-host deferral sleeps.
     let clock: any GitPollClock
     // Mobile-host background-work deferral intervals.
     let mobileHostDeferral: MobileHostDeferralPolicy
     // Debug diagnostics sink (the app injects its debug logger in DEBUG).
     let debugLog: @Sendable (String) -> Void
+    // Defaults to the process-wide opt-in recorder. Focused tests replace it
+    // with an isolated enabled instance so causal counts stay deterministic.
+    var runtimeMetricsRecorder = SidebarGitMetadataService.runtimeMetrics
     // The window-side seam; set once via attach(host:). Weak: the host owns
     // this service.
     weak var host: (any SidebarGitHosting)?
@@ -55,6 +58,8 @@ public final class PullRequestPollService: PullRequestProbing {
     var workspacePullRequestRepoCacheBySlug: [String: WorkspacePullRequestRepoCacheEntry] = [:]
     var workspacePullRequestPollTask: Task<Void, Never>?
     var workspacePullRequestRefreshTask: Task<Void, Never>?
+    var workspacePullRequestRefreshAuthority: DetachedCompletionAuthority?
+    var workspacePullRequestRefreshGeneration: UInt64 = 0
     var workspacePullRequestFollowUpShouldBypassRepoCache = false
     var workspacePullRequestSourceByKey: [WorkspaceGitProbeKey: SourceIdentity] = [:]
     var workspacePullRequestSeedRefreshTask: Task<Void, Never>?
@@ -76,14 +81,29 @@ public final class PullRequestPollService: PullRequestProbing {
         mobileHostDeferral: MobileHostDeferralPolicy = .standard,
         debugLog: @escaping @Sendable (String) -> Void = { _ in }
     ) {
-        self.gitMetadataService = gitMetadataService
-        self.probeService = probeService
+        self.refreshExecutor = LivePullRequestRefreshExecutor(
+            gitMetadataService: gitMetadataService,
+            probeService: probeService
+        )
+        self.clock = clock
+        self.mobileHostDeferral = mobileHostDeferral
+        self.debugLog = debugLog
+    }
+
+    init(
+        refreshExecutor: any PullRequestRefreshExecuting,
+        clock: any GitPollClock = SystemGitPollClock(),
+        mobileHostDeferral: MobileHostDeferralPolicy = .standard,
+        debugLog: @escaping @Sendable (String) -> Void = { _ in }
+    ) {
+        self.refreshExecutor = refreshExecutor
         self.clock = clock
         self.mobileHostDeferral = mobileHostDeferral
         self.debugLog = debugLog
     }
 
     deinit {
+        workspacePullRequestRefreshAuthority?.invalidate()
         workspacePullRequestPollTask?.cancel()
         workspacePullRequestRefreshTask?.cancel()
         workspacePullRequestSeedRefreshTask?.cancel()
@@ -155,6 +175,18 @@ public final class PullRequestPollService: PullRequestProbing {
     // MARK: Refresh pass
 
     public func refreshTrackedWorkspacePullRequestsIfNeeded(reason: String) {
+        // Equivalent periodic requests join the active fetch in O(1). A
+        // source seed or cache-bypassing request must still traverse so it can
+        // invalidate stale authority and own the single follow-up.
+        if workspacePullRequestRefreshTask != nil,
+           sidebarPullRequestPollingEnabled,
+           host?.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) != true,
+           workspacePullRequestPendingSeedRefresh == nil,
+           PullRequestProbeService.refreshAllowsRepoCache(reason: reason) {
+            runtimeMetricsRecorder.recordPullRequestRefreshRequest()
+            runtimeMetricsRecorder.recordPullRequestTaskJoined()
+            return
+        }
         // If another refresh is already running, its apply owns the pending
         // seed and the one follow-up pass. Consuming it here would lose a seed
         // for a panel outside the current request batch when this traversal
@@ -172,6 +204,7 @@ public final class PullRequestPollService: PullRequestProbing {
         reason: String,
         allowCachedResultsOverride: Bool?
     ) {
+        runtimeMetricsRecorder.recordPullRequestRefreshRequest()
         guard let host else { return }
         guard !host.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) else {
             deferWorkspacePullRequestRefreshForMobileHost()
@@ -212,6 +245,7 @@ public final class PullRequestPollService: PullRequestProbing {
                         .normalizedGitProbeDirectory ?? "",
                     branch: branch
                 )
+                let previousSource = workspacePullRequestSourceByKey[key]
                 workspacePullRequestSourceByKey[key] = source
 
                 if PullRequestProbeService.shouldSkipLookup(branch: branch) {
@@ -219,6 +253,15 @@ public final class PullRequestPollService: PullRequestProbing {
                         host.clearPanelPullRequest(workspaceId: workspaceId, panelId: panelId)
                     }
                     clearWorkspacePullRequestTracking(for: key, preservingSource: true)
+                    continue
+                }
+
+                if case .inFlight = workspacePullRequestProbeStateByKey[key],
+                   previousSource != source {
+                    markWorkspacePullRequestProbeRerunPending(
+                        for: key,
+                        bypassRepoCache: !PullRequestProbeService.refreshAllowsRepoCache(reason: reason)
+                    )
                     continue
                 }
 
@@ -231,10 +274,13 @@ public final class PullRequestPollService: PullRequestProbing {
                 }
 
                 if case .inFlight = workspacePullRequestProbeStateByKey[key] {
-                    markWorkspacePullRequestProbeRerunPending(
-                        for: key,
-                        bypassRepoCache: !PullRequestProbeService.refreshAllowsRepoCache(reason: reason)
-                    )
+                    let bypassesRepoCache = !PullRequestProbeService.refreshAllowsRepoCache(reason: reason)
+                    if bypassesRepoCache {
+                        markWorkspacePullRequestProbeRerunPending(
+                            for: key,
+                            bypassRepoCache: bypassesRepoCache
+                        )
+                    }
                     continue
                 }
 

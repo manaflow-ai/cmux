@@ -37,6 +37,7 @@ public struct GitMetadataService: Sendable {
     static let runtimeMetrics = CmuxGitRuntimeMetrics()
     let fileStatusReader: any GitFileStatusReading
     private let trackedChangesSnapshotScope: GitTrackedChangesSnapshotScope
+    let runtimeMetricsRecorder: CmuxGitRuntimeMetrics
 
     /// Creates a git-metadata service with an injectable process scope.
     ///
@@ -47,6 +48,7 @@ public struct GitMetadataService: Sendable {
     ) {
         self.fileStatusReader = SystemGitFileStatusReader()
         self.trackedChangesSnapshotScope = trackedChangesSnapshotScope
+        self.runtimeMetricsRecorder = trackedChangesSnapshotScope.runtimeMetricsRecorder
     }
 
     init(
@@ -55,6 +57,7 @@ public struct GitMetadataService: Sendable {
     ) {
         self.fileStatusReader = fileStatusReader
         self.trackedChangesSnapshotScope = trackedChangesSnapshotScope
+        self.runtimeMetricsRecorder = trackedChangesSnapshotScope.runtimeMetricsRecorder
     }
 
     /// Reads a point-in-time git snapshot for `directory`.

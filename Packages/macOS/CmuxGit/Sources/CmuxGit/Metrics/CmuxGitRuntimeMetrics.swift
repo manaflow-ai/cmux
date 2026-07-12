@@ -14,6 +14,7 @@ public struct CmuxGitRuntimeMetricsSnapshot: Codable, Equatable, Sendable {
     public let rawTrackedStatusScanCount: UInt64
     public let trackedStatusCacheHitCount: UInt64
     public let trackedStatusInFlightJoinCount: UInt64
+    public let trackedStatusRequestCount: UInt64
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
@@ -21,6 +22,7 @@ public struct CmuxGitRuntimeMetricsSnapshot: Codable, Equatable, Sendable {
         case rawTrackedStatusScanCount
         case trackedStatusCacheHitCount
         case trackedStatusInFlightJoinCount
+        case trackedStatusRequestCount
     }
 }
 
@@ -68,6 +70,11 @@ public final class CmuxGitRuntimeMetrics: Sendable {
     func recordTrackedStatusInFlightJoin() {
         recorder.recordTrackedStatusInFlightJoin()
     }
+
+    @inline(__always)
+    func recordTrackedStatusRequest() {
+        recorder.recordTrackedStatusRequest()
+    }
 }
 
 public extension GitMetadataService {
@@ -84,20 +91,6 @@ public extension GitMetadataService {
     }
 }
 
-extension GitMetadataService {
-    static func recordRawTrackedStatusScan() {
-        runtimeMetrics.recordRawTrackedStatusScan()
-    }
-
-    static func recordTrackedStatusCacheHit() {
-        runtimeMetrics.recordTrackedStatusCacheHit()
-    }
-
-    static func recordTrackedStatusInFlightJoin() {
-        runtimeMetrics.recordTrackedStatusInFlightJoin()
-    }
-}
-
 /// An instance-scoped recorder keeps tests independent from live package work.
 final class CmuxGitRuntimeMetricsRecorder: Sendable {
     private struct State {
@@ -105,14 +98,16 @@ final class CmuxGitRuntimeMetricsRecorder: Sendable {
         var rawTrackedStatusScanCount: UInt64 = 0
         var trackedStatusCacheHitCount: UInt64 = 0
         var trackedStatusInFlightJoinCount: UInt64 = 0
+        var trackedStatusRequestCount: UInt64 = 0
 
         var snapshot: CmuxGitRuntimeMetricsSnapshot {
             CmuxGitRuntimeMetricsSnapshot(
-                schemaVersion: 1,
+                schemaVersion: 2,
                 enabled: enabled,
                 rawTrackedStatusScanCount: rawTrackedStatusScanCount,
                 trackedStatusCacheHitCount: trackedStatusCacheHitCount,
-                trackedStatusInFlightJoinCount: trackedStatusInFlightJoinCount
+                trackedStatusInFlightJoinCount: trackedStatusInFlightJoinCount,
+                trackedStatusRequestCount: trackedStatusRequestCount
             )
         }
     }
@@ -166,6 +161,15 @@ final class CmuxGitRuntimeMetricsRecorder: Sendable {
         state.withLock { state in
             guard state.enabled else { return }
             state.trackedStatusInFlightJoinCount &+= 1
+        }
+    }
+
+    @inline(__always)
+    func recordTrackedStatusRequest() {
+        guard enabled.loadRelaxed() else { return }
+        state.withLock { state in
+            guard state.enabled else { return }
+            state.trackedStatusRequestCount &+= 1
         }
     }
 }

@@ -11,6 +11,7 @@ extension SidebarGitMetadataService {
         }
         requests.removeValue(forKey: key)
         if requests.isEmpty {
+            workspaceGitSnapshotCompletionAuthorityByDirectory.removeValue(forKey: directory)?.invalidate()
             workspaceGitSnapshotRequestsByDirectory.removeValue(forKey: directory)
             workspaceGitSnapshotTaskContextByDirectory.removeValue(forKey: directory)
             workspaceGitSnapshotPendingContextByDirectory.removeValue(forKey: directory)
@@ -25,6 +26,10 @@ extension SidebarGitMetadataService {
 
     func cancelAllWorkspaceGitSnapshotTasks() {
         workspaceGitSnapshotApplyBatcher.cancel()
+        for authority in workspaceGitSnapshotCompletionAuthorityByDirectory.values {
+            authority.invalidate()
+        }
+        workspaceGitSnapshotCompletionAuthorityByDirectory.removeAll()
         for task in workspaceGitSnapshotTasksByDirectory.values {
             task.cancel()
         }
@@ -77,6 +82,7 @@ extension SidebarGitMetadataService {
         }
         workspaceGitSnapshotPendingContextByDirectory[directory] = context
         workspaceGitSupersededSnapshotTaskIDs.insert(taskID)
+        workspaceGitSnapshotCompletionAuthorityByDirectory[directory]?.invalidate()
         markWorkspaceGitSnapshotRerunPending(directory: directory)
     }
 }

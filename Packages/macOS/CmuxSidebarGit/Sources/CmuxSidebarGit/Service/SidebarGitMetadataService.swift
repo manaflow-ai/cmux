@@ -52,6 +52,9 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     let mobileHostDeferral: MobileHostDeferralPolicy
     // Debug diagnostics sink (the app injects its debug logger in DEBUG).
     let debugLog: @Sendable (String) -> Void
+    // Defaults to the process-wide opt-in recorder. Focused tests replace it
+    // with an isolated enabled instance so causal counts stay deterministic.
+    var runtimeMetricsRecorder = SidebarGitMetadataService.runtimeMetrics
     // The window-side seam; set once via attach(host:). Weak: the host owns
     // this service.
     private(set) weak var host: (any SidebarGitHosting)?
@@ -84,6 +87,8 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     var workspaceGitSnapshotPendingContextByDirectory: [String: WorkspaceGitSnapshotTaskContext] = [:]
     var workspaceGitSupersededSnapshotTaskIDs: Set<UUID> = []
     var workspaceGitSnapshotTaskIDByDirectory: [String: UUID] = [:]
+    var workspaceGitSnapshotCompletionAuthorityByDirectory: [String: DetachedCompletionAuthority] = [:]
+    var workspaceGitSnapshotCompletionGeneration: UInt64 = 0
     var workspaceGitSnapshotDirectoryByProbeKey: [WorkspaceGitProbeKey: String] = [:]
     let workspaceGitSnapshotApplyBatcher = LatestWinsBatcher<String, WorkspaceGitSnapshotApply>(
         quietDelay: 0.016,

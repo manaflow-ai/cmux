@@ -12,7 +12,9 @@ extension GitTrackedChangesSnapshotCacheTests {
         let repository = try #require(GitMetadataService.resolveGitRepository(containing: fixture.root.path))
         let filePath = fixture.root.appendingPathComponent("file.txt").path
         let reader = GatedCountingGitFileStatusReader(gatedPath: filePath)
-        let scope = GitTrackedChangesSnapshotScope()
+        let metrics = CmuxGitRuntimeMetrics()
+        metrics.reset(enable: true)
+        let scope = GitTrackedChangesSnapshotScope(runtimeMetricsRecorder: metrics)
         let callerCount = 8
         let startGate = ConcurrentOperationStartGate(expectedCount: callerCount)
         let identity = GitTrackedChangesRepositoryIdentity(repository: repository)
@@ -56,6 +58,17 @@ extension GitTrackedChangesSnapshotCacheTests {
 
         #expect(trackedScanOperationCount == 1)
         #expect(snapshots.count == callerCount)
+        let runtime = metrics.snapshot()
+        #expect(runtime.schemaVersion == 2)
+        #expect(runtime.trackedStatusRequestCount == callerCount)
+        #expect(runtime.rawTrackedStatusScanCount == 1)
+        #expect(runtime.trackedStatusCacheHitCount == 0)
+        #expect(runtime.trackedStatusInFlightJoinCount == callerCount - 1)
+        #expect(
+            runtime.rawTrackedStatusScanCount +
+                runtime.trackedStatusCacheHitCount +
+                runtime.trackedStatusInFlightJoinCount == runtime.trackedStatusRequestCount
+        )
         let firstSnapshot = try #require(snapshots.first)
         #expect(snapshots.allSatisfy { $0 == firstSnapshot })
     }

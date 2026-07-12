@@ -59,6 +59,10 @@ extension SidebarGitMetadataService {
     ) {
         let normalizedDirectory = directory.normalizedGitProbeDirectory
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        if let previousDirectory = workspaceGitSnapshotDirectoryByProbeKey[key],
+           previousDirectory != normalizedDirectory {
+            removeWorkspaceGitSnapshotRequest(for: key)
+        }
         let taskContext = WorkspaceGitSnapshotTaskContext(
             snapshotRequest: snapshotRequestForSnapshot(
                 directory: normalizedDirectory,
@@ -182,8 +186,14 @@ extension SidebarGitMetadataService {
         let reader = workspaceGitMetadataReader
         let probeLimiter = probeLimiter
         let taskID = UUID()
+        workspaceGitSnapshotCompletionGeneration &+= 1
+        let authority = DetachedCompletionAuthority(
+            generation: workspaceGitSnapshotCompletionGeneration
+        )
         workspaceGitSnapshotTaskContextByDirectory[expectedDirectory] = taskContext
         workspaceGitSnapshotTaskIDByDirectory[expectedDirectory] = taskID
+        workspaceGitSnapshotCompletionAuthorityByDirectory[expectedDirectory] = authority
+        let runtimeMetricsRecorder = runtimeMetricsRecorder
         workspaceGitSnapshotTasksByDirectory[expectedDirectory] = Task.detached(priority: .utility) { [weak self] in
             let didAcquirePermit = await probeLimiter.acquire()
             guard didAcquirePermit else { return }
@@ -199,12 +209,33 @@ extension SidebarGitMetadataService {
                 reader: reader,
                 snapshotRequest: taskContext.snapshotRequest
             )
+            guard snapshot.isCurrent, authority.isCurrent() else {
+                runtimeMetricsRecorder.recordGitStaleCompletionRejectedOffMain()
+                await self?.discardRejectedWorkspaceGitMetadataSnapshot(
+                    taskID: taskID,
+                    authority: authority,
+                    expectedDirectory: expectedDirectory
+                )
+                return
+            }
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
                 guard !Task.isCancelled else { return }
-                self?.enqueueWorkspaceGitMetadataSnapshotBatch(
+                guard let self else { return }
+                guard authority.isCurrent(),
+                      self.workspaceGitSnapshotTaskIDByDirectory[expectedDirectory] == taskID,
+                      self.workspaceGitSnapshotCompletionAuthorityByDirectory[expectedDirectory] === authority else {
+                    self.discardRejectedWorkspaceGitMetadataSnapshot(
+                        taskID: taskID,
+                        authority: authority,
+                        expectedDirectory: expectedDirectory
+                    )
+                    return
+                }
+                self.enqueueWorkspaceGitMetadataSnapshotBatch(
                     snapshot,
                     taskID: taskID,
+                    authority: authority,
                     expectedDirectory: expectedDirectory
                 )
             }
@@ -214,9 +245,14 @@ extension SidebarGitMetadataService {
     private func enqueueWorkspaceGitMetadataSnapshotBatch(
         _ snapshot: InitialWorkspaceGitMetadataSnapshot,
         taskID: UUID,
+        authority: DetachedCompletionAuthority,
         expectedDirectory: String
     ) {
-        let apply = WorkspaceGitSnapshotApply(taskID: taskID, snapshot: snapshot)
+        let apply = WorkspaceGitSnapshotApply(
+            taskID: taskID,
+            authority: authority,
+            snapshot: snapshot
+        )
         workspaceGitSnapshotApplyBatcher.submit(apply, for: expectedDirectory) { [weak self] snapshots in
             guard let self else { return }
             Self.recordSnapshotBatchApply()
@@ -224,6 +260,16 @@ extension SidebarGitMetadataService {
             // deterministic when multiple repositories finish in one frame.
             for directory in snapshots.keys.sorted() {
                 guard let apply = snapshots[directory] else { continue }
+                guard apply.authority.isCurrent(),
+                      self.workspaceGitSnapshotTaskIDByDirectory[directory] == apply.taskID,
+                      self.workspaceGitSnapshotCompletionAuthorityByDirectory[directory] === apply.authority else {
+                    self.discardRejectedWorkspaceGitMetadataSnapshot(
+                        taskID: apply.taskID,
+                        authority: apply.authority,
+                        expectedDirectory: directory
+                    )
+                    continue
+                }
                 self.applyWorkspaceGitMetadataSnapshotBatch(
                     apply.snapshot,
                     taskID: apply.taskID,
@@ -238,12 +284,8 @@ extension SidebarGitMetadataService {
         taskID: UUID,
         expectedDirectory: String
     ) {
-        guard workspaceGitSnapshotTaskIDByDirectory[expectedDirectory] == taskID else {
-            Self.recordStaleApply()
-            return
-        }
-        let taskWasSuperseded = workspaceGitSupersededSnapshotTaskIDs.remove(taskID) != nil
-        let wasSuperseded = taskWasSuperseded || !snapshot.isCurrent
+        runtimeMetricsRecorder.recordGitMainActorApplyEntered()
+        workspaceGitSnapshotCompletionAuthorityByDirectory.removeValue(forKey: expectedDirectory)
         let pendingContext = workspaceGitSnapshotPendingContextByDirectory.removeValue(
             forKey: expectedDirectory
         )
@@ -251,23 +293,7 @@ extension SidebarGitMetadataService {
         workspaceGitSnapshotTaskContextByDirectory.removeValue(forKey: expectedDirectory)
         workspaceGitSnapshotTaskIDByDirectory.removeValue(forKey: expectedDirectory)
         let requests = workspaceGitSnapshotRequestsByDirectory.removeValue(forKey: expectedDirectory) ?? [:]
-        if wasSuperseded {
-            Self.recordStaleApply()
-            for request in requests.values {
-                workspaceGitSnapshotDirectoryByProbeKey.removeValue(forKey: request.probeKey)
-                guard case .inFlight = workspaceGitProbeStateByKey[request.probeKey] else {
-                    continue
-                }
-                workspaceGitProbeStateByKey[request.probeKey] = .idle
-                scheduleWorkspaceGitMetadataRefreshIfPossible(
-                    workspaceId: request.probeKey.workspaceId,
-                    panelId: request.probeKey.panelId,
-                    reason: "supersededSnapshot",
-                    snapshotRequest: pendingContext?.snapshotRequest
-                )
-            }
-            return
-        }
+        _ = pendingContext
         for request in requests.values {
             workspaceGitSnapshotDirectoryByProbeKey.removeValue(forKey: request.probeKey)
             applyWorkspaceGitMetadataSnapshot(
@@ -275,6 +301,46 @@ extension SidebarGitMetadataService {
                 probeKey: request.probeKey,
                 expectedDirectory: expectedDirectory,
                 isLastAttempt: request.isLastAttempt
+            )
+        }
+    }
+
+    /// Drains an invalidated snapshot and schedules one replacement per joined
+    /// panel without entering snapshot apply.
+    func discardRejectedWorkspaceGitMetadataSnapshot(
+        taskID: UUID,
+        authority: DetachedCompletionAuthority,
+        expectedDirectory: String
+    ) {
+        guard workspaceGitSnapshotTaskIDByDirectory[expectedDirectory] == taskID,
+              workspaceGitSnapshotCompletionAuthorityByDirectory[expectedDirectory] === authority else {
+            return
+        }
+
+        authority.invalidate()
+        workspaceGitSnapshotCompletionAuthorityByDirectory.removeValue(forKey: expectedDirectory)
+        workspaceGitSnapshotTasksByDirectory.removeValue(forKey: expectedDirectory)
+        workspaceGitSnapshotTaskContextByDirectory.removeValue(forKey: expectedDirectory)
+        workspaceGitSnapshotTaskIDByDirectory.removeValue(forKey: expectedDirectory)
+        workspaceGitSupersededSnapshotTaskIDs.remove(taskID)
+        let pendingContext = workspaceGitSnapshotPendingContextByDirectory.removeValue(
+            forKey: expectedDirectory
+        )
+        let requests = workspaceGitSnapshotRequestsByDirectory.removeValue(
+            forKey: expectedDirectory
+        ) ?? [:]
+
+        for request in requests.values {
+            workspaceGitSnapshotDirectoryByProbeKey.removeValue(forKey: request.probeKey)
+            guard case .inFlight = workspaceGitProbeStateByKey[request.probeKey] else {
+                continue
+            }
+            workspaceGitProbeStateByKey[request.probeKey] = .idle
+            scheduleWorkspaceGitMetadataRefreshIfPossible(
+                workspaceId: request.probeKey.workspaceId,
+                panelId: request.probeKey.panelId,
+                reason: "supersededSnapshot",
+                snapshotRequest: pendingContext?.snapshotRequest
             )
         }
     }

@@ -9,13 +9,15 @@ struct CmuxGitRuntimeMetricsTests {
         metrics.recordRawTrackedStatusScan()
         metrics.recordTrackedStatusCacheHit()
         metrics.recordTrackedStatusInFlightJoin()
+        metrics.recordTrackedStatusRequest()
 
         let snapshot = metrics.snapshot()
-        #expect(snapshot.schemaVersion == 1)
+        #expect(snapshot.schemaVersion == 2)
         #expect(!snapshot.enabled)
         #expect(snapshot.rawTrackedStatusScanCount == 0)
         #expect(snapshot.trackedStatusCacheHitCount == 0)
         #expect(snapshot.trackedStatusInFlightJoinCount == 0)
+        #expect(snapshot.trackedStatusRequestCount == 0)
     }
 
     @Test func enabledResetAndAtomicTake() {
@@ -25,12 +27,14 @@ struct CmuxGitRuntimeMetricsTests {
         metrics.recordRawTrackedStatusScan()
         metrics.recordTrackedStatusCacheHit()
         metrics.recordTrackedStatusInFlightJoin()
+        metrics.recordTrackedStatusRequest()
 
         let snapshot = metrics.snapshot()
         #expect(snapshot.enabled)
         #expect(snapshot.rawTrackedStatusScanCount == 1)
         #expect(snapshot.trackedStatusCacheHitCount == 1)
         #expect(snapshot.trackedStatusInFlightJoinCount == 1)
+        #expect(snapshot.trackedStatusRequestCount == 1)
         #expect(metrics.snapshotAndReset() == snapshot)
         #expect(metrics.snapshot() == .zero(enabled: true))
 
@@ -63,6 +67,7 @@ struct CmuxGitRuntimeMetricsTests {
                         metrics.recordRawTrackedStatusScan()
                         metrics.recordTrackedStatusCacheHit()
                         metrics.recordTrackedStatusInFlightJoin()
+                        metrics.recordTrackedStatusRequest()
                     }
                 }
             }
@@ -72,17 +77,19 @@ struct CmuxGitRuntimeMetricsTests {
         #expect(snapshot.rawTrackedStatusScanCount == 10_000)
         #expect(snapshot.trackedStatusCacheHitCount == 10_000)
         #expect(snapshot.trackedStatusInFlightJoinCount == 10_000)
+        #expect(snapshot.trackedStatusRequestCount == 10_000)
     }
 }
 
 private extension CmuxGitRuntimeMetricsSnapshot {
     static func zero(enabled: Bool) -> Self {
         CmuxGitRuntimeMetricsSnapshot(
-            schemaVersion: 1,
+            schemaVersion: 2,
             enabled: enabled,
             rawTrackedStatusScanCount: 0,
             trackedStatusCacheHitCount: 0,
-            trackedStatusInFlightJoinCount: 0
+            trackedStatusInFlightJoinCount: 0,
+            trackedStatusRequestCount: 0
         )
     }
 }

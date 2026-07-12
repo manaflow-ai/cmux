@@ -254,3 +254,92 @@ extension GitWorkspaceMetadata {
         headSignature: nil
     )
 }
+
+/// A staged PR executor whose repository-fetch calls remain suspended until
+/// the test explicitly releases them. This makes overlap and stale-completion
+/// ordering deterministic without sleeps or live GitHub traffic.
+actor GatedPullRequestRefreshExecutor: PullRequestRefreshExecuting {
+    private struct FetchWaiter {
+        let minimumCount: Int
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
+    private var fetchGateContinuations: [CheckedContinuation<Void, Never>] = []
+    private var fetchWaiters: [FetchWaiter] = []
+    private(set) var resolutionCount = 0
+    private(set) var fetchCount = 0
+
+    func resolveCandidateSeeds(
+        _ seeds: [WorkspacePullRequestCandidateSeed]
+    ) async -> WorkspacePullRequestCandidateResolution {
+        resolutionCount += 1
+        let candidates = seeds.map {
+            WorkspacePullRequestCandidate(
+                workspaceId: $0.workspaceId,
+                panelId: $0.panelId,
+                branch: $0.branch,
+                repoSlugs: ["owner/repo"]
+            )
+        }
+        let branches = Set(candidates.map(\.branch))
+        return WorkspacePullRequestCandidateResolution(
+            candidates: candidates,
+            candidateBranchesByRepo: ["owner/repo": branches],
+            repoDirectoriesBySlug: ["owner/repo": "/tmp/repo"]
+        )
+    }
+
+    func fetchRepoResults(
+        candidateResolution: WorkspacePullRequestCandidateResolution,
+        cacheBySlug: [String: WorkspacePullRequestRepoCacheEntry],
+        now: Date,
+        allowCachedResults: Bool
+    ) async -> [String: WorkspacePullRequestRepoFetchResult] {
+        fetchCount += 1
+        resumeSatisfiedFetchWaiters()
+        await withCheckedContinuation { continuation in
+            fetchGateContinuations.append(continuation)
+        }
+
+        var pullRequestsByBranch: [String: GitHubPullRequestProbeItem] = [:]
+        for branch in candidateResolution.candidateBranchesByRepo["owner/repo"] ?? [] {
+            pullRequestsByBranch[branch] = GitHubPullRequestProbeItem(
+                number: 99,
+                state: "OPEN",
+                url: "https://github.com/owner/repo/pull/99",
+                updatedAt: "2026-07-12T00:00:00Z",
+                mergedAt: nil,
+                headRefName: branch,
+                baseRefName: "main"
+            )
+        }
+        let entry = WorkspacePullRequestRepoCacheEntry(
+            fetchedAt: now,
+            pullRequestsByBranch: pullRequestsByBranch
+        )
+        return ["owner/repo": .success(entry, usedCache: false, transientBranches: [])]
+    }
+
+    func waitForFetchCount(_ minimumCount: Int) async {
+        guard fetchCount < minimumCount else { return }
+        await withCheckedContinuation { continuation in
+            fetchWaiters.append(FetchWaiter(
+                minimumCount: minimumCount,
+                continuation: continuation
+            ))
+        }
+    }
+
+    func releaseNextFetch() {
+        guard !fetchGateContinuations.isEmpty else { return }
+        fetchGateContinuations.removeFirst().resume()
+    }
+
+    private func resumeSatisfiedFetchWaiters() {
+        let ready = fetchWaiters.filter { $0.minimumCount <= fetchCount }
+        fetchWaiters.removeAll { $0.minimumCount <= fetchCount }
+        for waiter in ready {
+            waiter.continuation.resume()
+        }
+    }
+}

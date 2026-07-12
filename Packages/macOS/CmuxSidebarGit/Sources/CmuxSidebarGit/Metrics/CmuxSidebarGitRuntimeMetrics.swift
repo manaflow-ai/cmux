@@ -17,6 +17,15 @@ public struct CmuxSidebarGitRuntimeMetricsSnapshot: Codable, Equatable, Sendable
     public let pullRequestSeedCount: UInt64
     public let pullRequestTraversalCount: UInt64
     public let staleApplyCount: UInt64
+    public let pullRequestRefreshRequestCount: UInt64
+    public let pullRequestTaskStartedCount: UInt64
+    public let pullRequestTaskJoinedCount: UInt64
+    public let pullRequestRepoFetchCount: UInt64
+    public let pullRequestStaleCompletionRejectedOffMainCount: UInt64
+    public let pullRequestMainActorApplyEnteredCount: UInt64
+    public let pullRequestFollowUpStartedCount: UInt64
+    public let gitStaleCompletionRejectedOffMainCount: UInt64
+    public let gitMainActorApplyEnteredCount: UInt64
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
@@ -26,6 +35,15 @@ public struct CmuxSidebarGitRuntimeMetricsSnapshot: Codable, Equatable, Sendable
         case pullRequestSeedCount
         case pullRequestTraversalCount
         case staleApplyCount
+        case pullRequestRefreshRequestCount
+        case pullRequestTaskStartedCount
+        case pullRequestTaskJoinedCount
+        case pullRequestRepoFetchCount
+        case pullRequestStaleCompletionRejectedOffMainCount
+        case pullRequestMainActorApplyEnteredCount
+        case pullRequestFollowUpStartedCount
+        case gitStaleCompletionRejectedOffMainCount
+        case gitMainActorApplyEnteredCount
     }
 }
 
@@ -83,6 +101,51 @@ public final class CmuxSidebarGitRuntimeMetrics: Sendable {
     func recordStaleApply() {
         recorder.recordStaleApply()
     }
+
+    @inline(__always)
+    func recordPullRequestRefreshRequest() {
+        recorder.recordPullRequestRefreshRequest()
+    }
+
+    @inline(__always)
+    func recordPullRequestTaskStarted() {
+        recorder.recordPullRequestTaskStarted()
+    }
+
+    @inline(__always)
+    func recordPullRequestTaskJoined() {
+        recorder.recordPullRequestTaskJoined()
+    }
+
+    @inline(__always)
+    func recordPullRequestRepoFetch() {
+        recorder.recordPullRequestRepoFetch()
+    }
+
+    @inline(__always)
+    func recordPullRequestStaleCompletionRejectedOffMain() {
+        recorder.recordPullRequestStaleCompletionRejectedOffMain()
+    }
+
+    @inline(__always)
+    func recordPullRequestMainActorApplyEntered() {
+        recorder.recordPullRequestMainActorApplyEntered()
+    }
+
+    @inline(__always)
+    func recordPullRequestFollowUpStarted() {
+        recorder.recordPullRequestFollowUpStarted()
+    }
+
+    @inline(__always)
+    func recordGitStaleCompletionRejectedOffMain() {
+        recorder.recordGitStaleCompletionRejectedOffMain()
+    }
+
+    @inline(__always)
+    func recordGitMainActorApplyEntered() {
+        recorder.recordGitMainActorApplyEntered()
+    }
 }
 
 public extension SidebarGitMetadataService {
@@ -130,16 +193,34 @@ final class CmuxSidebarGitRuntimeMetricsRecorder: Sendable {
         var pullRequestSeedCount: UInt64 = 0
         var pullRequestTraversalCount: UInt64 = 0
         var staleApplyCount: UInt64 = 0
+        var pullRequestRefreshRequestCount: UInt64 = 0
+        var pullRequestTaskStartedCount: UInt64 = 0
+        var pullRequestTaskJoinedCount: UInt64 = 0
+        var pullRequestRepoFetchCount: UInt64 = 0
+        var pullRequestStaleCompletionRejectedOffMainCount: UInt64 = 0
+        var pullRequestMainActorApplyEnteredCount: UInt64 = 0
+        var pullRequestFollowUpStartedCount: UInt64 = 0
+        var gitStaleCompletionRejectedOffMainCount: UInt64 = 0
+        var gitMainActorApplyEnteredCount: UInt64 = 0
 
         var snapshot: CmuxSidebarGitRuntimeMetricsSnapshot {
             CmuxSidebarGitRuntimeMetricsSnapshot(
-                schemaVersion: 1,
+                schemaVersion: 2,
                 enabled: enabled,
                 snapshotBatchApplyCount: snapshotBatchApplyCount,
                 materialChangeCount: materialChangeCount,
                 pullRequestSeedCount: pullRequestSeedCount,
                 pullRequestTraversalCount: pullRequestTraversalCount,
-                staleApplyCount: staleApplyCount
+                staleApplyCount: staleApplyCount,
+                pullRequestRefreshRequestCount: pullRequestRefreshRequestCount,
+                pullRequestTaskStartedCount: pullRequestTaskStartedCount,
+                pullRequestTaskJoinedCount: pullRequestTaskJoinedCount,
+                pullRequestRepoFetchCount: pullRequestRepoFetchCount,
+                pullRequestStaleCompletionRejectedOffMainCount: pullRequestStaleCompletionRejectedOffMainCount,
+                pullRequestMainActorApplyEnteredCount: pullRequestMainActorApplyEnteredCount,
+                pullRequestFollowUpStartedCount: pullRequestFollowUpStartedCount,
+                gitStaleCompletionRejectedOffMainCount: gitStaleCompletionRejectedOffMainCount,
+                gitMainActorApplyEnteredCount: gitMainActorApplyEnteredCount
             )
         }
     }
@@ -211,6 +292,87 @@ final class CmuxSidebarGitRuntimeMetricsRecorder: Sendable {
         state.withLock { state in
             guard state.enabled else { return }
             state.staleApplyCount &+= 1
+        }
+    }
+
+    @inline(__always)
+    func recordPullRequestRefreshRequest() {
+        guard enabled.loadRelaxed() else { return }
+        state.withLock { state in
+            guard state.enabled else { return }
+            state.pullRequestRefreshRequestCount &+= 1
+        }
+    }
+
+    @inline(__always)
+    func recordPullRequestTaskStarted() {
+        guard enabled.loadRelaxed() else { return }
+        state.withLock { state in
+            guard state.enabled else { return }
+            state.pullRequestTaskStartedCount &+= 1
+        }
+    }
+
+    @inline(__always)
+    func recordPullRequestTaskJoined() {
+        guard enabled.loadRelaxed() else { return }
+        state.withLock { state in
+            guard state.enabled else { return }
+            state.pullRequestTaskJoinedCount &+= 1
+        }
+    }
+
+    @inline(__always)
+    func recordPullRequestRepoFetch() {
+        guard enabled.loadRelaxed() else { return }
+        state.withLock { state in
+            guard state.enabled else { return }
+            state.pullRequestRepoFetchCount &+= 1
+        }
+    }
+
+    @inline(__always)
+    func recordPullRequestStaleCompletionRejectedOffMain() {
+        guard enabled.loadRelaxed() else { return }
+        state.withLock { state in
+            guard state.enabled else { return }
+            state.pullRequestStaleCompletionRejectedOffMainCount &+= 1
+        }
+    }
+
+    @inline(__always)
+    func recordPullRequestMainActorApplyEntered() {
+        guard enabled.loadRelaxed() else { return }
+        state.withLock { state in
+            guard state.enabled else { return }
+            state.pullRequestMainActorApplyEnteredCount &+= 1
+        }
+    }
+
+    @inline(__always)
+    func recordPullRequestFollowUpStarted() {
+        guard enabled.loadRelaxed() else { return }
+        state.withLock { state in
+            guard state.enabled else { return }
+            state.pullRequestFollowUpStartedCount &+= 1
+        }
+    }
+
+    @inline(__always)
+    func recordGitStaleCompletionRejectedOffMain() {
+        guard enabled.loadRelaxed() else { return }
+        state.withLock { state in
+            guard state.enabled else { return }
+            state.gitStaleCompletionRejectedOffMainCount &+= 1
+        }
+    }
+
+    @inline(__always)
+    func recordGitMainActorApplyEntered() {
+        guard enabled.loadRelaxed() else { return }
+        state.withLock { state in
+            guard state.enabled else { return }
+            state.gitMainActorApplyEnteredCount &+= 1
         }
     }
 }

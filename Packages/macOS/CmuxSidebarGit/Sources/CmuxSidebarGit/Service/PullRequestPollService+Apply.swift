@@ -14,6 +14,7 @@ extension PullRequestPollService {
         now: Date,
         reason: String
     ) {
+        runtimeMetricsRecorder.recordPullRequestMainActorApplyEntered()
         guard let host else { return }
         guard !host.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) else {
             workspacePullRequestRefreshTask = nil
@@ -52,9 +53,9 @@ extension PullRequestPollService {
                 let shouldBypassRepoCache = workspacePullRequestFollowUpShouldBypassRepoCache ||
                     pendingSeedRefresh?.shouldBypassRepoCache == true
                 workspacePullRequestFollowUpShouldBypassRepoCache = false
-                refreshTrackedWorkspacePullRequestsIfNeeded(
+                startWorkspacePullRequestFollowUp(
                     reason: "\(reason).followUp",
-                    allowCachedResultsOverride: shouldBypassRepoCache ? false : nil
+                    shouldBypassRepoCache: shouldBypassRepoCache
                 )
             }
         }
@@ -265,6 +266,13 @@ extension PullRequestPollService {
     // MARK: Tracking bookkeeping
 
     func pruneWorkspacePullRequestTracking(validKeys: Set<WorkspaceGitProbeKey>) {
+        if workspacePullRequestProbeStateByKey.contains(where: { key, state in
+            guard !validKeys.contains(key) else { return false }
+            if case .inFlight = state { return true }
+            return false
+        }) {
+            workspacePullRequestRefreshAuthority?.invalidate()
+        }
         workspacePullRequestSourceByKey = workspacePullRequestSourceByKey.filter { validKeys.contains($0.key) }
         workspacePullRequestNextPollAtByKey = workspacePullRequestNextPollAtByKey.filter { validKeys.contains($0.key) }
         workspacePullRequestProbeStateByKey = workspacePullRequestProbeStateByKey.filter { validKeys.contains($0.key) }
@@ -281,6 +289,9 @@ extension PullRequestPollService {
         for key: WorkspaceGitProbeKey,
         preservingSource: Bool = false
     ) {
+        if case .inFlight = workspacePullRequestProbeStateByKey[key] {
+            workspacePullRequestRefreshAuthority?.invalidate()
+        }
         if !preservingSource {
             workspacePullRequestSourceByKey.removeValue(forKey: key)
         }
@@ -298,6 +309,13 @@ extension PullRequestPollService {
     }
 
     public func clearWorkspacePullRequestTracking(workspaceId: UUID) {
+        if workspacePullRequestProbeStateByKey.contains(where: { key, state in
+            guard key.workspaceId == workspaceId else { return false }
+            if case .inFlight = state { return true }
+            return false
+        }) {
+            workspacePullRequestRefreshAuthority?.invalidate()
+        }
         workspacePullRequestSourceByKey = workspacePullRequestSourceByKey.filter { $0.key.workspaceId != workspaceId }
         workspacePullRequestNextPollAtByKey = workspacePullRequestNextPollAtByKey.filter { $0.key.workspaceId != workspaceId }
         workspacePullRequestProbeStateByKey = workspacePullRequestProbeStateByKey.filter { $0.key.workspaceId != workspaceId }
@@ -322,6 +340,8 @@ extension PullRequestPollService {
 
     public func resetWorkspacePullRequestRefreshState() {
         takePendingSeedRefresh()
+        workspacePullRequestRefreshAuthority?.invalidate()
+        workspacePullRequestRefreshAuthority = nil
         workspacePullRequestRefreshTask?.cancel()
         workspacePullRequestRefreshTask = nil
         workspacePullRequestProbeStateByKey.removeAll()
@@ -334,12 +354,27 @@ extension PullRequestPollService {
         updateWorkspacePullRequestPollTimer()
     }
 
+    func startWorkspacePullRequestFollowUp(
+        reason: String,
+        shouldBypassRepoCache: Bool
+    ) {
+        runtimeMetricsRecorder.recordPullRequestFollowUpStarted()
+        refreshTrackedWorkspacePullRequestsIfNeeded(
+            reason: reason,
+            allowCachedResultsOverride: shouldBypassRepoCache ? false : nil
+        )
+    }
+
     // MARK: Rerun flags
 
     func markWorkspacePullRequestProbeRerunPending(
         for key: WorkspaceGitProbeKey,
         bypassRepoCache: Bool
     ) {
+        // A rerun means the active result no longer has mutation authority.
+        // Invalidate synchronously so detached completion can reject it before
+        // hopping to the main actor.
+        workspacePullRequestRefreshAuthority?.invalidate()
         guard case .inFlight(let rerunPending) = workspacePullRequestProbeStateByKey[key],
               !rerunPending else {
             if bypassRepoCache {

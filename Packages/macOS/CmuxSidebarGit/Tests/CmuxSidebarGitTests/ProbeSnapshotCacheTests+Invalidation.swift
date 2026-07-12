@@ -229,6 +229,9 @@ extension ProbeSnapshotCacheTests {
             probeLimiter: WorkspaceGitMetadataProbeLimiter(limit: 2),
             clock: clock
         )
+        let metrics = CmuxSidebarGitRuntimeMetrics()
+        metrics.reset(enable: true)
+        service.runtimeMetricsRecorder = metrics
         service.attach(host: host)
         service.workspaceGitTrackedDirectoryByKey[key] = directory
         service.markWorkspaceGitSnapshotCacheEligible(directory: directory)
@@ -258,6 +261,9 @@ extension ProbeSnapshotCacheTests {
         #expect(await reader.probeCount == 1)
         #expect(await clock.pendingSleeperCount > 0)
         #expect(host.workspaces[0].state.panels[panelId]?.branch == nil)
+        let rejected = service.runtimeMetricsRecorder.snapshot()
+        #expect(rejected.gitStaleCompletionRejectedOffMainCount == 1)
+        #expect(rejected.gitMainActorApplyEnteredCount == 0)
 
         await clock.resumeNext(duration: 0)
         await reader.waitForProbeCount(2)

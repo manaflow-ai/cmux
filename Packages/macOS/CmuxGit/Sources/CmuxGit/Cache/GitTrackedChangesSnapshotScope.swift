@@ -14,6 +14,7 @@ public actor GitTrackedChangesSnapshotScope {
     }
 
     private let snapshotCache: GitTrackedChangesSnapshotCache
+    nonisolated let runtimeMetricsRecorder: CmuxGitRuntimeMetrics
     private let maximumRepositoryCount: Int
     private var repositoryStates: [
         GitTrackedChangesRepositoryIdentity: RepositoryState
@@ -25,8 +26,11 @@ public actor GitTrackedChangesSnapshotScope {
         maximumSnapshotCount: Int = 256,
         maximumRepositoryCount: Int = 256
     ) {
+        let runtimeMetricsRecorder = GitMetadataService.runtimeMetrics
+        self.runtimeMetricsRecorder = runtimeMetricsRecorder
         self.snapshotCache = GitTrackedChangesSnapshotCache(
-            maximumEntryCount: maximumSnapshotCount
+            maximumEntryCount: maximumSnapshotCount,
+            runtimeMetricsRecorder: runtimeMetricsRecorder
         )
         self.maximumRepositoryCount = max(1, maximumRepositoryCount)
     }
@@ -36,6 +40,20 @@ public actor GitTrackedChangesSnapshotScope {
         maximumRepositoryCount: Int = 256
     ) {
         self.snapshotCache = snapshotCache
+        self.runtimeMetricsRecorder = snapshotCache.runtimeMetricsRecorder
+        self.maximumRepositoryCount = max(1, maximumRepositoryCount)
+    }
+
+    init(
+        maximumSnapshotCount: Int = 256,
+        maximumRepositoryCount: Int = 256,
+        runtimeMetricsRecorder: CmuxGitRuntimeMetrics
+    ) {
+        self.runtimeMetricsRecorder = runtimeMetricsRecorder
+        self.snapshotCache = GitTrackedChangesSnapshotCache(
+            maximumEntryCount: maximumSnapshotCount,
+            runtimeMetricsRecorder: runtimeMetricsRecorder
+        )
         self.maximumRepositoryCount = max(1, maximumRepositoryCount)
     }
 
