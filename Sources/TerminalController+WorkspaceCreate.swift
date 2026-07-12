@@ -12,6 +12,11 @@ extension TerminalController {
         let candidate: TaskCreateWorkspaceCandidate
     }
 
+    private struct WorkspaceCreatePreparation {
+        let tabManager: TabManager
+        let operationID: UUID?
+    }
+
     final class WorkspaceCreateIdempotencyCache {
         private let capacity: Int
         private var workspaceIDs: [UUID: UUID] = [:]
@@ -59,31 +64,48 @@ extension TerminalController {
         tabManager resolvedTabManager: TabManager? = nil,
         taskCreateCandidates: [TaskCreateWorkspaceCandidate]? = nil
     ) -> V2CallResult {
+        let prepared = v2PrepareWorkspaceCreate(
+            params: params,
+            tabManager: resolvedTabManager,
+            taskCreateCandidates: taskCreateCandidates
+        )
+        if let result = prepared.result { return result }
+        guard let preparation = prepared.preparation else {
+            return .err(code: "internal_error", message: "Workspace create preparation failed", data: nil)
+        }
+        guard !v2HasNonNullParam(params, "working_directory") else {
+            return .err(
+                code: "invalid_params",
+                message: "working_directory is only supported by mobile workspace.create",
+                data: ["field": "working_directory"]
+            )
+        }
+        return v2PerformWorkspaceCreate(
+            params: params,
+            preparation: preparation,
+            workingDirectoryValidation: .notProvided
+        )
+    }
+
+    private func v2PrepareWorkspaceCreate(
+        params: [String: Any],
+        tabManager resolvedTabManager: TabManager?,
+        taskCreateCandidates: [TaskCreateWorkspaceCandidate]?
+    ) -> (preparation: WorkspaceCreatePreparation?, result: V2CallResult?) {
         let operationID: UUID?
         if v2HasNonNullParam(params, "operation_id") {
             guard let parsed = v2UUID(params, "operation_id") else {
-                return .err(code: "invalid_params", message: "operation_id must be a UUID", data: nil)
+                return (
+                    nil,
+                    .err(code: "invalid_params", message: "operation_id must be a UUID", data: nil)
+                )
             }
             operationID = parsed
         } else {
             operationID = nil
         }
-        return v2PerformWorkspaceCreate(
-            params: params,
-            tabManager: resolvedTabManager,
-            operationID: operationID,
-            taskCreateCandidates: taskCreateCandidates
-        )
-    }
-
-    private func v2PerformWorkspaceCreate(
-        params: [String: Any],
-        tabManager resolvedTabManager: TabManager?,
-        operationID: UUID?,
-        taskCreateCandidates: [TaskCreateWorkspaceCandidate]?
-    ) -> V2CallResult {
         guard let tabManager = resolvedTabManager ?? v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return (nil, .err(code: "unavailable", message: "TabManager not available", data: nil))
         }
 
         if let operationID,
@@ -91,25 +113,41 @@ extension TerminalController {
                operationID: operationID,
                candidates: taskCreateCandidates ?? taskCreateWorkspaceCandidates(requested: tabManager)
            ) {
-            return workspaceCreateResult(
-                workspace: resolution.workspace,
-                windowID: resolution.candidate.windowID
+            return (
+                nil,
+                workspaceCreateResult(
+                    workspace: resolution.workspace,
+                    windowID: resolution.candidate.windowID
+                )
             )
         }
+        return (
+            WorkspaceCreatePreparation(
+                tabManager: tabManager,
+                operationID: operationID
+            ),
+            nil
+        )
+    }
 
-        let workingDirectory = Self.v2ExpandedWorkingDirectory(v2RawString(params, "working_directory"))
-        if v2HasNonNullParam(params, "working_directory") {
-            var isDirectory: ObjCBool = false
-            guard let workingDirectory,
-                  (workingDirectory as NSString).isAbsolutePath,
-                  FileManager.default.fileExists(atPath: workingDirectory, isDirectory: &isDirectory),
-                  isDirectory.boolValue else {
-                return .err(
-                    code: "invalid_params",
-                    message: "working_directory must be an absolute existing directory",
-                    data: nil
-                )
-            }
+    private func v2PerformWorkspaceCreate(
+        params: [String: Any],
+        preparation: WorkspaceCreatePreparation,
+        workingDirectoryValidation: WorkspaceCreateWorkingDirectoryValidation
+    ) -> V2CallResult {
+        let tabManager = preparation.tabManager
+        let operationID = preparation.operationID
+
+        let workingDirectory: String?
+        switch workingDirectoryValidation {
+        case .notProvided:
+            workingDirectory = nil
+        case let .valid(path):
+            workingDirectory = path
+        case .invalid:
+            return Self.v2InvalidWorkingDirectoryResult
+        case .cancelled:
+            return .err(code: "cancelled", message: "Workspace creation was cancelled", data: nil)
         }
 
         let requestedInitialCommand = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -406,15 +444,40 @@ extension TerminalController {
         ])
     }
 
-    func v2MobileWorkspaceCreate(params: [String: Any]) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
-        }
+    func v2MobileWorkspaceCreate(
+        params: [String: Any],
+        workingDirectoryValidator: WorkspaceCreateWorkingDirectoryValidator? = nil,
+        tabManager resolvedTabManager: TabManager? = nil
+    ) async -> V2CallResult {
         var createParams = params
         createParams["focus"] = false
         createParams["eager_load_terminal"] = false
         createParams["auto_refresh_metadata"] = false
-        let createResult = v2WorkspaceCreate(params: createParams, tabManager: tabManager)
+        let prepared = v2PrepareWorkspaceCreate(
+            params: createParams,
+            tabManager: resolvedTabManager,
+            taskCreateCandidates: nil
+        )
+        if let result = prepared.result { return result }
+        guard let preparation = prepared.preparation else {
+            return .err(code: "internal_error", message: "Workspace create preparation failed", data: nil)
+        }
+        guard !Task.isCancelled else {
+            return .err(code: "cancelled", message: "Workspace creation was cancelled", data: nil)
+        }
+        let validator = workingDirectoryValidator ?? Self.v2ValidateMobileWorkingDirectory
+        let validation = await validator(
+            v2RawString(createParams, "working_directory"),
+            v2HasNonNullParam(createParams, "working_directory")
+        )
+        guard !Task.isCancelled, validation != .cancelled else {
+            return .err(code: "cancelled", message: "Workspace creation was cancelled", data: nil)
+        }
+        let createResult = v2PerformWorkspaceCreate(
+            params: createParams,
+            preparation: preparation,
+            workingDirectoryValidation: validation
+        )
         switch createResult {
         case let .ok(payload):
             let createdWorkspaceID = (payload as? [String: Any])?["workspace_id"] as? String
@@ -425,7 +488,7 @@ extension TerminalController {
             // which watches TabManager.tabsPublisher directly. Don't fire here.
             return v2MobileWorkspaceList(
                 params: createParams,
-                tabManager: tabManager,
+                tabManager: preparation.tabManager,
                 createdWorkspaceID: createdWorkspaceID
             )
         case .err:

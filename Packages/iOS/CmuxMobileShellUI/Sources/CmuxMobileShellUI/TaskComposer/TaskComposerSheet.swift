@@ -380,7 +380,7 @@ struct TaskComposerSheet: View {
             store.taskTemplateStore?.setComposerDraft(nil)
             dismiss()
         case .failure(let failure):
-            let message = failureMessage(failure)
+            let message = Self.failureMessage(failure)
             failureText = message
             announceFailure(message)
         }
@@ -457,7 +457,7 @@ struct TaskComposerSheet: View {
         )
     }
 
-    private func failureMessage(_ failure: MobileWorkspaceMutationFailure) -> String {
+    static func failureMessage(_ failure: MobileWorkspaceMutationFailure) -> String {
         switch failure {
         case .notConnected:
             return L10n.string("mobile.taskComposer.failure.notConnected", defaultValue: "That Mac is not connected.")
@@ -469,6 +469,8 @@ struct TaskComposerSheet: View {
             return L10n.string("mobile.taskComposer.failure.busy", defaultValue: "Another workspace action is still finishing.")
         case .rejected:
             return L10n.string("mobile.taskComposer.failure.rejected", defaultValue: "The Mac rejected the task.")
+        case .invalidWorkingDirectory:
+            return L10n.string("mobile.taskComposer.failure.invalidWorkingDirectory", defaultValue: "Choose an existing folder on that Mac.")
         case .unsupported:
             return L10n.string("mobile.taskComposer.failure.unsupported", defaultValue: "That Mac does not support this action.")
         }

@@ -6910,6 +6910,23 @@
         }
       }
     },
+    "mobile.taskComposer.failure.invalidWorkingDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose an existing folder on that Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのMac上の既存のフォルダを選択してください。"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.failure.notConnected": {
       "extractionState": "manual",
       "localizations": {

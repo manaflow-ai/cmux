@@ -161,6 +161,11 @@ extension WorkspaceShellView {
                 "mobile.workspaceAction.failure.reason.rejected.generic",
                 defaultValue: "was rejected by your Mac"
             )
+        case .invalidWorkingDirectory:
+            return L10n.string(
+                "mobile.workspaceAction.failure.reason.rejected.generic",
+                defaultValue: "was rejected by your Mac"
+            )
         case let .unsupported(hostDisplayName):
             if let hostDisplayName = trimmedWorkspaceActionHostDisplayName(hostDisplayName) {
                 return String.localizedStringWithFormat(

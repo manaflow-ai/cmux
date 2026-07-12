@@ -14004,7 +14004,7 @@ class TerminalController {
         case "mobile.workspace.list", "workspace.list":
             result = v2MobileWorkspaceList(params: request.params)
         case "workspace.create":
-            result = v2MobileWorkspaceCreate(params: request.params)
+            result = await v2MobileWorkspaceCreate(params: request.params)
         case "mobile.terminal.create", "terminal.create":
             result = v2MobileTerminalCreate(params: request.params)
         case "mobile.terminal.input", "terminal.input":

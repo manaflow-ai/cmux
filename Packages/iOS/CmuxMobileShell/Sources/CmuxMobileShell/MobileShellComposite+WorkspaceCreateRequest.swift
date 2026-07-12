@@ -116,29 +116,7 @@ extension MobileShellComposite {
                     applyOperationalError(error)
                 }
             }
-            if let connectionError = error as? MobileShellConnectionError {
-                switch connectionError {
-                case .connectionClosed:
-                    return .failure(.notConnected(hostDisplayName: connectedHostName))
-                case .requestTimedOut:
-                    return .failure(.requestTimedOut(hostDisplayName: connectedHostName))
-                case .attachTicketExpired, .authorizationFailed, .accountMismatch, .insecureManualRoute:
-                    return .failure(.authorizationFailed(hostDisplayName: connectedHostName))
-                case let .rpcError(code, _):
-                    let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                    if let normalizedCode,
-                       ["unauthorized", "forbidden", "invalid_token", "token_expired", "expired_token", "auth_required", "account_mismatch"].contains(normalizedCode) {
-                        return .failure(.authorizationFailed(hostDisplayName: connectedHostName))
-                    }
-                    if normalizedCode == "unavailable" {
-                        return .failure(.notConnected(hostDisplayName: connectedHostName))
-                    }
-                    return .failure(.rejected(hostDisplayName: connectedHostName))
-                case .invalidResponse:
-                    return .failure(.rejected(hostDisplayName: connectedHostName))
-                }
-            }
-            return .failure(.rejected(hostDisplayName: connectedHostName))
+            return .failure(workspaceMutationFailure(error, hostDisplayName: connectedHostName))
         }
     }
 }
