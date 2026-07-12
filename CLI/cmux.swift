@@ -7531,7 +7531,8 @@ struct CMUXCLI {
     ///
     /// A minimal PATH is injected so user bins and common package-manager locations
     /// (`~/bin`, Homebrew, `/usr/local`) resolve without sourcing the user's
-    /// interactive rc. Must match `TerminalProcessCommand(...).initialCommand` in Sources.
+    /// interactive rc. Must match `TerminalProcessCommand(...).initialCommand` in Sources
+    /// (same PATH bootstrap and `TerminalStartupShellQuoting.singleQuoted` semantics).
     private static func workspaceCreateProcessCommand(_ command: String) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         // Already a posix process wrapper — leave intact (resume scripts, dock scripts, etc.).
@@ -7541,11 +7542,24 @@ struct CMUXCLI {
             || (trimmed.hasPrefix("/") && !trimmed.contains(" ") && !trimmed.contains("'")) {
             return trimmed
         }
-        // Single-line prefix (no line-continuation backslash): inside shellSingleQuote
-        // a trailing `\` would be literal and break the following command.
+        // Single-line prefix (no line-continuation backslash): inside a single-quoted
+        // payload a trailing `\` would be literal and break the following command.
         let bootstrap =
             #"export PATH="${HOME}/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin${PATH:+:$PATH}"; "#
-        return "/bin/sh -c " + shellSingleQuote(bootstrap + trimmed)
+        return "/bin/sh -c " + processCommandSingleQuoted(bootstrap + trimmed)
+    }
+
+    /// Shell single-quote matching `TerminalStartupShellQuoting.singleQuoted` in Sources
+    /// (printf-octal for non-ASCII UTF-8; `'\''` for ASCII apostrophes). Kept separate from
+    /// `shellSingleQuote` so freestyle cloud exports keep their existing quoting style.
+    private static func processCommandSingleQuoted(_ value: String) -> String {
+        if value.utf8.contains(where: { $0 >= 0x80 }) {
+            let octalBytes = value.utf8
+                .map { String(format: #"\%03o"#, Int($0)) }
+                .joined()
+            return #""$(printf '"# + octalBytes + #"')""#
+        }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     /// Parses repeatable `--env KEY=VALUE` / `--env=KEY=VALUE` and

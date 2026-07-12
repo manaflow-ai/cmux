@@ -186,6 +186,10 @@ extension Workspace {
     /// surface creation so a failed create can retry setup on a later surface.
     /// Setup and surface commands are joined with newlines (legacy semantics) so a
     /// trailing `#` comment on setup cannot swallow the surface command.
+    ///
+    /// Whitespace-only setup/command strings are intentionally dropped (treated as
+    /// empty): process-as-command has no useful no-op for spaces alone, and the
+    /// legacy typed path's space-only enqueue was not a meaningful setup.
     private static func buildInitialProcessCommand(
         setup: String?,
         command: String?
