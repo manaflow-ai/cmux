@@ -29,7 +29,6 @@ extension GhosttySurfaceScrollView {
             capturedTotalRows: capturedTotalRows
         )
         guard let targetTopRow = anchor.topRow(in: scrollbar) else { return false }
-        pendingNotificationScrollPosition = nil
         let currentLastTopRow = Int(clamping: scrollbar.total - min(scrollbar.total, scrollbar.len))
         allowExplicitScrollbarSync = true
         userScrolledAwayFromBottom = targetTopRow < currentLastTopRow
@@ -37,7 +36,9 @@ extension GhosttySurfaceScrollView {
             ? "scroll_to_bottom"
             : "scroll_to_row:\(targetTopRow)"
         let didRestore = surfaceView.performBindingAction(bindingAction)
-        if !didRestore {
+        if didRestore {
+            pendingNotificationScrollPosition = nil
+        } else {
             allowExplicitScrollbarSync = false
         }
         return didRestore
