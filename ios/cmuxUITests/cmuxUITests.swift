@@ -133,6 +133,11 @@ final class cmuxUITests: XCTestCase {
 
         let searchField = app.searchFields["MobileWorkspaceSearchField"]
         XCTAssertTrue(searchField.waitForExistence(timeout: 8))
+        XCTAssertGreaterThan(
+            searchField.frame.midY,
+            app.frame.midY,
+            "Workspace search must keep its original bottom-screen placement"
+        )
         searchField.tap()
         searchField.typeText("Docs")
 
