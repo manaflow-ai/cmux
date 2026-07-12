@@ -1,5 +1,5 @@
 import type { FileTreeSource } from "./diff-stream";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 export type MobileDiffFile = {
   added: number;
@@ -72,6 +72,17 @@ export function mobileDiffSelectionMessage(
   return { type: "selection", generation, selectedItemId };
 }
 
+export function mobileDiffCompletionMessages(
+  source: FileTreeSource | null,
+  selectedItemId: string,
+  generation: number,
+): [MobileDiffFilesMessage, MobileDiffSelectionMessage] {
+  return [
+    mobileDiffMessage(source, generation),
+    mobileDiffSelectionMessage(selectedItemId, generation),
+  ];
+}
+
 export function installMobileDiffBridge(
   generation: number | null,
   selectFile: (itemId: string) => void,
@@ -97,6 +108,8 @@ export function useMobileDiffBridge(
   streamComplete: boolean,
   selectFile: (itemId: string) => void,
 ): void {
+  const selectedItemIdRef = useRef(selectedItemId);
+  selectedItemIdRef.current = selectedItemId;
   useEffect(
     () => installMobileDiffBridge(generation, selectFile),
     [generation, selectFile],
@@ -104,7 +117,9 @@ export function useMobileDiffBridge(
   useEffect(() => {
     const messageHandler = (window as MobileDiffBridgeWindow).webkit?.messageHandlers?.cmuxMobileDiff;
     if (generation !== null && streamComplete && messageHandler) {
-      messageHandler.postMessage(mobileDiffMessage(source, generation));
+      for (const message of mobileDiffCompletionMessages(source, selectedItemIdRef.current, generation)) {
+        messageHandler.postMessage(message);
+      }
     }
   }, [source, generation, streamComplete]);
   useEffect(() => {

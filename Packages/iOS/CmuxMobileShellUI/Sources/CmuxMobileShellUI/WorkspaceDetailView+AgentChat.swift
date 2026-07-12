@@ -361,6 +361,7 @@ extension WorkspaceDetailView {
         }
         guard let openingSession = chatToggleSession,
               ensureChatConversationStore(for: openingSession) != nil else { return }
+        closeMobileDiff()
         withAnimation(.snappy(duration: 0.28)) {
             isChatMode = true
         }
