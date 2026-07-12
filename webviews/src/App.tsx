@@ -50,7 +50,7 @@ import type { DiffViewerLabelResolver } from "./labels";
 import type { DiffViewerStatus } from "./status";
 import type { DiffViewerConfig } from "./types";
 import { createDiffWorkerPoolOptions } from "./worker-pool";
-import { useMobileDiffBridge } from "./mobile-diff-bridge";
+import { mobileDiffRenderFailed, useMobileDiffBridge } from "./mobile-diff-bridge";
 
 type ConfigProps = {
   config: DiffViewerConfig;
@@ -335,7 +335,7 @@ export function App({ config, initialStatus }: ConfigProps) {
     state.activeItemId,
     mobileDiffGeneration,
     diffStreamComplete,
-    state.status.error,
+    mobileDiffRenderFailed(state.status, label("noFileDiffs")),
     scrollToItem,
   );
   const setStatus = (status: DiffViewerStatus) => {

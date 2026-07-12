@@ -25,6 +25,13 @@ export type MobileDiffLifecycleMessage = {
   type: "error" | "ready";
 };
 
+export function mobileDiffRenderFailed(
+  status: { error: boolean; message: string },
+  noFileDiffsMessage: string,
+): boolean {
+  return status.error && status.message !== noFileDiffsMessage;
+}
+
 type MobileDiffMessageHandler = {
   postMessage(message: unknown): void;
 };
