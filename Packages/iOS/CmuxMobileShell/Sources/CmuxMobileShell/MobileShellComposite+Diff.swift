@@ -24,4 +24,12 @@ extension MobileShellComposite {
         let data = try await client.sendRequest(request)
         return try MobileDiffDocument(decoding: data)
     }
+
+    /// Returns the stable host error code for a failed mobile diff request.
+    /// - Parameter error: Error thrown by ``loadMobileDiff(workspaceID:)``.
+    /// - Returns: The host's stable code, or `nil` for transport and decoding failures.
+    public func mobileDiffLoadErrorCode(for error: any Error) -> String? {
+        guard case let MobileShellConnectionError.rpcError(code, _) = error else { return nil }
+        return code
+    }
 }

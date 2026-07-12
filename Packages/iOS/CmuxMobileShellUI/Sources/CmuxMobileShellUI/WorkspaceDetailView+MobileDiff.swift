@@ -1,6 +1,5 @@
 #if os(iOS)
 import CmuxMobileBrowser
-import CmuxMobileRPC
 import CmuxMobileSupport
 
 extension WorkspaceDetailView {
@@ -25,7 +24,7 @@ extension WorkspaceDetailView {
                 state.load(document)
             } catch {
                 guard !Task.isCancelled, mobileDiffState === state else { return }
-                state.fail(message: mobileDiffLoadFailureMessage(error))
+                state.fail(message: mobileDiffLoadFailureMessage(store.mobileDiffLoadErrorCode(for: error)))
             }
         }
     }
@@ -36,8 +35,8 @@ extension WorkspaceDetailView {
         mobileDiffState = nil
     }
 
-    private func mobileDiffLoadFailureMessage(_ error: any Error) -> String {
-        if case let MobileShellConnectionError.rpcError(code, _) = error {
+    private func mobileDiffLoadFailureMessage(_ code: String?) -> String {
+        if let code {
             switch code {
             case "not_found":
                 return L10n.string(
