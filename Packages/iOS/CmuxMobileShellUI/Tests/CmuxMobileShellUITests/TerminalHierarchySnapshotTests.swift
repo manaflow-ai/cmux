@@ -220,3 +220,88 @@ import Testing
     )
     #expect(pane.rows.map(\.id) == ["terminal-a"])
 }
+
+@Test func hierarchySnapshotDisablesReorderUntilMissingMembershipRefreshes() throws {
+    var workspace = MobileWorkspacePreview(
+        id: "workspace-missing-membership",
+        name: "Missing membership",
+        terminals: [
+            MobileTerminalPreview(id: "terminal-a", name: "A", paneID: "pane-a"),
+            MobileTerminalPreview(id: "terminal-b", name: "B", paneID: "pane-a"),
+            MobileTerminalPreview(id: "terminal-d", name: "D", paneID: "pane-a"),
+        ],
+        panes: [
+            MobilePanePreview(
+                id: "pane-a",
+                spatialIndex: 0,
+                terminalIDs: ["terminal-a", "terminal-missing", "terminal-b", "terminal-d"]
+            ),
+        ]
+    )
+    workspace.actionCapabilities = MobileWorkspaceActionCapabilities(
+        supportsTerminalReorderActions: true
+    )
+
+    let malformed = TerminalHierarchySnapshot(workspace: workspace, selectedTerminalID: nil)
+    #expect(malformed.panes.first?.rows.map(\.id) == ["terminal-a", "terminal-b", "terminal-d"])
+    #expect(!malformed.canReorder)
+
+    workspace.panes[0].terminalIDs = ["terminal-a", "terminal-b", "terminal-d"]
+    let refreshed = TerminalHierarchySnapshot(workspace: workspace, selectedTerminalID: nil)
+    #expect(refreshed.canReorder)
+}
+
+@Test func hierarchySnapshotDisablesReorderForDuplicateBeforeVisibleSource() {
+    var workspace = MobileWorkspacePreview(
+        id: "workspace-duplicate-before-source",
+        name: "Duplicate before source",
+        terminals: [
+            MobileTerminalPreview(id: "terminal-a", name: "A", paneID: "pane-a"),
+            MobileTerminalPreview(id: "terminal-b", name: "B", paneID: "pane-a"),
+            MobileTerminalPreview(id: "terminal-d", name: "D", paneID: "pane-a"),
+        ],
+        panes: [
+            MobilePanePreview(
+                id: "pane-a",
+                spatialIndex: 0,
+                terminalIDs: ["terminal-a", "terminal-a", "terminal-b", "terminal-d"]
+            ),
+        ]
+    )
+    workspace.actionCapabilities = MobileWorkspaceActionCapabilities(
+        supportsTerminalReorderActions: true
+    )
+
+    let snapshot = TerminalHierarchySnapshot(workspace: workspace, selectedTerminalID: nil)
+    #expect(snapshot.panes.first?.rows.map(\.id) == ["terminal-a", "terminal-b", "terminal-d"])
+    #expect(!snapshot.canReorder)
+}
+
+@Test func hierarchySnapshotDisablesReorderForCrossPaneMembership() {
+    var workspace = MobileWorkspacePreview(
+        id: "workspace-cross-pane-membership",
+        name: "Cross-pane membership",
+        terminals: [
+            MobileTerminalPreview(id: "terminal-a", name: "A", paneID: "pane-a"),
+            MobileTerminalPreview(id: "terminal-b", name: "B", paneID: "pane-b"),
+        ],
+        panes: [
+            MobilePanePreview(
+                id: "pane-a",
+                spatialIndex: 0,
+                terminalIDs: ["terminal-a", "terminal-b"]
+            ),
+            MobilePanePreview(
+                id: "pane-b",
+                spatialIndex: 1,
+                terminalIDs: ["terminal-b"]
+            ),
+        ]
+    )
+    workspace.actionCapabilities = MobileWorkspaceActionCapabilities(
+        supportsTerminalReorderActions: true
+    )
+
+    let snapshot = TerminalHierarchySnapshot(workspace: workspace, selectedTerminalID: nil)
+    #expect(!snapshot.canReorder)
+}

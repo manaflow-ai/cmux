@@ -60,6 +60,7 @@ actor RoutingHostRouter {
     private var terminalCloseErrorCode: String?
     private var dropTerminalCloseResponse = false
     private var terminalCloseCount = 0
+    private var terminalReorderCount = 0
     private var terminalCloseReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var holdFirstWorkspaceCreate = false
     private var firstWorkspaceCreateHeld = false
@@ -161,6 +162,7 @@ actor RoutingHostRouter {
     func recordedWorkspaceCreateCount() -> Int { workspaceCreateCount }
     func recordedWorkspaceCreateGroupIDs() -> [String?] { workspaceCreateGroupIDs }
     func recordedTerminalCloseCount() -> Int { terminalCloseCount }
+    func recordedTerminalReorderCount() -> Int { terminalReorderCount }
 
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
@@ -283,6 +285,9 @@ actor RoutingHostRouter {
                     message: "terminal.close rejected"
                 )
             }
+            return try? Self.resultFrame(id: id, result: [:])
+        case "terminal.reorder":
+            terminalReorderCount += 1
             return try? Self.resultFrame(id: id, result: [:])
         case "terminal.paste_image":
             let surfaceID = info.surfaceID ?? ""

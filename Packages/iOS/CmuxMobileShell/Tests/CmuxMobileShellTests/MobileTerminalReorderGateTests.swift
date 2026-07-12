@@ -160,6 +160,74 @@ import Testing
 }
 
 @MainActor
+@Test func malformedPaneMembershipRejectsReorderBeforeRPC() async throws {
+    let router = RoutingHostRouter()
+    let capabilities = MobileWorkspaceActionCapabilities(
+        supportsTerminalReorderActions: true
+    )
+    let store = try await makeRoutingConnectedStore(
+        router: router,
+        connectionState: .connected,
+        workspaceActionCapabilities: capabilities
+    )
+    var workspace = MobileWorkspacePreview(
+        id: .init(rawValue: RoutingHostRouter.workspaceID),
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        name: "Malformed reorder",
+        terminals: [
+            MobileTerminalPreview(id: "terminal-a", name: "A", paneID: "pane-a"),
+            MobileTerminalPreview(id: "terminal-b", name: "B", paneID: "pane-a"),
+            MobileTerminalPreview(id: "terminal-d", name: "D", paneID: "pane-a"),
+        ],
+        panes: [
+            MobilePanePreview(
+                id: "pane-a",
+                spatialIndex: 0,
+                terminalIDs: ["terminal-a", "terminal-missing", "terminal-b", "terminal-d"]
+            ),
+        ]
+    )
+    workspace.actionCapabilities = capabilities
+    store.setWorkspaceStatesForTesting(
+        [
+            "test-mac": MacWorkspaceState(
+                macDeviceID: "test-mac",
+                displayName: "Test Mac",
+                workspaces: [workspace],
+                status: .connected,
+                actionCapabilities: capabilities
+            ),
+        ],
+        foregroundMacDeviceID: "test-mac"
+    )
+    let pane = try #require(workspace.panes.first)
+    let intent = try #require(MobileTerminalReorderIntent(
+        terminalID: "terminal-b",
+        sourceIndex: 2,
+        destinationIndex: 4,
+        pane: pane
+    ))
+    let reservation = try #require(store.terminalReorderGate.reserve(
+        workspaceID: workspace.id,
+        paneID: pane.id
+    ))
+
+    let result = await store.reorderTerminal(
+        workspaceID: workspace.id,
+        intent: intent,
+        reservation: reservation
+    )
+
+    guard case .failure(.rejected) = result else {
+        Issue.record("Expected malformed membership rejection, got \(result)")
+        return
+    }
+    #expect(await router.recordedTerminalReorderCount() == 0)
+    #expect(store.terminalReorderGate.canMutate(workspaceID: workspace.id))
+}
+
+@MainActor
 @Test func rejectedCloseReleasesItsReservation() async throws {
     let store = MobileShellComposite.preview()
     let reservation = try #require(store.terminalReorderGate.reserve(
