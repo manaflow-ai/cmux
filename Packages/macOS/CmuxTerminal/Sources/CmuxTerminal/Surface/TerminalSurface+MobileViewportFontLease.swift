@@ -11,13 +11,13 @@ nonisolated public struct MobileViewportFontFitReloadLease {
     let userAdjustedBaseFontPointSize: Float?
 }
 
-nonisolated enum MobileViewportResetFontPointSize {
-    static func resolve(
-        surfaceConfigFontPointSize: Float? = nil,
-        runtimeConfigFontPointSize: Float?,
-        fallbackBaseFontPointSize: Float,
-        magnificationPercent: Int
-    ) -> Float {
+nonisolated struct MobileViewportResetFontPointSize {
+    let surfaceConfigFontPointSize: Float?
+    let runtimeConfigFontPointSize: Float?
+    let fallbackBaseFontPointSize: Float
+    let magnificationPercent: Int
+
+    func resolve() -> Float {
         if let surfaceConfigFontPointSize,
            surfaceConfigFontPointSize.isFinite,
            surfaceConfigFontPointSize > 0 {
@@ -38,12 +38,12 @@ nonisolated enum MobileViewportResetFontPointSize {
 extension TerminalSurface {
     @MainActor
     func configuredMobileViewportFontPointSize() -> Float {
-        MobileViewportResetFontPointSize.resolve(
+        MobileViewportResetFontPointSize(
             surfaceConfigFontPointSize: mobileViewportConfiguredFontPointSize,
             runtimeConfigFontPointSize: runtimeConfigFontPointSize(),
             fallbackBaseFontPointSize: Float(GhosttyConfig().fontSize),
             magnificationPercent: globalFontMagnificationPercent()
-        )
+        ).resolve()
     }
 
     /// Records the finalized configuration applied to this specific surface.

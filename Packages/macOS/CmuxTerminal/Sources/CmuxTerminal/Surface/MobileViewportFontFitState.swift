@@ -1,5 +1,10 @@
 import Foundation
 
+private func mobileViewportFontSizesApproximatelyEqual(_ lhs: Float?, _ rhs: Float) -> Bool {
+    guard let lhs else { return false }
+    return abs(lhs - rhs) <= 0.05
+}
+
 struct MobileViewportFontFitState: Equatable {
     var baseFontPointSize: Float?
     var fittedFontPointSize: Float?
@@ -58,7 +63,7 @@ struct MobileViewportFontFitState: Equatable {
             return
         }
         self.baseFontPointSize = baseFontPointSize
-        baseWasUserAdjusted = !Self.approximatelyEqual(
+        baseWasUserAdjusted = !mobileViewportFontSizesApproximatelyEqual(
             baseFontPointSize,
             configuredFontPointSize
         )
@@ -73,10 +78,10 @@ struct MobileViewportFontFitState: Equatable {
               configuredFontPointSize.isFinite, configuredFontPointSize > 0 else { return }
 
         if let fittedFontPointSize {
-            if !Self.approximatelyEqual(liveFontPointSize, fittedFontPointSize) {
+            if !mobileViewportFontSizesApproximatelyEqual(liveFontPointSize, fittedFontPointSize) {
                 baseFontPointSize = liveFontPointSize
                 self.fittedFontPointSize = nil
-                baseWasUserAdjusted = !Self.approximatelyEqual(
+                baseWasUserAdjusted = !mobileViewportFontSizesApproximatelyEqual(
                     liveFontPointSize,
                     configuredFontPointSize
                 )
@@ -84,16 +89,16 @@ struct MobileViewportFontFitState: Equatable {
             }
 
             if baseWasUserAdjusted == false,
-               !Self.approximatelyEqual(baseFontPointSize, configuredFontPointSize) {
+               !mobileViewportFontSizesApproximatelyEqual(baseFontPointSize, configuredFontPointSize) {
                 baseFontPointSize = configuredFontPointSize
             }
             return
         }
 
         if let baseFontPointSize,
-           !Self.approximatelyEqual(liveFontPointSize, baseFontPointSize) {
+           !mobileViewportFontSizesApproximatelyEqual(liveFontPointSize, baseFontPointSize) {
             self.baseFontPointSize = liveFontPointSize
-            baseWasUserAdjusted = !Self.approximatelyEqual(
+            baseWasUserAdjusted = !mobileViewportFontSizesApproximatelyEqual(
                 liveFontPointSize,
                 configuredFontPointSize
             )
@@ -114,10 +119,5 @@ struct MobileViewportFontFitState: Equatable {
 
     mutating func clear() {
         self = .init()
-    }
-
-    private static func approximatelyEqual(_ lhs: Float?, _ rhs: Float) -> Bool {
-        guard let lhs else { return false }
-        return abs(lhs - rhs) <= 0.05
     }
 }
