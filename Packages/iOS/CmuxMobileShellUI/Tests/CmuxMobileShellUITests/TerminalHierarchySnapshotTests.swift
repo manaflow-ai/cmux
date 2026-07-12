@@ -117,6 +117,18 @@ import Testing
     #expect(capturedConfirmation?.confirmed == true)
 }
 
+@Test func closeProtectedFailureUsesPinnedTerminalPresentation() {
+    #expect(TerminalHierarchyCloseResultPresentation(
+        .failure(.protected(hostDisplayName: "Test Mac"))
+    ) == .protected)
+    #expect(TerminalHierarchyCloseResultPresentation(
+        .failure(.notConnected(hostDisplayName: "Test Mac"))
+    ) == .failed)
+    #expect(TerminalHierarchyCloseResultPresentation(
+        .failure(.confirmationRequired(hostDisplayName: "Test Mac"))
+    ) == .confirmationRequired)
+}
+
 @Test func hierarchySnapshotHandlesEmptyAndSingleTerminalWorkspaces() {
     let empty = MobileWorkspacePreview(id: "empty", name: "Empty", terminals: [])
     #expect(TerminalHierarchySnapshot(workspace: empty, selectedTerminalID: nil).panes.isEmpty)
