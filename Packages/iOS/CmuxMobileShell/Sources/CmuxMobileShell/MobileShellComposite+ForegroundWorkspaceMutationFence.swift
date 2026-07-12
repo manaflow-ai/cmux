@@ -12,13 +12,6 @@ struct ForegroundWorkspaceMutationRefreshResult: Sendable {
     let succeeded: Bool
 }
 
-enum RemoteCreateResponseOutcome: Equatable, Sendable {
-    case appliedScopedResponse
-    case reconciledAuthoritativeList
-    case reconciliationRequired
-    case invalidated
-}
-
 extension MobileShellComposite {
     /// Claims selection ownership across workspace and terminal creates. Their
     /// RPCs have separate single-flight owners and can overlap, so only the most

@@ -929,10 +929,21 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C9CFB398DF94D6DDEAF42D67 /* MobileTerminalRenderObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */; };
 		A8F800000000000000000004 /* MobileTerminalReorderIndexResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F800000000000000000003 /* MobileTerminalReorderIndexResolver.swift */; };
 		A8F800000000000000000006 /* MobileTerminalReorderIndexResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F800000000000000000005 /* MobileTerminalReorderIndexResolverTests.swift */; };
+		A8F802000000000000000012 /* MobileWorkspaceHierarchyProjection+FocusValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F802000000000000000011 /* MobileWorkspaceHierarchyProjection+FocusValue.swift */; };
+		A8F80200000000000000000E /* MobileWorkspaceHierarchyProjection+ListValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F80200000000000000000D /* MobileWorkspaceHierarchyProjection+ListValue.swift */; };
+		A8F802000000000000000010 /* MobileWorkspaceHierarchyProjection+PaneFocusValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F80200000000000000000F /* MobileWorkspaceHierarchyProjection+PaneFocusValue.swift */; };
+		A8F80200000000000000000C /* MobileWorkspaceHierarchyProjection+PanelDirectoryValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F80200000000000000000B /* MobileWorkspaceHierarchyProjection+PanelDirectoryValue.swift */; };
+		A8F802000000000000000002 /* MobileWorkspaceHierarchyProjection+PaneListValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F802000000000000000001 /* MobileWorkspaceHierarchyProjection+PaneListValue.swift */; };
+		A8F802000000000000000004 /* MobileWorkspaceHierarchyProjection+PanePayloadValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F802000000000000000003 /* MobileWorkspaceHierarchyProjection+PanePayloadValue.swift */; };
+		A8F80200000000000000000A /* MobileWorkspaceHierarchyProjection+SurfaceListValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F802000000000000000009 /* MobileWorkspaceHierarchyProjection+SurfaceListValue.swift */; };
+		A8F802000000000000000006 /* MobileWorkspaceHierarchyProjection+TerminalListValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F802000000000000000005 /* MobileWorkspaceHierarchyProjection+TerminalListValue.swift */; };
+		A8F802000000000000000008 /* MobileWorkspaceHierarchyProjection+TerminalPayloadValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F802000000000000000007 /* MobileWorkspaceHierarchyProjection+TerminalPayloadValue.swift */; };
 		A8F801000000000000000002 /* MobileWorkspaceHierarchyProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F801000000000000000001 /* MobileWorkspaceHierarchyProjection.swift */; };
 		A8F801000000000000000004 /* MobileWorkspaceHierarchyProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F801000000000000000003 /* MobileWorkspaceHierarchyProjectionTests.swift */; };
 		F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86544CEFA1CA33CA9225FB6E /* MobileWorkspaceListFidelityTests.swift */; };
 		00C3AA443F6DA8D94E28CE17 /* MobileWorkspaceListObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */; };
+		A8F802000000000000000014 /* MobileWorkspaceListProjection+GroupValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F802000000000000000013 /* MobileWorkspaceListProjection+GroupValue.swift */; };
+		A8F801000000000000000006 /* MobileWorkspaceListProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F801000000000000000005 /* MobileWorkspaceListProjection.swift */; };
 		D75280030000000000000001 /* MobileWorkspaceObserverSignposts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D75280030000000000000002 /* MobileWorkspaceObserverSignposts.swift */; };
 		90C33E5A98704D86832E3734 /* MobileWorkspacePaneHierarchyFidelityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8EEFCBE0D4137D01A1B4AC7 /* MobileWorkspacePaneHierarchyFidelityTests.swift */; };
 		2B8B633A97054416BC2B3978 /* MobileWorkspacePanePayloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB5B468D09754EA18A6ACCD3 /* MobileWorkspacePanePayloadTests.swift */; };
@@ -2658,10 +2669,21 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalRenderObserver.swift; sourceTree = "<group>"; };
 		A8F800000000000000000003 /* MobileTerminalReorderIndexResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTerminalReorderIndexResolver.swift; sourceTree = "<group>"; };
 		A8F800000000000000000005 /* MobileTerminalReorderIndexResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTerminalReorderIndexResolverTests.swift; sourceTree = "<group>"; };
+		A8F802000000000000000011 /* MobileWorkspaceHierarchyProjection+FocusValue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileWorkspaceHierarchyProjection+FocusValue.swift"; sourceTree = "<group>"; };
+		A8F80200000000000000000D /* MobileWorkspaceHierarchyProjection+ListValue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileWorkspaceHierarchyProjection+ListValue.swift"; sourceTree = "<group>"; };
+		A8F80200000000000000000F /* MobileWorkspaceHierarchyProjection+PaneFocusValue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileWorkspaceHierarchyProjection+PaneFocusValue.swift"; sourceTree = "<group>"; };
+		A8F80200000000000000000B /* MobileWorkspaceHierarchyProjection+PanelDirectoryValue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileWorkspaceHierarchyProjection+PanelDirectoryValue.swift"; sourceTree = "<group>"; };
+		A8F802000000000000000001 /* MobileWorkspaceHierarchyProjection+PaneListValue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileWorkspaceHierarchyProjection+PaneListValue.swift"; sourceTree = "<group>"; };
+		A8F802000000000000000003 /* MobileWorkspaceHierarchyProjection+PanePayloadValue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileWorkspaceHierarchyProjection+PanePayloadValue.swift"; sourceTree = "<group>"; };
+		A8F802000000000000000009 /* MobileWorkspaceHierarchyProjection+SurfaceListValue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileWorkspaceHierarchyProjection+SurfaceListValue.swift"; sourceTree = "<group>"; };
+		A8F802000000000000000005 /* MobileWorkspaceHierarchyProjection+TerminalListValue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileWorkspaceHierarchyProjection+TerminalListValue.swift"; sourceTree = "<group>"; };
+		A8F802000000000000000007 /* MobileWorkspaceHierarchyProjection+TerminalPayloadValue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileWorkspaceHierarchyProjection+TerminalPayloadValue.swift"; sourceTree = "<group>"; };
 		A8F801000000000000000001 /* MobileWorkspaceHierarchyProjection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceHierarchyProjection.swift; sourceTree = "<group>"; };
 		A8F801000000000000000003 /* MobileWorkspaceHierarchyProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceHierarchyProjectionTests.swift; sourceTree = "<group>"; };
 		86544CEFA1CA33CA9225FB6E /* MobileWorkspaceListFidelityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceListFidelityTests.swift; sourceTree = "<group>"; };
 		C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceListObserver.swift; sourceTree = "<group>"; };
+		A8F802000000000000000013 /* MobileWorkspaceListProjection+GroupValue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileWorkspaceListProjection+GroupValue.swift"; sourceTree = "<group>"; };
+		A8F801000000000000000005 /* MobileWorkspaceListProjection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceListProjection.swift; sourceTree = "<group>"; };
 		D75280030000000000000002 /* MobileWorkspaceObserverSignposts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceObserverSignposts.swift; sourceTree = "<group>"; };
 		D8EEFCBE0D4137D01A1B4AC7 /* MobileWorkspacePaneHierarchyFidelityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspacePaneHierarchyFidelityTests.swift; sourceTree = "<group>"; };
 		DB5B468D09754EA18A6ACCD3 /* MobileWorkspacePanePayloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspacePanePayloadTests.swift; sourceTree = "<group>"; };
@@ -3668,6 +3690,17 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				5AE701F43A0B49F08835191C /* MobilePairingWindowController.swift */,
 				C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */,
 				A8F801000000000000000001 /* MobileWorkspaceHierarchyProjection.swift */,
+				A8F802000000000000000011 /* MobileWorkspaceHierarchyProjection+FocusValue.swift */,
+				A8F80200000000000000000D /* MobileWorkspaceHierarchyProjection+ListValue.swift */,
+				A8F80200000000000000000B /* MobileWorkspaceHierarchyProjection+PanelDirectoryValue.swift */,
+				A8F80200000000000000000F /* MobileWorkspaceHierarchyProjection+PaneFocusValue.swift */,
+				A8F802000000000000000001 /* MobileWorkspaceHierarchyProjection+PaneListValue.swift */,
+				A8F802000000000000000003 /* MobileWorkspaceHierarchyProjection+PanePayloadValue.swift */,
+				A8F802000000000000000009 /* MobileWorkspaceHierarchyProjection+SurfaceListValue.swift */,
+				A8F802000000000000000005 /* MobileWorkspaceHierarchyProjection+TerminalListValue.swift */,
+				A8F802000000000000000007 /* MobileWorkspaceHierarchyProjection+TerminalPayloadValue.swift */,
+				A8F801000000000000000005 /* MobileWorkspaceListProjection.swift */,
+				A8F802000000000000000013 /* MobileWorkspaceListProjection+GroupValue.swift */,
 				D75280030000000000000002 /* MobileWorkspaceObserverSignposts.swift */,
 				F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */,
 				4F05EBBC2FE0D5CB2F662B8A /* MobileTerminalByteTee.swift */,
@@ -6223,8 +6256,19 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				AB57F0C27BECE8EDFC6B2B97 /* MobileTerminalByteTee.swift in Sources */,
 				C9CFB398DF94D6DDEAF42D67 /* MobileTerminalRenderObserver.swift in Sources */,
 				A8F800000000000000000004 /* MobileTerminalReorderIndexResolver.swift in Sources */,
+				A8F802000000000000000012 /* MobileWorkspaceHierarchyProjection+FocusValue.swift in Sources */,
+				A8F80200000000000000000E /* MobileWorkspaceHierarchyProjection+ListValue.swift in Sources */,
+				A8F802000000000000000010 /* MobileWorkspaceHierarchyProjection+PaneFocusValue.swift in Sources */,
+				A8F80200000000000000000C /* MobileWorkspaceHierarchyProjection+PanelDirectoryValue.swift in Sources */,
+				A8F802000000000000000002 /* MobileWorkspaceHierarchyProjection+PaneListValue.swift in Sources */,
+				A8F802000000000000000004 /* MobileWorkspaceHierarchyProjection+PanePayloadValue.swift in Sources */,
+				A8F80200000000000000000A /* MobileWorkspaceHierarchyProjection+SurfaceListValue.swift in Sources */,
+				A8F802000000000000000006 /* MobileWorkspaceHierarchyProjection+TerminalListValue.swift in Sources */,
+				A8F802000000000000000008 /* MobileWorkspaceHierarchyProjection+TerminalPayloadValue.swift in Sources */,
 				A8F801000000000000000002 /* MobileWorkspaceHierarchyProjection.swift in Sources */,
 				00C3AA443F6DA8D94E28CE17 /* MobileWorkspaceListObserver.swift in Sources */,
+				A8F802000000000000000014 /* MobileWorkspaceListProjection+GroupValue.swift in Sources */,
+				A8F801000000000000000006 /* MobileWorkspaceListProjection.swift in Sources */,
 				D75280030000000000000001 /* MobileWorkspaceObserverSignposts.swift in Sources */,
 					C75740020000000000000001 /* MouseDownMenuItemView.swift in Sources */,
 				596100000000000000000003 /* NativeNotificationDeliveryHooks.swift in Sources */,

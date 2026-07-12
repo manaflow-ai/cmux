@@ -1,9 +1,7 @@
 import CMUXMobileCore
 import Foundation
 
-struct RoutingTransportFactory: CmxByteTransportFactory {
-    let router: RoutingHostRouter
-
+extension RoutingTransportFactory {
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
         RoutingTransport(router: router)
     }
