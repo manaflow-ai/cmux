@@ -434,6 +434,22 @@ import Testing
     }
 
     @MainActor
+    @Test func missingReconnectDependenciesResolveTheStoredMacGate() async {
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            identityProvider: StaticIdentityProvider(userID: "user-1")
+        )
+
+        let connected = await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+
+        #expect(!connected)
+        #expect(store.didFinishStoredMacReconnectAttempt)
+        #expect(store.connectionRecoveryFailed)
+        #expect(store.connectionLifecycle.activeEpisode == nil)
+        #expect(store.connectionLifecycle.resourceSnapshot.pendingRequestCount == 0)
+    }
+
+    @MainActor
     @Test func teamChangeReplacesStoredMacRecoveryWithNewScopeEpisode() {
         let store = MobileShellComposite(
             isSignedIn: true,
