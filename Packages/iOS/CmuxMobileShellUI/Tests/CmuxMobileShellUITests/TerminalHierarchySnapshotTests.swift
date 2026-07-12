@@ -175,6 +175,29 @@ import Testing
     ) == .failed)
 }
 
+@Test func moveResultPresentationMapsEveryActionOutcome() {
+    #expect(TerminalHierarchyMoveResultPresentation(.unavailable) == .unavailable)
+    #expect(TerminalHierarchyMoveResultPresentation(.completed(.success(()))) == .reordered)
+    #expect(TerminalHierarchyMoveResultPresentation(
+        .completed(.failure(.appliedNeedsRefresh(hostDisplayName: "Test Mac")))
+    ) == .appliedNeedsRefresh)
+    #expect(TerminalHierarchyMoveResultPresentation(
+        .completed(.failure(.resultUnknownNeedsRefresh(hostDisplayName: "Test Mac")))
+    ) == .resultUnknownNeedsRefresh)
+    #expect(TerminalHierarchyMoveResultPresentation(
+        .completed(.failure(.resultUnknownRefreshed(hostDisplayName: "Test Mac")))
+    ) == .resultUnknownRefreshed)
+    #expect(TerminalHierarchyMoveResultPresentation(
+        .completed(.failure(.protected(hostDisplayName: "Test Mac")))
+    ) == .protected)
+    #expect(TerminalHierarchyMoveResultPresentation(
+        .completed(.failure(.notConnected(hostDisplayName: "Test Mac")))
+    ) == .failed)
+    #expect(TerminalHierarchyMoveResultPresentation(
+        .completed(.failure(.confirmationRequired(hostDisplayName: "Test Mac")))
+    ) == .failed)
+}
+
 @MainActor
 @Test func workspaceAmbiguousRefreshedResultUsesVerificationCopy() {
     let view = WorkspaceShellView(store: MobileShellComposite.preview(), signOut: {})

@@ -173,3 +173,42 @@ import Testing
     #expect(created.paneID == "pane-live")
     #expect(updated.panes[0].terminalIDs.last == created.id)
 }
+
+@MainActor
+@Test func publicLocalCreateHonorsExplicitNonFocusedPaneWithoutCapability() throws {
+    let store = MobileShellComposite.preview()
+    let workspace = MobileWorkspacePreview(
+        id: "workspace-explicit-local-pane",
+        name: "Explicit local pane",
+        terminals: [
+            MobileTerminalPreview(id: "terminal-focused", name: "Focused", paneID: "pane-focused"),
+            MobileTerminalPreview(id: "terminal-target", name: "Target", paneID: "pane-target"),
+        ],
+        panes: [
+            MobilePanePreview(
+                id: "pane-focused",
+                spatialIndex: 0,
+                isFocused: true,
+                terminalIDs: ["terminal-focused"]
+            ),
+            MobilePanePreview(
+                id: "pane-target",
+                spatialIndex: 1,
+                isFocused: false,
+                terminalIDs: ["terminal-target"]
+            ),
+        ],
+        focusedPaneID: "pane-focused",
+        selectedTerminalID: "terminal-focused"
+    )
+    store.replaceForegroundWorkspaceState([workspace])
+
+    store.createTerminal(in: workspace.id, paneID: "pane-target")
+
+    let updated = try #require(store.workspaces.first)
+    let created = try #require(updated.terminals.last)
+    #expect(created.paneID == "pane-target")
+    #expect(updated.panes[1].terminalIDs.last == created.id)
+    #expect(updated.focusedPaneID == "pane-focused")
+    #expect(store.selectedTerminalID == created.id)
+}
