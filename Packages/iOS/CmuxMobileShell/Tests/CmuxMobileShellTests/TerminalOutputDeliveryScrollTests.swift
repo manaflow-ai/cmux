@@ -3,6 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxMobileShell
 
+@MainActor
 @Test func terminalOutputQueueCoalescesReplaceableViewportFramesBehindBackpressure() {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
@@ -19,6 +20,7 @@ import Testing
     #expect(queue.isIdle)
 }
 
+@MainActor
 @Test func terminalOutputQueueCoalescesRenderGridFramesBeforeSynthesizingBytes() throws {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
@@ -52,6 +54,7 @@ import Testing
     #expect(!vt.contains("old"))
 }
 
+@MainActor
 @Test func terminalOutputQueueDoesNotReplaceRenderGridSnapshotWithPolicyOnlyDelivery() throws {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
@@ -84,6 +87,7 @@ import Testing
     #expect(queue.completeInFlight() == policyOnly)
 }
 
+@MainActor
 @Test func terminalOutputQueuePreservesNonreplaceableBarriers() {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
@@ -103,6 +107,7 @@ import Testing
     #expect(queue.completeInFlight() == nil)
 }
 
+@MainActor
 @Test func terminalOutputQueueDrainsRawFallbackBacklogInOrder() {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
@@ -122,174 +127,12 @@ import Testing
     #expect(queue.isIdle)
 }
 
-@Test func optimisticScrollDiscardsOnlyUnclaimedRenderGridDeliveries() throws {
-    var queue = TerminalOutputDeliveryQueue()
-    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
-        surfaceID: "terminal",
-        stateSeq: 1,
-        columns: 12,
-        rows: 2,
-        text: "old\nviewport"
-    )
-    let yieldedGrid = TerminalOutputDelivery(renderGrid: frame, replaceable: true)
-    let rawBytes = TerminalOutputDelivery(bytes: Data("raw".utf8), replaceable: false)
-    let pendingGrid = TerminalOutputDelivery(renderGrid: frame, replaceable: true)
-
-    #expect(queue.enqueue(yieldedGrid) == yieldedGrid)
-    #expect(queue.enqueue(rawBytes) == nil)
-    #expect(queue.enqueue(pendingGrid) == nil)
-
-    #expect(queue.discardUnclaimedForOptimisticScroll() == rawBytes)
-    let staleClaim = queue.claimInFlight(deliveryID: yieldedGrid.deliveryID)
-    let rawClaim = queue.claimInFlight(deliveryID: rawBytes.deliveryID)
-    #expect(!staleClaim)
-    #expect(rawClaim)
-    #expect(queue.pendingCount == 1)
-    #expect(queue.completeInFlight() == nil)
-}
-
-@Test func optimisticScrollPreservesClaimedRenderGridAheadOfLocalWork() throws {
-    var queue = TerminalOutputDeliveryQueue()
-    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
-        surfaceID: "terminal",
-        stateSeq: 1,
-        columns: 12,
-        rows: 2,
-        text: "claimed\nviewport"
-    )
-    let claimedGrid = TerminalOutputDelivery(renderGrid: frame, replaceable: true)
-    let rawBytes = TerminalOutputDelivery(bytes: Data("raw".utf8), replaceable: false)
-    let pendingGrid = TerminalOutputDelivery(renderGrid: frame, replaceable: true)
-
-    #expect(queue.enqueue(claimedGrid) == claimedGrid)
-    let claimed = queue.claimInFlight(deliveryID: claimedGrid.deliveryID)
-    #expect(claimed)
-    #expect(queue.enqueue(rawBytes) == nil)
-    #expect(queue.enqueue(pendingGrid) == nil)
-
-    #expect(queue.discardUnclaimedForOptimisticScroll() == nil)
-    #expect(queue.currentInFlight == claimedGrid)
-    #expect(queue.completeInFlight() == rawBytes)
-    #expect(queue.completeInFlight() == nil)
-}
-
-@Test func optimisticScrollPreservesUnclaimedIncrementalRenderGrid() throws {
-    var queue = TerminalOutputDeliveryQueue()
-    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
-        surfaceID: "terminal",
-        stateSeq: 1,
-        columns: 12,
-        rows: 2,
-        text: "changed\nunchanged",
-        full: false,
-        changedRows: [0]
-    )
-    let incrementalGrid = TerminalOutputDelivery(renderGrid: frame, replaceable: false)
-    let rawBytes = TerminalOutputDelivery(bytes: Data("raw".utf8), replaceable: false)
-    let replaceableGrid = TerminalOutputDelivery(
-        renderGrid: try MobileTerminalRenderGridFrame.fromPlainRows(
-            surfaceID: "terminal",
-            stateSeq: 2,
-            columns: 12,
-            rows: 2,
-            text: "new\nviewport",
-            full: false,
-            changedRows: [0, 1]
-        ),
-        replaceable: true
-    )
-
-    #expect(queue.enqueue(incrementalGrid) == incrementalGrid)
-    #expect(queue.enqueue(rawBytes) == nil)
-    #expect(queue.enqueue(replaceableGrid) == nil)
-
-    #expect(queue.discardUnclaimedForOptimisticScroll() == nil)
-    #expect(queue.currentInFlight == incrementalGrid)
-    #expect(queue.completeInFlight() == rawBytes)
-    #expect(queue.completeInFlight() == nil)
-}
-
-@Test func optimisticScrollDiscardsUnclaimedIncrementalReconciliation() throws {
-    var queue = TerminalOutputDeliveryQueue()
-    let reconciliation = TerminalScrollReconciliation(interactionEpoch: 1, clientRevision: 1)
-    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
-        surfaceID: "terminal",
-        stateSeq: 1,
-        columns: 12,
-        rows: 2,
-        text: "old\nreconcile",
-        full: false,
-        changedRows: [0]
-    )
-    let stale = TerminalOutputDelivery(
-        renderGrid: frame,
-        replaceable: false,
-        scrollReconciliation: reconciliation
-    )
-    let rawBytes = TerminalOutputDelivery(bytes: Data("raw".utf8), replaceable: false)
-
-    #expect(queue.enqueue(stale) == stale)
-    #expect(queue.enqueue(rawBytes) == nil)
-    #expect(queue.discardUnclaimedForOptimisticScroll() == rawBytes)
-    let staleClaim = queue.claimInFlight(deliveryID: stale.deliveryID)
-    let rawClaim = queue.claimInFlight(deliveryID: rawBytes.deliveryID)
-    #expect(!staleClaim)
-    #expect(rawClaim)
-}
-
-@Test func optimisticScrollInvalidationIsLazyAndPreservesOrderedBarriers() throws {
-    var queue = TerminalOutputDeliveryQueue()
-    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
-        surfaceID: "terminal",
-        stateSeq: 1,
-        columns: 12,
-        rows: 2,
-        text: "old\nviewport"
-    )
-    let claimedGrid = TerminalOutputDelivery(renderGrid: frame, replaceable: true)
-    #expect(queue.enqueue(claimedGrid) == claimedGrid)
-    let claimed = queue.claimInFlight(deliveryID: claimedGrid.deliveryID)
-    #expect(claimed)
-
-    let rawDeliveries = (0..<64).map {
-        TerminalOutputDelivery(bytes: Data("raw-\($0)".utf8), replaceable: false)
-    }
-    for raw in rawDeliveries {
-        #expect(queue.enqueue(TerminalOutputDelivery(renderGrid: frame, replaceable: true)) == nil)
-        #expect(queue.enqueue(raw) == nil)
-    }
-    let policy = TerminalOutputDelivery(
-        bytes: Data(),
-        replaceable: true,
-        replacementScope: .viewportPolicy,
-        viewportPolicy: .natural
-    )
-    let incremental = TerminalOutputDelivery(renderGrid: frame, replaceable: false)
-    #expect(queue.enqueue(policy) == nil)
-    #expect(queue.enqueue(incremental) == nil)
-
-    for _ in 0..<100 {
-        #expect(queue.discardUnclaimedForOptimisticScroll() == nil)
-    }
-    #expect(queue.optimisticInvalidationGeneration == 100)
-    #expect(queue.pendingTraversalCount == 0)
-
-    for raw in rawDeliveries {
-        #expect(queue.completeInFlight() == raw)
-    }
-    #expect(queue.completeInFlight() == policy)
-    #expect(queue.completeInFlight() == incremental)
-    #expect(queue.completeInFlight() == nil)
-    #expect(queue.pendingTraversalCount == 130)
-}
-
 @MainActor
 @Test func terminalOutputUnmountRetiresScrollRevisionState() async throws {
     let store = MobileShellComposite.preview()
     let surfaceID = "terminal"
     _ = store.mountTerminalScrollSession(
         surfaceID: surfaceID,
-        applyLocal: { _ in true },
         cancelLocal: {}
     )
     store.acceptTerminalRenderRevision(42, surfaceID: surfaceID)

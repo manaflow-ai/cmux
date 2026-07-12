@@ -169,14 +169,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.surfaceView = surfaceView
             guard let store else { return }
             let surfaceID = surfaceID
+            let outputStream = store.terminalOutputStream(surfaceID: surfaceID)
             terminalScrollSessionToken = store.mountTerminalScrollSession(
                 surfaceID: surfaceID,
-                applyLocal: { [weak surfaceView] runs in
-                    guard let surfaceView else { return false }
-                    return await surfaceView.applyLocalScrollbackScrollAndWait(runs)
-                },
                 cancelLocal: { [weak surfaceView] in
-                    surfaceView?.cancelScrollInteractionAndSnapToBottom()
+                    surfaceView?.cancelScrollMomentum()
                 }
             )
             viewportReportScheduler = TerminalViewportReportScheduler(
@@ -218,7 +215,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // clears its viewport pin on the Mac (see `terminalOutputStream`).
             outputTask = Task { @MainActor [weak self, weak surfaceView, weak store] in
                 guard let store else { return }
-                for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
+                for await chunk in outputStream {
                     guard !Task.isCancelled else { return }
                     guard let self else { return }
                     guard let surfaceView else { return }
@@ -229,36 +226,45 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     ) else {
                         continue
                     }
-                    switch chunk.viewportPolicy {
-                    case .natural:
-                        self.activeViewportPolicy = .natural
-                        if chunk.data.isEmpty {
-                            surfaceView.useNaturalViewSize()
-                        } else {
-                            surfaceView.prepareNaturalViewSizeForOrderedOutput()
+                    let applied: Bool
+                    switch chunk.mutation {
+                    case .output(let operation):
+                        switch operation.viewportPolicy {
+                        case .natural:
+                            self.activeViewportPolicy = .natural
+                            if operation.data.isEmpty {
+                                surfaceView.useNaturalViewSize()
+                            } else {
+                                surfaceView.prepareNaturalViewSizeForOrderedOutput()
+                            }
+                        case .remoteGrid(let columns, let rows):
+                            self.activeViewportPolicy = .remoteGrid(columns: columns, rows: rows)
+                            if operation.data.isEmpty {
+                                surfaceView.applyViewSize(cols: columns, rows: rows)
+                            } else {
+                                surfaceView.prepareViewSizeForOrderedOutput(cols: columns, rows: rows)
+                            }
+                        case nil:
+                            break
                         }
-                    case .remoteGrid(let columns, let rows):
-                        self.activeViewportPolicy = .remoteGrid(columns: columns, rows: rows)
-                        if chunk.data.isEmpty {
-                            surfaceView.applyViewSize(cols: columns, rows: rows)
+                        if operation.data.isEmpty {
+                            applied = true
                         } else {
-                            surfaceView.prepareViewSizeForOrderedOutput(cols: columns, rows: rows)
-                        }
-                    case nil:
-                        break
-                    }
-                    if !chunk.data.isEmpty {
-                        let applied = await surfaceView.processOutputAndWait(
-                            chunk.data,
-                            scrollbackOffsetFromBottomRows: chunk.scrollbackOffsetFromBottomRows
-                        )
-                        guard applied else {
-                            store.terminalOutputDidReset(
-                                surfaceID: surfaceID,
-                                streamToken: chunk.streamToken
+                            applied = await surfaceView.processOutputAndWait(
+                                operation.data,
+                                scrollbackOffsetFromBottomRows: operation.scrollbackOffsetFromBottomRows
                             )
-                            continue
                         }
+                    case .localScroll(let runs): applied = await surfaceView.applyLocalScrollbackScrollAndWait(runs)
+                    case .scrollToBottom: applied = await surfaceView.scrollToBottomAndWait()
+                    case .barrier: applied = true
+                    }
+                    guard applied else {
+                        store.terminalOutputDidReset(
+                            surfaceID: surfaceID,
+                            streamToken: chunk.streamToken
+                        )
+                        continue
                     }
                     store.terminalOutputDidProcess(
                         surfaceID: surfaceID,

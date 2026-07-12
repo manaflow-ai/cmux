@@ -92,8 +92,11 @@ extension MobileShellComposite {
         // still deliver.
         let deliveredSeqValue = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID] ?? 0
         let preBarrierFloorSeq = terminalPreBarrierDeliveredEndSeqBySurfaceID[renderGrid.surfaceID]
-        let hasRevisionOrderedReplay = source == "replay" && renderGrid.renderRevision != nil
-        if !hasRevisionOrderedReplay,
+        let canRebaseSequenceFloor = source == "replay"
+            && renderGrid.renderRevision != nil
+            && bypassReplayBarrier
+            && terminalReplayBarrierTokensBySurfaceID[renderGrid.surfaceID] != nil
+        if !canRebaseSequenceFloor,
            deliveredSeqValue > renderGrid.stateSeq
             || preBarrierFloorSeq.map({ $0 >= renderGrid.stateSeq }) ?? false {
             MobileDebugLog.anchormux(
@@ -187,7 +190,7 @@ extension MobileShellComposite {
                     || terminalRenderGridBaselineReplayBarrierTokensBySurfaceID[renderGrid.surfaceID] == activeReplayBarrierToken
             )
         if bypassLiveBaselineBarrier {
-            terminalOutputQueuesBySurfaceID[renderGrid.surfaceID] = TerminalOutputDeliveryQueue()
+            resetTerminalMutationQueue(surfaceID: renderGrid.surfaceID)
             terminalOutputStreamTokensBySurfaceID[renderGrid.surfaceID] = UUID()
             terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: renderGrid.surfaceID)
             terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: renderGrid.surfaceID)
@@ -274,7 +277,7 @@ extension MobileShellComposite {
         )
     }
 
-    private func deliverTerminalOutput(
+    func deliverTerminalOutput(
         _ delivery: TerminalOutputDelivery,
         surfaceID: String,
         bypassReplayBarrier: Bool = false
@@ -283,6 +286,7 @@ extension MobileShellComposite {
               let streamToken = terminalOutputStreamTokensBySurfaceID[surfaceID] else { return false }
         if let replayBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID],
            !bypassReplayBarrier {
+            delivery.resolveReceipt(false)
             terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
             let droppedOutputCount = (terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] ?? 0) &+ 1
             terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] = droppedOutputCount
@@ -330,11 +334,9 @@ extension MobileShellComposite {
         if let immediate {
             continuation.yield(
                 MobileTerminalOutputChunk(
-                    data: immediate.bytes,
+                    mutation: immediate.mutation,
                     streamToken: streamToken,
-                    deliveryID: immediate.deliveryID,
-                    viewportPolicy: immediate.viewportPolicy,
-                    scrollbackOffsetFromBottomRows: immediate.scrollbackOffsetFromBottomRows
+                    deliveryID: immediate.deliveryID
                 )
             )
         }
@@ -423,11 +425,9 @@ extension MobileShellComposite {
             return
         }
         continuation.yield(MobileTerminalOutputChunk(
-            data: next.bytes,
+            mutation: next.mutation,
             streamToken: streamToken,
-            deliveryID: next.deliveryID,
-            viewportPolicy: next.viewportPolicy,
-            scrollbackOffsetFromBottomRows: next.scrollbackOffsetFromBottomRows
+            deliveryID: next.deliveryID
         ))
     }
 

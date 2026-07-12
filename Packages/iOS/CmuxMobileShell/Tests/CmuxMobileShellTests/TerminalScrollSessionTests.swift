@@ -130,11 +130,10 @@ struct TerminalScrollSessionTests {
         #expect(finalRemote.request.prefetchWindow == .directional(for: 5))
         finalRemote.continuation.resume(returning: response(for: finalRemote.request, renderRevision: 30))
 
-        let firstLocal = harness.local.pending.removeFirst()
-        firstLocal.continuation.resume(returning: true)
-        try await requireEventually { harness.local.pending.count == 1 }
-        let finalLocal = harness.local.pending.removeFirst()
-        finalLocal.continuation.resume(returning: true)
+        #expect(harness.local.started.map(\.lines) == [10, -10, 5])
+        while !harness.local.pending.isEmpty {
+            harness.local.pending.removeFirst().continuation.resume(returning: true)
+        }
         try await requireEventually { harness.delivered.count == 1 }
 
         #expect(harness.remote.started.map(\.lines) == [10, -10, 5])
@@ -151,12 +150,13 @@ struct TerminalScrollSessionTests {
         try await requireEventually {
             harness.remote.pending.count == 1 && harness.local.pending.count == 1
         }
-        for index in 1...257 {
+        for index in 1...65 {
             session.submit(
                 lines: index.isMultiple(of: 2) ? 3 : -2,
                 col: index,
                 row: index + 1
             )
+            if !harness.replayEpochs.isEmpty { break }
         }
         #expect(harness.replayEpochs == [2])
         #expect(session.interactionEpoch == 2)
@@ -264,59 +264,12 @@ struct TerminalScrollSessionTests {
         #expect(harness.acceptedRenderRevisions.isEmpty)
     }
 
-    @Test("click waits for preceding scroll and advances the interaction fence")
-    func clickWaitsForPrecedingScroll() async throws {
-        let router = RoutingHostRouter()
-        await router.setHoldFirstTerminalScroll(true)
-        let store = try await makeRoutingConnectedStore(router: router)
-        let surfaceID = RoutingHostRouter.terminalA
-        let token = store.mountTerminalScrollSession(
-            surfaceID: surfaceID,
-            applyLocal: { _ in true },
-            cancelLocal: {}
-        )
-        defer { store.unmountTerminalScrollSession(surfaceID: surfaceID, token: token) }
-
-        store.scrollTerminal(surfaceID: surfaceID, lines: -9, col: 3, row: 4)
-        await router.awaitFirstTerminalScrollReached()
-
-        let clickTask = Task { @MainActor in
-            await store.clickTerminal(surfaceID: surfaceID, col: 11, row: 13)
-        }
-        let clickOvertookScroll = try await pollUntil(attempts: 20) {
-            await router.recordedTerminalInteractions().count > 1
-        }
-        #expect(!clickOvertookScroll)
-
-        await router.releaseFirstTerminalScroll()
-        await clickTask.value
-        let interactionsArrived = try await pollUntil {
-            await router.recordedTerminalInteractions().count == 2
-        }
-        #expect(interactionsArrived)
-
-        let interactions = await router.recordedTerminalInteractions()
-        #expect(interactions.map(\.method) == [
-            "mobile.terminal.scroll",
-            "mobile.terminal.mouse",
-        ])
-        #expect(interactions.map(\.surfaceID) == [surfaceID, surfaceID])
-        #expect(interactions[0].col == 3)
-        #expect(interactions[0].row == 4)
-        #expect(interactions[1].col == 11)
-        #expect(interactions[1].row == 13)
-        let scrollEpoch = try #require(interactions[0].interactionEpoch)
-        let clickEpoch = try #require(interactions[1].interactionEpoch)
-        #expect(clickEpoch > scrollEpoch)
-    }
-
     @Test("disconnect recovery preserves the mounted session")
     func disconnectRecoveryPreservesMountedSession() {
         let store = MobileShellComposite.preview()
         let surfaceID = "surface-1"
         let token = store.mountTerminalScrollSession(
             surfaceID: surfaceID,
-            applyLocal: { _ in true },
             cancelLocal: {}
         )
         let originalSession = store.terminalScrollSessionsBySurfaceID[surfaceID]
@@ -389,7 +342,20 @@ struct TerminalScrollSessionTests {
 @MainActor
 private final class Harness {
     struct PendingLocal {
-        let continuation: CheckedContinuation<Bool, Never>
+        let continuation: LocalReceiptContinuation
+    }
+
+    @MainActor
+    final class LocalReceiptContinuation {
+        let receipt: TerminalSurfaceMutationReceipt
+
+        init(receipt: TerminalSurfaceMutationReceipt) {
+            self.receipt = receipt
+        }
+
+        func resume(returning applied: Bool) {
+            receipt.resolve(applied)
+        }
     }
 
     struct LocalStarted {
@@ -427,16 +393,28 @@ private final class Harness {
         TerminalScrollSession(
             surfaceID: "surface-1",
             interactionEpoch: epoch,
-            applyLocal: { [local] runs in
+            enqueueLocal: { [local] runs in
                 let latest = runs.last
                 local.started.append(LocalStarted(
                     lines: runs.reduce(0) { $0 + $1.lines },
                     col: latest?.col ?? 0,
                     row: latest?.row ?? 0
                 ))
-                return await withCheckedContinuation { continuation in
-                    local.pending.append(PendingLocal(continuation: continuation))
-                }
+                let receipt = TerminalSurfaceMutationReceipt()
+                local.pending.append(PendingLocal(
+                    continuation: LocalReceiptContinuation(receipt: receipt)
+                ))
+                return receipt
+            },
+            enqueueBarrier: {
+                let receipt = TerminalSurfaceMutationReceipt()
+                receipt.resolve(true)
+                return receipt
+            },
+            enqueueScrollToBottom: {
+                let receipt = TerminalSurfaceMutationReceipt()
+                receipt.resolve(true)
+                return receipt
             },
             cancelLocal: { [weak self] in
                 self?.cancelLocalCount += 1

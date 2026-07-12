@@ -82,3 +82,57 @@ private func replayFrame(
         text: "\(text)\nrow"
     )
 }
+
+@MainActor
+@Test func livenessRepairDeliversSameSeqReplayAfterExistingFullGrid() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let subscribed = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(subscribed)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let mountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(mountReplay)
+    let mountReplayCompleted = try await pollUntil { await router.replayResponsesServed() >= 1 }
+    #expect(mountReplayCompleted)
+    let transport = try #require(box.get())
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 5,
+        text: "stale-grid"
+    ))
+    let staleGridDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("stale-grid") }
+    }
+    #expect(staleGridDelivered)
+
+    await router.dropSubscription()
+    await router.enqueueReplayRenderGridFrames([
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "live-terminal",
+            stateSeq: 5,
+            columns: 16,
+            rows: 4,
+            full: true,
+            rowSpans: [.init(row: 0, column: 0, text: "fresh-grid")]
+        ),
+    ])
+    let replayCountBeforeRepair = await router.count(of: "mobile.terminal.replay")
+    clock.advance(by: 10)
+    store.debugRunRenderGridLivenessCheckForTesting()
+
+    let replayRequested = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") > replayCountBeforeRepair
+    }
+    #expect(replayRequested)
+    let freshGridDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("fresh-grid") }
+    }
+    #expect(freshGridDelivered)
+    collector.unmount()
+}

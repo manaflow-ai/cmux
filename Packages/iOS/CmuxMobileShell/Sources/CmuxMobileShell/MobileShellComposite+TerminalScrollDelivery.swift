@@ -16,7 +16,6 @@ extension MobileShellComposite {
     @discardableResult
     public func mountTerminalScrollSession(
         surfaceID: String,
-        applyLocal: @escaping @MainActor @Sendable (_ runs: [MobileTerminalScrollRun]) async -> Bool,
         cancelLocal: @escaping @MainActor @Sendable () -> Void
     ) -> UUID {
         let epoch = advanceTerminalInteractionEpoch(surfaceID: surfaceID)
@@ -27,7 +26,30 @@ extension MobileShellComposite {
         let session = TerminalScrollSession(
             surfaceID: surfaceID,
             interactionEpoch: epoch,
-            applyLocal: applyLocal,
+            enqueueLocal: { [weak self] runs in
+                guard let self else {
+                    let receipt = TerminalSurfaceMutationReceipt()
+                    receipt.resolve(false)
+                    return receipt
+                }
+                return self.enqueueTerminalLocalScrollMutation(surfaceID: surfaceID, runs: runs)
+            },
+            enqueueBarrier: { [weak self] in
+                guard let self else {
+                    let receipt = TerminalSurfaceMutationReceipt()
+                    receipt.resolve(false)
+                    return receipt
+                }
+                return self.enqueueTerminalMutationBarrier(surfaceID: surfaceID)
+            },
+            enqueueScrollToBottom: { [weak self] in
+                guard let self else {
+                    let receipt = TerminalSurfaceMutationReceipt()
+                    receipt.resolve(false)
+                    return receipt
+                }
+                return self.enqueueTerminalScrollToBottomMutation(surfaceID: surfaceID)
+            },
             cancelLocal: cancelLocal,
             sendRemote: { [weak self] request in
                 await self?.performTerminalScroll(request)
@@ -43,9 +65,7 @@ extension MobileShellComposite {
             supportsOrderedRemoteRuns: { [weak self] in
                 self?.supportedHostCapabilities.contains(MobileTerminalScrollRun.orderedRunsCapability) == true
             },
-            prepareIntent: { [weak self] in
-                self?.prepareTerminalOutputForOptimisticScroll(surfaceID: surfaceID)
-            },
+            prepareIntent: {},
             deliverAuthoritative: { [weak self] frame, epoch, revision in
                 self?.deliverAuthoritativeTerminalRenderGrid(
                     frame,
@@ -112,7 +132,6 @@ extension MobileShellComposite {
     /// A click is a viewport-relative terminal interaction, so it enters the
     /// same per-surface owner as scroll rather than racing a separate RPC task.
     public func clickTerminal(surfaceID: String, col: Int, row: Int) async {
-        prepareTerminalOutputForOptimisticScroll(surfaceID: surfaceID)
         deferredTerminalRenderGridEventsBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollSessionsBySurfaceID[surfaceID]?.submitClick(
             col: col,
@@ -122,7 +141,6 @@ extension MobileShellComposite {
 
     @discardableResult
     func invalidateTerminalScrollForInput(surfaceID: String) -> UInt64? {
-        prepareTerminalOutputForOptimisticScroll(surfaceID: surfaceID)
         deferredTerminalRenderGridEventsBySurfaceID.removeValue(forKey: surfaceID)
         return terminalScrollSessionsBySurfaceID[surfaceID]?.invalidateForInput()
     }

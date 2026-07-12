@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// A seam exposing per-surface terminal output as an `AsyncStream`.
@@ -20,18 +21,53 @@ public enum MobileTerminalOutputViewportPolicy: Equatable, Sendable {
     case remoteGrid(columns: Int, rows: Int)
 }
 
-public struct MobileTerminalOutputChunk: Sendable {
+public struct MobileTerminalOutputOperation: Equatable, Sendable {
     public let data: Data
+    public let viewportPolicy: MobileTerminalOutputViewportPolicy?
+    public let scrollbackOffsetFromBottomRows: Int?
+
+    public init(
+        data: Data,
+        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
+        scrollbackOffsetFromBottomRows: Int? = nil
+    ) {
+        self.data = data
+        self.viewportPolicy = viewportPolicy
+        self.scrollbackOffsetFromBottomRows = scrollbackOffsetFromBottomRows.map { max(0, $0) }
+    }
+}
+
+/// One causally ordered operation for a mounted terminal surface.
+public enum MobileTerminalSurfaceMutation: Equatable, Sendable {
+    case output(MobileTerminalOutputOperation)
+    case localScroll([MobileTerminalScrollRun])
+    case scrollToBottom
+    case barrier
+}
+
+public struct MobileTerminalOutputChunk: Sendable {
+    public let mutation: MobileTerminalSurfaceMutation
     public let streamToken: UUID
     /// Identifies this exact yielded delivery inside the stream generation.
     /// The consumer claims it before touching Ghostty so a newer scroll can
     /// discard a yielded-but-not-started viewport repaint.
     public let deliveryID: UUID
-    public let viewportPolicy: MobileTerminalOutputViewportPolicy?
+    public var data: Data {
+        guard case .output(let operation) = mutation else { return Data() }
+        return operation.data
+    }
+
+    public var viewportPolicy: MobileTerminalOutputViewportPolicy? {
+        guard case .output(let operation) = mutation else { return nil }
+        return operation.viewportPolicy
+    }
     /// Rows newer than a full authoritative primary-screen viewport. `nil`
     /// preserves the current position for raw bytes and delta frames; zero is
     /// an explicit bottom position after a full history rebuild.
-    public let scrollbackOffsetFromBottomRows: Int?
+    public var scrollbackOffsetFromBottomRows: Int? {
+        guard case .output(let operation) = mutation else { return nil }
+        return operation.scrollbackOffsetFromBottomRows
+    }
 
     public init(
         data: Data,
@@ -40,11 +76,23 @@ public struct MobileTerminalOutputChunk: Sendable {
         viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
         scrollbackOffsetFromBottomRows: Int? = nil
     ) {
-        self.data = data
+        self.mutation = .output(MobileTerminalOutputOperation(
+            data: data,
+            viewportPolicy: viewportPolicy,
+            scrollbackOffsetFromBottomRows: scrollbackOffsetFromBottomRows
+        ))
         self.streamToken = streamToken
         self.deliveryID = deliveryID
-        self.viewportPolicy = viewportPolicy
-        self.scrollbackOffsetFromBottomRows = scrollbackOffsetFromBottomRows.map { max(0, $0) }
+    }
+
+    public init(
+        mutation: MobileTerminalSurfaceMutation,
+        streamToken: UUID,
+        deliveryID: UUID = UUID()
+    ) {
+        self.mutation = mutation
+        self.streamToken = streamToken
+        self.deliveryID = deliveryID
     }
 }
 

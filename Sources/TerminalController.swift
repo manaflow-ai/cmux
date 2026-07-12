@@ -14460,11 +14460,7 @@ class TerminalController {
             #endif
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
-        _ = recordMobileInteractionEpoch(
-            params: params,
-            surfaceID: surfaceId,
-            rejectOlder: false
-        )
+        _ = recordMobileInteractionEpoch(params: params, surfaceID: surfaceId, rejectOlder: false)
         let hasViewportReportFields = params["viewport_columns"] != nil
             || params["viewport_rows"] != nil
             || params["viewport_generation"] != nil
@@ -14548,11 +14544,7 @@ class TerminalController {
               let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
-        _ = recordMobileInteractionEpoch(
-            params: params,
-            surfaceID: surfaceId,
-            rejectOlder: false
-        )
+        _ = recordMobileInteractionEpoch(params: params, surfaceID: surfaceId, rejectOlder: false)
 
         let reportedGrid: (columns: Int, rows: Int)?
         let allowLiveSurfaceFallback: Bool
@@ -14609,11 +14601,7 @@ class TerminalController {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
 
-        _ = recordMobileInteractionEpoch(
-            params: params,
-            surfaceID: surfaceId,
-            rejectOlder: false
-        )
+        _ = recordMobileInteractionEpoch(params: params, surfaceID: surfaceId, rejectOlder: false)
 
         _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
 

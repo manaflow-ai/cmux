@@ -71,7 +71,7 @@ extension MobileShellComposite {
     ) -> UUID {
         cancelTerminalReplayInFlight(surfaceID: surfaceID)
         terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.remove(surfaceID)
-        terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
+        resetTerminalMutationQueue(surfaceID: surfaceID)
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
         stashTerminalPreBarrierDeliveredEndSeq(surfaceID: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)

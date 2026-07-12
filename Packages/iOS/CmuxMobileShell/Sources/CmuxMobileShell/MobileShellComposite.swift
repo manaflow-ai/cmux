@@ -5340,7 +5340,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplayBarrierFollowUpCountsBySurfaceID = [:]
         terminalColdAttachReplayBarrierTokensBySurfaceID = [:]
         terminalColdReplayNeedsBarrierUpgradeSurfaceIDs = Set(terminalByteContinuationsBySurfaceID.keys)
-        terminalOutputQueuesBySurfaceID = [:]
+        for surfaceID in Array(terminalOutputQueuesBySurfaceID.keys) {
+            resetTerminalMutationQueue(surfaceID: surfaceID, remove: true)
+        }
         terminalOutputStreamTokensBySurfaceID = terminalOutputStreamTokensBySurfaceID.mapValues { _ in UUID() }
         terminalFullReplacementSeqBySurfaceID = [:]
         terminalFullReplacementGenerationBySurfaceID = [:]
@@ -6752,7 +6754,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalByteContinuationsBySurfaceID[surfaceID] = continuation
         terminalOutputMountTokensBySurfaceID[surfaceID] = mountToken
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
-        terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
+        resetTerminalMutationQueue(surfaceID: surfaceID)
         deferredTerminalRenderGridEventsBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)

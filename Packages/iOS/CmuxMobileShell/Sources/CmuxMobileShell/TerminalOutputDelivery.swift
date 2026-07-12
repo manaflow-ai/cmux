@@ -7,6 +7,31 @@ struct TerminalScrollReconciliation: Equatable, Sendable {
     let clientRevision: UInt64
 }
 
+@MainActor
+final class TerminalSurfaceMutationReceipt: Sendable {
+    private var result: Bool?
+    private var waiters: [CheckedContinuation<Bool, Never>] = []
+
+    var value: Bool {
+        get async {
+            if let result { return result }
+            return await withCheckedContinuation { continuation in
+                waiters.append(continuation)
+            }
+        }
+    }
+
+    func resolve(_ result: Bool) {
+        guard self.result == nil else { return }
+        self.result = result
+        let pendingWaiters = waiters
+        waiters.removeAll(keepingCapacity: false)
+        for waiter in pendingWaiters {
+            waiter.resume(returning: result)
+        }
+    }
+}
+
 /// One terminal-output chunk waiting to be applied by a mounted mobile surface.
 struct TerminalOutputDelivery: Equatable, Sendable {
     enum ReplacementScope: Equatable, Sendable {
@@ -18,10 +43,14 @@ struct TerminalOutputDelivery: Equatable, Sendable {
     private enum Payload: Equatable, Sendable {
         case bytes(Data)
         case renderGrid(MobileTerminalRenderGridFrame)
+        case localScroll([MobileTerminalScrollRun])
+        case scrollToBottom
+        case barrier
     }
 
     let deliveryID: UUID
     private var payload: Payload
+    private var receipts: [TerminalSurfaceMutationReceipt]
     var replacementScope: ReplacementScope?
     var viewportPolicy: MobileTerminalOutputViewportPolicy?
     var scrollReconciliation: TerminalScrollReconciliation?
@@ -43,6 +72,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
     ) {
         self.deliveryID = deliveryID
         self.payload = .bytes(bytes)
+        self.receipts = []
         self.replacementScope = replaceable ? (replacementScope ?? .byteViewport) : nil
         self.viewportPolicy = viewportPolicy
         self.scrollReconciliation = nil
@@ -59,12 +89,53 @@ struct TerminalOutputDelivery: Equatable, Sendable {
     ) {
         self.deliveryID = deliveryID
         self.payload = .renderGrid(frame)
+        self.receipts = []
         self.replacementScope = replaceable ? (replacementScope ?? .renderGridViewport) : nil
         self.viewportPolicy = viewportPolicy
         self.scrollReconciliation = scrollReconciliation
         self.scrollbackOffsetFromBottomRows = frame.full && frame.activeScreen == .primary
             ? frame.scrollForwardRows
             : nil
+    }
+
+    init(
+        deliveryID: UUID = UUID(),
+        localScroll runs: [MobileTerminalScrollRun],
+        receipt: TerminalSurfaceMutationReceipt
+    ) {
+        self.deliveryID = deliveryID
+        self.payload = .localScroll(runs)
+        self.receipts = [receipt]
+        self.replacementScope = nil
+        self.viewportPolicy = nil
+        self.scrollReconciliation = nil
+        self.scrollbackOffsetFromBottomRows = nil
+    }
+
+    init(
+        deliveryID: UUID = UUID(),
+        scrollToBottomReceipt receipt: TerminalSurfaceMutationReceipt
+    ) {
+        self.deliveryID = deliveryID
+        self.payload = .scrollToBottom
+        self.receipts = [receipt]
+        self.replacementScope = nil
+        self.viewportPolicy = nil
+        self.scrollReconciliation = nil
+        self.scrollbackOffsetFromBottomRows = nil
+    }
+
+    init(
+        deliveryID: UUID = UUID(),
+        barrierReceipt receipt: TerminalSurfaceMutationReceipt
+    ) {
+        self.deliveryID = deliveryID
+        self.payload = .barrier
+        self.receipts = [receipt]
+        self.replacementScope = nil
+        self.viewportPolicy = nil
+        self.scrollReconciliation = nil
+        self.scrollbackOffsetFromBottomRows = nil
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
@@ -89,9 +160,67 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             bytes
         case .renderGrid(let frame):
             frame.vtPatchBytes()
+        case .localScroll, .scrollToBottom, .barrier:
+            Data()
         }
     }
 
+    var mutation: MobileTerminalSurfaceMutation {
+        switch payload {
+        case .bytes, .renderGrid:
+            .output(MobileTerminalOutputOperation(
+                data: bytes,
+                viewportPolicy: viewportPolicy,
+                scrollbackOffsetFromBottomRows: scrollbackOffsetFromBottomRows
+            ))
+        case .localScroll(let runs):
+            .localScroll(runs)
+        case .scrollToBottom:
+            .scrollToBottom
+        case .barrier:
+            .barrier
+        }
+    }
+
+    var isInteractionMutation: Bool {
+        switch payload {
+        case .bytes, .renderGrid:
+            false
+        case .localScroll, .scrollToBottom, .barrier:
+            true
+        }
+    }
+
+    @MainActor
+    func resolveReceipt(_ applied: Bool) {
+        for receipt in receipts {
+            receipt.resolve(applied)
+        }
+    }
+
+    mutating func mergeLocalScroll(_ newer: Self) -> Bool {
+        guard case .localScroll(var combinedRuns) = payload,
+              case .localScroll(let newerRuns) = newer.payload else {
+            return false
+        }
+        for run in newerRuns {
+            if let lastIndex = combinedRuns.indices.last,
+               TerminalScrollRequest.canCoalesce(combinedRuns[lastIndex], run) {
+                combinedRuns[lastIndex].lines += run.lines
+            } else {
+                guard combinedRuns.count < TerminalScrollRequest.maximumJournalRunCount else {
+                    return false
+                }
+                combinedRuns.append(run)
+            }
+        }
+        payload = .localScroll(combinedRuns)
+        return true
+    }
+
+    var primaryReceipt: TerminalSurfaceMutationReceipt? {
+        receipts.first
+    }
 }
 
 /// Bounded live render-grid state retained while optimistic scrolling waits for
@@ -126,16 +255,24 @@ struct DeferredTerminalRenderGridEvent: Equatable, Sendable {
 /// Raw byte chunks are nonreplaceable barriers. Render-grid chunks that repaint
 /// the whole viewport are replaceable while the iOS surface is still applying a
 /// prior chunk, so fast scroll gestures can skip obsolete intermediate frames.
+@MainActor
 struct TerminalOutputDeliveryQueue: Sendable {
+    struct OptimisticScrollEnqueueResult {
+        let immediate: TerminalOutputDelivery?
+        let receipt: TerminalSurfaceMutationReceipt
+    }
+
     private struct PendingEntry: Sendable {
         var delivery: TerminalOutputDelivery
         var optimisticGeneration: UInt64
     }
 
+    private static let maximumQueuedInteractionCount = 64
     private var inFlight: TerminalOutputDelivery?
     private var inFlightClaimed = false
     private var pending: [PendingEntry] = []
     private var pendingHeadIndex = 0
+    private var queuedInteractionCount = 0
     private(set) var optimisticInvalidationGeneration: UInt64 = 0
     private(set) var pendingTraversalCount = 0
 
@@ -152,20 +289,67 @@ struct TerminalOutputDeliveryQueue: Sendable {
     }
 
     mutating func enqueue(_ delivery: TerminalOutputDelivery) -> TerminalOutputDelivery? {
+        if delivery.isInteractionMutation,
+           queuedInteractionCount >= Self.maximumQueuedInteractionCount {
+            delivery.resolveReceipt(false)
+            return nil
+        }
         guard inFlight != nil else {
+            if delivery.isInteractionMutation { queuedInteractionCount += 1 }
             inFlight = delivery
             inFlightClaimed = false
             return delivery
         }
-        appendPending(delivery)
+        let appended = appendPending(delivery, mergeLocalScroll: false)
+        if delivery.isInteractionMutation, appended { queuedInteractionCount += 1 }
         return nil
     }
 
-    mutating func completeInFlight() -> TerminalOutputDelivery? {
+    /// Invalidates older unclaimed viewport/reconciliation output and inserts
+    /// the local scroll behind every preserved mutation in one main-actor step.
+    mutating func enqueueOptimisticScroll(
+        _ delivery: TerminalOutputDelivery
+    ) -> OptimisticScrollEnqueueResult {
+        precondition(delivery.isInteractionMutation)
+        let candidateReceipt = delivery.primaryReceipt!
+        optimisticInvalidationGeneration &+= 1
+        let mergesPendingInteraction = canMergePendingTail(with: delivery)
+        guard mergesPendingInteraction
+                || queuedInteractionCount < Self.maximumQueuedInteractionCount else {
+            delivery.resolveReceipt(false)
+            return OptimisticScrollEnqueueResult(immediate: nil, receipt: candidateReceipt)
+        }
+        guard inFlight != nil else {
+            queuedInteractionCount += 1
+            inFlight = delivery
+            inFlightClaimed = false
+            return OptimisticScrollEnqueueResult(immediate: delivery, receipt: candidateReceipt)
+        }
+        let appended = appendPending(delivery, mergeLocalScroll: true)
+        if appended { queuedInteractionCount += 1 }
+        let effectiveReceipt = appended
+            ? candidateReceipt
+            : (pending.last?.delivery.primaryReceipt ?? candidateReceipt)
+        guard inFlight?.isSupersededByOptimisticScroll == true,
+              !inFlightClaimed else {
+            return OptimisticScrollEnqueueResult(immediate: nil, receipt: effectiveReceipt)
+        }
+        inFlight = popPending()
+        inFlightClaimed = false
+        return OptimisticScrollEnqueueResult(immediate: inFlight, receipt: effectiveReceipt)
+    }
+
+    mutating func completeInFlight(applied: Bool = true) -> TerminalOutputDelivery? {
         guard inFlight != nil else {
             pending.removeAll(keepingCapacity: false)
             pendingHeadIndex = 0
             return nil
+        }
+        if let inFlight {
+            inFlight.resolveReceipt(applied)
+            if inFlight.isInteractionMutation {
+                queuedInteractionCount -= 1
+            }
         }
         guard let next = popPending() else {
             inFlight = nil
@@ -185,29 +369,34 @@ struct TerminalOutputDeliveryQueue: Sendable {
         return true
     }
 
-    /// Drops viewport frames that have not entered Ghostty yet. A claimed
-    /// delivery is already queued on the surface FIFO and therefore runs before
-    /// a subsequently submitted local scroll. Raw PTY bytes and policy barriers
-    /// remain ordered. Returns the newly promoted delivery, if the yielded
-    /// current frame itself was discarded.
-    mutating func discardUnclaimedForOptimisticScroll() -> TerminalOutputDelivery? {
-        optimisticInvalidationGeneration &+= 1
-        guard inFlight?.isSupersededByOptimisticScroll == true, !inFlightClaimed else { return nil }
-        inFlight = popPending()
-        inFlightClaimed = false
-        return inFlight
-    }
-
     mutating func reset() {
+        inFlight?.resolveReceipt(false)
+        for index in pendingHeadIndex..<pending.count {
+            pending[index].delivery.resolveReceipt(false)
+        }
         inFlight = nil
         inFlightClaimed = false
         pending.removeAll(keepingCapacity: false)
         pendingHeadIndex = 0
+        queuedInteractionCount = 0
         optimisticInvalidationGeneration = 0
         pendingTraversalCount = 0
     }
 
-    private mutating func appendPending(_ delivery: TerminalOutputDelivery) {
+    private func canMergePendingTail(with delivery: TerminalOutputDelivery) -> Bool {
+        guard let lastIndex = pending.indices.last,
+              lastIndex >= pendingHeadIndex else {
+            return false
+        }
+        var tail = pending[lastIndex].delivery
+        return tail.mergeLocalScroll(delivery)
+    }
+
+    @discardableResult
+    private mutating func appendPending(
+        _ delivery: TerminalOutputDelivery,
+        mergeLocalScroll: Bool
+    ) -> Bool {
         if let replacementScope = delivery.replacementScope,
            let lastIndex = pending.indices.last,
            lastIndex >= pendingHeadIndex,
@@ -216,11 +405,19 @@ struct TerminalOutputDeliveryQueue: Sendable {
                 delivery: delivery,
                 optimisticGeneration: optimisticInvalidationGeneration
             )
+            return false
+        } else if mergeLocalScroll,
+                  let lastIndex = pending.indices.last,
+                  lastIndex >= pendingHeadIndex,
+                  pending[lastIndex].delivery.mergeLocalScroll(delivery) {
+            pending[lastIndex].optimisticGeneration = optimisticInvalidationGeneration
+            return false
         } else {
             pending.append(PendingEntry(
                 delivery: delivery,
                 optimisticGeneration: optimisticInvalidationGeneration
             ))
+            return true
         }
     }
 

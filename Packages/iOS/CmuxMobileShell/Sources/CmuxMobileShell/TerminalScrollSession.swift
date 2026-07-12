@@ -1,17 +1,19 @@
 import CMUXMobileCore
 import Foundation
 
-/// One mounted surface's complete optimistic-scroll transaction owner.
+/// One mounted surface's optimistic-scroll transaction owner.
 ///
-/// Local Ghostty work and Mac RPC work drain independently so network latency
-/// cannot slow UIKit tracking and a stalled local C call cannot starve Mac
-/// authority. Consecutive scrolls coalesce in fixed-capacity interaction FIFOs;
-/// clicks remain ordering barriers in both lanes. A Mac snapshot reconciles only
-/// when it echoes the current epoch and newest client revision and all matching
-/// local work has completed.
+/// Local Ghostty mutations enter the surface's terminal mutation stream while
+/// network scroll requests remain independent. Receipts join both paths before
+/// authoritative reconciliation. A click then crosses a no-op surface barrier
+/// before advancing the epoch, and later scroll intent remains bounded behind it.
 @MainActor
 final class TerminalScrollSession {
-    typealias ApplyLocal = @MainActor @Sendable (_ runs: [MobileTerminalScrollRun]) async -> Bool
+    typealias EnqueueLocal = @MainActor @Sendable (
+        _ runs: [MobileTerminalScrollRun]
+    ) -> TerminalSurfaceMutationReceipt
+    typealias EnqueueBarrier = @MainActor @Sendable () -> TerminalSurfaceMutationReceipt
+    typealias EnqueueScrollToBottom = @MainActor @Sendable () -> TerminalSurfaceMutationReceipt
     typealias CancelLocal = @MainActor @Sendable () -> Void
     typealias SendRemote = @MainActor @Sendable (TerminalScrollRequest) async -> TerminalScrollResponse?
     typealias SendClick = @MainActor @Sendable (
@@ -32,69 +34,83 @@ final class TerminalScrollSession {
     typealias RequestReplay = @MainActor @Sendable (_ interactionEpoch: UInt64) -> Void
     typealias AdvanceEpoch = @MainActor @Sendable () -> UInt64
 
+    struct LocalReceiptEntry {
+        let id: UUID
+        let interactionEpoch: UInt64
+        var clientRevision: UInt64
+        let receipt: TerminalSurfaceMutationReceipt
+    }
+
+    struct RemoteInteraction {
+        let id: UUID
+        var kind: Kind
+
+        enum Kind {
+            case scroll(TerminalScrollRequest)
+            case click(epoch: UInt64, col: Int, row: Int, clickID: UUID)
+        }
+    }
+
+    struct PendingScrollIntent {
+        let lines: Double
+        let col: Int
+        let row: Int
+    }
+
+    enum PendingClickState {
+        case waiting(id: UUID, col: Int, row: Int)
+        case waitingForBarrier(id: UUID, col: Int, row: Int)
+        case sending(id: UUID, epoch: UInt64, col: Int, row: Int)
+
+        var id: UUID {
+            switch self {
+            case .waiting(let id, _, _), .waitingForBarrier(let id, _, _), .sending(let id, _, _, _):
+                id
+            }
+        }
+    }
+
+    static let maximumQueuedInteractionCount = 64
+
     let token: UUID
     let surfaceID: String
+    let enqueueLocal: EnqueueLocal
+    let enqueueBarrier: EnqueueBarrier
+    let enqueueScrollToBottom: EnqueueScrollToBottom
+    let cancelLocal: CancelLocal
+    let sendRemote: SendRemote
+    let sendClick: SendClick
+    let supportsOrderedRemoteRuns: SupportsOrderedRemoteRuns
+    let prepareIntent: PrepareIntent
+    let deliverAuthoritative: DeliverAuthoritative
+    let completeGridlessAuthoritative: CompleteGridlessAuthoritative
+    let reconciliationDidComplete: ReconciliationDidComplete
+    let requestReplay: RequestReplay
+    let advanceEpoch: AdvanceEpoch
 
-    private let applyLocal: ApplyLocal
-    private let cancelLocal: CancelLocal
-    private let sendRemote: SendRemote
-    private let sendClick: SendClick
-    private let supportsOrderedRemoteRuns: SupportsOrderedRemoteRuns
-    private let prepareIntent: PrepareIntent
-    private let deliverAuthoritative: DeliverAuthoritative
-    private let completeGridlessAuthoritative: CompleteGridlessAuthoritative
-    private let reconciliationDidComplete: ReconciliationDidComplete
-    private let requestReplay: RequestReplay
-    private let advanceEpoch: AdvanceEpoch
+    var interactionEpoch: UInt64
+    var latestClientRevision: UInt64 = 0
+    var latestReconciledRevision: UInt64 = 0
+    var isAwaitingAuthoritativeReconciliation = false
 
-    private(set) var interactionEpoch: UInt64
-    private(set) var latestClientRevision: UInt64 = 0
-    private(set) var latestReconciledRevision: UInt64 = 0
-    private(set) var isAwaitingAuthoritativeReconciliation = false
+    var latestLocallyAppliedRevision: UInt64 = 0
+    var localInFlight: LocalReceiptEntry?
+    var localPending = BoundedFIFO<LocalReceiptEntry>(capacity: maximumQueuedInteractionCount)
+    var localReceiptTask: Task<Void, Never>?
+    var remoteInFlight: RemoteInteraction?
+    var remotePending = BoundedFIFO<RemoteInteraction>(capacity: maximumQueuedInteractionCount)
+    var pendingResponse: TerminalScrollResponse?
+    var remoteTask: Task<Void, Never>?
+    var barrierTask: Task<Void, Never>?
+    var pendingClick: PendingClickState?
+    var postClickIntents = BoundedFIFO<PendingScrollIntent>(capacity: maximumQueuedInteractionCount)
+    var postClickNeedsSettlement = false
+    var accumulatedRowsSincePrefetch = 0.0
+    var hasPrimedPrefetch = false
+    var lastDirectionLines = 1.0
+    var lastCol = 0
+    var lastRow = 0
 
-    private var latestLocallyAppliedRevision: UInt64 = 0
-    private struct LocalInteraction {
-        let id: UUID
-        var kind: Kind
-
-        enum Kind {
-            case scroll(TerminalScrollRequest)
-            case clickBarrier(UUID)
-        }
-    }
-
-    private struct RemoteInteraction {
-        let id: UUID
-        var kind: Kind
-
-        enum Kind {
-            case scroll(TerminalScrollRequest)
-            case click(epoch: UInt64, col: Int, row: Int, barrierID: UUID)
-        }
-    }
-
-    private static let maximumQueuedInteractionCount = 64
-    private var localInFlight: LocalInteraction?
-    private var localPending = BoundedFIFO<LocalInteraction>(
-        capacity: TerminalScrollSession.maximumQueuedInteractionCount
-    )
-    private var remoteInFlight: RemoteInteraction?
-    private var remotePending = BoundedFIFO<RemoteInteraction>(
-        capacity: TerminalScrollSession.maximumQueuedInteractionCount
-    )
-    private var readyClickBarriers: Set<UUID> = []
-    private var pendingResponse: TerminalScrollResponse?
-    private var localTask: Task<Void, Never>?
-    private var remoteTask: Task<Void, Never>?
-    private var accumulatedRowsSincePrefetch = 0.0
-    private var hasPrimedPrefetch = false
-    private var lastDirectionLines = 1.0
-    private var lastCol = 0
-    private var lastRow = 0
-
-    /// Bounded history needed to reconstruct this mounted surface after replay.
-    /// The direction survives connection invalidation so reconnect, renderer
-    /// recovery, and cold attach all refill the side the user was moving toward.
     var replayPrefetchWindow: TerminalScrollPrefetchWindow {
         .directional(for: lastDirectionLines)
     }
@@ -103,7 +119,9 @@ final class TerminalScrollSession {
         token: UUID = UUID(),
         surfaceID: String,
         interactionEpoch: UInt64,
-        applyLocal: @escaping ApplyLocal,
+        enqueueLocal: @escaping EnqueueLocal,
+        enqueueBarrier: @escaping EnqueueBarrier,
+        enqueueScrollToBottom: @escaping EnqueueScrollToBottom,
         cancelLocal: @escaping CancelLocal,
         sendRemote: @escaping SendRemote,
         sendClick: @escaping SendClick = { _, _, _, _ in false },
@@ -118,7 +136,9 @@ final class TerminalScrollSession {
         self.token = token
         self.surfaceID = surfaceID
         self.interactionEpoch = interactionEpoch
-        self.applyLocal = applyLocal
+        self.enqueueLocal = enqueueLocal
+        self.enqueueBarrier = enqueueBarrier
+        self.enqueueScrollToBottom = enqueueScrollToBottom
         self.cancelLocal = cancelLocal
         self.sendRemote = sendRemote
         self.sendClick = sendClick
@@ -133,11 +153,21 @@ final class TerminalScrollSession {
 
     func submit(lines: Double, col: Int, row: Int) {
         guard lines != 0 else { return }
+        if pendingClick != nil {
+            let appended = postClickIntents.append(PendingScrollIntent(
+                lines: lines,
+                col: max(0, col),
+                row: max(0, row)
+            ))
+            if !appended { recoverFromLaneFailure() }
+            return
+        }
+        submitInCurrentEpoch(lines: lines, col: col, row: row)
+    }
+
+    func submitInCurrentEpoch(lines: Double, col: Int, row: Int) {
         latestClientRevision &+= 1
         if latestClientRevision == 0 { latestClientRevision = 1 }
-        // Stamp the newer revision before invalidating an unclaimed
-        // reconciliation delivery so any stale apply acknowledgement cannot
-        // complete the new intent.
         prepareIntent()
         lastDirectionLines = lines
         lastCol = max(0, col)
@@ -152,55 +182,40 @@ final class TerminalScrollSession {
             prefetchWindow: prefetchWindow(for: lines)
         )
         isAwaitingAuthoritativeReconciliation = true
-        guard enqueueLocal(LocalInteraction(id: UUID(), kind: .scroll(request))) else { return }
+        enqueueLocalReceipt(for: request)
         enqueueRemote(RemoteInteraction(id: UUID(), kind: .scroll(request)))
     }
 
     func interactionDidBegin() {}
 
-    /// Orders a click after every preceding local and remote scroll operation.
-    /// Advancing the epoch at submission fences older host scrolls without
-    /// cancelling local optimistic work or snapping the viewport to the bottom.
     func submitClick(col: Int, row: Int) {
-        let barrierID = UUID()
-        advanceForClick(nextEpoch: advanceEpoch())
-        guard enqueueLocal(LocalInteraction(
-            id: UUID(),
-            kind: .clickBarrier(barrierID)
-        )) else {
+        let clampedCol = max(0, col)
+        let clampedRow = max(0, row)
+        if let pendingClick {
+            switch pendingClick {
+            case .waiting(let id, _, _):
+                self.pendingClick = .waiting(id: id, col: clampedCol, row: clampedRow)
+            case .waitingForBarrier, .sending:
+                break
+            }
             return
         }
-        enqueueRemote(RemoteInteraction(
-            id: UUID(),
-            kind: .click(
-                epoch: interactionEpoch,
-                col: max(0, col),
-                row: max(0, row),
-                barrierID: barrierID
-            )
-        ))
+        pendingClick = .waiting(id: UUID(), col: clampedCol, row: clampedRow)
+        tryBeginClickBarrier()
     }
 
-    /// Requests one final large directional window without relying on a quiet
-    /// period timer. UIKit calls this only after drag and deceleration settle.
     func interactionDidEnd() {
         guard latestClientRevision > 0 else { return }
-        enqueueRemote(RemoteInteraction(
-            id: UUID(),
-            kind: .scroll(TerminalScrollRequest(
-                surfaceID: surfaceID,
-                interactionEpoch: interactionEpoch,
-                clientRevision: latestClientRevision,
-                lines: 0,
-                col: lastCol,
-                row: lastRow,
-                prefetchWindow: .directional(for: lastDirectionLines)
-            ))
-        ))
+        if pendingClick != nil {
+            postClickNeedsSettlement = true
+            return
+        }
+        enqueueSettlement()
     }
 
     func invalidateForInput() -> UInt64 {
         invalidate(nextEpoch: advanceEpoch(), snapToBottom: true)
+        _ = enqueueScrollToBottom()
         return interactionEpoch
     }
 
@@ -213,9 +228,6 @@ final class TerminalScrollSession {
         invalidate(nextEpoch: nextEpoch, snapToBottom: false)
     }
 
-    /// Live event frames lack a client-intent acknowledgement. Applying one
-    /// while an optimistic intent is unresolved can repaint a pre-scroll
-    /// viewport over the local mirror even when its PTY byte sequence matches.
     var shouldDeferLiveRenderGrid: Bool {
         isAwaitingAuthoritativeReconciliation
     }
@@ -231,227 +243,76 @@ final class TerminalScrollSession {
         return .directional(for: lines)
     }
 
-    private func enqueueLocal(_ interaction: LocalInteraction) -> Bool {
+    func enqueueSettlement() {
+        enqueueRemote(RemoteInteraction(
+            id: UUID(),
+            kind: .scroll(TerminalScrollRequest(
+                surfaceID: surfaceID,
+                interactionEpoch: interactionEpoch,
+                clientRevision: latestClientRevision,
+                lines: 0,
+                col: lastCol,
+                row: lastRow,
+                prefetchWindow: .directional(for: lastDirectionLines)
+            ))
+        ))
+    }
+
+    private func enqueueLocalReceipt(for request: TerminalScrollRequest) {
+        let receipt = enqueueLocal(request.directionalRuns)
+        let entry = LocalReceiptEntry(
+            id: UUID(),
+            interactionEpoch: request.interactionEpoch,
+            clientRevision: request.clientRevision,
+            receipt: receipt
+        )
         guard localInFlight != nil else {
-            startLocal(interaction)
+            startLocalReceipt(entry)
+            return
+        }
+        if localInFlight?.receipt === receipt {
+            localInFlight?.clientRevision = request.clientRevision
+            return
+        }
+        var mergedPendingReceipt = false
+        _ = localPending.mutateLast { pending in
+            guard pending.receipt === receipt else { return false }
+            pending.clientRevision = request.clientRevision
+            mergedPendingReceipt = true
             return true
         }
-        if case .scroll(let newerRequest) = interaction.kind {
-            var matchedPendingScroll = false
-            let appended = localPending.mutateLast { pending in
-               guard case .scroll(var request) = pending.kind,
-                     request.interactionEpoch == newerRequest.interactionEpoch else {
-                   return false
-               }
-               matchedPendingScroll = true
-               guard request.append(newerRequest) else { return false }
-               pending.kind = .scroll(request)
-               return true
-            }
-            if matchedPendingScroll {
-                guard appended else {
-                    recoverFromLaneFailure()
-                    return false
-                }
-                return true
-            }
-        }
-        guard localPending.append(interaction) else {
-            recoverFromLaneFailure()
-            return false
-        }
-        return true
+        if mergedPendingReceipt { return }
+        if !localPending.append(entry) { recoverFromLaneFailure() }
     }
 
-    private func startLocal(_ interaction: LocalInteraction) {
-        localInFlight = interaction
-        localTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            switch interaction.kind {
-            case .scroll(let request):
-                let applied: Bool
-                if request.directionalRuns.isEmpty {
-                    applied = true
-                } else {
-                    applied = await self.applyLocal(request.directionalRuns)
-                }
-                self.completeLocal(interaction, applied: applied)
-            case .clickBarrier(let barrierID):
-                self.readyClickBarriers.insert(barrierID)
-                self.completeLocal(interaction, applied: true)
-            }
+    private func startLocalReceipt(_ entry: LocalReceiptEntry) {
+        localInFlight = entry
+        localReceiptTask = Task { @MainActor [weak self] in
+            let applied = await entry.receipt.value
+            self?.completeLocalReceipt(entry, applied: applied)
         }
     }
 
-    private func completeLocal(_ interaction: LocalInteraction, applied: Bool) {
-        guard localInFlight?.id == interaction.id else { return }
+    private func completeLocalReceipt(_ entry: LocalReceiptEntry, applied: Bool) {
+        guard let completedEntry = localInFlight,
+              completedEntry.id == entry.id else { return }
         localInFlight = nil
-        localTask = nil
+        localReceiptTask = nil
         guard applied else {
             recoverFromLaneFailure()
             return
         }
-        if case .scroll(let request) = interaction.kind,
-           request.interactionEpoch == interactionEpoch {
-            latestLocallyAppliedRevision = max(latestLocallyAppliedRevision, request.clientRevision)
+        if completedEntry.interactionEpoch == interactionEpoch {
+            latestLocallyAppliedRevision = max(
+                latestLocallyAppliedRevision,
+                completedEntry.clientRevision
+            )
         }
-        if let next = localPending.removeFirst() {
-            startLocal(next)
-        }
-        drainRemoteIfReady()
+        if let next = localPending.removeFirst() { startLocalReceipt(next) }
         reconcileIfReady()
+        tryBeginClickBarrier()
     }
 
-    private func enqueueRemote(_ interaction: RemoteInteraction) {
-        guard remoteInFlight != nil || remotePending.count > 0 else {
-            if canStartRemote(interaction) {
-                startRemote(interaction)
-            } else if !remotePending.append(interaction) {
-                recoverFromLaneFailure()
-            }
-            return
-        }
-        if case .scroll(let newerRequest) = interaction.kind {
-            var matchedPendingScroll = false
-            let appended = remotePending.mutateLast { pending in
-               guard case .scroll(var request) = pending.kind,
-                     request.interactionEpoch == newerRequest.interactionEpoch else {
-                   return false
-               }
-               matchedPendingScroll = true
-               guard request.append(newerRequest) else { return false }
-               pending.kind = .scroll(request)
-               return true
-            }
-            if matchedPendingScroll {
-                guard appended else {
-                    recoverFromLaneFailure()
-                    return
-                }
-                return
-            }
-        }
-        if !remotePending.append(interaction) {
-            recoverFromLaneFailure()
-            return
-        }
-        drainRemoteIfReady()
-    }
-
-    private func canStartRemote(_ interaction: RemoteInteraction) -> Bool {
-        guard case .click(_, _, _, let barrierID) = interaction.kind else { return true }
-        return readyClickBarriers.contains(barrierID)
-    }
-
-    private func drainRemoteIfReady() {
-        guard remoteInFlight == nil,
-              let next = remotePending.first,
-              canStartRemote(next) else {
-            return
-        }
-        _ = remotePending.removeFirst()
-        startRemote(next)
-    }
-
-    private func startRemote(_ interaction: RemoteInteraction) {
-        remoteInFlight = interaction
-        remoteTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            switch interaction.kind {
-            case .scroll(let request):
-                let plannedRequests = request.plannedRPCRequests(
-                    supportsOrderedRuns: self.supportsOrderedRemoteRuns()
-                )
-                var response: TerminalScrollResponse?
-                for plannedRequest in plannedRequests {
-                    guard !Task.isCancelled else { return }
-                    guard let plannedResponse = await self.sendRemote(plannedRequest),
-                          plannedResponse.accepted,
-                          plannedResponse.interactionEpoch == request.interactionEpoch,
-                          plannedResponse.clientRevision == request.clientRevision else {
-                        self.completeRemote(interaction, response: nil, succeeded: false)
-                        return
-                    }
-                    response = plannedResponse
-                }
-                self.completeRemote(interaction, response: response, succeeded: true)
-            case .click(let epoch, let col, let row, _):
-                let succeeded = await self.sendClick(self.surfaceID, epoch, col, row)
-                self.completeRemote(interaction, response: nil, succeeded: succeeded)
-            }
-        }
-    }
-
-    private func completeRemote(
-        _ interaction: RemoteInteraction,
-        response: TerminalScrollResponse?,
-        succeeded: Bool
-    ) {
-        guard remoteInFlight?.id == interaction.id else { return }
-        remoteInFlight = nil
-        remoteTask = nil
-        guard succeeded else {
-            recoverFromLaneFailure()
-            return
-        }
-
-        switch interaction.kind {
-        case .scroll(let request):
-            if request.interactionEpoch == interactionEpoch, let response {
-                if response.clientRevision == latestClientRevision {
-                    if pendingResponse?.renderGrid == nil || response.renderGrid != nil {
-                        pendingResponse = response
-                    }
-                } else if response.renderGrid != nil {
-                    remotePending.mutateFirst { pending in
-                        guard case .scroll(var pendingRequest) = pending.kind,
-                              pendingRequest.prefetchWindow == nil else {
-                            return
-                        }
-                        pendingRequest.prefetchWindow = request.prefetchWindow
-                        pending.kind = .scroll(pendingRequest)
-                    }
-                }
-            }
-        case .click(_, _, _, let barrierID):
-            readyClickBarriers.remove(barrierID)
-        }
-
-        drainRemoteIfReady()
-        reconcileIfReady()
-    }
-
-    private func reconcileIfReady() {
-        guard let response = pendingResponse,
-              response.interactionEpoch == interactionEpoch,
-              response.clientRevision == latestClientRevision,
-              latestLocallyAppliedRevision >= response.clientRevision else {
-            return
-        }
-        pendingResponse = nil
-        if let frame = response.renderGrid {
-            guard deliverAuthoritative(
-                frame,
-                response.interactionEpoch,
-                response.clientRevision
-            ) else {
-                recoverFromLaneFailure()
-                return
-            }
-            return
-        }
-        guard completeGridlessAuthoritative(response.renderRevision) else {
-            recoverFromLaneFailure()
-            return
-        }
-        completeReconciliation(
-            interactionEpoch: response.interactionEpoch,
-            clientRevision: response.clientRevision
-        )
-    }
-
-    /// Completes a frame-backed reconciliation only after the exact output
-    /// delivery has reached the current Ghostty surface generation.
     func authoritativeDidApply(interactionEpoch: UInt64, clientRevision: UInt64) {
         completeReconciliation(
             interactionEpoch: interactionEpoch,
@@ -459,7 +320,7 @@ final class TerminalScrollSession {
         )
     }
 
-    private func completeReconciliation(interactionEpoch: UInt64, clientRevision: UInt64) {
+    func completeReconciliation(interactionEpoch: UInt64, clientRevision: UInt64) {
         guard interactionEpoch == self.interactionEpoch,
               clientRevision == latestClientRevision,
               latestLocallyAppliedRevision >= clientRevision else {
@@ -468,36 +329,30 @@ final class TerminalScrollSession {
         latestReconciledRevision = clientRevision
         isAwaitingAuthoritativeReconciliation = false
         reconciliationDidComplete()
+        tryBeginClickBarrier()
     }
 
-    private func recoverFromLaneFailure() {
+    func recoverFromLaneFailure() {
         let nextEpoch = advanceEpoch()
         invalidate(nextEpoch: nextEpoch, snapToBottom: false)
         requestReplay(nextEpoch)
     }
 
-    private func advanceForClick(nextEpoch: UInt64) {
-        pendingResponse = nil
-        interactionEpoch = nextEpoch
-        latestClientRevision = 0
-        latestLocallyAppliedRevision = 0
-        latestReconciledRevision = 0
-        isAwaitingAuthoritativeReconciliation = false
-        accumulatedRowsSincePrefetch = 0
-        hasPrimedPrefetch = false
-    }
-
     private func invalidate(nextEpoch: UInt64, snapToBottom: Bool) {
-        localTask?.cancel()
-        localTask = nil
+        localReceiptTask?.cancel()
+        localReceiptTask = nil
         remoteTask?.cancel()
         remoteTask = nil
+        barrierTask?.cancel()
+        barrierTask = nil
         localInFlight = nil
         localPending.removeAll()
         remoteInFlight = nil
         remotePending.removeAll()
-        readyClickBarriers.removeAll()
         pendingResponse = nil
+        pendingClick = nil
+        postClickIntents.removeAll()
+        postClickNeedsSettlement = false
         interactionEpoch = nextEpoch
         latestClientRevision = 0
         latestLocallyAppliedRevision = 0
@@ -505,61 +360,6 @@ final class TerminalScrollSession {
         isAwaitingAuthoritativeReconciliation = false
         accumulatedRowsSincePrefetch = 0
         hasPrimedPrefetch = false
-        if snapToBottom {
-            cancelLocal()
-        }
-    }
-}
-
-private struct BoundedFIFO<Element> {
-    private var storage: [Element?]
-    private var head = 0
-    private(set) var count = 0
-
-    init(capacity: Int) {
-        precondition(capacity > 0)
-        storage = Array(repeating: nil, count: capacity)
-    }
-
-    var first: Element? {
-        guard count > 0 else { return nil }
-        return storage[head]
-    }
-
-    mutating func append(_ element: Element) -> Bool {
-        guard count < storage.count else { return false }
-        let index = (head + count) % storage.count
-        storage[index] = element
-        count += 1
-        return true
-    }
-
-    mutating func removeFirst() -> Element? {
-        guard count > 0 else { return nil }
-        let element = storage[head]
-        storage[head] = nil
-        head = (head + 1) % storage.count
-        count -= 1
-        return element
-    }
-
-    mutating func mutateFirst(_ body: (inout Element) -> Void) {
-        guard count > 0, var element = storage[head] else { return }
-        body(&element)
-        storage[head] = element
-    }
-
-    mutating func mutateLast(_ body: (inout Element) -> Bool) -> Bool {
-        guard count > 0 else { return false }
-        let index = (head + count - 1) % storage.count
-        guard var element = storage[index], body(&element) else { return false }
-        storage[index] = element
-        return true
-    }
-
-    mutating func removeAll() {
-        storage = Array(repeating: nil, count: storage.count)
-        head = 0
-        count = 0
+        if snapToBottom { cancelLocal() }
     }
 }

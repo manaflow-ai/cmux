@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxMobileShell
 
-@Test func terminalOutputQueueDeliversFirstChunkImmediately() {
+@MainActor @Test func terminalOutputQueueDeliversFirstChunkImmediately() {
     var queue = TerminalOutputDeliveryQueue()
     let first = TerminalOutputDelivery(bytes: Data("first".utf8), replaceable: false)
 
@@ -11,7 +11,7 @@ import Testing
     #expect(queue.pendingCount == 0)
 }
 
-@Test func terminalOutputQueueIgnoresCompletionWhenNothingIsInFlight() {
+@MainActor @Test func terminalOutputQueueIgnoresCompletionWhenNothingIsInFlight() {
     var queue = TerminalOutputDeliveryQueue()
 
     #expect(queue.completeInFlight() == nil)

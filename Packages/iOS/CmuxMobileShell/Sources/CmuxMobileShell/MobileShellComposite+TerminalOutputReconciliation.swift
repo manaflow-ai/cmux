@@ -21,22 +21,61 @@ extension MobileShellComposite {
         return claimed
     }
 
-    func prepareTerminalOutputForOptimisticScroll(surfaceID: String) {
-        guard var queue = terminalOutputQueuesBySurfaceID[surfaceID] else { return }
-        let promoted = queue.discardUnclaimedForOptimisticScroll()
-        terminalOutputQueuesBySurfaceID[surfaceID] = queue
-        guard let promoted,
+    func enqueueTerminalLocalScrollMutation(
+        surfaceID: String,
+        runs: [MobileTerminalScrollRun]
+    ) -> TerminalSurfaceMutationReceipt {
+        let receipt = TerminalSurfaceMutationReceipt()
+        guard terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil,
               let continuation = terminalByteContinuationsBySurfaceID[surfaceID],
-              let streamToken = terminalOutputStreamTokensBySurfaceID[surfaceID] else {
-            return
+              let streamToken = terminalOutputStreamTokensBySurfaceID[surfaceID],
+              var queue = terminalOutputQueuesBySurfaceID[surfaceID] else {
+            receipt.resolve(false)
+            return receipt
         }
-        continuation.yield(MobileTerminalOutputChunk(
-            data: promoted.bytes,
-            streamToken: streamToken,
-            deliveryID: promoted.deliveryID,
-            viewportPolicy: promoted.viewportPolicy,
-            scrollbackOffsetFromBottomRows: promoted.scrollbackOffsetFromBottomRows
-        ))
+        let enqueueResult = queue.enqueueOptimisticScroll(
+            TerminalOutputDelivery(localScroll: runs, receipt: receipt)
+        )
+        terminalOutputQueuesBySurfaceID[surfaceID] = queue
+        if let immediate = enqueueResult.immediate {
+            continuation.yield(MobileTerminalOutputChunk(
+                mutation: immediate.mutation,
+                streamToken: streamToken,
+                deliveryID: immediate.deliveryID
+            ))
+        }
+        return enqueueResult.receipt
+    }
+
+    func enqueueTerminalScrollToBottomMutation(surfaceID: String) -> TerminalSurfaceMutationReceipt {
+        let receipt = TerminalSurfaceMutationReceipt()
+        let accepted = deliverTerminalOutput(
+            TerminalOutputDelivery(scrollToBottomReceipt: receipt),
+            surfaceID: surfaceID
+        )
+        if !accepted { receipt.resolve(false) }
+        return receipt
+    }
+
+    func enqueueTerminalMutationBarrier(surfaceID: String) -> TerminalSurfaceMutationReceipt {
+        let receipt = TerminalSurfaceMutationReceipt()
+        let accepted = deliverTerminalOutput(
+            TerminalOutputDelivery(barrierReceipt: receipt),
+            surfaceID: surfaceID
+        )
+        if !accepted { receipt.resolve(false) }
+        return receipt
+    }
+
+    func resetTerminalMutationQueue(surfaceID: String, remove: Bool = false) {
+        if var queue = terminalOutputQueuesBySurfaceID[surfaceID] {
+            queue.reset()
+        }
+        if remove {
+            terminalOutputQueuesBySurfaceID.removeValue(forKey: surfaceID)
+        } else {
+            terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
+        }
     }
 
     func acceptTerminalRenderRevision(_ revision: UInt64, surfaceID: String) {
@@ -159,7 +198,7 @@ extension MobileShellComposite {
         guard terminalReplayBarrierTokensBySurfaceID[surfaceID] == replayBarrierToken else {
             return
         }
-        terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
+        resetTerminalMutationQueue(surfaceID: surfaceID)
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
         // Post-reset retry: rebuilt surface, so drop the floor, don't stash.
         rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)

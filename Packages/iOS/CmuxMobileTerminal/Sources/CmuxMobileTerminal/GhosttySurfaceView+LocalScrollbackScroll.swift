@@ -78,6 +78,14 @@ extension GhosttySurfaceView {
         }
     }
 
+    @discardableResult
+    public func scrollToBottomAndWait() async -> Bool {
+        guard let state = localScrollbackScrollState() else { return false }
+        return await performLocalScrollbackOperation(state: state) {
+            Self.positionAuthoritativeScrollbackViewport(state.surface, rowsFromBottom: 0)
+        }
+    }
+
     /// Establishes an absolute local scrollback position after a full replay.
     /// Resetting to bottom first prevents a pre-reconnect offset from surviving
     /// after the bounded history has been cleared and rebuilt.
@@ -109,9 +117,15 @@ extension GhosttySurfaceView {
     /// local operation. Input, recovery, and detach all route through the
     /// mounted scroll session and call this single invalidation entrypoint.
     public func cancelScrollInteractionAndSnapToBottom() {
+        cancelScrollMomentum()
+        enqueueScrollToBottom()
+    }
+
+    /// Stops UIKit drag/deceleration without mutating Ghostty. The shell then
+    /// inserts the bottom snap into its causal surface mutation stream.
+    public func cancelScrollMomentum() {
         pendingScrollLines = 0
         scrollMechanicsView.setContentOffset(scrollMechanicsView.contentOffset, animated: false)
-        enqueueScrollToBottom()
     }
 
     private func performLocalScrollbackOperation(

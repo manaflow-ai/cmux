@@ -11,7 +11,7 @@ extension MobileShellComposite {
         terminalByteContinuationsBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputMountTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
-        terminalOutputQueuesBySurfaceID.removeValue(forKey: surfaceID)
+        resetTerminalMutationQueue(surfaceID: surfaceID, remove: true)
         deferredTerminalRenderGridEventsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)

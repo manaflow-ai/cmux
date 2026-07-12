@@ -107,7 +107,7 @@ struct TerminalScrollRequest: Equatable, Sendable {
         return requests
     }
 
-    private static func canCoalesce(
+    static func canCoalesce(
         _ older: MobileTerminalScrollRun,
         _ newer: MobileTerminalScrollRun
     ) -> Bool {

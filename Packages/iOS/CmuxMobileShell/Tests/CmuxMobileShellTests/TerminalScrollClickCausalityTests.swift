@@ -110,6 +110,11 @@ private final class ClickCausalityHarness {
                 self?.barrierReceipts.append(receipt)
                 return receipt
             },
+            enqueueScrollToBottom: {
+                let receipt = TerminalSurfaceMutationReceipt()
+                receipt.resolve(true)
+                return receipt
+            },
             cancelLocal: {},
             sendRemote: { [weak self] request in
                 await withCheckedContinuation { continuation in

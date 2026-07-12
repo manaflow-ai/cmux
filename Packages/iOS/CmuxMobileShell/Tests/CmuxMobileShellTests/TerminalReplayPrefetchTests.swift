@@ -14,7 +14,6 @@ func authoritativeReplayRequestsLargeBidirectionalHistory() async throws {
 
     let scrollToken = store.mountTerminalScrollSession(
         surfaceID: surfaceID,
-        applyLocal: { _ in true },
         cancelLocal: {}
     )
     var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()

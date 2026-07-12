@@ -24,7 +24,6 @@ import Testing
 
     let token = store.mountTerminalScrollSession(
         surfaceID: surfaceID,
-        applyLocal: { _ in true },
         cancelLocal: {}
     )
     let oldEpoch = try #require(store.currentTerminalInteractionEpoch(surfaceID: surfaceID))
@@ -37,6 +36,10 @@ import Testing
     #expect(newEpoch != oldEpoch)
     await router.releaseAllHeld()
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCount + 2)
+
+    let bottom = try #require(await iterator.next())
+    #expect(bottom.mutation == .scrollToBottom)
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: bottom.streamToken)
 
     let fresh = try #require(await iterator.next())
     #expect(String(data: fresh.data, encoding: .utf8) == "fresh-replay")
