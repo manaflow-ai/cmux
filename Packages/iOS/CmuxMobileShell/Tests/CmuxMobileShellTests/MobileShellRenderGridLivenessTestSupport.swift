@@ -79,6 +79,7 @@ actor LivenessHostRouter {
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+    private var attachTicketMacDeviceID = "test-mac"
     private var replayPayloads: [(text: String?, sequence: UInt64?, renderGrid: MobileTerminalRenderGridFrame?)] = []
     private var replayTexts: [String] = []
     private var replayFailuresRemaining = 0
@@ -182,6 +183,10 @@ actor LivenessHostRouter {
         self.capabilities = capabilities
     }
 
+    func setAttachTicketMacDeviceID(_ macDeviceID: String) {
+        attachTicketMacDeviceID = macDeviceID
+    }
+
     func enqueueReplayTexts(_ texts: [String]) {
         replayTexts.append(contentsOf: texts)
     }
@@ -269,7 +274,10 @@ actor LivenessHostRouter {
     func response(method: String?, id: String?, viewportReport: LivenessViewportReport? = nil) async -> Data? {
         switch method {
         case "mobile.attach_ticket.create":
-            return try? Self.resultFrame(id: id, result: ["ticket": Self.attachTicketObject()])
+            return try? Self.resultFrame(
+                id: id,
+                result: ["ticket": Self.attachTicketObject(macDeviceID: attachTicketMacDeviceID)]
+            )
         case "workspace.list", "mobile.workspace.list":
             return try? Self.resultFrame(id: id, result: [
                 "workspaces": [
