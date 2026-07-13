@@ -96,7 +96,7 @@ struct NotificationScrollRestoreTests {
 
     @Test func restoreClampsWhenReplayCompletesWithTrimmedHistory() {
         let surfaceView = ActionProbeView(frame: .zero)
-        surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
+        surfaceView.scrollbar = scrollbar(total: 100, offset: 56, visible: 44)
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
         let marker = completionMarker(named: "replay-trim")
         hostedView.beginSessionScrollbackReplay(completionMarker: marker)
@@ -105,9 +105,16 @@ struct NotificationScrollRestoreTests {
             TerminalNotificationScrollPosition(row: 138, totalRows: 400)
         ))
         #expect(surfaceView.bindingActions.isEmpty)
-        #expect(!hostedView.completeSessionScrollbackReplay(ifMatches: "unrelated title"))
+        let authoritativeScrollbar = scrollbar(total: 200, offset: 156, visible: 44)
+        #expect(!hostedView.completeSessionScrollbackReplay(
+            ifMatches: "unrelated directory",
+            authoritativeScrollbar: authoritativeScrollbar
+        ))
         #expect(surfaceView.bindingActions.isEmpty)
-        #expect(hostedView.completeSessionScrollbackReplay(ifMatches: marker.title))
+        #expect(hostedView.completeSessionScrollbackReplay(
+            ifMatches: marker.reportedDirectory,
+            authoritativeScrollbar: authoritativeScrollbar
+        ))
         #expect(surfaceView.bindingActions == ["scroll_to_row:156"])
     }
 
@@ -126,9 +133,17 @@ struct NotificationScrollRestoreTests {
 
         panel.adoptOwnedSessionScrollbackReplayArtifact(fileURL)
         #expect(panel.hostedView.notificationScrollRestorePhase == .sessionScrollbackReplayActive(marker))
-        #expect(!panel.hostedView.completeSessionScrollbackReplay(ifMatches: "shell prompt"))
-        #expect(panel.hostedView.completeSessionScrollbackReplay(ifMatches: marker.title))
+        let authoritativeScrollbar = scrollbar(total: 44, offset: 0, visible: 44)
+        #expect(!panel.hostedView.completeSessionScrollbackReplay(
+            ifMatches: "/tmp",
+            authoritativeScrollbar: authoritativeScrollbar
+        ))
+        #expect(panel.hostedView.completeSessionScrollbackReplay(
+            ifMatches: marker.reportedDirectory,
+            authoritativeScrollbar: authoritativeScrollbar
+        ))
         #expect(panel.hostedView.notificationScrollRestorePhase == .idle)
+        #expect(SessionScrollbackReplayCompletionMarker.isReservedReportedDirectory(marker.reportedDirectory))
     }
 
     @Test func zshReplayEmitsOrderedCompletionMarker() throws {
@@ -203,6 +218,7 @@ struct NotificationScrollRestoreTests {
         let stdout = Pipe()
         process.executableURL = shell
         process.arguments = arguments + ["-c", "source \"\(integration.path)\""]
+        process.currentDirectoryURL = repoRoot
         process.standardOutput = stdout
         var environment = ProcessInfo.processInfo.environment
         environment[SessionScrollbackReplayStore.environmentKey] = replayFile.path
@@ -213,7 +229,7 @@ struct NotificationScrollRestoreTests {
         let output = String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         let marker = SessionScrollbackReplayCompletionMarker(fileURL: replayFile)
         #expect(process.terminationStatus == 0)
-        #expect(output == "history\n" + marker.terminalSequence)
+        #expect(output == "history\n" + marker.terminalSequence(restoring: repoRoot.path))
         #expect(!FileManager.default.fileExists(atPath: replayFile.path))
     }
 }

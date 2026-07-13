@@ -187,7 +187,8 @@ _cmux_restore_scrollback_once() {
     if [[ -r "$path" ]]; then
         /bin/cat -- "$path" 2>/dev/null || true
         local replay_id="${path##*/}"
-        printf '\033]2;cmux:scrollback-replay-complete:%s\007' "${replay_id%.*}"
+        printf '\033]7;kitty-shell-cwd://localhost/.cmux-session-scrollback-replay-complete/%s\007' "${replay_id%.*}"
+        printf '\033]7;kitty-shell-cwd://localhost%s\007' "$PWD"
         /bin/rm -f -- "$path" >/dev/null 2>&1 || true
     fi
 }

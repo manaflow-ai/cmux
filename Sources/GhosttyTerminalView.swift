@@ -2893,7 +2893,7 @@ class GhosttyApp {
             return true
         case GHOSTTY_ACTION_SET_TITLE:
             let title = action.action.set_title.title.flatMap { String(cString: $0) } ?? ""
-            if performOnMain({ surfaceView.terminalSurface?.hostedView.completeSessionScrollbackReplay(ifMatches: title) ?? false }) { return true }
+            if SessionScrollbackReplayCompletionMarker.isReservedReportedDirectory(title) { return true }
             if let tabId = surfaceView.tabId,
                let sourceSurface = surfaceView.terminalSurface {
                 let change = GhosttyTitleChange(tabId: tabId, surfaceId: sourceSurface.id, title: title)
@@ -2907,9 +2907,9 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_PWD:
-            guard let tabId = surfaceView.tabId,
-                  let surfaceId = surfaceView.terminalSurface?.id else { return true }
             let pwd = action.action.pwd.pwd.flatMap { String(cString: $0) } ?? ""
+            if performOnMain({ completeSessionScrollbackReplayIfNeeded(surfaceView: surfaceView, reportedDirectory: pwd) }) { return true }
+            guard let tabId = surfaceView.tabId, let surfaceId = surfaceView.terminalSurface?.id else { return true }
             DispatchQueue.main.async {
                 AppDelegate.shared?.tabManagerFor(tabId: tabId)?.updateReportedSurfaceDirectory(
                     tabId: tabId,

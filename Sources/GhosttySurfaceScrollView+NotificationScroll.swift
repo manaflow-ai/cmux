@@ -68,10 +68,12 @@ extension GhosttySurfaceScrollView {
     }
 
     @discardableResult
-    func completeSessionScrollbackReplay(ifMatches title: String) -> Bool {
+    func completeSessionScrollbackReplay(
+        ifMatches reportedDirectory: String,
+        authoritativeScrollbar: GhosttyScrollbar
+    ) -> Bool {
         guard let marker = notificationScrollRestorePhase.sessionScrollbackReplayCompletionMarker,
-              marker.title == title else { return false }
-        _ = surfaceView.flushPendingScrollbarIfAvailable()
+              marker.reportedDirectory == reportedDirectory else { return false }
         switch notificationScrollRestorePhase {
         case .idle:
             break
@@ -82,8 +84,9 @@ extension GhosttySurfaceScrollView {
                 position,
                 sessionScrollbackReplayCompletionMarker: nil
             )
-            _ = retryPendingNotificationScrollRestore()
         }
+        surfaceView.enqueueScrollbarUpdate(authoritativeScrollbar)
+        _ = surfaceView.flushPendingScrollbarIfAvailable()
         return true
     }
 

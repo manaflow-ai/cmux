@@ -217,7 +217,7 @@ struct SSHStartupManualReconnectTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout.contains(output), Comment(rawValue: result.stdout))
         let replayMarker = SessionScrollbackReplayCompletionMarker(fileURL: URL(fileURLWithPath: replayPath))
-        #expect(result.stdout.contains(replayMarker.terminalSequence), Comment(rawValue: result.stdout))
+        #expect(result.stdout.contains(replayMarker.reportedDirectory), Comment(rawValue: result.stdout))
         #expect(!FileManager.default.fileExists(atPath: replayPath))
     }
 
