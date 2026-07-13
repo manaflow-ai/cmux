@@ -27,10 +27,10 @@ struct PortScannerProcessCaptureTests {
         #expect(scan.completeness == .incomplete)
     }
 
-    @Test("Malformed lsof rows preserve valid ports but make the scan incomplete")
-    func malformedLsofRowsAreIncomplete() async {
+    @Test("Malformed lsof rows are incomplete only for their owning PID")
+    func malformedLsofRowsArePIDScoped() async {
         let runner = StubCommandRunner(result: CommandResult(
-            stdout: "p123\nf3\nn*:4200\nnmalformed\n",
+            stdout: "p123\nf3\nn*:4200\nnmalformed\np456\nf3\nn*:4300\n",
             stderr: "",
             exitStatus: 0,
             timedOut: false,
@@ -41,10 +41,11 @@ struct PortScannerProcessCaptureTests {
             processIdentityProvider: {
                 AgentPIDProcessIdentity(pid: $0, startSeconds: 1, startMicroseconds: 0)
             }
-        ).runLsof(pidsCsv: "123")
+        ).runLsof(pidsCsv: "123,456")
 
-        #expect(scan.values == [123: [4200]])
-        #expect(scan.completeness == .incomplete)
+        #expect(scan.values == [123: [4200], 456: [4300]])
+        #expect(scan.completeness(for: [123]) == .incomplete)
+        #expect(scan.completeness(for: [456]) == .complete)
     }
 
     @Test("A clean lsof field stream is complete")

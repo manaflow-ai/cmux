@@ -67,6 +67,17 @@ final class ClosedMainWindowRoutingTests: XCTestCase {
         let workspaceB = try XCTUnwrap(managerB.selectedWorkspace)
         let terminalPanelB = try XCTUnwrap(workspaceB.focusedTerminalPanel)
         XCTAssertTrue(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanelB.id) === terminalPanelB.surface)
+        XCTAssertTrue(TerminalController.shared.applyAgentPortPublication(
+            workspaceId: workspaceB.id,
+            ports: [4200]
+        ))
+        TerminalController.shared.applyPanelPortPublication(
+            workspaceId: workspaceB.id,
+            panelId: terminalPanelB.id,
+            ports: [4300]
+        )
+        XCTAssertEqual(workspaceB.agentListeningPorts, [4200])
+        XCTAssertEqual(workspaceB.surfaceListeningPorts[terminalPanelB.id], [4300])
 
         let baselineSummaries = app.listMainWindowSummaries()
         XCTAssertTrue(baselineSummaries.contains { $0.windowId == windowAId })

@@ -327,6 +327,7 @@ extension PortScanner {
         var portsByPID: [Int: Set<Int>] = [:]
         var currentPID: Int?
         var parsedEveryRow = true
+        var parseIncompletePIDs: Set<Int> = []
         for line in (result.stdout ?? "").split(separator: "\n") {
             guard let first = line.first else { continue }
             switch first {
@@ -347,7 +348,7 @@ extension PortScanner {
                     name = String(name[..<arrow.lowerBound])
                 }
                 guard let colon = name.lastIndex(of: ":") else {
-                    parsedEveryRow = false
+                    parseIncompletePIDs.insert(currentPID)
                     continue
                 }
                 let portText = name[name.index(after: colon)...]
@@ -355,21 +356,32 @@ extension PortScanner {
                       let port = Int(portText),
                       port > 0,
                       port <= 65_535 else {
-                    parsedEveryRow = false
+                    parseIncompletePIDs.insert(currentPID)
                     continue
                 }
                 portsByPID[currentPID, default: []].insert(port)
             case "f":
-                if line.dropFirst().isEmpty { parsedEveryRow = false }
+                if line.dropFirst().isEmpty {
+                    if let currentPID {
+                        parseIncompletePIDs.insert(currentPID)
+                    } else {
+                        parsedEveryRow = false
+                    }
+                }
             default:
-                parsedEveryRow = false
+                if let currentPID {
+                    parseIncompletePIDs.insert(currentPID)
+                } else {
+                    parsedEveryRow = false
+                }
             }
         }
         // lsof exits 1 both for "no selected files" and when one requested PID
         // disappears. Keep the failure scoped to the PIDs that can no longer be
         // inspected so unrelated workspaces can still consume complete evidence.
         let requestedPIDs = Set(pidsCsv.split(separator: ",").compactMap { Int($0) })
-        let incompletePIDs = Set(requestedPIDs.filter {
+        var incompletePIDs = parseIncompletePIDs
+        incompletePIDs.formUnion(requestedPIDs.filter {
             processIdentityProvider(pid_t($0)) == nil
                 && processPresenceProvider(pid_t($0)) != .absent
         })
