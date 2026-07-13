@@ -12,7 +12,7 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `3c84d1a44`. It extends the prior cmux pin
+Current cmux pinned fork head: `eb500e9f4`. It extends the prior cmux pin
 `096622763`, current fork `main` (`81a6daa8e`), and upstream
 `ghostty-org/ghostty` `main` through `7e02af879` (2026-07-09), followed by the
 render-grid preserved-page OOM fix, lock-free selection notifications, and
@@ -25,20 +25,22 @@ switches, alternate-screen recreation, reflow, reset, erasure, suffix trimming,
 or scrollback eviction. Embedded
 hosts can read geometry and identity atomically from terminal state without
 waiting for renderer publication. The synchronous read uses Ghostty's
-starvation-aware terminal-state handoff under sustained output.
+starvation-aware terminal-state handoff under sustained output. Absolute-row
+restores compare the expected identity and scroll under the same terminal lock,
+then return the resulting authoritative scrollbar snapshot.
 Published via
 https://github.com/manaflow-ai/ghostty/pull/96 and
 https://github.com/manaflow-ai/ghostty/pull/99 and
 https://github.com/manaflow-ai/ghostty/pull/104 and
 https://github.com/manaflow-ai/ghostty/pull/105 and
-https://github.com/manaflow-ai/ghostty/pull/106, with the scrollbar export on
-https://github.com/manaflow-ai/ghostty/tree/task-notification-scrollbar-snapshot.
+https://github.com/manaflow-ai/ghostty/pull/106 and
+https://github.com/manaflow-ai/ghostty/pull/111.
 The exact pin remains permanently reachable through the versioned framework
 release tag below, independent of the feature branch lifecycle. The fork's
 default branch is unchanged because cmux changes may not be pushed there
 directly.
 Its prebuilt framework is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-3c84d1a44f37843cf93798742cb5cf3d22fb3bbc-crashsubdir-cmux-crash-v1.
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-eb500e9f45c8b6ffa6043350ec1488a42d195406-crashsubdir-cmux-crash-v1.
 
 ### Upstream TLDR (`d560c645..7e02af879`)
 
