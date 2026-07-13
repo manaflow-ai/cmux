@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 
 extension TabManager {
     struct WorkspaceCreationTabSnapshot {
@@ -25,7 +26,7 @@ extension TabManager {
         fromDetachedSurface detached: Workspace.DetachedSurfaceTransfer,
         title: String? = nil,
         select: Bool = true,
-        placementOverride: NewWorkspacePlacement? = nil,
+        placementOverride: WorkspacePlacement? = nil,
         insertionIndexOverride: Int? = nil,
         focusIntent: PanelFocusIntent? = nil
     ) -> Workspace? {
@@ -34,7 +35,7 @@ extension TabManager {
         let capturedSelectedTabId = sourceWorkspace?.id
 
         return withExtendedLifetime((capturedTabs, sourceWorkspace, detached.panel)) {
-            let inheritedDirectory = preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
+            let inheritedDirectory = implicitWorkingDirectoryForNewWorkspace(from: sourceWorkspace)
             let font = inheritedTerminalFontPointsForNewWorkspace(workspace: sourceWorkspace)
             let snapshot = workspaceCreationSnapshotLite(
                 currentTabs: capturedTabs,
@@ -66,7 +67,10 @@ extension TabManager {
                 configTemplate: inheritedConfig,
                 initialDetachedSurface: detached
             )
-            guard newWorkspace.panels[detached.panelId] != nil else { return nil }
+            guard newWorkspace.panels[detached.panelId] != nil,
+                  newWorkspace.paneId(forPanelId: detached.panelId) != nil else {
+                return nil
+            }
 
             applyCreationChromeInheritance(to: newWorkspace, from: sourceWorkspace ?? capturedTabs.first)
             newWorkspace.owningTabManager = self
@@ -106,7 +110,7 @@ extension TabManager {
     private func detachedWorkspaceInsertIndex(
         insertionIndexOverride: Int?,
         snapshot: WorkspaceCreationSnapshot,
-        placementOverride: NewWorkspacePlacement?
+        placementOverride: WorkspacePlacement?
     ) -> Int {
         guard let insertionIndexOverride else {
             return newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)

@@ -1,0 +1,146 @@
+name: cmux-tui nightly
+
+on:
+  schedule:
+    - cron: "23 9 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: tui-nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: derive nightly versions
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    outputs:
+      npm_version: ${{ steps.version.outputs.npm_version }}
+      pypi_version: ${{ steps.version.outputs.pypi_version }}
+      head_sha: ${{ steps.version.outputs.head_sha }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: main
+          fetch-depth: 0
+
+      - name: Derive nightly versions
+        id: version
+        run: |
+          set -euo pipefail
+          git fetch --force --tags
+          latest_tag="$(
+            git tag --merged HEAD --list 'cmux-tui-v*' --sort=-v:refname |
+              grep -E '^cmux-tui-v[0-9]+\.[0-9]+\.[0-9]+$' |
+              head -n 1 || true
+          )"
+          if [[ -z "$latest_tag" ]]; then
+            next_stable="0.9.0"
+          else
+            latest="${latest_tag#cmux-tui-v}"
+            IFS=. read -r major minor patch <<<"$latest"
+            next_stable="$major.$minor.$((patch + 1))"
+          fi
+          stamp="$(date -u +%Y%m%d)"
+          npm_version="$next_stable-nightly.$stamp.$GITHUB_RUN_NUMBER"
+          pypi_version="$next_stable.dev${stamp}${GITHUB_RUN_NUMBER}"
+          head_sha="$(git rev-parse HEAD)"
+          {
+            echo "npm_version=$npm_version"
+            echo "pypi_version=$pypi_version"
+            echo "head_sha=$head_sha"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### TUI nightly"
+            echo
+            echo "- HEAD: $head_sha"
+            echo "- npm: $npm_version"
+            echo "- PyPI: $pypi_version"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build-package:
+    needs: version
+    permissions:
+      contents: read
+    uses: ./.github/workflows/cmux-tui-build-package.yml
+    with:
+      version: ${{ needs.version.outputs.npm_version }}
+      pypi_version: ${{ needs.version.outputs.pypi_version }}
+      package_npm: true
+      package_pypi: true
+      include_windows: true
+      # Pin the exact sha the version job resolved so every matrix leg builds
+      # the same commit even if main advances mid-run.
+      checkout_ref: ${{ needs.version.outputs.head_sha }}
+
+  publish-npm:
+    needs:
+      - version
+      - build-package
+    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: npm-tui
+      url: https://www.npmjs.com/package/cmux
+    steps:
+      - name: Download npm package directories
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: npm-packages
+          path: dist/npm-packages
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+          registry-url: https://registry.npmjs.org
+
+      - name: Install npm with OIDC support
+        run: npm install -g npm@^11.5.1
+
+      - name: Publish platform packages with nightly dist-tag
+        run: |
+          set -euo pipefail
+          packages=(
+            cmux-tui-darwin-arm64
+            cmux-tui-darwin-x64
+            cmux-tui-linux-x64
+            cmux-tui-linux-arm64
+          )
+          for package in "${packages[@]}"; do
+            echo "Publishing $package"
+            npm publish --provenance --tag nightly "dist/npm-packages/$package"
+          done
+
+      - name: Publish launcher package with nightly dist-tag
+        run: npm publish --provenance --tag nightly dist/npm-packages/cmux
+
+  publish-pypi:
+    needs:
+      - version
+      - build-package
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: pypi-tui
+      url: https://pypi.org/p/cmux
+    steps:
+      - name: Download PyPI wheels
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: pypi-wheels
+          path: dist
+
+      - name: Publish nightly package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        with:
+          packages-dir: dist
+          attestations: true

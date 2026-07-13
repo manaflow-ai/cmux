@@ -18,37 +18,27 @@ extension CLINotifyProcessIntegrationRegressionTests {
             commands.append(command)
             lock.unlock()
         }
+
+        func snapshot() -> [String] {
+            lock.lock()
+            let value = commands
+            lock.unlock()
+            return value
+        }
+    }
+
+    struct LoopbackTCPListener {
+        let fd: Int32
+        let port: Int
     }
 
     func bundledCLIPath() throws -> String {
-        let fileManager = FileManager.default
-        let appBundleURL = Bundle(for: Self.self)
-            .bundleURL
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let enumerator = fileManager.enumerator(
-            at: appBundleURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )
-
-        while let item = enumerator?.nextObject() as? URL {
-            guard item.lastPathComponent == "cmux",
-                  item.path.contains(".app/Contents/Resources/bin/cmux") else {
-                continue
-            }
-            return item.path
-        }
-
-        throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
+        try BundledCLITestSupport.bundledCLIPath(for: Self.self)
     }
 
     func makeSocketPath(_ name: String) -> String {
         let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
-        return URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("cli-\(name.prefix(6))-\(shortID).sock")
-            .path
+        return "/tmp/cli-\(name.prefix(3))-\(shortID).sock"
     }
 
     func bindUnixSocket(at path: String) throws -> Int32 {
@@ -80,32 +70,87 @@ extension CLINotifyProcessIntegrationRegressionTests {
         return fd
     }
 
-    func startMockServer(
-        listenerFD: Int32,
-        state: MockSocketServerState,
-        handler: @escaping @Sendable (String) -> String
-    ) -> XCTestExpectation {
-        let handled = expectation(description: "cli mock socket handled")
+    func bindLoopbackTCP() throws -> LoopbackTCPListener {
+        let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw NSError(domain: "cmux.tests", code: Int(errno), userInfo: [
+                NSLocalizedDescriptionKey: "failed to create TCP socket",
+            ])
+        }
+
+        var reuse: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = in_port_t(0)
+        addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+
+        let bindResult = withUnsafePointer(to: &addr) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                Darwin.bind(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard bindResult == 0 else {
+            Darwin.close(fd)
+            throw NSError(domain: "cmux.tests", code: Int(errno), userInfo: [
+                NSLocalizedDescriptionKey: "failed to bind TCP socket",
+            ])
+        }
+        guard Darwin.listen(fd, 1) == 0 else {
+            Darwin.close(fd)
+            throw NSError(domain: "cmux.tests", code: Int(errno), userInfo: [
+                NSLocalizedDescriptionKey: "failed to listen on TCP socket",
+            ])
+        }
+
+        var boundAddr = sockaddr_in()
+        var boundLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let nameResult = withUnsafeMutablePointer(to: &boundAddr) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                Darwin.getsockname(fd, sockaddrPtr, &boundLen)
+            }
+        }
+        guard nameResult == 0 else {
+            Darwin.close(fd)
+            throw NSError(domain: "cmux.tests", code: Int(errno), userInfo: [
+                NSLocalizedDescriptionKey: "failed to read TCP socket port",
+            ])
+        }
+
+        return LoopbackTCPListener(fd: fd, port: Int(UInt16(bigEndian: boundAddr.sin_port)))
+    }
+
+    func waitForSocketFile(at path: String, timeout: TimeInterval = 5.0) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if FileManager.default.fileExists(atPath: path) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        return FileManager.default.fileExists(atPath: path)
+    }
+
+    func startBridgeErrorServer(listenerFD: Int32, message: String) -> XCTestExpectation {
+        let handled = expectation(description: "pty bridge error server handled")
         DispatchQueue.global(qos: .userInitiated).async {
-            var clientAddr = sockaddr_un()
-            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+            defer { handled.fulfill() }
+
+            var clientAddr = sockaddr_in()
+            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
             let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
                 ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
                     Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
                 }
             }
-            guard clientFD >= 0 else {
-                handled.fulfill()
-                return
-            }
-            defer {
-                Darwin.close(clientFD)
-                handled.fulfill()
-            }
+            guard clientFD >= 0 else { return }
+            defer { Darwin.close(clientFD) }
 
             var pending = Data()
-            var buffer = [UInt8](repeating: 0, count: 4096)
-            while true {
+            var buffer = [UInt8](repeating: 0, count: 1024)
+            while !pending.contains(0x0A) {
                 let count = Darwin.read(clientFD, &buffer, buffer.count)
                 if count < 0 {
                     if errno == EINTR { continue }
@@ -113,18 +158,150 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 }
                 if count == 0 { return }
                 pending.append(buffer, count: count)
+            }
 
-                while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                    let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                    pending.removeSubrange(0...newlineRange.lowerBound)
-                    guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                    state.append(line)
-                    let response = handler(line) + "\n"
-                    _ = response.withCString { ptr in
-                        Darwin.write(clientFD, ptr, strlen(ptr))
+            let payload: [String: Any] = ["type": "error", "message": message]
+            guard var data = try? JSONSerialization.data(withJSONObject: payload, options: []) else { return }
+            data.append(0x0A)
+            data.withUnsafeBytes { rawBuffer in
+                guard let base = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
+                var remaining = rawBuffer.count
+                var cursor = base
+                while remaining > 0 {
+                    let written = Darwin.write(clientFD, cursor, remaining)
+                    if written > 0 {
+                        remaining -= written
+                        cursor = cursor.advanced(by: written)
+                    } else if written < 0 && errno == EINTR {
+                        continue
+                    } else {
+                        return
                     }
                 }
             }
+        }
+        return handled
+    }
+
+    func startBridgeReadyThenCloseServer(listenerFD: Int32) -> XCTestExpectation {
+        let handled = expectation(description: "pty bridge ready close server handled")
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { handled.fulfill() }
+
+            var clientAddr = sockaddr_in()
+            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                }
+            }
+            guard clientFD >= 0 else { return }
+            defer { Darwin.close(clientFD) }
+
+            var pending = Data()
+            var buffer = [UInt8](repeating: 0, count: 1024)
+            while !pending.contains(0x0A) {
+                let count = Darwin.read(clientFD, &buffer, buffer.count)
+                if count < 0 {
+                    if errno == EINTR { continue }
+                    return
+                }
+                if count == 0 { return }
+                pending.append(buffer, count: count)
+            }
+
+            let payload: [String: Any] = ["type": "ready", "attachment_token": "attach-token"]
+            guard var data = try? JSONSerialization.data(withJSONObject: payload, options: []) else { return }
+            data.append(0x0A)
+            data.withUnsafeBytes { rawBuffer in
+                guard let base = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
+                var remaining = rawBuffer.count
+                var cursor = base
+                while remaining > 0 {
+                    let written = Darwin.write(clientFD, cursor, remaining)
+                    if written > 0 {
+                        remaining -= written
+                        cursor = cursor.advanced(by: written)
+                    } else if written < 0 && errno == EINTR {
+                        continue
+                    } else {
+                        return
+                    }
+                }
+            }
+        }
+        return handled
+    }
+
+    func startBridgeReadyThenResetAfterClientEOFServer(listenerFD: Int32) -> XCTestExpectation {
+        let handled = expectation(description: "pty bridge ready reset server handled")
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { handled.fulfill() }
+
+            var clientAddr = sockaddr_in()
+            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                }
+            }
+            guard clientFD >= 0 else { return }
+            defer { Darwin.close(clientFD) }
+
+            var pending = Data()
+            var buffer = [UInt8](repeating: 0, count: 1024)
+            while !pending.contains(0x0A) {
+                let count = Darwin.read(clientFD, &buffer, buffer.count)
+                if count < 0 {
+                    if errno == EINTR { continue }
+                    return
+                }
+                if count == 0 { return }
+                pending.append(buffer, count: count)
+            }
+
+            let payload: [String: Any] = ["type": "ready", "attachment_token": "attach-token"]
+            guard var data = try? JSONSerialization.data(withJSONObject: payload, options: []) else { return }
+            data.append(0x0A)
+            data.withUnsafeBytes { rawBuffer in
+                guard let base = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
+                var remaining = rawBuffer.count
+                var cursor = base
+                while remaining > 0 {
+                    let written = Darwin.write(clientFD, cursor, remaining)
+                    if written > 0 {
+                        remaining -= written
+                        cursor = cursor.advanced(by: written)
+                    } else if written < 0 && errno == EINTR {
+                        continue
+                    } else {
+                        return
+                    }
+                }
+            }
+
+            while true {
+                let count = Darwin.read(clientFD, &buffer, buffer.count)
+                if count > 0 {
+                    continue
+                }
+                if count == 0 {
+                    break
+                }
+                if errno == EINTR {
+                    continue
+                }
+                return
+            }
+
+            var lingerOption = linger(l_onoff: 1, l_linger: 0)
+            _ = setsockopt(
+                clientFD,
+                SOL_SOCKET,
+                SO_LINGER,
+                &lingerOption,
+                socklen_t(MemoryLayout.size(ofValue: lingerOption))
+            )
         }
         return handled
     }
@@ -154,8 +331,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
         v2Response(
             id: id,
             ok: true,
-            result: ["surfaces": [["id": surfaceId, "ref": "surface:1", "focused": true]]]
+            result: ["surfaces": [["id": surfaceId, "ref": "surface:1", "index": 1, "focused": true]]]
         )
+    }
+
+    func processTimeout(_ requested: TimeInterval) -> TimeInterval {
+        let env = ProcessInfo.processInfo.environment
+        guard env["GITHUB_ACTIONS"] == "true" || env["CI"] == "true" else {
+            return requested
+        }
+        return max(requested, 20)
     }
 
     func jsonObject(_ line: String) -> [String: Any]? {
@@ -200,22 +385,53 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try? stdinPipe.fileHandleForWriting.close()
         }
 
+        let outputLock = NSLock()
+        var stdoutData = Data()
+        var stderrData = Data()
+        let outputGroup = DispatchGroup()
+
+        outputGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            outputLock.lock()
+            stdoutData = data
+            outputLock.unlock()
+            outputGroup.leave()
+        }
+
+        outputGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            outputLock.lock()
+            stderrData = data
+            outputLock.unlock()
+            outputGroup.leave()
+        }
+
         let exitSignal = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {
             process.waitUntilExit()
             exitSignal.signal()
         }
 
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = exitSignal.wait(timeout: .now() + processTimeout(timeout)) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                _ = exitSignal.wait(timeout: .now() + 1)
+            }
         }
+        _ = outputGroup.wait(timeout: .now() + 2)
 
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        outputLock.lock()
+        let finalStdoutData = stdoutData
+        let finalStderrData = stderrData
+        outputLock.unlock()
+        let stdout = String(data: finalStdoutData, encoding: .utf8) ?? ""
+        let stderr = String(data: finalStderrData, encoding: .utf8) ?? ""
         return ProcessRunResult(
-            status: process.terminationStatus,
+            status: process.isRunning ? SIGKILL : process.terminationStatus,
             stdout: stdout,
             stderr: stderr,
             timedOut: timedOut

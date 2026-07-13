@@ -1,7 +1,9 @@
+import CmuxAuthRuntime
 import Foundation
 
 enum VMClientError: Error, CustomStringConvertible {
     case notSignedIn
+    case sessionRefreshFailed
     case backendUnreachable(url: String, detail: String)
     case httpStatus(Int, String)
     case malformedResponse(String)
@@ -9,27 +11,259 @@ enum VMClientError: Error, CustomStringConvertible {
     var description: String {
         switch self {
         case .notSignedIn:
-            return "Not signed in. Run `cmux auth login` first."
+            return """
+                You are not signed in to cmux.
+
+                What to do:
+                  cmux auth login
+                  cmux auth status
+                """
+        case .sessionRefreshFailed:
+            return """
+                You are signed in, but cmux could not refresh your session (network or server issue).
+
+                What to do:
+                  Retry in a moment.
+                  If it keeps failing, run `cmux auth status` to check your session.
+                """
         case .backendUnreachable(let url, let detail):
             return """
-                Cannot reach cmux backend at \(url). Is the dev server running?
-                  • In this shell: export CMUX_VM_API_BASE_URL=http://localhost:<port>
-                  • Then relaunch the cmux app so it inherits the env.
-                (underlying: \(detail))
+                Cannot reach the cmux Cloud VM service at \(url).
+
+                What to do:
+                  Start the cmux web server, then retry.
+                  If you are using a local development build, check its Cloud VM service URL before launching cmux.
+
+                Details:
+                  \(detail)
                 """
         case .httpStatus(let code, let body):
-            return "HTTP \(code): \(body)"
+            return formattedCloudVMHTTPError(status: code, body: body)
         case .malformedResponse(let message):
-            return "Malformed response: \(message)"
+            return """
+                The cmux Cloud VM backend returned a response this client could not read.
+
+                What to do:
+                  Update cmux to the latest build and retry.
+                  If this keeps happening, copy the details below and contact support.
+
+                Details:
+                  \(message)
+                """
         }
     }
+}
+
+private func formattedCloudVMHTTPError(status: Int, body: String) -> String {
+    let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let data = trimmedBody.data(using: .utf8),
+          let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+        return """
+            Cloud VM request failed (HTTP \(status)).
+
+            What to do:
+              Retry the command. If it keeps failing, copy the response body and contact support.
+
+            Response body:
+              \(limitedSingleLine(trimmedBody.isEmpty ? "<empty>" : trimmedBody))
+            """
+    }
+
+    let errorCode = cloudVMString(object["error"]) ?? "http_\(status)"
+    let ui = object["ui"] as? [String: Any]
+    let displayTitle = cloudVMString(ui?["title"])
+    let message = cloudVMString(object["message"])
+        ?? cloudVMString(object["reason"])
+        ?? defaultCloudVMMessage(status: status)
+    let displayMessage = cloudVMString(ui?["message"]) ?? message
+    let action = cloudVMString(object["action"])
+        ?? defaultCloudVMAction(status: status, errorCode: errorCode)
+    let retryAfterSeconds = cloudVMInt(object["retryAfterSeconds"])
+        ?? cloudVMInt(ui?["retryAfterSeconds"])
+    let details = cloudVMDetails(from: object)
+
+    var lines: [String] = [
+        "\(displayTitle ?? "Cloud VM request failed") (HTTP \(status): \(errorCode))",
+        displayMessage,
+    ]
+    if let retryAfterSeconds, retryAfterSeconds > 0 {
+        lines.append("Retrying is safe. Next automatic retry is in about \(retryAfterSeconds)s when this request is part of an attach loop.")
+    }
+    if !action.isEmpty {
+        lines.append("")
+        lines.append("What to do:")
+        lines.append(contentsOf: indentedActionLines(action))
+    }
+    if !details.isEmpty {
+        lines.append("")
+        lines.append("Details:")
+        lines.append(contentsOf: details.map { "  \($0)" })
+    }
+    return lines.joined(separator: "\n")
+}
+
+private func defaultCloudVMMessage(status: Int) -> String {
+    switch status {
+    case 400:
+        return "The Cloud VM request was not valid."
+    case 401:
+        return "cmux could not authenticate this Cloud VM request."
+    case 402:
+        return "This team cannot create another Cloud VM with the current billing state."
+    case 403:
+        return "This Cloud VM request was not allowed."
+    case 404:
+        return "The requested Cloud VM was not found."
+    case 409:
+        return "Another Cloud VM operation is already running."
+    case 500...599:
+        return "The Cloud VM service is temporarily unavailable."
+    default:
+        return "The Cloud VM service returned an error."
+    }
+}
+
+private func defaultCloudVMAction(status: Int, errorCode: String) -> String {
+    switch errorCode {
+    case "vm_active_limit_exceeded":
+        return "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before retrying."
+    case "vm_not_found":
+        return "Run `cmux vm ls` to see available Cloud VMs. If the VM was paused or destroyed, start a fresh one with `cmux vm new`."
+    case "vm_billing_team_required":
+        return "Select a team in cmux, then retry. You can also run `cmux auth status` to check the signed-in account."
+    case "vm_create_credits_insufficient":
+        return "Ask a team admin to upgrade the plan or grant more Cloud VM create credits, then retry."
+    default:
+        if status == 401 {
+            return "Run `cmux auth login`, then retry."
+        }
+        if status == 403 {
+            return "Run `cmux auth status` and confirm you are using the expected team."
+        }
+        return "Retry the command. If it keeps failing, copy this error and contact support."
+    }
+}
+
+private func cloudVMDetails(from object: [String: Any]) -> [String] {
+    let allowedKeys = Set([
+        "amount",
+        "code",
+        "duration",
+        "durationMs",
+        "field",
+        "idempotencyKeySet",
+        "imageRequested",
+        "limit",
+        "operation",
+        "phase",
+        "provider",
+        "providerCode",
+        "providerMessage",
+        "retryable",
+        "retryAfterSeconds",
+        "status",
+        "type",
+        "vmId",
+    ])
+    var details: [String: Any] = [:]
+    func addAllowedDetail(key: String, value: Any) {
+        guard allowedKeys.contains(key), !cloudVMIsNull(value) else { return }
+        details[key] = value
+    }
+    if let rawDetails = object["details"] {
+        if let nestedDetails = rawDetails as? [String: Any] {
+            for (key, value) in nestedDetails {
+                addAllowedDetail(key: key, value: value)
+            }
+        }
+    }
+    for (key, value) in object {
+        addAllowedDetail(key: key, value: value)
+    }
+    return details.keys.sorted().compactMap { key in
+        guard let value = details[key], !cloudVMIsNull(value) else { return nil }
+        return "\(key): \(cloudVMValueDescription(value))"
+    }
+}
+
+private func indentedActionLines(_ action: String) -> [String] {
+    action
+        .split(separator: "\n", omittingEmptySubsequences: false)
+        .map { "  \($0)" }
+}
+
+private func cloudVMString(_ value: Any?) -> String? {
+    guard let string = value as? String else { return nil }
+    let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+}
+
+private func cloudVMInt(_ value: Any?) -> Int? {
+    if let int = value as? Int {
+        return int
+    }
+    if let double = value as? Double, double.isFinite {
+        return Int(double)
+    }
+    if let number = value as? NSNumber {
+        return number.intValue
+    }
+    if let string = value as? String,
+       let int = Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) {
+        return int
+    }
+    return nil
+}
+
+private func cloudVMValueDescription(_ value: Any) -> String {
+    if let string = value as? String {
+        return limitedSingleLine(string)
+    }
+    if let number = value as? NSNumber {
+        if CFGetTypeID(number) == CFBooleanGetTypeID() {
+            return number.boolValue ? "true" : "false"
+        }
+        return "\(number)"
+    }
+    if cloudVMIsNull(value) {
+        return "null"
+    }
+    if JSONSerialization.isValidJSONObject(value),
+       let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
+       let encoded = String(data: data, encoding: .utf8) {
+        return limitedSingleLine(encoded)
+    }
+    return limitedSingleLine(String(describing: value))
+}
+
+private func cloudVMIsNull(_ value: Any) -> Bool {
+    value is NSNull
+}
+
+// maxCharacters is measured in Swift Characters so truncation never splits a grapheme cluster.
+private func limitedSingleLine(_ value: String, maxCharacters: Int = 1200) -> String {
+    let singleLine = value
+        .replacingOccurrences(of: "\n", with: "\\n")
+        .replacingOccurrences(of: "\r", with: "\\r")
+    guard singleLine.count > maxCharacters else { return singleLine }
+    let index = singleLine.index(singleLine.startIndex, offsetBy: maxCharacters)
+    return String(singleLine[..<index]) + "..."
 }
 
 struct VMSummary {
     let id: String
     let provider: String
+    let status: String
     let image: String
     let createdAt: Int64
+    let base: VMBaseSummary?
+}
+
+struct VMBaseSummary {
+    let id: String
+    let name: String
+    let generation: Int
+    let retainedProviderVmId: String?
 }
 
 struct VMExecResult {
@@ -38,8 +272,12 @@ struct VMExecResult {
     let stderr: String
 }
 
-/// Short-lived SSH endpoint the backend mints on demand. Mac client dials this with the
-/// existing `cmux ssh` transport.
+struct VMSnapshotResult {
+    let id: String
+    let name: String?
+    let createdAt: Int64
+}
+
 struct VMSSHEndpoint {
     let transport: String
     let host: String
@@ -47,6 +285,7 @@ struct VMSSHEndpoint {
     let username: String
     let credential: Credential
     let publicKeyFingerprint: String?
+    let daemon: VMWebSocketDaemonEndpoint?
 
     enum Credential {
         case password(String)
@@ -60,8 +299,33 @@ struct VMWebSocketPtyEndpoint {
     let headers: [String: String]
     let token: String
     let sessionId: String
+    let attachmentId: String
     let expiresAtUnix: Int64
     let daemon: VMWebSocketDaemonEndpoint?
+}
+
+struct VMCloudSession {
+    let id: String
+    let vmId: String
+    let sessionId: String
+    let title: String?
+    let kind: String
+    let status: String
+    let attachmentCount: Int
+    let effectiveCols: Int?
+    let effectiveRows: Int?
+    let lastKnownCols: Int?
+    let lastKnownRows: Int?
+    let scrollbackBytes: Int
+    let metadata: [String: String]
+    let createdAt: String
+    let updatedAt: String
+    let lastAttachedAt: String?
+}
+
+struct VMCloudSessionAttach {
+    let endpoint: VMAttachEndpoint
+    let session: VMCloudSession?
 }
 
 struct VMWebSocketDaemonEndpoint {
@@ -78,18 +342,31 @@ enum VMAttachEndpoint {
 }
 
 /// Talks to the manaflow cloud VM backend at `/api/vm/*`. Stack Auth tokens come from
-/// `AuthManager.shared`; the HTTP base URL from `AuthEnvironment.vmAPIBaseURL`.
+/// the injected `AuthCoordinator`; the HTTP base URL from `AuthEnvironment.vmAPIBaseURL`.
 ///
 /// All methods are `async throws` and run off the main actor.
 actor VMClient {
-    static let shared = VMClient()
+    /// Set once by `bootstrap(auth:)` during app startup (AppDelegate
+    /// `configure`), before any socket/CLI path can reach the cloud VM client.
+    /// Main-actor isolated so every read goes through a compiler-checked hop.
+    @MainActor private(set) static var shared: VMClient!
+
+    /// Build the shared client with its injected auth dependency. Call once at
+    /// the composition root.
+    @MainActor
+    static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared) {
+        shared = VMClient(session: session, auth: auth)
+    }
+
     private static let createTimeoutSeconds: TimeInterval = 16 * 60
     private static let attachTimeoutSeconds: TimeInterval = 16 * 60
 
     private let session: URLSession
+    private let auth: AuthCoordinator
 
-    init(session: URLSession = .shared) {
+    init(session: URLSession = .shared, auth: AuthCoordinator) {
         self.session = session
+        self.auth = auth
     }
 
     func list() async throws -> [VMSummary] {
@@ -101,17 +378,19 @@ actor VMClient {
         }
         return try items.enumerated().map { index, dict -> VMSummary in
             guard let id = dict["id"] as? String, !id.isEmpty else {
-                throw VMClientError.malformedResponse("missing `id` in /api/vm item \(index)")
+                throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
             }
             guard let provider = dict["provider"] as? String, !provider.isEmpty else {
-                throw VMClientError.malformedResponse("missing `provider` in /api/vm item \(index)")
+                throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
             }
             guard let image = dict["image"] as? String, !image.isEmpty else {
-                throw VMClientError.malformedResponse("missing `image` in /api/vm item \(index)")
+                throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
             }
+            let rawStatus = (dict["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
             let createdAt = (dict["createdAt"] as? Int64)
                 ?? Int64((dict["createdAt"] as? Double) ?? 0)
-            return VMSummary(id: id, provider: provider, image: image, createdAt: createdAt)
+            return VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(dict["base"]))
         }
     }
 
@@ -135,7 +414,7 @@ actor VMClient {
               let providerValue = obj["provider"] as? String,
               let imageValue = obj["image"] as? String
         else {
-            throw VMClientError.malformedResponse("missing id/provider/image on POST /api/vm response")
+            throw VMClientError.malformedResponse("Cloud VM create response was missing required fields.")
         }
         // Prefer the server-supplied createdAt. Using the local wall clock caused two
         // visible bugs: (1) creation time was wrong under clock skew, (2) idempotent
@@ -145,13 +424,151 @@ actor VMClient {
         let serverCreatedAt = (obj["createdAt"] as? Int64)
             ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let createdAt = serverCreatedAt > 0 ? serverCreatedAt : Int64(Date().timeIntervalSince1970 * 1000)
-        return VMSummary(id: id, provider: providerValue, image: imageValue, createdAt: createdAt)
+        let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
+        return VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: nil)
+    }
+
+    func openBase(name: String? = nil) async throws -> VMSummary {
+        try await baseRequest(path: "/api/vm/base/open", name: name, reason: nil)
+    }
+
+    func resetBase(name: String? = nil, reason: String? = nil) async throws -> VMSummary {
+        try await baseRequest(path: "/api/vm/base/reset", name: name, reason: reason)
+    }
+
+    private func baseRequest(path: String, name: String?, reason: String?) async throws -> VMSummary {
+        var body: [String: Any] = [:]
+        if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["name"] = name
+        }
+        if let reason, !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["reason"] = reason
+        }
+        let (data, http) = try await request(
+            "POST",
+            path: path,
+            jsonBody: body,
+            timeoutSeconds: Self.createTimeoutSeconds
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        guard let id = obj["id"] as? String,
+              let providerValue = obj["provider"] as? String,
+              let imageValue = obj["image"] as? String
+        else {
+            throw VMClientError.malformedResponse("Cloud VM Base response was missing required fields.")
+        }
+        let serverCreatedAt = (obj["createdAt"] as? Int64)
+            ?? Int64((obj["createdAt"] as? Double) ?? 0)
+        let createdAt = serverCreatedAt > 0 ? serverCreatedAt : Int64(Date().timeIntervalSince1970 * 1000)
+        let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
+        return VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
+    }
+
+    func status(id: String) async throws -> VMSummary {
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)")
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        guard let id = obj["id"] as? String,
+              let provider = obj["provider"] as? String,
+              let image = obj["image"] as? String
+        else {
+            throw VMClientError.malformedResponse("Cloud VM status response was missing required fields.")
+        }
+        let createdAt = (obj["createdAt"] as? Int64)
+            ?? Int64((obj["createdAt"] as? Double) ?? 0)
+        let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
+        return VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
     }
 
     func destroy(id: String) async throws {
         let encodedID = try pathSegment(id, fieldName: "vm id")
         let (data, http) = try await request("DELETE", path: "/api/vm/\(encodedID)")
         try ensureOK(http, data: data)
+    }
+
+    func snapshot(id: String, name: String? = nil) async throws -> VMSnapshotResult {
+        var body: [String: Any] = [:]
+        if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["name"] = name
+        }
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/\(encodedID)/snapshot",
+            jsonBody: body,
+            timeoutSeconds: Self.createTimeoutSeconds
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        guard let snapshotID = (obj["snapshotId"] as? String) ?? (obj["id"] as? String),
+              !snapshotID.isEmpty
+        else {
+            throw VMClientError.malformedResponse("Cloud VM snapshot response was missing `snapshotId`.")
+        }
+        let createdAt = (obj["createdAt"] as? Int64)
+            ?? Int64((obj["createdAt"] as? Double) ?? 0)
+        let nameValue = obj["name"] as? String
+        return VMSnapshotResult(id: snapshotID, name: nameValue, createdAt: createdAt)
+    }
+
+    func fork(id: String, name: String? = nil, idempotencyKey: String) async throws -> (snapshot: VMSnapshotResult?, vm: VMSummary) {
+        var body: [String: Any] = [:]
+        if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["name"] = name
+        }
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/\(encodedID)/fork",
+            jsonBody: body,
+            extraHeaders: ["Idempotency-Key": idempotencyKey],
+            timeoutSeconds: Self.createTimeoutSeconds * 2
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        guard let vmID = obj["id"] as? String,
+              let provider = obj["provider"] as? String,
+              let image = obj["image"] as? String
+        else {
+            throw VMClientError.malformedResponse("Cloud VM fork response was missing required fields.")
+        }
+        let createdAt = (obj["createdAt"] as? Int64)
+            ?? Int64((obj["createdAt"] as? Double) ?? 0)
+        let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let snapshotID = obj["snapshotId"] as? String
+        return (
+            snapshot: snapshotID.map { VMSnapshotResult(id: $0, name: nil, createdAt: Int64(Date().timeIntervalSince1970 * 1000)) },
+            vm: VMSummary(id: vmID, provider: provider, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
+        )
+    }
+
+    func restore(snapshotID: String, provider: String? = nil, idempotencyKey: String) async throws -> VMSummary {
+        var body: [String: Any] = ["snapshotId": snapshotID]
+        if let provider { body["provider"] = provider }
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/restore",
+            jsonBody: body,
+            extraHeaders: ["Idempotency-Key": idempotencyKey],
+            timeoutSeconds: Self.createTimeoutSeconds
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        guard let id = obj["id"] as? String,
+              let providerValue = obj["provider"] as? String,
+              let image = obj["image"] as? String
+        else {
+            throw VMClientError.malformedResponse("Cloud VM restore response was missing required fields.")
+        }
+        let createdAt = (obj["createdAt"] as? Int64)
+            ?? Int64((obj["createdAt"] as? Double) ?? 0)
+        let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return VMSummary(id: id, provider: providerValue, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
     }
 
     func openSSH(id: String) async throws -> VMSSHEndpoint {
@@ -162,16 +579,77 @@ actor VMClient {
         return try decodeSSHEndpoint(obj)
     }
 
-    func openAttach(id: String, requireDaemon: Bool = false) async throws -> VMAttachEndpoint {
+    func openAttach(
+        id: String,
+        requireDaemon: Bool = false,
+        sessionId: String? = nil,
+        attachmentId: String? = nil,
+        title: String? = nil
+    ) async throws -> VMAttachEndpoint {
         let encodedID = try pathSegment(id, fieldName: "vm id")
+        var body: [String: Any] = ["requireDaemon": requireDaemon]
+        if let sessionId, !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["sessionId"] = sessionId
+        }
+        if let attachmentId, !attachmentId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["attachmentId"] = attachmentId
+        }
+        if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["title"] = title
+        }
         let (data, http) = try await request(
             "POST",
             path: "/api/vm/\(encodedID)/attach-endpoint",
-            jsonBody: ["requireDaemon": requireDaemon],
+            jsonBody: body,
             timeoutSeconds: Self.attachTimeoutSeconds
         )
         try ensureOK(http, data: data)
         let obj = try decodeJSONObject(data)
+        return try decodeAttachEndpoint(obj)
+    }
+
+    func listSessions(id: String) async throws -> [VMCloudSession] {
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)/sessions")
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        let rawSessions = obj["sessions"] as? [[String: Any]] ?? []
+        return try rawSessions.map(decodeCloudSession)
+    }
+
+    func openSession(
+        id: String,
+        sessionId: String? = nil,
+        attachmentId: String? = nil,
+        title: String? = nil
+    ) async throws -> VMCloudSessionAttach {
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        var body: [String: Any] = [:]
+        if let sessionId, !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["sessionId"] = sessionId
+        }
+        if let attachmentId, !attachmentId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["attachmentId"] = attachmentId
+        }
+        if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["title"] = title
+        }
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/\(encodedID)/sessions",
+            jsonBody: body,
+            timeoutSeconds: Self.attachTimeoutSeconds
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        guard let endpointObject = obj["endpoint"] as? [String: Any] else {
+            throw VMClientError.malformedResponse("Cloud VM session response was missing endpoint.")
+        }
+        let session = (obj["session"] as? [String: Any]).flatMap { try? decodeCloudSession($0) }
+        return VMCloudSessionAttach(endpoint: try decodeAttachEndpoint(endpointObject), session: session)
+    }
+
+    private func decodeAttachEndpoint(_ obj: [String: Any]) throws -> VMAttachEndpoint {
         let transport = (obj["transport"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         switch transport {
         case "ssh":
@@ -180,8 +658,9 @@ actor VMClient {
             guard let url = obj["url"] as? String,
                   let token = obj["token"] as? String,
                   let sessionId = obj["sessionId"] as? String else {
-                throw VMClientError.malformedResponse("attach-endpoint websocket missing url/token/sessionId: \(obj)")
+                throw VMClientError.malformedResponse("Cloud VM attach response was missing required fields.")
             }
+            let attachmentId = (obj["attachmentId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let rawHeaders = obj["headers"] as? [String: Any] ?? [:]
             let headers = rawHeaders.reduce(into: [String: String]()) { result, pair in
                 if let value = pair.value as? String {
@@ -197,12 +676,32 @@ actor VMClient {
                 headers: headers,
                 token: token,
                 sessionId: sessionId,
+                attachmentId: attachmentId.isEmpty ? UUID().uuidString.lowercased() : attachmentId,
                 expiresAtUnix: expiresAtUnix,
                 daemon: daemon
             ))
         default:
-            throw VMClientError.malformedResponse("attach-endpoint unknown transport: \(String(describing: transport))")
+            throw VMClientError.malformedResponse("Cloud VM attach response used an unsupported transport type.")
         }
+    }
+
+    private func decodeBaseSummary(_ raw: Any?) -> VMBaseSummary? {
+        guard let obj = raw as? [String: Any] else { return nil }
+        guard let id = obj["id"] as? String, !id.isEmpty else { return nil }
+        let rawName = (obj["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let generation = (obj["generation"] as? Int)
+            ?? (obj["generation"] as? NSNumber)?.intValue
+            ?? Int((obj["generation"] as? Double) ?? 0)
+        let retainedRaw = obj["retainedProviderVmId"]
+        let retainedProviderVmId = retainedRaw.flatMap { value in
+            cloudVMIsNull(value) ? nil : (value as? String)
+        }
+        return VMBaseSummary(
+            id: id,
+            name: rawName?.isEmpty == false ? rawName! : "base",
+            generation: generation,
+            retainedProviderVmId: retainedProviderVmId
+        )
     }
 
     func exec(id: String, command: String, timeoutMs: Int = 30_000) async throws -> VMExecResult {
@@ -233,11 +732,13 @@ actor VMClient {
     ) async throws -> (Data, HTTPURLResponse) {
         let tokens: (accessToken: String, refreshToken: String)
         do {
-            tokens = try await AuthManager.shared.currentTokens()
+            tokens = try await auth.currentTokens()
+        } catch AuthError.networkError {
+            throw VMClientError.sessionRefreshFailed
         } catch {
             throw VMClientError.notSignedIn
         }
-        let teamID = await AuthManager.shared.resolvedTeamID
+        let teamID = await auth.resolvedTeamID
 
         guard var url = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
             throw VMClientError.malformedResponse("bad vmAPIBaseURL")
@@ -291,7 +792,7 @@ actor VMClient {
         guard let url = obj["url"] as? String,
               let token = obj["token"] as? String,
               let sessionId = obj["sessionId"] as? String else {
-            throw VMClientError.malformedResponse("attach-endpoint websocket daemon missing url/token/sessionId: \(obj)")
+            throw VMClientError.malformedResponse("Cloud VM attach response was missing required fields.")
         }
         let rawHeaders = obj["headers"] as? [String: Any] ?? [:]
         let headers = rawHeaders.reduce(into: [String: String]()) { result, pair in
@@ -307,6 +808,36 @@ actor VMClient {
             token: token,
             sessionId: sessionId,
             expiresAtUnix: expiresAtUnix
+        )
+    }
+
+    private func decodeCloudSession(_ obj: [String: Any]) throws -> VMCloudSession {
+        guard let id = obj["id"] as? String,
+              let vmId = obj["vmId"] as? String,
+              let sessionId = obj["sessionId"] as? String,
+              let kind = obj["kind"] as? String,
+              let status = obj["status"] as? String,
+              let createdAt = obj["createdAt"] as? String,
+              let updatedAt = obj["updatedAt"] as? String else {
+            throw VMClientError.malformedResponse("Cloud VM session response was missing required fields.")
+        }
+        return VMCloudSession(
+            id: id,
+            vmId: vmId,
+            sessionId: sessionId,
+            title: obj["title"] as? String,
+            kind: kind,
+            status: status,
+            attachmentCount: Self.optionalInt(obj["attachmentCount"]) ?? 0,
+            effectiveCols: Self.optionalInt(obj["effectiveCols"]),
+            effectiveRows: Self.optionalInt(obj["effectiveRows"]),
+            lastKnownCols: Self.optionalInt(obj["lastKnownCols"]),
+            lastKnownRows: Self.optionalInt(obj["lastKnownRows"]),
+            scrollbackBytes: Self.optionalInt(obj["scrollbackBytes"]) ?? 0,
+            metadata: Self.stringMetadata(obj["metadata"]),
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            lastAttachedAt: obj["lastAttachedAt"] as? String
         )
     }
 
@@ -332,30 +863,33 @@ actor VMClient {
               let credDict = obj["credential"] as? [String: Any],
               let kind = credDict["kind"] as? String
         else {
-            throw VMClientError.malformedResponse("ssh-endpoint missing fields: \(obj)")
+            throw VMClientError.malformedResponse("Cloud VM SSH response was missing required fields.")
         }
         let credential: VMSSHEndpoint.Credential
         switch kind {
         case "password":
             guard let value = credDict["value"] as? String else {
-                throw VMClientError.malformedResponse("ssh-endpoint password credential missing value")
+                throw VMClientError.malformedResponse("Cloud VM SSH response was missing required fields.")
             }
             credential = .password(value)
         case "authorizedKey":
             guard let pem = credDict["privateKeyPem"] as? String else {
-                throw VMClientError.malformedResponse("ssh-endpoint authorizedKey credential missing privateKeyPem")
+                throw VMClientError.malformedResponse("Cloud VM SSH response was missing required fields.")
             }
             credential = .authorizedKey(privateKeyPem: pem)
         default:
-            throw VMClientError.malformedResponse("ssh-endpoint unknown credential kind: \(kind)")
+            throw VMClientError.malformedResponse("Cloud VM SSH response used an unsupported attach mode.")
         }
+        let transport = (obj["transport"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedTransport = transport.flatMap { $0.isEmpty ? nil : $0 } ?? "ssh"
         return VMSSHEndpoint(
-            transport: "ssh",
+            transport: normalizedTransport,
             host: host,
             port: port,
             username: username,
             credential: credential,
-            publicKeyFingerprint: obj["publicKeyFingerprint"] as? String
+            publicKeyFingerprint: obj["publicKeyFingerprint"] as? String,
+            daemon: try decodeWebSocketDaemonEndpoint(obj["daemon"])
         )
     }
 
@@ -379,8 +913,31 @@ actor VMClient {
             port = nil
         }
         guard let port, (1...65_535).contains(port) else {
-            throw VMClientError.malformedResponse("ssh-endpoint invalid port: \(String(describing: raw))")
+            throw VMClientError.malformedResponse("Cloud VM SSH response was missing required fields.")
         }
         return port
+    }
+
+    private nonisolated static func optionalInt(_ raw: Any?) -> Int? {
+        if let int = raw as? Int { return int }
+        if let number = raw as? NSNumber { return number.intValue }
+        if let double = raw as? Double { return Int(double) }
+        return nil
+    }
+
+    private nonisolated static func stringMetadata(_ raw: Any?) -> [String: String] {
+        guard let obj = raw as? [String: Any] else { return [:] }
+        return obj.reduce(into: [String: String]()) { result, pair in
+            switch pair.value {
+            case let value as String:
+                result[pair.key] = value
+            case let value as Bool:
+                result[pair.key] = value ? "true" : "false"
+            case let value as NSNumber:
+                result[pair.key] = value.stringValue
+            default:
+                break
+            }
+        }
     }
 }

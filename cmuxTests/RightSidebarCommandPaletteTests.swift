@@ -1,3 +1,4 @@
+import CmuxCommandPalette
 import Foundation
 import XCTest
 
@@ -15,7 +16,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
-            let context = ContentView.CommandPaletteContextSnapshot()
+            let context = CommandPaletteContextSnapshot()
 
             for mode in RightSidebarMode.availableModes() {
                 let commandID = ContentView.commandPaletteRightSidebarModeCommandID(mode)
@@ -24,7 +25,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                     "Expected command palette contribution for \(mode.rawValue)"
                 )
 
-                XCTAssertEqual(contribution.title(context), mode.shortcutAction.label)
+                XCTAssertEqual(contribution.title(context), mode.shortcutAction?.label ?? mode.label)
                 XCTAssertEqual(
                     contribution.subtitle(context),
                     String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")
@@ -57,6 +58,17 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 )
             }
         }
+    }
+
+    func testCommandPaletteUnreadActionsUseConfigurableShortcutActions() {
+        XCTAssertEqual(
+            ContentView.commandPaletteShortcutAction(forCommandID: "palette.toggleUnread"),
+            .toggleUnread
+        )
+        XCTAssertEqual(
+            ContentView.commandPaletteShortcutAction(forCommandID: "palette.markOldestUnreadAndJumpNext"),
+            .markOldestUnreadAndJumpNext
+        )
     }
 
     private func withSavedBetaFeatureDefaults(_ body: () throws -> Void) rethrows {

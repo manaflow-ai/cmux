@@ -1,9 +1,61 @@
+import CmuxFoundation
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
 import Combine
+import Darwin
 import Foundation
+import os
 import SQLite3
+
+nonisolated private let sessionIndexLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+    category: "SessionIndexStore"
+)
+
+/// Locked cancellation state shared by synchronous `Process` callbacks.
+/// `onCancel` cannot await an actor, so mutable state stays behind `lock`.
+final class SessionIndexRipgrepCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private let sendSignal: @Sendable (pid_t, Int32) -> Int32
+    private var activeProcessIdentifier: pid_t?
+    private var finishedProcessIdentifier: pid_t?
+
+    init(sendSignal: @escaping @Sendable (pid_t, Int32) -> Int32 = Darwin.kill) {
+        self.sendSignal = sendSignal
+    }
+
+    func markStarted(processIdentifier: pid_t) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if finishedProcessIdentifier == processIdentifier {
+            activeProcessIdentifier = nil
+        } else {
+            activeProcessIdentifier = processIdentifier
+        }
+    }
+
+    func markFinished(processIdentifier: pid_t) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        finishedProcessIdentifier = processIdentifier
+        if activeProcessIdentifier == processIdentifier {
+            activeProcessIdentifier = nil
+        }
+    }
+
+    func cancel() {
+        lock.lock()
+        let processIdentifier = activeProcessIdentifier
+        activeProcessIdentifier = nil
+        lock.unlock()
+
+        guard let processIdentifier else { return }
+        _ = sendSignal(processIdentifier, SIGTERM)
+    }
+}
 
 // MARK: - Parsed metadata cache
 
@@ -98,6 +150,8 @@ struct SectionKey: Hashable {
 
     static func agent(_ a: SessionAgent) -> SectionKey { SectionKey(raw: "agent:" + a.rawValue) }
     static func directory(_ path: String?) -> SectionKey { SectionKey(raw: "dir:" + (path ?? "")) }
+
+    var isDirectory: Bool { raw.hasPrefix("dir:") }
 }
 
 struct IndexSection: Identifiable, Equatable {
@@ -107,6 +161,20 @@ struct IndexSection: Identifiable, Equatable {
     let entries: [SessionEntry]
 
     var id: SectionKey { key }
+
+    /// Whether to render the "Show more" affordance for this section.
+    ///
+    /// Directory sections are derived from `scanAll()`'s global, per-agent-capped
+    /// pool, so their in-memory `entries` are only a preview that can under-report
+    /// a folder's true on-disk session count (issue #6302). "Show more" is the
+    /// only trigger for the complete folder-scoped query (`loadDirectorySnapshot`),
+    /// so always offer it for directory sections; otherwise a folder that
+    /// contributed ≤ `rowLimit` sessions to the capped pool would have the rest of
+    /// its sessions permanently unreachable from the UI. Agent sections aren't
+    /// folder-truncated this way, so they keep the simple count threshold.
+    func shouldOfferShowMore(rowLimit: Int) -> Bool {
+        key.isDirectory || entries.count > rowLimit
+    }
 }
 
 enum SectionIcon: Equatable {
@@ -266,20 +334,26 @@ final class SessionIndexStore: ObservableObject {
     /// state and must only run in response to real data changes (new scan
     /// results, grouping switch) — not on every SwiftUI update tick.
     private func backfillDirectoryOrderFromEntries() {
-        var seen = Set(directoryOrder)
-        var additions: [(path: String, latest: Date)] = []
+        let knownPaths = Set(directoryOrder)
+        var latestByPath: [String: Date] = [:]
         for entry in entries {
             let path = entry.cwd ?? ""
-            if seen.insert(path).inserted {
-                additions.append((path, entry.modified))
-            } else if let idx = additions.firstIndex(where: { $0.path == path }),
-                      additions[idx].latest < entry.modified {
-                additions[idx].latest = entry.modified
+            guard !knownPaths.contains(path) else { continue }
+            if let latest = latestByPath[path] {
+                if latest < entry.modified {
+                    latestByPath[path] = entry.modified
+                }
+            } else {
+                latestByPath[path] = entry.modified
             }
         }
-        guard !additions.isEmpty else { return }
-        additions.sort { $0.latest > $1.latest }
-        directoryOrder.append(contentsOf: additions.map(\.path))
+        guard !latestByPath.isEmpty else { return }
+        let additions = latestByPath
+            .sorted { lhs, rhs in
+                lhs.value == rhs.value ? lhs.key < rhs.key : lhs.value > rhs.value
+            }
+            .map(\.key)
+        directoryOrder.append(contentsOf: additions)
     }
 
     private func backfillAgentOrderFromEntries() {
@@ -300,21 +374,28 @@ final class SessionIndexStore: ObservableObject {
             }
             return .registered(refreshed)
         }
-        var seen = Set(nextOrder.map(\.rawValue))
-        var additions: [(agent: SessionAgent, latest: Date)] = []
+        let knownAgentIds = Set(nextOrder.map(\.rawValue))
+        var additionsByAgentId: [String: (agent: SessionAgent, latest: Date)] = [:]
         for entry in entries {
-            if seen.insert(entry.agent.rawValue).inserted {
-                additions.append((entry.agent, entry.modified))
-            } else if let idx = additions.firstIndex(where: { $0.agent.rawValue == entry.agent.rawValue }),
-                      additions[idx].latest < entry.modified {
-                additions[idx].latest = entry.modified
+            let agentId = entry.agent.rawValue
+            guard !knownAgentIds.contains(agentId) else { continue }
+            if let existing = additionsByAgentId[agentId] {
+                if existing.latest < entry.modified {
+                    additionsByAgentId[agentId] = (existing.agent, entry.modified)
+                }
+            } else {
+                additionsByAgentId[agentId] = (entry.agent, entry.modified)
             }
         }
-        if additions.isEmpty {
+        if additionsByAgentId.isEmpty {
             setAgentOrderIfPresentationChanged(nextOrder)
             return
         }
-        additions.sort { $0.latest > $1.latest }
+        let additions = additionsByAgentId.values.sorted { lhs, rhs in
+            lhs.latest == rhs.latest
+                ? lhs.agent.rawValue < rhs.agent.rawValue
+                : lhs.latest > rhs.latest
+        }
         nextOrder.append(contentsOf: additions.map(\.agent))
         setAgentOrderIfPresentationChanged(nextOrder)
     }
@@ -471,6 +552,14 @@ final class SessionIndexStore: ObservableObject {
         }
     }
 
+#if DEBUG
+    func replaceEntriesForTesting(_ entries: [SessionEntry]) {
+        self.entries = entries
+        backfillAgentOrderFromEntries()
+        backfillDirectoryOrderFromEntries()
+    }
+#endif
+
     // MARK: - Directory snapshot cache
 
     private var directorySnapshotCache: [String: DirectorySnapshot] = [:]
@@ -608,6 +697,7 @@ final class SessionIndexStore: ObservableObject {
 
     private struct ClaudeSessionRoot: Hashable {
         let configDir: String
+        let resumeConfigDirectory: String?
 
         var projectsRoot: String {
             (configDir as NSString).appendingPathComponent("projects")
@@ -618,12 +708,13 @@ final class SessionIndexStore: ObservableObject {
         let url: URL
         let mtime: Date
         let dirName: String
+        let resumeConfigDirectory: String?
         let prefilteredByRipgrep: Bool
     }
 
     nonisolated private static func claudeSessionRoots() -> [ClaudeSessionRoot] {
         let fm = FileManager.default
-        var roots: [String] = []
+        var roots: [ClaudeSessionRoot] = []
         var seen: Set<String> = []
 
         func appendRoot(_ rawPath: String?, requireConfigured: Bool) {
@@ -638,11 +729,20 @@ final class SessionIndexStore: ObservableObject {
                   isDirectory.boolValue else {
                 return
             }
-            if requireConfigured, !isLikelyConfiguredClaudeRoot(standardized) {
+            let resumeConfigDirectory = ClaudeConfigurationRoot.configuredResumeDirectory(
+                standardized,
+                fileManager: fm
+            )
+            if requireConfigured, resumeConfigDirectory == nil {
                 return
             }
             guard seen.insert(standardized).inserted else { return }
-            roots.append(standardized)
+            roots.append(
+                ClaudeSessionRoot(
+                    configDir: standardized,
+                    resumeConfigDirectory: resumeConfigDirectory
+                )
+            )
         }
 
         let environmentConfigDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"]
@@ -663,18 +763,7 @@ final class SessionIndexStore: ObservableObject {
             requireConfigured: false
         )
 
-        return roots.map(ClaudeSessionRoot.init(configDir:))
-    }
-
-    nonisolated private static func isLikelyConfiguredClaudeRoot(_ configDir: String) -> Bool {
-        let configPath = (configDir as NSString).appendingPathComponent(".claude.json")
-        guard let data = FileManager.default.contents(atPath: configPath),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return false
-        }
-        return obj["oauthAccount"] != nil
-            || obj["primaryApiKey"] != nil
-            || obj["apiKey"] != nil
+        return roots
     }
 
     nonisolated private static func extractClaudeMetadata(head: String, tail: String, projectDir: String) -> ClaudeParsed {
@@ -800,13 +889,6 @@ final class SessionIndexStore: ObservableObject {
             ?? url.deletingLastPathComponent().lastPathComponent
     }
 
-    /// Inverse of `decodeClaudeProjectDir`. Used as a fast path: when filtering
-    /// by cwd we can skip enumerating other project dirs entirely.
-    nonisolated private static func encodeClaudeProjectDir(_ path: String) -> String {
-        // "/Users/x/y" -> "-Users-x-y"
-        return path.replacingOccurrences(of: "/", with: "-")
-    }
-
     nonisolated private static func enumerateClaudeJSONLCandidates(
         root: ClaudeSessionRoot,
         cwdFilter: String?,
@@ -827,6 +909,7 @@ final class SessionIndexStore: ObservableObject {
                         url: url,
                         mtime: mtime,
                         dirName: dirName,
+                        resumeConfigDirectory: root.resumeConfigDirectory,
                         prefilteredByRipgrep: prefilteredByRipgrep
                     )
                 )
@@ -834,7 +917,9 @@ final class SessionIndexStore: ObservableObject {
         }
 
         if let cwdFilter {
-            let dirName = encodeClaudeProjectDir(cwdFilter)
+            // Single-sourced with RestorableAgentSessionIndex so this fast-path cwd filter
+            // encodes dotted paths ("." -> "-") identically to the transcript-discovery path.
+            let dirName = RestorableAgentSessionIndex.encodeClaudeProjectDir(cwdFilter)
             let dirPath = (root.projectsRoot as NSString).appendingPathComponent(dirName)
             var isDir: ObjCBool = false
             if fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue {
@@ -1086,6 +1171,12 @@ final class SessionIndexStore: ObservableObject {
                 let scopedCwd = currentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
                 cwdFilter = scopedCwd?.isEmpty == false ? scopedCwd : nil
                 registry = await Self.vaultAgentRegistry(workingDirectory: cwdFilter)
+            } else if a == .grok {
+                let scopedCwd = currentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+                cwdFilter = scopedCwd?.isEmpty == false ? scopedCwd : nil
+                registry = await Self.vaultAgentRegistry(
+                    workingDirectory: cwdFilter
+                )
             } else {
                 cwdFilter = nil
                 registry = CmuxVaultAgentRegistry(registrations: [])
@@ -1190,6 +1281,14 @@ final class SessionIndexStore: ObservableObject {
         switch agent {
         case .claude: return await loadClaudeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
         case .codex: return await loadCodexEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
+        case .grok:
+            return await loadGrokEntries(
+                registration: registry.registration(id: "grok") ?? .builtInGrok,
+                needle: needle,
+                cwdFilter: cwdFilter,
+                offset: offset,
+                limit: limit
+            )
         case .opencode: return loadOpenCodeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .rovodev: return loadRovoDevEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .hermesAgent: return loadHermesAgentEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
@@ -1207,41 +1306,33 @@ final class SessionIndexStore: ObservableObject {
         }
     }
 
-    /// Path to `rg` (ripgrep), if installed. Resolved once. nil when not found —
-    /// the search code falls back to the Foundation substring scan.
-    nonisolated private static let cachedRipgrepPath: String? = {
-        let fm = FileManager.default
-        let common = [
-            "/opt/homebrew/bin/rg",
-            "/usr/local/bin/rg",
-            "/usr/bin/rg",
-            "/opt/local/bin/rg",
-        ]
-        for path in common where fm.isExecutableFile(atPath: path) {
-            return path
+    /// Path to `rg` (ripgrep), if installed. nil when not found — the search
+    /// code falls back to the Foundation substring scan.
+    nonisolated private static func resolvedRipgrepPath() -> String? {
+        switch RipgrepExecutableResolver.resolution() {
+        case .found(let executable):
+            return executable.url.path
+        case .configuredPathNotExecutable(let path):
+            sessionIndexLogger.warning(
+                "Configured ripgrep path is not executable; falling back to Foundation session search: \(path, privacy: .public)"
+            )
+            return nil
+        case .notFound:
+            return nil
         }
-        if let pathEnv = ProcessInfo.processInfo.environment["PATH"] {
-            for dir in pathEnv.split(separator: ":") {
-                let full = String(dir) + "/rg"
-                if fm.isExecutableFile(atPath: full) { return full }
-            }
-        }
-        return nil
-    }()
+    }
 
     /// Run `rg --files-with-matches --ignore-case --fixed-strings` for `needle`
     /// under `root`, restricted to `glob` (e.g. `*.jsonl`). Returns matched file
     /// URLs, or nil if rg isn't available or the run failed (caller falls back).
     ///
     /// Async by design so we can wire cancellation: when the awaiting Task is
-    /// cancelled (e.g. user types another key), `onCancel` calls
-    /// `process.terminate()`, killing the in-flight rg instead of letting it
-    /// grind to completion. Wait is also async (via `terminationHandler`) so we
-    /// don't tie up a cooperative-pool thread on `waitUntilExit`.
+    /// cancelled (e.g. user types another key), `onCancel` signals the launched
+    /// rg process instead of letting it grind to completion.
     nonisolated static func ripgrepMatchingPaths(
-        needle: String, root: String, fileGlob: String
+        needle: String, root: String, fileGlob: String, ripgrepPath: String? = nil
     ) async -> [URL]? {
-        guard let rg = cachedRipgrepPath else { return nil }
+        guard let rg = ripgrepPath ?? resolvedRipgrepPath() else { return nil }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: rg)
         process.arguments = [
@@ -1262,19 +1353,35 @@ final class SessionIndexStore: ObservableObject {
         if let nullDev = FileHandle(forWritingAtPath: "/dev/null") {
             process.standardError = nullDev
         }
+        let cancellation = SessionIndexRipgrepCancellation()
+        process.terminationHandler = { process in
+            cancellation.markFinished(processIdentifier: process.processIdentifier)
+        }
 
         return await withTaskCancellationHandler {
-            do { try process.run() } catch { return nil as [URL]? }
+            guard !Task.isCancelled else { return [] }
+            do {
+                try process.run()
+            } catch {
+                if Task.isCancelled { return [] }
+                return nil as [URL]?
+            }
+            cancellation.markStarted(processIdentifier: process.processIdentifier)
+            if Task.isCancelled {
+                cancellation.cancel()
+            }
             // Drain stdout BEFORE waitUntilExit. With many matches rg writes
             // more than the ~64 KB pipe buffer; reading until EOF lets rg
             // make progress and EOF arrives when rg closes its stdout on exit.
-            // Once readDataToEndOfFile returns, the process is already exiting,
+            // Once the pipe read returns, the process is already exiting,
             // so waitUntilExit is essentially instant — we just need it to make
             // terminationStatus observable. (Setting terminationHandler here
             // would race: if rg already exited, the handler is registered too
             // late and never fires → deadlock.)
-            let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+            let data = outPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
             process.waitUntilExit()
+            cancellation.markFinished(processIdentifier: process.processIdentifier)
+            if Task.isCancelled { return [] }
             // rg exit codes: 0 = matches, 1 = no matches, 2 = error/terminated.
             switch process.terminationStatus {
             case 0:
@@ -1287,10 +1394,10 @@ final class SessionIndexStore: ObservableObject {
                 return nil
             }
         } onCancel: {
-            // Fires synchronously when the awaiting Task is cancelled. Sends
-            // SIGTERM to rg, which closes stdout, lets readDataToEndOfFile
-            // return, and unblocks the body so this call can complete cleanly.
-            process.terminate()
+            // Fires synchronously when the awaiting Task is cancelled. SIGTERM
+            // closes stdout, lets the pipe read return, and unblocks the
+            // body so this call can complete cleanly.
+            cancellation.cancel()
         }
     }
 
@@ -1337,6 +1444,7 @@ final class SessionIndexStore: ObservableObject {
                             url: url,
                             mtime: mtime,
                             dirName: dirName,
+                            resumeConfigDirectory: root.resumeConfigDirectory,
                             prefilteredByRipgrep: true
                         )
                     )
@@ -1390,7 +1498,11 @@ final class SessionIndexStore: ObservableObject {
                     let cached = ClaudeMetadataCache.shared.get(url: candidate.url, mtime: candidate.mtime)
                     if let cached, needle.isEmpty || candidate.prefilteredByRipgrep {
                         if let cwdFilter, cached.cwd != cwdFilter { return (idx, nil, true) }
-                        return (idx, cached, true)
+                        return (
+                            idx,
+                            cached.withClaudeConfigDirectoryForResume(candidate.resumeConfigDirectory),
+                            true
+                        )
                     }
                     let head = readFileHead(url: candidate.url, byteCap: headByteCap)
                     let tail = readFileTail(url: candidate.url, byteCap: tailByteCap)
@@ -1402,7 +1514,11 @@ final class SessionIndexStore: ObservableObject {
                     }
                     if let cached {
                         if let cwdFilter, cached.cwd != cwdFilter { return (idx, nil, true) }
-                        return (idx, cached, true)
+                        return (
+                            idx,
+                            cached.withClaudeConfigDirectoryForResume(candidate.resumeConfigDirectory),
+                            true
+                        )
                     }
                     let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: candidate.dirName)
                     if let cwdFilter, parsed.cwd != cwdFilter { return (idx, nil, false) }
@@ -1417,7 +1533,11 @@ final class SessionIndexStore: ObservableObject {
                         pullRequest: parsed.pr,
                         modified: candidate.mtime,
                         fileURL: candidate.url,
-                        specifics: .claude(model: parsed.model, permissionMode: parsed.permissionMode)
+                        specifics: .claude(
+                            model: parsed.model,
+                            permissionMode: parsed.permissionMode,
+                            configDirectoryForResume: candidate.resumeConfigDirectory
+                        )
                     )
                     if needle.isEmpty {
                         ClaudeMetadataCache.shared.put(

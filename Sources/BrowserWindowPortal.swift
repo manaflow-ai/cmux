@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxAppKitSupportUI
 import ObjectiveC
 import SwiftUI
 import WebKit
@@ -7,7 +8,6 @@ import WebKit
 private var cmuxWindowBrowserPortalKey: UInt8 = 0
 private var cmuxWindowBrowserPortalCloseObserverKey: UInt8 = 0
 private var cmuxBrowserSearchOverlayPanelIdAssociationKey: UInt8 = 0
-private var cmuxBrowserPortalNeedsRenderingStateReattachKey: UInt8 = 0
 private var cmuxWindowInteractiveSplitDividerDragKey: UInt8 = 0
 
 #if DEBUG
@@ -21,18 +21,6 @@ private func browserPortalDebugFrame(_ rect: NSRect) -> String {
     String(format: "%.1f,%.1f %.1fx%.1f", rect.origin.x, rect.origin.y, rect.size.width, rect.size.height)
 }
 #endif
-
-private extension NSObject {
-    @discardableResult
-    func browserPortalCallVoidIfAvailable(_ rawSelector: String) -> Bool {
-        let selector = NSSelectorFromString(rawSelector)
-        guard responds(to: selector) else { return false }
-        typealias Fn = @convention(c) (AnyObject, Selector) -> Void
-        let fn = unsafeBitCast(method(for: selector), to: Fn.self)
-        fn(self, selector)
-        return true
-    }
-}
 
 private extension NSResponder {
     var browserPortalOwningView: NSView? {
@@ -71,78 +59,6 @@ private extension NSWindow {
                 .OBJC_ASSOCIATION_RETAIN_NONATOMIC
             )
         }
-    }
-}
-
-private extension WKWebView {
-    private var browserPortalNeedsRenderingStateReattach: Bool {
-        get {
-            (objc_getAssociatedObject(self, &cmuxBrowserPortalNeedsRenderingStateReattachKey) as? NSNumber)?
-                .boolValue ?? false
-        }
-        set {
-            objc_setAssociatedObject(
-                self,
-                &cmuxBrowserPortalNeedsRenderingStateReattachKey,
-                NSNumber(value: newValue),
-                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
-            )
-        }
-    }
-
-    var browserPortalRequiresRenderingStateReattach: Bool {
-        browserPortalNeedsRenderingStateReattach
-    }
-
-    func browserPortalNotifyHidden(reason: String) {
-        browserPortalNeedsRenderingStateReattach = true
-        let firedSelectors = ["viewDidHide", "_exitInWindow"].filter {
-            browserPortalCallVoidIfAvailable($0)
-        }
-#if DEBUG
-        if !firedSelectors.isEmpty {
-            cmuxDebugLog(
-                "browser.portal.webview.hidden web=\(browserPortalDebugToken(self)) " +
-                "reason=\(reason) selectors=\(firedSelectors.joined(separator: ","))"
-            )
-        }
-#endif
-    }
-
-    func browserPortalReattachRenderingState(reason: String) {
-        guard browserPortalNeedsRenderingStateReattach else { return }
-        guard window != nil else { return }
-        browserPortalNeedsRenderingStateReattach = false
-
-        let firedSelectors = [
-            "viewDidUnhide",
-            "_enterInWindow",
-            "_endDeferringViewInWindowChangesSync",
-        ].filter {
-            browserPortalCallVoidIfAvailable($0)
-        }
-
-        if let scrollView = enclosingScrollView {
-            scrollView.needsLayout = true
-            scrollView.needsDisplay = true
-            scrollView.setNeedsDisplay(scrollView.bounds)
-            scrollView.contentView.needsLayout = true
-            scrollView.contentView.needsDisplay = true
-        }
-
-        needsLayout = true
-        needsDisplay = true
-        setNeedsDisplay(bounds)
-
-#if DEBUG
-        if !firedSelectors.isEmpty {
-            cmuxDebugLog(
-                "browser.portal.webview.reattach web=\(browserPortalDebugToken(self)) " +
-                "reason=\(reason) selectors=\(firedSelectors.joined(separator: ",")) " +
-                "frame=\(browserPortalDebugFrame(frame))"
-            )
-        }
-#endif
     }
 }
 
@@ -273,10 +189,7 @@ enum HostedInspectorDockSide {
 }
 
 final class WindowBrowserHostView: NSView {
-    private struct DividerRegion {
-        let rectInWindow: NSRect
-        let isVertical: Bool
-    }
+    private typealias DividerRegion = PortalSplitDividerRegion
 
     private struct DividerHit {
         let kind: DividerCursorKind
@@ -302,17 +215,7 @@ final class WindowBrowserHostView: NSView {
         let initialInspectorFrame: NSRect
     }
 
-    private enum DividerCursorKind: Equatable {
-        case vertical
-        case horizontal
-
-        var cursor: NSCursor {
-            switch self {
-            case .vertical: return .resizeLeftRight
-            case .horizontal: return .resizeUpDown
-            }
-        }
-    }
+    private typealias DividerCursorKind = PortalDividerCursorKind
 
     override var isOpaque: Bool { false }
     private static let sidebarLeadingEdgeEpsilon: CGFloat = 1
@@ -321,12 +224,18 @@ final class WindowBrowserHostView: NSView {
     private static let minimumHostedInspectorWidth: CGFloat = 120
     private var cachedSidebarDividerX: CGFloat?
     private var sidebarDividerMissCount = 0
+    private var cachedSplitDividerRegions: [DividerRegion]?
+    private var cachedSplitDividerRootSubviewIds: [ObjectIdentifier]?
+    private let splitDividerCacheInvalidator = PortalSplitDividerCacheInvalidator()
+    private var splitDividerResizeObserver: NSObjectProtocol?
     private var trackingArea: NSTrackingArea?
     private var activeDividerCursorKind: DividerCursorKind?
+    private let dividerCursorOcclusion = PortalDividerCursorOcclusion()
     private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
 
     deinit {
+        if let splitDividerResizeObserver { NotificationCenter.default.removeObserver(splitDividerResizeObserver) }
         if let trackingArea {
             removeTrackingArea(trackingArea)
         }
@@ -379,16 +288,20 @@ final class WindowBrowserHostView: NSView {
         if window == nil {
             clearActiveDividerCursor(restoreArrow: false)
         }
+        updateSplitDividerResizeObserver()
+        invalidateSplitDividerRegionCache()
         window?.invalidateCursorRects(for: self)
     }
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
+        invalidateSplitDividerRegionCache()
         window?.invalidateCursorRects(for: self)
     }
 
     override func setFrameOrigin(_ newOrigin: NSPoint) {
         super.setFrameOrigin(newOrigin)
+        invalidateSplitDividerRegionCache()
         window?.invalidateCursorRects(for: self)
     }
 
@@ -404,6 +317,8 @@ final class WindowBrowserHostView: NSView {
 
     override func didAddSubview(_ subview: NSView) {
         super.didAddSubview(subview)
+        invalidateSplitDividerRegionCache()
+        window?.invalidateCursorRects(for: self)
         guard let slot = subview as? WindowBrowserSlotView else { return }
         slot.onHostedInspectorLayout = { [weak self] slotView in
             self?.reapplyHostedInspectorDividerIfNeeded(in: slotView, reason: "slot.layout")
@@ -411,6 +326,8 @@ final class WindowBrowserHostView: NSView {
     }
 
     override func willRemoveSubview(_ subview: NSView) {
+        invalidateSplitDividerRegionCache()
+        window?.invalidateCursorRects(for: self)
         if let slot = subview as? WindowBrowserSlotView {
             slot.onHostedInspectorLayout = nil
         }
@@ -419,10 +336,9 @@ final class WindowBrowserHostView: NSView {
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        guard let rootView = dividerSearchRootView() else { return }
-        var regions: [DividerRegion] = []
-        Self.collectSplitDividerRegions(in: rootView, into: &regions)
-        let expansion: CGFloat = 4
+        invalidateSplitDividerRegionCache()
+        let regions = splitDividerRegions()
+        let expansion = PortalSplitDividerRegion.dividerHitExpansion
         for region in regions {
             var rectInHost = convert(region.rectInWindow, from: nil)
             rectInHost = rectInHost.insetBy(
@@ -468,11 +384,17 @@ final class WindowBrowserHostView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        let routingContext = WindowInputRoutingContext(event: NSApp.currentEvent)
+        guard routingContext.allowsPortalPointerHitTesting else {
+            let hitView = super.hitTest(point)
+            return hitView === self ? nil : hitView
+        }
+
         let dividerHit = splitDividerHit(at: point)
         let hostedInspectorHit = dividerHit == nil ? hostedInspectorDividerHit(at: point) : nil
         updateDividerCursor(at: point, dividerHit: dividerHit, hostedInspectorHit: hostedInspectorHit)
 
-        let eventType = NSApp.currentEvent?.type
+        let eventType = routingContext.eventType
         let titlebarPassThrough = shouldPassThroughToTitlebar(at: point)
         let tabStripPassThrough = shouldPassThroughToPaneTabBar(at: point, eventType: eventType)
         let sidebarPassThrough = shouldPassThroughToSidebarResizer(
@@ -538,10 +460,11 @@ final class WindowBrowserHostView: NSView {
         // pass through to SwiftUI drop targets behind the portal host.
         // Browser hover routing also arrives as cursor/enter events and may not
         // report a pressed-button state, so include that path here.
-        if Self.shouldPassThroughToDragTargets(
+        if routingContext.allowsBrowserPortalDragRouting,
+           Self.shouldPassThroughToDragTargets(
             pasteboardTypes: NSPasteboard(name: .drag).types,
-            eventType: NSApp.currentEvent?.type
-        ) {
+            eventType: eventType
+           ) {
             return nil
         }
 
@@ -801,10 +724,18 @@ final class WindowBrowserHostView: NSView {
         at point: NSPoint,
         visibleSlots: [WindowBrowserSlotView]
     ) -> Bool {
-        guard let rightMostEdge = visibleSlots.map(\.frame.maxX).max() else { return false }
-        let trailingGap = bounds.maxX - rightMostEdge
+        let dockDividerX = visibleSlots
+            .filter { $0.isRightSidebarDockSlot }
+            .map(\.frame.minX)
+            .min()
+        let contentRightEdge = visibleSlots
+            .filter { !$0.isRightSidebarDockSlot }
+            .map(\.frame.maxX)
+            .max()
+        guard let dividerX = dockDividerX ?? contentRightEdge else { return false }
+        let trailingGap = bounds.maxX - dividerX
         guard trailingGap > Self.minimumVisibleLeadingContentWidth else { return false }
-        return SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: rightMostEdge).contains(point.x)
+        return SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: dividerX).contains(point.x)
     }
 
     private func updateDividerCursor(
@@ -826,6 +757,10 @@ final class WindowBrowserHostView: NSView {
         let nextKind = resolvedDividerHit?.kind ?? (resolvedHostedInspectorHit == nil ? nil : .vertical)
         guard let nextKind else {
             clearActiveDividerCursor(restoreArrow: true)
+            return
+        }
+        guard dividerCursorOcclusion.mayAssertDividerCursor(in: window) else {
+            clearActiveDividerCursor(restoreArrow: false)
             return
         }
         activeDividerCursorKind = nextKind
@@ -864,8 +799,7 @@ final class WindowBrowserHostView: NSView {
     private func splitDividerHit(at point: NSPoint) -> DividerHit? {
         guard window != nil else { return nil }
         let windowPoint = convert(point, to: nil)
-        guard let rootView = dividerSearchRootView() else { return nil }
-        return Self.dividerHit(at: windowPoint, in: rootView, hostView: self)
+        return Self.dividerHit(at: windowPoint, in: splitDividerRegions(), checkLiveness: false)
     }
 
     private func dividerSearchRootView() -> NSView? {
@@ -875,36 +809,14 @@ final class WindowBrowserHostView: NSView {
         return window?.contentView
     }
 
-    private func shouldPassThroughToSplitDivider(at point: NSPoint) -> Bool {
-        guard let dividerHit = splitDividerHit(at: point) else { return false }
-        // Portal host should pass split-divider events through to app layout splits,
-        // but keep WebKit inspector/internal split dividers interactive.
-        return !dividerHit.isInHostedContent
-    }
-
     static func shouldPassThroughToDragTargets(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?
     ) -> Bool {
-        if DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
+        DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
             pasteboardTypes: pasteboardTypes,
             eventType: eventType
-        ) {
-            return true
-        }
-
-        guard let eventType else { return false }
-        switch eventType {
-        case .cursorUpdate, .mouseEntered, .mouseExited, .mouseMoved:
-            // Browser-side tab drags can surface as hover events with a mixed
-            // pasteboard payload (tabtransfer plus promised-file UTIs). Prefer
-            // the explicit Bonsplit drag types so WKWebView cannot steal the
-            // session as a file upload.
-            return DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
-                || DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboardTypes)
-        default:
-            return false
-        }
+        )
     }
 
     private func hostedInspectorDividerHit(at point: NSPoint) -> HostedInspectorDividerHit? {
@@ -1120,63 +1032,57 @@ final class WindowBrowserHostView: NSView {
 #endif
         return (pageFrame, inspectorFrame)
     }
-    private static func dividerHit(
-        at windowPoint: NSPoint,
-        in view: NSView,
-        hostView: WindowBrowserHostView
-    ) -> DividerHit? {
-        guard !view.isHidden else { return nil }
+    private func splitDividerRegions() -> [DividerRegion] {
+        guard let rootView = dividerSearchRootView() else { cachedSplitDividerRegions = []; cachedSplitDividerRootSubviewIds = nil; return [] }
+        let rootSubviewIds = rootView.subviews.map { ObjectIdentifier($0) }
+        if let regions = cachedSplitDividerRegions, cachedSplitDividerRootSubviewIds == rootSubviewIds, PortalSplitDividerRegion.allLive(regions) { return regions }
+        let collected = PortalSplitDividerRegion.collect(in: rootView, hostView: self)
+        cachedSplitDividerRegions = collected.regions
+        cachedSplitDividerRootSubviewIds = rootSubviewIds
+        splitDividerCacheInvalidator.observe(
+            geometryViews: collected.geometryObservedViews,
+            structureViews: collected.structureObservedViews
+        ) { [weak self] in
+            guard let self else { return }
+            self.invalidateSplitDividerRegionCache()
+            self.window?.invalidateCursorRects(for: self)
+        }
+        return collected.regions
+    }
 
-        if let splitView = view as? NSSplitView {
-            let pointInSplit = splitView.convert(windowPoint, from: nil)
-            if splitView.bounds.contains(pointInSplit) {
-                let expansion: CGFloat = 5
-                let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
-                for dividerIndex in 0..<dividerCount {
-                    let first = splitView.arrangedSubviews[dividerIndex].frame
-                    let second = splitView.arrangedSubviews[dividerIndex + 1].frame
-                    let thickness = splitView.dividerThickness
-                    let dividerRect: NSRect
-                    if splitView.isVertical {
-                        // Keep divider hit-testing active even when one side is nearly collapsed,
-                        // so users can drag the divider back out from the border.
-                        // But ignore transient states where both panes are effectively 0-width.
-                        guard first.width > 1 || second.width > 1 else { continue }
-                        let x = max(0, first.maxX)
-                        dividerRect = NSRect(
-                            x: x,
-                            y: 0,
-                            width: thickness,
-                            height: splitView.bounds.height
-                        )
-                    } else {
-                        // Same behavior for horizontal splits with a near-zero-height pane.
-                        guard first.height > 1 || second.height > 1 else { continue }
-                        let y = max(0, first.maxY)
-                        dividerRect = NSRect(
-                            x: 0,
-                            y: y,
-                            width: splitView.bounds.width,
-                            height: thickness
-                        )
-                    }
-                    let expanded = dividerRect.insetBy(dx: -expansion, dy: -expansion)
-                    if expanded.contains(pointInSplit) {
-                        return DividerHit(
-                            kind: splitView.isVertical ? .vertical : .horizontal,
-                            isInHostedContent: splitView.isDescendant(of: hostView)
-                        )
-                    }
-                }
+    private func invalidateSplitDividerRegionCache() {
+        cachedSplitDividerRegions = nil
+        cachedSplitDividerRootSubviewIds = nil
+        splitDividerCacheInvalidator.invalidate()
+    }
+
+    private func updateSplitDividerResizeObserver() {
+        if let splitDividerResizeObserver {
+            NotificationCenter.default.removeObserver(splitDividerResizeObserver)
+            self.splitDividerResizeObserver = nil
+        }
+        guard let window else { return }
+        splitDividerResizeObserver = NotificationCenter.default.addObserver(forName: NSSplitView.didResizeSubviewsNotification, object: nil, queue: .main) { [weak self, weak window] notification in
+            guard let self,
+                  let window,
+                  let splitView = notification.object as? NSSplitView,
+                  splitView.window === window else { return }
+            self.invalidateSplitDividerRegionCache()
+            self.window?.invalidateCursorRects(for: self)
+        }
+    }
+
+    private static func dividerHit(at windowPoint: NSPoint, in regions: [DividerRegion], checkLiveness: Bool = true) -> DividerHit? {
+        for region in regions.reversed() {
+            if checkLiveness, !region.isLive { continue }
+            let hitRect = region.hitRectInWindow
+            if !hitRect.isNull, hitRect.contains(windowPoint) {
+                return DividerHit(
+                    kind: region.isVertical ? .vertical : .horizontal,
+                    isInHostedContent: region.isInHostedContent
+                )
             }
         }
-
-        for subview in view.subviews.reversed() {
-            if let hit = dividerHit(at: windowPoint, in: subview, hostView: hostView) {
-                return hit
-            }
-        }
-
         return nil
     }
 
@@ -1207,7 +1113,7 @@ final class WindowBrowserHostView: NSView {
     }
 
     private static func isInspectorView(_ view: NSView) -> Bool {
-        String(describing: type(of: view)).contains("WKInspector")
+        cmuxIsWebInspectorObject(view)
     }
 
     private static func isVisibleHostedInspectorCandidate(_ view: NSView) -> Bool {
@@ -1221,41 +1127,6 @@ final class WindowBrowserHostView: NSView {
         !view.isHidden &&
             view.alphaValue > 0 &&
             view.frame.height > 1
-    }
-
-    private static func collectSplitDividerRegions(in view: NSView, into result: inout [DividerRegion]) {
-        guard !view.isHidden else { return }
-
-        if let splitView = view as? NSSplitView {
-            let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
-            for dividerIndex in 0..<dividerCount {
-                let first = splitView.arrangedSubviews[dividerIndex].frame
-                let second = splitView.arrangedSubviews[dividerIndex + 1].frame
-                let thickness = splitView.dividerThickness
-                let dividerRect: NSRect
-                if splitView.isVertical {
-                    guard first.width > 1 || second.width > 1 else { continue }
-                    let x = max(0, first.maxX)
-                    dividerRect = NSRect(x: x, y: 0, width: thickness, height: splitView.bounds.height)
-                } else {
-                    guard first.height > 1 || second.height > 1 else { continue }
-                    let y = max(0, first.maxY)
-                    dividerRect = NSRect(x: 0, y: y, width: splitView.bounds.width, height: thickness)
-                }
-                let dividerRectInWindow = splitView.convert(dividerRect, to: nil)
-                guard dividerRectInWindow.width > 0, dividerRectInWindow.height > 0 else { continue }
-                result.append(
-                    DividerRegion(
-                        rectInWindow: dividerRectInWindow,
-                        isVertical: splitView.isVertical
-                    )
-                )
-            }
-        }
-
-        for subview in view.subviews {
-            collectSplitDividerRegions(in: subview, into: &result)
-        }
     }
 
 }
@@ -1285,456 +1156,6 @@ struct BrowserPaneDropContext: Equatable {
     let paneId: PaneID
 }
 
-struct BrowserPaneDragTransfer: Equatable {
-    let tabId: UUID
-    let sourcePaneId: UUID
-    let sourceProcessId: Int32
-    let kind: String?
-    let isFilePreviewTransfer: Bool
-
-    init(
-        tabId: UUID,
-        sourcePaneId: UUID,
-        sourceProcessId: Int32,
-        kind: String? = nil,
-        isFilePreviewTransfer: Bool = false
-    ) {
-        self.tabId = tabId
-        self.sourcePaneId = sourcePaneId
-        self.sourceProcessId = sourceProcessId
-        self.kind = kind
-        self.isFilePreviewTransfer = isFilePreviewTransfer
-    }
-
-    var isFromCurrentProcess: Bool {
-        sourceProcessId == Int32(ProcessInfo.processInfo.processIdentifier)
-    }
-
-    var isFilePreview: Bool {
-        isFilePreviewTransfer
-    }
-
-    static func decode(from pasteboard: NSPasteboard) -> BrowserPaneDragTransfer? {
-        if let data = pasteboard.data(forType: DragOverlayRoutingPolicy.filePreviewTransferType) {
-            return decode(from: data, isFilePreviewTransfer: true)
-        }
-        if let raw = pasteboard.string(forType: DragOverlayRoutingPolicy.filePreviewTransferType) {
-            return decode(from: Data(raw.utf8), isFilePreviewTransfer: true)
-        }
-        if let data = pasteboard.data(forType: DragOverlayRoutingPolicy.bonsplitTabTransferType) {
-            return decode(from: data)
-        }
-        if let raw = pasteboard.string(forType: DragOverlayRoutingPolicy.bonsplitTabTransferType) {
-            return decode(from: Data(raw.utf8))
-        }
-        return nil
-    }
-
-    static func decode(from data: Data, isFilePreviewTransfer: Bool = false) -> BrowserPaneDragTransfer? {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let tab = json["tab"] as? [String: Any],
-              let tabIdRaw = tab["id"] as? String,
-              let tabId = UUID(uuidString: tabIdRaw),
-              let sourcePaneIdRaw = json["sourcePaneId"] as? String,
-              let sourcePaneId = UUID(uuidString: sourcePaneIdRaw) else {
-            return nil
-        }
-
-        let sourceProcessId = (json["sourceProcessId"] as? NSNumber)?.int32Value ?? -1
-        let kind = tab["kind"] as? String
-        return BrowserPaneDragTransfer(
-            tabId: tabId,
-            sourcePaneId: sourcePaneId,
-            sourceProcessId: sourceProcessId,
-            kind: kind,
-            isFilePreviewTransfer: isFilePreviewTransfer
-        )
-    }
-}
-
-struct BrowserPaneSplitTarget: Equatable {
-    let orientation: SplitOrientation
-    let insertFirst: Bool
-}
-
-enum BrowserPaneDropAction: Equatable {
-    case noOp
-    case move(
-        tabId: UUID,
-        targetWorkspaceId: UUID,
-        targetPane: PaneID,
-        splitTarget: BrowserPaneSplitTarget?
-    )
-}
-
-enum BrowserPaneDropRouting {
-    private static let padding: CGFloat = 4
-
-    private static func fullPaneSize(for slotSize: CGSize, topChromeHeight: CGFloat) -> CGSize {
-        CGSize(width: slotSize.width, height: slotSize.height + max(0, topChromeHeight))
-    }
-
-    static func zone(for location: CGPoint, in size: CGSize, topChromeHeight: CGFloat = 0) -> DropZone {
-        let fullPaneSize = fullPaneSize(for: size, topChromeHeight: topChromeHeight)
-        let edgeRatio: CGFloat = 0.25
-        let horizontalEdge = max(80, fullPaneSize.width * edgeRatio)
-        let verticalEdge = max(80, fullPaneSize.height * edgeRatio)
-
-        if location.x < horizontalEdge {
-            return .left
-        } else if location.x > fullPaneSize.width - horizontalEdge {
-            return .right
-        } else if location.y > fullPaneSize.height - verticalEdge {
-            return .top
-        } else if location.y < verticalEdge {
-            return .bottom
-        } else {
-            return .center
-        }
-    }
-
-    static func overlayFrame(for zone: DropZone, in size: CGSize, topChromeHeight: CGFloat = 0) -> CGRect {
-        let fullPaneSize = fullPaneSize(for: size, topChromeHeight: topChromeHeight)
-        switch zone {
-        case .center:
-            return CGRect(
-                x: padding,
-                y: padding,
-                width: fullPaneSize.width - padding * 2,
-                height: fullPaneSize.height - padding * 2
-            )
-        case .left:
-            return CGRect(
-                x: padding,
-                y: padding,
-                width: fullPaneSize.width / 2 - padding,
-                height: fullPaneSize.height - padding * 2
-            )
-        case .right:
-            return CGRect(
-                x: fullPaneSize.width / 2,
-                y: padding,
-                width: fullPaneSize.width / 2 - padding,
-                height: fullPaneSize.height - padding * 2
-            )
-        case .top:
-            return CGRect(
-                x: padding,
-                y: fullPaneSize.height / 2,
-                width: fullPaneSize.width - padding * 2,
-                height: fullPaneSize.height / 2 - padding
-            )
-        case .bottom:
-            return CGRect(
-                x: padding,
-                y: padding,
-                width: fullPaneSize.width - padding * 2,
-                height: fullPaneSize.height / 2 - padding
-            )
-        }
-    }
-
-    static func action(
-        for transfer: BrowserPaneDragTransfer,
-        target: BrowserPaneDropContext,
-        zone: DropZone
-    ) -> BrowserPaneDropAction? {
-        if zone == .center, transfer.sourcePaneId == target.paneId.id {
-            return .noOp
-        }
-
-        let splitTarget: BrowserPaneSplitTarget?
-        switch zone {
-        case .center:
-            splitTarget = nil
-        case .left:
-            splitTarget = BrowserPaneSplitTarget(orientation: .horizontal, insertFirst: true)
-        case .right:
-            splitTarget = BrowserPaneSplitTarget(orientation: .horizontal, insertFirst: false)
-        case .top:
-            splitTarget = BrowserPaneSplitTarget(orientation: .vertical, insertFirst: true)
-        case .bottom:
-            splitTarget = BrowserPaneSplitTarget(orientation: .vertical, insertFirst: false)
-        }
-
-        return .move(
-            tabId: transfer.tabId,
-            targetWorkspaceId: target.workspaceId,
-            targetPane: target.paneId,
-            splitTarget: splitTarget
-        )
-    }
-
-    static func filePreviewDestination(
-        target: BrowserPaneDropContext,
-        zone: DropZone
-    ) -> BonsplitController.ExternalTabDropRequest.Destination {
-        switch zone {
-        case .center:
-            return .insert(targetPane: target.paneId, targetIndex: nil)
-        case .left:
-            return .split(targetPane: target.paneId, orientation: .horizontal, insertFirst: true)
-        case .right:
-            return .split(targetPane: target.paneId, orientation: .horizontal, insertFirst: false)
-        case .top:
-            return .split(targetPane: target.paneId, orientation: .vertical, insertFirst: true)
-        case .bottom:
-            return .split(targetPane: target.paneId, orientation: .vertical, insertFirst: false)
-        }
-    }
-}
-
-final class BrowserPaneDropTargetView: NSView {
-    weak var slotView: WindowBrowserSlotView?
-    var dropContext: BrowserPaneDropContext?
-    private var activeZone: DropZone?
-#if DEBUG
-    private var lastHitTestSignature: String?
-#endif
-
-    override var acceptsFirstResponder: Bool { false }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        registerForDraggedTypes([
-            DragOverlayRoutingPolicy.filePreviewTransferType,
-            DragOverlayRoutingPolicy.bonsplitTabTransferType
-        ])
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        nil
-    }
-
-    static func shouldCaptureHitTesting(
-        pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        eventType: NSEvent.EventType?
-    ) -> Bool {
-        guard DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes) else { return false }
-        guard let eventType else { return false }
-
-        switch eventType {
-        case .cursorUpdate,
-             .mouseEntered,
-             .mouseExited,
-             .mouseMoved,
-             .leftMouseDragged,
-             .rightMouseDragged,
-             .otherMouseDragged,
-             .appKitDefined,
-             .applicationDefined,
-             .systemDefined,
-             .periodic:
-            return true
-        default:
-            return false
-        }
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard bounds.contains(point), dropContext != nil else { return nil }
-        if shouldDeferToPaneTabBar(at: point) {
-            return nil
-        }
-
-        let pasteboardTypes = NSPasteboard(name: .drag).types
-        let eventType = NSApp.currentEvent?.type
-        let capture = Self.shouldCaptureHitTesting(
-            pasteboardTypes: pasteboardTypes,
-            eventType: eventType
-        )
-#if DEBUG
-        logHitTestDecision(capture: capture, pasteboardTypes: pasteboardTypes, eventType: eventType)
-#endif
-        return capture ? self : nil
-    }
-
-    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        updateDragState(sender, phase: "entered")
-    }
-
-    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        updateDragState(sender, phase: "updated")
-    }
-
-    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
-        clearDragState(phase: "exited")
-    }
-
-    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        defer {
-            clearDragState(phase: "perform.clear")
-        }
-
-        guard let dropContext,
-              let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard),
-              transfer.isFromCurrentProcess else {
-#if DEBUG
-            cmuxDebugLog("browser.paneDrop.perform allowed=0 reason=missingTransfer")
-#endif
-            return false
-        }
-
-        let location = convert(sender.draggingLocation, from: nil)
-        let zone = BrowserPaneDropRouting.zone(
-            for: location,
-            in: bounds.size,
-            topChromeHeight: slotView?.effectivePaneTopChromeHeight() ?? 0
-        )
-
-        if transfer.isFilePreview {
-            guard let entry = FilePreviewDragRegistry.shared.consume(id: transfer.tabId),
-                  let workspace = AppDelegate.shared?.workspaceFor(tabId: dropContext.workspaceId) else {
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.paneDrop.perform allowed=0 panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                    "reason=missingFilePreviewEntry tab=\(transfer.tabId.uuidString.prefix(5))"
-                )
-#endif
-                return false
-            }
-            let handled = workspace.handleFilePreviewDrop(
-                entry: entry,
-                destination: BrowserPaneDropRouting.filePreviewDestination(
-                    target: dropContext,
-                    zone: zone
-                )
-            )
-#if DEBUG
-            cmuxDebugLog(
-                "browser.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "tab=\(transfer.tabId.uuidString.prefix(5)) zone=\(zone) filePreview=1 handled=\(handled ? 1 : 0)"
-            )
-#endif
-            return handled
-        }
-
-        guard let action = BrowserPaneDropRouting.action(
-            for: transfer,
-            target: dropContext,
-            zone: zone
-        ) else {
-#if DEBUG
-            cmuxDebugLog(
-                "browser.paneDrop.perform allowed=0 panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "reason=noAction zone=\(zone)"
-            )
-#endif
-            return false
-        }
-
-        switch action {
-        case .noOp:
-#if DEBUG
-            cmuxDebugLog(
-                "browser.paneDrop.perform allowed=1 panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "tab=\(transfer.tabId.uuidString.prefix(5)) action=noop"
-            )
-#endif
-            return true
-        case .move(let tabId, let workspaceId, let targetPane, let splitTarget):
-            let moved = AppDelegate.shared?.moveBonsplitTab(
-                tabId: tabId,
-                toWorkspace: workspaceId,
-                targetPane: targetPane,
-                splitTarget: splitTarget.map { ($0.orientation, $0.insertFirst) },
-                focus: true,
-                focusWindow: true
-            ) ?? false
-#if DEBUG
-            let splitLabel = splitTarget.map {
-                "\($0.orientation.rawValue):\($0.insertFirst ? 1 : 0)"
-            } ?? "none"
-            cmuxDebugLog(
-                "browser.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "tab=\(tabId.uuidString.prefix(5)) zone=\(zone) pane=\(targetPane.id.uuidString.prefix(5)) " +
-                "split=\(splitLabel) moved=\(moved ? 1 : 0)"
-            )
-#endif
-            return moved
-        }
-    }
-
-    private func updateDragState(_ sender: any NSDraggingInfo, phase: String) -> NSDragOperation {
-        let location = convert(sender.draggingLocation, from: nil)
-        if shouldDeferToPaneTabBar(at: location) {
-            clearDragState(phase: "\(phase).tabBar")
-            return []
-        }
-
-        guard let dropContext,
-              let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard),
-              transfer.isFromCurrentProcess,
-              (!transfer.isFilePreview || FilePreviewDragRegistry.shared.contains(id: transfer.tabId)) else {
-            clearDragState(phase: "\(phase).reject")
-            return []
-        }
-
-        let zone = BrowserPaneDropRouting.zone(
-            for: location,
-            in: bounds.size,
-            topChromeHeight: slotView?.effectivePaneTopChromeHeight() ?? 0
-        )
-        activeZone = zone
-        slotView?.setPortalDragDropZone(zone)
-#if DEBUG
-        cmuxDebugLog(
-            "browser.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-            "tab=\(transfer.tabId.uuidString.prefix(5)) zone=\(zone)"
-        )
-#endif
-        return .move
-    }
-
-    func shouldDeferToPaneTabBar(at point: NSPoint) -> Bool {
-        let windowPoint = convert(point, to: nil)
-        return BonsplitTabBarPassThrough
-            .shouldPassThroughToPaneTabBar(windowPoint: windowPoint, below: self)
-            .result
-    }
-
-    private func clearDragState(phase: String) {
-        guard activeZone != nil else { return }
-        activeZone = nil
-        slotView?.setPortalDragDropZone(nil)
-#if DEBUG
-        if let dropContext {
-            cmuxDebugLog(
-                "browser.paneDrop.\(phase) panel=\(dropContext.panelId.uuidString.prefix(5)) zone=none"
-            )
-        }
-#endif
-    }
-
-#if DEBUG
-    private func logHitTestDecision(
-        capture: Bool,
-        pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        eventType: NSEvent.EventType?
-    ) {
-        let hasTransferType = DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
-        guard hasTransferType || capture else { return }
-
-        let signature = [
-            capture ? "1" : "0",
-            hasTransferType ? "1" : "0",
-            String(describing: dropContext != nil),
-            eventType.map { String($0.rawValue) } ?? "nil",
-        ].joined(separator: "|")
-        guard lastHitTestSignature != signature else { return }
-        lastHitTestSignature = signature
-
-        let types = pasteboardTypes?.map(\.rawValue).joined(separator: ",") ?? "-"
-        cmuxDebugLog(
-            "browser.paneDrop.hitTest capture=\(capture ? 1 : 0) " +
-            "hasTransfer=\(hasTransferType ? 1 : 0) context=\(dropContext != nil ? 1 : 0) " +
-            "event=\(eventType.map { String($0.rawValue) } ?? "nil") types=\(types)"
-        )
-    }
-#endif
-}
-
 final class WindowBrowserSlotView: NSView {
     override var isOpaque: Bool { false }
     override var isHidden: Bool {
@@ -1746,6 +1167,7 @@ final class WindowBrowserSlotView: NSView {
     private let paneDropTargetView = BrowserPaneDropTargetView(frame: .zero)
     private let dropZoneOverlayView = BrowserDropZoneOverlayView(frame: .zero)
     private var searchOverlayHostingView: NSHostingView<BrowserSearchOverlay>?
+    private var omnibarSuggestionsHostingView: BrowserPortalOmnibarSuggestionsHostingView?
     private weak var hostedWebView: WKWebView?
     private var hostedWebViewConstraints: [NSLayoutConstraint] = []
     private var forwardedDropZone: DropZone?
@@ -1756,6 +1178,7 @@ final class WindowBrowserSlotView: NSView {
     private var paneTopChromeHeight: CGFloat = 0
     var preferredHostedInspectorWidth: CGFloat?
     private var preferredHostedInspectorWidthFraction: CGFloat?
+    fileprivate var isRightSidebarDockSlot = false
     fileprivate var isHostedInspectorDividerDragActive = false
     var onHostedInspectorLayout: ((WindowBrowserSlotView) -> Void)?
     fileprivate var isApplyingHostedInspectorLayout = false
@@ -1843,6 +1266,27 @@ final class WindowBrowserSlotView: NSView {
 
     func setPaneDropContext(_ context: BrowserPaneDropContext?) {
         paneDropTargetView.dropContext = context
+        isRightSidebarDockSlot = context.map { AppDelegate.shared?.dockForPane($0.paneId) != nil } ?? false
+    }
+
+    var currentPaneDropContext: BrowserPaneDropContext? {
+        paneDropTargetView.dropContext
+    }
+
+    func paneDropTargetForDrop(at localPoint: NSPoint) -> BrowserPaneDropTargetView? {
+        guard paneDropTargetView.dropContext != nil else { return nil }
+        guard bounds.contains(localPoint) else { return nil }
+        let pointInTarget = paneDropTargetView.convert(localPoint, from: self)
+        guard paneDropTargetView.bounds.contains(pointInTarget) else { return nil }
+        guard !paneDropTargetView.shouldDeferToPaneTabBar(at: pointInTarget) else { return nil }
+        return paneDropTargetView
+    }
+
+    func hostedWebViewForFileDrop(at localPoint: NSPoint) -> WKWebView? {
+        guard let hostedWebView else { return nil }
+        let webPoint = hostedWebView.convert(localPoint, from: self)
+        guard hostedWebView.bounds.contains(webPoint) else { return nil }
+        return hostedWebView
     }
 
     func setPaneTopChromeHeight(_ height: CGFloat) {
@@ -1919,6 +1363,7 @@ final class WindowBrowserSlotView: NSView {
                     overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
                 ])
             }
+            bringInteractionLayersToFrontIfNeeded()
             return
         }
 
@@ -1939,6 +1384,64 @@ final class WindowBrowserSlotView: NSView {
         ])
         searchOverlayHostingView = overlay
         logSearchOverlayEvent("create", panelId: configuration.panelId)
+        bringInteractionLayersToFrontIfNeeded()
+    }
+
+    private func logOmnibarSuggestionsEvent(_ action: String, configuration: BrowserPortalOmnibarSuggestionsConfiguration?) {
+#if DEBUG
+        cmuxDebugLog(
+            "browser.omnibar.portal action=\(action) " +
+            "panel=\(configuration?.panelId.uuidString.prefix(5) ?? "nil") " +
+            "window=\(window?.windowNumber ?? -1) " +
+            "items=\(configuration?.items.count ?? 0) " +
+            "frame=\(browserPortalDebugFrame(configuration?.popupFrame ?? .zero)) " +
+            "hasOverlay=\(omnibarSuggestionsHostingView != nil ? 1 : 0)"
+        )
+#endif
+    }
+
+    func setOmnibarSuggestions(_ configuration: BrowserPortalOmnibarSuggestionsConfiguration?) {
+        guard let configuration else {
+            logOmnibarSuggestionsEvent("remove", configuration: nil)
+            omnibarSuggestionsHostingView?.removeFromSuperview()
+            omnibarSuggestionsHostingView = nil
+            return
+        }
+
+        logOmnibarSuggestionsEvent("set", configuration: configuration)
+        let rootView = BrowserPortalOmnibarSuggestionsOverlay(configuration: configuration)
+
+        if let overlay = omnibarSuggestionsHostingView {
+            logOmnibarSuggestionsEvent("updateExisting", configuration: configuration)
+            overlay.rootView = rootView
+            overlay.popupFrameInTopLeftCoordinates = configuration.popupFrame
+            if overlay.superview !== self {
+                overlay.removeFromSuperview()
+                addSubview(overlay)
+                NSLayoutConstraint.activate([
+                    overlay.topAnchor.constraint(equalTo: topAnchor),
+                    overlay.bottomAnchor.constraint(equalTo: bottomAnchor),
+                    overlay.leadingAnchor.constraint(equalTo: leadingAnchor),
+                    overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
+                ])
+            }
+            bringInteractionLayersToFrontIfNeeded()
+            return
+        }
+
+        let overlay = BrowserPortalOmnibarSuggestionsHostingView(rootView: rootView)
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+        overlay.popupFrameInTopLeftCoordinates = configuration.popupFrame
+        addSubview(overlay)
+        NSLayoutConstraint.activate([
+            overlay.topAnchor.constraint(equalTo: topAnchor),
+            overlay.bottomAnchor.constraint(equalTo: bottomAnchor),
+            overlay.leadingAnchor.constraint(equalTo: leadingAnchor),
+            overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
+        omnibarSuggestionsHostingView = overlay
+        logOmnibarSuggestionsEvent("create", configuration: configuration)
+        bringInteractionLayersToFrontIfNeeded()
     }
 
     private func searchOverlayOwnsFieldEditor(_ fieldEditor: NSTextView, in root: NSView) -> Bool {
@@ -1956,6 +1459,12 @@ final class WindowBrowserSlotView: NSView {
 
         return false
     }
+
+#if DEBUG
+    // Test seam for #5733: exposes the slot's search-overlay view so tests can
+    // route a responder that this slot owns.
+    var browserPortalTestSearchOverlayView: NSView? { searchOverlayHostingView }
+#endif
 
     func searchOverlayPanelId(for responder: NSResponder) -> UUID? {
         guard let overlay = searchOverlayHostingView else { return nil }
@@ -2004,7 +1513,7 @@ final class WindowBrowserSlotView: NSView {
     func pinHostedWebView(_ webView: WKWebView) {
         guard webView.superview === self else { return }
 
-        let hasCompanionWKSubviews = Self.hasWebKitCompanionSubview(in: self, primaryWebView: webView)
+        let hasCompanionWKSubviews = browserPortalHasVisibleWebKitCompanionSubview(for: webView)
         let needsPlainWebViewFrameReset =
             !hasCompanionWKSubviews &&
             Self.frameDiffersFromBounds(webView.frame, bounds: bounds)
@@ -2040,28 +1549,6 @@ final class WindowBrowserSlotView: NSView {
             abs(frame.minY - bounds.minY) > epsilon ||
             abs(frame.width - bounds.width) > epsilon ||
             abs(frame.height - bounds.height) > epsilon
-    }
-
-    private static func hasWebKitCompanionSubview(in host: NSView, primaryWebView: WKWebView) -> Bool {
-        var stack = host.subviews.filter { $0 !== primaryWebView }
-        while let current = stack.popLast() {
-            if current.isDescendant(of: primaryWebView) {
-                continue
-            }
-            if current.isHidden || current.alphaValue <= 0 {
-                continue
-            }
-            if String(describing: type(of: current)).contains("WK") {
-                let width = max(current.frame.width, current.bounds.width)
-                let height = max(current.frame.height, current.bounds.height)
-                if width > 1, height > 1 {
-                    return true
-                }
-                continue
-            }
-            stack.append(contentsOf: current.subviews)
-        }
-        return false
     }
 
     func effectivePaneTopChromeHeight() -> CGFloat {
@@ -2165,7 +1652,9 @@ final class WindowBrowserSlotView: NSView {
     }
 
     private func interactionLayerPriority(of view: NSView) -> Int {
-        if view === paneDropTargetView { return 1 }
+        if view === paneDropTargetView { return 3 }
+        if view === omnibarSuggestionsHostingView { return 2 }
+        if view === searchOverlayHostingView { return 1 }
         return 0
     }
 
@@ -2234,6 +1723,7 @@ final class WindowBrowserPortal: NSObject {
 
     private weak var window: NSWindow?
     private let hostView = WindowBrowserHostView(frame: .zero)
+    private let chromeComposition = AppWindowChromeComposition()
     private weak var installedContainerView: NSView?
     private weak var installedReferenceView: NSView?
     private var hasDeferredFullSyncScheduled = false
@@ -2252,6 +1742,7 @@ final class WindowBrowserPortal: NSObject {
         var dropZone: DropZone?
         var paneDropContext: BrowserPaneDropContext?
         var searchOverlay: BrowserPortalSearchOverlayConfiguration?
+        var omnibarSuggestions: BrowserPortalOmnibarSuggestionsConfiguration?
         var paneTopChromeHeight: CGFloat
         var transientRecoveryReason: String?
         var transientRecoveryRetriesRemaining: Int
@@ -2265,6 +1756,19 @@ final class WindowBrowserPortal: NSObject {
 
     private var entriesByWebViewId: [ObjectIdentifier: Entry] = [:]
     private var webViewByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
+
+#if DEBUG
+    // Test seam for https://github.com/manaflow-ai/cmux/issues/5733. Installs a
+    // slot container into the portal host without registering an Entry, so tests
+    // can prove the find-overlay lookup resolves off the live slot view hierarchy
+    // rather than by enumerating/copying Entry values out of entriesByWebViewId
+    // (each Entry copy = 3 objc_copyWeak ops under the global weak-table lock;
+    // O(panes) per keystroke — the stack-exhaustion fault site and a
+    // typing-latency contributor, #4405).
+    func browserPortalTestInstallSlotWithoutEntry(_ slot: WindowBrowserSlotView) {
+        hostView.addSubview(slot)
+    }
+#endif
 
     init(window: NSWindow) {
         self.window = window
@@ -2315,30 +1819,10 @@ final class WindowBrowserPortal: NSObject {
         guard splitView.arrangedSubviews.count >= 2 else { return }
 
         let location = splitView.convert(event.locationInWindow, from: nil)
-        let first = splitView.arrangedSubviews[0].frame
-        let second = splitView.arrangedSubviews[1].frame
-        let thickness = splitView.dividerThickness
-        let dividerRect: NSRect
-
-        if splitView.isVertical {
-            guard first.width > 1, second.width > 1 else { return }
-            dividerRect = NSRect(
-                x: max(0, first.maxX),
-                y: 0,
-                width: thickness,
-                height: splitView.bounds.height
-            )
-        } else {
-            guard first.height > 1, second.height > 1 else { return }
-            dividerRect = NSRect(
-                x: 0,
-                y: max(0, first.maxY),
-                width: splitView.bounds.width,
-                height: thickness
-            )
-        }
-
-        let hitRect = dividerRect.insetBy(dx: -5, dy: -5)
+        guard let hitRect = PortalSplitDividerRegion.dividerHitRect(
+            in: splitView,
+            dividerIndex: 0
+        ) else { return }
         if dividerHitRectContains(location, rect: hitRect) {
             window.browserPortalHasInteractiveSplitDividerDrag = true
         }
@@ -2512,14 +1996,10 @@ final class WindowBrowserPortal: NSObject {
     }
 
     private func installationTarget(for window: NSWindow) -> (container: NSView, reference: NSView)? {
-        if let glassTarget = WindowGlassEffect.portalInstallationTarget(for: window) {
-            return glassTarget
-        }
-
-        guard let contentView = window.contentView else { return nil }
-
-        guard let themeFrame = contentView.superview else { return nil }
-        return (themeFrame, contentView)
+        guard let target = chromeComposition
+            .contentOverlayTargetResolver
+            .installationTarget(for: window) else { return nil }
+        return (target.container, target.reference)
     }
 
     private static func isHiddenOrAncestorHidden(_ view: NSView) -> Bool {
@@ -2574,6 +2054,27 @@ final class WindowBrowserPortal: NSObject {
         }
     }
 
+    private static func omnibarSuggestionsConfigurationsEquivalent(
+        _ lhs: BrowserPortalOmnibarSuggestionsConfiguration?,
+        _ rhs: BrowserPortalOmnibarSuggestionsConfiguration?
+    ) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            return true
+        case let (lhs?, rhs?):
+            return lhs.panelId == rhs.panelId &&
+                rectApproximatelyEqual(lhs.popupFrame, rhs.popupFrame, epsilon: 0.5) &&
+                lhs.colorScheme == rhs.colorScheme &&
+                lhs.engineName == rhs.engineName &&
+                lhs.items == rhs.items &&
+                lhs.selectedIndex == rhs.selectedIndex &&
+                lhs.isLoadingRemoteSuggestions == rhs.isLoadingRemoteSuggestions &&
+                lhs.searchSuggestionsEnabled == rhs.searchSuggestionsEnabled
+        default:
+            return false
+        }
+    }
+
     /// Convert an anchor view's bounds to window coordinates while honoring ancestor clipping.
     /// SwiftUI/AppKit hosting layers can briefly report an anchor bounds rect larger than the
     /// visible split pane during rearrangement; intersecting through ancestor bounds keeps the
@@ -2605,23 +2106,6 @@ final class WindowBrowserPortal: NSObject {
             frame.maxY > bounds.maxY + epsilon
     }
 
-    private static func hasVisibleInspectorDescendant(in root: NSView) -> Bool {
-        var stack: [NSView] = [root]
-        while let current = stack.popLast() {
-            if current !== root {
-                let className = String(describing: type(of: current))
-                if className.contains("WKInspector"),
-                   !current.isHidden,
-                   current.alphaValue > 0,
-                   current.frame.width > 1,
-                   current.frame.height > 1 {
-                    return true
-                }
-            }
-            stack.append(contentsOf: current.subviews)
-        }
-        return false
-    }
 
     private static func inferredBottomDockedInspectorFrame(
         in containerView: NSView,
@@ -2633,7 +2117,7 @@ final class WindowBrowserPortal: NSObject {
 
         let candidates = containerView.subviews.compactMap { candidate -> NSRect? in
             guard candidate !== primaryWebView else { return nil }
-            guard hasVisibleInspectorDescendant(in: candidate) else { return nil }
+            guard hasVisibleInspectorView(in: candidate) else { return nil }
 
             let frame = candidate.frame
             guard frame.width > 1, frame.height > 1 else { return nil }
@@ -2676,7 +2160,7 @@ final class WindowBrowserPortal: NSObject {
         var count = 0
         while let current = stack.popLast() {
             for subview in current.subviews {
-                if String(describing: type(of: subview)).contains("WKInspector") {
+                if cmuxIsWebInspectorObject(subview) {
                     count += 1
                 }
                 stack.append(subview)
@@ -2725,24 +2209,38 @@ final class WindowBrowserPortal: NSObject {
             relatedSubviews.append(candidate)
         }
 
-        append(directTransferChild(of: sourceSuperview, containing: primaryWebView) ?? primaryWebView)
-
-        if let inspectorFrontend = primaryWebView.cmuxInspectorFrontendWebView() {
-            append(directTransferChild(of: sourceSuperview, containing: inspectorFrontend) ?? inspectorFrontend)
+        // The Web Inspector frontend is owned by WebKit's inspector window/controller.
+        // Moving it into the portal can leave WebKit window observers pointing at a
+        // stale host during user-initiated inspector-window close.
+        let primaryTransferView = directTransferChild(of: sourceSuperview, containing: primaryWebView) ?? primaryWebView
+        if Self.containsInspectorView(in: primaryTransferView) {
+            append(primaryWebView)
+        } else {
+            append(primaryTransferView)
         }
 
         for view in sourceSuperview.subviews {
             if view === primaryWebView { continue }
             let className = String(describing: type(of: view))
-            guard className.contains("WK") else { continue }
-            if className.contains("WKInspector") &&
-                (view.isHidden || view.alphaValue <= 0 || view.frame.width <= 1 || view.frame.height <= 1) {
+            if cmuxIsWebInspectorClassName(className) || Self.containsInspectorView(in: view) {
                 continue
             }
+            guard className.contains("WK") else { continue }
             append(view)
         }
 
         return relatedSubviews
+    }
+
+    private static func containsInspectorView(in root: NSView) -> Bool {
+        var stack: [NSView] = [root]
+        while let current = stack.popLast() {
+            if cmuxIsWebInspectorObject(current) {
+                return true
+            }
+            stack.append(contentsOf: current.subviews)
+        }
+        return false
     }
 
     private func appendHostedWebKitSubviews(
@@ -2751,6 +2249,7 @@ final class WindowBrowserPortal: NSObject {
         seen: inout Set<ObjectIdentifier>
     ) {
         if let webView = root as? WKWebView {
+            guard !Self.isInspectorFrontendWebView(webView) else { return }
             let id = ObjectIdentifier(webView)
             if seen.insert(id).inserted {
                 result.append(webView)
@@ -2770,6 +2269,7 @@ final class WindowBrowserPortal: NSObject {
 
         func append(_ webView: WKWebView?) {
             guard let webView else { return }
+            guard !Self.isInspectorFrontendWebView(webView) else { return }
             let id = ObjectIdentifier(webView)
             guard seen.insert(id).inserted else { return }
             result.append(webView)
@@ -2782,6 +2282,10 @@ final class WindowBrowserPortal: NSObject {
         }
         appendHostedWebKitSubviews(in: containerView, to: &result, seen: &seen)
         return result
+    }
+
+    private static func isInspectorFrontendWebView(_ webView: WKWebView) -> Bool {
+        cmuxIsWebInspectorObject(webView)
     }
 
     private func notifyHostedWebKitHidden(
@@ -2801,12 +2305,14 @@ final class WindowBrowserPortal: NSObject {
         if let existing = entry.containerView {
             existing.setPaneDropContext(entry.paneDropContext)
             existing.setSearchOverlay(entry.searchOverlay)
+            existing.setOmnibarSuggestions(entry.omnibarSuggestions)
             existing.setPaneTopChromeHeight(entry.paneTopChromeHeight)
             return existing
         }
         let created = WindowBrowserSlotView(frame: .zero)
         created.setPaneDropContext(entry.paneDropContext)
         created.setSearchOverlay(entry.searchOverlay)
+        created.setOmnibarSuggestions(entry.omnibarSuggestions)
         created.setPaneTopChromeHeight(entry.paneTopChromeHeight)
 #if DEBUG
         cmuxDebugLog(
@@ -2870,6 +2376,13 @@ final class WindowBrowserPortal: NSObject {
             webKitSubview.layoutSubtreeIfNeeded()
             if reattachRenderingState {
                 webKitSubview.browserPortalReattachRenderingState(reason: "\(reason):\(phase)")
+            }
+            if webKitSubview === webView {
+                webView.browserPortalApplyFirstSizedRevealGeometryNudgeIfNeeded(
+                    reason: "\(reason):\(phase)",
+                    companionSearchRoot: containerView,
+                    relativeTo: window
+                )
             }
             webKitSubview.displayIfNeeded()
         }
@@ -2998,6 +2511,7 @@ final class WindowBrowserPortal: NSObject {
             "reveal",
             "transientRecovery",
             "anchor",
+            "firstSizedReveal",
         ]
 
         static func resolve(reasons: [String]) -> Self {
@@ -3124,12 +2638,13 @@ final class WindowBrowserPortal: NSObject {
     /// Update the visibleInUI/zPriority state on an existing entry without rebinding.
     /// Used when a bind is deferred (host not yet in window) so stale portal syncs
     /// do not keep an old anchor visible.
-    func updateEntryVisibility(forWebViewId webViewId: ObjectIdentifier, visibleInUI: Bool, zPriority: Int) {
-        guard var entry = entriesByWebViewId[webViewId] else { return }
-        guard entry.visibleInUI != visibleInUI || entry.zPriority != zPriority else { return }
-        entry.visibleInUI = visibleInUI
-        entry.zPriority = zPriority
+    @discardableResult
+    func updateEntryVisibility(forWebViewId webViewId: ObjectIdentifier, visibleInUI: Bool, zPriority: Int) -> Bool {
+        guard var entry = entriesByWebViewId[webViewId],
+              entry.visibleInUI != visibleInUI || entry.zPriority != zPriority else { return false }
+        entry.visibleInUI = visibleInUI; entry.zPriority = zPriority
         entriesByWebViewId[webViewId] = entry
+        return true
     }
 
     func isWebViewBoundToAnchor(withId webViewId: ObjectIdentifier, anchorView: NSView) -> Bool {
@@ -3138,12 +2653,13 @@ final class WindowBrowserPortal: NSObject {
         return boundAnchor === anchorView
     }
 
-    func hideWebView(withId webViewId: ObjectIdentifier, source: String = "externalHide") {
-        guard var entry = entriesByWebViewId[webViewId] else { return }
-        entry.visibleInUI = false
-        entry.zPriority = 0
+    @discardableResult func hideWebView(withId webViewId: ObjectIdentifier, source: String = "externalHide") -> Bool {
+        guard var entry = entriesByWebViewId[webViewId] else { return false }
+        let previous = (entry.visibleInUI, entry.zPriority, entry.containerView?.isHidden ?? true)
+        entry.visibleInUI = false; entry.zPriority = 0
         entriesByWebViewId[webViewId] = entry
         synchronizeWebView(withId: webViewId, source: source)
+        return previous.0 || previous.1 != 0 || previous.2 != (entriesByWebViewId[webViewId]?.containerView?.isHidden ?? true)
     }
 
     func updateDropZoneOverlay(forWebViewId webViewId: ObjectIdentifier, zone: DropZone?) {
@@ -3162,6 +2678,65 @@ final class WindowBrowserPortal: NSObject {
         entry.containerView?.setPaneDropContext(context)
     }
 
+    func paneDropContext(forWebViewId webViewId: ObjectIdentifier) -> BrowserPaneDropContext? {
+        entriesByWebViewId[webViewId]?.paneDropContext
+    }
+
+    func paneDropContext(owning responder: NSResponder) -> BrowserPaneDropContext? {
+        if let context = paneDropContextForSearchOverlay(owning: responder) {
+            return context
+        }
+
+        if let textView = responder as? NSTextView,
+           textView.isFieldEditor,
+           let ownerView = cmuxFieldEditorOwnerView(textView),
+           let context = paneDropContext(owning: ownerView) {
+            return context
+        }
+
+        if let view = responder as? NSView,
+           let context = paneDropContext(owning: view) {
+            return context
+        }
+
+        var current = responder.nextResponder
+        while let next = current {
+            if let view = next as? NSView,
+               let context = paneDropContext(owning: view) {
+                return context
+            }
+            current = next.nextResponder
+        }
+
+        return nil
+    }
+
+    private func paneDropContextForSearchOverlay(owning responder: NSResponder) -> BrowserPaneDropContext? {
+        for case let container as WindowBrowserSlotView in hostView.subviews {
+            if container.searchOverlayPanelId(for: responder) != nil {
+                return container.currentPaneDropContext
+            }
+        }
+        return nil
+    }
+
+    private func paneDropContext(owning view: NSView) -> BrowserPaneDropContext? {
+        var current: NSView? = view
+        while let candidate = current {
+            if let webView = candidate as? WKWebView,
+               let context = paneDropContext(forWebViewId: ObjectIdentifier(webView)) {
+                return context
+            }
+            if let slotView = candidate as? WindowBrowserSlotView,
+               let context = slotView.currentPaneDropContext {
+                return context
+            }
+            current = candidate.superview
+        }
+
+        return nil
+    }
+
     func updateSearchOverlay(
         forWebViewId webViewId: ObjectIdentifier,
         configuration: BrowserPortalSearchOverlayConfiguration?
@@ -3173,9 +2748,30 @@ final class WindowBrowserPortal: NSObject {
         entry.containerView?.setSearchOverlay(configuration)
     }
 
+    func updateOmnibarSuggestions(
+        forWebViewId webViewId: ObjectIdentifier,
+        configuration: BrowserPortalOmnibarSuggestionsConfiguration?
+    ) {
+        guard var entry = entriesByWebViewId[webViewId] else { return }
+        guard !Self.omnibarSuggestionsConfigurationsEquivalent(entry.omnibarSuggestions, configuration) else { return }
+        entry.omnibarSuggestions = configuration
+        entriesByWebViewId[webViewId] = entry
+        entry.containerView?.setOmnibarSuggestions(configuration)
+    }
+
     func searchOverlayPanelId(for responder: NSResponder) -> UUID? {
-        for entry in entriesByWebViewId.values {
-            if let panelId = entry.containerView?.searchOverlayPanelId(for: responder) {
+        // Drive the lookup off the live slot view hierarchy rather than copying
+        // Entry structs out of entriesByWebViewId. Each Entry copy performs 3
+        // objc_copyWeak ops under the global weak-table lock, so the old
+        // `.values` scan did O(panes) weak-table churn on every keystroke — the
+        // stack-exhaustion fault site in #5733 and a typing-latency contributor
+        // (#4405). Slot containers are the portal host's subviews, and only a
+        // container in the view hierarchy can own the window's first responder,
+        // so iterating subviews covers every slot that could match. The slot's
+        // own searchOverlayPanelId(for:) early-returns when it has no open find
+        // overlay, keeping the common (no-find) case cheap.
+        for case let container as WindowBrowserSlotView in hostView.subviews {
+            if let panelId = container.searchOverlayPanelId(for: responder) {
                 return panelId
             }
         }
@@ -3185,8 +2781,10 @@ final class WindowBrowserPortal: NSObject {
     @discardableResult
     func yieldSearchOverlayFocusIfOwned(by panelId: UUID) -> Bool {
         guard let window else { return false }
-        for entry in entriesByWebViewId.values {
-            if entry.containerView?.yieldSearchOverlayFocusIfOwned(by: panelId, in: window) == true {
+        // See searchOverlayPanelId(for:) — iterate the live slot hierarchy to
+        // avoid per-call Entry weak-copy churn (#5733).
+        for case let container as WindowBrowserSlotView in hostView.subviews {
+            if container.yieldSearchOverlayFocusIfOwned(by: panelId, in: window) == true {
                 return true
             }
         }
@@ -3243,6 +2841,7 @@ final class WindowBrowserPortal: NSObject {
                 dropZone: nil,
                 paneDropContext: nil,
                 searchOverlay: nil,
+                omnibarSuggestions: nil,
                 paneTopChromeHeight: 0,
                 transientRecoveryReason: nil,
                 transientRecoveryRetriesRemaining: 0
@@ -3279,6 +2878,7 @@ final class WindowBrowserPortal: NSObject {
             dropZone: previousEntry?.dropZone,
             paneDropContext: previousEntry?.paneDropContext,
             searchOverlay: previousEntry?.searchOverlay,
+            omnibarSuggestions: previousEntry?.omnibarSuggestions,
             paneTopChromeHeight: previousEntry?.paneTopChromeHeight ?? 0,
             transientRecoveryReason: previousEntry?.transientRecoveryReason,
             transientRecoveryRetriesRemaining: previousEntry?.transientRecoveryRetriesRemaining ?? 0
@@ -3474,6 +3074,7 @@ final class WindowBrowserPortal: NSObject {
             cancelPendingHostedWebViewRefreshes(for: webViewId)
             containerView.setPaneTopChromeHeight(0)
             containerView.setSearchOverlay(nil)
+            containerView.setOmnibarSuggestions(nil)
             containerView.setPaneDropContext(nil)
             containerView.setPortalDragDropZone(nil)
             containerView.setDropZoneOverlay(zone: nil)
@@ -3843,25 +3444,37 @@ final class WindowBrowserPortal: NSObject {
             )
 #endif
             refreshReasons.append("webFrameBottomDock")
-        } else if containerOwnsWebView && Self.frameExtendsOutsideBounds(preNormalizeWebFrame, bounds: containerBounds) {
-            let oldWebFrame = preNormalizeWebFrame
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            webView.frame = containerBounds
-            CATransaction.commit()
+        } else if containerOwnsWebView &&
+            Self.frameExtendsOutsideBounds(preNormalizeWebFrame, bounds: containerBounds) {
+            if Self.hasVisibleInspectorView(in: containerView) {
 #if DEBUG
-            cmuxDebugLog(
-                "browser.portal.webframe.normalize web=\(browserPortalDebugToken(webView)) " +
-                "container=\(browserPortalDebugToken(containerView)) old=\(browserPortalDebugFrame(oldWebFrame)) " +
-                "new=\(browserPortalDebugFrame(webView.frame)) bounds=\(browserPortalDebugFrame(containerBounds)) " +
-                "inspectorHApprox=\(String(format: "%.1f", inspectorHeightApprox)) " +
-                "inspectorInsets=\(String(format: "%.1f", inspectorHeightFromInsets)) " +
-                "inspectorOverflow=\(String(format: "%.1f", inspectorHeightFromOverflow)) " +
-                "inspectorSubviews=\(inspectorSubviews) " +
-                "source=\(source)"
-            )
+                cmuxDebugLog(
+                    "browser.portal.webframe.preserveInspectorLayout web=\(browserPortalDebugToken(webView)) " +
+                    "container=\(browserPortalDebugToken(containerView)) frame=\(browserPortalDebugFrame(preNormalizeWebFrame)) " +
+                    "bounds=\(browserPortalDebugFrame(containerBounds)) source=\(source)"
+                )
 #endif
-            refreshReasons.append("webFrame")
+                refreshReasons.append("webFrameBottomDock")
+            } else {
+                let oldWebFrame = preNormalizeWebFrame
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                webView.frame = containerBounds
+                CATransaction.commit()
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.portal.webframe.normalize web=\(browserPortalDebugToken(webView)) " +
+                    "container=\(browserPortalDebugToken(containerView)) old=\(browserPortalDebugFrame(oldWebFrame)) " +
+                    "new=\(browserPortalDebugFrame(webView.frame)) bounds=\(browserPortalDebugFrame(containerBounds)) " +
+                    "inspectorHApprox=\(String(format: "%.1f", inspectorHeightApprox)) " +
+                    "inspectorInsets=\(String(format: "%.1f", inspectorHeightFromInsets)) " +
+                    "inspectorOverflow=\(String(format: "%.1f", inspectorHeightFromOverflow)) " +
+                    "inspectorSubviews=\(inspectorSubviews) " +
+                    "source=\(source)"
+                )
+#endif
+                refreshReasons.append("webFrame")
+            }
         }
 
         let revealedForDisplay = !shouldHide && containerView.isHidden
@@ -3892,6 +3505,7 @@ final class WindowBrowserPortal: NSObject {
         }
         containerView.setPaneTopChromeHeight(shouldHide ? 0 : entry.paneTopChromeHeight)
         containerView.setSearchOverlay(shouldHide ? nil : entry.searchOverlay)
+        containerView.setOmnibarSuggestions(shouldHide ? nil : entry.omnibarSuggestions)
         containerView.setPaneDropContext(containerView.isHidden ? nil : entry.paneDropContext)
         containerView.setDropZoneOverlay(zone: containerView.isHidden ? nil : entry.dropZone)
         if revealedForDisplay {
@@ -3904,6 +3518,9 @@ final class WindowBrowserPortal: NSObject {
         }
         if forcePresentationRefresh {
             refreshReasons.append("anchor")
+        }
+        if webView.browserPortalNeedsFirstSizedRevealNudge {
+            refreshReasons.append("firstSizedReveal")
         }
         if transientRecoveryReason == nil {
             resetTransientRecoveryRetryIfNeeded(forWebViewId: webViewId, entry: &entry)
@@ -4069,6 +3686,19 @@ final class WindowBrowserPortal: NSObject {
         }
         return nil
     }
+
+    func browserPaneDropTargetAtWindowPoint(_ windowPoint: NSPoint) -> BrowserPaneDropTargetView? {
+        guard ensureInstalled() else { return nil }
+        let point = hostView.convert(windowPoint, from: nil)
+        for subview in hostView.subviews.reversed() {
+            guard let container = subview as? WindowBrowserSlotView else { continue }
+            guard !container.isHidden else { continue }
+            guard container.frame.contains(point) else { continue }
+            let pointInContainer = container.convert(point, from: hostView)
+            return container.paneDropTargetForDrop(at: pointInContainer)
+        }
+        return nil
+    }
 }
 
 @MainActor
@@ -4188,8 +3818,7 @@ enum BrowserWindowPortalRegistry {
         let webViewId = ObjectIdentifier(webView)
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
-        portal.updateEntryVisibility(forWebViewId: webViewId, visibleInUI: visibleInUI, zPriority: zPriority)
-        postRegistryDidChange(for: webView)
+        if portal.updateEntryVisibility(forWebViewId: webViewId, visibleInUI: visibleInUI, zPriority: zPriority) { postRegistryDidChange(for: webView) }
     }
 
     static func isWebView(_ webView: WKWebView, boundTo anchorView: NSView) -> Bool {
@@ -4205,8 +3834,7 @@ enum BrowserWindowPortalRegistry {
         let webViewId = ObjectIdentifier(webView)
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
-        portal.hideWebView(withId: webViewId, source: source)
-        postRegistryDidChange(for: webView)
+        if portal.hideWebView(withId: webViewId, source: source) { postRegistryDidChange(for: webView) }
     }
 
     static func discard(
@@ -4249,10 +3877,33 @@ enum BrowserWindowPortalRegistry {
         portal.updateSearchOverlay(forWebViewId: webViewId, configuration: configuration)
     }
 
+    static func updateOmnibarSuggestions(
+        for webView: WKWebView,
+        configuration: BrowserPortalOmnibarSuggestionsConfiguration?
+    ) {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else { return }
+        portal.updateOmnibarSuggestions(forWebViewId: webViewId, configuration: configuration)
+    }
+
     static func searchOverlayPanelId(for responder: NSResponder, in window: NSWindow) -> UUID? {
         let windowId = ObjectIdentifier(window)
         guard let portal = portalsByWindowId[windowId] else { return nil }
         return portal.searchOverlayPanelId(for: responder)
+    }
+
+    static func paneDropContext(for webView: WKWebView) -> BrowserPaneDropContext? {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else { return nil }
+        return portal.paneDropContext(forWebViewId: webViewId)
+    }
+
+    static func paneDropContext(owning responder: NSResponder, in window: NSWindow) -> BrowserPaneDropContext? {
+        let windowId = ObjectIdentifier(window)
+        guard let portal = portalsByWindowId[windowId] else { return nil }
+        return portal.paneDropContext(owning: responder)
     }
 
     @discardableResult
@@ -4280,6 +3931,15 @@ enum BrowserWindowPortalRegistry {
         let windowId = ObjectIdentifier(window)
         guard let portal = portalsByWindowId[windowId] else { return nil }
         return portal.webViewAtWindowPoint(windowPoint)
+    }
+
+    static func browserPaneDropTargetAtWindowPoint(
+        _ windowPoint: NSPoint,
+        in window: NSWindow
+    ) -> BrowserPaneDropTargetView? {
+        let windowId = ObjectIdentifier(window)
+        guard let portal = portalsByWindowId[windowId] else { return nil }
+        return portal.browserPaneDropTargetAtWindowPoint(windowPoint)
     }
 
     static func refresh(webView: WKWebView, reason: String) {
