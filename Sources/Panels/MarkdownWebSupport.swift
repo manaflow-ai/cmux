@@ -72,7 +72,8 @@ final class MarkdownWebView: WKWebView {
                 for (action, shortcut) in candidates {
                     guard shortcut.firstStroke == pendingChord.prefix,
                           let secondStroke = shortcut.secondStroke,
-                          secondStroke.matches(event: event) else { continue }
+                          secondStroke.matches(event: event),
+                          viewerNavigationActionIsAllowed(action, event: event) else { continue }
                     performViewerNavigationAction(action)
                     return true
                 }
@@ -81,19 +82,28 @@ final class MarkdownWebView: WKWebView {
 
         for (action, shortcut) in candidates where !shortcut.isUnbound {
             if shortcut.secondStroke != nil {
-                if shortcut.firstStroke.matches(event: event) {
+                if shortcut.firstStroke.matches(event: event),
+                   viewerNavigationActionIsAllowed(action, event: event) {
                     pendingViewerNavigationChord = (
                         prefix: shortcut.firstStroke,
                         expiresAt: event.timestamp + Self.viewerNavigationChordTimeout
                     )
                     return true
                 }
-            } else if shortcut.matches(event: event) {
+            } else if shortcut.matches(event: event),
+                      viewerNavigationActionIsAllowed(action, event: event) {
                 performViewerNavigationAction(action)
                 return true
             }
         }
         return false
+    }
+
+    private func viewerNavigationActionIsAllowed(
+        _ action: KeyboardShortcutSettings.Action,
+        event: NSEvent
+    ) -> Bool {
+        AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: event) ?? true
     }
 
     private func performViewerNavigationAction(_ action: KeyboardShortcutSettings.Action) {

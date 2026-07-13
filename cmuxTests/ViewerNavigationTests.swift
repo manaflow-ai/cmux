@@ -32,6 +32,7 @@ struct ViewerNavigationTests {
 
     @Test
     func markdownViewerUsesSmoothVimAndEmacsNavigation() async throws {
+        let appDelegate = try #require(AppDelegate.shared)
         let frame = NSRect(x: 0, y: 0, width: 720, height: 360)
         let webView = MarkdownWebView(frame: frame, configuration: WKWebViewConfiguration())
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -66,12 +67,12 @@ struct ViewerNavigationTests {
             ) as? NSNumber
         )
         #expect(domKeyCallCount.intValue == 0)
-        #expect(webView.handleViewerNavigationKey(Self.keyEvent("j")))
-        #expect(webView.handleViewerNavigationKey(Self.keyEvent("d", modifiers: .control)))
-        #expect(webView.handleViewerNavigationKey(Self.keyEvent("p", modifiers: .control)))
-        #expect(webView.handleViewerNavigationKey(Self.keyEvent("g")))
-        #expect(webView.handleViewerNavigationKey(Self.keyEvent("g")))
-        #expect(!webView.handleViewerNavigationKey(Self.keyEvent("x")))
+        #expect(handleViewerNavigationKey(Self.keyEvent("j"), in: webView, appDelegate: appDelegate))
+        #expect(handleViewerNavigationKey(Self.keyEvent("d", modifiers: .control), in: webView, appDelegate: appDelegate))
+        #expect(handleViewerNavigationKey(Self.keyEvent("p", modifiers: .control), in: webView, appDelegate: appDelegate))
+        #expect(handleViewerNavigationKey(Self.keyEvent("g"), in: webView, appDelegate: appDelegate))
+        #expect(handleViewerNavigationKey(Self.keyEvent("g"), in: webView, appDelegate: appDelegate))
+        #expect(!handleViewerNavigationKey(Self.keyEvent("x"), in: webView, appDelegate: appDelegate))
         let nativeCalls = try #require(
             try await webView.evaluateJavaScript("window.__cmuxNativeNavigationCalls") as? [[String: Any]]
         )
@@ -89,18 +90,77 @@ struct ViewerNavigationTests {
         #expect((nativeCalls[3]["top"] as? NSNumber)?.doubleValue == 0)
 
         _ = try await webView.evaluateJavaScript("window.__cmuxNativeNavigationCalls = []")
-        #expect(webView.handleViewerNavigationKey(Self.keyEvent("g", timestamp: 10)))
-        #expect(webView.handleViewerNavigationKey(Self.keyEvent("g", timestamp: 11)))
+        #expect(handleViewerNavigationKey(Self.keyEvent("g", timestamp: 10), in: webView, appDelegate: appDelegate))
+        #expect(handleViewerNavigationKey(Self.keyEvent("g", timestamp: 11), in: webView, appDelegate: appDelegate))
         let staleChordCalls = try #require(
             try await webView.evaluateJavaScript("window.__cmuxNativeNavigationCalls") as? [[String: Any]]
         )
         #expect(staleChordCalls.isEmpty, "an expired chord must not navigate")
-        #expect(webView.handleViewerNavigationKey(Self.keyEvent("g", timestamp: 11.1)))
+        #expect(handleViewerNavigationKey(Self.keyEvent("g", timestamp: 11.1), in: webView, appDelegate: appDelegate))
         let expiredChordCalls = try #require(
             try await webView.evaluateJavaScript("window.__cmuxNativeNavigationCalls") as? [[String: Any]]
         )
         #expect(expiredChordCalls.count == 1)
         #expect((expiredChordCalls[0]["top"] as? NSNumber)?.doubleValue == 0)
+    }
+
+    @Test
+    func markdownViewerHonorsConfiguredWhenClause() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let originalStore = KeyboardShortcutSettings.settingsFileStore
+        let originalCache = appDelegate.shortcutEventFocusContextCache
+        let settingsURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-navigation-\(UUID().uuidString).json")
+        try """
+        {
+          "shortcuts": {
+            "when": {
+              "diffViewerScrollDown": "terminalFocus"
+            }
+          }
+        }
+        """.write(to: settingsURL, atomically: true, encoding: .utf8)
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        defer {
+            appDelegate.shortcutEventFocusContextCache = originalCache
+            KeyboardShortcutSettings.settingsFileStore = originalStore
+            try? FileManager.default.removeItem(at: settingsURL)
+        }
+
+        let event = Self.keyEvent("j")
+        installMarkdownFocusContext(for: event, appDelegate: appDelegate)
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+        #expect(!webView.handleViewerNavigationKey(event))
+    }
+
+    private func handleViewerNavigationKey(
+        _ event: NSEvent,
+        in webView: MarkdownWebView,
+        appDelegate: AppDelegate
+    ) -> Bool {
+        installMarkdownFocusContext(for: event, appDelegate: appDelegate)
+        return webView.handleViewerNavigationKey(event)
+    }
+
+    private func installMarkdownFocusContext(for event: NSEvent, appDelegate: AppDelegate) {
+        var shortcutContext = ShortcutContext()
+        shortcutContext.setBool("markdownFocus", true)
+        appDelegate.shortcutEventFocusContextCache = ShortcutEventFocusContextCache(
+            event: event,
+            context: ShortcutEventFocusContext(
+                browserPanel: nil,
+                markdownPanel: nil,
+                filePreviewTextEditorFocused: false,
+                rightSidebarFocused: false,
+                shortcutContext: shortcutContext
+            )
+        )
     }
 
     private func renderMarkdown(_ markdown: String, in webView: WKWebView) async throws {
