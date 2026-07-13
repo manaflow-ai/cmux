@@ -32,18 +32,29 @@ public struct MacWorkspaceState: Identifiable, Equatable, Sendable {
     public var status: MobileMacConnectionStatus
     /// Workspace actions supported by this Mac.
     public var actionCapabilities: MobileWorkspaceActionCapabilities
+    /// Whether this Mac advertised the pane-layout topology protocol.
+    public var supportsWorkspaceLayout: Bool
 
     /// Stable identity for SwiftUI lists and dictionaries.
     public var id: String { macDeviceID }
 
-    /// Create one per-Mac workspace state snapshot.
+    /// Creates one per-Mac workspace state snapshot.
+    /// - Parameters:
+    ///   - macDeviceID: The stable identifier of the Mac.
+    ///   - displayName: The Mac's display name, when known.
+    ///   - workspaces: The Mac's current workspace snapshots.
+    ///   - groups: The Mac's current workspace groups.
+    ///   - status: The connection status for this Mac.
+    ///   - actionCapabilities: The workspace actions supported by this Mac.
+    ///   - supportsWorkspaceLayout: Whether this Mac supports pane-layout snapshots.
     public init(
         macDeviceID: String,
         displayName: String? = nil,
         workspaces: [MobileWorkspacePreview] = [],
         groups: [MobileWorkspaceGroupPreview] = [],
         status: MobileMacConnectionStatus = .reconnecting,
-        actionCapabilities: MobileWorkspaceActionCapabilities = .none
+        actionCapabilities: MobileWorkspaceActionCapabilities = .none,
+        supportsWorkspaceLayout: Bool = false
     ) {
         self.macDeviceID = macDeviceID
         self.displayName = displayName
@@ -51,5 +62,6 @@ public struct MacWorkspaceState: Identifiable, Equatable, Sendable {
         self.groups = groups
         self.status = status
         self.actionCapabilities = actionCapabilities
+        self.supportsWorkspaceLayout = supportsWorkspaceLayout
     }
 }

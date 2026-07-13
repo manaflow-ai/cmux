@@ -207,6 +207,7 @@ extension MobileShellComposite {
     /// workspace list cannot keep routing taps into a removed Mac.
     func pruneWorkspaceStateForForgottenMac(_ macDeviceID: String) {
         guard !macDeviceID.isEmpty else { return }
+        workspaceLayoutsByMacDeviceID[macDeviceID] = nil
         if foregroundMacDeviceID == macDeviceID {
             foregroundMacDeviceID = nil
         }

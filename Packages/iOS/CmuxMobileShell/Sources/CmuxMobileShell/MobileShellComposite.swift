@@ -42,17 +42,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case renderGrid
         case rawBytes
 
-        var eventTopics: [String] {
-            switch self {
-            case .hybrid:
-                return ["workspace.updated", "terminal.bytes", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"]
-            case .renderGrid:
-                return ["workspace.updated", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"]
-            case .rawBytes:
-                return ["workspace.updated", "terminal.bytes", "terminal.set_font", "notification.dismissed", "notification.badge"]
-            }
-        }
-
         var debugName: String {
             switch self {
             case .hybrid:
@@ -253,8 +242,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             prunePendingAttachmentsForMissingTerminals()
         }
     }
-    /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
-    /// changed" signal (e.g. for retrying a parked notification deep link).
+    /// Mac-authored pane topology snapshots, keyed first by owning Mac and then
+    /// by Mac-local workspace id so identical ids on two Macs cannot collide.
+    var workspaceLayoutsByMacDeviceID: [String: [String: MobileWorkspaceLayout]] = [:]
+    /// Bumped whenever ``workspaces`` changes so parked navigation can retry.
     public private(set) var workspaceTopologyVersion: UInt64 = 0
     /// Last authoritative chat-session snapshots, keyed by the workspace row id the UI renders.
     var chatSessionSnapshotsByWorkspaceID: [String: [ChatSessionDescriptor]] = [:]
@@ -3218,7 +3209,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         displayName: mac.displayName,
                         workspaces: previews,
                         status: .connected,
-                        actionCapabilities: existing.actionCapabilities
+                        actionCapabilities: existing.actionCapabilities,
+                        supportsWorkspaceLayout: Self.hostSupportsWorkspaceLayout(existing.supportedHostCapabilities)
                     )
                 } else {
                     existing.cancel()
@@ -3368,15 +3360,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 displayName: displayName,
                 workspaces: previews,
                 status: .connected,
-                actionCapabilities: subscription.actionCapabilities
+                actionCapabilities: subscription.actionCapabilities,
+                supportsWorkspaceLayout: Self.hostSupportsWorkspaceLayout(subscription.supportedHostCapabilities)
             )
         } else {
             markSecondaryMacUnavailable(macID)
         }
         await flushPendingNotificationDismisses(macDeviceID: macID)
         subscription.task = Task { @MainActor [weak self] in
-            let stream = await client.subscribe(to: ["workspace.updated"])
-            await self?.enableSecondaryEventSubscription(on: client, streamID: subscription.streamID)
+            let topics: Set<String> = Self.hostSupportsWorkspaceLayout(subscription.supportedHostCapabilities)
+                ? ["workspace.updated", "workspace.layout.updated"] : ["workspace.updated"]
+            let stream = await client.subscribe(to: topics)
+            await self?.enableSecondaryEventSubscription(
+                on: client,
+                streamID: subscription.streamID,
+                topics: topics
+            )
             for await event in stream {
                 guard let self, !Task.isCancelled else { break }
                 // Stop if this subscription was replaced/torn down.
@@ -3387,6 +3386,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // scan instead of one scan per event (mirrors the foreground's
                     // workspaceListRefreshTask coalescing).
                     self.scheduleSecondaryRefresh(macID: macID, client: client, displayName: displayName)
+                } else if event.topic == "workspace.layout.updated" {
+                    self.handleWorkspaceLayoutUpdatedEvent(event, macDeviceID: macID)
                 }
             }
             // Stream ended (disconnect / error): tear the subscription down so a
@@ -3470,7 +3471,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         displayName: displayName,
                         workspaces: previews,
                         status: .connected,
-                        actionCapabilities: current.actionCapabilities
+                        actionCapabilities: current.actionCapabilities,
+                        supportsWorkspaceLayout: Self.hostSupportsWorkspaceLayout(current.supportedHostCapabilities)
                     )
                 }
             } while self.secondaryMacSubscriptions[macID]?.refreshPending == true
@@ -3511,17 +3513,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    /// Fire the server-side `mobile.events.subscribe` enable for a secondary
-    /// connection's `workspace.updated` stream. Best-effort; the consumer loop
-    /// runs regardless and a failure just means no live pushes for that Mac.
-    private func enableSecondaryEventSubscription(on client: MobileCoreRPCClient, streamID: String) async {
-        guard let request = try? MobileCoreRPCClient.requestData(
-            method: "mobile.events.subscribe",
-            params: ["stream_id": streamID, "topics": ["workspace.updated"]]
-        ) else { return }
-        _ = try? await client.sendRequest(request)
-    }
-
     /// Cancel and disconnect every secondary subscription (sign-out / full reset),
     /// and cancel any in-flight aggregation pass so it cannot resume and re-seed
     /// the torn-down entries for a now-signed-out / switched account.
@@ -3556,6 +3547,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             from: supportedHostCapabilities,
             allowsMacScopedMutations: allowsMacScopedWorkspaceMutations
         )
+        state.supportsWorkspaceLayout = Self.hostSupportsWorkspaceLayout(supportedHostCapabilities)
         workspacesByMac[foregroundMacKey] = state
     }
 
@@ -3702,6 +3694,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             from: supportedHostCapabilities,
             allowsMacScopedMutations: allowsMacScopedWorkspaceMutations
         )
+        state.supportsWorkspaceLayout = Self.hostSupportsWorkspaceLayout(supportedHostCapabilities)
         workspacesByMac[key] = state
     }
 
@@ -3758,6 +3751,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func dropStalePreviousForeground(_ previousKey: String) {
         guard previousKey != foregroundMacKey,
               secondaryMacSubscriptions[previousKey] == nil else { return }
+        workspaceLayoutsByMacDeviceID[previousKey] = nil
         let removedWorkspaceIDs = Set((workspacesByMac[previousKey]?.workspaces ?? []).flatMap { workspace in
             let remoteID = workspace.remoteWorkspaceID ?? workspace.id
             return [
@@ -3989,11 +3983,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             "source": .string("list_tap"),
         ])
         setSelectedWorkspaceID(resolvedRowID)
-        // Tapping into a workspace is a read receipt: clear its unread on the Mac
-        // (like opening a thread marks it read), so it drops out of the unread
-        // list and the back-button count. Only when the Mac advertises read-state
-        // actions and the workspace is actually unread, so older Macs and
-        // already-read workspaces send nothing.
+        await refreshWorkspaceLayout(for: resolvedRowID)
+        // Opening is a read receipt when the Mac supports it and the row is unread.
+        // Older Macs and already-read workspaces send nothing.
         if supportsWorkspaceReadStateActions, workspaceHadUnread {
             await setWorkspaceUnread(id: resolvedRowID, false)
         }
@@ -5148,13 +5140,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         rawTerminalInputBuffer.clear()
     }
 
-    /// Set `remoteClient` to a new value (possibly nil) and disconnect the
-    /// previous one so we don't leak a persistent transport.
+    /// Replace `remoteClient` and disconnect the prior persistent transport.
     func replaceRemoteClient(with newValue: MobileCoreRPCClient?) {
         let previous = remoteClient
         remoteClient = newValue
         if newValue != nil, previous !== newValue {
             chatEventSourceGeneration = UUID()
+            workspaceLayoutsByMacDeviceID[foregroundMacKey] = nil
         }
         if let previous, previous !== newValue {
             Task { await previous.disconnect() }
@@ -6148,7 +6140,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalSubscriptionRefreshTask = Task { @MainActor [weak self] in
             defer { self?.terminalSubscriptionRefreshTask = nil }
             guard let self else { return }
-            let topics = self.terminalOutputTransport.eventTopics
+            let topics = self.mobileEventTopics(for: self.terminalOutputTransport)
             _ = await self.requestTerminalEventSubscription(
                 client: client,
                 reason: reason,
@@ -6190,7 +6182,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 client: client,
                 initialHostStatus: initialHostStatus
             ) ?? .rawBytes
-            let topics = outputTransport.eventTopics
+            let topics = self?.mobileEventTopics(for: outputTransport)
+                ?? outputTransport.eventTopics
             let stream = await client.subscribe(to: Set(topics))
             // Kick off the server-side enable handshake CONCURRENTLY with
             // consumption. The old structure awaited the ack here, which
@@ -6218,6 +6211,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 self.markMacConnectionHealthy()
                 if event.topic == "workspace.updated" {
                     self.scheduleWorkspaceListRefreshFromEvent()
+                } else if event.topic == "workspace.layout.updated" {
+                    self.handleWorkspaceLayoutUpdatedEvent(event)
                 } else if event.topic == "terminal.render_grid" {
                     self.handleTerminalRenderGridEvent(event)
                 } else if event.topic == "terminal.set_font" {
@@ -6428,7 +6423,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard renderGridLivenessProbeTask == nil else { return }
         let probeTimeoutNanoseconds = runtime?.livenessProbeTimeoutNanoseconds
             ?? 3_000_000_000
-        let topics = terminalOutputTransport.eventTopics
+        let topics = mobileEventTopics(for: terminalOutputTransport)
         let probeID = UUID()
         renderGridLivenessProbeID = probeID
         renderGridLivenessProbeTask = Task { @MainActor [weak self] in
@@ -7396,13 +7391,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         groupsAreAuthoritative: Bool = true
     ) {
         let remoteWorkspaces = remoteWorkspacesPreservingSnapshots(from: response)
-        // Write the foreground Mac's per-Mac state; `workspaces` / `workspaceGroups`
-        // recompute from the source of truth automatically (no explicit merge or
-        // publish). Group sections are authoritative only on a full-list response:
-        // a merge path or scoped attach response omits groups, so pass nil there
-        // to leave the existing sections intact. Authoritative groups are passed
-        // through the device-local collapse store before entering the per-Mac
-        // source of truth, so derived groups keep this phone's collapse choices.
+        // Full-list responses authoritatively replace groups; scoped/merge responses
+        // retain them. Device-local collapse choices are applied before aggregation.
         let groups: [MobileWorkspaceGroupPreview]? =
             (mergeExistingWorkspaces || !groupsAreAuthoritative)
                 ? nil
@@ -7411,6 +7401,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
         setForegroundWorkspaceState(
             workspaces: remoteWorkspaces, groups: groups, merge: mergeExistingWorkspaces)
+        if !mergeExistingWorkspaces, groupsAreAuthoritative {
+            pruneWorkspaceLayouts(
+                forMacDeviceID: foregroundMacKey,
+                keepingRemoteWorkspaceIDs: Set(response.workspaces.map(\.id))
+            )
+        }
         if preferActiveTicketTarget, selectActiveTicketTargetIfAvailable() {
             return
         }

@@ -18,6 +18,14 @@ import Testing
         #expect(!oldMac.store.supportsWorkspaceMoveActions && !oldMac.store.supportsWorkspaceGroupActions)
         #expect(!oldMac.store.supportsWorkspaceCreateInGroup)
         #expect(!oldMac.store.supportsWorkspaceGroupCreate)
+        let oldWorkspaceID = try #require(oldMac.store.workspaces.first?.id)
+        #expect(!oldMac.store.supportsWorkspaceLayout(for: oldWorkspaceID))
+        let oldMacSubscribed = try await pollUntil {
+            await oldMac.router.count(of: "mobile.events.subscribe") >= 1
+        }
+        #expect(oldMacSubscribed)
+        let oldMacTopics = await oldMac.router.topics(for: "mobile.events.subscribe").last ?? []
+        #expect(!oldMacTopics.contains("workspace.layout.updated"))
 
         let currentCapabilities = [
             "events.v1",
@@ -30,12 +38,21 @@ import Testing
             "workspace.group_actions.v1",
             "workspace.create_in_group.v1",
             "workspace.group_create.v1",
+            "workspace.layout.v1",
         ]
         let scoped = try await connectedStore(capabilities: currentCapabilities)
         #expect(scoped.store.supportsWorkspaceReadStateActions && scoped.store.supportsWorkspaceCloseActions)
         #expect(!scoped.store.supportsWorkspaceMoveActions && !scoped.store.supportsWorkspaceGroupActions)
         #expect(!scoped.store.supportsWorkspaceCreateInGroup)
         #expect(!scoped.store.supportsWorkspaceGroupCreate)
+        let scopedWorkspaceID = try #require(scoped.store.workspaces.first?.id)
+        #expect(scoped.store.supportsWorkspaceLayout(for: scopedWorkspaceID))
+        let scopedSubscribed = try await pollUntil {
+            await scoped.router.count(of: "mobile.events.subscribe") >= 1
+        }
+        #expect(scopedSubscribed)
+        let scopedTopics = await scoped.router.topics(for: "mobile.events.subscribe").last ?? []
+        #expect(scopedTopics.contains("workspace.layout.updated"))
 
         let macWide = try await connectedStore(
             capabilities: currentCapabilities,
