@@ -189,6 +189,7 @@ describe("apns route policy", () => {
       surfaceId: " sf-1 ",
       macDeviceId: " mac-1 ",
       notificationId: " n-1 ",
+      retargetsToLiveSurfaceOwner: false,
       hideContent: true,
     });
 
@@ -205,6 +206,7 @@ describe("apns route policy", () => {
         notificationId: "n-1",
         dismissedIds: [],
         badgeCount: null,
+        retargetsToLiveSurfaceOwner: false,
         hideContent: true,
       },
     });
@@ -234,6 +236,7 @@ describe("apns route policy", () => {
         notificationId: null,
         dismissedIds: [],
         badgeCount: null,
+        retargetsToLiveSurfaceOwner: true,
         hideContent: false,
       },
     });
@@ -263,6 +266,7 @@ describe("apns route policy", () => {
         notificationId: null,
         dismissedIds: ["n-1", "n-2"],
         badgeCount: 4,
+        retargetsToLiveSurfaceOwner: false,
         hideContent: false,
       },
     });

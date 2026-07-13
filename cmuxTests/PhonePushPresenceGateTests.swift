@@ -123,7 +123,7 @@ import Testing
         )
 
         #expect(confinedPayload.workspaceId == workspaceId.uuidString)
-        #expect(confinedPayload.surfaceId == nil)
+        #expect(confinedPayload.surfaceId == surfaceId.uuidString)
         #expect(trustedPayload.workspaceId == workspaceId.uuidString)
         #expect(trustedPayload.surfaceId == surfaceId.uuidString)
     }
