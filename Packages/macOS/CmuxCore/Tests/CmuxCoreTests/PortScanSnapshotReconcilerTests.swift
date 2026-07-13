@@ -69,6 +69,32 @@ struct PortScanSnapshotReconcilerTests {
         #expect(snapshot == ["workspace": [3000, 4200, 5173]])
     }
 
+    @Test("Completeness advances misses independently for each scanned key")
+    func perKeyCompletenessIsIndependent() {
+        var reconciler = PortScanSnapshotReconciler<String>(missingPortRetentionLimit: 1)
+        reconciler.reconcile(
+            scannedPorts: ["complete": [4200], "incomplete": [5173]],
+            scannedKeys: ["complete", "incomplete"],
+            trackedKeys: ["complete", "incomplete"],
+            completeness: .complete
+        )
+        reconciler.reconcile(
+            scannedPorts: [:],
+            scannedKeys: ["complete", "incomplete"],
+            trackedKeys: ["complete", "incomplete"],
+            completenessByKey: ["complete": .complete, "incomplete": .incomplete]
+        )
+
+        let snapshot = reconciler.reconcile(
+            scannedPorts: [:],
+            scannedKeys: ["complete", "incomplete"],
+            trackedKeys: ["complete", "incomplete"],
+            completenessByKey: ["complete": .complete, "incomplete": .incomplete]
+        )
+
+        #expect(snapshot == ["incomplete": [5173]])
+    }
+
     @Test("Tentative ports learned from incomplete scans are recency bounded")
     func incompletePortChurnIsBounded() {
         var reconciler = PortScanSnapshotReconciler<String>(maximumIncompletePortsPerKey: 2)

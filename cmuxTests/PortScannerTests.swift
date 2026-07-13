@@ -105,6 +105,49 @@ struct PortScannerProcessCaptureTests {
         #expect(scan.completeness(for: [200]) == .incomplete)
     }
 
+    @Test("Panel lsof completeness is scoped to PIDs on that panel's TTY")
+    func panelLsofCompletenessIsTTYScoped() {
+        let workspaceID = UUID()
+        let healthyPanel = PanelKey(workspaceId: workspaceID, panelId: UUID())
+        let failedPanel = PanelKey(workspaceId: workspaceID, panelId: UUID())
+        let lsofScan = PortLsofScanResult(
+            values: [100: [4200]],
+            globallyComplete: true,
+            incompletePIDs: [200]
+        )
+
+        let completeness = PortScanner.panelCompletenessByKey(
+            panelTTYs: [healthyPanel: "ttys001", failedPanel: "ttys002"],
+            pidToTTY: [100: "ttys001", 200: "ttys002"],
+            psCompleteness: .complete,
+            lsofScan: lsofScan
+        )
+
+        #expect(completeness[healthyPanel] == .complete)
+        #expect(completeness[failedPanel] == .incomplete)
+    }
+
+    @Test("A panel with no PIDs needs only an authoritative process scan")
+    func noPIDPanelCompletenessUsesProcessScan() {
+        let panel = PanelKey(workspaceId: UUID(), panelId: UUID())
+
+        let complete = PortScanner.panelCompletenessByKey(
+            panelTTYs: [panel: "ttys001"],
+            pidToTTY: [:],
+            psCompleteness: .complete,
+            lsofScan: nil
+        )
+        let incomplete = PortScanner.panelCompletenessByKey(
+            panelTTYs: [panel: "ttys001"],
+            pidToTTY: [:],
+            psCompleteness: .incomplete,
+            lsofScan: nil
+        )
+
+        #expect(complete[panel] == .complete)
+        #expect(incomplete[panel] == .incomplete)
+    }
+
     @Test("Process scan timeout is bounded and incomplete")
     func processScanTimeoutIsIncomplete() async {
         let runner = StubCommandRunner(result: CommandResult(

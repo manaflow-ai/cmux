@@ -13,6 +13,30 @@ extension PortScanner {
         lhs == .complete && rhs == .complete ? .complete : .incomplete
     }
 
+    /// Computes panel completeness from the process snapshot and only the PIDs owned by each TTY.
+    static func panelCompletenessByKey(
+        panelTTYs: [PanelKey: String],
+        pidToTTY: [Int: String],
+        psCompleteness: PortScanCompleteness,
+        lsofScan: PortLsofScanResult?
+    ) -> [PanelKey: PortScanCompleteness] {
+        let pidsByTTY = pidToTTY.reduce(into: [String: Set<Int>]()) { result, item in
+            result[item.value, default: []].insert(item.key)
+        }
+        return panelTTYs.reduce(into: [:]) { result, item in
+            let panelPIDs = pidsByTTY[item.value] ?? []
+            let lsofCompleteness: PortScanCompleteness
+            if panelPIDs.isEmpty {
+                lsofCompleteness = .complete
+            } else if let lsofScan {
+                lsofCompleteness = lsofScan.completeness(for: panelPIDs)
+            } else {
+                lsofCompleteness = .incomplete
+            }
+            result[item.key] = combinedCompleteness(psCompleteness, lsofCompleteness)
+        }
+    }
+
     func expandAgentProcessTree(
         agentRootsByWorkspace: [UUID: Set<AgentPortRootIdentity>]
     ) async -> (

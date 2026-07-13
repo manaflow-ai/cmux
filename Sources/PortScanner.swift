@@ -253,6 +253,12 @@ final class PortScanner: @unchecked Sendable {
         let allPids = Set(pidToTTY.keys).union(agentOwnershipByPID.keys)
         guard !allPids.isEmpty else {
             let panelResults = panelSnapshot.map { ($0.key, [Int]()) }
+            let panelCompletenessByKey = Self.panelCompletenessByKey(
+                panelTTYs: panelSnapshot,
+                pidToTTY: pidToTTY,
+                psCompleteness: psScan.completeness,
+                lsofScan: nil
+            )
             queue.async { [weak self] in
                 self?.completePanelScan(
                     panelResults,
@@ -260,7 +266,7 @@ final class PortScanner: @unchecked Sendable {
                     workspaceIds: workspaceIds,
                     agentPortsByWorkspace: [:],
                     agentRevisions: agentRevisions,
-                    panelCompleteness: psScan.completeness,
+                    panelCompletenessByKey: panelCompletenessByKey,
                     agentCompletenessByWorkspace: agentTreeCompletenessByWorkspace,
                     requestID: requestID
                 )
@@ -306,6 +312,12 @@ final class PortScanner: @unchecked Sendable {
             lsofAgentCompleteness,
             workspaceIds: workspaceIds
         )
+        let panelCompletenessByKey = Self.panelCompletenessByKey(
+            panelTTYs: panelSnapshot,
+            pidToTTY: pidToTTY,
+            psCompleteness: psScan.completeness,
+            lsofScan: lsofScan
+        )
 
         queue.async { [weak self] in
             self?.completePanelScan(
@@ -314,10 +326,7 @@ final class PortScanner: @unchecked Sendable {
                 workspaceIds: workspaceIds,
                 agentPortsByWorkspace: agentPortsSnapshot,
                 agentRevisions: agentRevisions,
-                panelCompleteness: Self.combinedCompleteness(
-                    psScan.completeness,
-                    lsofScan.completeness(for: Set(pidToTTY.keys))
-                ),
+                panelCompletenessByKey: panelCompletenessByKey,
                 agentCompletenessByWorkspace: agentCompletenessByWorkspace,
                 requestID: requestID
             )
@@ -330,7 +339,7 @@ final class PortScanner: @unchecked Sendable {
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
         agentRevisions: [UUID: UInt64],
-        panelCompleteness: PortScanCompleteness,
+        panelCompletenessByKey: [PanelKey: PortScanCompleteness],
         agentCompletenessByWorkspace: [UUID: PortScanCompleteness],
         requestID: UInt64
     ) {
@@ -341,7 +350,7 @@ final class PortScanner: @unchecked Sendable {
             workspaceIds: workspaceIds,
             agentPortsByWorkspace: agentPortsByWorkspace,
             agentRevisions: agentRevisions,
-            panelCompleteness: panelCompleteness,
+            panelCompletenessByKey: panelCompletenessByKey,
             agentCompletenessByWorkspace: agentCompletenessByWorkspace,
             requestID: requestID
         )
@@ -524,7 +533,7 @@ final class PortScanner: @unchecked Sendable {
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
         agentRevisions: [UUID: UInt64],
-        panelCompleteness: PortScanCompleteness,
+        panelCompletenessByKey: [PanelKey: PortScanCompleteness],
         agentCompletenessByWorkspace: [UUID: PortScanCompleteness],
         requestID: UInt64
     ) {
@@ -537,7 +546,7 @@ final class PortScanner: @unchecked Sendable {
                 scannedPorts: scannedPorts,
                 scannedKeys: Set(scannedPorts.keys),
                 trackedKeys: trackedKeys,
-                completeness: panelCompleteness
+                completenessByKey: panelCompletenessByKey
             )
             if onPortsUpdated != nil {
                 let publication = trackedKeys.reduce(into: [PanelKey: [Int]]()) { result, key in

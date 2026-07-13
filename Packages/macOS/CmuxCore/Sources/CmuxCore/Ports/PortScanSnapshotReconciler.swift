@@ -49,6 +49,35 @@ public struct PortScanSnapshotReconciler<Key: Hashable & Sendable>: Sendable {
         trackedKeys: Set<Key>,
         completeness: PortScanCompleteness
     ) -> [Key: [Int]] {
+        reconcile(
+            scannedPorts: scannedPorts,
+            scannedKeys: scannedKeys,
+            trackedKeys: trackedKeys,
+            completenessByKey: Dictionary(
+                uniqueKeysWithValues: scannedKeys.map { ($0, completeness) }
+            )
+        )
+    }
+
+    /// Applies scan observations with completeness scoped to each scanned key.
+    ///
+    /// - Parameters:
+    ///   - scannedPorts: Positively observed ports by tracked key. Missing keys
+    ///     and empty arrays are negative evidence only for a complete key.
+    ///   - scannedKeys: Keys covered by this scan. Tracked keys outside this
+    ///     scope are preserved without advancing their missing counts.
+    ///   - trackedKeys: Keys that still belong to the scanner lifecycle.
+    ///   - completenessByKey: Whether each key's missing observations are
+    ///     authoritative enough to advance removal. Missing entries are treated
+    ///     as incomplete.
+    /// - Returns: The reconciled stable snapshot.
+    @discardableResult
+    public mutating func reconcile(
+        scannedPorts: [Key: [Int]],
+        scannedKeys: Set<Key>,
+        trackedKeys: Set<Key>,
+        completenessByKey: [Key: PortScanCompleteness]
+    ) -> [Key: [Int]] {
         snapshot = snapshot.filter { trackedKeys.contains($0.key) }
         missingObservationCounts = missingObservationCounts.filter { trackedKeys.contains($0.key) }
         incompletePortsByKey = incompletePortsByKey.filter { trackedKeys.contains($0.key) }
@@ -60,7 +89,7 @@ public struct PortScanSnapshotReconciler<Key: Hashable & Sendable>: Sendable {
             let observed = Set((scannedPorts[key] ?? []).filter { $0 > 0 && $0 <= 65_535 })
             let previous = Set(snapshot[key] ?? [])
 
-            switch completeness {
+            switch completenessByKey[key, default: .incomplete] {
             case .incomplete:
                 let unbounded = previous.union(observed)
                 var incompletePorts = incompletePortsByKey[key] ?? []
