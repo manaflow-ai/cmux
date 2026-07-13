@@ -12,9 +12,13 @@ import Testing
             backing: .buffered,
             defer: false
         )
-        let leading = Self.accessory(identifier: "cmux.titlebarControls")
-        let trailing = Self.accessory(identifier: "cmux.titlebarTrailingControls")
-        let unrelated = Self.accessory(identifier: "cmux.unrelatedAccessory")
+        let leading = Self.accessory(
+            identifier: NativeTitlebarBackdropCoordinator.leadingControlsIdentifier
+        )
+        let trailing = Self.accessory(
+            identifier: NativeTitlebarBackdropCoordinator.trailingControlsIdentifier
+        )
+        let unrelated = Self.accessory(identifier: NSUserInterfaceItemIdentifier("cmux.unrelatedAccessory"))
         window.addTitlebarAccessoryViewController(leading)
         window.addTitlebarAccessoryViewController(trailing)
         window.addTitlebarAccessoryViewController(unrelated)
@@ -37,10 +41,12 @@ import Testing
         #expect(!trailing.view.isHidden)
     }
 
-    private static func accessory(identifier: String) -> NSTitlebarAccessoryViewController {
+    private static func accessory(
+        identifier: NSUserInterfaceItemIdentifier
+    ) -> NSTitlebarAccessoryViewController {
         let accessory = NSTitlebarAccessoryViewController()
         accessory.view = NSView()
-        accessory.view.identifier = NSUserInterfaceItemIdentifier(identifier)
+        accessory.view.identifier = identifier
         return accessory
     }
 }

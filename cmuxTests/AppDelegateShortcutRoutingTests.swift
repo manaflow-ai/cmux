@@ -3,6 +3,7 @@ import CmuxTerminal
 import AppKit
 import Carbon.HIToolbox
 import Combine
+import CmuxAppKitSupportUI
 import SwiftUI
 @testable import CmuxSettingsUI
 
@@ -3287,10 +3288,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         let titlebarAccessory: () -> NSTitlebarAccessoryViewController? = {
             window.titlebarAccessoryViewControllers.first {
-                $0.view.identifier?.rawValue == "cmux.titlebarControls"
+                $0.view.identifier == NativeTitlebarBackdropCoordinator.leadingControlsIdentifier
             }
         }
-
         guard let initialAccessory = titlebarAccessory() else {
             XCTFail("Expected visible-titlebar mode to attach the titlebar accessory")
             return

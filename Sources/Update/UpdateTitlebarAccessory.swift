@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
@@ -2430,8 +2431,8 @@ final class UpdateTitlebarAccessoryController {
     private var observers: [NSObjectProtocol] = []
     private var pendingAttachRetries: [ObjectIdentifier: Int] = [:]
     private var startupScanWorkItems: [DispatchWorkItem] = []
-    private let controlsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
-    private let trailingControlsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarTrailingControls")
+    private let controlsIdentifier = NativeTitlebarBackdropCoordinator.leadingControlsIdentifier
+    private let trailingControlsIdentifier = NativeTitlebarBackdropCoordinator.trailingControlsIdentifier
     private let controlsControllers = NSHashTable<TitlebarControlsAccessoryViewController>.weakObjects()
     private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
     private var detachedNotificationsPopover: NSPopover?
@@ -2621,9 +2622,7 @@ final class UpdateTitlebarAccessoryController {
         let existingIndex = window.titlebarAccessoryViewControllers.firstIndex {
             $0.view.identifier == trailingControlsIdentifier
         }
-        guard let state = AppDelegate.shared?
-            .preferredRegisteredMainWindowContext(preferredWindow: window)?
-            .fileExplorerState else {
+        guard let state = AppDelegate.shared?.contextForMainWindow(window)?.fileExplorerState else {
             if let existingIndex {
                 window.removeTitlebarAccessoryViewController(at: existingIndex)
             }
