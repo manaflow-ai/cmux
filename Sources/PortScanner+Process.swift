@@ -14,20 +14,18 @@ extension PortScanner {
     }
 
     func expandAgentProcessTree(
-        agentPIDsByWorkspace: [UUID: Set<Int>]
+        agentRootsByWorkspace: [UUID: Set<AgentPortRootIdentity>]
     ) async -> (values: [Int: Set<UUID>], completeness: PortScanCompleteness) {
-        let normalizedRoots = agentPIDsByWorkspace.reduce(into: [UUID: Set<Int>]()) { partial, item in
-            let valid = Set(item.value.filter { $0 > 0 })
-            guard !valid.isEmpty else { return }
-            partial[item.key] = valid
+        let rootValidation = validateAgentRoots(agentRootsByWorkspace)
+        guard !rootValidation.values.isEmpty else {
+            return ([:], rootValidation.completeness)
         }
-        guard !normalizedRoots.isEmpty else { return ([:], .complete) }
 
         var pidToWorkspaces: [Int: Set<UUID>] = [:]
         var pending: [(pid: Int, workspaceId: UUID)] = []
-        for (workspaceId, roots) in normalizedRoots {
-            for pid in roots where pidToWorkspaces[pid, default: []].insert(workspaceId).inserted {
-                pending.append((pid, workspaceId))
+        for (workspaceId, roots) in rootValidation.values {
+            for root in roots where pidToWorkspaces[root.pid, default: []].insert(workspaceId).inserted {
+                pending.append((root.pid, workspaceId))
             }
         }
 
@@ -47,7 +45,47 @@ extension PortScanner {
             }
         }
 
-        return (pidToWorkspaces, processScan.completeness)
+        return (
+            pidToWorkspaces,
+            Self.combinedCompleteness(rootValidation.completeness, processScan.completeness)
+        )
+    }
+
+    func revalidateAgentProcessTree(
+        _ pidToWorkspaces: [Int: Set<UUID>],
+        rootsByWorkspace: [UUID: Set<AgentPortRootIdentity>]
+    ) -> (values: [Int: Set<UUID>], completeness: PortScanCompleteness) {
+        let rootValidation = validateAgentRoots(rootsByWorkspace)
+        let currentWorkspaceIds = Set(rootValidation.values.keys)
+        let filtered = pidToWorkspaces.reduce(into: [Int: Set<UUID>]()) { partial, item in
+            let workspaceIds = item.value.intersection(currentWorkspaceIds)
+            if !workspaceIds.isEmpty {
+                partial[item.key] = workspaceIds
+            }
+        }
+        return (filtered, rootValidation.completeness)
+    }
+
+    func validateAgentRoots(
+        _ rootsByWorkspace: [UUID: Set<AgentPortRootIdentity>]
+    ) -> (values: [UUID: Set<AgentPortRootIdentity>], completeness: PortScanCompleteness) {
+        var validRootsByWorkspace: [UUID: Set<AgentPortRootIdentity>] = [:]
+        var completeness = PortScanCompleteness.complete
+        for (workspaceId, roots) in rootsByWorkspace {
+            for root in roots where root.pid > 0 {
+                guard let expectedIdentity = root.processIdentity else {
+                    completeness = .incomplete
+                    continue
+                }
+                guard let currentIdentity = processIdentityProvider(pid_t(root.pid)) else {
+                    completeness = .incomplete
+                    continue
+                }
+                guard currentIdentity == expectedIdentity else { continue }
+                validRootsByWorkspace[workspaceId, default: []].insert(root)
+            }
+        }
+        return (validRootsByWorkspace, completeness)
     }
 
     func runPS(ttyList: String) async -> (values: [Int: String], completeness: PortScanCompleteness) {

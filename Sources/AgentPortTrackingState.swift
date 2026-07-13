@@ -14,4 +14,8 @@ struct AgentPortTrackingState {
         }
         return previous != next
     }
+
+    func roots(for workspaceIds: Set<UUID>) -> [UUID: Set<AgentPortRootIdentity>] {
+        rootsByWorkspace.filter { workspaceIds.contains($0.key) }
+    }
 }

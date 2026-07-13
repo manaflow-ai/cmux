@@ -1,9 +1,14 @@
 import Foundation
 
-/// Queue-confined coalescing buffer with at most one scheduled drain task.
+/// Queue-confined coalescing and delivery-order owner with at most one drain task.
+///
+/// Taking a batch claims its agent publications until acknowledgement. Newer
+/// values coalesce behind that claim, so a value cannot become stale between
+/// queue validation and its synchronous MainActor callback.
 struct PortScanPublicationBuffer {
     private(set) var isDrainScheduled = false
     private var pending = PortScanPublicationBatch()
+    private var claimedAgentPublicationsByWorkspace: [UUID: AgentPortScanPublication] = [:]
 
     mutating func enqueue(panelPortsByKey: [PortScanner.PanelKey: [Int]]) -> Bool {
         pending.panelPortsByKey = panelPortsByKey
@@ -14,6 +19,10 @@ struct PortScanPublicationBuffer {
     mutating func enqueue(agentPublications: [AgentPortScanPublication]) -> Bool {
         guard !agentPublications.isEmpty else { return false }
         for publication in agentPublications {
+            if let claimed = claimedAgentPublicationsByWorkspace[publication.workspaceId],
+               !publication.isNewer(than: claimed) {
+                continue
+            }
             if let existing = pending.agentPublicationsByWorkspace[publication.workspaceId],
                !publication.isNewer(than: existing) {
                 continue
@@ -24,13 +33,36 @@ struct PortScanPublicationBuffer {
     }
 
     mutating func takePendingBatch() -> PortScanPublicationBatch? {
+        guard claimedAgentPublicationsByWorkspace.isEmpty else { return nil }
         guard !pending.isEmpty else {
             isDrainScheduled = false
             return nil
         }
         let batch = pending
         pending = PortScanPublicationBatch()
+        claimedAgentPublicationsByWorkspace = batch.agentPublicationsByWorkspace
         return batch
+    }
+
+    mutating func completeAgentDelivery(
+        _ publications: some Sequence<AgentPortScanPublication>
+    ) -> [AgentPortScanPublication] {
+        var completed: [AgentPortScanPublication] = []
+        for publication in publications {
+            guard claimedAgentPublicationsByWorkspace[publication.workspaceId] == publication else {
+                continue
+            }
+            claimedAgentPublicationsByWorkspace.removeValue(forKey: publication.workspaceId)
+            completed.append(publication)
+        }
+        return completed
+    }
+
+    func hasPendingAgentPublication(newerThan publication: AgentPortScanPublication) -> Bool {
+        guard let pending = pending.agentPublicationsByWorkspace[publication.workspaceId] else {
+            return false
+        }
+        return pending.isNewer(than: publication)
     }
 
     private mutating func scheduleDrainIfNeeded() -> Bool {

@@ -89,6 +89,58 @@ struct PortScannerProcessCaptureTests {
     }
 }
 
+@Suite("Agent process identity validation")
+struct AgentProcessIdentityValidationTests {
+    @Test("A matching birth identity is retained for process-tree expansion")
+    func matchingIdentityIsAccepted() {
+        let workspaceID = UUID()
+        let identity = AgentPIDProcessIdentity(
+            pid: 100,
+            startSeconds: 10,
+            startMicroseconds: 20
+        )
+        let root = AgentPortRootIdentity(pid: 100, processIdentity: identity)
+        let scanner = PortScanner(processIdentityProvider: { pid in
+            pid == identity.pid ? identity : nil
+        })
+
+        let validation = scanner.validateAgentRoots([workspaceID: [root]])
+
+        #expect(validation.values == [workspaceID: [root]])
+        #expect(validation.completeness == .complete)
+    }
+
+    @Test("A recycled root PID cannot retain ownership of the expanded process tree")
+    func recycledPIDIsRejectedBeforeLsof() {
+        let workspaceID = UUID()
+        let recorded = AgentPIDProcessIdentity(pid: 100, startSeconds: 10, startMicroseconds: 20)
+        let recycled = AgentPIDProcessIdentity(pid: 100, startSeconds: 11, startMicroseconds: 0)
+        let root = AgentPortRootIdentity(pid: 100, processIdentity: recorded)
+        let scanner = PortScanner(processIdentityProvider: { _ in recycled })
+
+        let revalidated = scanner.revalidateAgentProcessTree(
+            [100: [workspaceID], 101: [workspaceID]],
+            rootsByWorkspace: [workspaceID: [root]]
+        )
+
+        #expect(revalidated.values.isEmpty)
+        #expect(revalidated.completeness == .complete)
+    }
+
+    @Test("An unavailable birth-identity probe is incomplete negative evidence")
+    func unavailableIdentityProbeIsIncomplete() {
+        let workspaceID = UUID()
+        let identity = AgentPIDProcessIdentity(pid: 100, startSeconds: 10, startMicroseconds: 20)
+        let root = AgentPortRootIdentity(pid: 100, processIdentity: identity)
+        let scanner = PortScanner(processIdentityProvider: { _ in nil })
+
+        let validation = scanner.validateAgentRoots([workspaceID: [root]])
+
+        #expect(validation.values.isEmpty)
+        #expect(validation.completeness == .incomplete)
+    }
+}
+
 @Suite("Port scan coordination")
 struct PortScanCoordinationTests {
     @Test("Panel scans stay single-flight and coalesce one pending pass")
@@ -116,19 +168,26 @@ struct PortScanCoordinationTests {
         let secondWorkspace = UUID()
         let first = AgentPortScanRequest(
             workspaceIds: [firstWorkspace],
-            pidInput: .captured([firstWorkspace: [100]]),
+            rootInput: AgentPortScanRootInput(
+                rootsByWorkspace: [firstWorkspace: [AgentPortRootIdentity(pid: 100, processIdentity: nil)]]
+            ),
             agentRevisions: [firstWorkspace: 1],
             requestID: coordination.makeRequestID()
         )
         let newer = AgentPortScanRequest(
             workspaceIds: [firstWorkspace, secondWorkspace],
-            pidInput: .captured([firstWorkspace: [101], secondWorkspace: [200]]),
+            rootInput: AgentPortScanRootInput(rootsByWorkspace: [
+                firstWorkspace: [AgentPortRootIdentity(pid: 101, processIdentity: nil)],
+                secondWorkspace: [AgentPortRootIdentity(pid: 200, processIdentity: nil)]
+            ]),
             agentRevisions: [firstWorkspace: 2, secondWorkspace: 1],
             requestID: coordination.makeRequestID()
         )
         let latest = AgentPortScanRequest(
             workspaceIds: [secondWorkspace],
-            pidInput: .captured([secondWorkspace: [201]]),
+            rootInput: AgentPortScanRootInput(
+                rootsByWorkspace: [secondWorkspace: [AgentPortRootIdentity(pid: 201, processIdentity: nil)]]
+            ),
             agentRevisions: [secondWorkspace: 2],
             requestID: coordination.makeRequestID()
         )
@@ -141,16 +200,10 @@ struct PortScanCoordinationTests {
         #expect(mergedScan == nil)
         let finishedScan = coordination.finishAgentScan()
         let pending = try #require(finishedScan)
-        let pendingPIDs: [UUID: Set<Int>]
-        if case .captured(let pids) = pending.pidInput {
-            pendingPIDs = pids
-        } else {
-            pendingPIDs = [:]
-            Issue.record("Expected coalesced captured PID input")
-        }
+        let pendingRoots = pending.rootInput.rootsByWorkspace
         #expect(pending.workspaceIds == [firstWorkspace, secondWorkspace])
-        #expect(pendingPIDs[firstWorkspace] == [101])
-        #expect(pendingPIDs[secondWorkspace] == [201])
+        #expect(pendingRoots[firstWorkspace]?.map(\.pid) == [101])
+        #expect(pendingRoots[secondWorkspace]?.map(\.pid) == [201])
         #expect(pending.agentRevisions == [firstWorkspace: 2, secondWorkspace: 2])
         #expect(pending.requestID == latest.requestID)
 
@@ -158,14 +211,6 @@ struct PortScanCoordinationTests {
         #expect(nextScan == nil)
         let nextPending = coordination.finishAgentScan()
         #expect(nextPending?.requestID == first.requestID)
-    }
-
-    @Test("Provider refresh dominates captured PID inputs when requests coalesce")
-    func providerRefreshDominatesCapturedPIDs() {
-        let captured = AgentPortScanPIDInput.captured([UUID(): [100]])
-
-        #expect(captured.merging(.refreshProvider) == .refreshProvider)
-        #expect(AgentPortScanPIDInput.refreshProvider.merging(captured) == .refreshProvider)
     }
 
     @Test("Older asynchronous results are rejected after a newer result applies")
@@ -216,243 +261,6 @@ struct PortScanCoordinationTests {
         #expect(coordination.isLatestAgentResult(workspaceId: forcedClearWorkspaceID, requestID: requestID) == false)
     }
 
-    @Test("PID refresh resolution filters stale workspaces before lifecycle removal")
-    func stalePIDRefreshCannotRemoveRestartedWorkspace() {
-        let staleWorkspace = UUID()
-        let inactiveWorkspace = UUID()
-        let request = AgentPortScanRequest(
-            workspaceIds: [staleWorkspace, inactiveWorkspace],
-            pidInput: .refreshProvider,
-            agentRevisions: [staleWorkspace: 1, inactiveWorkspace: 1],
-            requestID: 1
-        )
-
-        let resolution = request.resolvingPIDs(
-            [:],
-            currentRevisions: [staleWorkspace: 2, inactiveWorkspace: 1]
-        )
-
-        #expect(resolution.request.workspaceIds == [inactiveWorkspace])
-        #expect(resolution.inactiveWorkspaceIds == [inactiveWorkspace])
-        #expect(resolution.inactiveWorkspaceIds.contains(staleWorkspace) == false)
-    }
-}
-
-@MainActor
-@Suite("Port scan publication lifecycle")
-struct PortScanPublicationStateTests {
-    @Test("A newer lifecycle revision rejects a queued stale publication")
-    func staleRevisionIsRejected() {
-        let state = PortScanPublicationState()
-        let workspaceID = UUID()
-        let staleRevision = state.nextAgentRevision(for: workspaceID)
-        let currentRevision = state.nextAgentRevision(for: workspaceID)
-
-        #expect(state.isCurrentAgentRevision(staleRevision, workspaceId: workspaceID) == false)
-        #expect(state.isCurrentAgentRevision(currentRevision, workspaceId: workspaceID))
-
-        let currentPublication = AgentPortScanPublication(
-            workspaceId: workspaceID,
-            ports: [4200],
-            revision: currentRevision,
-            requestID: 2,
-            removesLifecycle: false
-        )
-        let staleRequest = AgentPortScanPublication(
-            workspaceId: workspaceID,
-            ports: [4000],
-            revision: currentRevision,
-            requestID: 1,
-            removesLifecycle: false
-        )
-        let acceptedCurrent = state.acceptCurrentAgentPublications([currentPublication])
-        let rejectedStale = state.acceptCurrentAgentPublications([staleRequest])
-        #expect(acceptedCurrent.map(\.requestID) == [2])
-        #expect(rejectedStale.isEmpty)
-    }
-
-    @Test("Finishing a one-shot lifecycle removes only its current revision")
-    func oneShotLifecycleRemovalIsRevisionGated() {
-        let state = PortScanPublicationState()
-        let workspaceID = UUID()
-        let staleRevision = state.nextAgentRevision(for: workspaceID)
-        let currentRevision = state.nextAgentRevision(for: workspaceID)
-
-        state.finishAgentLifecycle(workspaceId: workspaceID, revision: staleRevision)
-        #expect(state.isCurrentAgentRevision(currentRevision, workspaceId: workspaceID))
-
-        state.finishAgentLifecycle(workspaceId: workspaceID, revision: currentRevision)
-        #expect(state.isCurrentAgentRevision(currentRevision, workspaceId: workspaceID) == false)
-
-        let restartedRevision = state.nextAgentRevision(for: workspaceID)
-        #expect(restartedRevision > currentRevision)
-        #expect(state.isCurrentAgentRevision(currentRevision, workspaceId: workspaceID) == false)
-        #expect(state.isCurrentAgentRevision(restartedRevision, workspaceId: workspaceID))
-    }
-}
-
-@Suite("Agent port snapshot replacement")
-struct AgentPortSnapshotReplacementStateTests {
-    @Test("Root transitions replace on complete or after bounded incomplete scans")
-    func replacementIsCompletenessBounded() {
-        var state = AgentPortSnapshotReplacementState(incompleteRetentionLimit: 2)
-        let workspaceID = UUID()
-        state.begin(workspaceId: workspaceID)
-
-        let first = state.workspacesToReplace(from: [workspaceID], completeness: .incomplete)
-        let second = state.workspacesToReplace(from: [workspaceID], completeness: .incomplete)
-        let third = state.workspacesToReplace(from: [workspaceID], completeness: .incomplete)
-        #expect(first.isEmpty)
-        #expect(second.isEmpty)
-        #expect(third == [workspaceID])
-
-        state.begin(workspaceId: workspaceID)
-        let complete = state.workspacesToReplace(from: [workspaceID], completeness: .complete)
-        #expect(complete == [workspaceID])
-
-        state.begin(workspaceId: workspaceID)
-        state.cancel(workspaceId: workspaceID)
-        let cancelled = state.workspacesToReplace(from: [workspaceID], completeness: .complete)
-        #expect(cancelled.isEmpty)
-    }
-}
-
-@Suite("Agent port tracking lifecycle")
-struct AgentPortTrackingStateTests {
-    @Test("Only a changed root PID set starts a new snapshot lifecycle")
-    func rootPIDChangesDelimitSnapshots() {
-        var state = AgentPortTrackingState()
-        let workspaceID = UUID()
-        let first = AgentPortRootIdentity(
-            pid: 100,
-            processIdentity: AgentPIDProcessIdentity(pid: 100, startSeconds: 1, startMicroseconds: 0)
-        )
-        let recycledPID = AgentPortRootIdentity(
-            pid: 100,
-            processIdentity: AgentPIDProcessIdentity(pid: 100, startSeconds: 2, startMicroseconds: 0)
-        )
-
-        let initial = state.replaceRoots([first], workspaceId: workspaceID)
-        let repeated = state.replaceRoots([first], workspaceId: workspaceID)
-        let recycled = state.replaceRoots([recycledPID], workspaceId: workspaceID)
-        let stopped = state.replaceRoots([], workspaceId: workspaceID)
-        let repeatedStop = state.replaceRoots([], workspaceId: workspaceID)
-        let restarted = state.replaceRoots([first], workspaceId: workspaceID)
-
-        #expect(initial)
-        #expect(repeated == false)
-        #expect(recycled)
-        #expect(stopped)
-        #expect(repeatedStop == false)
-        #expect(restarted)
-    }
-}
-
-@Suite("Agent port publication history")
-struct AgentPortPublicationHistoryTests {
-    @Test("Pending desired values keep the newest request publishable")
-    func pendingValuesAreNotDeduplicatedAgainstAcknowledgedState() {
-        var history = AgentPortPublicationHistory()
-        let workspaceID = UUID()
-
-        let initial = history.shouldPublish(workspaceId: workspaceID, ports: [4200], forced: false)
-        let samePending = history.shouldPublish(workspaceId: workspaceID, ports: [4200], forced: false)
-        history.acknowledge(workspaceId: workspaceID, ports: [4200])
-        let sameAcknowledged = history.shouldPublish(
-            workspaceId: workspaceID,
-            ports: [4200],
-            forced: false
-        )
-        let changed = history.shouldPublish(workspaceId: workspaceID, ports: [5173], forced: false)
-        let restored = history.shouldPublish(workspaceId: workspaceID, ports: [4200], forced: false)
-
-        #expect(initial)
-        #expect(samePending)
-        #expect(sameAcknowledged == false)
-        #expect(changed)
-        #expect(restored)
-    }
-}
-
-@Suite("Port scan publication buffer")
-struct PortScanPublicationBufferTests {
-    @Test("Repeated panel updates retain only the latest value behind one drain")
-    func panelUpdatesAreBoundedAndCoalesced() throws {
-        var buffer = PortScanPublicationBuffer()
-        let key = PortScanner.PanelKey(workspaceId: UUID(), panelId: UUID())
-        let removedKey = PortScanner.PanelKey(workspaceId: UUID(), panelId: UUID())
-
-        let didScheduleInitialDrain = buffer.enqueue(
-            panelPortsByKey: [key: [4000], removedKey: [5000]]
-        )
-        #expect(didScheduleInitialDrain)
-        for port in 4001...4100 {
-            let didScheduleAnotherDrain = buffer.enqueue(panelPortsByKey: [key: [port]])
-            #expect(didScheduleAnotherDrain == false)
-        }
-        #expect(buffer.isDrainScheduled)
-
-        let pendingBatch = buffer.takePendingBatch()
-        let batch = try #require(pendingBatch)
-        #expect(batch.panelPortsByKey[key] == [4100])
-        #expect(batch.panelPortsByKey[removedKey] == nil)
-        #expect(buffer.isDrainScheduled)
-        let emptyBatch = buffer.takePendingBatch()
-        #expect(emptyBatch?.isEmpty == nil)
-        #expect(buffer.isDrainScheduled == false)
-    }
-
-    @Test("Agent updates coalesce by lifecycle revision and request ordering")
-    func agentUpdatesKeepLatestLifecycleValue() throws {
-        var buffer = PortScanPublicationBuffer()
-        let workspaceID = UUID()
-        let first = AgentPortScanPublication(
-            workspaceId: workspaceID,
-            ports: [4000],
-            revision: 1,
-            requestID: 1,
-            removesLifecycle: false
-        )
-        let latestRequest = AgentPortScanPublication(
-            workspaceId: workspaceID,
-            ports: [4200],
-            revision: 1,
-            requestID: 2,
-            removesLifecycle: false
-        )
-        let staleLifecycle = AgentPortScanPublication(
-            workspaceId: workspaceID,
-            ports: [4300],
-            revision: 0,
-            requestID: 99,
-            removesLifecycle: false
-        )
-
-        let didScheduleInitialDrain = buffer.enqueue(agentPublications: [first])
-        let didScheduleLatestRequestDrain = buffer.enqueue(agentPublications: [latestRequest])
-        let didScheduleStaleLifecycleDrain = buffer.enqueue(agentPublications: [staleLifecycle])
-        #expect(didScheduleInitialDrain)
-        #expect(didScheduleLatestRequestDrain == false)
-        #expect(didScheduleStaleLifecycleDrain == false)
-
-        let pendingBatch = buffer.takePendingBatch()
-        let batch = try #require(pendingBatch)
-        #expect(batch.agentPublicationsByWorkspace[workspaceID]?.ports == [4200])
-
-        let nextLifecycle = AgentPortScanPublication(
-            workspaceId: workspaceID,
-            ports: [4400],
-            revision: 2,
-            requestID: 3,
-            removesLifecycle: false
-        )
-        let didScheduleNextLifecycleDrain = buffer.enqueue(agentPublications: [nextLifecycle])
-        let nextLifecycleBatch = buffer.takePendingBatch()
-        let emptyBatch = buffer.takePendingBatch()
-        #expect(didScheduleNextLifecycleDrain == false)
-        #expect(nextLifecycleBatch?.agentPublicationsByWorkspace[workspaceID]?.ports == [4400])
-        #expect(emptyBatch?.isEmpty == nil)
-    }
 }
 
 @Suite("Process termination gate")

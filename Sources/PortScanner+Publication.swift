@@ -26,22 +26,22 @@ extension PortScanner {
                 }
             }
 
-            guard let agentCallback = onAgentPortsUpdated else { continue }
-            let currentResults = publicationState.acceptCurrentAgentPublications(
-                batch.agentPublicationsByWorkspace.values
-            )
-            guard !currentResults.isEmpty else { continue }
+            let deliveredResults = Array(batch.agentPublicationsByWorkspace.values)
+            guard !deliveredResults.isEmpty else { continue }
+            let currentResults = publicationState.acceptCurrentAgentPublications(deliveredResults)
             let appliedResults = currentResults.filter { result in
-                agentCallback(result.workspaceId, result.ports)
+                onAgentPortsUpdated?(result.workspaceId, result.ports) == true
             }
-            for result in currentResults where result.removesLifecycle {
+            let completedLifecycles = await acknowledgeAgentResults(
+                deliveredResults,
+                appliedWorkspaceIds: Set(appliedResults.map(\.workspaceId))
+            )
+            for result in completedLifecycles {
                 publicationState.finishAgentLifecycle(
                     workspaceId: result.workspaceId,
                     revision: result.revision
                 )
             }
-            let appliedWorkspaceIds = Set(appliedResults.map(\.workspaceId))
-            await acknowledgeAgentResults(currentResults, appliedWorkspaceIds: appliedWorkspaceIds)
         }
     }
 
