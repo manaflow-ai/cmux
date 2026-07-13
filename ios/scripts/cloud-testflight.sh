@@ -132,6 +132,15 @@ done
   || die "invalid --marketing-version (want X.Y or X.Y.Z): $MARKETING_VERSION_OVERRIDE"
 [[ -d "$IOS_DIR/cmux.xcworkspace" ]] || die "run from a cmux checkout containing ios/cmux.xcworkspace"
 
+# Pin the expected beta version before any archive path runs. The local fallback
+# and the fleet build both stamp this version into the archive; upload-testflight.sh
+# reads the same env var when it verifies a reused --archive-path.
+if [[ -n "$MARKETING_VERSION_OVERRIDE" ]]; then
+  export BETA_MARKETING_VERSION="$MARKETING_VERSION_OVERRIDE"
+else
+  unset BETA_MARKETING_VERSION
+fi
+
 # --- locate the hq cloud build script (mirrors ios/scripts/reload-cloud.sh) ---
 # scripts/reload-cloud-ios.sh lives in the cmuxterm-hq checkout, two levels up
 # from the worktree's git common dir (.../cmuxterm-hq/repo/.git -> cmuxterm-hq).
@@ -163,14 +172,6 @@ build_archive_cloud() {
   log="$(mktemp "${TMPDIR:-/tmp}/cloud-testflight-cloud.XXXXXX")"
   err "building UNSIGNED Release beta archive on the fleet via $hq_cloud"
   local args=( --mode beta-archive --tag "$TAG" --keep-artifacts --beta-bundle-id "$BETA_BUNDLE_ID" )
-  # Pin BETA_MARKETING_VERSION to exactly the requested override; explicitly
-  # unset otherwise so a stray value already in the caller's environment can
-  # not leak into the cloud build and desync it from a local cut.
-  if [[ -n "$MARKETING_VERSION_OVERRIDE" ]]; then
-    export BETA_MARKETING_VERSION="$MARKETING_VERSION_OVERRIDE"
-  else
-    unset BETA_MARKETING_VERSION
-  fi
   [[ -n "$HOST_FILTER" ]] && args+=( --host "$HOST_FILTER" )
   [[ "$WAIT_SECONDS" =~ ^[0-9]+$ && "$WAIT_SECONDS" -gt 0 ]] && args+=( --wait "$WAIT_SECONDS" )
   # Run from the repo root so the hq script's "run from a cmux checkout" check and

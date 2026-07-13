@@ -1,31 +1,32 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
+import { englishFallbackContentLocales } from "@/i18n/locale-availability";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "@/i18n/navigation";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "blog.cmuxClaudeTeams" });
+  const alternates = buildAlternates(
+    locale,
+    "/blog/cmux-claude-teams",
+    englishFallbackContentLocales,
+  );
+  const title = t("metaTitle");
+  const description = seoDescription(locale, t("metaDescription"));
   return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    keywords: [
-      "cmux", "Claude Code", "agent teams", "teammate mode", "tmux",
-      "terminal", "macOS", "AI coding agents", "split panes",
-    ],
+    title,
+    description,
     openGraph: {
-      title: t("metaTitle"),
-      description: t("metaDescription"),
-      type: "article",
+      ...openGraphDefaults(locale, "article"),
+      title,
+      description,
+      url: alternates.canonical,
       publishedTime: "2026-03-30T00:00:00Z",
     },
-    twitter: {
-      card: "summary_large_image",
-      title: t("metaTitle"),
-      description: t("metaDescription"),
-    },
-    alternates: buildAlternates(locale, "/blog/cmux-claude-teams"),
+    twitter: twitterSummary(locale, title, description),
+    alternates,
   };
 }
 

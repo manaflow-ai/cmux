@@ -4,29 +4,44 @@ import {
   articleSchema,
   breadcrumbList,
 } from "@/app/[locale]/components/json-ld";
+import {
+  type AuditedBlogPostKey,
+  blogPostSeoCopy,
+} from "@/i18n/audited-seo";
 
 /**
- * Article + BreadcrumbList JSON-LD for a blog post. Reads the post title from
- * the post's `blog.posts.<key>` namespace and the description from the post's
- * `blog.<key>.metaDescription`. Breadcrumb is Home > Blog > <post>.
+ * Article + BreadcrumbList JSON-LD for a blog post. Defaults to the post's
+ * localized title and metadata description; callers with audited SEO copy can
+ * pass the exact headline and description shared by page metadata.
  */
 export function BlogSchema({
   postKey,
   path,
   datePublished,
+  headline: headlineOverride,
+  description: descriptionOverride,
+  seoKey,
 }: {
   postKey: string;
   path: string;
   datePublished: string;
+  headline?: string;
+  description?: string;
+  seoKey?: AuditedBlogPostKey;
 }) {
   const tp = useTranslations(`blog.posts.${postKey}`);
   const tm = useTranslations(`blog.${postKey}`);
   const tl = useTranslations("landing.links");
   const tn = useTranslations("nav");
+  const siteMeta = useTranslations("meta");
   const locale = useLocale();
 
-  const headline = tp("title");
-  const description = tm("metaDescription");
+  const auditedCopy = seoKey
+    ? blogPostSeoCopy(locale, seoKey, tm, tp, siteMeta)
+    : undefined;
+  const headline = headlineOverride ?? auditedCopy?.title ?? tp("title");
+  const description =
+    descriptionOverride ?? auditedCopy?.description ?? tm("metaDescription");
 
   return (
     <>
