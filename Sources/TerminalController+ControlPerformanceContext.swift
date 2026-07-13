@@ -4,6 +4,76 @@ import CmuxSidebarGit
 import Foundation
 
 extension TerminalController: ControlPerformanceContext {
+    nonisolated func v2PerformanceMetricsExerciseGitPR(
+        params: [String: Any]
+    ) async -> V2CallResult {
+        guard Set(params.keys) == ["concurrent_requests", "exercise_nonce"],
+              let nonce = params["exercise_nonce"] as? String,
+              nonce.range(of: #"^[0-9a-f]{64}$"#, options: .regularExpression) != nil,
+              let concurrentRequests = v2Int(params, "concurrent_requests"),
+              (2...8).contains(concurrentRequests) else {
+            return .err(
+                code: "invalid_params",
+                message: "exercise_nonce must be 64 lowercase hex and concurrent_requests must be 2...8",
+                data: nil
+            )
+        }
+        guard GitMetadataService.runtimeMetricsSnapshot().enabled,
+              SidebarGitMetadataService.runtimeMetricsSnapshot().enabled else {
+            return .err(
+                code: "metrics_disabled",
+                message: "Reset performance metrics before exercising Git and PR owners",
+                data: nil
+            )
+        }
+
+        do {
+            let git = try await GitOwnerPerformanceExercise.run(
+                requestCount: concurrentRequests
+            )
+            let sidebarGit = try await SidebarGitOwnerPerformanceExercise.run(
+                requestCount: concurrentRequests
+            )
+            guard git.completedSnapshotCount == concurrentRequests,
+                  git.allSnapshotsMatched,
+                  git.allWaitersRegistered,
+                  sidebarGit.singleFlightApplyCount == 1,
+                  sidebarGit.staleApplyCountBeforeFollowUp == 0,
+                  sidebarGit.staleFinalApplyCount == 1,
+                  let staleFinalBranch = sidebarGit.staleFinalBranch,
+                  staleFinalBranch == "feature/stale-b" else {
+                return .err(
+                    code: "exercise_failed",
+                    message: "Git and PR owner exercise did not complete its production ownership paths",
+                    data: nil
+                )
+            }
+            return .ok([
+                "schema_version": 1,
+                "exercise_nonce": nonce,
+                "request_count": concurrentRequests,
+                "isolation": "temporary_git_repository_and_in_memory_pr_host",
+                "git": [
+                    "completed_snapshot_count": git.completedSnapshotCount,
+                    "all_snapshots_matched": git.allSnapshotsMatched,
+                    "all_waiters_registered": git.allWaitersRegistered,
+                ],
+                "sidebar_git": [
+                    "single_flight_apply_count": sidebarGit.singleFlightApplyCount,
+                    "stale_apply_count_before_follow_up": sidebarGit.staleApplyCountBeforeFollowUp,
+                    "stale_final_apply_count": sidebarGit.staleFinalApplyCount,
+                    "stale_final_branch": staleFinalBranch,
+                ],
+            ])
+        } catch {
+            return .err(
+                code: "exercise_failed",
+                message: "Git and PR owner exercise failed",
+                data: nil
+            )
+        }
+    }
+
     nonisolated func v2PerformanceMetricsExerciseProcess(
         params: [String: Any]
     ) async -> V2CallResult {

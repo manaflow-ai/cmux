@@ -31,6 +31,7 @@ struct ControlCommandExecutionPolicyTests {
             "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",
             "feed.push", "browser.download.wait", "system.top", "system.memory",
             "performance.metrics.exercise_process",
+            "performance.metrics.exercise_git_pr",
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
             "debug.sidebar.simulate_drag", "mobile.attach_ticket.create",
