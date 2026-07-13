@@ -33,7 +33,7 @@ import Testing
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func cancellingGatedFetchReturnsWithoutProducingAResult() async {
+    func cancellingGatedFetchReturnsWithoutProducingAResult() async throws {
         let executor = SidebarGitOwnerPerformanceExecutor()
         let resolution = await executor.resolveCandidateSeeds([
             WorkspacePullRequestCandidateSeed(
@@ -52,15 +52,20 @@ import Testing
             )
         }
 
-        try? await executor.waitForFetchCount(1)
+        try await executor.waitForFetchCount(1)
+        while await executor.pendingFetchGateCount == 0 {
+            try Task.checkCancellation()
+            await Task.yield()
+        }
         fetchTask.cancel()
-        await executor.releaseNextFetch()
 
         #expect(await fetchTask.value.isEmpty)
+        #expect(await executor.pendingFetchGateCount == 0)
+        #expect(await executor.pendingFetchWaiterCount == 0)
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func cancellingBadgeWaitThrowsCancellation() async {
+    func cancellingBadgeWaitThrowsCancellation() async throws {
         let host = SidebarGitOwnerPerformanceHost(branch: "feature/cancel-badge")
         let waitTask = Task { @MainActor in
             do {
@@ -73,20 +78,111 @@ import Testing
             }
         }
 
-        await Task.yield()
+        while host.pendingBadgeWaiterCount == 0 {
+            try Task.checkCancellation()
+            await Task.yield()
+        }
         waitTask.cancel()
-        host.updatePanelPullRequest(
-            workspaceId: host.workspaceId,
-            panelId: host.panelId,
-            badge: SidebarPullRequestBadge(
-                number: 1,
-                label: "PR",
-                url: URL(string: "https://github.invalid/cmux/owner-proof/pull/1")!,
-                status: .open,
-                branch: host.branch
-            )
-        )
 
         #expect(await waitTask.value)
+        #expect(host.pendingBadgeWaiterCount == 0)
     }
+
+    @Test(.timeLimit(.minutes(1)))
+    func missingFetchSignalHitsInternalDeadlineAndCleansUp() async throws {
+        let clock = ManualGitPollClock()
+        let probe = SidebarGitOwnerPerformanceCleanupProbe()
+        let metrics = CmuxSidebarGitRuntimeMetrics()
+        metrics.reset(enable: true)
+        let task = Task { @MainActor in
+            try await SidebarGitOwnerPerformanceExercise.run(
+                requestCount: 4,
+                runtimeMetricsRecorder: metrics,
+                deadlineClock: clock,
+                lifecycleDeadline: .seconds(1),
+                fault: .missingFetchSignal,
+                cleanupProbe: probe
+            )
+        }
+
+        #expect(await clock.waitForRecordedDuration(1, count: 1))
+        #expect(await clock.resumeFirst(duration: 1))
+        do {
+            _ = try await task.value
+            Issue.record("Expected the missing fetch signal to hit its internal deadline")
+        } catch SidebarGitOwnerPerformanceExerciseError.lifecycleDeadlineExceeded {
+            // Expected.
+        }
+
+        #expect(await probe.snapshots == [.empty])
+        #expect(await clock.pendingSleeperCount == 0)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func missingBadgeApplySignalHitsInternalDeadlineAndCleansUp() async throws {
+        let clock = ManualGitPollClock()
+        let probe = SidebarGitOwnerPerformanceCleanupProbe()
+        let metrics = CmuxSidebarGitRuntimeMetrics()
+        metrics.reset(enable: true)
+        let task = Task { @MainActor in
+            try await SidebarGitOwnerPerformanceExercise.run(
+                requestCount: 4,
+                runtimeMetricsRecorder: metrics,
+                deadlineClock: clock,
+                lifecycleDeadline: .seconds(1),
+                fault: .missingBadgeApplySignal,
+                cleanupProbe: probe
+            )
+        }
+
+        #expect(await clock.waitForRecordedDuration(1, count: 2))
+        #expect(await clock.resumeFirst(duration: 1))
+        do {
+            _ = try await task.value
+            Issue.record("Expected the missing apply signal to hit its internal deadline")
+        } catch SidebarGitOwnerPerformanceExerciseError.lifecycleDeadlineExceeded {
+            // Expected.
+        }
+
+        #expect(await probe.snapshots == [.empty])
+        #expect(await clock.pendingSleeperCount == 0)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func cancellingFullExerciseCancelsEveryPendingWait() async throws {
+        let clock = ManualGitPollClock()
+        let probe = SidebarGitOwnerPerformanceCleanupProbe()
+        let metrics = CmuxSidebarGitRuntimeMetrics()
+        metrics.reset(enable: true)
+        let task = Task { @MainActor in
+            try await SidebarGitOwnerPerformanceExercise.run(
+                requestCount: 4,
+                runtimeMetricsRecorder: metrics,
+                deadlineClock: clock,
+                lifecycleDeadline: .seconds(1),
+                fault: .missingFetchSignal,
+                cleanupProbe: probe
+            )
+        }
+
+        #expect(await clock.waitForRecordedDuration(1, count: 1))
+        task.cancel()
+        do {
+            _ = try await task.value
+            Issue.record("Expected full exercise cancellation")
+        } catch is CancellationError {
+            // Expected.
+        }
+
+        #expect(await probe.snapshots == [.empty])
+        #expect(await clock.pendingSleeperCount == 0)
+    }
+}
+
+private extension SidebarGitOwnerPerformanceCleanupSnapshot {
+    static let empty = Self(
+        pendingFetchGateCount: 0,
+        pendingFetchWaiterCount: 0,
+        pendingBadgeWaiterCount: 0
+    )
 }

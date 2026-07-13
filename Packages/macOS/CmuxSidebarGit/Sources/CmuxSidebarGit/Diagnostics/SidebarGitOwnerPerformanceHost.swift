@@ -3,22 +3,57 @@ import Foundation
 /// Minimal in-memory host for the Release-safe owner exercise.
 @MainActor
 final class SidebarGitOwnerPerformanceHost: SidebarGitHosting {
+    private struct BadgeWaiter {
+        let minimumCount: Int
+        let continuation: CheckedContinuation<Void, any Error>
+    }
+
     let workspaceId = UUID()
     let panelId = UUID()
     let directory = "/isolated/owner-proof"
     var branch: String
     private(set) var badge: SidebarPullRequestBadge?
     private(set) var badgeApplyCount = 0
-    private var badgeWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+    private let suppressesBadgeApplySignal: Bool
+    private var badgeWaitersByID: [UUID: BadgeWaiter] = [:]
 
-    init(branch: String) {
+    init(branch: String, suppressesBadgeApplySignal: Bool = false) {
         self.branch = branch
+        self.suppressesBadgeApplySignal = suppressesBadgeApplySignal
     }
 
-    func waitForBadgeApplyCount(_ minimumCount: Int) async {
+    func waitForBadgeApplyCount(_ minimumCount: Int) async throws {
         guard badgeApplyCount < minimumCount else { return }
-        await withCheckedContinuation { badgeWaiters.append((minimumCount, $0)) }
+        let waiterID = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                badgeWaitersByID[waiterID] = BadgeWaiter(
+                    minimumCount: minimumCount,
+                    continuation: continuation
+                )
+            }
+            try Task.checkCancellation()
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancelBadgeWaiter(waiterID)
+            }
+        }
     }
+
+    func cancelAllPendingBadgeWaits() {
+        let waiters = Array(badgeWaitersByID.values)
+        badgeWaitersByID.removeAll()
+        for waiter in waiters {
+            waiter.continuation.resume(throwing: CancellationError())
+        }
+    }
+
+    var pendingBadgeWaiterCount: Int { badgeWaitersByID.count }
 
     func orderedWorkspaceIds() -> [UUID] { [workspaceId] }
     func workspaceExists(_ workspaceId: UUID) -> Bool { workspaceId == self.workspaceId }
@@ -81,10 +116,15 @@ final class SidebarGitOwnerPerformanceHost: SidebarGitHosting {
     ) {
         guard panelExists(workspaceId: workspaceId, panelId: panelId) else { return }
         self.badge = badge
+        guard !suppressesBadgeApplySignal else { return }
         badgeApplyCount += 1
-        let ready = badgeWaiters.filter { $0.0 <= badgeApplyCount }
-        badgeWaiters.removeAll { $0.0 <= badgeApplyCount }
-        for waiter in ready { waiter.1.resume() }
+        let readyIDs = badgeWaitersByID.compactMap { id, waiter in
+            waiter.minimumCount <= badgeApplyCount ? id : nil
+        }
+        for waiterID in readyIDs {
+            badgeWaitersByID.removeValue(forKey: waiterID)?
+                .continuation.resume(returning: ())
+        }
     }
     func clearPanelPullRequest(workspaceId: UUID, panelId: UUID) { badge = nil }
     func schedulePanelGitMetadataProbe(workspaceId: UUID, panelId: UUID, reason: String) {}
@@ -95,4 +135,9 @@ final class SidebarGitOwnerPerformanceHost: SidebarGitHosting {
     var isPullRequestPollingEnabled: Bool { true }
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool { false }
     func mobileHostQuietDelay(for interval: TimeInterval) -> TimeInterval { 0 }
+
+    private func cancelBadgeWaiter(_ waiterID: UUID) {
+        badgeWaitersByID.removeValue(forKey: waiterID)?
+            .continuation.resume(throwing: CancellationError())
+    }
 }
