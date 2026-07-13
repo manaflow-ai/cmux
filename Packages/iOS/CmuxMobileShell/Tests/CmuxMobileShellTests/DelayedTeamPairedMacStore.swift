@@ -4,7 +4,7 @@ import Foundation
 
 actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
     private var recordsByTeam: [String: [MobilePairedMac]]
-    private let blockedTeams: Set<String>
+    private var blockedTeams: Set<String>
     private var startedTeams: Set<String> = []
     private var loadStartCounts: [String: Int] = [:]
     private var startWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
@@ -141,6 +141,10 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         for continuation in continuations {
             continuation.resume()
         }
+    }
+
+    func blockLoads(teamID: String?) {
+        blockedTeams.insert(teamID ?? "")
     }
 
     func currentLoadStartCount(teamID: String?) -> Int {

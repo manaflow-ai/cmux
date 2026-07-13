@@ -4,6 +4,24 @@ import Testing
 
 @MainActor
 @Suite struct MobileConnectionLifecycleTests {
+    @Test func staleListenerHealthCannotCompleteRepairBeforeReplacementStarts() async throws {
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let clock = TestClock()
+        let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+        await router.waitForCount(of: "mobile.events.subscribe", atLeast: 1)
+        let baselineSubscriptions = await router.count(of: "mobile.events.subscribe")
+
+        store.requestConnectionLifecycleRecovery(.eventStreamLost)
+        store.markMacConnectionHealthy()
+
+        await router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: baselineSubscriptions + 1
+        )
+        #expect(await router.count(of: "mobile.events.subscribe") == baselineSubscriptions + 1)
+    }
+
     @Test func backgroundPathChangesCoalesceUntilOneForegroundRecovery() async throws {
         let router = LivenessHostRouter()
         let box = TransportBox()
