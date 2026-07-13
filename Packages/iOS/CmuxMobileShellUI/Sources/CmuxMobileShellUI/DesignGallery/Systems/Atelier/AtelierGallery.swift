@@ -1,14 +1,38 @@
 #if DEBUG
 import SwiftUI
 
-/// Placeholder root for the Atelier candidate's future six-screen gallery.
+/// Routes gallery pages into the six static Atelier design-system screens.
 struct AtelierGallery: View {
     let page: DesignGalleryPage
 
+    @Environment(\.colorScheme) private var colorScheme
+
+    @ViewBuilder
     var body: some View {
-        Text("\(DesignGallerySystem.atelier.number) \(DesignGallerySystem.atelier.displayName) — \(page.title)")
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(.systemBackground))
+        let theme = AtelierTheme(scheme: colorScheme)
+
+        Group {
+            switch page {
+            case .hub:
+                AtelierHubScreen()
+            case .session:
+                AtelierSessionScreen()
+            case .chat:
+                AtelierChatScreen()
+            case .activity:
+                AtelierActivityScreen()
+            case .settings:
+                AtelierSettingsScreen()
+            case .specimen:
+                AtelierSpecimenScreen()
+            }
+        }
+        .id(page)
+        .transition(.opacity)
+        .animation(.easeInOut(duration: 0.25), value: page)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(theme.background)
+        .tint(theme.accent)
     }
 }
 #endif
