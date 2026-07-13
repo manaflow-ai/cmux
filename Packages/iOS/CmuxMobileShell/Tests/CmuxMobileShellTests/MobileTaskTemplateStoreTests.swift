@@ -17,12 +17,14 @@ import CmuxMobileShellModel
         #expect(reloaded.listTemplates().map(\.name) == ["Codex", "OpenCode", "Shell"])
     }
 
-    @Test func seedingClearsAbandonedV1AndV2Keys() {
+    @Test func seedingV4ClearsAbandonedV1V2AndV3Keys() {
         let defaults = Self.defaults()
         defaults.set(Data("stale".utf8), forKey: "cmux.mobile.taskTemplates.v1")
         defaults.set(true, forKey: "cmux.mobile.taskTemplates.seeded.v1")
         defaults.set(Data("stale".utf8), forKey: "cmux.mobile.taskTemplates.v2")
         defaults.set(true, forKey: "cmux.mobile.taskTemplates.seeded.v2")
+        defaults.set(Data("stale".utf8), forKey: "cmux.mobile.taskTemplates.v3")
+        defaults.set(true, forKey: "cmux.mobile.taskTemplates.seeded.v3")
 
         let store = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
         #expect(store.listTemplates().count == 4)
@@ -30,6 +32,8 @@ import CmuxMobileShellModel
         #expect(defaults.object(forKey: "cmux.mobile.taskTemplates.seeded.v1") == nil)
         #expect(defaults.object(forKey: "cmux.mobile.taskTemplates.v2") == nil)
         #expect(defaults.object(forKey: "cmux.mobile.taskTemplates.seeded.v2") == nil)
+        #expect(defaults.object(forKey: "cmux.mobile.taskTemplates.v3") == nil)
+        #expect(defaults.object(forKey: "cmux.mobile.taskTemplates.seeded.v3") == nil)
     }
 
     @Test func crudPersistsAcrossStoreInstances() {
@@ -158,10 +162,15 @@ import CmuxMobileShellModel
         #expect(reloaded.lastDirectory(macDeviceID: "other-mac") == nil)
         #expect(reloaded.composerDraft() == nil)
         let seeds = reloaded.listTemplates()
-        #expect(seeds.map(\.command) == ["claude", "codex", "opencode --prompt {prompt}", ""])
+        #expect(seeds.map(\.command) == [
+            "claude -- \"$CMUX_TASK_PROMPT\"",
+            "codex -- \"$CMUX_TASK_PROMPT\"",
+            "opencode --prompt \"$CMUX_TASK_PROMPT\"",
+            "",
+        ])
         #expect(!seeds.contains(where: { $0.id == custom.id }))
         #expect(!seeds.contains(where: { $0.command.contains("account-a") }))
-        #expect(defaults.bool(forKey: "cmux.mobile.taskTemplates.seeded.v3"))
+        #expect(defaults.bool(forKey: "cmux.mobile.taskTemplates.seeded.v4"))
     }
 
     @Test func staleComposerSheetCannotRepersistDraftAfterSignOut() {

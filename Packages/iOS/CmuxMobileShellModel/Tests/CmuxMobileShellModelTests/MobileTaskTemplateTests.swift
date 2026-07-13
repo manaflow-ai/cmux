@@ -13,8 +13,21 @@ import Testing
 
         #expect(seeds.map(\.name) == ["Claude", "Codex", "OpenCode", "Shell"])
         #expect(seeds.map(\.icon) == ["agent:claude", "agent:codex", "agent:opencode", "terminal"])
-        #expect(seeds.map(\.command) == ["claude", "codex", "opencode --prompt {prompt}", ""])
+        #expect(seeds.map(\.command) == [
+            "claude -- \"$CMUX_TASK_PROMPT\"",
+            "codex -- \"$CMUX_TASK_PROMPT\"",
+            "opencode --prompt \"$CMUX_TASK_PROMPT\"",
+            "",
+        ])
         #expect(seeds.allSatisfy { $0.defaultDirectory == nil })
+    }
+
+    @Test func onlyWhitespaceCommandsArePlainShells() {
+        #expect(MobileTaskTemplate(name: "Shell", icon: "terminal", command: "").isPlainShell)
+        #expect(MobileTaskTemplate(name: "Shell", icon: "terminal", command: " \n\t ").isPlainShell)
+        #expect(!MobileTaskTemplate(name: "Comment", icon: "terminal", command: "# note").isPlainShell)
+        #expect(!MobileTaskTemplate(name: "Assignment", icon: "terminal", command: "FOO=bar").isPlainShell)
+        #expect(!MobileTaskTemplate(name: "Redirect", icon: "terminal", command: "2>&1").isPlainShell)
     }
 
     @Test func agentIconAssetNamesResolveOnlyKnownAgents() {
