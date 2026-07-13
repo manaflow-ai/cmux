@@ -3418,12 +3418,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     weak var terminalSurface: TerminalSurface?
     var scrollbar: GhosttyScrollbar?
-    /// Pending scrollbar written from the action callback and read/cleared by `flushPendingScrollbar()`.
-    /// Access is guarded by `_scrollbarLock` because the action callback
-    /// fires on Ghostty's I/O thread while the flush runs on main.
-    private var _pendingScrollbar: GhosttyScrollbar?
-    private var _scrollbarFlushScheduled = false
-    private let _scrollbarLock = NSLock()
+    private let scrollbarUpdateBuffer = GhosttyScrollbarUpdateBuffer()
     private var _renderedFrameFlushScheduled = false
     private let _renderedFrameLock = NSLock()
     nonisolated let selectionAccessibilitySignal = TerminalSelectionAccessibilitySignal()
@@ -3488,29 +3483,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// second during bulk output like `seq 1 100000`) stores the latest value
     /// and schedules exactly one async flush.
     func enqueueScrollbarUpdate(_ newValue: GhosttyScrollbar) {
-        _scrollbarLock.lock()
-        defer { _scrollbarLock.unlock() }
-        // Store the latest value (always overwrites — only the newest matters).
-        _pendingScrollbar = newValue
-        let needsSchedule = !_scrollbarFlushScheduled
-        if needsSchedule { _scrollbarFlushScheduled = true }
-
-        // If a flush is already scheduled, skip the dispatch — the scheduled
-        // block will pick up the latest value.
-        guard needsSchedule else { return }
+        guard scrollbarUpdateBuffer.enqueue(newValue) else { return }
         DispatchQueue.main.async { [weak self] in
             self?.flushPendingScrollbar()
         }
     }
 
     private func flushPendingScrollbar() {
-        _scrollbarLock.lock()
-        _scrollbarFlushScheduled = false
-        let pending = _pendingScrollbar
-        _pendingScrollbar = nil
-        _scrollbarLock.unlock()
-
-        guard let pending else { return }
+        guard let pending = scrollbarUpdateBuffer.takePending() else { return }
         publishScrollbarUpdate(pending)
     }
 
@@ -3519,13 +3499,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Ghostty callback, so concurrent output cannot substitute another packet
     /// between replacement and publication.
     func publishExactScrollbarUpdate(_ newValue: GhosttyScrollbar) {
-        _scrollbarLock.lock()
-        _pendingScrollbar = newValue
-        let exact = _pendingScrollbar!
-        _pendingScrollbar = nil
-        _scrollbarFlushScheduled = false
-        _scrollbarLock.unlock()
-        publishScrollbarUpdate(exact)
+        publishScrollbarUpdate(scrollbarUpdateBuffer.replaceAndTakeExact(newValue))
     }
 
     private func publishScrollbarUpdate(_ pending: GhosttyScrollbar) {
@@ -3544,12 +3518,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
     func flushPendingScrollbarIfAvailable() -> Bool {
-        _scrollbarLock.lock()
-        let hasPending = _pendingScrollbar != nil
-        _scrollbarLock.unlock()
-
-        guard hasPending else { return false }
-        flushPendingScrollbar()
+        guard let pending = scrollbarUpdateBuffer.takePending() else { return false }
+        publishScrollbarUpdate(pending)
         return true
     }
 
