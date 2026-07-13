@@ -549,6 +549,9 @@ impl MessageSink for WebSocketSink {
     }
 }
 
+/// First-attach announcement payload: (transport, name, kind).
+type ClientAnnouncement = (String, Option<String>, Option<String>);
+
 #[derive(Clone, Copy)]
 enum ClientTransport {
     Unix,
@@ -663,7 +666,7 @@ impl ClientRegistry {
         &self,
         client: u64,
         surface: SurfaceId,
-    ) -> anyhow::Result<Option<(String, Option<String>, Option<String>)>> {
+    ) -> anyhow::Result<Option<ClientAnnouncement>> {
         let mut clients = self.clients.lock().unwrap();
         let record =
             clients.get_mut(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;

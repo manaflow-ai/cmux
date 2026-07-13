@@ -41,11 +41,11 @@ fn read_until(websocket: &mut WebSocket<TcpStream>, predicate: impl Fn(&Value) -
 
 fn unique_socket(name: &str) -> PathBuf {
     static NEXT: AtomicU64 = AtomicU64::new(1);
-    std::env::temp_dir().join(format!(
-        "cmux-{name}-{}-{}.sock",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ))
+    // serve() chmods the socket's parent directory; temp_dir() itself can be
+    // root-owned (/tmp on Linux CI), so the socket needs a user-owned subdir.
+    let dir = std::env::temp_dir().join(format!("cmux-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir.join(format!("cmux-{name}-{}.sock", NEXT.fetch_add(1, Ordering::Relaxed)))
 }
 
 fn read_line_until(reader: &mut impl BufRead, predicate: impl Fn(&Value) -> bool) -> Value {
