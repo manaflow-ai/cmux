@@ -11,8 +11,10 @@ extension MobileShellComposite {
 
     /// Yield automatic recovery ownership before the user enters manual pairing.
     public func prepareForManualPairing() {
+        if connectionLifecycle.isRecovering || connectionLifecycle.hasStoredMacReconnectDemand {
+            resetConnectionLifecycle()
+        }
         connectionLifecycleReconnectPendingAfterRetirement = false
-        if connectionLifecycle.isRecovering { resetConnectionLifecycle() }
         clearPairingError()
     }
 
@@ -192,14 +194,14 @@ extension MobileShellComposite {
                     self.finishConnectionLifecycleEpisode(id: episode.id, succeeded: false)
                 }
             case .reconnect:
-                let reconnected = await self.performStoredMacReconnect(
+                let outcome = await self.performStoredMacReconnect(
                     stackUserID: episode.reconnectStackUserID
                 )
                 guard !Task.isCancelled,
                       self.connectionLifecycle.ownsEpisode(episode.id) else { return }
                 self.finishConnectionLifecycleEpisode(
                     id: episode.id,
-                    succeeded: reconnected
+                    succeeded: outcome != .failed
                 )
             }
             if self.connectionLifecycle.ownsEpisode(episode.id), episode.kind == .streamRepair {

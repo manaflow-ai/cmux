@@ -1653,7 +1653,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// from SQLite and re-mints an attach ticket via the StackAuth-authenticated
     /// manual host flow. Auth tokens never persist; we always re-mint.
     @discardableResult
-    func performStoredMacReconnect(stackUserID: String?) async -> Bool {
+    func performStoredMacReconnect(stackUserID: String?) async -> StoredMacReconnectOutcome {
         startObservingNetworkPathChanges()
         // Claim this operation's generation. Only the current generation may
         // update the paired-Mac hint; the lifecycle reducer owns reconnect phase.
@@ -1669,11 +1669,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // this method returns, while the persisted hint remains available to a
         // future attempt.
         guard let pairedMacStore else {
-            return false
+            return .failed
         }
         guard isSignedIn,
               let scope = await currentScopeSnapshot(userID: stackUserID) else {
-            return false
+            return .failed
         }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         func reachableRoutes(_ mac: MobilePairedMac) -> [(host: String, port: Int, routeID: String)] {
@@ -1698,7 +1698,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await refresher.refreshFromBackup(stackUserID: scope.userID)
         }
         guard generation == storedMacReconnectGeneration,
-              await isScopeCurrent(scope) else { return false }
+              await isScopeCurrent(scope) else { return .failed }
         let loadedActiveMac: MobilePairedMac?
         let loadedMacs: [MobilePairedMac]
         do {
@@ -1709,14 +1709,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // A read failure means "couldn't determine," not "no mac": keep the
             // hint so a transient SQLite error doesn't erase a returning user's
             // paired state.
-            return false
+            return .failed
         }
         guard generation == storedMacReconnectGeneration,
-              await isScopeCurrent(scope) else { return false }
+              await isScopeCurrent(scope) else { return .failed }
         let forgottenIDs = await forgottenMacDeviceIDs(scope: scope)
         guard generation == storedMacReconnectGeneration,
               await isScopeCurrent(scope) else {
-            return false
+            return .failed
         }
         let activeMac = loadedActiveMac.flatMap { forgottenIDs.contains($0.macDeviceID) ? nil : $0 }
         let allMacs = loadedMacs.filter { !forgottenIDs.contains($0.macDeviceID) }
@@ -1743,11 +1743,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // the add-device sheet comes up cleanly; otherwise keep it so a Retry
             // or network change can reconnect once a Mac comes back.
             setHasKnownPairedMac(!allMacs.isEmpty, generation: generation)
-            return false
+            return allMacs.isEmpty ? .unavailable : .failed
         }
         // A newer attempt may have started while we awaited the store read; if so,
         // let it own the flags rather than marking ourselves the active reconnect.
-        guard generation == storedMacReconnectGeneration else { return false }
+        guard generation == storedMacReconnectGeneration else { return .failed }
         setHasKnownPairedMac(true, generation: generation)
         // Try each candidate until one connects, so a single offline Mac never
         // blocks the others.
@@ -1801,8 +1801,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if connectionState == .connected { break }
         }
         // A newer attempt may have started during the connect; it now owns the result.
-        guard generation == storedMacReconnectGeneration else { return false }
-        return connectionState == .connected
+        guard generation == storedMacReconnectGeneration else { return .failed }
+        return connectionState == .connected ? .connected : .failed
     }
 
     /// Best-effort, non-blocking registry refresh for the active paired Mac.
