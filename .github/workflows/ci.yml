@@ -679,6 +679,8 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/SharedLiveAgentIndexFingerprintInvalidationTests \
+            -only-testing:cmuxTests/SharedLiveAgentIndexHookStoreInvalidationTests \
+            -only-testing:cmuxTests/TerminationResumeIndexCoordinatorInvalidationTests \
             -only-testing:cmuxTests/ClosedItemHistoryAgentEnrichmentTests \
             test
 

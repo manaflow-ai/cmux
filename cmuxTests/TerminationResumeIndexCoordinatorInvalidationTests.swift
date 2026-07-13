@@ -150,12 +150,18 @@ struct TerminationResumeIndexCoordinatorInvalidationTests {
             await coordinator.loadForNewTerminationAttempt(coordinatedBy: newIndex)
         }
         #expect(await Self.wait(for: newStarted))
+
+        releaseOld.signal()
+        let oldResult = await oldLoad.value
+        #expect(
+            oldResult == nil,
+            "A superseded capture must not escape while its replacement is still pending."
+        )
+        #expect(coordinator.current() == nil)
+
         releaseNew.signal()
         let newResult = await newLoad.value
         #expect(Self.checkpoint(in: newResult, workspaceId: workspaceId, panelId: panelId) == "new")
-
-        releaseOld.signal()
-        _ = await oldLoad.value
         #expect(Self.checkpoint(in: coordinator.current(), workspaceId: workspaceId, panelId: panelId) == "new")
     }
 
