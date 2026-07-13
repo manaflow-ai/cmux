@@ -159,6 +159,134 @@ import Testing
         )
     }
 
+    /// The live growth spiral, reproduced through the FULL wrapper chain the
+    /// app runs — main-window hosting view, workspace bonsplit pane (tab bar,
+    /// drop container, single-pane wrapper), and the real mirror view with
+    /// its geometry feedback. The wedge needed exactly this loop: the mirror
+    /// banks a container wider than the live window (a stale bank from before
+    /// a shrink), the imposed render frame holds the tree at that stale
+    /// width, the mirror view reports the tree's width instead of the
+    /// region's proposal, the pane chain inherits it, and the mirror's own
+    /// geometry callback reads the inflated width back — which the oversized
+    /// guard can only drop, never cure, so the bank never heals and the
+    /// window's content marches or sticks wide forever. With the region
+    /// answering proposals with the proposal, the callback reads the TRUE
+    /// region, the bank heals to it on the next pass, and every frame in the
+    /// chain returns to the window's width.
+    @Test func staleWideBankHealsThroughTheFullPaneChain() async throws {
+        func node(
+            _ content: RemoteTmuxLayoutContent, w: Int, h: Int, x: Int, y: Int
+        ) -> RemoteTmuxLayoutNode {
+            RemoteTmuxLayoutNode(width: w, height: h, x: x, y: y, content: content)
+        }
+        let layout = node(.horizontal([
+            node(.pane(1), w: 61, h: 35, x: 0, y: 0),
+            node(.pane(2), w: 61, h: 35, x: 62, y: 0),
+        ]), w: 123, h: 35, x: 0, y: 0)
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"), sessionName: "work"
+        )
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0,
+            panelId: UUID(),
+            connection: connection,
+            layout: layout,
+            geometrySource: {
+                RemoteTmuxMirrorGeometry(
+                    cellWidthPx: 16, cellHeightPx: 34,
+                    surfacePadWidthPx: 8, surfacePadHeightPx: 0,
+                    scale: 2
+                )
+            },
+            makePanel: { _ in nil }
+        )
+        mirror.isVisibleForSizing = true
+        // The stale bank: taken while the hosting window was 800pt wide,
+        // never re-read before the window shrank to 500pt.
+        mirror.containerSizePt = CGSize(width: 800, height: 620)
+        mirror.containerScale = 2
+        mirror.reconcile(layout: layout)
+        mirror.performSizingPassNow()
+        let planned = try #require(mirror.renderFrameSize)
+        #expect(
+            planned.width >= 700,
+            "the stale plan must be far wider than the 500pt window for this test to bite"
+        )
+
+        let appearance = PanelAppearance(
+            backgroundColor: .black, foregroundColor: .white,
+            dividerColor: .gray, unfocusedOverlayNSColor: .black,
+            unfocusedOverlayOpacity: 0, usesClearContentBackground: false
+        )
+        // The real outer chain: a workspace-style bonsplit pane (tab bar and
+        // all) whose tab content is the mirror view, beside a fixed sidebar,
+        // hosted by the main window's hosting view class.
+        let workspaceBonsplit = BonsplitController(configuration: BonsplitConfiguration())
+        let rootPane = try #require(workspaceBonsplit.allPaneIds.first)
+        _ = workspaceBonsplit.createTab(
+            title: "mirror", icon: "terminal", kind: "terminal", inPane: rootPane
+        )
+        let root = HStack(spacing: 0) {
+            Color.clear.frame(width: 240)
+            BonsplitView(controller: workspaceBonsplit) { _, _ in
+                RemoteTmuxWindowMirrorSplitView(
+                    mirror: mirror,
+                    appearance: appearance,
+                    isOuterFocused: false,
+                    isVisibleInUI: true,
+                    portalPriority: 0,
+                    onOuterFocus: {}
+                )
+            } emptyPane: { _ in
+                Color.clear
+            }
+        }
+        let hostingView = MainWindowHostingView(rootView: AnyView(root))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false
+        )
+        window.contentView = hostingView
+        window.setFrame(NSRect(x: 0, y: 0, width: 500, height: 400), display: true)
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        // Enough passes for the loop to either heal (the geometry callback
+        // reads the true region, the sizing pass re-banks it after the 60ms
+        // quiesce) or demonstrate the march/stick. The waits are async
+        // suspensions, not RunLoop.run: sizing passes ride
+        // DispatchQueue.main, and a synchronous main-actor test body holds
+        // the main queue's current work item, so a nested runloop would
+        // pump layout while silently starving every scheduled pass — the
+        // live app's idle runloop drains them normally.
+        for _ in 0..<15 {
+            window.displayIfNeeded()
+            window.contentView?.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(50))
+        }
+
+        #expect(
+            mirror.hostProbeView != nil,
+            "the mirror view was never laid out — the probe never mounted, so the test exercised nothing"
+        )
+        #expect(
+            window.frame.width <= 501,
+            "the WINDOW grew toward the stale imposed width: \(window.frame.width)pt"
+        )
+        #expect(
+            hostingView.frame.width <= window.frame.width + 1,
+            "the content view marched off the window: \(hostingView.frame.width)pt in a \(window.frame.width)pt window"
+        )
+        let banked = try #require(mirror.containerSizePt)
+        #expect(
+            banked.width <= window.frame.width + 1,
+            "the stale bank never healed: container still \(banked.width)pt inside a \(window.frame.width)pt window — the mirror is reading its own imposed width back"
+        )
+    }
+
     /// The imposed render frame must never become the mirror view's reported
     /// size. The plan is derived from the BANKED container, the proposal from
     /// the live window, and under churn the two disagree: a window shrink
