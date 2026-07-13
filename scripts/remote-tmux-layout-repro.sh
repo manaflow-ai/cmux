@@ -2,8 +2,8 @@
 # ============================================================================
 # Remote-tmux multi-pane layout repro.
 #
-# Builds an isolated local tmux server under TMUX_TMPDIR=/tmp/cmux-max1, mirrors
-# it through a tagged Debug cmux app, then checks:
+# Builds a local tmux server under an ownership lock, mirrors it through a
+# tagged Debug cmux app, then checks:
 #   1. every pane's mirrored read-screen text matches `capture-pane -p -J`
 #   2. each tmux window's size stays fixed across five 2-second samples
 #
@@ -13,6 +13,9 @@
 #
 #   CMUX_REMOTE_TMUX_SSH_FOR_TESTING=$PWD/scripts/remote-tmux-e2e-ssh-shim.sh
 #   TMUX_TMPDIR=/tmp/cmux-max1
+#
+# Override both the app and this script with CMUX_LAYOUT_TMUX_TMPDIR when two
+# tagged repro environments need to run side by side.
 #
 # Exit code is the number of failing checks (0 = all green). Setup/precondition
 # failures exit 2.
@@ -24,10 +27,15 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 HOST="cmux-max1"
 SESSION="cmux-max1"
-SRVDIR="/tmp/cmux-max1"
+SRVDIR="${CMUX_LAYOUT_TMUX_TMPDIR:-/tmp/cmux-max1}"
 SHIM="$REPO/scripts/remote-tmux-e2e-ssh-shim.sh"
 SETTLE_SECONDS="${CMUX_LAYOUT_SETTLE_SECONDS:-5}"
 TMUXBIN="${CMUX_LAYOUT_TMUX:-}"
+CMUX_FUZZ_LOCK_DIR="${SRVDIR}.layout-repro.lock"
+CMUX_FUZZ_LOCK_OWNED=0
+SRV_OWNED=0
+
+. "$REPO/scripts/remote-tmux-fuzz-lock.sh"
 
 UUID='[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'
 
@@ -93,8 +101,10 @@ srv_down() {
 
 reset_srv() {
   mkdir -p "$SRVDIR"
-  srv kill-server >/dev/null 2>&1 || true
-  wait_until 5 srv_down || true
+  if ! srv_down; then
+    echo "ERROR: tmux server already exists under $SRVDIR; refusing to kill an unowned lab" >&2
+    return 1
+  fi
 }
 
 ruler_command() {
@@ -302,11 +312,16 @@ check_window_stability() {
 }
 
 cleanup() {
-  if [ "${CMUX_LAYOUT_KEEP_TMUX:-0}" != "1" ]; then
+  if [ "$SRV_OWNED" = 1 ] && [ "${CMUX_LAYOUT_KEEP_TMUX:-0}" != "1" ]; then
     srv kill-server >/dev/null 2>&1 || true
   fi
+  cmux_fuzz_lock_release
 }
 trap cleanup EXIT
+
+cmux_fuzz_lock_acquire "$(dirname "$SRVDIR")" || exit 2
+reset_srv || exit 2
+SRV_OWNED=1
 
 echo "=== remote-tmux layout repro  tag=$CMUX_TAG host=$HOST tmux_tmpdir=$SRVDIR ==="
 echo "Expected tagged app env: CMUX_REMOTE_TMUX_SSH_FOR_TESTING=$SHIM  TMUX_TMPDIR=$SRVDIR"
