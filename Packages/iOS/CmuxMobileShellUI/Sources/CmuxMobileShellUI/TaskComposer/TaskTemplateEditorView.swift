@@ -28,7 +28,14 @@ struct TaskTemplateEditorView: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(template.name)
                                         .foregroundStyle(.primary)
-                                    Text(template.command.isEmpty ? L10n.string("mobile.taskComposer.template.plainShell", defaultValue: "Plain shell") : template.command)
+                                    Text(
+                                        template.isPlainShell
+                                            ? L10n.string(
+                                                "mobile.taskComposer.template.plainShell",
+                                                defaultValue: "Plain shell"
+                                            )
+                                            : template.command
+                                    )
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                         .lineLimit(1)

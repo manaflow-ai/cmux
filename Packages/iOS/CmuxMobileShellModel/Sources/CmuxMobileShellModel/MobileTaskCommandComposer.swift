@@ -82,7 +82,7 @@ public struct MobileTaskCommandComposer: Sendable {
         let command = template.command
         let title = Self.taskTitle(from: prompt)
 
-        guard !command.isEmpty else {
+        guard !template.isPlainShell else {
             return MobileTaskComposition(initialCommand: nil, initialEnv: [:], title: title)
         }
 

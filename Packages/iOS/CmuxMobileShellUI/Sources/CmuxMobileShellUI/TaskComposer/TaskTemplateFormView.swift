@@ -71,11 +71,14 @@ struct TaskTemplateFormView: View {
 
     private func save() {
         let directory = defaultDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? ""
+            : command
         onSave(MobileTaskTemplate(
             id: existing?.id ?? UUID(),
             name: name.trimmingCharacters(in: .whitespacesAndNewlines),
             icon: icon.trimmingCharacters(in: .whitespacesAndNewlines),
-            command: command,
+            command: normalizedCommand,
             defaultDirectory: directory.isEmpty ? nil : directory
         ))
         dismiss()

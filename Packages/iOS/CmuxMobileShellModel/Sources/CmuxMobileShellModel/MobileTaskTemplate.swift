@@ -8,17 +8,23 @@ public struct MobileTaskTemplate: Codable, Equatable, Sendable, Identifiable {
     public var name: String
     /// SF Symbol name or single emoji used to represent the template.
     public var icon: String
-    /// Shell script run in the new workspace's first terminal.
+    /// Shell script run in the new workspace's first terminal. Empty or
+    /// whitespace-only values create a plain shell.
     public var command: String
     /// Optional default working directory for workspaces created from this template.
     public var defaultDirectory: String?
+
+    /// Whether the command contains no executable text and should open a plain shell.
+    public var isPlainShell: Bool {
+        command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     /// Creates a mobile task template.
     /// - Parameters:
     ///   - id: Stable template identifier.
     ///   - name: User-visible template name.
     ///   - icon: SF Symbol name or single emoji.
-    ///   - command: Shell script run in the first terminal.
+    ///   - command: Shell script run in the first terminal; blank values create a plain shell.
     ///   - defaultDirectory: Optional default working directory.
     public init(
         id: UUID = UUID(),
