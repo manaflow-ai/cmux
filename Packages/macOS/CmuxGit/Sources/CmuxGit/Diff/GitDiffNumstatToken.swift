@@ -6,7 +6,11 @@ struct GitDiffNumstatToken {
 
     init?(token: String?, tokens: [String?], index: inout Int) {
         guard let token else { return nil }
-        let pieces = token.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+        let pieces = token.split(
+            separator: "\t",
+            maxSplits: 2,
+            omittingEmptySubsequences: false
+        ).map(String.init)
         guard pieces.count == 3 else { return nil }
         additions = Int(pieces[0])
         deletions = Int(pieces[1])
