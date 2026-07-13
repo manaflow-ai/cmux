@@ -4,10 +4,11 @@
 
 - macOS 14+
 - Xcode 15+
-- [Zig](https://ziglang.org/) matching Ghostty's required major/minor version
+- [Zig](https://ziglang.org/) matching Ghostty's required major/minor version,
+  with patch version 0.15.2 or newer. Newer minor releases are rejected
   (`./scripts/setup.sh` validates this from `ghostty/build.zig.zon`). If Homebrew's
-  `zig` is too new, run `ZIG_REQUIRED=<required-version> ./scripts/install-zig-ci.sh`
-  or put a compatible `zig` earlier in `PATH`.
+  `zig` is too new, run `ZIG_REQUIRED=0.15.2 ./scripts/install-zig-ci.sh` or put a
+  compatible `zig` earlier in `PATH`.
 
 ## Getting Started
 
