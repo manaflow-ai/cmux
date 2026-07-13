@@ -82,8 +82,8 @@ extension MobileShellComposite {
                !workingDirectory.isEmpty {
                 params["working_directory"] = workingDirectory
             }
-            if let initialCommand = spec?.initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !initialCommand.isEmpty {
+            if let initialCommand = spec?.initialCommand,
+               !initialCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 params["initial_command"] = initialCommand
             }
             if let initialEnv = spec?.initialEnv, !initialEnv.isEmpty {

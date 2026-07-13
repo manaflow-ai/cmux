@@ -52,24 +52,16 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
 
     /// Whether both snapshots produce the same `workspace.create` request.
     ///
-    /// Template identity and presentation metadata, raw whitespace, directory
-    /// edit provenance, and operation identity are excluded because the Mac
+    /// Template identity, presentation metadata, directory edit provenance,
+    /// and operation identity are excluded because the Mac
     /// receives only the selected Mac, composed title/command/environment, and
     /// trimmed effective working directory.
     public func isRequestEquivalent(to other: MobileTaskSubmissionSnapshot) -> Bool {
         macDeviceID == other.macDeviceID
-            && normalizedInitialCommand == other.normalizedInitialCommand
+            && composition.initialCommand == other.composition.initialCommand
             && composition.initialEnv == other.composition.initialEnv
             && composition.title == other.composition.title
             && trimmedDirectory == other.trimmedDirectory
-    }
-
-    private var normalizedInitialCommand: String? {
-        guard let command = composition.initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !command.isEmpty else {
-            return nil
-        }
-        return command
     }
 
     /// Draft restored after interruption or a failed submission.

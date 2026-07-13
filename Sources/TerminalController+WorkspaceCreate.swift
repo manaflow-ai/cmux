@@ -85,8 +85,10 @@ extension TerminalController {
         let tabManager = preparation.tabManager
         let operationID = preparation.operationID
 
-        let requestedInitialCommand = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let initialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
+        let requestedInitialCommand = v2RawString(params, "initial_command")
+        let initialCommand = requestedInitialCommand.flatMap {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
+        }
 
         let initialEnv = sanitizedInitialEnvironment(v2StringMap(params, "initial_env") ?? [:])
         // Persistent per-workspace environment (issue #5995): applied to the
