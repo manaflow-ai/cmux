@@ -278,6 +278,11 @@ do_op() {
   local w
   random_window; w="$RW"
   rand 10
+  # Reconnect-during-churn (op 9) exercises the control-mode reconnect
+  # concurrency, a separate subsystem from sizing. CMUX_FUZZ_NO_RECONNECT
+  # remaps it to a benign op so a run can isolate steady-state sizing
+  # correctness from reconnect-race robustness. Default keeps op 9.
+  if [ "${CMUX_FUZZ_NO_RECONNECT:-0}" = 1 ] && [ "$R" = 9 ]; then R=1; fi
   case $R in
     0) # pane resize, including starvation sizes down to 1 cell
       local pane; random_pane "$w"; pane="$RP"

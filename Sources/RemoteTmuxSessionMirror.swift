@@ -126,6 +126,16 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 // Resetting on the disconnect edge is ordering-independent (no output
                 // arrives while not connected).
                 if state != .connected { self?.titleFilters.removeAll() }
+                // On reconnect, re-derive every visible mirror's claim from
+                // its live window rather than trusting the cached size the
+                // reseed replays: a container change that raced the outage
+                // leaves the replayed size stale and tmux holds the window
+                // there. A fresh pass re-validates the container against the
+                // window, making the post-reconnect claim current truth.
+                // This is the reconnect-during-churn race the fuzz isolates.
+                if state == .connected {
+                    self?.forceResizeAllVisibleMirrors()
+                }
             }
         )
         rebuild()
@@ -192,6 +202,16 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     /// tab titles after a tmux rename, activates/reconciles the in-tab multi-pane
     /// renderer for multi-pane windows, then closes the workspace's original
     /// local tab(s) once at least one remote tab exists.
+    /// Re-runs the sizing pass on every visible window mirror (used on
+    /// reconnect completion): the in-pass container re-validation makes each
+    /// pass re-derive its claim from the live window, correcting any size
+    /// that went stale across the transport gap.
+    func forceResizeAllVisibleMirrors() {
+        for mirror in windowMirrorByWindowId.values where mirror.isVisibleForSizing {
+            mirror.setNeedsSizingPassIgnoringInputs()
+        }
+    }
+
     func rebuild() {
         guard let workspace else { return }
         workspace.performRemoteTmuxMirrorMutation {
