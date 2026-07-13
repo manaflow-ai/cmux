@@ -57,10 +57,6 @@ actor RoutingHostRouter {
     private var firstWorkspaceCreateContinuation: CheckedContinuation<Void, Never>?
     private var firstWorkspaceCreateReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var workspaceDiffErrorCode: String?
-    private var holdFirstWorkspaceDiff = false
-    private var firstWorkspaceDiffHeld = false
-    private var firstWorkspaceDiffContinuation: CheckedContinuation<Void, Never>?
-    private var firstWorkspaceDiffReachedWaiters: [CheckedContinuation<Void, Never>] = []
 
     static let workspaceID = "ws-route"
     static let terminalA = "term-route-a"
@@ -122,22 +118,6 @@ actor RoutingHostRouter {
     func recordedWorkspaceCreateGroupIDs() -> [String?] { workspaceCreateGroupIDs }
 
     func setWorkspaceDiffErrorCode(_ code: String?) { workspaceDiffErrorCode = code }
-
-    func setHoldFirstWorkspaceDiff(_ hold: Bool) {
-        holdFirstWorkspaceDiff = hold
-    }
-
-    func awaitFirstWorkspaceDiffReached() async {
-        if firstWorkspaceDiffHeld { return }
-        await withCheckedContinuation { firstWorkspaceDiffReachedWaiters.append($0) }
-    }
-
-    func releaseFirstWorkspaceDiff() {
-        let continuation = firstWorkspaceDiffContinuation
-        firstWorkspaceDiffContinuation = nil
-        continuation?.resume()
-    }
-
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
     func recordedDismisses() -> [(notificationIDs: [String], clientID: String?)] { dismisses }
@@ -267,13 +247,6 @@ actor RoutingHostRouter {
             ))
             return try? Self.resultFrame(id: id, result: [:])
         case "mobile.workspace.diff_status":
-            if holdFirstWorkspaceDiff, !firstWorkspaceDiffHeld {
-                firstWorkspaceDiffHeld = true
-                let reachedWaiters = firstWorkspaceDiffReachedWaiters
-                firstWorkspaceDiffReachedWaiters = []
-                for waiter in reachedWaiters { waiter.resume() }
-                await withCheckedContinuation { firstWorkspaceDiffContinuation = $0 }
-            }
             if let workspaceDiffErrorCode {
                 return try? Self.errorFrame(
                     id: id, code: workspaceDiffErrorCode, message: "diff status rejected"

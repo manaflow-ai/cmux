@@ -369,9 +369,7 @@ extension MobileShellComposite {
             // Only the foreground connection's health drives the foreground
             // unavailable/reconnect UI; a failed write to a secondary Mac must not
             // tear the foreground session down.
-            if target.isForeground {
-                markMacConnectionUnavailableIfNeeded(after: error)
-            }
+            markMacConnectionUnavailableIfNeeded(after: error, target: target)
             mobileShellLog.error("workspace mutation failed action=\(actionName, privacy: .public) id=\(logID, privacy: .public) error=\(String(describing: error), privacy: .public)")
             await refreshAfterWorkspaceMutation(target)
             return .failure(workspaceMutationFailure(error, hostDisplayName: hostDisplayName))

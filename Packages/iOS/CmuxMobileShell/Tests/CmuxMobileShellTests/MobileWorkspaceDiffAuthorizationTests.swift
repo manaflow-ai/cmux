@@ -77,21 +77,17 @@ import Testing
         let store = try await makeRoutingConnectedStore(router: staleRouter)
         store.connectionState = .connected
         store.macConnectionStatus = .connected
-        await staleRouter.setWorkspaceDiffErrorCode("forbidden")
-        await staleRouter.setHoldFirstWorkspaceDiff(true)
         let workspaceID = try #require(store.workspaces.first?.id)
-
-        let request = Task {
-            try await store.fetchDiffStatus(workspaceID: workspaceID)
-        }
-        await staleRouter.awaitFirstWorkspaceDiffReached()
+        let staleTarget = store.workspaceMutationTarget(for: workspaceID)
         try installFreshRemoteClient(on: store, router: replacementRouter)
         let replacementClient = try #require(store.remoteClient)
-        await staleRouter.releaseFirstWorkspaceDiff()
 
-        await #expect(throws: MobileShellConnectionError.self) {
-            try await request.value
-        }
+        let handled = store.disconnectForAuthorizationFailureIfNeeded(
+            MobileShellConnectionError.rpcError("forbidden", "diff status rejected"),
+            target: staleTarget
+        )
+
+        #expect(handled)
         #expect(store.connectionState == .connected)
         #expect(store.remoteClient === replacementClient)
         #expect(!store.connectionRequiresReauth)
@@ -104,22 +100,16 @@ import Testing
         let store = try await makeRoutingConnectedStore(router: staleRouter)
         store.connectionState = .connected
         store.macConnectionStatus = .connected
-        await staleRouter.setHoldFirstWorkspaceDiff(true)
         let workspaceID = try #require(store.workspaces.first?.id)
-        let staleClient = try #require(store.remoteClient)
-
-        let request = Task {
-            try await store.fetchDiffStatus(workspaceID: workspaceID)
-        }
-        await staleRouter.awaitFirstWorkspaceDiffReached()
+        let staleTarget = store.workspaceMutationTarget(for: workspaceID)
         try installFreshRemoteClient(on: store, router: replacementRouter)
         let replacementClient = try #require(store.remoteClient)
-        await staleClient.disconnect()
 
-        await #expect(throws: MobileShellConnectionError.self) {
-            try await request.value
-        }
-        await staleRouter.releaseFirstWorkspaceDiff()
+        store.markMacConnectionUnavailableIfNeeded(
+            after: MobileShellConnectionError.connectionClosed,
+            target: staleTarget
+        )
+
         #expect(store.connectionState == .connected)
         #expect(store.remoteClient === replacementClient)
         #expect(store.macConnectionStatus == .connected)

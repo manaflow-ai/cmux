@@ -119,8 +119,8 @@ extension MobileShellComposite {
             guard !disconnectForAuthorizationFailureIfNeeded(error, target: target) else {
                 throw error
             }
-            if target.isForeground, !Self.isWorkspaceDiffOperationTimeout(error) {
-                markMacConnectionUnavailableIfNeeded(after: error)
+            if !Self.isWorkspaceDiffOperationTimeout(error) {
+                markMacConnectionUnavailableIfNeeded(after: error, target: target)
             }
             throw error
         }
