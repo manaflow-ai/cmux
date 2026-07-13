@@ -2910,7 +2910,7 @@ class GhosttyApp {
             let pwd = action.action.pwd.pwd.flatMap { String(cString: $0) } ?? ""
             if completeSessionScrollbackReplayIfNeeded(surfaceView: surfaceView, action: action.action.pwd) { return true }
             guard let tabId = surfaceView.tabId, let surfaceId = surfaceView.terminalSurface?.id else { return true }
-            Task { @MainActor in
+            performOnMain {
                 AppDelegate.shared?.tabManagerFor(tabId: tabId)?.updateReportedSurfaceDirectory(
                     tabId: tabId,
                     surfaceId: surfaceId,
