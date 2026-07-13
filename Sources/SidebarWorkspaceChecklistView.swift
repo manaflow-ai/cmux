@@ -287,11 +287,22 @@ struct SidebarWorkspaceChecklistSection: View {
                 .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
         }
         .contentShape(Rectangle())
-        .onHover { hovering in
-            if hovering {
+        // `.onContinuousHover` rather than `.onHover`: `.onHover` only fires
+        // on the `mouseEntered`/`mouseExited` edge, so if this row's backing
+        // view gets recreated (e.g. a sidebar re-render under this section)
+        // while the pointer is already inside it, no new `mouseEntered`
+        // arrives and the hover state gets stuck off — the "barely or never
+        // appears" symptom. Continuous hover re-derives the phase from the
+        // current pointer location on every move, so it self-corrects within
+        // one frame regardless of view-identity churn.
+        .onContinuousHover { phase in
+            switch phase {
+            case .active:
                 hoveredItemId = item.id
-            } else if hoveredItemId == item.id {
-                hoveredItemId = nil
+            case .ended:
+                if hoveredItemId == item.id {
+                    hoveredItemId = nil
+                }
             }
         }
         .contextMenu {
@@ -460,26 +471,43 @@ private struct ChecklistSummaryPopoverModifier: ViewModifier {
     let onPopoverPresentedChange: @MainActor (Bool) -> Void
 
     func body(content: Content) -> some View {
-        content.overlay(alignment: .topTrailing) {
-            SidebarWorkspaceTodoPopoverHost(
-                isPresented: $isPresented,
-                model: model,
-                minWidth: 320,
-                maxHeight: 520,
-                preferredEdge: .maxX
-            ) { model, close in
-                SidebarWorkspaceChecklistPopover(
+        content
+            // `.overlay(alignment: .topTrailing)` positions the anchor within
+            // `content`'s own bounding box. For a zero-item workspace in
+            // popover style, `content` (the section's VStack) renders no
+            // children at all, so its natural size is 0×0 — topTrailing then
+            // collapses to a single point at the VStack's own position, which
+            // its leading-aligned parent places at the row's LEFT edge, not
+            // the right edge. `maxWidth: .infinity` forces this container to
+            // always claim the row's full width regardless of content, so
+            // the anchor's trailing edge always matches the row's actual
+            // right edge, whether or not any items exist yet.
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .topTrailing) {
+                SidebarWorkspaceTodoPopoverHost(
+                    isPresented: $isPresented,
                     model: model,
-                    actions: actions,
-                    onConsumeAddFieldActivation: onConsumeAddFieldActivation,
-                    onClose: {
-                        close()
-                        onPopoverPresentedChange(false)
-                    }
-                )
+                    minWidth: 320,
+                    maxHeight: 520,
+                    preferredEdge: .maxX,
+                    // A context-menu/palette "Add Checklist Item…" bump is an
+                    // explicit present request: it clears the host's external-
+                    // dismissal latch so the popover can re-present even if
+                    // the container's earlier `false` write hasn't landed yet.
+                    presentationRequestToken: model.addFieldActivationToken
+                ) { model, close in
+                    SidebarWorkspaceChecklistPopover(
+                        model: model,
+                        actions: actions,
+                        onConsumeAddFieldActivation: onConsumeAddFieldActivation,
+                        onClose: {
+                            close()
+                            onPopoverPresentedChange(false)
+                        }
+                    )
+                }
+                .frame(width: 1, height: 1)
+                .allowsHitTesting(false)
             }
-            .frame(width: 1, height: 1)
-            .allowsHitTesting(false)
-        }
     }
 }

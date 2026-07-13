@@ -89,30 +89,40 @@ private struct WorkspaceTodoPaneContent: View {
             .padding(.vertical, 10)
             Divider()
             let ordered = SidebarWorkspaceChecklistDisplayPolicy.orderedItems(todoState.checklist)
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 3) {
-                    if ordered.isEmpty {
-                        Text(String(
-                            localized: "workspaceTodoPane.emptyChecklist",
-                            defaultValue: "No checklist items yet."
-                        ))
-                        .font(.system(size: Self.itemFontSize))
-                        .foregroundColor(.secondary)
-                        .padding(.vertical, 4)
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        if ordered.isEmpty {
+                            Text(String(
+                                localized: "workspaceTodoPane.emptyChecklist",
+                                defaultValue: "No checklist items yet."
+                            ))
+                            .font(.system(size: Self.itemFontSize))
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 4)
+                        }
+                        ForEach(Array(ordered.enumerated()), id: \.element.id) { index, item in
+                            itemRow(item, displayIndex: index)
+                                .id(item.id)
+                        }
                     }
-                    ForEach(Array(ordered.enumerated()), id: \.element.id) { index, item in
-                        itemRow(item, displayIndex: index)
-                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .focusable(!ordered.isEmpty)
+                .focused($itemsFocused)
+                .onKeyPress(.upArrow) { moveHighlight(-1, in: ordered) }
+                .onKeyPress(.downArrow) { moveHighlight(1, in: ordered) }
+                .onKeyPress { press in handleItemsKeyPress(press, ordered: ordered) }
+                // `anchor: nil` scrolls the minimal distance needed to bring
+                // the highlighted row fully into view — a no-op if it's
+                // already visible.
+                .onChange(of: highlightedItemId) { _, newValue in
+                    guard let newValue else { return }
+                    proxy.scrollTo(newValue, anchor: nil)
+                }
             }
-            .focusable(!ordered.isEmpty)
-            .focused($itemsFocused)
-            .onKeyPress(.upArrow) { moveHighlight(-1, in: ordered) }
-            .onKeyPress(.downArrow) { moveHighlight(1, in: ordered) }
-            .onKeyPress { press in handleItemsKeyPress(press, ordered: ordered) }
             Divider()
             addItemRow
                 .padding(.horizontal, 14)

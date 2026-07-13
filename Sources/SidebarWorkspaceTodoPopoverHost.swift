@@ -139,6 +139,12 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
     var minWidth: CGFloat = 200
     var maxHeight: CGFloat = 480
     var preferredEdge: NSRectEdge = .maxX
+    /// Explicit "user asked for this popover" signal (e.g. the checklist
+    /// add-field activation token). A change clears the external-dismissal
+    /// latch below, so a context-menu/palette request can always re-present
+    /// even while the latch is waiting for the container to acknowledge an
+    /// AppKit-side close.
+    var presentationRequestToken: Int = 0
     /// Builds the popover body from the latest model; the second argument
     /// closes the popover (footer buttons, Return/Esc handling).
     let content: (Model, @escaping @MainActor () -> Void) -> PopoverContent
@@ -177,6 +183,7 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
         coordinator.minWidth = minWidth
         coordinator.maxHeight = maxHeight
         coordinator.preferredEdge = preferredEdge
+        coordinator.acknowledge(isPresented: isPresented, requestToken: presentationRequestToken)
         coordinator.update(model: model) { model, close in
             AnyView(content(model, close))
         }
@@ -211,9 +218,32 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
         /// Bumped on every hidden-to-shown transition; used as the SwiftUI
         /// view identity so each open gets fresh view-local state.
         private var presentationCount = 0
+        /// Set when AppKit closed the popover out from under SwiftUI (app
+        /// deactivation, transient click-away) while the container still said
+        /// `isPresented == true`. The container's `isPresented = false` write
+        /// lands asynchronously, so an unrelated re-render can deliver a
+        /// stale `isPresented == true` to `updateNSView` first — without this
+        /// latch that stale tick re-presents the popover the user just
+        /// dismissed, producing a close/reopen churn loop (observed live:
+        /// five `didShow`s in 18s with zero user actions). Cleared when the
+        /// container acknowledges `false`, or when an explicit presentation
+        /// request token changes.
+        private var awaitingDismissAck = false
+        private var lastRequestToken = 0
 
         init(isPresented: Binding<Bool>) {
             _isPresented = isPresented
+        }
+
+        /// Called on every `updateNSView` tick, before `present()`/`dismiss()`.
+        func acknowledge(isPresented: Bool, requestToken: Int) {
+            if !isPresented {
+                awaitingDismissAck = false
+            }
+            if requestToken != lastRequestToken {
+                lastRequestToken = requestToken
+                awaitingDismissAck = false
+            }
         }
 
         func update(
@@ -255,11 +285,27 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
         }
 
         func present() {
-            guard let anchorView, anchorView.window != nil else {
+            // After an AppKit-side close, wait for the container to confirm
+            // the matching `isPresented = false` before honoring any further
+            // present ticks — see `awaitingDismissAck`.
+            guard !awaitingDismissAck else { return }
+            guard let anchorView, let window = anchorView.window else {
                 // No window yet — don't clobber isPresented. AnchorView's
                 // viewDidMoveToWindow() retries once it actually attaches.
                 return
             }
+            // Lay out from the window's root, not just the anchor's
+            // immediate superview: `layoutSubtreeIfNeeded()` only resolves
+            // the subtree it's called on, not ancestors above it. A
+            // same-transaction "open immediately" anchor (a zero-item
+            // workspace's first Add Checklist Item — see the AnchorView doc
+            // comment) is freshly inserted into the sidebar's lazy list, so
+            // the row containers above `anchorView.superview` may not have
+            // an up-to-date frame yet. `popover.show(relativeTo:of:)`
+            // resolves the anchor's window-coordinate position by walking
+            // that whole ancestor chain, so a stale frame anywhere above the
+            // immediate superview anchors the popover to the wrong spot.
+            window.contentView?.layoutSubtreeIfNeeded()
             anchorView.superview?.layoutSubtreeIfNeeded()
             let popover = popover ?? makePopover()
             // Only bump identity on a hidden-to-shown transition; bumping on
@@ -285,8 +331,16 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
         func popoverDidClose(_ notification: Notification) {
             popover = nil
             if isPresented {
+                // AppKit closed us (transient click-away / app deactivation)
+                // while SwiftUI still thinks we're shown: latch until the
+                // container acknowledges the write below, so stale re-render
+                // ticks can't instantly re-present (churn loop).
+                awaitingDismissAck = true
                 isPresented = false
             }
+#if DEBUG
+            cmuxDebugLog("focus.todoPopover.didClose awaitingAck=\(awaitingDismissAck)")
+#endif
         }
 
         func popoverDidShow(_ notification: Notification) {

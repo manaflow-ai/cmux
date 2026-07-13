@@ -10652,6 +10652,12 @@ struct VerticalTabsSidebar: View {
             }
             .onChange(of: tabManager.selectedTabId) { _, _ in
                 requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
+                // A keyboard/programmatic workspace switch doesn't produce the
+                // outside click that NSPopover's `.transient` behavior relies on
+                // to auto-dismiss, so an open checklist/status popover would
+                // otherwise stay anchored to the now-deselected row indefinitely.
+                checklistPopoverWorkspaceId = nil
+                statusPopoverWorkspaceId = nil
             }
             .onChange(of: renderContext.workspaceIds) { oldWorkspaceIds, newWorkspaceIds in
                 guard shouldRequestSelectedWorkspaceScrollAfterWorkspaceIdsChange(

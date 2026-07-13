@@ -37,10 +37,30 @@ struct SidebarWorkspaceChecklistPopover: View {
     /// Return toggles it when the add field is empty, and Cmd+Return always
     /// toggles it between completed and pending.
     @State private var highlightedItemId: UUID?
+    /// Pointer position in ``Self/pointerSpaceName`` coordinates, or nil when
+    /// the pointer is outside the popover. Driven by one container-level
+    /// `.onContinuousHover` and seeded from `NSEvent.mouseLocation` when the
+    /// content attaches to its window (see `PopoverPointerSeed`), so a fresh
+    /// presentation under an already-resting pointer still knows where it is.
+    @State private var pointerLocation: CGPoint?
+    /// Item-row frames in ``Self/pointerSpaceName`` coordinates, collected via
+    /// preference. Frames update on scroll and reflow, so the derived hover
+    /// below self-corrects when rows move under a stationary pointer.
+    @State private var itemRowFrames: [UUID: CGRect] = [:]
+
+    private static let pointerSpaceName = "checklistPopoverPointerSpace"
+
     /// The item currently under the pointer, used to reveal the trailing
-    /// delete button. A single id (not a per-row `@State`) is enough because
-    /// only one row can be hovered at a time; mirrors `highlightedItemId`.
-    @State private var hoveredItemId: UUID?
+    /// delete button. DERIVED from pointer position + row geometry rather
+    /// than stored from per-row hover events: event-driven hover state dies
+    /// whenever the popover content is recreated or rows reflow while the
+    /// pointer rests in place (no new mouse-moved arrives), which was the
+    /// "delete x barely ever shows" bug. Geometry-derived hover has no such
+    /// event dependency.
+    private var hoveredItemId: UUID? {
+        guard let pointerLocation else { return nil }
+        return itemRowFrames.first { $0.value.contains(pointerLocation) }?.key
+    }
 
     private static let itemFontSize: CGFloat = 13
     /// Checkbox glyphs draw at 13pt (the inline row's base is 8pt·scale).
@@ -83,15 +103,26 @@ struct SidebarWorkspaceChecklistPopover: View {
                 .padding(.top, 10)
                 .padding(.bottom, 6)
             if !ordered.isEmpty {
-                ScrollView(.vertical) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(ordered) { item in
-                            itemRow(item)
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(ordered) { item in
+                                itemRow(item)
+                                    .id(item.id)
+                            }
                         }
+                        .padding(.horizontal, 8)
                     }
-                    .padding(.horizontal, 8)
+                    .frame(height: scrollViewportHeight(forItemCount: ordered.count))
+                    // `anchor: nil` scrolls the minimal distance needed to
+                    // bring the highlighted row fully into view — a no-op if
+                    // it's already visible, matching arrow-key nav that
+                    // should only move the viewport when it must.
+                    .onChange(of: highlightedItemId) { _, newValue in
+                        guard let newValue else { return }
+                        proxy.scrollTo(newValue, anchor: nil)
+                    }
                 }
-                .frame(height: scrollViewportHeight(forItemCount: ordered.count))
             }
             addItemRow(visible: ordered)
                 .padding(.horizontal, 8)
@@ -100,7 +131,35 @@ struct SidebarWorkspaceChecklistPopover: View {
             footer
         }
         .frame(width: 320, alignment: .leading)
+        .coordinateSpace(name: Self.pointerSpaceName)
+        // One container-level hover feeding the derived `hoveredItemId` (see
+        // its doc comment). `.onContinuousHover` still needs a mouse-moved
+        // event after content recreation; the `PopoverPointerSeed` background
+        // covers that gap by reading the pointer position once per window
+        // attach.
+        .onContinuousHover(coordinateSpace: .named(Self.pointerSpaceName)) { phase in
+            switch phase {
+            case .active(let location):
+                pointerLocation = location
+            case .ended:
+                pointerLocation = nil
+            }
+        }
+        .background(PopoverPointerSeed { seeded in
+            pointerLocation = seeded
+        })
+        .onPreferenceChange(ChecklistPopoverRowFramesKey.self) { frames in
+            itemRowFrames = frames
+        }
         .background(toggleHighlightedShortcutButton(visible: ordered))
+        // Without this, the popover's window only gets promoted to key once,
+        // at `popoverDidShow` — if the terminal-backed pane grabs key window
+        // status back afterward (see `PopoverKeyWindowElevator`'s doc
+        // comment), `.onContinuousHover`'s tracking areas stop firing
+        // (SwiftUI hover tracking is gated on `.activeInKeyWindow`), so the
+        // remove-item "x" stops revealing on hover. `SidebarWorkspaceStatusPopover`
+        // already carries this same fix for its own popover.
+        .background(PopoverKeyWindowElevator())
         .onAppear { addFieldFocused = true }
         .onChange(of: editFieldFocused) { _, focused in
             if !focused { finishItemEditOnFocusLoss() }
@@ -199,13 +258,18 @@ struct SidebarWorkspaceChecklistPopover: View {
             guard pendingItemText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             highlightedItemId = item.id
         }
-        .onHover { hovering in
-            if hovering {
-                hoveredItemId = item.id
-            } else if hoveredItemId == item.id {
-                hoveredItemId = nil
+        // Hover is derived at the container level from pointer position +
+        // this row's reported frame (see `hoveredItemId`'s doc comment) —
+        // per-row hover callbacks die when the backing view is recreated
+        // while the pointer rests in place.
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: ChecklistPopoverRowFramesKey.self,
+                    value: [item.id: proxy.frame(in: .named(Self.pointerSpaceName))]
+                )
             }
-        }
+        )
         .contextMenu {
             Button(String(localized: "sidebar.checklist.editItem", defaultValue: "Edit")) {
                 beginItemEdit(item)
@@ -429,5 +493,52 @@ struct SidebarWorkspaceChecklistPopover: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("SidebarChecklistPopoverOpenAsPane")
+    }
+}
+
+/// Item-row frames in ``SidebarWorkspaceChecklistPopover``'s pointer
+/// coordinate space, keyed by item id. Feeds the geometry-derived
+/// `hoveredItemId` (see its doc comment).
+private struct ChecklistPopoverRowFramesKey: PreferenceKey {
+    static var defaultValue: [UUID: CGRect] { [:] }
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
+/// Seeds the popover's pointer location once per window attach, from
+/// `NSEvent.mouseLocation`. `.onContinuousHover` only reports after the next
+/// real mouse-moved event, so a popover that (re)presents underneath an
+/// already-resting pointer would otherwise show no hover affordances until
+/// the user physically moves the mouse — the residual "delete x missing"
+/// mode after the churn-loop fix.
+private struct PopoverPointerSeed: NSViewRepresentable {
+    let onSeed: @MainActor (CGPoint?) -> Void
+
+    final class SeedView: NSView {
+        var onSeed: (@MainActor (CGPoint?) -> Void)?
+
+        // SwiftUI's named coordinate space is top-left origin; matching that
+        // here keeps `convert(_:from:)` results directly comparable to the
+        // row frames collected via preference.
+        override var isFlipped: Bool { true }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            let windowPoint = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+            let local = convert(windowPoint, from: nil)
+            onSeed?(bounds.contains(local) ? local : nil)
+        }
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = SeedView()
+        view.onSeed = onSeed
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        (nsView as? SeedView)?.onSeed = onSeed
     }
 }
