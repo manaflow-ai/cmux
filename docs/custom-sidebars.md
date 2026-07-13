@@ -133,7 +133,9 @@ with:
   the same shape with every pull request cmux knows for the workspace),
   `progress` (`{ value: 0..1, label }`), `latestMessage` (last agent message),
   `latestPrompt` (last submitted prompt), `latestAt` (epoch), `remote`
-  (`{ target, state, connected }`).
+  (`{ target, state, connected }`), `ref` (the stable `workspace:N` control
+  handle the `cmux` CLI accepts, e.g. `workspace:16`; parse the trailing number
+  with `w.ref.split(separator: ":").last` when you want just the ordinal).
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
   `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
   `dirty`, `ports` (array of Int).
