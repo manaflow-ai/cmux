@@ -536,7 +536,11 @@ final class SessionPersistenceTests: XCTestCase {
 
         guard let path else { return }
         let contents = try? String(contentsOfFile: path, encoding: .utf8)
-        XCTAssertEqual(contents, "line one\nline two\n")
+        let replayID = URL(fileURLWithPath: path)
+            .deletingPathExtension()
+            .lastPathComponent
+        let completionMarker = "\u{001B}]2;cmux:scrollback-replay-complete:\(replayID)\u{0007}"
+        XCTAssertEqual(contents, "line one\nline two\n\(completionMarker)")
     }
 
     func testScrollbackReplayEnvironmentSkipsWhitespaceOnlyContent() {

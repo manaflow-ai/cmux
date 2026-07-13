@@ -357,6 +357,20 @@ struct NotificationRowSnapshotBoundaryTests {
         #expect(target == .absoluteRow(156))
     }
 
+    @Test func notificationScrollTargetSupportsLegacyRowOnlyPosition() {
+        let surfaceView = GhosttyNSView(frame: .zero)
+        surfaceView.scrollbar = GhosttyScrollbar(
+            c: ghostty_action_scrollbar_s(total: 400, offset: 218, len: 44)
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+
+        let target = hostedView.notificationScrollRestoreTarget(
+            TerminalNotificationScrollPosition(row: 138)
+        )
+
+        #expect(target == .absoluteRow(218))
+    }
+
     @Test func notificationScrollRestoreClampsWhenHistoryIsPermanentlyTrimmed() {
         let surfaceView = NotificationScrollActionProbeView(frame: .zero)
         surfaceView.scrollbar = GhosttyScrollbar(
