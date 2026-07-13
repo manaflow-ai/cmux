@@ -81,8 +81,17 @@ struct TerminalArtifactGalleryItemView: View {
     private var gridContent: some View {
         let metadata = detailText
         return VStack(alignment: .center, spacing: 7) {
+            // The missing badge overlays the tile itself so it stays visually
+            // attached to the cell instead of floating below the reserved
+            // name/metadata frames.
             preview
                 .aspectRatio(1, contentMode: .fit)
+                .overlay(alignment: .bottom) {
+                    if !artifact.exists {
+                        missingBadge
+                            .padding(.bottom, 6)
+                    }
+                }
 
             Text(artifact.displayName)
                 .font(.subheadline)
@@ -98,10 +107,6 @@ struct TerminalArtifactGalleryItemView: View {
                 .multilineTextAlignment(.center)
                 .opacity(metadata == nil ? 0 : 1)
                 .frame(maxWidth: .infinity, minHeight: gridMetadataMinHeight, alignment: .top)
-
-            if !artifact.exists {
-                missingBadge
-            }
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .contentShape(Rectangle())

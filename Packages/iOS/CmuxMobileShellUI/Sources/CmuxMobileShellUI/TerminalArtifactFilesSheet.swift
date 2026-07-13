@@ -101,17 +101,17 @@ struct TerminalArtifactFilesSheet: View {
             selection: $scope
         ) {
             Text(String(
-                localized: "terminal.artifact.gallery.scope.in_view",
-                defaultValue: "In view",
-                bundle: .module
-            ))
-            .tag(Scope.inView)
-            Text(String(
                 localized: "terminal.artifact.gallery.scope.session",
                 defaultValue: "Session",
                 bundle: .module
             ))
             .tag(Scope.session)
+            Text(String(
+                localized: "terminal.artifact.gallery.scope.in_view",
+                defaultValue: "In view",
+                bundle: .module
+            ))
+            .tag(Scope.inView)
         }
         .pickerStyle(.segmented)
         .padding(.horizontal, 16)
