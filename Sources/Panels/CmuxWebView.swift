@@ -5,6 +5,14 @@ import UniformTypeIdentifiers
 import WebKit
 
 extension WKWebView {
+    func cmuxOwnsKeyEvent(_ event: NSEvent) -> Bool {
+        guard let eventWindow = event.window ?? window,
+              eventWindow === window,
+              let responder = eventWindow.firstResponder else { return false }
+        if responder === self { return true }
+        return (responder as? NSView)?.isDescendant(of: self) == true
+    }
+
     nonisolated private static var cmuxSetPageMutedSelector: Selector {
         NSSelectorFromString("_setPageMuted:")
     }
@@ -511,7 +519,8 @@ final class CmuxWebView: WKWebView {
     }
 
     private func handleDiffViewerNavigationKey(_ event: NSEvent) -> Bool {
-        guard DiffCommentsBridge.diffViewerToken(from: url) != nil,
+        guard cmuxOwnsKeyEvent(event),
+              DiffCommentsBridge.diffViewerToken(from: url) != nil,
               diffViewerDocumentConfirmed,
               diffViewerFocusStateConfirmed,
               !diffViewerEditableElementFocused else {

@@ -73,6 +73,7 @@ final class MarkdownWebView: WKWebView {
               };
               document.addEventListener('focusin', publish, true);
               document.addEventListener('focusout', () => queueMicrotask(publish), true);
+              document.addEventListener('pointerdown', () => requestAnimationFrame(publish), true);
               document.addEventListener('DOMContentLoaded', publish, { once: true });
               publish();
             })();
@@ -119,7 +120,9 @@ final class MarkdownWebView: WKWebView {
     }
 
     func handleViewerNavigationKey(_ event: NSEvent) -> Bool {
-        guard editableFocusStateConfirmed, !editableElementFocused else {
+        guard cmuxOwnsKeyEvent(event),
+              editableFocusStateConfirmed,
+              !editableElementFocused else {
             viewerNavigationKeyRouter.reset()
             return false
         }
