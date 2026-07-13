@@ -138,7 +138,7 @@ struct RemotePortScanGatingTests {
             coordinator.daemonReady = true
             coordinator.updateRemotePortScanTTYsLocked([panelId: "ttys010"])
             coordinator.performRemotePortScanLocked()
-            coordinator.polledRemotePorts = [8080]
+            coordinator.remotePortPollState.apply(observedPorts: [8080], mode: .hostWide, completeness: .complete)
             coordinator.keepPolledRemotePortsUntilTTYScan = true
             for _ in 0..<3 { coordinator.performRemotePortScanLocked() }
         }
@@ -177,7 +177,7 @@ struct RemotePortScanGatingTests {
 
         coordinator.queue.sync {
             coordinator.daemonReady = true
-            coordinator.polledRemotePorts = [4321]
+            coordinator.remotePortPollState.apply(observedPorts: [4321], mode: .hostWide, completeness: .complete)
             coordinator.updateRemotePortPollingStateLocked()
         }
         #expect(coordinator.queue.sync { coordinator.remotePortPollTimer != nil } == true)
@@ -187,7 +187,7 @@ struct RemotePortScanGatingTests {
         }
 
         let tornDown = coordinator.queue.sync {
-            coordinator.remotePortPollTimer == nil && coordinator.polledRemotePorts.isEmpty
+            coordinator.remotePortPollTimer == nil && coordinator.remotePortPollState.publishedPorts.isEmpty
         }
         #expect(tornDown)
         coordinator.stop()
@@ -203,13 +203,15 @@ struct RemotePortScanGatingTests {
             // Simulate state accumulated before the user hides ports: a
             // host-wide-delta baseline and an exhausted bootstrap TTY retry
             // budget.
-            coordinator.remotePortPollBaselinePorts = [3000, 4000]
+            coordinator.remotePortPollState.apply(
+                observedPorts: [3000, 4000], mode: .hostWideDelta, completeness: .complete
+            )
             coordinator.bootstrapRemoteTTYRetryCount = RemoteSessionCoordinator.bootstrapRemoteTTYRetryLimit
             coordinator.updateRemotePortScanningEnabledLocked(false)
         }
 
         let reset = coordinator.queue.sync {
-            coordinator.remotePortPollBaselinePorts == nil
+            coordinator.remotePortPollState.baselinePorts == nil
                 && coordinator.bootstrapRemoteTTYRetryCount == 0
         }
         #expect(reset)

@@ -125,11 +125,19 @@ struct PortScanCoordinationTests {
             agentRevisions: [firstWorkspace: 2, secondWorkspace: 1],
             requestID: coordination.makeRequestID()
         )
+        let latest = AgentPortScanRequest(
+            workspaceIds: [secondWorkspace],
+            pidInput: .captured([secondWorkspace: [201]]),
+            agentRevisions: [secondWorkspace: 2],
+            requestID: coordination.makeRequestID()
+        )
 
         let firstScan = coordination.enqueueAgentScan(first)
         #expect(firstScan == first)
         let coalescedScan = coordination.enqueueAgentScan(newer)
         #expect(coalescedScan == nil)
+        let mergedScan = coordination.enqueueAgentScan(latest)
+        #expect(mergedScan == nil)
         let finishedScan = coordination.finishAgentScan()
         let pending = try #require(finishedScan)
         let pendingPIDs: [UUID: Set<Int>]
@@ -141,8 +149,9 @@ struct PortScanCoordinationTests {
         }
         #expect(pending.workspaceIds == [firstWorkspace, secondWorkspace])
         #expect(pendingPIDs[firstWorkspace] == [101])
-        #expect(pendingPIDs[secondWorkspace] == [200])
-        #expect(pending.requestID == newer.requestID)
+        #expect(pendingPIDs[secondWorkspace] == [201])
+        #expect(pending.agentRevisions == [firstWorkspace: 2, secondWorkspace: 2])
+        #expect(pending.requestID == latest.requestID)
 
         let nextScan = coordination.enqueueAgentScan(first)
         #expect(nextScan == nil)

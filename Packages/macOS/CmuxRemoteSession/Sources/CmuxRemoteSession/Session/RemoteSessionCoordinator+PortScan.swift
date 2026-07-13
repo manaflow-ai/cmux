@@ -70,8 +70,7 @@ extension RemoteSessionCoordinator {
         bootstrapRemoteTTYRetryCount = 0
         remotePortScanSnapshot.reset()
         stopRemotePortPollingLocked()
-        polledRemotePorts = []
-        remotePortPollBaselinePorts = nil
+        remotePortPollState.reset()
         keepPolledRemotePortsUntilTTYScan = false
         publishPortsSnapshotLocked()
     }
@@ -91,7 +90,9 @@ extension RemoteSessionCoordinator {
         keepPolledRemotePortsUntilTTYScan =
             !previousTTYNames.isEmpty
             ? keepPolledRemotePortsUntilTTYScan
-            : shouldUseFallbackRemotePortPollingLocked() && !polledRemotePorts.isEmpty && !nextTTYNames.isEmpty
+            : shouldUseFallbackRemotePortPollingLocked()
+                && !remotePortPollState.publishedPorts.isEmpty
+                && !nextTTYNames.isEmpty
         let unchangedPanelIds = Set(nextTTYNames.compactMap { panelId, newTTY in
             previousTTYNames[panelId] == newTTY ? panelId : nil
         })
@@ -221,7 +222,7 @@ extension RemoteSessionCoordinator {
             )
             if scan.completeness == .complete {
                 keepPolledRemotePortsUntilTTYScan = false
-                polledRemotePorts = []
+                remotePortPollState.reset()
             }
             publishPortsSnapshotLocked()
         } catch {
@@ -270,6 +271,9 @@ extension RemoteSessionCoordinator {
             return
         }
         stopRemotePortPollingLocked()
+        if !keepPolledRemotePortsUntilTTYScan {
+            remotePortPollState.reset()
+        }
 
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + mode.initialDelay, repeating: mode.repeatInterval)
@@ -287,28 +291,28 @@ extension RemoteSessionCoordinator {
         remotePortPollTimer?.cancel()
         remotePortPollTimer = nil
         remotePortPollMode = nil
+        remotePortPollState.resetScanHistory()
     }
 
     func updateRemotePortPollingStateLocked() {
         guard daemonReady, !isStopping, let pollingMode = remotePortPollingModeLocked() else {
             stopRemotePortPollingLocked()
             if !keepPolledRemotePortsUntilTTYScan {
-                polledRemotePorts = []
+                remotePortPollState.reset()
             }
-            remotePortPollBaselinePorts = nil
             return
         }
         startRemotePortPollingLocked(mode: pollingMode)
     }
 
-    private func pollRemotePortsLocked() {
+    func pollRemotePortsLocked() {
         guard !isStopping else { return }
         guard daemonReady else { return }
         if !remotePortScanTTYNames.isEmpty {
             guard shouldUseTTYFallbackRemotePortPollingLocked() else {
                 stopRemotePortPollingLocked()
                 if !keepPolledRemotePortsUntilTTYScan {
-                    polledRemotePorts = []
+                    remotePortPollState.reset()
                 }
                 publishPortsSnapshotLocked()
                 return
@@ -321,8 +325,7 @@ extension RemoteSessionCoordinator {
         }
         guard let pollingMode = remotePortPollingModeLocked() else {
             stopRemotePortPollingLocked()
-            polledRemotePorts = []
-            remotePortPollBaselinePorts = nil
+            remotePortPollState.reset()
             keepPolledRemotePortsUntilTTYScan = false
             publishPortsSnapshotLocked()
             return
@@ -330,9 +333,8 @@ extension RemoteSessionCoordinator {
         guard remotePortScanTTYNames.isEmpty else {
             stopRemotePortPollingLocked()
             if !keepPolledRemotePortsUntilTTYScan {
-                polledRemotePorts = []
+                remotePortPollState.reset()
             }
-            remotePortPollBaselinePorts = nil
             publishPortsSnapshotLocked()
             return
         }
@@ -350,21 +352,14 @@ extension RemoteSessionCoordinator {
                 ])
             }
             let currentPorts = Set(Self.parseRemotePorts(output: result.stdout))
-            switch pollingMode {
-            case .hostWide:
-                polledRemotePorts = currentPorts.sorted()
-                remotePortPollBaselinePorts = nil
-            case .hostWideDelta:
-                if let baselinePorts = remotePortPollBaselinePorts {
-                    polledRemotePorts = currentPorts.subtracting(baselinePorts).sorted()
-                } else {
-                    remotePortPollBaselinePorts = currentPorts
-                    polledRemotePorts = []
-                }
-            case .ttyScoped:
-                polledRemotePorts = []
-                remotePortPollBaselinePorts = nil
-            }
+            let completeness: PortScanCompleteness = result.stdout
+                .split(whereSeparator: \.isNewline)
+                .contains(Substring(Self.remotePortScanCompleteMarker)) ? .complete : .incomplete
+            guard remotePortPollState.apply(
+                observedPorts: currentPorts,
+                mode: pollingMode,
+                completeness: completeness
+            ) else { return }
             keepPolledRemotePortsUntilTTYScan = false
             publishPortsSnapshotLocked()
         } catch {

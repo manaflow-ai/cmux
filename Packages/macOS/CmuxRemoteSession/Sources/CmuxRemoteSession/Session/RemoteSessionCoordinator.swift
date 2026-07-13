@@ -93,8 +93,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var remotePortScanBurstTask: Task<Void, Never>?
     var remotePortPollTimer: (any DispatchSourceTimer)?
     var remotePortPollMode: RemotePortPollingMode?
-    var polledRemotePorts: [Int] = []
-    var remotePortPollBaselinePorts: Set<Int>?
+    var remotePortPollState = RemotePortPollState()
     var keepPolledRemotePortsUntilTTYScan = false
     /// Whether remote listening-port discovery (TTY-scoped scan bursts and the
     /// host-wide/delta poll fallback) may spawn ssh. The app derives this from
@@ -257,8 +256,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         remotePortScanTTYNames.removeAll()
         remotePortScanSnapshot.reset()
         stopRemotePortPollingLocked()
-        polledRemotePorts = []
-        remotePortPollBaselinePorts = nil
+        remotePortPollState.reset()
         keepPolledRemotePortsUntilTTYScan = false
         bootstrapRemoteTTYResolved = false
         cancelBootstrapRemoteTTYRetryLocked()
@@ -458,7 +456,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             cancelRemotePortScanCoalesceLocked()
             remotePortScanSnapshot.reset()
             stopRemotePortPollingLocked()
-            polledRemotePorts = []
+            remotePortPollState.reset()
             keepPolledRemotePortsUntilTTYScan = false
             proxyEndpoint = nil
             publishProxyEndpoint(nil)
@@ -516,7 +514,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             result[panelId] = remotePortScanSnapshot.snapshot[panelId] ?? []
         }
         let detected = Array(
-            Set(polledRemotePorts)
+            Set(remotePortPollState.publishedPorts)
                 .union(detectedByPanel.values.flatMap { $0 })
         ).sorted()
         host.publishPortsSnapshot(detectedByPanel: detectedByPanel, detected: detected)

@@ -176,6 +176,9 @@ extension RemoteSessionCoordinator {
         return """
         set -eu
         cmux_excluded_ports=" \(excludedPorts) "
+        cmux_scan_output=""
+        cmux_scan_status=127
+        cmux_scanner=""
 
         cmux_emit_port() {
           cmux_port="$1"
@@ -187,21 +190,77 @@ extension RemoteSessionCoordinator {
         }
 
         if command -v ss >/dev/null 2>&1; then
-          ss -ltnH 2>/dev/null | awk '{print $4}' | sed -E 's/.*:([0-9]+)$/\\1/' | awk '/^[0-9]+$/ {print $1}' | while IFS= read -r cmux_port; do
-            [ -n "$cmux_port" ] || continue
-            cmux_emit_port "$cmux_port"
-          done
+          cmux_scanner=ss
+          cmux_scan_status=0
+          cmux_scan_output="$(ss -ltnH 2>&1)" || cmux_scan_status=$?
         elif command -v netstat >/dev/null 2>&1; then
-          netstat -lnt 2>/dev/null | awk 'NR > 2 {print $4}' | sed -E 's/.*:([0-9]+)$/\\1/' | awk '/^[0-9]+$/ {print $1}' | while IFS= read -r cmux_port; do
-            [ -n "$cmux_port" ] || continue
-            cmux_emit_port "$cmux_port"
-          done
+          cmux_scanner=netstat
+          cmux_scan_status=0
+          cmux_scan_output="$(netstat -lnt 2>&1)" || cmux_scan_status=$?
         elif command -v lsof >/dev/null 2>&1; then
-          lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | awk 'NR > 1 {print $9}' | sed -E 's/.*:([0-9]+)$/\\1/' | awk '/^[0-9]+$/ {print $1}' | while IFS= read -r cmux_port; do
-            [ -n "$cmux_port" ] || continue
-            cmux_emit_port "$cmux_port"
-          done
+          cmux_scanner=lsof
+          cmux_scan_status=0
+          cmux_scan_output="$(lsof -nP -iTCP -sTCP:LISTEN 2>&1)" || cmux_scan_status=$?
         fi
+
+        cmux_parsed_output=""
+        case "$cmux_scanner" in
+          ss)
+            cmux_parsed_output="$(printf '%s\\n' "$cmux_scan_output" | awk '
+              NF == 0 { next }
+              {
+                name = $4
+                sub(/^.*:/, "", name)
+                if (name ~ /^[0-9]+$/) print name
+                else print "__cmux_incomplete__"
+              }
+            ')"
+            ;;
+          netstat)
+            cmux_parsed_output="$(printf '%s\\n' "$cmux_scan_output" | awk '
+              NF == 0 || $1 == "Proto" || /^Active Internet/ { next }
+              {
+                name = $4
+                sub(/^.*:/, "", name)
+                if (name ~ /^[0-9]+$/) print name
+                else print "__cmux_incomplete__"
+              }
+            ')"
+            ;;
+          lsof)
+            cmux_parsed_output="$(printf '%s\\n' "$cmux_scan_output" | awk '
+              NF == 0 || $1 == "COMMAND" { next }
+              {
+                name = $9
+                sub(/->.*/, "", name)
+                sub(/^.*:/, "", name)
+                if (name ~ /^[0-9]+$/) print name
+                else print "__cmux_incomplete__"
+              }
+            ')"
+            ;;
+        esac
+
+        cmux_parse_complete=1
+        case "$cmux_parsed_output" in
+          *__cmux_incomplete__*) cmux_parse_complete=0 ;;
+        esac
+        printf '%s\\n' "$cmux_parsed_output" | while IFS= read -r cmux_port; do
+          [ -n "$cmux_port" ] || continue
+          [ "$cmux_port" != "__cmux_incomplete__" ] || continue
+          cmux_emit_port "$cmux_port"
+        done
+
+        cmux_command_complete=0
+        if [ "$cmux_scan_status" -eq 0 ]; then
+          cmux_command_complete=1
+        elif [ "$cmux_scanner" = lsof ] && [ "$cmux_scan_status" -eq 1 ] && [ -z "$cmux_scan_output" ]; then
+          cmux_command_complete=1
+        fi
+        if [ "$cmux_command_complete" -eq 1 ] && [ "$cmux_parse_complete" -eq 1 ]; then
+          printf '%s\\n' '\(remotePortScanCompleteMarker)'
+        fi
+        exit 0
         """
     }
 }

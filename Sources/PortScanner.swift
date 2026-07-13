@@ -57,6 +57,7 @@ final class PortScanner: @unchecked Sendable {
 
     /// Periodic timer for agent-owned process trees that aren't attached to a TTY.
     private var agentScanTimer: DispatchSourceTimer?
+    private var publicationTask: Task<Void, Never>?
 
     /// Burst scan offsets in seconds from the start of the burst.
     /// Each scan fires at this absolute offset; the recursive scheduler
@@ -521,9 +522,8 @@ final class PortScanner: @unchecked Sendable {
                 trackedKeys: trackedKeys,
                 completeness: panelCompleteness
             )
-            let panelCallback = onPortsUpdated
-            if let panelCallback {
-                Task { @MainActor in
+            if let panelCallback = onPortsUpdated {
+                enqueuePublication {
                     for key in trackedKeys {
                         panelCallback(key.workspaceId, key.panelId, stableSnapshot[key] ?? [])
                     }
@@ -539,6 +539,13 @@ final class PortScanner: @unchecked Sendable {
         )
     }
 
+    private func enqueuePublication(_ operation: @escaping @MainActor @Sendable () async -> Void) {
+        publicationTask = Task { @MainActor [previousTask = publicationTask] in
+            await previousTask?.value
+            await operation()
+        }
+    }
+
     private func deliverAgentResults(
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
@@ -547,20 +554,18 @@ final class PortScanner: @unchecked Sendable {
         requestID: UInt64
     ) {
         guard let agentCallback = onAgentPortsUpdated else { return }
-        Task { [weak self] in
+        let validatedResults = validatedAgentResults(
+            workspaceIds: workspaceIds,
+            agentPortsByWorkspace: agentPortsByWorkspace,
+            agentRevisions: agentRevisions,
+            completeness: completeness,
+            requestID: requestID
+        )
+        guard !validatedResults.isEmpty else { return }
+        enqueuePublication { [weak self] in
             guard let self else { return }
-            let validatedResults = await self.validatedAgentResults(
-                workspaceIds: workspaceIds,
-                agentPortsByWorkspace: agentPortsByWorkspace,
-                agentRevisions: agentRevisions,
-                completeness: completeness,
-                requestID: requestID
-            )
-            guard !validatedResults.isEmpty else { return }
-            let appliedResults = await MainActor.run {
-                validatedResults.filter { result in
-                    agentCallback(result.workspaceId, result.ports)
-                }
+            let appliedResults = validatedResults.filter { result in
+                agentCallback(result.workspaceId, result.ports)
             }
             let appliedWorkspaceIds = Set(appliedResults.map(\.workspaceId))
             await self.acknowledgeAgentResults(validatedResults, appliedWorkspaceIds: appliedWorkspaceIds)
@@ -606,46 +611,41 @@ final class PortScanner: @unchecked Sendable {
         agentRevisions: [UUID: UInt64],
         completeness: PortScanCompleteness,
         requestID: UInt64
-    ) async -> [(workspaceId: UUID, ports: [Int], revision: UInt64, requestID: UInt64)] {
-        await withCheckedContinuation { continuation in
-            queue.async { [self] in
-                var results: [(workspaceId: UUID, ports: [Int], revision: UInt64, requestID: UInt64)] = []
-                let revisionMatchedWorkspaceIds = Set(workspaceIds.filter { workspaceId in
-                    agentRevisionByWorkspace[workspaceId, default: 0] == agentRevisions[workspaceId, default: 0]
-                })
-                let validWorkspaceIds = scanCoordination.newAgentWorkspaces(
-                    revisionMatchedWorkspaceIds,
-                    eligibleWorkspaceIds: trackedAgentWorkspaces.union(forceAgentResultWorkspaces),
-                    requestID: requestID
-                )
-                let scannedPorts = agentPortsByWorkspace
-                    .filter { validWorkspaceIds.contains($0.key) }
-                    .mapValues { Array($0) }
-                let stableSnapshot = agentPortSnapshot.reconcile(
-                    scannedPorts: scannedPorts,
-                    scannedKeys: validWorkspaceIds,
-                    trackedKeys: trackedAgentWorkspaces,
-                    completeness: completeness
-                )
-                for workspaceId in workspaceIds.sorted(by: { $0.uuidString < $1.uuidString }) {
-                    let expectedRevision = agentRevisions[workspaceId, default: 0]
-                    guard validWorkspaceIds.contains(workspaceId) else { continue }
-                    let ports = stableSnapshot[workspaceId] ?? []
-                    let previousPorts = lastAgentPortsByWorkspace[workspaceId]
-                    if !forceAgentResultWorkspaces.contains(workspaceId) {
-                        guard previousPorts != ports else { continue }
-                        guard previousPorts != nil || !ports.isEmpty else { continue }
-                    }
-                    results.append((
-                        workspaceId: workspaceId,
-                        ports: ports,
-                        revision: expectedRevision,
-                        requestID: requestID
-                    ))
-                }
-                continuation.resume(returning: results)
+    ) -> [(workspaceId: UUID, ports: [Int], revision: UInt64, requestID: UInt64)] {
+        var results: [(workspaceId: UUID, ports: [Int], revision: UInt64, requestID: UInt64)] = []
+        let revisionMatchedWorkspaceIds = Set(workspaceIds.filter { workspaceId in
+            agentRevisionByWorkspace[workspaceId, default: 0] == agentRevisions[workspaceId, default: 0]
+        })
+        let validWorkspaceIds = scanCoordination.newAgentWorkspaces(
+            revisionMatchedWorkspaceIds,
+            eligibleWorkspaceIds: trackedAgentWorkspaces.union(forceAgentResultWorkspaces),
+            requestID: requestID
+        )
+        let scannedPorts = agentPortsByWorkspace
+            .filter { validWorkspaceIds.contains($0.key) }
+            .mapValues { Array($0) }
+        let stableSnapshot = agentPortSnapshot.reconcile(
+            scannedPorts: scannedPorts,
+            scannedKeys: validWorkspaceIds,
+            trackedKeys: trackedAgentWorkspaces,
+            completeness: completeness
+        )
+        for workspaceId in validWorkspaceIds {
+            let expectedRevision = agentRevisions[workspaceId, default: 0]
+            let ports = stableSnapshot[workspaceId] ?? []
+            let previousPorts = lastAgentPortsByWorkspace[workspaceId]
+            if !forceAgentResultWorkspaces.contains(workspaceId) {
+                guard previousPorts != ports else { continue }
+                guard previousPorts != nil || !ports.isEmpty else { continue }
             }
+            results.append((
+                workspaceId: workspaceId,
+                ports: ports,
+                revision: expectedRevision,
+                requestID: requestID
+            ))
         }
+        return results
     }
 
     private func agentRevisionSnapshot(for workspaceIds: Set<UUID>) -> [UUID: UInt64] {
