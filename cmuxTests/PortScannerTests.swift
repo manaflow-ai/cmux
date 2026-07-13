@@ -279,17 +279,23 @@ struct PortScanPublicationBufferTests {
         let key = PortScanner.PanelKey(workspaceId: UUID(), panelId: UUID())
         let removedKey = PortScanner.PanelKey(workspaceId: UUID(), panelId: UUID())
 
-        #expect(buffer.enqueue(panelPortsByKey: [key: [4000], removedKey: [5000]]))
+        let didScheduleInitialDrain = buffer.enqueue(
+            panelPortsByKey: [key: [4000], removedKey: [5000]]
+        )
+        #expect(didScheduleInitialDrain)
         for port in 4001...4100 {
-            #expect(buffer.enqueue(panelPortsByKey: [key: [port]]) == false)
+            let didScheduleAnotherDrain = buffer.enqueue(panelPortsByKey: [key: [port]])
+            #expect(didScheduleAnotherDrain == false)
         }
         #expect(buffer.isDrainScheduled)
 
-        let batch = try #require(buffer.takePendingBatch())
+        let pendingBatch = buffer.takePendingBatch()
+        let batch = try #require(pendingBatch)
         #expect(batch.panelPortsByKey[key] == [4100])
         #expect(batch.panelPortsByKey[removedKey] == nil)
         #expect(buffer.isDrainScheduled)
-        #expect(buffer.takePendingBatch()?.isEmpty == nil)
+        let emptyBatch = buffer.takePendingBatch()
+        #expect(emptyBatch?.isEmpty == nil)
         #expect(buffer.isDrainScheduled == false)
     }
 
@@ -319,11 +325,15 @@ struct PortScanPublicationBufferTests {
             removesLifecycle: false
         )
 
-        #expect(buffer.enqueue(agentPublications: [first]))
-        #expect(buffer.enqueue(agentPublications: [latestRequest]) == false)
-        #expect(buffer.enqueue(agentPublications: [staleLifecycle]) == false)
+        let didScheduleInitialDrain = buffer.enqueue(agentPublications: [first])
+        let didScheduleLatestRequestDrain = buffer.enqueue(agentPublications: [latestRequest])
+        let didScheduleStaleLifecycleDrain = buffer.enqueue(agentPublications: [staleLifecycle])
+        #expect(didScheduleInitialDrain)
+        #expect(didScheduleLatestRequestDrain == false)
+        #expect(didScheduleStaleLifecycleDrain == false)
 
-        let batch = try #require(buffer.takePendingBatch())
+        let pendingBatch = buffer.takePendingBatch()
+        let batch = try #require(pendingBatch)
         #expect(batch.agentPublicationsByWorkspace[workspaceID]?.ports == [4200])
 
         let nextLifecycle = AgentPortScanPublication(
@@ -333,9 +343,12 @@ struct PortScanPublicationBufferTests {
             requestID: 3,
             removesLifecycle: false
         )
-        #expect(buffer.enqueue(agentPublications: [nextLifecycle]) == false)
-        #expect(buffer.takePendingBatch()?.agentPublicationsByWorkspace[workspaceID]?.ports == [4400])
-        #expect(buffer.takePendingBatch()?.isEmpty == nil)
+        let didScheduleNextLifecycleDrain = buffer.enqueue(agentPublications: [nextLifecycle])
+        let nextLifecycleBatch = buffer.takePendingBatch()
+        let emptyBatch = buffer.takePendingBatch()
+        #expect(didScheduleNextLifecycleDrain == false)
+        #expect(nextLifecycleBatch?.agentPublicationsByWorkspace[workspaceID]?.ports == [4400])
+        #expect(emptyBatch?.isEmpty == nil)
     }
 }
 
