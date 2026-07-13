@@ -41,7 +41,7 @@ import Testing
 
         let service = GitDiffService(
             gitExecutableURL: exitedGit,
-            processDeadlineSeconds: 0.5
+            processDeadlineSeconds: 1
         )
         let finished = DispatchSemaphore(value: 0)
         let box = DeadlineRootBox()

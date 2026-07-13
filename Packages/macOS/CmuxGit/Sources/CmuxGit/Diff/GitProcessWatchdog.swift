@@ -1,9 +1,9 @@
 import Darwin
 import Foundation
 
-/// Enforces a hard return bound for one git subprocess. Closing the reader
-/// unblocks the synchronous pipe drain even when a descendant inherited the
-/// descriptor, and SIGKILL escalation handles a child that ignores SIGTERM.
+/// Enforces a hard return bound for one git process group. SIGKILL escalation
+/// handles a descendant that ignores SIGTERM, then closing the reader unblocks
+/// the synchronous pipe drain even after the supervising shell has exited.
 final class GitProcessWatchdog: @unchecked Sendable {
     private static let sigkillGraceSeconds = 0.2
     private static let timerQueue = DispatchQueue(label: "com.cmuxterm.CmuxGit.process-watchdog")
@@ -30,11 +30,14 @@ final class GitProcessWatchdog: @unchecked Sendable {
             return true
         }
         guard shouldTerminate else { return }
-        try? outputHandle.close()
-        guard process.isRunning else { return }
         scheduleSigkill()
-        if kill(-processGroupIdentifier, SIGTERM) != 0 {
-            process.terminate()
+        guard kill(-processGroupIdentifier, SIGTERM) == 0 else {
+            cancelEscalation()
+            try? outputHandle.close()
+            if process.isRunning {
+                process.terminate()
+            }
+            return
         }
     }
 
@@ -70,14 +73,14 @@ final class GitProcessWatchdog: @unchecked Sendable {
                 guard let self else { return }
                 self.lock.withLock {
                     guard !self.completed,
-                          self.escalationGeneration == generation,
-                          self.process.isRunning else { return }
+                          self.escalationGeneration == generation else { return }
                     // Keep the generation check and signal atomic with respect
                     // to cancellation after `waitUntilExit`.
-                    kill(-self.processGroupIdentifier, SIGKILL)
-                    if self.process.isRunning {
+                    let groupSignalFailed = kill(-self.processGroupIdentifier, SIGKILL) != 0
+                    if groupSignalFailed, self.process.isRunning {
                         self.process.terminate()
                     }
+                    try? self.outputHandle.close()
                     self.escalationTimer = nil
                 }
             }

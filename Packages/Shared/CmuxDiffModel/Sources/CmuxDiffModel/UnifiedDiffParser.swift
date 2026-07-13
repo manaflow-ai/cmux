@@ -1,7 +1,7 @@
 /// Parses unified-diff text into hunk and line value models.
 public struct UnifiedDiffParser: Sendable {
     private static let maximumHunkCount = 2_000
-    private static let maximumLineCountPerHunk = 2_000
+    fileprivate static let maximumLineCountPerHunk = 2_000
     private static let maximumTotalLineCount = 20_000
     private static let maximumDisplayedLineUTF8Bytes = 8 * 1024
 
@@ -211,7 +211,16 @@ private struct HunkHeader {
         let pieces = body.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: false)
         guard let startRaw = pieces.first, let start = Int(startRaw) else { return nil }
         let count = pieces.count == 2 ? Int(pieces[1]) : 1
-        guard let count else { return nil }
+        guard let count,
+              start >= 0,
+              count >= 0,
+              start <= Int.max - UnifiedDiffParser.maximumLineCountPerHunk else {
+            return nil
+        }
+        if count > 0 {
+            let (_, overflow) = start.addingReportingOverflow(count - 1)
+            guard !overflow else { return nil }
+        }
         return (start, count)
     }
 }
