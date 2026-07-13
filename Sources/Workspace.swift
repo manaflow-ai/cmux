@@ -11048,16 +11048,24 @@ final class Workspace: Identifiable, ObservableObject {
         // Open the editor with the right project context (shared resolver).
         let workingDirectory = resolvedTerminalWorkingDirectory(forPanelId: sourcePanelId)
 
-        // Run the editor as the surface's primary process (via Ghostty's
-        // `command`, which macOS executes through `login(1)` — a real login
-        // shell, so the user's PATH resolves the editor). This opens the editor
-        // directly without echoing the command, and `waitAfterCommand: false`
-        // lets the tab close when the editor exits.
+        // Ghostty runs a custom `command` with the app's inherited environment —
+        // and a GUI-launched app has the minimal launchd PATH (/usr/bin:/bin),
+        // NOT the user's login PATH. A bare `nvim` from /opt/homebrew/bin then
+        // fails to resolve and the tab closes instantly (#nvim-route). Wrap the
+        // invocation in a login-shell launcher script (same idiom as session
+        // restore) so the user's PATH resolves the editor. The script `exec`s a
+        // login shell running the editor, so `waitAfterCommand: false` still
+        // closes the tab when the editor exits.
+        let launchCommand = SessionRestoredTerminalCommandStore.writeLauncherScript(
+            command: invocation,
+            workingDirectory: workingDirectory
+        )?.path ?? invocation
+
         return newTerminalSurface(
             inPane: paneId,
             focus: true,
             workingDirectory: workingDirectory,
-            initialCommand: invocation,
+            initialCommand: launchCommand,
             waitAfterCommandOverride: false
         )
     }
