@@ -244,6 +244,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const [state, dispatch] = useReducer(reducer, initialAppState(config, initialStatus));
   const latestState = useSyncedRef(state);
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
+  const codeViewScrollTopRef = useRef(0);
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
   const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
@@ -329,11 +330,19 @@ export function App({ config, initialStatus }: ConfigProps) {
   }, [latestState]);
   const jumpAdjacentFile = useCallback((direction: -1 | 1) => {
     const current = latestState.current;
-    const target = adjacentItemId(current.activeItemId, current.items, direction);
+    const visibleItem = visibleItemId(
+      current.items,
+      codeViewScrollTopRef.current,
+      (itemId) => codeViewRef.current?.getInstance()?.getTopForItem(itemId),
+    );
+    const target = adjacentItemId(visibleItem || current.activeItemId, current.items, direction);
     if (target) {
       scrollToItem(target);
     }
   }, [latestState, scrollToItem]);
+  const handleCodeViewScroll = useCallback((scrollTop: number) => {
+    codeViewScrollTopRef.current = scrollTop;
+  }, []);
   useNativeViewerNavigation(viewerContainerRef, dispatch, jumpAdjacentFile);
   const setStatus = (status: DiffViewerStatus) => {
     applyDiffViewerStatusToDocument(status);
@@ -391,6 +400,7 @@ export function App({ config, initialStatus }: ConfigProps) {
                 className="code-view-root"
                 containerRef={viewerContainerRef}
                 items={state.items}
+                onScroll={handleCodeViewScroll}
                 options={renderedCodeViewOptions}
                 renderAnnotation={(annotation, item) =>
                   renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)}
@@ -1551,8 +1561,24 @@ export function adjacentItemId(activeItemId: string, items: DiffItem[], directio
   if (currentIndex < 0) {
     return direction > 0 ? items[0].id : items[items.length - 1].id;
   }
-  const targetIndex = Math.max(0, Math.min(items.length - 1, currentIndex + direction));
-  return items[targetIndex].id;
+  const targetIndex = currentIndex + direction;
+  return targetIndex >= 0 && targetIndex < items.length ? items[targetIndex].id : "";
+}
+
+export function visibleItemId(
+  items: DiffItem[],
+  scrollTop: number,
+  getTopForItem: (itemId: string) => number | undefined,
+): string {
+  let visible = items[0]?.id ?? "";
+  for (const item of items) {
+    const top = getTopForItem(item.id);
+    if (top == null || top > scrollTop + 1) {
+      break;
+    }
+    visible = item.id;
+  }
+  return visible;
 }
 
 function getInitialFileTreeRowCount(): number {

@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { adjacentItemId, App } from "../src/App";
+import { adjacentItemId, App, visibleItemId } from "../src/App";
 import { createDiffViewerStatus } from "../src/status";
 
 type FetchMock = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> | Response;
@@ -200,11 +200,20 @@ test("adjacent diff file navigation moves in order and stops at the edges", () =
 
   expect(adjacentItemId("one", items, 1)).toBe("two");
   expect(adjacentItemId("two", items, -1)).toBe("one");
-  expect(adjacentItemId("three", items, 1)).toBe("three");
-  expect(adjacentItemId("one", items, -1)).toBe("one");
+  expect(adjacentItemId("three", items, 1)).toBe("");
+  expect(adjacentItemId("one", items, -1)).toBe("");
   expect(adjacentItemId("missing", items, 1)).toBe("one");
   expect(adjacentItemId("missing", items, -1)).toBe("three");
   expect(adjacentItemId("missing", [], 1)).toBe("");
+});
+
+test("visible diff file follows the scroll position", () => {
+  const items = [{ id: "one" }, { id: "two" }, { id: "three" }] as any;
+  const tops: Record<string, number> = { one: 0, two: 500, three: 900 };
+
+  expect(visibleItemId(items, 0, (id) => tops[id])).toBe("one");
+  expect(visibleItemId(items, 650, (id) => tops[id])).toBe("two");
+  expect(visibleItemId(items, 1000, (id) => tops[id])).toBe("three");
 });
 
 test("native viewer navigation remains installed after an unrelated render", async () => {
