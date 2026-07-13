@@ -106,6 +106,11 @@ public struct UITestConfig {
         taskComposerPreviewEnabled(from: ProcessInfo.processInfo.environment)
     }
 
+    /// Returns whether an explicit environment enables the standalone task
+    /// composer accessibility preview.
+    ///
+    /// - Parameter env: The environment dictionary to inspect.
+    /// - Returns: `true` only for a DEBUG build whose preview value is `"1"`.
     public static func taskComposerPreviewEnabled(from env: [String: String]) -> Bool {
         #if DEBUG
         return env["CMUX_UITEST_TASK_COMPOSER_PREVIEW"] == "1"
