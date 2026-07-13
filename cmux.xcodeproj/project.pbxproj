@@ -1059,6 +1059,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		477796B44AAC7290AA9EFB6C /* RemoteTmuxControlCommandKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAD58EFBF501E599E6D9E9A /* RemoteTmuxControlCommandKind.swift */; };
 		7B577C74BB011F20214F880E /* RemoteTmuxControlConnection+CommandResults.swift in Sources */ = {isa = PBXBuildFile; fileRef = 919E2D0DAC80E2DAB13BD782 /* RemoteTmuxControlConnection+CommandResults.swift */; };
 		D77330020000000000000002 /* RemoteTmuxControlConnection+Commands.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77330020000000000000001 /* RemoteTmuxControlConnection+Commands.swift */; };
+		79380000000000000000000E /* RemoteTmuxControlConnection+Diagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79380000000000000000000D /* RemoteTmuxControlConnection+Diagnostics.swift */; };
 		DED9C7914715D6FB4B83C12F /* RemoteTmuxControlConnection+LayoutPublication.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2781B9ABDA90796E4EEBACBA /* RemoteTmuxControlConnection+LayoutPublication.swift */; };
 		737100000000000000000005 /* RemoteTmuxControlConnection+Observation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 737100000000000000000006 /* RemoteTmuxControlConnection+Observation.swift */; };
 		33742346CBA6FEF7836FD043 /* RemoteTmuxControlConnection+PaneSubscriptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = BACF539E41CB537E0363E93D /* RemoteTmuxControlConnection+PaneSubscriptions.swift */; };
@@ -2785,6 +2786,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		AAAD58EFBF501E599E6D9E9A /* RemoteTmuxControlCommandKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxControlCommandKind.swift; sourceTree = "<group>"; };
 		919E2D0DAC80E2DAB13BD782 /* RemoteTmuxControlConnection+CommandResults.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxControlConnection+CommandResults.swift"; sourceTree = "<group>"; };
 		D77330020000000000000001 /* RemoteTmuxControlConnection+Commands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxControlConnection+Commands.swift"; sourceTree = "<group>"; };
+		79380000000000000000000D /* RemoteTmuxControlConnection+Diagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxControlConnection+Diagnostics.swift"; sourceTree = "<group>"; };
 		2781B9ABDA90796E4EEBACBA /* RemoteTmuxControlConnection+LayoutPublication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxControlConnection+LayoutPublication.swift"; sourceTree = "<group>"; };
 		737100000000000000000006 /* RemoteTmuxControlConnection+Observation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxControlConnection+Observation.swift"; sourceTree = "<group>"; };
 		BACF539E41CB537E0363E93D /* RemoteTmuxControlConnection+PaneSubscriptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxControlConnection+PaneSubscriptions.swift"; sourceTree = "<group>"; };
@@ -4560,6 +4562,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					737100000000000000000006 /* RemoteTmuxControlConnection+Observation.swift */,
 					BACF539E41CB537E0363E93D /* RemoteTmuxControlConnection+PaneSubscriptions.swift */,
 					05663199C0335662D0736AFA /* RemoteTmuxControlConnection+Sizing.swift */,
+					79380000000000000000000D /* RemoteTmuxControlConnection+Diagnostics.swift */,
 				AAAD58EFBF501E599E6D9E9A /* RemoteTmuxControlCommandKind.swift */,
 				2587F4E278EFECB84E2ED34B /* RemoteTmuxControlConnectionSnapshot.swift */,
 				9420A497CBC16357FF3F2C9A /* RemoteTmuxControlPipeWriter.swift */,
@@ -6311,6 +6314,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				477796B44AAC7290AA9EFB6C /* RemoteTmuxControlCommandKind.swift in Sources */,
 				7B577C74BB011F20214F880E /* RemoteTmuxControlConnection+CommandResults.swift in Sources */,
 				D77330020000000000000002 /* RemoteTmuxControlConnection+Commands.swift in Sources */,
+				79380000000000000000000E /* RemoteTmuxControlConnection+Diagnostics.swift in Sources */,
 				DED9C7914715D6FB4B83C12F /* RemoteTmuxControlConnection+LayoutPublication.swift in Sources */,
 				737100000000000000000005 /* RemoteTmuxControlConnection+Observation.swift in Sources */,
 				33742346CBA6FEF7836FD043 /* RemoteTmuxControlConnection+PaneSubscriptions.swift in Sources */,

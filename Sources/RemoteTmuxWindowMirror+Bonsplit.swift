@@ -153,7 +153,7 @@ extension RemoteTmuxWindowMirror {
             }
             return
         }
-        guard split.orientation == orientation.bonsplitTreeName,
+        guard split.orientation == orientation.treeName,
               let splitId = UUID(uuidString: split.id)
         else {
             #if DEBUG
@@ -198,7 +198,7 @@ extension RemoteTmuxWindowMirror {
     ) {
         guard case .split(let split) = treeNode,
               case .split(_, let orientation, let firstTree, let secondTree) = tmuxTree,
-              split.orientation == orientation.bonsplitTreeName,
+              split.orientation == orientation.treeName,
               let splitId = UUID(uuidString: split.id) else { return }
         let fraction = Self.dividerFraction(
             first: firstTree.layout,
@@ -369,7 +369,7 @@ extension RemoteTmuxWindowMirror {
     ) -> Bool {
         guard children.count > 1,
               case .split(let split) = treeNode,
-              split.orientation == orientation.bonsplitTreeName,
+              split.orientation == orientation.treeName,
               let first = children.first else { return false }
         return bonsplitTreeMatches(layout: first, treeNode: split.first)
             && bonsplitTreeMatches(

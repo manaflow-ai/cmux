@@ -30,7 +30,7 @@ extension RemoteTmuxWindowMirror {
         guard case .split(let split) = treeNode,
               case .split(_, _, let orientation, let firstTree, let secondTree) = tmuxTree,
               let splitID = UUID(uuidString: split.id),
-              split.orientation == orientation.bonsplitTreeName else { return }
+              split.orientation == orientation.treeName else { return }
         let first = firstTree.layout
         let position = CGFloat(split.dividerPosition)
         let previous = lastDividerPositions[splitID] ?? position
@@ -48,7 +48,7 @@ extension RemoteTmuxWindowMirror {
                 parentExtent: parentExtent,
                 dividerPosition: position
             )
-            let axis = orientation.bonsplitTreeName
+            let axis = orientation.treeName
             if let targetPaneID = first.paneIDsInOrder.first {
                 _ = requestResizePane(
                     targetPaneID,

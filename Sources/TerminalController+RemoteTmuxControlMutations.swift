@@ -300,7 +300,7 @@ extension TerminalController {
         case .outerAbsolute(let axis, let targetPoints):
             guard targetPoints.isFinite else { return unavailable }
             guard let windowMirror = location.windowMirror else { return unavailable }
-            let orientation: SplitOrientation
+            let orientation: RemoteTmuxSplitOrientation
             switch axis {
             case "horizontal": orientation = .horizontal
             case "vertical": orientation = .vertical
@@ -342,7 +342,7 @@ extension TerminalController {
                   let metrics = windowMirror.nativeLayoutMetrics() else {
                 return unavailable
             }
-            let orientation: SplitOrientation = direction.splitOrientation == "horizontal"
+            let orientation: RemoteTmuxSplitOrientation = direction.splitOrientation == "horizontal"
                 ? .horizontal
                 : .vertical
             guard let context = RemoteTmuxNativeSplitTree(layout: windowMirror.layout)

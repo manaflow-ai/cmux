@@ -160,111 +160,109 @@ extension TerminalController {
     /// size it claimed; `mismatches` lists panes whose last rendered grid
     /// differs from their assigned span. A mismatch while `settled` is true
     /// is a real rendering bug, no ambiguity.
-    nonisolated func v2RemoteTmuxSizingSettled(id: Any?) -> String {
-        v2VmCall(id: id, timeoutSeconds: 15) {
-            let report: [[String: Any]] = await MainActor.run {
-                var windows: [[String: Any]] = []
-                for workspace in self.tabManager?.tabs ?? [] {
-                    guard let session = workspace.remoteTmuxSessionMirror else { continue }
-                    let liveWindowIds = Set(session.connection.windowOrder)
-                    for (windowId, mirror) in session.windowMirrorByWindowId {
-                        // A window tmux no longer lists cannot settle and
-                        // must not be judged; its mirror is mid-teardown.
-                        guard liveWindowIds.contains(windowId) else { continue }
-                        // Hidden mirrors stop tracking by design (they claim
-                        // once and their surfaces report collapsed sizes);
-                        // only the visible mirror's state is judgeable.
-                        guard mirror.isEffectivelyVisibleForSizing else { continue }
-                        let claimed = mirror.connection?.lastWindowSizes[windowId]
-                        var mismatches: [String] = []
-                        // While zoomed, the visible tree is what panes render.
-                        let tree = mirror.visibleLayout ?? mirror.layout
-                        let leavesByPaneID = tree.leavesByPaneID
-                        let plannedOuterSizes: [Int: CGSize] = {
-                            guard let metrics = mirror.nativeLayoutMetrics() else { return [:] }
-                            let planner = RemoteTmuxNativeSplitLayoutPlanner(metrics: metrics)
-                            let plan = planner.plan(
-                                tree: RemoteTmuxNativeMeasuredSplitTree(
-                                    tree: RemoteTmuxNativeSplitTree(layout: tree),
-                                    metrics: metrics
-                                ),
-                                parentSize: mirror.containerSizePt
-                            )
-                            return planner.outerSizes(of: plan)
-                        }()
-                        for leaf in tree.paneIDsInOrder {
-                            guard let node = leavesByPaneID[leaf] else { continue }
-                            // Only a SHORTFALL is a defect: a pane one
-                            // column under its span wraps every full line,
-                            // while surplus is blank margin (the trailing
-                            // pane legitimately absorbs sub-cell leftover).
-                            guard let rendered = mirror.lastRenderedGrids[leaf] else {
-                                // No size report yet: absence of evidence is
-                                // not settled evidence — keep pollers waiting.
-                                mismatches.append(
-                                    "%\(leaf) no-sample assigned=\(node.width)x\(node.height)"
-                                )
-                                continue
-                            }
-                            // Surplus is deliberately NOT flagged here: a
-                            // pane sharing an axis with a chrome-heavier
-                            // sibling stack legitimately inherits several
-                            // cells of blank fill margin, so grid surplus
-                            // with a correctly placed view is not a defect.
-                            // Overdraw is a VIEW property, and the anchor
-                            // misplacement entries above already judge it
-                            // exactly.
-                            if rendered.cols < node.width || rendered.rows < node.height {
-                                var detail = "%\(leaf) rendered=\(rendered.cols)x\(rendered.rows)"
-                                    + " assigned=\(node.width)x\(node.height)"
-                                // The surface's own pixel report — ground
-                                // truth for diagnosing which side (plan or
-                                // layout) lost the width.
-                                if let sample = mirror.panelsByPaneId[leaf]?.surface.rawSizingSample() {
-                                    detail += " surfacePx=\(Int(sample.surfaceWidthPx))x\(Int(sample.surfaceHeightPx))"
-                                        + " cellPx=\(sample.cellWidthPx)x\(sample.cellHeightPx)"
-                                }
-                                // Layer bisect for a live mismatch: what the
-                                // plan wants for this pane right now, and
-                                // what its view actually measures. plan≠view
-                                // means the split tree diverged from the
-                                // plan; plan==view but surface short means
-                                // the portal-hosted surface lags its view.
-                                if let outer = plannedOuterSizes[leaf] {
-                                    detail += " plan=\(Int(outer.width))x\(Int(outer.height))"
-                                }
-                                if let view = mirror.panelsByPaneId[leaf]?.hostedView {
-                                    detail += " view=\(Int(view.frame.width))x\(Int(view.frame.height))"
-                                        + " inWin=\(view.window != nil ? 1 : 0)"
-                                }
-                                mismatches.append(detail)
-                            }
+    func remoteTmuxSizingSettlementPayload() -> [String: Any] {
+        var windows: [[String: Any]] = []
+        var connectionsConnected = true
+        for workspace in self.tabManager?.tabs ?? [] {
+            guard let session = workspace.remoteTmuxSessionMirror else { continue }
+            let connected = session.connection.connectionState == .connected
+            connectionsConnected = connectionsConnected && connected
+            let liveWindowIds = Set(session.connection.windowOrder)
+            for (windowId, mirror) in session.windowMirrorByWindowId {
+                // A window tmux no longer lists cannot settle and
+                // must not be judged; its mirror is mid-teardown.
+                guard liveWindowIds.contains(windowId) else { continue }
+                // Hidden mirrors stop tracking by design (they claim
+                // once and their surfaces report collapsed sizes);
+                // only the visible mirror's state is judgeable.
+                guard mirror.isEffectivelyVisibleForSizing else { continue }
+                let claimed = mirror.connection?.lastWindowSizes[windowId]
+                var mismatches: [String] = []
+                // While zoomed, the visible tree is what panes render.
+                let tree = mirror.visibleLayout ?? mirror.layout
+                let leavesByPaneID = tree.leavesByPaneID
+                let plannedOuterSizes: [Int: CGSize] = {
+                    guard let metrics = mirror.nativeLayoutMetrics() else { return [:] }
+                    let planner = RemoteTmuxNativeSplitLayoutPlanner(metrics: metrics)
+                    let plan = planner.plan(
+                        tree: RemoteTmuxNativeMeasuredSplitTree(
+                            tree: RemoteTmuxNativeSplitTree(layout: tree),
+                            metrics: metrics
+                        ),
+                        parentSize: mirror.containerSizePt
+                    )
+                    return planner.outerSizes(of: plan)
+                }()
+                for leaf in tree.paneIDsInOrder {
+                    guard let node = leavesByPaneID[leaf] else { continue }
+                    // Only a SHORTFALL is a defect: a pane one
+                    // column under its span wraps every full line,
+                    // while surplus is blank margin (the trailing
+                    // pane legitimately absorbs sub-cell leftover).
+                    guard let rendered = mirror.lastRenderedGrids[leaf] else {
+                        // No size report yet: absence of evidence is
+                        // not settled evidence — keep pollers waiting.
+                        mismatches.append(
+                            "%\(leaf) no-sample assigned=\(node.width)x\(node.height)"
+                        )
+                        continue
+                    }
+                    // Surplus is deliberately NOT flagged here: a
+                    // pane sharing an axis with a chrome-heavier
+                    // sibling stack legitimately inherits several
+                    // cells of blank fill margin, so grid surplus
+                    // with a correctly placed view is not a defect.
+                    // Overdraw is a VIEW property, and the anchor
+                    // misplacement entries above already judge it
+                    // exactly.
+                    if rendered.cols < node.width || rendered.rows < node.height {
+                        var detail = "%\(leaf) rendered=\(rendered.cols)x\(rendered.rows)"
+                            + " assigned=\(node.width)x\(node.height)"
+                        // The surface's own pixel report — ground
+                        // truth for diagnosing which side (plan or
+                        // layout) lost the width.
+                        if let sample = mirror.panelsByPaneId[leaf]?.surface.rawSizingSample() {
+                            detail += " surfacePx=\(Int(sample.surfaceWidthPx))x\(Int(sample.surfaceHeightPx))"
+                                + " cellPx=\(sample.cellWidthPx)x\(sample.cellHeightPx)"
                         }
-                        // Geometry the grids cannot see: hosted terminal
-                        // views whose frame drifted off their anchor draw
-                        // OVER chrome (tab strips, dividers, neighbors)
-                        // even when every grid is exact.
-                        if let anyView = mirror.panelsByPaneId.values.first?.hostedView,
-                           let hostWindow = anyView.window {
-                            for desc in TerminalWindowPortalRegistry.misplacedHostedViewDescriptions(for: hostWindow) {
-                                mismatches.append("misplaced \(desc)")
-                            }
+                        // Layer bisect for a live mismatch: what the
+                        // plan wants for this pane right now, and
+                        // what its view actually measures. plan≠view
+                        // means the split tree diverged from the
+                        // plan; plan==view but surface short means
+                        // the portal-hosted surface lags its view.
+                        if let outer = plannedOuterSizes[leaf] {
+                            detail += " plan=\(Int(outer.width))x\(Int(outer.height))"
                         }
-                        windows.append([
-                            "window": windowId,
-                            "claimed": claimed.map { "\($0.0)x\($0.1)" } ?? "none",
-                            "layout": "\(mirror.layout.width)x\(mirror.layout.height)",
-                            "settled": claimed.map {
-                                $0.0 == mirror.layout.width && $0.1 == mirror.layout.height
-                            } ?? false,
-                            "mismatches": mismatches,
-                        ])
+                        if let view = mirror.panelsByPaneId[leaf]?.hostedView {
+                            detail += " view=\(Int(view.frame.width))x\(Int(view.frame.height))"
+                                + " inWin=\(view.window != nil ? 1 : 0)"
+                        }
+                        mismatches.append(detail)
                     }
                 }
-                return windows
+                // Geometry the grids cannot see: hosted terminal
+                // views whose frame drifted off their anchor draw
+                // OVER chrome (tab strips, dividers, neighbors)
+                // even when every grid is exact.
+                if let anyView = mirror.panelsByPaneId.values.first?.hostedView,
+                   let hostWindow = anyView.window {
+                    for desc in TerminalWindowPortalRegistry.misplacedHostedViewDescriptions(for: hostWindow) {
+                        mismatches.append("misplaced \(desc)")
+                    }
+                }
+                windows.append([
+                    "window": windowId,
+                    "claimed": claimed.map { "\($0.0)x\($0.1)" } ?? "none",
+                    "layout": "\(mirror.layout.width)x\(mirror.layout.height)",
+                        "settled": claimed.map {
+                            connected && $0.0 == mirror.layout.width && $0.1 == mirror.layout.height
+                        } ?? false,
+                    "mismatches": mismatches,
+                ])
             }
-            return ["windows": report]
         }
+        return ["connected": connectionsConnected, "windows": windows]
     }
 }
 #endif

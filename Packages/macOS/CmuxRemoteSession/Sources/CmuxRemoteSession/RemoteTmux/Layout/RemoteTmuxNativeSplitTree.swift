@@ -1,20 +1,9 @@
-public import Bonsplit
-
-extension SplitOrientation {
-    /// The orientation string Bonsplit's external tree snapshot carries for
-    /// a split — the one place this mapping lives, so a guard comparing a
-    /// snapshot against a tmux orientation can't drift per call site.
-    public var bonsplitTreeName: String {
-        self == .horizontal ? "horizontal" : "vertical"
-    }
-}
-
-/// Right-associated binary view of tmux's n-ary layout, matching Bonsplit's split tree.
+/// Right-associated binary view of tmux's n-ary layout.
 public indirect enum RemoteTmuxNativeSplitTree: Sendable {
     case atomic(RemoteTmuxLayoutNode)
     case split(
         layout: RemoteTmuxLayoutNode,
-        orientation: SplitOrientation,
+        orientation: RemoteTmuxSplitOrientation,
         first: RemoteTmuxNativeSplitTree,
         second: RemoteTmuxNativeSplitTree
     )
@@ -41,7 +30,7 @@ public indirect enum RemoteTmuxNativeSplitTree: Sendable {
     /// it a split ancestor and resizable border along `orientation`.
     public func paneResizeContext(
         paneID: Int,
-        orientation: SplitOrientation
+        orientation: RemoteTmuxSplitOrientation
     ) -> (
         pane: RemoteTmuxLayoutNode,
         hasSplitAncestor: Bool,
@@ -87,7 +76,7 @@ public indirect enum RemoteTmuxNativeSplitTree: Sendable {
     /// Tmux resizes the target pane's nearest split along the requested axis.
     /// Select a pane whose path reaches this subtree without crossing a nearer
     /// same-axis split; otherwise this ancestor cannot be addressed safely.
-    private func resizeCommandTargetPaneID(avoiding orientation: SplitOrientation) -> Int? {
+    private func resizeCommandTargetPaneID(avoiding orientation: RemoteTmuxSplitOrientation) -> Int? {
         switch self {
         case .atomic(let pane):
             guard case .pane(let paneID) = pane.content else { return nil }
@@ -101,7 +90,7 @@ public indirect enum RemoteTmuxNativeSplitTree: Sendable {
 
     private static func joined(
         children: [RemoteTmuxLayoutNode],
-        orientation: SplitOrientation
+        orientation: RemoteTmuxSplitOrientation
     ) -> RemoteTmuxNativeSplitTree? {
         guard let last = children.last else { return nil }
         var result = RemoteTmuxNativeSplitTree(layout: last)
@@ -118,7 +107,7 @@ public indirect enum RemoteTmuxNativeSplitTree: Sendable {
     private static func join(
         first: RemoteTmuxNativeSplitTree,
         second: RemoteTmuxNativeSplitTree,
-        orientation: SplitOrientation
+        orientation: RemoteTmuxSplitOrientation
     ) -> RemoteTmuxNativeSplitTree {
         let firstLayout = first.layout
         let secondLayout = second.layout

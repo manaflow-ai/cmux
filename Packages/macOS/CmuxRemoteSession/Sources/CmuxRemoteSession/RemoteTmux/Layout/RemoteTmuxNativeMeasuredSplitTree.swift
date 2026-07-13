@@ -1,4 +1,3 @@
-public import Bonsplit
 public import Foundation
 
 /// Binary tmux tree with native chrome residuals folded once for a geometry snapshot.
@@ -7,7 +6,7 @@ public indirect enum RemoteTmuxNativeMeasuredSplitTree: Sendable {
     case split(
         layout: RemoteTmuxLayoutNode,
         residual: CGSize,
-        orientation: SplitOrientation,
+        orientation: RemoteTmuxSplitOrientation,
         first: RemoteTmuxNativeMeasuredSplitTree,
         second: RemoteTmuxNativeMeasuredSplitTree
     )

@@ -305,6 +305,4 @@ extension RemoteTmuxWindowMirror {
         )
         return true
     }
-
 }
-

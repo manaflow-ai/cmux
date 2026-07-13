@@ -29,8 +29,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     /// - Parameter method: The trimmed method name.
     public init(forMethod method: String) {
 #if DEBUG
-        if method == "remote.tmux.test_exec" || method == "remote.tmux.test_set_frame"
-            || method == "remote.tmux.sizing_settled" {
+        if method == "remote.tmux.test_exec" || method == "remote.tmux.test_set_frame" {
             self = .socketWorker(mainThreadCallable: false)
             return
         }

@@ -837,7 +837,7 @@ final class WindowTerminalPortal: NSObject {
         lastHierarchySyncSignature = externalGeometrySignature()
     }
 
-    private var lastHierarchySyncSignature: String?
+    private var lastHierarchySyncSignature: ExternalGeometrySignature?
 
     @discardableResult
     private func synchronizeHostFrameToReference() -> Bool {
@@ -901,28 +901,39 @@ final class WindowTerminalPortal: NSObject {
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.externalGeometrySync")
     }
 
-    /// Cheap (no-layout) fingerprint of everything a sync pass reads or
-    /// writes: window size, container/reference/host frames, and every
-    /// hosted view's frame. Identical fingerprint = the pass would be a
-    /// no-op = skip it (and with it, the relayout that echoes).
-    private func externalGeometrySignature() -> String {
-        var parts: [String] = []
-        if let window { parts.append("w\(Int(window.frame.width))x\(Int(window.frame.height))") }
-        parts.append("h\(hostView.frame.debugDescription)")
-        if let container = installedContainerView { parts.append("c\(container.frame.debugDescription)") }
-        if let reference = installedReferenceView { parts.append("r\(reference.frame.debugDescription)") }
-        for (id, entry) in entriesByHostedId.sorted(by: { $0.key.hashValue < $1.key.hashValue }) {
-            var part = "e\(id.hashValue):\(entry.hostedView?.frame.debugDescription ?? "gone")"
-            // The anchor's expected rect is part of the pass's INPUT: while
-            // a hosted view disagrees with its anchor the signature differs
-            // and passes keep running; once aligned they stop. Without this
-            // a pass could stop early with content parked over chrome.
-            if let anchor = entry.anchorView, anchor.window != nil {
-                part += "->\(expectedHostedFrameInHost(for: anchor).debugDescription)"
+    private struct HostedGeometrySignature: Equatable {
+        let hostedFrame: NSRect?
+        let expectedFrame: NSRect?
+    }
+
+    private struct ExternalGeometrySignature: Equatable {
+        let windowFrame: NSRect?
+        let hostFrame: NSRect
+        let containerFrame: NSRect?
+        let referenceFrame: NSRect?
+        let entries: [ObjectIdentifier: HostedGeometrySignature]
+    }
+
+    /// Raw-rect snapshot of everything a sync pass reads or writes.
+    private func externalGeometrySignature() -> ExternalGeometrySignature {
+        var entries: [ObjectIdentifier: HostedGeometrySignature] = [:]
+        entries.reserveCapacity(entriesByHostedId.count)
+        for (id, entry) in entriesByHostedId {
+            let expected = entry.anchorView.flatMap { anchor in
+                anchor.window == nil ? nil : expectedHostedFrameInHost(for: anchor)
             }
-            parts.append(part)
+            entries[id] = HostedGeometrySignature(
+                hostedFrame: entry.hostedView?.frame,
+                expectedFrame: expected
+            )
         }
-        return parts.joined(separator: "|")
+        return ExternalGeometrySignature(
+            windowFrame: window?.frame,
+            hostFrame: hostView.frame,
+            containerFrame: installedContainerView?.frame,
+            referenceFrame: installedReferenceView?.frame,
+            entries: entries
+        )
     }
 
     private func ensureDividerOverlayOnTop() {

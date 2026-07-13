@@ -142,6 +142,18 @@ import Testing
         #expect(mirror.layoutStructureVersion == 2)
     }
 
+    @Test func reconcilePrunesSizingHistoryForRemovedPaneIDs() {
+        let (mirror, _) = makeMirror(layout: reflow123)
+        mirror.lastRenderedGrids = [1: (10, 10), 2: (10, 10), 3: (10, 10)]
+        let two = node(.horizontal([
+            node(.pane(1), w: 61, h: 35), node(.pane(2), w: 61, h: 35),
+        ]), w: 123, h: 35)
+        mirror.reconcile(layout: two)
+        #expect(Set(mirror.lastRenderedGrids.keys) == [1, 2])
+        mirror.teardown()
+        #expect(mirror.lastRenderedGrids.isEmpty)
+    }
+
     // MARK: feed-forward push contract
 
     @Test func updateClientSizeWaitsForConstantsAndContainer() {

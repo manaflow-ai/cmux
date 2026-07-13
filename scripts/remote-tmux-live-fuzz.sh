@@ -126,6 +126,7 @@ if [ "$DRY" != 1 ]; then
   while [ "$tries" -lt 30 ]; do
     aj=$(timeout 8 "$CLI" rpc remote.tmux.sizing_settled 2>/dev/null)
     if printf '%s' "$aj" | grep -q '"windows"' \
+       && printf '%s' "$aj" | grep -q '"connected" : true' \
        && ! printf '%s' "$aj" | grep -q '"settled" : false' \
        && ! printf '%s' "$aj" | grep -q 'no-sample'; then
       break
@@ -182,6 +183,7 @@ check_iter() {
     # wrong AT settle is exactly the bug this harness exists to capture,
     # and waiting it out would misreport it as "never settled".
     if printf '%s' "$settled_json" | grep -q '"settled" : true' \
+       && printf '%s' "$settled_json" | grep -q '"connected" : true' \
        && ! printf '%s' "$settled_json" | grep -q '"settled" : false' \
        && ! printf '%s' "$settled_json" | grep -q 'no-sample'; then
       break
@@ -203,6 +205,7 @@ check_iter() {
       sleep 2
       settled_json=$(timeout 8 "$CLI" rpc remote.tmux.sizing_settled 2>/dev/null)
       if printf '%s' "$settled_json" | grep -q '"windows"' \
+         && printf '%s' "$settled_json" | grep -q '"connected" : true' \
          && ! printf '%s' "$settled_json" | grep -q '"settled" : false' \
          && ! printf '%s' "$settled_json" | grep -qE 'no-sample|rendered=|misplaced'; then
         echo "  reconfirm: converged after $(( (rc_tries + 1) * 2 ))s extra (iter $iter)"

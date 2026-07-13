@@ -2,6 +2,16 @@ import CmuxRemoteSession
 import Bonsplit
 import Foundation
 
+extension SplitOrientation {
+    var remoteTmuxOrientation: RemoteTmuxSplitOrientation {
+        self == .horizontal ? .horizontal : .vertical
+    }
+
+    var treeName: String {
+        self == .horizontal ? "horizontal" : "vertical"
+    }
+}
+
 extension RemoteTmuxWindowMirror {
     func clientGrid(contentSize: CGSize) -> (columns: Int, rows: Int)? {
         nativeLayoutMetrics()?.clientGrid(layout: layout, contentSize: contentSize)
@@ -77,7 +87,7 @@ extension RemoteTmuxWindowMirror {
         nativeLayoutMetrics()?.dividerFraction(
             first: first,
             rest: rest,
-            orientation: orientation
+            orientation: orientation.remoteTmuxOrientation
         ) ?? Self.dividerFraction(
             first: first,
             rest: rest,

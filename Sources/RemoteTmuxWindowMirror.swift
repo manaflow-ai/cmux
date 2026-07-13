@@ -280,6 +280,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             cwdByPaneId[paneId] = nil
             if activePaneId == paneId { activePaneId = nil }
         }
+        lastRenderedGrids = lastRenderedGrids.filter { livePaneIds.contains($0.key) }
         // Structural change (split/close/re-nest) vs geometry-only reflow: only
         // the former re-arms client sizing (the chrome fold's output changed).
         // `init` reconciles the layout it just stored, so the first pass never
@@ -419,6 +420,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         paneIdByBonsplitPane.removeAll()
         paneIdByTabId.removeAll()
         cwdByPaneId.removeAll()
+        lastRenderedGrids.removeAll()
         activePaneId = nil
     }
 }

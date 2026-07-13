@@ -1382,7 +1382,6 @@ class TerminalController {
 #if DEBUG
         case "remote.tmux.test_exec": return v2RemoteTmuxTestExec(id: request.id, params: request.params)
         case "remote.tmux.test_set_frame": return v2RemoteTmuxTestSetFrame(id: request.id, params: request.params)
-        case "remote.tmux.sizing_settled": return v2RemoteTmuxSizingSettled(id: request.id)
 #endif
         case "sidebar.custom.validate":
             return v2Result(id: request.id, v2CustomSidebarValidate(params: request.params))
@@ -12272,10 +12271,16 @@ class TerminalController {
         }
         let (title, subtitle, body, meta) = parseNotificationPayload(payload)
 
-        // Agent-tagged notifications carry a category + a background-work-pending
-        // flag; gate delivery by the user's notification settings. Untagged
-        // notifications (meta == nil) always pass, preserving prior behavior.
-        guard shouldDeliverAgentNotification(meta) else {
+        // Hook and PTY-derived agent notifications share one gate + mutation-bus path.
+        guard AgentNotificationDelivery().enqueue(
+            workspaceID: tabId,
+            surfaceID: surfaceId,
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            category: meta?.category,
+            pending: meta?.pending ?? false
+        ) else {
 #if DEBUG
             if let meta {
                 cmuxDebugLog(
@@ -12290,14 +12295,6 @@ class TerminalController {
             "socket.notifyTargetAsync.enqueue workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) coalesces=0"
         )
 #endif
-        TerminalMutationBus.shared.enqueueNotification(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            title: title,
-            subtitle: subtitle,
-            body: body,
-            coalesces: false
-        )
         return "OK"
     }
 

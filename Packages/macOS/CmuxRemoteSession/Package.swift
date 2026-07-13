@@ -19,7 +19,6 @@ let package = Package(
         .package(path: "../CmuxRemoteDaemon"),
         .package(path: "../CmuxRemoteWorkspace"),
         .package(path: "../CMUXDebugLog"),
-        .package(path: "../../../vendor/bonsplit"),
     ],
     targets: [
         .target(
@@ -30,7 +29,6 @@ let package = Package(
                 .product(name: "CmuxRemoteDaemon", package: "CmuxRemoteDaemon"),
                 .product(name: "CmuxRemoteWorkspace", package: "CmuxRemoteWorkspace"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
-                .product(name: "Bonsplit", package: "bonsplit"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

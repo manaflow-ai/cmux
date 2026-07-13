@@ -90,7 +90,7 @@ final class RemoteTmuxControlConnection {
     var newWindowCompletions: [UUID: (Int?) -> Void] = [:]
 
     private var process: Process?
-    private var stdinWriter: RemoteTmuxControlPipeWriter?
+    var stdinWriter: RemoteTmuxControlPipeWriter?
     private var stdoutReader: FileHandle?
     private var stdoutPipeReader: RemoteTmuxProcessOutputReader?
     private var stderrPipeReader: RemoteTmuxProcessOutputReader?
@@ -124,7 +124,7 @@ final class RemoteTmuxControlConnection {
     /// window reorder, session-gone classification). Holds no state.
     let decoding = RemoteTmuxControlMessageDecoding()
     /// Bounded ring of recent event labels surfaced through `remote.tmux.state`.
-    private let diagnostics = RemoteTmuxConnectionDiagnostics()
+    let diagnostics = RemoteTmuxConnectionDiagnostics()
 
     // MARK: Reconnect state
 
@@ -690,7 +690,7 @@ final class RemoteTmuxControlConnection {
     /// and re-capture current contents (with history) + cwd. Called from the first
     /// post-reconnect `list-windows` result, so `windowsByID` is freshly repopulated
     /// and the command-result FIFO is aligned (the attach block is already drained).
-    private func handle(_ message: RemoteTmuxControlMessage) {
+    func handle(_ message: RemoteTmuxControlMessage) {
         switch message {
         case .enter:
             enterReceived = true
@@ -893,30 +893,5 @@ final class RemoteTmuxControlConnection {
         }
         return idBearingName ?? documentedName
     }
-
-    func record(_ event: String) {
-        diagnostics.record(event)
-    }
-
-    /// An immutable, `Sendable` snapshot for diagnostics (`remote.tmux.state`).
-    func snapshot() -> Snapshot {
-        Snapshot(
-            started: started,
-            enterReceived: enterReceived,
-            exited: exited,
-            sessionId: sessionId,
-            windowCount: windowsByID.count,
-            windowIDs: windowOrder,
-            paneOutputByteCounts: paneOutputByteCounts,
-            totalOutputBytes: totalOutputBytes,
-            recentEvents: diagnostics.events
-        )
-    }
-
-    #if DEBUG
-    func installStdinWriterForTesting(_ writer: RemoteTmuxControlPipeWriter) { stdinWriter = writer }
-    func handleMessageForTesting(_ message: RemoteTmuxControlMessage) { handle(message) }
-    var pendingCommandKindsForTesting: [RemoteTmuxControlCommandKind] { pendingCommands }
-    #endif
 
 }

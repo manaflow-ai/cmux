@@ -1,4 +1,3 @@
-public import Bonsplit
 public import Foundation
 
 /// The pure sizing walk behind the mirror's divider imposition: given a
@@ -26,7 +25,7 @@ public struct RemoteTmuxNativeSplitLayoutPlanner: Sendable {
     public indirect enum Plan: Sendable {
         case leaf(paneId: Int?, outer: CGSize?)
         case split(
-            orientation: SplitOrientation,
+            orientation: RemoteTmuxSplitOrientation,
             fraction: CGFloat,
             firstExtent: CGFloat?,
             first: Plan,

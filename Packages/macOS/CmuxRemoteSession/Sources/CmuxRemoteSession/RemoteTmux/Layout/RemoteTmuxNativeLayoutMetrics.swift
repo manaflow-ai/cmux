@@ -1,7 +1,6 @@
-public import Bonsplit
 public import Foundation
 
-/// Converts between tmux cell geometry and the outer sizes of native Bonsplit panes.
+/// Converts between tmux cell geometry and native split-pane outer sizes.
 public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     public let cellSize: CGSize
     public let surfacePadding: CGSize
@@ -94,7 +93,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     public func dividerFraction(
         first: RemoteTmuxLayoutNode,
         rest: [RemoteTmuxLayoutNode],
-        orientation: SplitOrientation
+        orientation: RemoteTmuxSplitOrientation
     ) -> CGFloat {
         let firstExtent = extent(of: first, residual: residual(of: first), along: orientation)
         let restExtent = joinedExtent(of: rest, along: orientation)
@@ -104,7 +103,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     public func dividerFraction(
         first: RemoteTmuxNativeMeasuredSplitTree,
         second: RemoteTmuxNativeMeasuredSplitTree,
-        orientation: SplitOrientation
+        orientation: RemoteTmuxSplitOrientation
     ) -> CGFloat {
         let firstExtent = extent(
             of: first.layout,
@@ -123,7 +122,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     /// its folded chrome residual.
     public func idealExtent(
         of tree: RemoteTmuxNativeMeasuredSplitTree,
-        along orientation: SplitOrientation
+        along orientation: RemoteTmuxSplitOrientation
     ) -> CGFloat {
         extent(of: tree.layout, residual: tree.residual, along: orientation)
     }
@@ -175,7 +174,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
 
     public func requestedTmuxSpan(
         first: RemoteTmuxLayoutNode,
-        orientation: SplitOrientation,
+        orientation: RemoteTmuxSplitOrientation,
         parentExtent: CGFloat,
         dividerPosition: CGFloat
     ) -> Int {
@@ -191,7 +190,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
 
     public func requestedTmuxSpan(
         first: RemoteTmuxNativeMeasuredSplitTree,
-        orientation: SplitOrientation,
+        orientation: RemoteTmuxSplitOrientation,
         parentExtent: CGFloat,
         dividerPosition: CGFloat
     ) -> Int {
@@ -205,7 +204,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     /// Converts a native point delta to tmux cells along one split axis.
     public func requestedTmuxCellDelta(
         pointDelta: CGFloat,
-        orientation: SplitOrientation
+        orientation: RemoteTmuxSplitOrientation
     ) -> Int {
         let cell = cellExtent(along: orientation)
         guard cell > 0 else { return 0 }
@@ -217,7 +216,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     /// removing the pane chrome that tmux does not represent in its grid span.
     public func requestedTmuxSpan(
         pane: RemoteTmuxLayoutNode,
-        orientation: SplitOrientation,
+        orientation: RemoteTmuxSplitOrientation,
         outerExtent: CGFloat
     ) -> Int {
         let cell = cellExtent(along: orientation)
@@ -243,7 +242,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     /// back), so the two directions can never disagree about child sizes.
     public func childSizes(
         parentSize: CGSize,
-        orientation: SplitOrientation,
+        orientation: RemoteTmuxSplitOrientation,
         firstExtent: CGFloat
     ) -> (first: CGSize, second: CGSize) {
         let parentExtent = orientation == .horizontal ? parentSize.width : parentSize.height
@@ -265,7 +264,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     func joinedResidual(
         first: CGSize,
         second: CGSize,
-        orientation: SplitOrientation
+        orientation: RemoteTmuxSplitOrientation
     ) -> CGSize {
         if orientation == .horizontal {
             return CGSize(
@@ -282,7 +281,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     private func extent(
         of node: RemoteTmuxLayoutNode,
         residual: CGSize,
-        along orientation: SplitOrientation
+        along orientation: RemoteTmuxSplitOrientation
     ) -> CGFloat {
         let cells = orientation == .horizontal ? node.width : node.height
         return CGFloat(cells) * cellExtent(along: orientation)
@@ -291,7 +290,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
 
     private func joinedExtent(
         of nodes: [RemoteTmuxLayoutNode],
-        along orientation: SplitOrientation
+        along orientation: RemoteTmuxSplitOrientation
     ) -> CGFloat {
         nodes.reduce(0) {
             $0 + extent(of: $1, residual: residual(of: $1), along: orientation)
@@ -301,12 +300,12 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
 
     private func residualExtent(
         _ residual: CGSize,
-        along orientation: SplitOrientation
+        along orientation: RemoteTmuxSplitOrientation
     ) -> CGFloat {
         orientation == .horizontal ? residual.width : residual.height
     }
 
-    private func cellExtent(along orientation: SplitOrientation) -> CGFloat {
+    private func cellExtent(along orientation: RemoteTmuxSplitOrientation) -> CGFloat {
         orientation == .horizontal ? cellSize.width : cellSize.height
     }
 

@@ -367,6 +367,9 @@ struct WorkspaceContentView: View {
             }
         }
         .modifier(WorkspaceContentMinimalModeSafeAreaModifier(isFullScreen: isFullScreen))
+        // A workspace is a page: accept the parent proposal instead of
+        // contributing a hidden child's content-derived ideal to its ZStack.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func syncBonsplitNotificationBadges() {
