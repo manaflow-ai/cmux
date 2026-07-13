@@ -320,6 +320,56 @@ import Testing
         }
     }
 
+    @Test func unsupportedShellGrammarDeclinesImplicitPromptInjection() {
+        let commands = [
+            "cat <<'EOF'\ncontext\nEOF",
+            "agent <<< context",
+            "if true; then\nagent\nfi",
+            "for item in one two; do\nagent\ndone",
+            "(agent)",
+            "{ agent; }",
+        ]
+
+        for command in commands {
+            let template = MobileTaskTemplate(name: "Script", icon: "terminal", command: command)
+            let result = composer.compose(template: template, prompt: "ship it")
+            #expect(!template.isPlainShell)
+            #expect(result.initialCommand == command)
+            #expect(result.initialEnv.isEmpty)
+            #expect(result.title == "ship it")
+        }
+    }
+
+    @Test func unsupportedShellGrammarKeepsExplicitPromptConsumers() {
+        let placeholder = MobileTaskTemplate(
+            name: "Script",
+            icon: "terminal",
+            command: "if true; then\nagent {prompt}\nfi"
+        )
+        let environment = MobileTaskTemplate(
+            name: "Script",
+            icon: "terminal",
+            command: "if true; then\nagent \"$CMUX_TASK_PROMPT\"\nfi"
+        )
+
+        let placeholderResult = composer.compose(template: placeholder, prompt: "ship it")
+        let environmentResult = composer.compose(template: environment, prompt: "ship it")
+        #expect(placeholderResult.initialCommand == "if true; then\nagent \"${CMUX_TASK_PROMPT}\"\nfi")
+        #expect(environmentResult.initialCommand == environment.command)
+        #expect(placeholderResult.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
+        #expect(environmentResult.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
+    }
+
+    @Test func reservedWordsRemainArgumentsAfterARealCommandWord() {
+        let command = "agent if then fi done esac"
+        let template = MobileTaskTemplate(name: "Agent", icon: "terminal", command: command)
+
+        let result = composer.compose(template: template, prompt: "ship it")
+
+        #expect(result.initialCommand == command + " -- \"${CMUX_TASK_PROMPT}\"")
+        #expect(result.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
+    }
+
     @Test func appendModeLeavesCommandUnchangedForEmptyPrompt() {
         let template = MobileTaskTemplate(name: "Codex", icon: "sparkles", command: "codex")
 
