@@ -33,6 +33,7 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         macDeviceID: String,
         displayName: String?,
         routes: [CmxAttachRoute],
+        instanceTag: String? = nil,
         markActive: Bool,
         stackUserID: String?,
         teamID: String?,
@@ -42,6 +43,59 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
             macDeviceID: macDeviceID,
             displayName: displayName,
             routes: routes,
+            instanceTag: instanceTag,
+            markActive: markActive,
+            stackUserID: stackUserID,
+            teamID: await resolvedTeam(teamID),
+            now: now
+        )
+    }
+
+    @discardableResult
+    public func upsertIfNewer(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        instanceTag: String?,
+        customName: String?,
+        customColor: String?,
+        customIcon: String?,
+        markActive: Bool,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws -> Bool {
+        try await inner.upsertIfNewer(
+            macDeviceID: macDeviceID,
+            displayName: displayName,
+            routes: routes,
+            instanceTag: instanceTag,
+            customName: customName,
+            customColor: customColor,
+            customIcon: customIcon,
+            markActive: markActive,
+            stackUserID: stackUserID,
+            teamID: await resolvedTeam(teamID),
+            now: now
+        )
+    }
+
+    @discardableResult
+    public func upsertRoutesIfAuthorized(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        condition: MobilePairedMacRouteWriteCondition,
+        markActive: Bool?,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws -> Bool {
+        try await inner.upsertRoutesIfAuthorized(
+            macDeviceID: macDeviceID,
+            displayName: displayName,
+            routes: routes,
+            condition: condition,
             markActive: markActive,
             stackUserID: stackUserID,
             teamID: await resolvedTeam(teamID),
