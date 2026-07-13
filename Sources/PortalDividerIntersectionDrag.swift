@@ -24,6 +24,8 @@ final class PortalDividerDragController {
         let initialPosition: CGFloat
         let initialPointer: CGFloat
         let isVertical: Bool
+        let modelController: BonsplitController?
+        let modelSplitId: UUID?
 
         /// The captured divider identity is only valid while the split view
         /// stays in its original window with the same orientation and enough
@@ -37,6 +39,13 @@ final class PortalDividerDragController {
                   splitView.isVertical == isVertical,
                   dividerIndex + 1 < splitView.arrangedSubviews.count else {
                 return nil
+            }
+            if let modelController {
+                guard let managed = splitView as? BonsplitManagedSplitView,
+                      managed.bonsplitController === modelController,
+                      managed.bonsplitSplitId == modelSplitId else {
+                    return nil
+                }
             }
             return splitView
         }
@@ -108,6 +117,11 @@ final class PortalDividerDragController {
             }
             if let dragWindow, dragWindow !== window { return false }
             dragWindow = window
+            let managed = splitView as? BonsplitManagedSplitView
+            if managed != nil,
+               (managed?.bonsplitController == nil || managed?.bonsplitSplitId == nil) {
+                return false
+            }
             let pointer = splitView.convert(windowPoint, from: nil)
             nextAxes.append(AxisDrag(
                 splitView: splitView,
@@ -115,7 +129,9 @@ final class PortalDividerDragController {
                 dividerIndex: region.dividerIndex,
                 initialPosition: region.isVertical ? dividerRect.origin.x : dividerRect.origin.y,
                 initialPointer: region.isVertical ? pointer.x : pointer.y,
-                isVertical: region.isVertical
+                isVertical: region.isVertical,
+                modelController: managed?.bonsplitController,
+                modelSplitId: managed?.bonsplitSplitId
             ))
         }
         guard let dragWindow else { return false }
@@ -156,9 +172,8 @@ final class PortalDividerDragController {
             let proposed = axis.initialPosition + delta
             let clamped = Self.clampedPosition(proposed, in: splitView, dividerIndex: axis.dividerIndex)
             var modelUpdate: (controller: BonsplitController, splitId: UUID, fraction: CGFloat)?
-            if let managed = splitView as? BonsplitManagedSplitView {
-                guard let controller = managed.bonsplitController,
-                      let splitId = managed.bonsplitSplitId,
+            if let controller = axis.modelController {
+                guard let splitId = axis.modelSplitId,
                       controller.findSplit(splitId) else {
                     session.isAborted = true
                     return
