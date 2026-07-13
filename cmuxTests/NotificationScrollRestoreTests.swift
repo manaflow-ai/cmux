@@ -202,6 +202,25 @@ struct NotificationScrollRestoreTests {
         #expect(hostedView.sessionScrollbackReplayCompletionScrollbar?.total == 200)
     }
 
+    @Test func preReplayNotificationUsesLiveViewportAfterResize() {
+        let surfaceView = ActionProbeView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 100, offset: 56, visible: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let marker = completionMarker(named: "replay-resized-after-marker")
+        hostedView.beginSessionScrollbackReplay(completionMarker: marker)
+        #expect(completeReplay(
+            hostedView,
+            marker: marker,
+            scrollbar: scrollbar(total: 200, offset: 156, visible: 44)
+        ))
+
+        postScrollbar(total: 220, offset: 140, visible: 80, to: surfaceView)
+        #expect(hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+        ))
+        #expect(surfaceView.bindingActions == ["scroll_to_row:0"])
+    }
+
     @Test func postReplayNotificationUsesItsLiveGeneration() throws {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 100, offset: 56, visible: 44)

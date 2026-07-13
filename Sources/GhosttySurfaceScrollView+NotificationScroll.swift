@@ -239,8 +239,13 @@ extension GhosttySurfaceScrollView {
     ) -> GhosttyScrollbar? {
         if let replayGeneration = sessionScrollbackReplayGeneration,
            position.replayGeneration != replayGeneration,
-           let replayScrollbar = sessionScrollbackReplayCompletionScrollbar {
-            return replayScrollbar
+           let replayScrollbar = sessionScrollbackReplayCompletionScrollbar,
+           let liveScrollbar = surfaceView.scrollbar {
+            return GhosttyScrollbar(c: ghostty_action_scrollbar_s(
+                total: replayScrollbar.total,
+                offset: liveScrollbar.offset,
+                len: liveScrollbar.len
+            ))
         }
         return surfaceView.scrollbar
     }
