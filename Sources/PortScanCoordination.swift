@@ -53,8 +53,12 @@ struct PortScanCoordination {
         return next
     }
 
-    mutating func newAgentWorkspaces(_ workspaceIds: Set<UUID>, requestID: UInt64) -> Set<UUID> {
-        let result = Set(workspaceIds.filter {
+    mutating func newAgentWorkspaces(
+        _ workspaceIds: Set<UUID>,
+        eligibleWorkspaceIds: Set<UUID>,
+        requestID: UInt64
+    ) -> Set<UUID> {
+        let result = Set(workspaceIds.intersection(eligibleWorkspaceIds).filter {
             lastAppliedAgentRequestIDByWorkspace[$0, default: 0] < requestID
         })
         for workspaceId in result {

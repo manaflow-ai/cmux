@@ -169,11 +169,41 @@ struct PortScanCoordinationTests {
         #expect(newerPanelResult)
         let olderPanelResult = coordination.shouldApplyPanelResult(requestID: older)
         #expect(olderPanelResult == false)
-        let newerAgentWorkspaces = coordination.newAgentWorkspaces([workspaceID], requestID: newer)
+        let newerAgentWorkspaces = coordination.newAgentWorkspaces(
+            [workspaceID],
+            eligibleWorkspaceIds: [workspaceID],
+            requestID: newer
+        )
         #expect(newerAgentWorkspaces == [workspaceID])
-        let olderAgentWorkspaces = coordination.newAgentWorkspaces([workspaceID], requestID: older)
+        let olderAgentWorkspaces = coordination.newAgentWorkspaces(
+            [workspaceID],
+            eligibleWorkspaceIds: [workspaceID],
+            requestID: older
+        )
         #expect(olderAgentWorkspaces.isEmpty)
         #expect(coordination.isLatestAgentResult(workspaceId: workspaceID, requestID: newer))
+    }
+
+    @Test("Agent ordering only retains eligible lifecycle workspaces")
+    func agentOrderingOnlyRetainsEligibleWorkspaces() {
+        var coordination = PortScanCoordination()
+        let panelOnlyWorkspaceID = UUID()
+        let forcedClearWorkspaceID = UUID()
+        let requestID = coordination.makeRequestID()
+
+        let agentWorkspaces = coordination.newAgentWorkspaces(
+            [panelOnlyWorkspaceID, forcedClearWorkspaceID],
+            eligibleWorkspaceIds: [forcedClearWorkspaceID],
+            requestID: requestID
+        )
+
+        #expect(agentWorkspaces == [forcedClearWorkspaceID])
+        #expect(coordination.isLatestAgentResult(workspaceId: panelOnlyWorkspaceID, requestID: requestID) == false)
+        #expect(coordination.isLatestAgentResult(workspaceId: forcedClearWorkspaceID, requestID: requestID))
+
+        coordination.removeAgentWorkspaces([forcedClearWorkspaceID])
+
+        #expect(coordination.isLatestAgentResult(workspaceId: forcedClearWorkspaceID, requestID: requestID) == false)
     }
 
     @Test("PID refresh resolution filters stale workspaces before lifecycle removal")

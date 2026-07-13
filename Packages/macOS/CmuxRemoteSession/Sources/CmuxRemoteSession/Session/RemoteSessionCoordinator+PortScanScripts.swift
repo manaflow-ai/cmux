@@ -13,9 +13,17 @@ extension RemoteSessionCoordinator {
         cmux_tty_csv='\(ttyCSV)'
         cmux_excluded_ports=" \(excludedPorts) "
         cmux_scan_complete=0
-        cmux_tmpdir="$(mktemp -d 2>/dev/null || mktemp -d -t cmux-ports)" || exit 0
-        cmux_scan_incomplete="$cmux_tmpdir/incomplete"
-        trap 'rm -rf "$cmux_tmpdir"' EXIT INT TERM
+        cmux_tmpdir="$(mktemp -d 2>/dev/null || mktemp -d -t cmux-ports 2>/dev/null || true)"
+        cmux_scan_incomplete=""
+        if [ -n "$cmux_tmpdir" ]; then
+          cmux_scan_incomplete="$cmux_tmpdir/incomplete"
+          trap 'rm -rf "$cmux_tmpdir"' EXIT INT TERM
+        fi
+
+        cmux_mark_incomplete() {
+          [ -n "$cmux_scan_incomplete" ] && : > "$cmux_scan_incomplete"
+          return 0
+        }
 
         cmux_emit_port() {
           cmux_tty="$1"
@@ -58,15 +66,15 @@ extension RemoteSessionCoordinator {
                 ')"
                 [ -n "$cmux_pid_tokens" ] || continue
                 case "$cmux_pid_tokens" in
-                  *__cmux_invalid_pid__*) : > "$cmux_scan_incomplete"; continue ;;
+                  *__cmux_invalid_pid__*) cmux_mark_incomplete; continue ;;
                 esac
                 cmux_port="$(printf '%s\\n' "$cmux_line" | awk '{print $4}' | sed -E 's/.*:([0-9]+)$/\\1/' | awk '/^[0-9]+$/ { print $1; exit }')"
-                if [ -z "$cmux_port" ]; then : > "$cmux_scan_incomplete"; continue; fi
+                if [ -z "$cmux_port" ]; then cmux_mark_incomplete; continue; fi
                 for cmux_pid in $cmux_pid_tokens; do
                   cmux_tty_path="$(readlink "/proc/$cmux_pid/fd/0" 2>/dev/null || true)"
-                  if [ -z "$cmux_tty_path" ]; then : > "$cmux_scan_incomplete"; continue; fi
+                  if [ -z "$cmux_tty_path" ]; then cmux_mark_incomplete; continue; fi
                   cmux_tty="${cmux_tty_path##*/}"
-                  if [ -z "$cmux_tty" ]; then : > "$cmux_scan_incomplete"; continue; fi
+                  if [ -z "$cmux_tty" ]; then cmux_mark_incomplete; continue; fi
                   cmux_emit_port "$cmux_tty" "$cmux_port"
                 done
               done
@@ -74,7 +82,7 @@ extension RemoteSessionCoordinator {
           esac
         fi
 
-        if [ "$cmux_used_ss" -eq 0 ] && command -v lsof >/dev/null 2>&1 && [ -n "$cmux_tty_csv" ]; then
+        if [ "$cmux_used_ss" -eq 0 ] && [ -n "$cmux_tmpdir" ] && command -v lsof >/dev/null 2>&1 && [ -n "$cmux_tty_csv" ]; then
           cmux_pid_tty_map="$cmux_tmpdir/pid_tty"
           cmux_ps_stderr="$cmux_tmpdir/ps.stderr"
           cmux_ps_status=0
@@ -154,7 +162,7 @@ extension RemoteSessionCoordinator {
             fi
           fi
         fi
-        if [ "$cmux_scan_complete" -eq 1 ] && [ ! -e "$cmux_scan_incomplete" ]; then
+        if [ "$cmux_scan_complete" -eq 1 ] && [ -n "$cmux_scan_incomplete" ] && [ ! -e "$cmux_scan_incomplete" ]; then
           printf '%s\\n' '\(remotePortScanCompleteMarker)'
         fi
         exit 0

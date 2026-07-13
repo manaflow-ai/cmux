@@ -562,10 +562,8 @@ final class PortScanner: @unchecked Sendable {
                     agentCallback(result.workspaceId, result.ports)
                 }
             }
-            await self.acknowledgeAgentResults(
-                validatedResults,
-                appliedWorkspaceIds: Set(appliedResults.map(\.workspaceId))
-            )
+            let appliedWorkspaceIds = Set(appliedResults.map(\.workspaceId))
+            await self.acknowledgeAgentResults(validatedResults, appliedWorkspaceIds: appliedWorkspaceIds)
         }
     }
 
@@ -586,12 +584,14 @@ final class PortScanner: @unchecked Sendable {
                         if !trackedAgentWorkspaces.contains(workspaceId) {
                             forceAgentResultWorkspaces.remove(workspaceId)
                             lastAgentPortsByWorkspace.removeValue(forKey: workspaceId)
+                            scanCoordination.removeAgentWorkspaces([workspaceId])
                         }
                         continue
                     }
                     forceAgentResultWorkspaces.remove(workspaceId)
                     if ports.isEmpty, !trackedAgentWorkspaces.contains(workspaceId) {
                         lastAgentPortsByWorkspace.removeValue(forKey: workspaceId)
+                        scanCoordination.removeAgentWorkspaces([workspaceId])
                     } else {
                         lastAgentPortsByWorkspace[workspaceId] = ports
                     }
@@ -600,7 +600,6 @@ final class PortScanner: @unchecked Sendable {
             }
         }
     }
-
     private func validatedAgentResults(
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
@@ -616,6 +615,7 @@ final class PortScanner: @unchecked Sendable {
                 })
                 let validWorkspaceIds = scanCoordination.newAgentWorkspaces(
                     revisionMatchedWorkspaceIds,
+                    eligibleWorkspaceIds: trackedAgentWorkspaces.union(forceAgentResultWorkspaces),
                     requestID: requestID
                 )
                 let scannedPorts = agentPortsByWorkspace
