@@ -169,8 +169,9 @@ import Testing
         // Both present: ready, and it lands per-window.
         mirror.noteContainerSize(pointSize: CGSize(width: 800, height: 620), scale: 2)
         #expect(mirror.updateClientSize())
-        // (800 − 3 panes × (pad 4 + quantization slack 1) − 2 dividers × (1 − cell 8)) / 8 → 99.
-        #expect(pushed(connection)?.cols == 99)
+        // Claims remove only real chrome; rail-rounding slack belongs to the
+        // native plan: (800 − 3 × pad 4 − 2 × (divider 1 − cell 8)) / 8 → 100.
+        #expect(pushed(connection)?.cols == 100)
         #expect(pushed(connection)?.rows == 34) // 620pt − the native 30pt pane tab bar
         #expect(connection.lastWindowSizes[0] != nil)
         // A pass already queued on the main actor must not resurrect the
@@ -205,7 +206,7 @@ import Testing
         let (mirror, connection) = readyMirror(layout: reflow123)
         mirror.reconcile(layout: reflow122)
         let claim = pushed(connection)
-        #expect(claim?.cols == 99)
+        #expect(claim?.cols == 100)
         mirror.reconcile(layout: reflow123)
         mirror.reconcile(layout: reflow122)
         #expect(pushed(connection)?.cols == claim?.cols)
@@ -289,7 +290,7 @@ import Testing
         #expect(!Self.imposedExtents(of: mirror.bonsplitController.treeSnapshot()).isEmpty)
         #expect(mirror.updateClientSize())
         // The claim reflects the frozen 800pt container, not limbo bounds.
-        #expect(pushed(connection)?.cols == 99)
+        #expect(pushed(connection)?.cols == 100)
         #expect(connection.lastWindowSizes.count == 1)
     }
 

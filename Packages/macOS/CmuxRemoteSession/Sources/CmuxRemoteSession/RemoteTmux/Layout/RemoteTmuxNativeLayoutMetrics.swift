@@ -45,7 +45,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     ) -> (columns: Int, rows: Int)? {
         guard contentSize.width > 1, contentSize.height > 1,
               cellSize.width > 1, cellSize.height > 1 else { return nil }
-        let overhead = residual(of: layout)
+        let overhead = chromeResidual(of: layout)
         let columns = Int(floor((contentSize.width - overhead.width) / cellSize.width))
         let rows = Int(floor((contentSize.height - overhead.height) / cellSize.height))
         return (
@@ -54,21 +54,36 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         )
     }
 
-    /// Native points not represented by the node's tmux cell span.
+    /// Native points the planner reserves beyond the node's tmux cell span.
     ///
     /// A tmux separator already consumes one cell in the parent span. Replacing
     /// it with a native divider therefore contributes `divider - cell`, which
     /// may be negative when the native divider is thinner than a terminal cell.
+    /// Pane residuals also include placement slack for whole-point rail
+    /// rounding; tmux grid claims use a separate chrome-only residual.
     public func residual(of node: RemoteTmuxLayoutNode) -> CGSize {
+        residual(of: node, panePlacementSlack: Self.paneQuantizationSlack)
+    }
+
+    private func chromeResidual(of node: RemoteTmuxLayoutNode) -> CGSize {
+        residual(of: node, panePlacementSlack: 0)
+    }
+
+    private func residual(
+        of node: RemoteTmuxLayoutNode,
+        panePlacementSlack: CGFloat
+    ) -> CGSize {
         switch node.content {
         case .pane:
             return CGSize(
-                width: surfacePadding.width + Self.paneQuantizationSlack,
+                width: surfacePadding.width + panePlacementSlack,
                 height: tabBarHeight + surfacePadding.height + paneTitleRowHeight
-                    + Self.paneQuantizationSlack
+                    + panePlacementSlack
             )
         case .horizontal(let children):
-            let childResiduals = children.map(residual(of:))
+            let childResiduals = children.map {
+                residual(of: $0, panePlacementSlack: panePlacementSlack)
+            }
             return CGSize(
                 width: childResiduals.reduce(0) { $0 + $1.width }
                     + separatorResidual(
@@ -78,7 +93,9 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
                 height: childResiduals.map(\.height).max() ?? 0
             )
         case .vertical(let children):
-            let childResiduals = children.map(residual(of:))
+            let childResiduals = children.map {
+                residual(of: $0, panePlacementSlack: panePlacementSlack)
+            }
             return CGSize(
                 width: childResiduals.map(\.width).max() ?? 0,
                 height: childResiduals.reduce(0) { $0 + $1.height }
@@ -181,7 +198,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         let available = parentExtent - dividerThickness
         let firstOuterExtent = available * dividerPosition
         let firstResidual = residualExtent(
-            residual(of: first),
+            chromeResidual(of: first),
             along: orientation
         )
         let cells = (firstOuterExtent - firstResidual) / cellExtent(along: orientation)
@@ -196,7 +213,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     ) -> Int {
         let available = parentExtent - dividerThickness
         let firstOuterExtent = available * dividerPosition
-        let firstResidual = residualExtent(first.residual, along: orientation)
+        let firstResidual = residualExtent(chromeResidual(of: first.layout), along: orientation)
         let cells = (firstOuterExtent - firstResidual) / cellExtent(along: orientation)
         return max(1, Int(cells.rounded()))
     }
@@ -221,7 +238,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     ) -> Int {
         let cell = cellExtent(along: orientation)
         guard cell > 0 else { return 0 }
-        let chrome = residualExtent(residual(of: pane), along: orientation)
+        let chrome = residualExtent(chromeResidual(of: pane), along: orientation)
         let cells = (outerExtent - chrome) / cell
         return max(1, NSNumber(value: Double(cells.rounded())).intValue)
     }

@@ -5,6 +5,8 @@
 # debug log tail, and — for hangs — a process sample taken while stuck.
 #
 # Usage: CMUX_TAG=main scripts/remote-tmux-fuzz-marathon.sh <ssh-host> [seeds] [iters-per-seed]
+# Set CMUX_FUZZ_RELAUNCH_HOST only when the app must be opened through a
+# separate login host; by default the marathon relaunches it locally.
 # Output: /tmp/cmux-fuzz-marathon/<start-time>/
 set -u
 
@@ -13,6 +15,7 @@ SEEDS="${2:-40}"
 ITERS="${3:-25}"
 : "${CMUX_TAG:?CMUX_TAG is required}"
 APP="${CMUX_FUZZ_APP:-$HOME/Library/Developer/Xcode/DerivedData/cmux-${CMUX_TAG}/Build/Products/Debug/cmux DEV ${CMUX_TAG}.app}"
+RELAUNCH_HOST="${CMUX_FUZZ_RELAUNCH_HOST:-}"
 DEBUG_LOG="/tmp/cmux-debug-${CMUX_TAG}.log"
 # Exactly one driver. Concurrent marathons share one app and one tmux lab,
 # and each seed's setup kills the lab server — yanking layouts out from
@@ -39,7 +42,8 @@ echo "marathon: $SEEDS seeds x $ITERS iters -> $DIR"
 app_pid() { pgrep -f "cmux-${CMUX_TAG}/Build.*MacOS/cmux DEV" | head -1; }
 
 relaunch_app() {
-  local pid; pid=$(app_pid)
+  local pid launch_command remote_command
+  pid=$(app_pid)
   if [ -n "$pid" ]; then
     kill -9 "$pid" 2>/dev/null
     # Wait for the process to actually exit rather than guessing with a
@@ -49,9 +53,21 @@ relaunch_app() {
     while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt 20 ]; do
       sleep 1; waited=$((waited + 1))
     done
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "ERROR: old app pid $pid did not exit after 20s" >&2
+      return 1
+    fi
   fi
-  # Launch through the login shell so the app runs outside any sandbox.
-  ssh cmux-srvA "zsh -lc 'open \"$APP\"'" >/dev/null 2>&1
+  # Launch through a login shell so the app runs outside any sandbox. Most
+  # runs are local; lab machines that need a GUI-session hop opt in with
+  # CMUX_FUZZ_RELAUNCH_HOST instead of relying on one maintainer's ssh alias.
+  printf -v launch_command 'open %q' "$APP"
+  if [ -n "$RELAUNCH_HOST" ]; then
+    printf -v remote_command 'zsh -lc %q' "$launch_command"
+    ssh "$RELAUNCH_HOST" "$remote_command" >/dev/null 2>&1
+  else
+    zsh -lc "$launch_command" >/dev/null 2>&1
+  fi
 }
 
 capture_evidence() {
@@ -83,9 +99,22 @@ wait_app_ready() {
   return 1
 }
 
+restart_app_ready() {
+  local reason=$1
+  if ! relaunch_app; then
+    echo "ERROR: $reason relaunch failed${RELAUNCH_HOST:+ via $RELAUNCH_HOST}" >&2
+    return 1
+  fi
+  if ! wait_app_ready; then
+    echo "ERROR: $reason app never became ready after relaunch" >&2
+    return 1
+  fi
+}
+
 hangs=0; fails=0; crashes=0
-relaunch_app
-wait_app_ready
+if ! restart_app_ready initial; then
+  exit 1
+fi
 for seed in $(seq 1 "$SEEDS"); do
   log="$DIR/seed-$seed.log"
   CMUX_FUZZ_SETTLE_SECS="${CMUX_FUZZ_SETTLE_SECS:-5}" \
@@ -98,8 +127,10 @@ for seed in $(seq 1 "$SEEDS"); do
     # burning the remaining seeds against a dead app tells us nothing.
     echo "seed=$seed SETUP FAIL — relaunching app and retrying once"
     capture_evidence "$seed" setup
-    relaunch_app
-    wait_app_ready
+    if ! restart_app_ready "seed=$seed setup recovery"; then
+      fails=$((fails + 1))
+      break
+    fi
     CMUX_FUZZ_SETTLE_SECS="${CMUX_FUZZ_SETTLE_SECS:-5}" \
       "$HERE/remote-tmux-live-fuzz.sh" "$HOST" "$seed" "$ITERS" > "$log" 2>&1
     rc=$?
@@ -113,14 +144,16 @@ for seed in $(seq 1 "$SEEDS"); do
     hangs=$((hangs + 1))
     echo "seed=$seed HANG (evidence: seed-$seed-hang-*)"
     capture_evidence "$seed" hang
-    relaunch_app
-    wait_app_ready
+    if ! restart_app_ready "seed=$seed hang recovery"; then
+      break
+    fi
   elif [ -z "$(app_pid)" ]; then
     crashes=$((crashes + 1))
     echo "seed=$seed CRASH (app gone; evidence: seed-$seed-crash-*)"
     capture_evidence "$seed" crash
-    relaunch_app
-    wait_app_ready
+    if ! restart_app_ready "seed=$seed crash recovery"; then
+      break
+    fi
   elif [ "$rc" -ne 0 ]; then
     fails=$((fails + 1))
     echo "seed=$seed FAILURES rc=$rc (see $log)"

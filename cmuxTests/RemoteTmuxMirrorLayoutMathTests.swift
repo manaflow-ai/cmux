@@ -27,10 +27,11 @@ import Testing
             dividerThickness: 1
         )
 
-        // Width overhead is the per-pane quantization slack (1); height is
-        // two tab bars plus slack (31 each) minus the divider-for-separator
-        // credit (1 − 10): (800 − 1)/10 → 79, (300 − 53)/10 → 24.
-        #expect(grid?.columns == 79)
+        // Placement slack belongs to the native divider plan, not the tmux
+        // claim. Width has no chrome; height is two 30pt tab bars minus the
+        // divider-for-separator credit (1 − 10): 800/10 → 80,
+        // (300 − 51)/10 → 24.
+        #expect(grid?.columns == 80)
         #expect(grid?.rows == 24)
     }
 
@@ -51,10 +52,10 @@ import Testing
             dividerThickness: 1
         )
 
-        // Width overhead: 1 + 1 + (1 − 10) = −7 → (800 + 7)/10 → 80; height:
-        // one tab bar plus slack (31): (300 − 31)/10 → 26.
+        // Width chrome: 0 + 0 + (1 − 10) = −9 → (800 + 9)/10 → 80;
+        // height is one real 30pt tab bar: (300 − 30)/10 → 27.
         #expect(grid?.columns == 80)
-        #expect(grid?.rows == 26)
+        #expect(grid?.rows == 27)
     }
 
     @Test func mixedTreeSubtractsWorstPathChrome() throws {
