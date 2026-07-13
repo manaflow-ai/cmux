@@ -176,6 +176,28 @@ describe("iOS analytics events route", () => {
     expect(leaseInsertCalls).toBe(0);
   });
 
+  test("namespaces an unauthenticated distinct id away from account identities", async () => {
+    const response = await POST(analyticsRequest(deletedUserID));
+
+    expect(response.status).toBe(200);
+    const [event] = forwardedPostHogBatch();
+    expect(event.distinct_id).not.toBe(deletedUserID);
+    expect(event.distinct_id).toStartWith("ios-anon-sha256:");
+  });
+
+  test("namespaces the anonymous alias on an authenticated identify event", async () => {
+    const anonymousID = "local-install-id";
+    verifyRequest.mockResolvedValue({ id: deletedUserID });
+
+    const response = await POST(identifyRequest(deletedUserID, anonymousID));
+
+    expect(response.status).toBe(200);
+    const [event] = forwardedPostHogBatch();
+    expect(event.distinct_id).toBe(deletedUserID);
+    expect(event.properties.$anon_distinct_id).not.toBe(anonymousID);
+    expect(event.properties.$anon_distinct_id).toStartWith("ios-anon-sha256:");
+  });
+
   test("prunes expired leases for every identity before reserving a forward", async () => {
     verifyRequest.mockResolvedValue({ id: deletedUserID });
     const response = await POST(analyticsRequest("new-install-id"));
@@ -323,6 +345,19 @@ function identifyRequest(distinctID: string, anonymousID: string): Request {
       ],
     }),
   });
+}
+
+function forwardedPostHogBatch(): Array<{
+  readonly distinct_id: string;
+  readonly properties: Record<string, unknown>;
+}> {
+  const body = JSON.parse(String(postHogRequestInit?.body)) as {
+    readonly batch: Array<{
+      readonly distinct_id: string;
+      readonly properties: Record<string, unknown>;
+    }>;
+  };
+  return body.batch;
 }
 
 function restoreEnv(name: string, value: string | undefined): void {
