@@ -8,21 +8,17 @@ import Testing
 // unchanged); the launch-failure and timeout cases pin the legacy
 // `cmux.remote.process` error codes 1 and 2.
 //
-// `.serialized`: every test here spawns a real `Process` with `Pipe`s and
-// raw-reads the pipe file descriptors. Under Swift Testing's default parallel
-// execution, a sibling test closing a `FileHandle` lets the OS recycle that fd
-// number, so a background reader in another test can read a foreign stream
-// (cross-wired stdout/stderr/stdin). These tests share the process-global fd
-// table and are inherently not parallel-safe against each other. Serializing
-// also matches production, where the runner executes strictly serially per
-// coordinator, so this race window does not exist in the real app.
-@Suite("RemoteSessionProcessRunner", .serialized)
+// Every test here spawns a real `Process` with `Pipe`s and raw-reads the pipe
+// file descriptors. Under Swift Testing's default parallel execution, a sibling
+// test closing a `FileHandle` lets the OS recycle that fd number, so a background
+// reader in another test can read a foreign stream (cross-wired stdout/stderr/stdin).
+// This suite therefore lives under the shared serialized subprocess parent,
+// matching production's strictly serial runner use per coordinator.
+extension RemoteSubprocessTests {
+@Suite("RemoteSessionProcessRunner")
 struct RemoteSessionProcessRunnerTests {
     @Test("Capture survives the pipe read handles being torn down mid-run")
     func captureSurvivesPipeReadHandleTeardown() throws {
-        // Serialize against the platform-probe suite; see ``remoteSubprocessTestLock``.
-        remoteSubprocessTestLock.lock()
-        defer { remoteSubprocessTestLock.unlock() }
         let didCloseReadHandles = DispatchSemaphore(value: 0)
         let runner = RemoteSessionProcessRunner(readHandlesDidInstall: { stdoutHandle, stderrHandle in
             try? stdoutHandle.close()
@@ -44,8 +40,6 @@ struct RemoteSessionProcessRunnerTests {
 
     @Test("Captures stdout, stderr, and the exit status")
     func capturesOutputAndStatus() throws {
-        remoteSubprocessTestLock.lock()
-        defer { remoteSubprocessTestLock.unlock() }
         let runner = RemoteSessionProcessRunner()
         let result = try runner.run(
             RemoteProcessRequest(
@@ -62,8 +56,6 @@ struct RemoteSessionProcessRunnerTests {
 
     @Test("Delivers stdin and closes the write end")
     func deliversStdin() throws {
-        remoteSubprocessTestLock.lock()
-        defer { remoteSubprocessTestLock.unlock() }
         let runner = RemoteSessionProcessRunner()
         let result = try runner.run(
             RemoteProcessRequest(
@@ -80,8 +72,6 @@ struct RemoteSessionProcessRunnerTests {
 
     @Test("Launch failure throws the pinned cmux.remote.process code 1")
     func launchFailurePinsErrorCode() {
-        remoteSubprocessTestLock.lock()
-        defer { remoteSubprocessTestLock.unlock() }
         let runner = RemoteSessionProcessRunner()
         #expect {
             try runner.run(
@@ -102,8 +92,6 @@ struct RemoteSessionProcessRunnerTests {
 
     @Test("Timeout terminates the process and throws the pinned code 2")
     func timeoutPinsErrorCode() {
-        remoteSubprocessTestLock.lock()
-        defer { remoteSubprocessTestLock.unlock() }
         let runner = RemoteSessionProcessRunner()
         #expect {
             try runner.run(
@@ -121,4 +109,5 @@ struct RemoteSessionProcessRunnerTests {
                 && nsError.localizedDescription == "sh timed out after 1s"
         }
     }
+}
 }
