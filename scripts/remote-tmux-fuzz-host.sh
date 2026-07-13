@@ -21,10 +21,28 @@ set -eu
 
 NAME="${1:-cmux-fuzzhost}"
 PORT="${2:-2296}"
-DIR="/tmp/${NAME}-sshd"
-TMUX_DIR="/tmp/${NAME}"
+case "$NAME" in
+  ''|*[!A-Za-z0-9._-]*) echo "invalid host name: $NAME" >&2; exit 2 ;;
+esac
+case "$PORT" in
+  ''|*[!0-9]*) echo "invalid port: $PORT" >&2; exit 2 ;;
+esac
+if [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+  echo "port out of range: $PORT" >&2
+  exit 2
+fi
 
-mkdir -p "$DIR" "$TMUX_DIR"
+umask 077
+STATE_ROOT="$HOME/Library/Caches/cmux/remote-tmux-fuzz"
+DIR="$STATE_ROOT/${NAME}-sshd"
+TMUX_DIR="$STATE_ROOT/${NAME}-tmux"
+if [ -L "$STATE_ROOT" ] || [ -L "$DIR" ] || [ -L "$TMUX_DIR" ]; then
+  echo "refusing symlinked fuzz-host state path" >&2
+  exit 1
+fi
+
+mkdir -p "$STATE_ROOT" "$DIR" "$TMUX_DIR"
+chmod 700 "$STATE_ROOT" "$DIR" "$TMUX_DIR"
 [ -f "$DIR/hostkey" ] || ssh-keygen -q -t ed25519 -N '' -f "$DIR/hostkey"
 [ -f "$DIR/clientkey" ] || ssh-keygen -q -t ed25519 -N '' -f "$DIR/clientkey"
 
@@ -59,9 +77,23 @@ LogLevel VERBOSE
 EOF
 
 # Restart cleanly if a previous instance is up.
-if [ -f "$DIR/sshd.pid" ] && kill -0 "$(cat "$DIR/sshd.pid")" 2>/dev/null; then
-  kill "$(cat "$DIR/sshd.pid")"
-  sleep 1
+if [ -L "$DIR/sshd.pid" ]; then
+  echo "refusing symlinked sshd pid file" >&2
+  exit 1
+fi
+if [ -f "$DIR/sshd.pid" ]; then
+  old_pid=$(cat "$DIR/sshd.pid")
+  case "$old_pid" in
+    ''|*[!0-9]*) echo "invalid sshd pid file" >&2; exit 1 ;;
+  esac
+  if kill -0 "$old_pid" 2>/dev/null; then
+    old_command=$(ps -p "$old_pid" -o command= 2>/dev/null || true)
+    case "$old_command" in
+      *"/usr/sbin/sshd -f $DIR/sshd_config"*) kill "$old_pid" ;;
+      *) echo "refusing to kill unrelated process $old_pid" >&2; exit 1 ;;
+    esac
+    sleep 1
+  fi
 fi
 /usr/sbin/sshd -f "$DIR/sshd_config" -E "$DIR/sshd.log"
 

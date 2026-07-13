@@ -7,11 +7,14 @@ extension AppDelegate {
     nonisolated static func preservingOrClampingExactFrame(
         _ frame: CGRect,
         targetDisplay: SessionDisplayGeometry,
+        availableDisplays: [SessionDisplayGeometry],
         minWidth: CGFloat,
         minHeight: CGFloat
     ) -> CGRect {
-        guard frame.width > targetDisplay.visibleFrame.width + 1
-                || frame.height > targetDisplay.visibleFrame.height + 1 else {
+        let visibleUnion = availableDisplays.map(\.visibleFrame).reduce(CGRect.null) { $0.union($1) }
+        let maximumFrame = visibleUnion.isNull ? targetDisplay.visibleFrame : visibleUnion
+        guard frame.width > maximumFrame.width + 1
+                || frame.height > maximumFrame.height + 1 else {
             return frame
         }
         return clampFrame(

@@ -34,4 +34,33 @@ struct AppDelegateOversizedFrameRestoreTests {
         #expect(restored.height <= visible.height)
         #expect(visible.contains(restored))
     }
+
+    @Test
+    func displaySpanningSavedFrameIsPreserved() throws {
+        let builtIn = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            stableID: "uuid:BUILTIN",
+            frame: CGRect(x: 0, y: 0, width: 1_512, height: 982),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_512, height: 944)
+        )
+        let external = AppDelegate.SessionDisplayGeometry(
+            displayID: 2,
+            stableID: "uuid:EXTERNAL",
+            frame: CGRect(x: 1_512, y: 0, width: 1_920, height: 1_080),
+            visibleFrame: CGRect(x: 1_512, y: 0, width: 1_920, height: 1_055)
+        )
+        let spanning = CGRect(x: 500, y: 100, width: 2_500, height: 700)
+        let restored = try #require(AppDelegate.resolvedWindowFrame(
+            from: SessionRectSnapshot(spanning),
+            display: SessionDisplaySnapshot(
+                displayID: 1,
+                stableID: "uuid:BUILTIN",
+                frame: SessionRectSnapshot(builtIn.frame),
+                visibleFrame: SessionRectSnapshot(builtIn.visibleFrame)
+            ),
+            availableDisplays: [builtIn, external],
+            fallbackDisplay: builtIn
+        ))
+        #expect(restored == spanning)
+    }
 }

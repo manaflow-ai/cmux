@@ -3546,7 +3546,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 displaySnapshot: displaySnapshot,
                 targetDisplay: targetDisplay
             ) {
-                return preservingOrClampingExactFrame(frame, targetDisplay: targetDisplay, minWidth: minWidth, minHeight: minHeight)
+                return preservingOrClampingExactFrame(frame, targetDisplay: targetDisplay, availableDisplays: availableDisplays, minWidth: minWidth, minHeight: minHeight)
             }
             return resolvedWindowFrame(
                 frame: frame,
