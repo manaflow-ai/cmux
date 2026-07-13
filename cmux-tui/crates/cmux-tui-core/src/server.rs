@@ -1900,6 +1900,7 @@ fn handle_command(
         }
         Command::ResizeSurface { surface, cols, rows } => {
             mux.resize_surface(surface, cols, rows)?;
+            mux.record_client_size(cols, rows);
             mux.control_clients.record_size(client, surface, cols.max(1), rows.max(1));
             Ok(json!({}))
         }

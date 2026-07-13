@@ -429,7 +429,10 @@ impl Mux {
         latest.unwrap_or((default.0.max(1), default.1.max(1)))
     }
 
-    fn record_client_size(&self, cols: u16, rows: u16) -> (u16, u16) {
+    /// Record a genuine client-chosen size (protocol resize-surface, sized
+    /// creation, or the local TUI sizing a pane) as the default for future
+    /// unsized surface creation.
+    pub fn record_client_size(&self, cols: u16, rows: u16) -> (u16, u16) {
         let size = (cols.max(1), rows.max(1));
         *self.latest_client_size.lock().unwrap() = Some(size);
         size
@@ -755,7 +758,11 @@ impl Mux {
         let Some(surface) = self.surface(id) else {
             anyhow::bail!("unknown surface {id}");
         };
-        let (cols, rows) = self.record_client_size(cols, rows);
+        // Not recorded as a client size here: internal resizes (e.g. the
+        // sidebar plugin surface tracking the TUI rect every frame) also land
+        // in this method and must not become the default for new surfaces.
+        // Client interactions record explicitly at the protocol/TUI layers.
+        let (cols, rows) = (cols.max(1), rows.max(1));
         if !surface.resize(cols, rows) {
             return Ok(false);
         }

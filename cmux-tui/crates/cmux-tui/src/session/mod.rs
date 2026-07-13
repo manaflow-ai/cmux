@@ -177,6 +177,7 @@ impl Session {
         match self {
             Session::Local(mux) => mux.surface(id).map(|surface| {
                 if let Some((cols, rows)) = size {
+                    mux.record_client_size(cols, rows);
                     let _ = mux.resize_surface(id, cols, rows);
                 }
                 SurfaceHandle::Local(surface)
