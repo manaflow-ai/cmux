@@ -1,4 +1,6 @@
 import AppKit
+import CmuxSidebar
+import CmuxUpdater
 import OSLog
 import SwiftUI
 import Testing
@@ -41,9 +43,9 @@ final class SidebarInteractionLifecycleTests {
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     let now = Date.now
-                    longestGap = max(longestGap, now.timeIntervalSince(lastBeat))
-                    lastBeat = now
-                    count += 1
+                    self.longestGap = max(self.longestGap, now.timeIntervalSince(self.lastBeat))
+                    self.lastBeat = now
+                    self.count += 1
                 }
             }
             RunLoop.main.add(timer, forMode: .common)
@@ -158,7 +160,7 @@ final class SidebarInteractionLifecycleTests {
                     )
                 }
                 if tabManager.tabs.count.isMultiple(of: 20) {
-                    turnMainRunLoopOnce(layingOut: nil)
+                    Self.turnMainRunLoopOnce(layingOut: nil)
                     await Task.yield()
                 }
             }
@@ -240,7 +242,7 @@ final class SidebarInteractionLifecycleTests {
                 y: displayBounds.minY + screen.frame.maxY - point.y
             )
             try #require(CGWarpMouseCursorPosition(quartzPoint) == .success)
-            turnMainRunLoopOnce(layingOut: window)
+            Self.turnMainRunLoopOnce(layingOut: window)
             #expect(
                 hypot(NSEvent.mouseLocation.x - point.x, NSEvent.mouseLocation.y - point.y) < 4,
                 "The test cursor must remain over a production workspace row."
@@ -341,7 +343,7 @@ final class SidebarInteractionLifecycleTests {
         private func rowIdentifier(ascendingFrom element: Any) -> String? {
             var current: Any? = element
             for _ in 0..<16 {
-                guard let object = current as? NSObject else { return nil }
+                guard let object = current as? any NSAccessibilityProtocol else { return nil }
                 if let identifier = object.accessibilityIdentifier(),
                    identifier.hasPrefix("sidebarWorkspace.") || identifier.hasPrefix("sidebarWorkspaceGroup.") {
                     return identifier
