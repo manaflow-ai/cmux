@@ -332,7 +332,7 @@ describe("heartbeat routes", () => {
     endpoint: {
       type: "peer",
       id: "a".repeat(64),
-      relay_url: "https://use1-1.relay.lawrence.cmux.iroh.link/",
+      relay_url: "https://use4.relay.cmux.dev/",
       relay_hint: "legacy-private-relay-hint",
       direct_addrs: ["192.168.1.20:49152"],
     },
@@ -344,7 +344,7 @@ describe("heartbeat routes", () => {
     endpoint: {
       type: "peer",
       id: "a".repeat(64),
-      relay_url: "https://use1-1.relay.lawrence.cmux.iroh.link/",
+      relay_url: "https://use4.relay.cmux.dev/",
     },
   };
 

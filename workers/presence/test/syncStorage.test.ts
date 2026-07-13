@@ -598,7 +598,7 @@ describe("deriveDeviceRecord edge cases", () => {
                 id: "a".repeat(64),
                 direct_addrs: ["192.168.1.20:49152"],
                 relay_hint: "legacy-private-relay-hint",
-                relay_url: "https://use1-1.relay.lawrence.cmux.iroh.link/",
+                relay_url: "https://use4.relay.cmux.dev/",
               },
             },
           ],
@@ -614,7 +614,7 @@ describe("deriveDeviceRecord edge cases", () => {
         endpoint: {
           type: "peer",
           id: "a".repeat(64),
-          relay_url: "https://use1-1.relay.lawrence.cmux.iroh.link/",
+          relay_url: "https://use4.relay.cmux.dev/",
         },
       },
     ]);

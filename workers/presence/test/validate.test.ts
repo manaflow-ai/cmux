@@ -3,7 +3,7 @@ import { MAX_REQUEST_BYTES, MAX_ROUTES, parseHeartbeat, readBoundedJson } from "
 
 const DEVICE_ID = "11111111-2222-4333-8444-555555555555";
 const IROH_ENDPOINT_ID = "a".repeat(64);
-const APPROVED_IROH_RELAY = "https://use1-1.relay.lawrence.cmux.iroh.link/";
+const APPROVED_IROH_RELAY = "https://use4.relay.cmux.dev/";
 
 function postRequest(
   body: string | ReadableStream<Uint8Array>,
