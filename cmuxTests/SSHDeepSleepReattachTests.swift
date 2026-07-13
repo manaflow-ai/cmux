@@ -100,7 +100,8 @@ struct SSHDeepSleepReattachTests {
         let menu = NSMenu()
         panel.hostedView.surfaceView.appendReconnectRemotePaneMenuItem(to: menu)
         let reconnectItem = try #require(menu.items.last)
-        reconnectItem.performClick(nil)
+        let action = try #require(reconnectItem.action)
+        #expect(NSApplication.shared.sendAction(action, to: reconnectItem.target, from: reconnectItem))
 
         let reattached = try #require(workspace.terminalPanel(for: panel.id))
         #expect(reattached.surface !== originalSurface)
