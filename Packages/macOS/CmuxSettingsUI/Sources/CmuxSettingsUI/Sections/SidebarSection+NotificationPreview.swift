@@ -15,6 +15,9 @@ extension SidebarSection {
                 in: SidebarCatalogSection.notificationMessageLineLimitRange
             )
             .accessibilityIdentifier("SettingsSidebarNotificationMessageLineLimitStepper")
+            .accessibilityLabel(
+                String(localized: "settings.app.notificationMessageLineLimit", defaultValue: "Notification Preview Lines")
+            )
         }
         .disabled(hideAll.current || !showNotification.current)
     }
