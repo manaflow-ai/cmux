@@ -1,6 +1,7 @@
 import CmuxControlSocket
 import Darwin
 import Foundation
+import os
 import Testing
 
 /// A connected `socketpair(2)`; the reader consumes `readEnd`. Close-once
@@ -207,17 +208,19 @@ struct ControlClientLineReaderTests {
         let pair = try SocketPairFixture()
         pair.write("first\nsecond\n")
         pair.closeWriteEnd()
+        let now = OSAllocatedUnfairLock(initialState: UInt64(1_000_000))
 
         let reader = ControlClientLineReader(
             socket: pair.readEnd,
             initialLimits: ControlClientLineReadLimits(
                 maximumBytes: 4_096,
-                timeoutMilliseconds: 100
-            )
+                timeoutMilliseconds: 1
+            ),
+            monotonicNowNanoseconds: { now.withLock { $0 } }
         )
 
         #expect(reader.nextLine(shouldContinueReading: { true }) == "first")
-        usleep(200_000)
+        now.withLock { $0 = 2_000_000 }
         #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
     }
 

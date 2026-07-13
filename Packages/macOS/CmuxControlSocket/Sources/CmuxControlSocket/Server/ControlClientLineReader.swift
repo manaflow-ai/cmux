@@ -34,6 +34,7 @@ public final class ControlClientLineReader {
     private var limitedBytesRead = 0
     private var limits: ControlClientLineReadLimits?
     private var deadlineUptimeNanoseconds: UInt64?
+    private let monotonicNowNanoseconds: @Sendable () -> UInt64
 
     /// Creates a reader for `socket`.
     /// - Parameters:
@@ -41,18 +42,23 @@ public final class ControlClientLineReader {
     ///   - bufferSize: Read buffer size; the legacy loop read at most
     ///     `bufferSize - 1` bytes per call.
     ///   - initialLimits: Optional resource bounds removed after authorization.
+    ///   - monotonicNowNanoseconds: Monotonic time source used for deadlines.
     public init(
         socket: Int32,
         bufferSize: Int = 4096,
-        initialLimits: ControlClientLineReadLimits? = nil
+        initialLimits: ControlClientLineReadLimits? = nil,
+        monotonicNowNanoseconds: (@Sendable () -> UInt64)? = nil
     ) {
         self.socket = socket
         self.buffer = [UInt8](repeating: 0, count: bufferSize)
+        self.monotonicNowNanoseconds = monotonicNowNanoseconds ?? {
+            DispatchTime.now().uptimeNanoseconds
+        }
         limits = initialLimits
         if let initialLimits {
             let milliseconds = UInt64(clamping: max(0, initialLimits.timeoutMilliseconds))
             let (duration, overflowed) = milliseconds.multipliedReportingOverflow(by: 1_000_000)
-            let now = DispatchTime.now().uptimeNanoseconds
+            let now = self.monotonicNowNanoseconds()
             let (deadline, additionOverflowed) = now.addingReportingOverflow(duration)
             deadlineUptimeNanoseconds = overflowed || additionOverflowed ? .max : deadline
         }
@@ -103,7 +109,7 @@ public final class ControlClientLineReader {
 
     private var deadlineHasNotExpired: Bool {
         guard let deadlineUptimeNanoseconds else { return true }
-        return DispatchTime.now().uptimeNanoseconds < deadlineUptimeNanoseconds
+        return monotonicNowNanoseconds() < deadlineUptimeNanoseconds
     }
 
     private func nextBareNewlineIndex() -> Int? {
@@ -137,7 +143,7 @@ public final class ControlClientLineReader {
     private func waitForReadReadinessBeforeDeadline() -> Bool {
         guard let deadlineUptimeNanoseconds else { return true }
         while true {
-            let now = DispatchTime.now().uptimeNanoseconds
+            let now = monotonicNowNanoseconds()
             guard now < deadlineUptimeNanoseconds else { return false }
             let remaining = deadlineUptimeNanoseconds - now
             let milliseconds = remaining / 1_000_000 + (remaining % 1_000_000 == 0 ? 0 : 1)
