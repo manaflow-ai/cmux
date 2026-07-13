@@ -224,15 +224,29 @@ extension CmxIrohHostRuntime {
 
     func scheduleRegistrationRefresh(revision: UInt64) {
         guard lifecyclePhase == .active,
-              lifecycleRevision == revision,
-              registrationRefreshTask == nil else { return }
+              lifecycleRevision == revision else { return }
+        guard registrationRefreshTask == nil else {
+            // Address watchers may publish again while an earlier broker round
+            // is suspended. Preserve that newer snapshot as a dirty bit so the
+            // running round cannot overwrite the final usable relay address.
+            registrationRefreshPending = true
+            return
+        }
+        registrationRefreshPending = false
         registrationRefreshTask = Task { [weak self] in
             await self?.refreshRegistration(revision: revision)
         }
     }
 
     func refreshRegistration(revision: UInt64) async {
-        defer { registrationRefreshTask = nil }
+        defer {
+            registrationRefreshTask = nil
+            if registrationRefreshPending,
+               lifecyclePhase == .active,
+               lifecycleRevision == revision {
+                scheduleRegistrationRefresh(revision: revision)
+            }
+        }
         guard lifecyclePhase == .active,
               lifecycleRevision == revision,
               let supervisor,
