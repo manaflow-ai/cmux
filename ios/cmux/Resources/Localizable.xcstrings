@@ -8331,6 +8331,23 @@
         }
       }
     },
+    "terminal.shortcut.name.ollama": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama"
+          }
+        }
+      }
+    },
     "terminal.shortcut.name.pageDown": {
       "extractionState": "manual",
       "localizations": {
@@ -8773,6 +8790,23 @@
         }
       }
     },
+    "mobile.workspaceGroup.new": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ワークスペースグループ"
+          }
+        }
+      }
+    },
     "mobile.workspaceGroup.newWorkspace": {
       "extractionState": "manual",
       "localizations": {
@@ -9125,6 +9159,13 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "create workspace in group" } },
         "ja": { "stringUnit": { "state": "translated", "value": "グループ内にワークスペースを作成" } }
+      }
+    },
+    "mobile.workspaceAction.failure.action.createWorkspaceGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "create workspace group" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースグループを作成" } }
       }
     },
     "mobile.workspaceAction.failure.action.moveWorkspace": {

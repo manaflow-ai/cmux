@@ -1,6 +1,7 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
+import { blogPostSeoCopy } from "@/i18n/audited-seo";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "@/i18n/navigation";
 
@@ -11,15 +12,16 @@ export async function generateMetadata({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "blog.unreadShortcuts" });
+  const post = await getTranslations({ locale, namespace: "blog.posts.unreadShortcuts" });
+  const siteMeta = await getTranslations({ locale, namespace: "meta" });
   const rawKeywords = t.raw("metaKeywords");
   const keywords = Array.isArray(rawKeywords)
     ? rawKeywords.filter((keyword): keyword is string => typeof keyword === "string")
     : [];
   const alternates = buildAlternates(locale, "/blog/unread-shortcuts");
-  const title = t("metaTitle");
-  const description = seoDescription(locale, t("metaDescription"));
+  const { title, description } = blogPostSeoCopy(locale, "unreadShortcuts", t, post, siteMeta);
   return {
-    title,
+    title: { absolute: title },
     description,
     keywords,
     openGraph: {
@@ -40,7 +42,7 @@ export default function UnreadShortcutsPage() {
 
   return (
     <>
-      <BlogSchema postKey="unreadShortcuts" path="/blog/unread-shortcuts" datePublished="2026-05-22T00:00:00Z" />
+      <BlogSchema postKey="unreadShortcuts" seoKey="unreadShortcuts" path="/blog/unread-shortcuts" datePublished="2026-05-22T00:00:00Z" />
       <div className="mb-8">
         <Link
           href="/blog"

@@ -137,7 +137,8 @@ final class MobilePairingModel {
             let payload = try await host.createAttachTicket(
                 workspaceID: "",
                 terminalID: nil,
-                ttl: ticketTTL
+                ttl: ticketTTL,
+                target: .physicalDevice
             )
             guard generation == refreshGeneration else { return }
             guard let attachURL = payload["attach_url"] as? String, !attachURL.isEmpty else {
@@ -166,7 +167,9 @@ final class MobilePairingModel {
                 )
             )
             observeConnections()
-        } catch MobileAttachTicketStoreError.noRoutes, MobileAttachTicketStoreError.routeUnavailable {
+        } catch MobileAttachTicketStoreError.noRoutes,
+                MobileAttachTicketStoreError.routeUnavailable,
+                MobileAttachTicketStoreError.invalidAttachURL {
             state = .needsTailscale
         } catch {
             state = .failed(
