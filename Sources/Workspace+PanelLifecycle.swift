@@ -408,9 +408,13 @@ extension Workspace {
             shouldPreserveRemoteDisconnectOnClose &&
             remoteDisconnectPlaceholderPanelIds.remove(panelId) != nil &&
             panels.count == 1
+        cancelPendingRemoteDisconnectReplacement(surfaceId: panelId)
         if shouldRefreshRemoteDisconnectPlaceholder,
            let remoteConfiguration {
-            rememberPendingRemoteDisconnectReplacement(configuration: remoteConfiguration)
+            rememberPendingRemoteDisconnectReplacement(
+                surfaceId: panelId,
+                configuration: remoteConfiguration
+            )
         }
 
         panels.removeValue(forKey: panelId)

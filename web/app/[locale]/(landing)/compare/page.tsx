@@ -3,9 +3,9 @@ import { getTranslations } from "next-intl/server";
 import {
   buildAlternates,
   openGraphDefaults,
-  seoDescription,
   twitterSummary,
 } from "@/i18n/seo";
+import { compareIndexSeoCopy } from "@/i18n/audited-seo";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { comparePages, comparePath } from "../../../lib/compare-pages";
 import { TrackedLink } from "../tracked-link";
@@ -17,9 +17,9 @@ export async function generateMetadata({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "landing.compare" });
+  const siteMeta = await getTranslations({ locale, namespace: "meta" });
   const alternates = buildAlternates(locale, "/compare");
-  const title = t("metaTitle");
-  const description = seoDescription(locale, t("metaDescription"));
+  const { title, description } = compareIndexSeoCopy(locale, t, siteMeta);
   return {
     title,
     description,

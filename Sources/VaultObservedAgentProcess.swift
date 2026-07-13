@@ -88,18 +88,6 @@ struct VaultObservedAgentProcess: Sendable {
         TmuxResumeParser.argumentLooksLikeTmuxServerProcessTitle(argument)
     }
 
-    static func argumentsHaveOpenCodeForkFlag(_ arguments: [String]) -> Bool {
-        arguments.hasOpenCodeForkFlag
-    }
-
-    static func openCodeForkParentSessionID(in arguments: [String]) -> String? {
-        arguments.openCodeForkParentSessionId
-    }
-
-    static func argumentValue(afterOption option: String, in arguments: [String]) -> String? {
-        arguments.value(afterOption: option)
-    }
-
     private static func wrapperLooksLikeJavaScriptRuntime(_ basename: String) -> Bool {
         switch basename.lowercased() {
         case "node", "bun", "deno", "tsx", "ts-node":
@@ -213,101 +201,7 @@ extension VaultObservedAgentProcess {
     }
 }
 
-extension CmuxVaultAgentSessionIDSource {
-    func sessionIDResolution(
-        from process: VaultObservedAgentProcess,
-        registration: CmuxVaultAgentRegistration,
-        fileManager: FileManager
-    ) -> (sessionId: String, source: RestorableAgentSessionIndex.ProcessDetectedSessionIDSource)? {
-        switch self {
-        case .argvOption(let option):
-            guard let sessionId = process.arguments.nonOptionValue(afterOption: option) else { return nil }
-            return (
-                sessionId: sessionId,
-                source: registration.processArgumentsCarryForkParentFlag(process.arguments) ? .forkParentFallback : .explicit
-            )
-        case .piSessionFile:
-            if let session = process.piCompatibleSessionID {
-                let sessionId = PiSessionLocator.resolvedSessionPath(
-                    session,
-                    for: process,
-                    registration: registration,
-                    fileManager: fileManager
-                ) ?? session
-                return (
-                    sessionId: sessionId,
-                    source: registration.processArgumentsCarryForkParentFlag(process.arguments) ? .forkParentFallback : .explicit
-                )
-            }
-            guard let sessionId = PiSessionLocator.latestSessionPath(
-                for: process,
-                registration: registration,
-                fileManager: fileManager
-            ) else {
-                return nil
-            }
-            return (sessionId: sessionId, source: .inferredLatestSessionFile)
-        case .grokSessionDirectory:
-            if let session = process.arguments.grokResumeSessionID {
-                return (sessionId: session, source: .explicit)
-            }
-            return nil
-        }
-    }
-}
-
-extension CmuxTopProcessSnapshot {
-    func cmuxScopedProcessIDsByPanelKey() -> [RestorableAgentSessionIndex.PanelKey: Set<Int>] {
-        var result: [RestorableAgentSessionIndex.PanelKey: Set<Int>] = [:]
-        for process in cmuxScopedProcesses() {
-            if let workspaceId = process.cmuxWorkspaceID, let panelId = process.cmuxSurfaceID {
-                result[.init(workspaceId: workspaceId, panelId: panelId), default: []].insert(process.pid)
-            }
-        }
-        return result
-    }
-}
-
-private extension Array where Element == String {
-    var hasOpenCodeForkFlag: Bool {
-        contains { $0 == "--fork" || $0.hasPrefix("--fork=") }
-    }
-
-    var openCodeForkParentSessionId: String? {
-        for argument in self {
-            let prefix = "--fork="
-            guard argument.hasPrefix(prefix) else { continue }
-            let value = String(argument.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-            return value.isEmpty ? nil : value
-        }
-        return nil
-    }
-
-    func value(afterOption option: String) -> String? {
-        for index in indices {
-            let argument = self[index]
-            if argument == option {
-                let nextIndex = self.index(after: index)
-                guard nextIndex < endIndex else { return nil }
-                let value = self[nextIndex].trimmingCharacters(in: .whitespacesAndNewlines)
-                return value.isEmpty ? nil : value
-            }
-            let prefix = option + "="
-            if argument.hasPrefix(prefix) {
-                let value = String(argument.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-                return value.isEmpty ? nil : value
-            }
-        }
-        return nil
-    }
-
-    func nonOptionValue(afterOption option: String) -> String? {
-        guard let value = value(afterOption: option), !value.hasPrefix("-") else {
-            return nil
-        }
-        return value
-    }
-
+extension Array where Element == String {
     func piCompatibleSessionID(startingAt startIndex: Int) -> String? {
         guard startIndex < endIndex else { return nil }
         for index in indices where index >= startIndex {
@@ -339,30 +233,5 @@ private extension Array where Element == String {
     private func normalizedNonOptionValue(_ rawValue: String) -> String? {
         let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         return !value.isEmpty && !value.hasPrefix("-") ? value : nil
-    }
-
-    var grokResumeSessionID: String? {
-        let options = ["-r", "--resume"]
-        for index in indices {
-            let argument = self[index]
-            if options.contains(argument) {
-                let nextIndex = self.index(after: index)
-                guard nextIndex < endIndex else { continue }
-                let value = self[nextIndex].trimmingCharacters(in: .whitespacesAndNewlines)
-                if !value.isEmpty, !value.hasPrefix("-") {
-                    return value
-                }
-                continue
-            }
-            for option in options {
-                let prefix = option + "="
-                guard argument.hasPrefix(prefix) else { continue }
-                let value = String(argument.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !value.isEmpty, !value.hasPrefix("-") {
-                    return value
-                }
-            }
-        }
-        return nil
     }
 }
