@@ -27,9 +27,7 @@ import UIKit
         customSurface.prepareForDismantle()
     }
 
-    GhosttyRuntime.applyTheme(light, to: lightSurface)
     let lightBackground = lightSurface.configBackgroundColor
-    GhosttyRuntime.applyTheme(custom, to: customSurface)
 
     #expect(lightSurface.configBackgroundColor == lightBackground)
     #expect(lightSurface.configBackgroundColor == GhosttyRuntime.backgroundUIColor(for: light))

@@ -68,3 +68,36 @@ import Testing
     #expect(store.activeTerminalTheme == light)
     _ = outputStream
 }
+
+@MainActor
+@Test func olderFullFrameCannotReplaceNewerThemeRevision() throws {
+    let surfaceID = "terminal-ordered-theme"
+    let store = MobileShellComposite.preview()
+    var oldTheme = TerminalTheme.monokai
+    oldTheme.background = "#111111"
+    var newTheme = TerminalTheme.monokai
+    newTheme.background = "#f4f0df"
+    let newer = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 7,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        terminalTheme: newTheme,
+        terminalThemeRevision: 2
+    )
+    let delayedOlder = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 7,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        terminalTheme: oldTheme,
+        terminalThemeRevision: 1
+    )
+
+    store.recordTerminalTheme(newer)
+    store.recordTerminalTheme(delayedOlder)
+
+    #expect(store.terminalTheme(for: surfaceID) == newTheme)
+}

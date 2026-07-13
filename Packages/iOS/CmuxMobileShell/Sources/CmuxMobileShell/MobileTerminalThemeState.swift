@@ -3,6 +3,7 @@ import CMUXMobileCore
 struct MobileTerminalThemeState {
     var hostTheme: TerminalTheme = .monokai
     var themesBySurfaceID: [String: TerminalTheme] = [:]
+    var revisionsBySurfaceID: [String: UInt64] = [:]
     var activeTheme: TerminalTheme = .monokai
     var generation: UInt64 = 0
 

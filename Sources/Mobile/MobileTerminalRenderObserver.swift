@@ -209,6 +209,7 @@ final class MobileTerminalRenderObserver {
         if themedFrame.terminalTheme == nil {
             themedFrame.terminalTheme = cachedTerminalTheme.applyingSurfaceColors(from: snapshot.frame)
         }
+        themedFrame.terminalThemeRevision = MobileTerminalThemeFrameRevision.next()
         guard let emission = try? themedFrame.renderGridEmission(
             comparedTo: renderGridStatesBySurfaceID[surfaceID]
         ) else { return }

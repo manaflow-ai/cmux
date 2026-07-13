@@ -42,12 +42,18 @@ struct MobileRecoveryStressFreeDrainTests {
 
         let drained = await waitForFreeDrain(afterForcingRecoveryOn: harness.view)
         #expect(drained, "the old surface free should drain after forced render-pipeline recovery")
+        #expect(
+            harness.view.configBackgroundColor == GhosttyRuntime.backgroundUIColor(for: harness.view.terminalTheme),
+            "the replacement surface should reapply its scoped theme"
+        )
     }
 
     private func makeHarness() throws -> Harness {
         let runtime = try GhosttyRuntime.shared()
         let delegate = Delegate()
-        let view = GhosttySurfaceView(runtime: runtime, delegate: delegate, fontSize: 10)
+        var theme = TerminalTheme.monokai
+        theme.background = "#f4f0df"
+        let view = GhosttySurfaceView(runtime: runtime, delegate: delegate, fontSize: 10, terminalTheme: theme)
         view.autoFocusOnWindowAttach = false
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
         view.frame = window.bounds

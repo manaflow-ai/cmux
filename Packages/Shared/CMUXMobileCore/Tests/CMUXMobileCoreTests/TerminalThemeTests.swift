@@ -94,6 +94,26 @@ import Testing
         #expect(theme.ghosttyColorDirectives.contains("cursor-text = #8d8e82"))
     }
 
+    @Test func ghosttyDirectivesPreserveExtendedPaletteAndCellRelativeColors() {
+        var theme = TerminalTheme.monokai
+        theme.palette = (0..<TerminalTheme.extendedPaletteCount).map {
+            String(format: "#%06x", $0)
+        }
+        theme.cursorColorSemantic = .foreground
+        theme.cursorTextSemantic = .background
+        theme.selectionBackgroundSemantic = .foreground
+        theme.selectionForegroundSemantic = .background
+
+        let directives = theme.ghosttyColorDirectives
+
+        #expect(theme.isValid)
+        #expect(directives.contains("palette = 255=#0000ff"))
+        #expect(directives.contains("cursor-color = cell-foreground"))
+        #expect(directives.contains("cursor-text = cell-background"))
+        #expect(directives.contains("selection-background = cell-foreground"))
+        #expect(directives.contains("selection-foreground = cell-background"))
+    }
+
     @Test func ghosttyDirectivesNormalizeBareHexToCanonical() {
         // A bare `rrggbb` (no `#`) still parses via rgbComponents, but the
         // emitted directive must be canonical `#rrggbb` for the theme contract.

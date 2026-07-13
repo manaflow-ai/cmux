@@ -3,10 +3,13 @@ import UIKit
 
 extension UIColor {
     static func terminalReadableForeground(on background: UIColor) -> UIColor {
-        let luminance = background.terminalRelativeLuminance
-        let whiteContrast = 1.05 / (luminance + 0.05)
-        let blackContrast = (luminance + 0.05) / 0.05
-        return whiteContrast >= blackContrast ? .white : .black
+        background.terminalPrefersDarkForeground ? .black : .white
+    }
+
+    var terminalPrefersDarkForeground: Bool {
+        let whiteContrast = 1.05 / (terminalRelativeLuminance + 0.05)
+        let blackContrast = (terminalRelativeLuminance + 0.05) / 0.05
+        return blackContrast > whiteContrast
     }
 
     var terminalRelativeLuminance: CGFloat {

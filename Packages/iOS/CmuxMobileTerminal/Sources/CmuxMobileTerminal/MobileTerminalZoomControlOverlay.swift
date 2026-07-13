@@ -125,7 +125,7 @@ final class MobileTerminalZoomControlOverlay: UIView {
     func applyTheme(_ theme: TerminalTheme) {
         let background = GhosttyRuntime.backgroundUIColor(for: theme)
         let foreground = UIColor.terminalReadableForeground(on: background)
-        let isLight = background.terminalRelativeLuminance > 0.45
+        let isLight = background.terminalPrefersDarkForeground
         titleLabel.textColor = foreground
         titleChip.effect = UIBlurEffect(style: isLight ? .systemThinMaterialLight : .systemThinMaterialDark)
         for button in actionButtons {

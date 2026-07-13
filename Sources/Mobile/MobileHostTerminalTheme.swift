@@ -3,6 +3,16 @@ import CmuxFoundation
 import CmuxTerminalCore
 import Foundation
 
+@MainActor
+enum MobileTerminalThemeFrameRevision {
+    private static var current: UInt64 = 0
+
+    static func next() -> UInt64 {
+        current &+= 1
+        return current
+    }
+}
+
 extension TerminalTheme {
     /// Builds the wire ``TerminalTheme`` from the Mac's resolved terminal config.
     ///

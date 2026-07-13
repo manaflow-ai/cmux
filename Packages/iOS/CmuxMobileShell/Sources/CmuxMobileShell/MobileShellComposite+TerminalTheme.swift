@@ -12,6 +12,13 @@ extension MobileShellComposite {
     /// active chrome when that surface is selected.
     func recordTerminalTheme(_ frame: MobileTerminalRenderGridFrame) {
         guard frame.full, let theme = frame.terminalTheme?.validatedOrDefault() else { return }
+        if let currentRevision = terminalThemeState.revisionsBySurfaceID[frame.surfaceID] {
+            guard let incomingRevision = frame.terminalThemeRevision,
+                  incomingRevision >= currentRevision else { return }
+        }
+        if let revision = frame.terminalThemeRevision {
+            terminalThemeState.revisionsBySurfaceID[frame.surfaceID] = revision
+        }
         terminalThemeState.themesBySurfaceID[frame.surfaceID] = theme
         if selectedTerminalID?.rawValue == frame.surfaceID {
             setActiveTerminalTheme(theme)
