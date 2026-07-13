@@ -220,6 +220,23 @@ extension TerminalScrollSession {
         finishScroll(transaction)
     }
 
+    func authoritativeReconciliationWasSuperseded(
+        _ supersession: TerminalScrollReconciliationSupersession
+    ) {
+        let reconciliation = supersession.reconciliation
+        guard case .scroll(let transaction) = phase,
+              transaction.awaitingAuthoritative,
+              transaction.request.interactionEpoch == reconciliation.interactionEpoch,
+              transaction.request.clientRevision == reconciliation.clientRevision else { return }
+        latestReconciledRevision = transaction.request.clientRevision
+        cancelPhaseTasks()
+        phase = .idle
+        if supersession.reason != .optimisticScroll {
+            reconciliationDidComplete()
+        }
+        startNextIntentIfIdle()
+    }
+
     private func finishScroll(_ transaction: ScrollTransaction) {
         latestReconciledRevision = transaction.request.clientRevision
         cancelPhaseTasks()

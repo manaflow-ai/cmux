@@ -37,6 +37,7 @@ struct TerminalOutputDeliveryQueue: Sendable {
     private var queuedRawDeliveryCount = 0
     private var barrierInteractions: [TerminalOutputDelivery] = []
     private var rawBacklogOverflowed = false
+    private var reconciliationSupersessions: [TerminalScrollReconciliationSupersession] = []
     private(set) var optimisticInvalidationGeneration: UInt64 = 0
     private var reconciliationInvalidationGeneration: UInt64 = 0
     private(set) var pendingTraversalCount = 0
@@ -140,6 +141,9 @@ struct TerminalOutputDeliveryQueue: Sendable {
               !inFlightClaimed else {
             return OptimisticScrollEnqueueResult(immediate: nil, receipt: effectiveReceipt)
         }
+        if let inFlight {
+            recordSupersededReconciliation(from: inFlight, reason: .optimisticScroll)
+        }
         inFlight = popPending()
         inFlightClaimed = false
         return OptimisticScrollEnqueueResult(immediate: inFlight, receipt: effectiveReceipt)
@@ -182,9 +186,18 @@ struct TerminalOutputDeliveryQueue: Sendable {
             return .advanced(nil)
         }
         guard !inFlightClaimed else { return .claimed }
+        if let inFlight {
+            recordSupersededReconciliation(from: inFlight, reason: .policyInvalidation)
+        }
         inFlight = popPending()
         inFlightClaimed = false
         return .advanced(inFlight)
+    }
+
+    mutating func takeScrollReconciliationSupersessions() -> [TerminalScrollReconciliationSupersession] {
+        let superseded = reconciliationSupersessions
+        reconciliationSupersessions.removeAll(keepingCapacity: true)
+        return superseded
     }
 
     mutating func reset() {
@@ -204,6 +217,7 @@ struct TerminalOutputDeliveryQueue: Sendable {
         queuedRawDeliveryCount = 0
         barrierInteractions.removeAll(keepingCapacity: false)
         rawBacklogOverflowed = false
+        reconciliationSupersessions.removeAll(keepingCapacity: false)
         optimisticInvalidationGeneration = 0
         reconciliationInvalidationGeneration = 0
         pendingTraversalCount = 0
@@ -245,7 +259,13 @@ struct TerminalOutputDeliveryQueue: Sendable {
         if let replacementScope = delivery.replacementScope,
            let lastIndex = pending.indices.last,
            lastIndex >= pendingHeadIndex,
-           pending[lastIndex].delivery.replacementScope == replacementScope {
+            pending[lastIndex].delivery.replacementScope == replacementScope {
+            if pending[lastIndex].delivery.scrollReconciliation != delivery.scrollReconciliation {
+                recordSupersededReconciliation(
+                    from: pending[lastIndex].delivery,
+                    reason: .replacement
+                )
+            }
             pending[lastIndex] = PendingEntry(
                 delivery: delivery,
                 optimisticGeneration: optimisticInvalidationGeneration,
@@ -282,14 +302,31 @@ struct TerminalOutputDeliveryQueue: Sendable {
             compactPendingStorageIfNeeded()
             if entry.optimisticGeneration != optimisticInvalidationGeneration,
                entry.delivery.isSupersededByOptimisticScroll {
+                recordSupersededReconciliation(from: entry.delivery, reason: .optimisticScroll)
                 continue
             }
             if entry.reconciliationGeneration != reconciliationInvalidationGeneration,
                entry.delivery.scrollReconciliation != nil {
+                recordSupersededReconciliation(from: entry.delivery, reason: .policyInvalidation)
                 continue
             }
             return entry.delivery
         }
         return nil
+    }
+
+    private mutating func recordSupersededReconciliation(
+        from delivery: TerminalOutputDelivery,
+        reason: TerminalScrollReconciliationSupersession.Reason
+    ) {
+        guard let reconciliation = delivery.scrollReconciliation,
+              !reconciliationSupersessions.contains(where: { $0.reconciliation == reconciliation }),
+              reconciliationSupersessions.count < Self.maximumQueuedInteractionCount else {
+            return
+        }
+        reconciliationSupersessions.append(TerminalScrollReconciliationSupersession(
+            reconciliation: reconciliation,
+            reason: reason
+        ))
     }
 }

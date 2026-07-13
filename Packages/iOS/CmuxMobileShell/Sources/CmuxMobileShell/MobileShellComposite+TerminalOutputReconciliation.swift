@@ -37,7 +37,12 @@ extension MobileShellComposite {
             return receipt
         }
         let enqueueResult = queue.enqueueOptimisticScroll(delivery)
+        let superseded = queue.takeScrollReconciliationSupersessions()
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
+        acknowledgeSupersededTerminalScrollReconciliations(
+            superseded,
+            surfaceID: surfaceID
+        )
         if let immediate = enqueueResult.immediate {
             continuation.yield(MobileTerminalOutputChunk(
                 mutation: immediate.mutation,
@@ -83,7 +88,12 @@ extension MobileShellComposite {
             return
         }
         let result = queue.invalidateScrollReconciliations()
+        let superseded = queue.takeScrollReconciliationSupersessions()
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
+        acknowledgeSupersededTerminalScrollReconciliations(
+            superseded,
+            surfaceID: surfaceID
+        )
         switch result {
         case .advanced(let immediate):
             if let immediate {
@@ -142,13 +152,28 @@ extension MobileShellComposite {
               let streamToken = terminalOutputStreamTokensBySurfaceID[surfaceID],
               var queue = terminalOutputQueuesBySurfaceID[surfaceID] else { return }
         let immediate = queue.releaseBarrierInteractions()
+        let superseded = queue.takeScrollReconciliationSupersessions()
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
+        acknowledgeSupersededTerminalScrollReconciliations(
+            superseded,
+            surfaceID: surfaceID
+        )
         if let immediate {
             continuation.yield(MobileTerminalOutputChunk(
                 mutation: immediate.mutation,
                 streamToken: streamToken,
                 deliveryID: immediate.deliveryID
             ))
+        }
+    }
+
+    func acknowledgeSupersededTerminalScrollReconciliations(
+        _ supersessions: [TerminalScrollReconciliationSupersession],
+        surfaceID: String
+    ) {
+        guard let session = terminalScrollSessionsBySurfaceID[surfaceID] else { return }
+        for supersession in supersessions {
+            session.authoritativeReconciliationWasSuperseded(supersession)
         }
     }
 

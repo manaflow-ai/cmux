@@ -40,9 +40,12 @@ struct TerminalScrollReconciliationSupersessionTests {
         harness.completeCurrentDelivery()
 
         try await requireEventually { harness.remoteScrolls.count == 2 }
-        #expect(harness.superseded == [TerminalScrollReconciliation(
-            interactionEpoch: firstRemote.request.interactionEpoch,
-            clientRevision: firstRemote.request.clientRevision
+        #expect(harness.superseded == [TerminalScrollReconciliationSupersession(
+            reconciliation: TerminalScrollReconciliation(
+                interactionEpoch: firstRemote.request.interactionEpoch,
+                clientRevision: firstRemote.request.clientRevision
+            ),
+            reason: .optimisticScroll
         )])
         #expect(harness.replayEpochs.isEmpty)
         #expect(harness.remoteScrolls.map(\.request.lines) == [-4, -7])
@@ -65,7 +68,7 @@ private final class ScrollReconciliationSupersessionHarness {
 
     var queue = TerminalOutputDeliveryQueue()
     var remoteScrolls: [PendingRemote] = []
-    var superseded: [TerminalScrollReconciliation] = []
+    var superseded: [TerminalScrollReconciliationSupersession] = []
     var replayEpochs: [UInt64] = []
     weak var session: TerminalScrollSession?
     private let deadline = TerminalInteractionDeadlineSignal()
@@ -169,9 +172,9 @@ private final class ScrollReconciliationSupersessionHarness {
     }
 
     private func acknowledgeSupersededReconciliations() {
-        for reconciliation in queue.takeSupersededScrollReconciliations() {
-            superseded.append(reconciliation)
-            session?.authoritativeReconciliationWasSuperseded(reconciliation)
+        for supersession in queue.takeScrollReconciliationSupersessions() {
+            superseded.append(supersession)
+            session?.authoritativeReconciliationWasSuperseded(supersession)
         }
     }
 

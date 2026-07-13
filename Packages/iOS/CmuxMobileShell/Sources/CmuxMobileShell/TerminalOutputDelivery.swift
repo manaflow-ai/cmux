@@ -7,6 +7,17 @@ struct TerminalScrollReconciliation: Equatable, Sendable {
     let clientRevision: UInt64
 }
 
+struct TerminalScrollReconciliationSupersession: Equatable, Sendable {
+    enum Reason: Equatable, Sendable {
+        case optimisticScroll
+        case replacement
+        case policyInvalidation
+    }
+
+    let reconciliation: TerminalScrollReconciliation
+    let reason: Reason
+}
+
 @MainActor
 final class TerminalSurfaceMutationReceipt: Sendable {
     private var result: Bool?

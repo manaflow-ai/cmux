@@ -321,7 +321,12 @@ extension MobileShellComposite {
         let immediate = queue.enqueue(delivery)
         let rawBacklogOverflowed = queue.consumeRawBacklogOverflow()
         let pendingCount = queue.pendingCount
+        let superseded = queue.takeScrollReconciliationSupersessions()
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
+        acknowledgeSupersededTerminalScrollReconciliations(
+            superseded,
+            surfaceID: surfaceID
+        )
         if rawBacklogOverflowed {
             let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
             MobileDebugLog.anchormux("terminal.output.raw_backlog_overflow surface=\(surfaceID)")
@@ -356,6 +361,7 @@ extension MobileShellComposite {
               var queue = terminalOutputQueuesBySurfaceID[surfaceID] else { return }
         let completedDelivery = queue.currentInFlight
         let next = queue.completeInFlight()
+        let superseded = queue.takeScrollReconciliationSupersessions()
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
         if let reconciliation = completedDelivery?.scrollReconciliation {
             terminalScrollSessionsBySurfaceID[surfaceID]?.authoritativeDidApply(
@@ -363,6 +369,10 @@ extension MobileShellComposite {
                 clientRevision: reconciliation.clientRevision
             )
         }
+        acknowledgeSupersededTerminalScrollReconciliations(
+            superseded,
+            surfaceID: surfaceID
+        )
         if terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken {
             let replayBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID]
             let coldAttachReplayBarrier = replayBarrierToken.map {
