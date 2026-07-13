@@ -118,7 +118,8 @@ struct ClaudeHookPIDAuthenticationTests {
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
-        let record = try #require(Harness.sessionRecord(in: context.storeURL, sessionId: sessionId))
+        let persistedRecord = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        let record = try #require(persistedRecord)
         #expect(record["workspaceId"] as? String == Self.liveWorkspaceId)
         #expect(record["surfaceId"] as? String == Self.liveSurfaceId)
     }
