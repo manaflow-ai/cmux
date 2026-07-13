@@ -44,14 +44,20 @@ public struct WorktreeIncludeSyncService: Sendable {
         commandRunner: any OutputLimitedCommandRunning = CommandRunner(),
         fileManager: FileManager = .default,
         gitTimeout: TimeInterval = 30,
-        copyLimits: WorktreeIncludeCopyLimits
+        copyLimits: WorktreeIncludeCopyLimits,
+        availableCapacity: @escaping @Sendable (URL) -> Int64? = { destination in
+            try? destination.resourceValues(
+                forKeys: [.volumeAvailableCapacityForImportantUsageKey]
+            ).volumeAvailableCapacityForImportantUsage
+        }
     ) {
         self.commandRunner = commandRunner
         self.fileManager = fileManager
         self.gitTimeout = gitTimeout
         copyService = WorktreeIncludeCopyService(
             fileManager: fileManager,
-            limits: copyLimits
+            limits: copyLimits,
+            availableCapacity: availableCapacity
         )
     }
 

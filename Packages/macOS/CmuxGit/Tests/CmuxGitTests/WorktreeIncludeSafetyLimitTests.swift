@@ -58,16 +58,33 @@ import Testing
             fileManager: fileManager,
             copyLimits: WorktreeIncludeCopyLimits(
                 maximumItemCount: 500_000,
-                maximumByteCount: 1_024,
+                maximumByteCount: 4_096,
                 freeSpaceReserve: 0
-            )
+            ),
+            availableCapacity: { _ in 1_024 }
         ).sync(
             from: source,
             to: destination
         )
 
-        #expect(diagnostics.contains { $0.localizedCaseInsensitiveContains("copy limit") })
+        #expect(diagnostics.contains { $0.localizedCaseInsensitiveContains("lacks sufficient free space") })
         #expect(!FileManager.default.fileExists(atPath: destination.appendingPathComponent("cache").path))
+    }
+
+    @Test func undecodableGitOutputAbortsWithDiagnostic() async throws {
+        let (root, source, destination) = try makeRepositoryFixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try ".env\n".write(
+            to: source.appendingPathComponent(".worktreeinclude"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let diagnostics = await WorktreeIncludeSyncService(
+            commandRunner: UndecodableWorktreeIncludeCommandRunner()
+        ).sync(from: source, to: destination)
+
+        #expect(diagnostics.contains { $0.contains("UTF-8") })
     }
 
     @Test func cancellationStopsBeforeGitMatching() async throws {

@@ -56,7 +56,10 @@ struct WorktreeIncludeIntegrationTests {
         #expect(copiedEnvironment == "secret=value\n")
     }
 
-    @Test("cancelled sidebar worktree creation removes its worktree and branch")
+    @Test(
+        "cancelled sidebar worktree creation terminates Git and removes its artifacts",
+        .timeLimit(.minutes(1))
+    )
     func cancelledCreationRollsBackGitArtifacts() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-worktree-cancellation-integration-\(UUID().uuidString)", isDirectory: true)
@@ -105,10 +108,15 @@ struct WorktreeIncludeIntegrationTests {
         }
         await watcher.stop()
 
+        let fallbackRelease = Task.detached {
+            // Bounds the pre-fix failure so the test reports instead of leaking the blocked hook.
+            try await Task.sleep(for: .seconds(10))
+            let handle = try FileHandle(forWritingTo: releasePipe)
+            try handle.write(contentsOf: Data("continue\n".utf8))
+            try handle.close()
+        }
+        let cancellationStarted = ContinuousClock.now
         creation.cancel()
-        let releaseHandle = try FileHandle(forWritingTo: releasePipe)
-        try releaseHandle.write(contentsOf: Data("continue\n".utf8))
-        try releaseHandle.close()
 
         do {
             _ = try await creation.value
@@ -118,9 +126,15 @@ struct WorktreeIncludeIntegrationTests {
         } catch {
             Issue.record("Cancelled worktree creation returned an unexpected error: \(error)")
         }
+        let cancellationDuration = cancellationStarted.duration(to: .now)
+        fallbackRelease.cancel()
+        let releaseHandle = try FileHandle(forWritingTo: releasePipe)
+        try releaseHandle.write(contentsOf: Data("continue\n".utf8))
+        try releaseHandle.close()
 
         let worktreeList = try runGit(["worktree", "list", "--porcelain"], in: projectRoot)
         let branches = try runGit(["branch", "--list", "cmux-sidebar-*"], in: projectRoot)
+        #expect(cancellationDuration < .seconds(5))
         #expect(!worktreeList.contains("/.cmux/worktrees/"))
         #expect(branches.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }

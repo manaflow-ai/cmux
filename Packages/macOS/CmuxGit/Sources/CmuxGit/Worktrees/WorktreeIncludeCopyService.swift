@@ -13,13 +13,20 @@ struct WorktreeIncludeCopyService: Sendable {
     // immutable injected instance has no delegate or mutable caller-owned state.
     private nonisolated(unsafe) let fileManager: FileManager
     private let limits: WorktreeIncludeCopyLimits
+    private let availableCapacity: @Sendable (URL) -> Int64?
 
     init(
         fileManager: FileManager,
-        limits: WorktreeIncludeCopyLimits = .production
+        limits: WorktreeIncludeCopyLimits = .production,
+        availableCapacity: @escaping @Sendable (URL) -> Int64? = { destination in
+            try? destination.resourceValues(
+                forKeys: [.volumeAvailableCapacityForImportantUsageKey]
+            ).volumeAvailableCapacityForImportantUsage
+        }
     ) {
         self.fileManager = fileManager
         self.limits = limits
+        self.availableCapacity = availableCapacity
     }
 
     func copy(relativePaths: [String], from source: URL, to destination: URL) -> [String] {
@@ -52,9 +59,7 @@ struct WorktreeIncludeCopyService: Sendable {
             }
         }
 
-        if let available = try? destination.resourceValues(
-            forKeys: [.volumeAvailableCapacityForImportantUsageKey]
-        ).volumeAvailableCapacityForImportantUsage,
+        if let available = availableCapacity(destination),
            byteCount > max(0, available - limits.freeSpaceReserve) {
             diagnostics.append(
                 "Skipped .worktreeinclude copy because the destination volume lacks sufficient free space."
