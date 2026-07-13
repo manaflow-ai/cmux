@@ -217,6 +217,41 @@ import Testing
         #expect(TerminalController.v2WorkingDirectoryProbeLane(candidate.path) == .external)
     }
 
+    @Test func concurrentClassificationsAndLocalProbesRemainConsistent() async throws {
+        let root = Self.nonSymlinkedTemporaryDirectory
+            .appendingPathComponent("cmux-mount-snapshot-\(UUID().uuidString)", isDirectory: true)
+        let paths = (0..<8).map {
+            root.appendingPathComponent("directory-\($0)", isDirectory: true).path
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+        for path in paths {
+            try FileManager.default.createDirectory(
+                at: URL(fileURLWithPath: path, isDirectory: true),
+                withIntermediateDirectories: true
+            )
+        }
+
+        let failureCount = await withTaskGroup(of: Bool.self, returning: Int.self) { group in
+            for _ in 0..<64 {
+                for path in paths {
+                    group.addTask {
+                        let lane = TerminalController.v2WorkingDirectoryProbeLane(path)
+                        let isDirectory = await TerminalController.v2ProbeWorkingDirectory(
+                            path,
+                            lane: .local
+                        )
+                        return lane != .local || !isDirectory
+                    }
+                }
+            }
+            return await group.reduce(into: 0) { failures, failed in
+                failures += failed ? 1 : 0
+            }
+        }
+
+        #expect(failureCount == 0)
+    }
+
     @Test func cancellingOneCoalescedWaiterDoesNotCancelProbeOrOtherWaiter() async {
         let probe = ControlledDirectoryProbe()
         let deadlines = ControlledValidationDeadlines()
