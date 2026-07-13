@@ -142,6 +142,27 @@ struct RemoteReconnectPolicyTests {
         #expect(state.4 != nil)
     }
 
+    @Test("A ready callback from the released pre-wake proxy lease is ignored")
+    func stalePreWakeProxyReadyIsIgnored() {
+        let provider = IntentionalCleanupTestTunnelProvider()
+        let coordinator = makeCoordinator(
+            broker: RemoteProxyBroker(tunnelProvider: provider)
+        )
+        defer {
+            coordinator.stop()
+            coordinator.queue.sync {}
+            provider.tunnel.stop()
+        }
+        let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 42_424)
+
+        coordinator.queue.sync {
+            coordinator.proxyLeaseGeneration = 2
+            coordinator.handleProxyBrokerUpdateLocked(.ready(endpoint), leaseGeneration: 1)
+        }
+
+        #expect(coordinator.queue.sync { coordinator.proxyEndpoint } == nil)
+    }
+
     private func makeCoordinator(broker: RemoteProxyBroker) -> RemoteSessionCoordinator {
         let configuration = WorkspaceRemoteConfiguration(
             destination: "user@example.test",

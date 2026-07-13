@@ -74,6 +74,38 @@ struct SSHDeepSleepReattachTests {
         }
     }
 
+    @MainActor
+    @Test func confirmedRemotePTYExitWaitsForManualRestart() throws {
+        let workspace = Workspace()
+        let configuration = Self.persistentConfiguration()
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let originalSurface = panel.surface
+        let sessionID = Workspace.defaultSSHPTYSessionID(
+            workspaceId: workspace.id,
+            panelId: panel.id
+        )
+        let ended = workspace.markRemotePTYAttachEnded(surfaceId: panel.id, sessionID: sessionID)
+        #expect(ended.clearedRemotePTYSession)
+
+        workspace.markPersistentRemotePTYAttachFailed(surfaceId: panel.id)
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: "Connected to cmux-macmini via shared local proxy 127.0.0.1:64007",
+            target: "cmux-macmini"
+        )
+
+        #expect(workspace.terminalPanel(for: panel.id)?.surface === originalSurface)
+        #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
+        #expect(workspace.endedPersistentRemotePTYAttachSurfaceIds.contains(panel.id))
+
+        #expect(workspace.reconnectRemoteConnection(surfaceId: panel.id))
+        let restarted = try #require(workspace.terminalPanel(for: panel.id))
+        #expect(restarted.surface !== originalSurface)
+        #expect(restarted.surface.initialCommand == configuration.terminalStartupCommand)
+        #expect(!workspace.endedPersistentRemotePTYAttachSurfaceIds.contains(panel.id))
+    }
+
     @Test func persistentAttachRetriesPastLegacyBudgetWithCappedBackoff() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -106,7 +138,6 @@ struct SSHDeepSleepReattachTests {
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
         environment["CMUX_TEST_SLEEP_LOG"] = sleepLog.path
-        environment["CMUX_SSH_RECONNECT_LIMIT"] = "1"
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
         environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "5"
 
@@ -123,6 +154,52 @@ struct SSHDeepSleepReattachTests {
         #expect(delays.count == 23)
         #expect(Array(delays.prefix(4)) == ["2", "4", "5", "5"])
         #expect(delays.last == "5")
+    }
+
+    @Test func defaultUnlimitedRetryClampsZeroDelayToAvoidHotLoop() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-persistent-zero-delay-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSleep = root.appendingPathComponent("sleep")
+        let attemptFile = root.appendingPathComponent("attach-attempts.txt")
+        let sleepLog = root.appendingPathComponent("sleep-delays.txt")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try Self.writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh", "case \" $* \" in", "  *\" ssh-pty-attach \"*)",
+            "    count=$(cat \"${CMUX_TEST_ATTEMPT_FILE}\" 2>/dev/null || printf 0)",
+            "    count=$((count + 1))", "    printf '%s' \"$count\" > \"${CMUX_TEST_ATTEMPT_FILE}\"",
+            "    if [ \"$count\" -eq 1 ]; then exit 255; fi", "    exit 253", "    ;;",
+            "  *) exit 0 ;;", "esac",
+        ])
+        try Self.writeShellFile(at: fakeSleep, lines: [
+            "#!/bin/sh", "printf '%s\\n' \"$1\" >> \"${CMUX_TEST_SLEEP_LOG}\"",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSleep.path)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
+        environment["CMUX_TEST_SLEEP_LOG"] = sleepLog.path
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+        environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "0"
+
+        let result = Self.runProcess(
+            command: SSHPTYAttachStartupCommandBuilder.command(sessionID: "ssh-test-session"),
+            environment: environment
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 253, Comment(rawValue: result.stderr))
+        #expect(try String(contentsOf: attemptFile, encoding: .utf8) == "2")
+        #expect(try String(contentsOf: sleepLog, encoding: .utf8) == "2\n")
     }
 
     private static func persistentConfiguration() -> WorkspaceRemoteConfiguration {
