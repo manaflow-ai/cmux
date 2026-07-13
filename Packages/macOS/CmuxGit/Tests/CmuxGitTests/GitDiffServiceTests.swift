@@ -370,6 +370,36 @@ import Testing
         #expect(diff.unifiedDiff.contains("Subproject commit"))
     }
 
+    @Test func trackedGitlinkDiffIgnoresConfiguredInlineSubmoduleFormat() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let nested = repo.appendingPathComponent("Nested")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        for arguments in [
+            ["init", "--quiet"],
+            ["config", "user.email", "tests@cmux.dev"],
+            ["config", "user.name", "cmux tests"],
+            ["commit", "--allow-empty", "--quiet", "-m", "nested init"],
+        ] {
+            try runTestGit(in: nested, arguments)
+        }
+        try runTestGit(in: repo, ["add", "--", "Nested"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add gitlink"])
+        for fileName in ["one.txt", "two.txt"] {
+            try Data("changed\n".utf8).write(to: nested.appendingPathComponent(fileName))
+        }
+        try runTestGit(in: nested, ["add", "--", "one.txt", "two.txt"])
+        try runTestGit(in: nested, ["commit", "--quiet", "-m", "advance nested"])
+        try runTestGit(in: repo, ["config", "diff.submodule", "diff"])
+
+        let service = GitDiffService()
+        let diff = try #require(service.fileDiff(repoRoot: repo.path, path: "Nested"))
+
+        #expect(diff.unifiedDiff.contains("Subproject commit"))
+        #expect(!diff.unifiedDiff.contains("one.txt"))
+        #expect(!diff.unifiedDiff.contains("two.txt"))
+    }
+
     private func makeTempRepo() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-git-diff-tests-\(UUID().uuidString)")
