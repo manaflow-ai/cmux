@@ -1183,6 +1183,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             workspaces: PreviewMobileHost.workspaces,
             groups: []
         )]
+        // Color slots are additive-only (see `updateStableMacColorSlots`), so the
+        // `workspacesByMac` reset above only adds the anonymous placeholder — it
+        // never prunes this account's real Mac→color assignments. Reset last,
+        // after every didSet-triggering assignment above has had its chance to
+        // recompute from the (still-stale) previous `workspacesByMac`, so the
+        // next account starts with a clean slate.
+        stableMacColorSlots = [:]
         selectedWorkspaceID = workspaces.first?.id
         selectedTerminalID = workspaces.first?.terminals.first?.id
         // Selection resets above are done; allow draft saving again so a
@@ -1214,6 +1221,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         teardownSecondaryMacSubscriptions()
         let foregroundKey = foregroundMacKey
         workspacesByMac = workspacesByMac.filter { $0.key == foregroundKey }
+        // Color slots are additive-only (see `updateStableMacColorSlots`), so the
+        // old team's Macs would otherwise linger in the slot map forever across
+        // repeated team switches. Keep only the foreground Mac's slot (if any);
+        // the new team's Macs get reassigned lazily as they're re-aggregated.
+        stableMacColorSlots = stableMacColorSlots.filter { $0.key == foregroundKey }
         // Restore memo: invalidate so the next read re-restores for the new
         // (account, team) scope, and a suspended old-team restore can't resume.
         // Invalidate the shared boundary synchronously first; actor cleanup is
