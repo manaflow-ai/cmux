@@ -137,4 +137,49 @@ struct ControlClientLineReaderTests {
         #expect(reader.nextLine(shouldContinueReading: { true }) == "complete")
         #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
     }
+
+    @Test func preauthorizationLimitsRejectOversizedFirstLine() throws {
+        let pair = try SocketPairFixture()
+        pair.write("oversized\n")
+        pair.closeWriteEnd()
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            initialLimits: ControlClientLineReadLimits(
+                maximumPendingBytes: 4,
+                timeoutMilliseconds: 1_000
+            )
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func preauthorizationDeadlineExpiresWithoutReading() throws {
+        let pair = try SocketPairFixture()
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            initialLimits: ControlClientLineReadLimits(
+                maximumPendingBytes: 4_096,
+                timeoutMilliseconds: 0
+            )
+        )
+
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func clearingPreauthorizationLimitsAllowsLargerCommands() throws {
+        let pair = try SocketPairFixture()
+        pair.write("auth\nsubsequent-command\n")
+        pair.closeWriteEnd()
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            initialLimits: ControlClientLineReadLimits(
+                maximumPendingBytes: 4,
+                timeoutMilliseconds: 1_000
+            )
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == "auth")
+        reader.clearLimits()
+        #expect(reader.nextLine(shouldContinueReading: { true }) == "subsequent-command")
+    }
 }
