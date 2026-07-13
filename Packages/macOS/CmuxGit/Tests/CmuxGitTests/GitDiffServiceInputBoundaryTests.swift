@@ -144,6 +144,22 @@ import Testing
         #expect(diff.unifiedDiff.contains("�"))
     }
 
+    @Test func invalidUTF8PathIsOmittedWithoutCollapsingIdentity() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        try Data("valid\n".utf8).write(to: repo.appendingPathComponent("valid.txt"))
+        try writeRawPath(
+            Array("invalid-".utf8) + [0xFF] + Array(".txt".utf8),
+            contents: Data("unsupported path\n".utf8),
+            in: repo
+        )
+
+        let changed = try #require(GitDiffService().changedFiles(repoRoot: repo.path))
+
+        #expect(changed.files.map(\.path) == ["valid.txt"])
+        #expect(!changed.files.contains { $0.path.contains("�") })
+    }
+
     @Test func symlinkToDirectoryRemainsOneDiffableFile() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
@@ -202,6 +218,25 @@ import Testing
             try runTestGit(in: root, arguments)
         }
         return root
+    }
+
+    private func writeRawPath(_ pathBytes: [UInt8], contents: Data, in directory: URL) throws {
+        let directoryDescriptor = open(directory.path, O_RDONLY | O_DIRECTORY)
+        guard directoryDescriptor >= 0 else { throw CocoaError(.fileWriteUnknown) }
+        defer { close(directoryDescriptor) }
+
+        var terminatedPath = pathBytes + [0]
+        let fileDescriptor = terminatedPath.withUnsafeMutableBufferPointer { buffer in
+            buffer.baseAddress!.withMemoryRebound(to: CChar.self, capacity: buffer.count) { path in
+                openat(directoryDescriptor, path, O_WRONLY | O_CREAT | O_TRUNC, 0o600)
+            }
+        }
+        guard fileDescriptor >= 0 else { throw CocoaError(.fileWriteUnknown) }
+        defer { close(fileDescriptor) }
+        let written = contents.withUnsafeBytes { bytes in
+            Darwin.write(fileDescriptor, bytes.baseAddress, bytes.count)
+        }
+        guard written == contents.count else { throw CocoaError(.fileWriteUnknown) }
     }
 
     private func runTestGit(in root: URL, _ arguments: [String]) throws {

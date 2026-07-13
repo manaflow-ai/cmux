@@ -40,6 +40,27 @@ import Testing
         }
     }
 
+    @Test func changedFilesResultPreservesStatusTimeout() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let stalledGit = repo.appendingPathComponent("stalled-status-git.sh")
+        try Data(
+            "#!/bin/sh\nif [ \"$3\" = rev-parse ]; then echo HEAD; exit 0; fi\nsleep 30\n".utf8
+        ).write(to: stalledGit)
+        try makeExecutable(stalledGit)
+        let service = GitDiffService(
+            gitExecutableURL: stalledGit,
+            processDeadlineSeconds: 0.1
+        )
+
+        switch service.changedFilesResult(repoRoot: repo.path) {
+        case .timedOut:
+            break
+        default:
+            Issue.record("A status-phase timeout was flattened into a generic Git failure")
+        }
+    }
+
     private func makeTempRepo() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-git-diff-result-tests-\(UUID().uuidString)")
