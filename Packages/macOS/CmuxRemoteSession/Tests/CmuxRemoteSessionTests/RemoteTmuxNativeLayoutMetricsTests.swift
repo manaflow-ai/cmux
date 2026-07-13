@@ -71,6 +71,47 @@ import Testing
         #expect(verticalGrid.rows == 28)
     }
 
+    @Test func titleRowsOnlyChargePanesTouchingTheirConfiguredEdge() {
+        let metrics = RemoteTmuxNativeLayoutMetrics(
+            cellSize: CGSize(width: 10, height: 10),
+            surfacePadding: CGSize(width: 2, height: 4),
+            tabBarHeight: 30,
+            dividerThickness: 2,
+            paneTitleRowHeight: 10
+        )
+        let topTitleLayout = RemoteTmuxLayoutNode(
+            width: 10,
+            height: 21,
+            x: 0,
+            y: 0,
+            content: .vertical([
+                RemoteTmuxLayoutNode(width: 10, height: 9, x: 0, y: 1, content: .pane(1)),
+                RemoteTmuxLayoutNode(width: 10, height: 10, x: 0, y: 11, content: .pane(2)),
+            ])
+        )
+        let bottomTitleLayout = RemoteTmuxLayoutNode(
+            width: 10,
+            height: 21,
+            x: 0,
+            y: 0,
+            content: .vertical([
+                RemoteTmuxLayoutNode(width: 10, height: 10, x: 0, y: 0, content: .pane(1)),
+                RemoteTmuxLayoutNode(width: 10, height: 9, x: 0, y: 11, content: .pane(2)),
+            ])
+        )
+
+        #expect(metrics.residual(of: topTitleLayout).height == 72)
+        #expect(metrics.residual(of: bottomTitleLayout).height == 72)
+        #expect(RemoteTmuxNativeMeasuredSplitTree(
+            tree: RemoteTmuxNativeSplitTree(layout: topTitleLayout),
+            metrics: metrics
+        ).residual.height == 72)
+        #expect(RemoteTmuxNativeMeasuredSplitTree(
+            tree: RemoteTmuxNativeSplitTree(layout: bottomTitleLayout),
+            metrics: metrics
+        ).residual.height == 72)
+    }
+
     @Test func dragConversionsSubtractChromeButNotPlacementSlack() {
         let metrics = RemoteTmuxNativeLayoutMetrics(
             cellSize: CGSize(width: 10, height: 10),
