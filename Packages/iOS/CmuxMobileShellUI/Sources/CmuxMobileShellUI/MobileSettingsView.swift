@@ -13,6 +13,7 @@ struct MobileSettingsView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(\.irohSettingsController) private var irohSettingsController
     let connectedHostName: String
     let rescanQR: (() -> Void)?
     let signOut: (() -> Void)?
@@ -125,6 +126,20 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsHowPairingWorks")
+                }
+
+                if let irohSettingsController {
+                    Section(L10n.string("mobile.settings.networking", defaultValue: "Networking")) {
+                        NavigationLink {
+                            MobileIrohSettingsView(controller: irohSettingsController)
+                        } label: {
+                            Label(
+                                L10n.string("mobile.settings.iroh", defaultValue: "Iroh and Relays"),
+                                systemImage: "network"
+                            )
+                        }
+                        .accessibilityIdentifier("MobileSettingsIroh")
+                    }
                 }
 
                 Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {

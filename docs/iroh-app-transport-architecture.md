@@ -16,7 +16,7 @@ The legacy Tailscale TCP transport remains during migration for released clients
 
 Each process owns one Iroh endpoint. A peer route contains one canonical 64-character lowercase hexadecimal EndpointID and separately attributed path hints.
 
-Production endpoints start from Iroh's `Minimal` preset and add the cmux relay fleet explicitly. They do not use the default n0 preset, public n0 DNS address lookup, or public n0 relays. The authenticated cmux device registry is the application-specific address lookup: an endpoint publishes the signed public-disclosure subset of its current `watch_addr` value, and same-account peers resolve a known EndpointID through that registry. Private candidates stay out of the broker and are exchanged in-band only after admission. This distinction is required because an EndpointID authenticates a peer but does not say where that peer is reachable.
+Production endpoints start from Iroh's `Minimal` preset and add only relays from a verified server policy. They do not use the default n0 preset or public n0 DNS address lookup. The app pins bounded Ed25519 policy keys, while the signed catalog carries relay IDs, providers, regions, and URLs. Fleet changes therefore do not require an app update. The authenticated cmux device registry is the application-specific address lookup: an endpoint publishes the signed public-disclosure subset of its current `watch_addr` value, and same-account peers resolve a known EndpointID through that registry. Private candidates stay out of the broker and are exchanged in-band only after admission. This distinction is required because an EndpointID authenticates a peer but does not say where that peer is reachable.
 
 cmux-supplied addresses have two explicit phases:
 
@@ -25,7 +25,7 @@ cmux-supplied addresses have two explicit phases:
 
 Private hints never enter the first cmux-supplied `EndpointAddr`. Iroh treats supplied IP paths as equivalent candidates, so array order is not a fallback boundary.
 
-This phase split is not a relay-only IP-privacy boundary. Stock Iroh 1.0 registers a TLS-complete connection with its path manager before cmux can verify a same-account grant, then exchanges public addresses, ports, and local interface addresses. EndpointID TLS proves key possession, not cmux authorization. The pinned cmux noq, Iroh, and FFI forks therefore negotiate QUIC NAT traversal but defer candidate announcement, inbound `REACH_OUT` processing, probes, timers, and direct-path migration on each connection. Every cmux endpoint advertises zero initial bidirectional and unidirectional stream credit; the Mac raises bidirectional credit to one only for the bootstrap control stream. Admission uses an acknowledged two-phase barrier: the Mac verifies the grant and returns an accepted-pending-NAT response, the phone authorizes its exact connection and sends client-ready over the bootstrap path, then the Mac authorizes its exact connection and returns server-ready. Only that final confirmation lets the phone return a connected session. Production v1 retains one bidirectional stream because no application component owns terminal or artifact streams yet. The client separately grants one unidirectional stream to the sole server-event receiver only after that receiver is prepared. A bounded test configuration can grant up to sixteen client application lanes after server-ready, and every lane header has a five-second deadline, but production must not enable that credit until a central accept owner and feature consumer are installed. The Mac's fresh candidate advertisement reaches an already-authorized phone and starts direct-path migration on that same connection. A denial, missing acknowledgement, role-invalid frame, or authorization failure closes the connection without creating a replacement connection. Default upstream behavior remains unchanged unless these endpoint options are enabled.
+This phase split is not a relay-only IP-privacy boundary. Stock Iroh 1.0 registers a TLS-complete connection with its path manager before cmux can verify a same-account grant, then exchanges public addresses, ports, and local interface addresses. EndpointID TLS proves key possession, not cmux authorization. The pinned cmux noq, Iroh, and FFI forks therefore negotiate QUIC NAT traversal but defer candidate announcement, inbound `REACH_OUT` processing, probes, timers, and direct-path migration on each connection. Every cmux endpoint advertises zero initial bidirectional and unidirectional stream credit; the Mac raises bidirectional credit to one only for the bootstrap control stream. Admission uses an acknowledged two-phase barrier: the Mac verifies the grant and returns an accepted-pending-NAT response, the phone authorizes its exact connection and sends client-ready over the bootstrap path, then the Mac authorizes its exact connection and returns server-ready. Only that final confirmation lets the phone return a connected session. The client separately grants one unidirectional stream to the sole server-event receiver only after that receiver is prepared. Production grants bounded client application-lane credit only after server-ready. One central Mac router owns acceptance, routes terminal lanes to the terminal byte owner, and rejects artifact lanes until a concrete preview consumer registers. Every lane header has a five-second deadline. The Mac's fresh candidate advertisement reaches an already-authorized phone and starts direct-path migration on that same connection. A denial, missing acknowledgement, role-invalid frame, or authorization failure closes the connection without creating a replacement connection. Default upstream behavior remains unchanged unless these endpoint options are enabled.
 
 After activation, the admitted peer may learn LAN, Tailscale, or other interface addresses even when cmux supplied only a relay URL. cmux documents this behavior and does not claim peer-IP concealment from an admitted peer. Iroh 1.0 still has no relay-only connection mode. Managed deployments that require peer-IP concealment must disable Iroh until a separately tested relay-only mode exists.
 
@@ -65,7 +65,7 @@ Offline LAN discovery is opt-in. The iOS target must declare its cmux Bonjour se
 
 | Path | v1 status | Capability boundary |
 | --- | --- | --- |
-| Managed relay or public-direct Iroh | Supported, default | Admitted control plus an independently owned server-event stream; terminal and artifact lanes remain gated. |
+| Managed relay or public-direct Iroh | Supported, default | Admitted control, one server-event owner, and bounded terminal lanes; artifact lanes remain gated. |
 | Iroh-discovered LAN, Tailscale, or VPN candidate | Supported after admission | Same connection may migrate direct; selection is opportunistic, not guaranteed. |
 | Authenticated Bonjour LAN Iroh bootstrap | Supported | Exact known EndpointID or one-use offline proof; numeric on-link addresses only. |
 | Numeric Tailscale TCP | Compatibility only | Current framed RPC after interface-bound route proof; no Iroh-only features. |
@@ -107,23 +107,23 @@ iOS may suspend networking in the background, but cmux does not proactively clos
 
 The fork must expose cancellation for an in-progress connect. Closing a QUIC connection unblocks established stream reads, but it does not reliably cancel the current FFI handshake bridge.
 
-## Relay fleet
+## Relay fleet and preferences
 
-The target self-hosted deployment uses only these managed relays:
+`CMUX_RELAY_CATALOG_JSON` is the server-owned managed fleet. Every catalog has a strictly increasing sequence and at most sixteen unique credential-free HTTPS origins. The backend rejects sequence rollback and same-sequence content changes. It signs a five-minute policy with an Ed25519 key whose public half is pinned by clients. A cached policy remains usable only until its signed expiry. Invalid, expired, rolled-back, or unverifiable policy fails closed to direct Iroh paths.
 
-- `https://ape1.relay.cmux.dev/`
-- `https://apne1.relay.cmux.dev/`
-- `https://apse1.relay.cmux.dev/`
-- `https://euw4.relay.cmux.dev/`
-- `https://usc1.relay.cmux.dev/`
-- `https://use4.relay.cmux.dev/`
-- `https://usw1.relay.cmux.dev/`
+The server may add, remove, or replace relays without a client update. A remote `EndpointAddr` contains only the remote endpoint's advertised home relay or relays, validated against the signed fleet. Fleet configuration and remote reachability remain separate wire fields.
 
-The seven URLs form the local endpoint's allowed relay fleet. They must not all be synthesized as addresses for every remote endpoint. A remote `EndpointAddr` contains only the remote endpoint's currently advertised home relay or relays, validated against the fleet allowlist. Fleet configuration and remote reachability are separate wire fields.
+A signed-in native client calls `POST /api/relay/token` with its canonical EndpointID. The web API returns a five-minute endpoint-bound relay JWT, the signed policy, and the account preference. Each cmux relay verifies its JWT offline. The app refreshes before expiry and replaces the verified relay policy on the live endpoint without changing EndpointID or application streams.
 
-A signed-in native client calls `POST /api/relay/token` with its canonical 64-character lowercase hexadecimal EndpointID. The web API returns the complete relay map and a five-minute EdDSA JWT bound to that key. Each relay verifies the JWT offline. The app normalizes each returned HTTPS origin, requires an exact match with its compiled allowlist, refreshes one minute before expiry with at most 30 seconds of jitter, and replaces relay credentials on the live endpoint without changing EndpointID or application streams.
+Relay preferences are personal-account scoped:
 
-Tagged Debug builds use the self-hosted fleet and endpoint-bound token API. Release builds retain the legacy hosted fleet and binding-scoped issuer until the relay enforces an account-wide resource bound or closes sessions at JWT expiry. [cmux-relay issue 2](https://github.com/manaflow-ai/cmux-relay/issues/2) is closed after adding per-EndpointID connection and per-connection traffic caps, but the deployed code explicitly leaves admitted connections alive after expiry. A per-EndpointID cap does not bound one account that mints multiple EndpointIDs over time. The previously pasted Iroh Services API key is unused by the self-hosted fleet and must still be rotated because it was disclosed.
+- Automatic uses every relay in the current verified cmux fleet.
+- Selected cmux relays uses only the chosen stable relay IDs. If every selected ID disappears, cmux stays direct-only instead of substituting a relay.
+- Custom relays uses only the account's custom relay metadata. Managed relays never become a fallback in this mode. HTTPS origins sync across same-account devices; provider credentials stay in device-only Keychain storage. A device missing its required credential stays direct-only.
+
+Preference writes use optimistic revisions, reject credentials in every server field, and are rate-limited by account. The Mac and iOS Settings screens expose the same account preference, managed selection, custom metadata, credential state, policy source, stale selection, and refresh action.
+
+Tagged Debug builds pin the staging policy key and exercise the self-hosted fleet. Release builds retain the legacy hosted fleet and binding-scoped issuer until the relay enforces an account-wide resource bound or closes sessions at JWT expiry. [cmux-relay issue 2](https://github.com/manaflow-ai/cmux-relay/issues/2) is closed after adding per-EndpointID connection and per-connection traffic caps, but the deployed code explicitly leaves admitted connections alive after expiry. A per-EndpointID cap does not bound one account that mints multiple EndpointIDs over time. The previously pasted Iroh Services API key is unused by the self-hosted fleet and must still be rotated because it was disclosed.
 
 [Upstream issue 4319](https://github.com/n0-computer/iroh/issues/4319) reports roughly 30 seconds of lost reachability after a custom home relay fails even when another relay is configured. Relay failover and rolling restarts require a soak and telemetry gate that measures inbound-reachability gaps, stream survival, and recovery latency. cmux does not claim relay high availability until those bounds pass.
 
@@ -140,9 +140,10 @@ The app derives path quality from local Iroh connection statistics. Product tele
 The initial ALPN is `cmux/mobile/1`. Production v1 multiplexes:
 
 - a control stream for grants, requests, and lifecycle messages;
-- one centrally owned server-event stream with sequence cursors.
+- one centrally owned server-event stream with sequence cursors;
+- bounded terminal streams with resource IDs, priorities, replay cursors, and one central Mac accept owner.
 
-The binary protocol reserves client-created bidirectional terminal and artifact lanes. Their raw stream path, priority, post-admission credit, capacity, and header timeout are behavior-tested behind an explicit protocol configuration. Production keeps their credit at zero until it has one central Mac accept owner and concrete feature consumers. Server-created artifact streams are also disabled because the iOS unidirectional accept owner currently routes only server events. Artifact preview work should use a client-created artifact stream, which lets the requesting feature own both halves without competing for an accept loop.
+The binary protocol also reserves client-created bidirectional artifact lanes. Production rejects them until the preview feature supplies a concrete owner. Server-created artifact streams remain disabled because the iOS unidirectional accept owner routes only server events. Artifact preview should use a client-created artifact stream, which lets the requesting feature own both halves without competing for an accept loop.
 
 Datagrams carry only disposable hints. Mutating requests never use 0-RTT.
 

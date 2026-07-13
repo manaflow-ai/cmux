@@ -281,6 +281,44 @@ struct MobileHostAuthorizationTests {
             #expect(Bool(false), "Expected IPv6 Tailscale route")
         }
     }
+    @Test func testIrohTerminalLaneInputFramingSurvivesQUICChunkBoundaries() throws {
+        var buffer = Data([0, 0])
+        #expect(try MobileHostIrohApplicationLaneRouter.decodeTerminalInputFrames(from: &buffer).isEmpty)
+        buffer.append(contentsOf: [0, 2, 0xc3])
+        #expect(try MobileHostIrohApplicationLaneRouter.decodeTerminalInputFrames(from: &buffer).isEmpty)
+        buffer.append(0xa9)
+        #expect(
+            try MobileHostIrohApplicationLaneRouter.decodeTerminalInputFrames(from: &buffer)
+                == ["é"]
+        )
+        #expect(buffer.isEmpty)
+    }
+    @Test func testIrohDefaultArtifactLaneHandlerRejectsUntilConsumerRegisters() async throws {
+        let stream = CmxIrohBidirectionalStream(
+            receiveStream: ImmediateMobileHostIrohReceiveStream(),
+            sendStream: BlockingMobileHostIrohSendStream()
+        )
+        let handler = MobileHostIrohRejectingArtifactLaneHandler()
+        let resourceID = try CmxIrohResourceID("artifact:preview")
+        let peer = CmxIrohAdmittedPeer(peer: CmxIrohGrantPeer(
+            bindingID: "123e4567-e89b-42d3-a456-426614174001",
+            deviceID: "123e4567-e89b-42d3-a456-426614174002",
+            tag: "test",
+            platform: .ios,
+            endpointID: try CmxIrohPeerIdentity(
+                endpointID: String(repeating: "a", count: 64)
+            ),
+            identityGeneration: 1
+        ))
+        #expect(
+            await handler.handleArtifactLane(
+                resourceID: resourceID,
+                offset: 0,
+                stream: stream,
+                peer: peer
+            ) == false
+        )
+    }
     @Test func testMobileRouteResolverImmediateSnapshotUsesNumericTailscaleFallbackWithoutDNS() throws {
         let resolver = MobileRouteResolver()
         let snapshot = resolver.routes(
@@ -1192,6 +1230,10 @@ actor BlockingMobileHostIrohSendStream: CmxIrohSendStream {
         sendWaiter?.resume(throwing: CancellationError())
         sendWaiter = nil
     }
+}
+actor ImmediateMobileHostIrohReceiveStream: CmxIrohReceiveStream {
+    func receive(maximumByteCount _: Int) -> Data? { nil }
+    func stop(errorCode _: UInt64) {}
 }
 private enum AsyncTestSignalError: Error {
     case timedOut

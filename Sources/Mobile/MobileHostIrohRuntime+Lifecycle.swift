@@ -261,6 +261,7 @@ extension MobileHostIrohRuntime {
         after preparation: CmxIrohHostSignOutPreparation
     ) async {
         guard preparation.wasPersisted else { return }
+        let accountID = activeAccountID ?? lastKnownAccountID
         do {
             try await hostPolicies.deactivate()
         } catch {
@@ -282,7 +283,12 @@ extension MobileHostIrohRuntime {
                 "Iroh identity deletion failed: \(String(describing: error), privacy: .private)"
             )
         }
+        if let accountID {
+            try? await relayPreferenceStore.deactivate(accountID: accountID)
+            try? await customRelayCredentials.deactivate(accountID: accountID)
+        }
         await appInstances.deactivate()
+        clearRelayPolicyRuntimeState()
         runtime = nil
         activeAccountID = nil
         activeAppInstanceID = nil

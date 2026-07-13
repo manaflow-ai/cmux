@@ -34,14 +34,17 @@ struct CmxIrohURLSessionTransport: CmxIrohHTTPTransport {
 }
 
 /// Authenticated client for endpoint registration, discovery, grants, and relay tokens.
-public actor CmxIrohTrustBrokerClient {
+public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private struct BindingRequest: Encodable { let bindingId: String }
     private struct EndpointRequest: Encodable { let endpointId: String }
     private struct RelayAccessResponse: Decodable {
-        let token: String
+        let token: String?
         let expiresAt: Int64
         let ttlSeconds: Int64
         let relays: [String]
+        let policy: String?
+        let preference: CmxIrohAccountRelayPreference?
+        let preferenceRevision: Int64?
     }
     private struct RelayTokenHeader: Decodable {
         let alg: String
@@ -184,6 +187,54 @@ public actor CmxIrohTrustBrokerClient {
         return try Self.relayTokenResponse(response, endpointID: endpointID)
     }
 
+    /// Issues a managed credential together with signed, server-driven relay policy.
+    public func issueRelayBootstrap(
+        endpointID: CmxIrohPeerIdentity
+    ) async throws -> CmxIrohRelayBootstrapResponse {
+        let response: RelayAccessResponse = try await send(
+            path: "api/relay/token",
+            method: "POST",
+            body: EndpointRequest(endpointId: endpointID.endpointID)
+        )
+        guard let policy = response.policy,
+              let preference = response.preference,
+              let preferenceRevision = response.preferenceRevision else {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
+        let policyResponse: CmxIrohRelayPolicyResponse
+        do {
+            policyResponse = try CmxIrohRelayPolicyResponse(
+                policy: policy,
+                preference: preference,
+                preferenceRevision: preferenceRevision
+            )
+        } catch {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
+        let relayToken: CmxIrohRelayTokenResponse?
+        if response.token == nil {
+            relayToken = nil
+        } else {
+            relayToken = try Self.relayTokenResponse(response, endpointID: endpointID)
+        }
+        return CmxIrohRelayBootstrapResponse(
+            relayToken: relayToken,
+            relayPolicy: policyResponse
+        )
+    }
+
+    /// Fetches the current account relay preference.
+    public func relayPreference() async throws -> CmxIrohRelayPreferenceResponse {
+        try await sendWithoutBody(path: "api/relay/preferences", method: "GET")
+    }
+
+    /// Replaces the current account relay preference using optimistic concurrency.
+    public func updateRelayPreference(
+        _ request: CmxIrohRelayPreferenceUpdateRequest
+    ) async throws -> CmxIrohRelayPreferenceResponse {
+        try await send(path: "api/relay/preferences", method: "PUT", body: request)
+    }
+
     public func revoke(bindingID: String) async throws {
         let response: RevokeResponse = try await send(
             path: "api/devices/iroh",
@@ -288,13 +339,14 @@ public actor CmxIrohTrustBrokerClient {
         _ response: RelayAccessResponse,
         endpointID: CmxIrohPeerIdentity
     ) throws -> CmxIrohRelayTokenResponse {
-        guard response.ttlSeconds == 300,
+        guard let token = response.token,
+              response.ttlSeconds == 300,
               response.expiresAt > response.ttlSeconds,
               (1 ... CmxIrohRelayPolicyVerifier.maximumRelayCount).contains(
                   response.relays.count
               ),
               validRelayToken(
-                  response.token,
+                  token,
                   expiresAt: response.expiresAt,
                   endpointID: endpointID
               ) else {
@@ -312,7 +364,7 @@ public actor CmxIrohTrustBrokerClient {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return CmxIrohRelayTokenResponse(
-            token: response.token,
+            token: token,
             expiresAt: formatter.string(from: expiresAt),
             refreshAfter: formatter.string(from: refreshAfter),
             relayFleet: relayFleet

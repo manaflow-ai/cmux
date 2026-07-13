@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -95,6 +96,62 @@ export const accountDeletionTombstones = pgTable(
   (table) => [
     index("account_deletion_tombstones_status_updated_idx").on(table.status, table.updatedAt),
     index("account_deletion_tombstones_user_idx").on(table.userId),
+  ],
+);
+
+/**
+ * The last server-configured relay catalog accepted by this database.
+ * Persisting its sequence and digest prevents an older or conflicting deploy
+ * from signing a rollback after a newer catalog has already been served.
+ */
+export const irohRelayCatalogState = pgTable(
+  "iroh_relay_catalog_state",
+  {
+    id: text("id").primaryKey(),
+    catalogSequence: bigint("catalog_sequence", { mode: "number" }).notNull(),
+    catalogDigest: text("catalog_digest").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("iroh_relay_catalog_state_singleton", sql`${table.id} = 'managed'`),
+    check("iroh_relay_catalog_sequence_positive", sql`${table.catalogSequence} > 0`),
+  ],
+);
+
+/**
+ * Account-scoped relay choice and non-secret custom relay metadata.
+ * Custom relay credentials deliberately have no column and are rejected by
+ * the API before this JSON reaches Postgres.
+ */
+export const irohRelayPreferences = pgTable(
+  "iroh_relay_preferences",
+  {
+    accountId: text("account_id").primaryKey(),
+    mode: text("mode").$type<"automatic" | "managed" | "custom">().notNull().default("automatic"),
+    selectedManagedRelayIds: jsonb("selected_managed_relay_ids")
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    customRelays: jsonb("custom_relays")
+      .$type<Array<{
+        id: string;
+        url: string;
+        provider: string;
+        region: string;
+        displayName?: string;
+        authMode: "none" | "device_secret";
+      }>>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    revision: bigint("revision", { mode: "number" }).notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("iroh_relay_preferences_mode", sql`${table.mode} in ('automatic', 'managed', 'custom')`),
+    check("iroh_relay_preferences_selected_array", sql`jsonb_typeof(${table.selectedManagedRelayIds}) = 'array'`),
+    check("iroh_relay_preferences_custom_array", sql`jsonb_typeof(${table.customRelays}) = 'array'`),
+    check("iroh_relay_preferences_revision_nonnegative", sql`${table.revision} >= 0`),
   ],
 );
 

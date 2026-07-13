@@ -5,6 +5,7 @@ import Foundation
 actor TestIrohEndpoint: CmxIrohEndpoint {
     private let peerIdentity: CmxIrohPeerIdentity
     private let directAddresses: [String]
+    private let pathHints: [CmxIrohPathHint]
     private let healthStream: AsyncStream<CmxIrohEndpointHealthEvent>
     private let healthContinuation: AsyncStream<CmxIrohEndpointHealthEvent>.Continuation
     private var closeCallCount = 0
@@ -15,10 +16,12 @@ actor TestIrohEndpoint: CmxIrohEndpoint {
 
     init(
         identity: CmxIrohPeerIdentity,
-        directAddresses: [String] = []
+        directAddresses: [String] = [],
+        pathHints: [CmxIrohPathHint] = []
     ) {
         peerIdentity = identity
         self.directAddresses = directAddresses
+        self.pathHints = pathHints
         let health = AsyncStream<CmxIrohEndpointHealthEvent>.makeStream()
         healthStream = health.stream
         healthContinuation = health.continuation
@@ -29,7 +32,7 @@ actor TestIrohEndpoint: CmxIrohEndpoint {
     }
 
     func address() -> CmxIrohEndpointAddress {
-        CmxIrohEndpointAddress(identity: peerIdentity, pathHints: [])
+        CmxIrohEndpointAddress(identity: peerIdentity, pathHints: pathHints)
     }
 
     func localDirectAddresses() -> [String] { directAddresses }

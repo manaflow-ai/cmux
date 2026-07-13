@@ -33,6 +33,15 @@ public struct CmxIrohEndpointRelayProfile: Equatable, Sendable {
         managedRelays: []
     )
 
+    /// A fail-closed profile used when a managed relay selection cannot be
+    /// honored. Direct P2P stays enabled, while every relay is disabled.
+    public static let unavailableManagedSelection = CmxIrohEndpointRelayProfile(
+        allowedRelayURLs: [],
+        source: .managed,
+        activeRelays: [],
+        managedRelays: []
+    )
+
     private init(
         allowedRelayURLs: Set<String>,
         source: Source,
@@ -125,6 +134,14 @@ public struct CmxIrohEndpointRelayProfile: Equatable, Sendable {
         return try CmxIrohEndpointRelayProfile(
             managedRelayURLs: allowedRelayURLs,
             relays: relays
+        )
+    }
+
+    func droppingExpiredManagedCredentials(at now: Date) throws -> CmxIrohEndpointRelayProfile {
+        guard source == .managed else { return self }
+        return try CmxIrohEndpointRelayProfile(
+            managedRelayURLs: allowedRelayURLs,
+            relays: managedRelays.filter { $0.expiresAt > now }
         )
     }
 

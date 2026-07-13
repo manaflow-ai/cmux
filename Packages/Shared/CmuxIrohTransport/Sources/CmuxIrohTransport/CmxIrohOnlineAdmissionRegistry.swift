@@ -32,7 +32,7 @@ public actor CmxIrohOnlineAdmissionRegistry {
     public static let maximumOnlineSnapshotAge: TimeInterval = 30
 
     private let broker: any CmxIrohDiscoveryServing
-    private let managedRelayURLs: Set<String>
+    private var managedRelayURLs: Set<String>
     private let routeContractVersion: Int
     private let verifier: CmxIrohGrantVerifier
     private let clock: any CmxIrohRelayClock
@@ -69,6 +69,15 @@ public actor CmxIrohOnlineAdmissionRegistry {
     ) {
         self.keys = keys
         self.acceptor = acceptor
+        policyRevision &+= 1
+        snapshot = nil
+        refresh?.task.cancel()
+        refresh = nil
+    }
+
+    /// Replaces the verified managed fleet used for online revalidation.
+    func updateManagedRelayURLs(_ relayURLs: Set<String>) {
+        managedRelayURLs = relayURLs
         policyRevision &+= 1
         snapshot = nil
         refresh?.task.cancel()

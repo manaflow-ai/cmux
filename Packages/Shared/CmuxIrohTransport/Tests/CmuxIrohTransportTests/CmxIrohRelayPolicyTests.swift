@@ -30,6 +30,27 @@ struct CmxIrohRelayPolicyTests {
     }
 
     @Test
+    func policyAcceptsServerDisplayLabelsAndExplicitHTTPSPorts() throws {
+        let fixture = try Fixture()
+        let token = try fixture.token(
+            sequence: 8,
+            relayURLs: [
+                "https://usc1.relay.cmux.dev:8443/",
+                fixture.relayURLs[1],
+            ],
+            regions: ["US Central", "Europe West"]
+        )
+
+        let policy = try CmxIrohRelayPolicyVerifier().verify(
+            token,
+            trustRoot: fixture.trustRoot,
+            now: fixture.now
+        )
+        #expect(policy.relays.map(\.region) == ["US Central", "Europe West"])
+        #expect(policy.relays[0].url == "https://usc1.relay.cmux.dev:8443/")
+    }
+
+    @Test
     func substitutedRelayAndUnknownSelectionFailClosed() throws {
         let fixture = try Fixture()
         let valid = try fixture.token(sequence: 7)
@@ -147,6 +168,37 @@ struct CmxIrohRelayPolicyTests {
             now: fixture.now
         )
         #expect(restored?.sequence == 7)
+    }
+
+    @Test
+    func cacheAcceptsRenewedEnvelopeForUnchangedCatalog() async throws {
+        let fixture = try Fixture()
+        let store = TestSecureCredentialStore()
+        let cache = CmxIrohRelayPolicyCache(secureStore: store)
+        _ = try await cache.install(
+            signedPolicy: fixture.token(sequence: 7),
+            trustRoot: fixture.trustRoot,
+            now: fixture.now
+        )
+
+        let renewalTime = fixture.now.addingTimeInterval(120)
+        let renewed = try fixture.token(
+            sequence: 7,
+            issuedAt: fixture.nowSeconds + 120,
+            expiresAt: fixture.nowSeconds + 3_720
+        )
+        let installed = try await cache.install(
+            signedPolicy: renewed,
+            trustRoot: fixture.trustRoot,
+            now: renewalTime
+        )
+
+        #expect(installed.sequence == 7)
+        #expect(installed.issuedAt == fixture.nowSeconds + 120)
+        #expect(
+            try await cache.load(trustRoot: fixture.trustRoot, now: renewalTime)?.expiresAt
+                == fixture.nowSeconds + 3_720
+        )
     }
 
     @Test
@@ -323,10 +375,12 @@ struct CmxIrohRelayPolicyTests {
 
         func token(
             sequence: Int64,
+            issuedAt: Int64? = nil,
             expiresAt: Int64? = nil,
             relayProtocol: String = "iroh-relay-v1",
             keyID: String = "policy-2026-1",
-            relayURLs: [String]? = nil
+            relayURLs: [String]? = nil,
+            regions: [String]? = nil
         ) throws -> String {
             let header = try JSONSerialization.data(
                 withJSONObject: [
@@ -339,6 +393,8 @@ struct CmxIrohRelayPolicyTests {
             let payload = try payload(
                 sequence: sequence,
                 relayURLs: relayURLs,
+                regions: regions,
+                issuedAt: issuedAt,
                 expiresAt: expiresAt,
                 relayProtocol: relayProtocol
             )
@@ -350,12 +406,14 @@ struct CmxIrohRelayPolicyTests {
         func payload(
             sequence: Int64,
             relayURLs: [String]? = nil,
+            regions: [String]? = nil,
+            issuedAt: Int64? = nil,
             expiresAt: Int64? = nil,
             relayProtocol: String = "iroh-relay-v1"
         ) throws -> Data {
             let urls = relayURLs ?? self.relayURLs
             let relayIDs = ["cmux-us", "cmux-eu"]
-            let regions = ["us-central1", "europe-west4"]
+            let regions = regions ?? ["us-central1", "europe-west4"]
             let relays = urls.enumerated().map { index, url in
                 [
                     "id": relayIDs[index],
@@ -369,8 +427,8 @@ struct CmxIrohRelayPolicyTests {
                     "version": 1,
                     "jti": "123e4567-e89b-42d3-a456-426614174000",
                     "sequence": sequence,
-                    "iat": nowSeconds,
-                    "nbf": nowSeconds,
+                    "iat": issuedAt ?? nowSeconds,
+                    "nbf": issuedAt ?? nowSeconds,
                     "exp": expiresAt ?? nowSeconds + 3_600,
                     "aud": "cmux-iroh-relay-policy",
                     "relay_protocol": relayProtocol,

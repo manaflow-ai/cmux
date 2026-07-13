@@ -70,8 +70,8 @@ extension CmxIrohHostRuntime {
         guard discovery.routeContractVersion == payload.routeContractVersion else {
             throw CmxIrohHostRuntimeError.routeContractMismatch
         }
-        guard Set(discovery.relayFleet) == configuration.managedRelayURLs,
-              discovery.relayFleet.count == configuration.managedRelayURLs.count else {
+        guard Set(discovery.relayFleet) == managedRelayURLs,
+              discovery.relayFleet.count == managedRelayURLs.count else {
             throw CmxIrohHostRuntimeError.relayFleetMismatch
         }
         guard let discovered = discovery.bindings.first(where: {
@@ -183,8 +183,8 @@ extension CmxIrohHostRuntime {
 
     func cachedRelayConfigurations() -> [CmxIrohRelayConfiguration] {
         guard let cached = configuration.cachedRelayCredential,
-              Set(cached.relayFleet) == configuration.managedRelayURLs,
-              cached.relayFleet.count == configuration.managedRelayURLs.count else {
+              Set(cached.relayFleet) == managedRelayURLs,
+              cached.relayFleet.count == managedRelayURLs.count else {
             return []
         }
         return (try? cached.relayConfigurations(now: now())) ?? []

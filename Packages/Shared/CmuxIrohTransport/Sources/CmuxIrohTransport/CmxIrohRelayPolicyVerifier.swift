@@ -178,8 +178,8 @@ public struct CmxIrohRelayPolicyVerifier: Sendable {
 
     private static func validRelay(_ relay: CmxIrohManagedRelayDescriptor) -> Bool {
         isSafeIdentifier(relay.id)
-            && isSafeIdentifier(relay.provider)
-            && isSafeIdentifier(relay.region)
+            && isSafeLabel(relay.provider)
+            && isSafeLabel(relay.region)
             && isCanonicalManagedRelayURL(relay.url)
     }
 
@@ -193,13 +193,25 @@ public struct CmxIrohRelayPolicyVerifier: Sendable {
         }
     }
 
+    private static func isSafeLabel(_ value: String) -> Bool {
+        guard (1 ... 80).contains(value.utf8.count),
+              value.utf8.first != 32,
+              value.utf8.last != 32 else { return false }
+        return value.utf8.allSatisfy { byte in
+            (48 ... 57).contains(byte)
+                || (65 ... 90).contains(byte)
+                || (97 ... 122).contains(byte)
+                || [32, 45, 46, 95].contains(byte)
+        }
+    }
+
     private static func isCanonicalManagedRelayURL(_ value: String) -> Bool {
         guard let components = URLComponents(string: value),
               components.scheme == "https",
               let host = components.host,
               host == host.lowercased(),
               !host.isEmpty,
-              components.port == nil,
+              components.port.map({ (1 ... 65_535).contains($0) }) ?? true,
               components.user == nil,
               components.password == nil,
               components.query == nil,

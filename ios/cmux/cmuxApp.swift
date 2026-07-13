@@ -100,6 +100,7 @@ struct cmuxApp: App {
             signOutHook: Self.root.signOutHook,
             diagnosticLog: Self.root.diagnosticLog
         )
+        .environment(\.irohSettingsController, Self.root.iroh)
         .environment(
             \.dogfoodAttachPreparation,
             DogfoodAttachPreparation {
@@ -119,6 +120,7 @@ struct cmuxApp: App {
             personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
             signOutHook: Self.root.signOutHook
         )
+        .environment(\.irohSettingsController, Self.root.iroh)
         .environment(
             \.dogfoodAttachPreparation,
             DogfoodAttachPreparation {

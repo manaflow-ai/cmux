@@ -18,6 +18,7 @@ import {
   cloudVms,
   deviceTokens,
   devices,
+  irohRelayPreferences,
   notificationSendEvents,
   stripeCustomers,
   stripeSubscriptions,
@@ -891,6 +892,7 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
 
     await tx.delete(deviceTokens).where(eq(deviceTokens.userId, userId));
     await tx.delete(notificationSendEvents).where(eq(notificationSendEvents.userId, userId));
+    await tx.delete(irohRelayPreferences).where(eq(irohRelayPreferences.accountId, userId));
 
     await tx.delete(billingEmailClaims).where(or(
       eq(billingEmailClaims.stackUserId, userId),

@@ -15,6 +15,8 @@ enum SettingsSearchAliasIndex {
             return localized("settings.search.alias.section.sleepyMode", defaultValue: "sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night")
         case .mobile:
             return localized("settings.search.alias.section.mobile", defaultValue: "ios iphone ipad mobile pairing local network permission sync")
+        case .networking:
+            return localized("settings.search.alias.section.networking", defaultValue: "iroh relay relays server fleet provider region custom self hosted private network tailscale vpn direct peer")
         case .sidebarAppearance:
             return localized("settings.search.alias.section.sidebarAppearance", defaultValue: "sidebar left rail navigation details branches badges material terminal background")
         case .customSidebars:
@@ -131,6 +133,12 @@ enum SettingsSearchAliasIndex {
         "mobile:iOSPairingHost": localized("settings.search.alias.setting.mobile.iOSPairingHost", defaultValue: "ios iphone ipad mobile pairing local network permission sync"),
         "mobile:iOSPairingPort": localized("settings.search.alias.setting.mobile.iOSPairingPort", defaultValue: "mobile ios iphone pairing port tcp listener firewall conflict bind"),
         "mobile:iOSPairingDisplayName": localized("settings.search.alias.setting.mobile.iOSPairingDisplayName", defaultValue: "mobile ios iphone pairing display name mac hostname device label"),
+        "networking:relayPreference": localized("settings.search.alias.setting.networking.relayPreference", defaultValue: "iroh relay preference automatic managed selected cmux fleet provider region account"),
+        "networking:customRelays": localized("settings.search.alias.setting.networking.customRelays", defaultValue: "iroh custom relay self hosted server url secret credential device authentication"),
+        "networking:privateNetworks": localized("settings.search.alias.setting.networking.privateNetworks", defaultValue: "private network lan vpn direct peer path local address generic provider automatic"),
+        "networking:tailscaleCompatibility": localized("settings.search.alias.setting.networking.tailscaleCompatibility", defaultValue: "tailscale tailnet private ip compatibility vpn legacy tcp automatic"),
+        "networking:status": localized("settings.search.alias.setting.networking.status", defaultValue: "iroh status diagnostics direct peer relay degraded active inactive refresh"),
+        "networking:policy": localized("settings.search.alias.setting.networking.policy", defaultValue: "relay policy signed verified catalog cached server expiry sequence security"),
         "automation:socket-mode": localized("settings.search.alias.setting.automation.socket-mode", defaultValue: "automation.socketControlMode api socket unix domain control server auth allow password disabled"),
         "automation:socket-password": localized("settings.search.alias.setting.automation.socket-password", defaultValue: "automation.socketPassword auth token credential secret password access key"),
         "automation:claude-code": localized("settings.search.alias.setting.automation.claude-code", defaultValue: "automation.claudeCodeIntegration claude code hooks agent integration status notifications"),

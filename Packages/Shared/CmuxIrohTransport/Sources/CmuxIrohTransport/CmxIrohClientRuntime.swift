@@ -66,7 +66,8 @@ public actor CmxIrohClientRuntime {
     let sessionPool: CmxIrohClientSessionPool
     let broker: any CmxIrohClientBrokerServing
     let configuration: CmxIrohClientRuntimeConfiguration
-    let endpointRelayProfile: CmxIrohEndpointRelayProfile
+    var endpointRelayProfile: CmxIrohEndpointRelayProfile
+    var managedRelayURLs: Set<String>
     let pendingRevocations: CmxIrohPendingRevocationOutbox
     let protocolConfiguration: CmxIrohProtocolConfiguration
     let offlinePolicyCache: CmxIrohClientOfflinePolicyCache?
@@ -156,6 +157,7 @@ public actor CmxIrohClientRuntime {
         self.broker = broker
         self.configuration = configuration
         self.endpointRelayProfile = endpointRelayProfile
+        managedRelayURLs = configuration.managedRelayURLs
         self.pendingRevocations = pendingRevocations
         self.protocolConfiguration = protocolConfiguration
         self.offlinePolicyCache = offlinePolicyCache
@@ -194,6 +196,12 @@ public actor CmxIrohClientRuntime {
         )
 
         do {
+            let startingRelayProfile = try endpointRelayProfile
+                .droppingExpiredManagedCredentials(at: now())
+            if startingRelayProfile != endpointRelayProfile {
+                try await supervisor.replaceRelayProfile(startingRelayProfile)
+                endpointRelayProfile = startingRelayProfile
+            }
             await startSupervisorObservation(revision: revision)
             let endpointSnapshot = try await supervisor.activate()
             try requireCurrent(revision)

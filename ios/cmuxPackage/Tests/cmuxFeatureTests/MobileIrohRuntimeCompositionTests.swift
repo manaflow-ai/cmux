@@ -14,6 +14,87 @@ import Testing
 @Suite
 struct MobileIrohRuntimeCompositionTests {
     @Test
+    func relayPolicyRefreshesBeforeExpiryAndDeactivatesOnlyAtExpiry() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let expiresAt = now.addingTimeInterval(300)
+        let retryAt = now.addingTimeInterval(15)
+
+        #expect(MobileIrohRuntimeComposition.relayPolicyRefreshAttemptDate(
+            policyExpiresAt: expiresAt,
+            retryAt: nil,
+            now: now
+        ) == now.addingTimeInterval(240))
+        #expect(MobileIrohRuntimeComposition.relayPolicyRefreshAttemptDate(
+            policyExpiresAt: expiresAt,
+            retryAt: retryAt,
+            now: now
+        ) == retryAt)
+        #expect(MobileIrohRuntimeComposition.relayPolicyRefreshAttemptDate(
+            policyExpiresAt: nil,
+            retryAt: nil,
+            now: now
+        ) == now.addingTimeInterval(30))
+        #expect(!MobileIrohRuntimeComposition.shouldDeactivateRelayPolicy(
+            policyExpiresAt: expiresAt,
+            now: expiresAt.addingTimeInterval(-0.001)
+        ))
+        #expect(MobileIrohRuntimeComposition.shouldDeactivateRelayPolicy(
+            policyExpiresAt: expiresAt,
+            now: expiresAt
+        ))
+        #expect(!MobileIrohRuntimeComposition.shouldDeactivateRelayPolicy(
+            policyExpiresAt: nil,
+            now: expiresAt
+        ))
+    }
+
+    @Test
+    func terminalLaneFramesUTF8InputAndOwnsBothStreamHalves() async throws {
+        let receive = MobileIrohTerminalLaneReceiveStream(chunks: [Data("output".utf8)])
+        let send = MobileIrohTerminalLaneSendStream()
+        let lane = MobileIrohTerminalLane(
+            stream: CmxIrohBidirectionalStream(
+                receiveStream: receive,
+                sendStream: send
+            )
+        )
+
+        try await lane.sendInput("é")
+        try await lane.finishInput()
+        #expect(try await lane.receive() == Data("output".utf8))
+
+        let frames = await send.frames()
+        #expect(frames == [Data([0, 0, 0, 2, 0xc3, 0xa9])])
+        #expect(await send.finishCount() == 1)
+
+        await lane.close()
+        #expect(await send.resetCodes() == [0])
+        #expect(await receive.stopCodes() == [0])
+        await #expect(throws: MobileIrohTerminalLaneError.closed) {
+            try await lane.sendInput("x")
+        }
+    }
+
+    @Test
+    func terminalLaneRejectsUnboundedInputBeforeWriting() async throws {
+        let receive = MobileIrohTerminalLaneReceiveStream(chunks: [])
+        let send = MobileIrohTerminalLaneSendStream()
+        let lane = MobileIrohTerminalLane(
+            stream: CmxIrohBidirectionalStream(
+                receiveStream: receive,
+                sendStream: send
+            )
+        )
+
+        await #expect(throws: MobileIrohTerminalLaneError.inputTooLarge) {
+            try await lane.sendInput(
+                String(repeating: "x", count: MobileIrohTerminalLane.maximumInputByteCount + 1)
+            )
+        }
+        #expect(await send.frames().isEmpty)
+    }
+
+    @Test
     func compositionUsesInjectedGenerationAwareNetworkSnapshot() async throws {
         let suiteName = "MobileIrohRuntimeCompositionTests.snapshot"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -369,6 +450,53 @@ struct MobileIrohRuntimeCompositionTests {
         #expect(await fixture.outboxStore.writeCount() == 1)
         try await fixture.expectOriginalRepositoriesRemain()
     }
+}
+
+private actor MobileIrohTerminalLaneSendStream: CmxIrohSendStream {
+    private var sentFrames: [Data] = []
+    private var finishes = 0
+    private var resets: [UInt64] = []
+
+    func send(_ data: Data) {
+        sentFrames.append(data)
+    }
+
+    func finish() {
+        finishes += 1
+    }
+
+    func reset(errorCode: UInt64) {
+        resets.append(errorCode)
+    }
+
+    func setPriority(_: Int32) {}
+
+    func frames() -> [Data] { sentFrames }
+    func finishCount() -> Int { finishes }
+    func resetCodes() -> [UInt64] { resets }
+}
+
+private actor MobileIrohTerminalLaneReceiveStream: CmxIrohReceiveStream {
+    private var chunks: [Data]
+    private var stops: [UInt64] = []
+
+    init(chunks: [Data]) {
+        self.chunks = chunks
+    }
+
+    func receive(maximumByteCount: Int) -> Data? {
+        guard !chunks.isEmpty else { return nil }
+        let first = chunks.removeFirst()
+        guard first.count > maximumByteCount else { return first }
+        chunks.insert(Data(first.dropFirst(maximumByteCount)), at: 0)
+        return Data(first.prefix(maximumByteCount))
+    }
+
+    func stop(errorCode: UInt64) {
+        stops.append(errorCode)
+    }
+
+    func stopCodes() -> [UInt64] { stops }
 }
 
 private enum TestCompositionError: Error {

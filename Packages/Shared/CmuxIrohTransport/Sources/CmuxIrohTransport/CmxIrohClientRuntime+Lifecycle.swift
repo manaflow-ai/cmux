@@ -76,8 +76,8 @@ extension CmxIrohClientRuntime {
     }
 
     func validateRelayFleet(_ fleet: [String]) throws {
-        guard fleet.count == configuration.managedRelayURLs.count,
-              Set(fleet) == configuration.managedRelayURLs else {
+        guard fleet.count == managedRelayURLs.count,
+              Set(fleet) == managedRelayURLs else {
             throw CmxIrohClientRuntimeError.relayFleetMismatch
         }
     }

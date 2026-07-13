@@ -86,6 +86,8 @@ public actor CmxIrohHostRuntime {
     var registrationRefreshPending = false
     var registrationRefreshEnabled = false
     var localBinding: CmxIrohBrokerBindingMetadata?
+    var managedRelayURLs: Set<String>
+    var currentEndpointRelayProfile: CmxIrohEndpointRelayProfile?
     var endpointAttestation: CmxIrohEndpointAttestationResponse?
     var lanRendezvous: CmxIrohLANRendezvous?
     var currentSnapshot = CmxIrohHostRuntimeSnapshot(
@@ -122,6 +124,8 @@ public actor CmxIrohHostRuntime {
         self.handleRelayCredential = handleRelayCredential
         self.handleLANRefresh = handleLANRefresh
         self.handleLANPolicy = handleLANPolicy
+        managedRelayURLs = configuration.managedRelayURLs
+        currentEndpointRelayProfile = configuration.endpointRelayProfile
     }
 
     public func snapshot() -> CmxIrohHostRuntimeSnapshot {
@@ -163,9 +167,10 @@ public actor CmxIrohHostRuntime {
         )
 
         do {
-            let endpointRelayProfile = try configuration.resolvedEndpointRelayProfile(
-                now: now()
-            )
+            let endpointRelayProfile = try (currentEndpointRelayProfile
+                ?? configuration.resolvedEndpointRelayProfile(now: now()))
+                .droppingExpiredManagedCredentials(at: now())
+            currentEndpointRelayProfile = endpointRelayProfile
             let endpointConfiguration = CmxIrohEndpointConfiguration(
                 secretKey: configuration.identity.secretKey,
                 alpns: [protocolConfiguration.alpn],
@@ -202,7 +207,7 @@ public actor CmxIrohHostRuntime {
                 broker: broker,
                 keys: policy.grantVerificationKeys,
                 acceptor: grantPeer(for: policy.binding),
-                managedRelayURLs: configuration.managedRelayURLs,
+                managedRelayURLs: managedRelayURLs,
                 clock: admissionClock
             )
             let admissionController = CmxIrohAdmissionController(
@@ -217,7 +222,7 @@ public actor CmxIrohHostRuntime {
                 relayCoordinator = CmxIrohRelayCredentialCoordinator(
                     supervisor: supervisor,
                     broker: broker,
-                    managedRelayURLs: configuration.managedRelayURLs,
+                    managedRelayURLs: managedRelayURLs,
                     selectedRelayURLs: endpointRelayProfile.allowedRelayURLs,
                     credentialDidInstall: { [handleRelayCredential] response in
                         await handleRelayCredential(response, policy.binding)

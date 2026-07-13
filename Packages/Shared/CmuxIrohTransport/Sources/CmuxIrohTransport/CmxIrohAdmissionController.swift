@@ -40,6 +40,13 @@ public actor CmxIrohAdmissionController: CmxIrohAdmissionAuthorizing {
         self.pairingEnabled = pairingEnabled
     }
 
+    /// Replaces the root-verified managed fleet without restarting admission.
+    func updateManagedRelayURLs(_ relayURLs: Set<String>) async {
+        beginPolicyMutation()
+        defer { endPolicyMutation() }
+        await onlineRegistry.updateManagedRelayURLs(relayURLs)
+    }
+
     /// Applies local revoke before the backend round trip completes.
     public func revoke(bindingID: String) async {
         beginPolicyMutation()

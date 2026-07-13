@@ -15,6 +15,11 @@ nonisolated private let mobileIrohLog = Logger(
 /// Process-owned iOS composition for account-scoped Iroh networking.
 @MainActor
 public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProviding {
+    enum SettingsError: Error, Equatable {
+        case unavailable
+        case incompleteCustomRelay
+        case missingCustomRelay
+    }
     typealias BrokerFactory = @Sendable (
         _ tokenSource: CmxIrohBrokerTokenSource
     ) throws -> any CmxIrohClientBrokerServing
@@ -48,6 +53,11 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     nonisolated private static let relayDeployment = CmxIrohRelayDeployment.current
     nonisolated private static let managedRelayURLs = relayDeployment.urls
     private static let capabilities = ["mobile-rpc-v1", "multistream-v1"]
+    private static let protocolConfiguration = CmxIrohProtocolConfiguration(
+        alpn: CmxIrohProtocolConfiguration.cmuxMobileV1.alpn,
+        maximumHeaderByteCount: CmxIrohProtocolConfiguration.cmuxMobileV1.maximumHeaderByteCount,
+        maximumConcurrentClientApplicationLaneCount: 4
+    )
 
     /// The stable factory registered before debug-loopback and Tailscale fallbacks.
     public lazy var transportFactory = CmxIrohByteTransportFactory(
@@ -63,6 +73,10 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     private let pendingRevocations: CmxIrohPendingRevocationOutbox
     private let offlinePolicies: CmxIrohClientOfflinePolicyCache
     private let customRelayProfiles: CmxIrohCustomRelayProfileStore?
+    private let relayPolicyCache: CmxIrohRelayPolicyCache
+    private let relayPreferenceStore: CmxIrohRelayPreferenceStore
+    private let customRelayCredentials: CmxIrohCustomRelayCredentialStore
+    private let relayPolicyTrustRoot: CmxIrohRelayPolicyTrustRoot?
     private let endpointFactory: any CmxIrohEndpointFactory
     private let brokerFactory: BrokerFactory
     private let deviceID: @Sendable () -> String
@@ -78,6 +92,13 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     private var transitionTask: Task<Void, Never>?
     private var sceneTransitionTask: Task<Void, Never>?
     private var runtime: CmxIrohClientRuntime?
+    private var relayPolicyService: CmxIrohRelayPolicyService?
+    private var relayPolicyEffective: CmxIrohEffectiveRelayPolicy?
+    private var relayPolicyDiagnostics: CmxIrohRelayDiagnosticsSnapshot?
+    private var relayPolicyEndpointID: CmxIrohPeerIdentity?
+    private var relayPolicyObservationTask: Task<Void, Never>?
+    private var relayPolicyRefreshTask: Task<Void, Never>?
+    private var irohSettingsContinuations: [UUID: AsyncStream<CmxIrohSettingsSnapshot>.Continuation] = [:]
     private var observedAccountID: String?
     private var activeAccountID: String?
     private var lastKnownBindingAccountID: String?
@@ -156,6 +177,27 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
                     bundleIdentifier: bundleIdentifier
                 )
             ),
+            relayPolicyCache: CmxIrohRelayPolicyCache(
+                secureStore: Self.credentialStore(
+                    service: "relay-policy",
+                    bundleIdentifier: bundleIdentifier
+                )
+            ),
+            relayPreferenceStore: CmxIrohRelayPreferenceStore(
+                secureStore: Self.credentialStore(
+                    service: "relay-preference",
+                    bundleIdentifier: bundleIdentifier
+                )
+            ),
+            customRelayCredentials: CmxIrohCustomRelayCredentialStore(
+                secureStore: Self.credentialStore(
+                    service: "custom-relay-credentials",
+                    bundleIdentifier: bundleIdentifier
+                )
+            ),
+            relayPolicyTrustRoot: Self.relayPolicyTrustRoot(
+                infoDictionary: infoDictionary
+            ),
             endpointFactory: CmxIrohLibEndpointFactory(),
             brokerFactory: { tokenSource in
                 guard let baseURL else {
@@ -193,6 +235,10 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         pendingRevocations: CmxIrohPendingRevocationOutbox,
         offlinePolicies: CmxIrohClientOfflinePolicyCache = CmxIrohClientOfflinePolicyCache(),
         customRelayProfiles: CmxIrohCustomRelayProfileStore? = nil,
+        relayPolicyCache: CmxIrohRelayPolicyCache = CmxIrohRelayPolicyCache(),
+        relayPreferenceStore: CmxIrohRelayPreferenceStore = CmxIrohRelayPreferenceStore(),
+        customRelayCredentials: CmxIrohCustomRelayCredentialStore = CmxIrohCustomRelayCredentialStore(),
+        relayPolicyTrustRoot: CmxIrohRelayPolicyTrustRoot? = nil,
         endpointFactory: any CmxIrohEndpointFactory,
         brokerFactory: @escaping BrokerFactory,
         deviceID: @escaping @Sendable () -> String,
@@ -211,6 +257,10 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         self.pendingRevocations = pendingRevocations
         self.offlinePolicies = offlinePolicies
         self.customRelayProfiles = customRelayProfiles
+        self.relayPolicyCache = relayPolicyCache
+        self.relayPreferenceStore = relayPreferenceStore
+        self.customRelayCredentials = customRelayCredentials
+        self.relayPolicyTrustRoot = relayPolicyTrustRoot
         self.endpointFactory = endpointFactory
         self.brokerFactory = brokerFactory
         self.deviceID = deviceID
@@ -284,6 +334,26 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
             lane: lane,
             priority: priority
         )
+    }
+
+    /// Opens a production terminal byte lane for one exact Mac surface.
+    ///
+    /// The caller persists `cursor` as it applies raw PTY bytes, then supplies
+    /// that cursor when reopening after a stream failure so the Mac can replay
+    /// from its bounded byte history without duplicating output.
+    public func openTerminalLane(
+        for request: CmxByteTransportRequest,
+        surfaceID: UUID,
+        cursor: UInt64? = nil,
+        priority: Int32 = 0
+    ) async throws -> MobileIrohTerminalLane {
+        let resourceID = try CmxIrohResourceID("terminal:\(surfaceID.uuidString.lowercased())")
+        let stream = try await openBidirectionalLane(
+            for: request,
+            lane: .terminal(resourceID: resourceID, cursor: cursor),
+            priority: priority
+        )
+        return MobileIrohTerminalLane(stream: stream)
     }
 
     /// Starts the one server-event byte stream on the pooled admitted connection.
@@ -837,6 +907,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
                     signOutPhase = .quarantined(preparation)
                 }
             }
+            clearRelayPolicyRuntimeState()
         }
         guard revision == lifecycleRevision,
               !Task.isCancelled,
@@ -878,6 +949,16 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
                 && $0.endpointID == endpointID
                 && $0.identityGeneration == identity.generation
         } ?? false
+        let cachedManagedRelayURLs: Set<String>
+        if let relayPolicyTrustRoot,
+           let cachedPolicy = try? await relayPolicyCache.load(
+               trustRoot: relayPolicyTrustRoot,
+               now: now()
+           ) {
+            cachedManagedRelayURLs = Set(cachedPolicy.relays.map(\.url))
+        } else {
+            cachedManagedRelayURLs = Self.managedRelayURLs
+        }
         let cachedRelay: CmxIrohRelayTokenResponse?
         if let cachedBinding, bindingMatches {
             lastKnownBindingID = cachedBinding.bindingID
@@ -886,7 +967,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
             cachedRelay = try await brokerCredentials.loadRelayCredential(
                 accountID: accountID,
                 binding: cachedBinding,
-                expectedRelayFleet: Self.managedRelayURLs,
+                expectedRelayFleet: cachedManagedRelayURLs,
                 now: now()
             )
         } else {
@@ -914,16 +995,57 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
             )
         )
         let endpointRelayProfile: CmxIrohEndpointRelayProfile?
-        switch await customRelayProfiles?.loadSelection() {
-        case nil, .managed:
-            endpointRelayProfile = nil
-        case let .custom(profile):
-            endpointRelayProfile = CmxIrohEndpointRelayProfile(customProfile: profile)
-        case .customUnavailable:
-            mobileIrohLog.error(
-                "Custom relay profile unavailable; managed relays remain disabled"
+        let managedRelayURLs: Set<String>
+        let resolvedPolicyService: CmxIrohRelayPolicyService?
+        let resolvedEffectivePolicy: CmxIrohEffectiveRelayPolicy?
+        if let relayPolicyTrustRoot {
+            let service = CmxIrohRelayPolicyService(
+                policyCache: relayPolicyCache,
+                preferenceStore: relayPreferenceStore,
+                credentialStore: customRelayCredentials,
+                broker: broker as? any CmxIrohRelayPolicyServing
             )
-            endpointRelayProfile = .unavailableCustomOverride
+            let effective: CmxIrohEffectiveRelayPolicy
+            do {
+                effective = try await service.refresh(
+                    endpointID: endpointID,
+                    accountID: accountID,
+                    trustRoot: relayPolicyTrustRoot,
+                    now: now()
+                )
+            } catch {
+                effective = await service.restore(
+                    accountID: accountID,
+                    trustRoot: relayPolicyTrustRoot,
+                    relayCredential: cachedRelay,
+                    now: now()
+                )
+                mobileIrohLog.error(
+                    "Signed relay policy refresh failed; restored verified cache: \(String(describing: error), privacy: .private)"
+                )
+            }
+            endpointRelayProfile = effective.endpointRelayProfile
+            managedRelayURLs = Set(effective.managedPolicy?.relays.map(\.url) ?? [])
+            resolvedPolicyService = service
+            resolvedEffectivePolicy = effective
+        } else {
+            switch await customRelayProfiles?.loadSelection() {
+            case nil, .managed:
+                endpointRelayProfile = nil
+            case let .custom(profile):
+                endpointRelayProfile = CmxIrohEndpointRelayProfile(customProfile: profile)
+            case .customUnavailable:
+                mobileIrohLog.error(
+                    "Custom relay profile unavailable; managed relays remain disabled"
+                )
+                endpointRelayProfile = .unavailableCustomOverride
+            }
+            managedRelayURLs = Self.managedRelayURLs
+            resolvedPolicyService = nil
+            resolvedEffectivePolicy = nil
+        }
+        let compatibleCachedRelay = cachedRelay.flatMap { relay in
+            Set(relay.relayFleet) == managedRelayURLs ? relay : nil
         }
         let configuration = CmxIrohClientRuntimeConfiguration(
             accountID: accountID,
@@ -933,20 +1055,21 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
             displayName: nil,
             identity: identity,
             capabilities: Self.capabilities,
-            managedRelayURLs: Self.managedRelayURLs,
+            managedRelayURLs: managedRelayURLs,
             endpointRelayProfile: endpointRelayProfile,
-            cachedRelayCredential: cachedRelay
+            cachedRelayCredential: compatibleCachedRelay
         )
         let credentialRepository = brokerCredentials
-        let managedRelayURLs = Self.managedRelayURLs
         let routeCatalog = routeCatalog
         let lanPeerDiscovery = lanPeerDiscovery
         let clock = now
+        let activeRelayPolicyService = resolvedPolicyService
         let runtime = try CmxIrohClientRuntime(
             factory: endpointFactory,
             broker: broker,
             configuration: configuration,
             pendingRevocations: pendingRevocations,
+            protocolConfiguration: Self.protocolConfiguration,
             offlinePolicyCache: offlinePolicies,
             networkPathSnapshot: networkPathSnapshot,
             lanFallback: { target, bindings, rendezvous in
@@ -1007,11 +1130,13 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
                     accountID: accountID,
                     revision: revision
                 ) == true else { return }
+                let expectedRelayFleet = await activeRelayPolicyService?.managedPolicy()
+                    .map { Set($0.relays.map(\.url)) } ?? managedRelayURLs
                 try? await credentialRepository.saveRelayCredential(
                     response,
                     accountID: accountID,
                     binding: CmxIrohBrokerBindingMetadata(binding: binding),
-                    expectedRelayFleet: managedRelayURLs,
+                    expectedRelayFleet: expectedRelayFleet,
                     now: clock()
                 )
             },
@@ -1056,6 +1181,23 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         }
         self.runtime = runtime
         activeAccountID = accountID
+        relayPolicyService = resolvedPolicyService
+        relayPolicyEffective = resolvedEffectivePolicy
+        relayPolicyDiagnostics = await resolvedPolicyService?.diagnosticsSnapshot()
+        relayPolicyEndpointID = endpointID
+        observeRelayPolicyDiagnostics(
+            service: resolvedPolicyService,
+            accountID: accountID,
+            revision: revision
+        )
+        scheduleRelayPolicyRefresh(
+            service: resolvedPolicyService,
+            accountID: accountID,
+            endpointID: endpointID,
+            trustRoot: relayPolicyTrustRoot,
+            revision: revision
+        )
+        publishIrohSettingsUpdate()
     }
 
     private func allowsPersistence(
@@ -1068,12 +1210,18 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     }
 
     private func wipeLocalState() async {
+        let accountID = activeAccountID ?? lastKnownBindingAccountID
         await lanPeerDiscovery?.stop()
         await routeCatalog.clear()
         try? await brokerCredentials.deactivate()
         try? await offlinePolicies.deactivate()
         try? await identities.deactivate()
+        if let accountID {
+            try? await relayPreferenceStore.deactivate(accountID: accountID)
+            try? await customRelayCredentials.deactivate(accountID: accountID)
+        }
         await appInstances.deactivate()
+        clearRelayPolicyRuntimeState()
     }
 
     private func enqueueFallbackRevocation(
@@ -1212,5 +1360,487 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         }
         let value = String(normalized)
         return value.isEmpty ? "default" : value
+    }
+}
+
+extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
+    public func irohSettingsSnapshot() async -> CmxIrohSettingsSnapshot {
+        let service = relayPolicyService
+        let effective = await service?.effectivePolicy() ?? relayPolicyEffective
+        let diagnostics = await service?.diagnosticsSnapshot() ?? relayPolicyDiagnostics
+        let managedPolicy = await service?.managedPolicy() ?? effective?.managedPolicy
+        let runtimeState = await runtime?.snapshot().state
+        let selectedIDs = Set(diagnostics?.selectedRelayIDs ?? [])
+        let requested = effective?.requestedPreference
+        return CmxIrohSettingsSnapshot(
+            runtimeStatus: Self.settingsRuntimeStatus(runtimeState, failure: diagnostics?.failure),
+            preference: Self.settingsPreference(requested),
+            managedRelays: managedPolicy?.relays.map { relay in
+                CmxIrohSettingsSnapshot.ManagedRelay(
+                    id: relay.id,
+                    provider: relay.provider,
+                    region: relay.region,
+                    url: relay.url,
+                    isSelected: selectedIDs.contains(relay.id)
+                )
+            } ?? [],
+            customRelays: Self.settingsCustomRelays(
+                preference: requested,
+                diagnostics: diagnostics
+            ),
+            policySource: Self.settingsPolicySource(effective),
+            policySequence: diagnostics?.policySequence,
+            policyExpiresAt: diagnostics?.policyExpiresAt,
+            staleRelayIDs: Set(diagnostics?.staleRelayIDs ?? []),
+            failureDescription: diagnostics?.failure?.rawValue
+        )
+    }
+
+    public func irohSettingsUpdates() -> AsyncStream<CmxIrohSettingsSnapshot> {
+        let id = UUID()
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            irohSettingsContinuations[id] = continuation
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                continuation.yield(await self.irohSettingsSnapshot())
+            }
+            continuation.onTermination = { @Sendable [weak self] _ in
+                Task { @MainActor in
+                    self?.irohSettingsContinuations.removeValue(forKey: id)
+                }
+            }
+        }
+    }
+
+    public func setIrohRelayPreference(
+        _ preference: CmxIrohRelayPreferenceDraft
+    ) async throws {
+        let validated = try preference.validated()
+        let context = try relaySettingsContext()
+        let current = await context.service.effectivePolicy()?.requestedPreference
+        let mapped: CmxIrohAccountRelayPreference
+        switch validated {
+        case .automatic:
+            mapped = .automatic
+        case let .managed(ids):
+            mapped = .managed(ids)
+        case .custom:
+            guard case let .custom(relays) = current, !relays.isEmpty else {
+                throw SettingsError.incompleteCustomRelay
+            }
+            mapped = .custom(relays)
+        }
+        let effective = try await context.service.setPreference(
+            mapped,
+            accountID: context.accountID,
+            trustRoot: context.trustRoot,
+            now: now()
+        )
+        try await applyRelayPolicy(effective)
+        await refreshRelayPolicyAfterMutation(context)
+    }
+
+    public func upsertIrohCustomRelay(
+        _ relay: CmxIrohCustomRelayDraft,
+        deviceSecret: String?
+    ) async throws {
+        let context = try relaySettingsContext()
+        let current = await context.service.effectivePolicy()?.requestedPreference
+        var definitions: [CmxIrohCustomRelayDefinition]
+        if case let .custom(existing) = current {
+            definitions = existing
+        } else {
+            definitions = []
+        }
+        let requestedID = relay.id?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let id = (requestedID?.isEmpty == false ? requestedID : nil)?
+            .lowercased() ?? UUID().uuidString.lowercased()
+        let existingIndex = definitions.firstIndex(where: { $0.id == id })
+        if relay.authMode == .deviceSecret,
+           existingIndex == nil,
+           deviceSecret?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+            throw SettingsError.incompleteCustomRelay
+        }
+        let displayName = relay.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let definition = try CmxIrohCustomRelayDefinition(
+            id: id,
+            url: Self.canonicalRelayURL(relay.url),
+            provider: relay.provider.trimmingCharacters(in: .whitespacesAndNewlines),
+            region: relay.region.trimmingCharacters(in: .whitespacesAndNewlines),
+            displayName: displayName.isEmpty ? nil : displayName,
+            authMode: relay.authMode == .deviceSecret ? .staticToken : .none
+        )
+        if let existingIndex {
+            definitions[existingIndex] = definition
+        } else {
+            definitions.append(definition)
+        }
+        if definition.authMode == .staticToken, let deviceSecret {
+            _ = try await context.service.setStaticCredential(
+                deviceSecret,
+                relayID: id,
+                accountID: context.accountID,
+                trustRoot: context.trustRoot,
+                now: now()
+            )
+        }
+        var effective = try await context.service.setPreference(
+            .custom(definitions),
+            accountID: context.accountID,
+            trustRoot: context.trustRoot,
+            now: now()
+        )
+        try await applyRelayPolicy(effective)
+        if definition.authMode == .none {
+            effective = try await context.service.removeStaticCredential(
+                relayID: id,
+                accountID: context.accountID,
+                trustRoot: context.trustRoot,
+                now: now()
+            )
+            try await applyRelayPolicy(effective)
+        }
+        await refreshRelayPolicyAfterMutation(context)
+    }
+
+    public func removeIrohCustomRelay(id: String) async throws {
+        let context = try relaySettingsContext()
+        let current = await context.service.effectivePolicy()?.requestedPreference
+        guard case let .custom(existing) = current,
+              existing.contains(where: { $0.id == id }) else {
+            throw SettingsError.missingCustomRelay
+        }
+        let remaining = existing.filter { $0.id != id }
+        let nextPreference: CmxIrohAccountRelayPreference = remaining.isEmpty
+            ? .automatic
+            : .custom(remaining)
+        let effective = try await context.service.setPreference(
+            nextPreference,
+            accountID: context.accountID,
+            trustRoot: context.trustRoot,
+            now: now()
+        )
+        try await applyRelayPolicy(effective)
+        _ = try await context.service.removeStaticCredential(
+            relayID: id,
+            accountID: context.accountID,
+            trustRoot: context.trustRoot,
+            now: now()
+        )
+        await refreshRelayPolicyAfterMutation(context)
+    }
+
+    public func testIrohCustomRelay(id: String) async -> CmxIrohRelayTestResult {
+        guard let effective = await relayPolicyService?.effectivePolicy(),
+              case let .custom(definitions) = effective.requestedPreference,
+              let definition = definitions.first(where: { $0.id == id }),
+              !effective.missingCredentialRelayIDs.contains(id) else {
+            return .incomplete
+        }
+        // Device-secret relays may bind credentials to the live EndpointID.
+        // The isolated probe intentionally uses an unpersisted throwaway key.
+        guard definition.authMode == .none,
+              let relay = try? CmxIrohCustomRelay(url: definition.url),
+              let profile = try? CmxIrohCustomRelayProfile(relays: [relay]) else {
+            return .incomplete
+        }
+        switch await CmxIrohCustomRelayProbe().probe(
+            profile: CmxIrohEndpointRelayProfile(customProfile: profile)
+        ) {
+        case .reachable:
+            return .reachable(latencyMilliseconds: nil)
+        case .invalidProfile, .bindFailed, .endpointClosed, .timedOut:
+            return .failed
+        }
+    }
+
+    public func refreshIrohSettings() async {
+        guard let context = try? relaySettingsContext() else {
+            publishIrohSettingsUpdate()
+            return
+        }
+        do {
+            let effective = try await context.service.refresh(
+                endpointID: context.endpointID,
+                accountID: context.accountID,
+                trustRoot: context.trustRoot,
+                now: now()
+            )
+            try await applyRelayPolicy(effective)
+        } catch {
+            relayPolicyDiagnostics = await context.service.diagnosticsSnapshot()
+            publishIrohSettingsUpdate()
+        }
+    }
+
+    private func observeRelayPolicyDiagnostics(
+        service: CmxIrohRelayPolicyService?,
+        accountID: String,
+        revision: UInt64
+    ) {
+        relayPolicyObservationTask?.cancel()
+        guard let service else { return }
+        relayPolicyObservationTask = Task { @MainActor [weak self] in
+            let snapshots = await service.diagnosticsSnapshots()
+            for await snapshot in snapshots {
+                guard !Task.isCancelled,
+                      let self,
+                      revision == self.lifecycleRevision,
+                      self.activeAccountID == accountID else { return }
+                self.relayPolicyDiagnostics = snapshot
+                self.relayPolicyEffective = await service.effectivePolicy()
+                self.publishIrohSettingsUpdate()
+            }
+        }
+    }
+
+    /// Refreshes the signed relay catalog before expiry and removes relay
+    /// authority at expiry when the broker remains unavailable. The endpoint
+    /// and authenticated sessions remain available for direct Iroh paths.
+    private func scheduleRelayPolicyRefresh(
+        service: CmxIrohRelayPolicyService?,
+        accountID: String,
+        endpointID: CmxIrohPeerIdentity,
+        trustRoot: CmxIrohRelayPolicyTrustRoot?,
+        revision: UInt64
+    ) {
+        relayPolicyRefreshTask?.cancel()
+        guard let service, let trustRoot else {
+            relayPolicyRefreshTask = nil
+            return
+        }
+        relayPolicyRefreshTask = Task { @MainActor [weak self] in
+            var retryAt: Date?
+            while !Task.isCancelled {
+                guard let self,
+                      revision == self.lifecycleRevision,
+                      self.activeAccountID == accountID,
+                      self.relayPolicyService === service else { return }
+                let snapshot = await service.diagnosticsSnapshot()
+                let current = self.now()
+                let attemptAt = Self.relayPolicyRefreshAttemptDate(
+                    policyExpiresAt: snapshot.policyExpiresAt,
+                    retryAt: retryAt,
+                    now: current
+                )
+                let delay = attemptAt.timeIntervalSince(current)
+                if delay > 0 {
+                    do {
+                        try await Task.sleep(for: .seconds(delay))
+                    } catch {
+                        return
+                    }
+                }
+                guard !Task.isCancelled,
+                      revision == self.lifecycleRevision,
+                      self.activeAccountID == accountID,
+                      self.relayPolicyService === service else { return }
+                do {
+                    let effective = try await service.refresh(
+                        endpointID: endpointID,
+                        accountID: accountID,
+                        trustRoot: trustRoot,
+                        now: self.now()
+                    )
+                    try await self.applyRelayPolicy(effective)
+                    retryAt = nil
+                } catch {
+                    let failureDate = self.now()
+                    if Self.shouldDeactivateRelayPolicy(
+                        policyExpiresAt: snapshot.policyExpiresAt,
+                        now: failureDate
+                    ) {
+                        let expired = await service.restore(
+                            accountID: accountID,
+                            trustRoot: trustRoot,
+                            now: failureDate
+                        )
+                        try? await self.applyRelayPolicy(expired)
+                    } else {
+                        self.relayPolicyDiagnostics = await service.diagnosticsSnapshot()
+                        self.publishIrohSettingsUpdate()
+                    }
+                    retryAt = failureDate.addingTimeInterval(30)
+                }
+            }
+        }
+    }
+
+    nonisolated static func relayPolicyRefreshAttemptDate(
+        policyExpiresAt: Date?,
+        retryAt: Date?,
+        now: Date
+    ) -> Date {
+        if let retryAt { return retryAt }
+        if let policyExpiresAt {
+            return policyExpiresAt.addingTimeInterval(-60)
+        }
+        return now.addingTimeInterval(30)
+    }
+
+    nonisolated static func shouldDeactivateRelayPolicy(
+        policyExpiresAt: Date?,
+        now: Date
+    ) -> Bool {
+        guard let policyExpiresAt else { return false }
+        return now >= policyExpiresAt
+    }
+
+    private func publishIrohSettingsUpdate() {
+        guard !irohSettingsContinuations.isEmpty else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let snapshot = await self.irohSettingsSnapshot()
+            for continuation in self.irohSettingsContinuations.values {
+                continuation.yield(snapshot)
+            }
+        }
+    }
+
+    private func relaySettingsContext() throws -> (
+        service: CmxIrohRelayPolicyService,
+        accountID: String,
+        endpointID: CmxIrohPeerIdentity,
+        trustRoot: CmxIrohRelayPolicyTrustRoot
+    ) {
+        guard let relayPolicyService,
+              let activeAccountID,
+              let relayPolicyEndpointID,
+              let relayPolicyTrustRoot else { throw SettingsError.unavailable }
+        return (relayPolicyService, activeAccountID, relayPolicyEndpointID, relayPolicyTrustRoot)
+    }
+
+    private func refreshRelayPolicyAfterMutation(
+        _ context: (
+            service: CmxIrohRelayPolicyService,
+            accountID: String,
+            endpointID: CmxIrohPeerIdentity,
+            trustRoot: CmxIrohRelayPolicyTrustRoot
+        )
+    ) async {
+        do {
+            let effective = try await context.service.refresh(
+                endpointID: context.endpointID,
+                accountID: context.accountID,
+                trustRoot: context.trustRoot,
+                now: now()
+            )
+            try await applyRelayPolicy(effective)
+        } catch {
+            relayPolicyDiagnostics = await context.service.diagnosticsSnapshot()
+            publishIrohSettingsUpdate()
+        }
+    }
+
+    private func applyRelayPolicy(
+        _ effective: CmxIrohEffectiveRelayPolicy
+    ) async throws {
+        relayPolicyEffective = effective
+        relayPolicyDiagnostics = await relayPolicyService?.diagnosticsSnapshot()
+        if let runtime {
+            try await runtime.replaceRelayPolicy(effective)
+        }
+        publishIrohSettingsUpdate()
+    }
+
+    private func clearRelayPolicyRuntimeState() {
+        relayPolicyObservationTask?.cancel()
+        relayPolicyObservationTask = nil
+        relayPolicyRefreshTask?.cancel()
+        relayPolicyRefreshTask = nil
+        relayPolicyService = nil
+        relayPolicyEffective = nil
+        relayPolicyDiagnostics = nil
+        relayPolicyEndpointID = nil
+        publishIrohSettingsUpdate()
+    }
+
+    private nonisolated static func settingsRuntimeStatus(
+        _ state: CmxIrohClientRuntimeState?,
+        failure: CmxIrohRelayPolicyFailure?
+    ) -> CmxIrohSettingsSnapshot.RuntimeStatus {
+        if failure != nil { return .degraded }
+        switch state {
+        case .active: return .active
+        case .starting: return .starting
+        case .failed, .quarantined: return .degraded
+        case .inactive, .stopping, .signingOut, nil: return .inactive
+        }
+    }
+
+    private nonisolated static func settingsPreference(
+        _ preference: CmxIrohAccountRelayPreference?
+    ) -> CmxIrohRelayPreferenceDraft {
+        switch preference {
+        case .automatic, nil: return .automatic
+        case let .managed(ids): return .managed(ids)
+        case .custom: return .custom
+        }
+    }
+
+    private nonisolated static func settingsCustomRelays(
+        preference: CmxIrohAccountRelayPreference?,
+        diagnostics: CmxIrohRelayDiagnosticsSnapshot?
+    ) -> [CmxIrohSettingsSnapshot.CustomRelay] {
+        guard case let .custom(definitions) = preference else { return [] }
+        let missing = Set(diagnostics?.missingCredentialRelayIDs ?? [])
+        return definitions.map { relay in
+            let credentialState: CmxIrohSettingsSnapshot.CredentialState
+            if relay.authMode == .none {
+                credentialState = .notRequired
+            } else if diagnostics?.failure == .customCredentialUnavailable {
+                credentialState = .unavailable
+            } else {
+                credentialState = missing.contains(relay.id) ? .missing : .configured
+            }
+            return CmxIrohSettingsSnapshot.CustomRelay(
+                id: relay.id,
+                displayName: relay.displayName ?? relay.id,
+                provider: relay.provider,
+                region: relay.region,
+                url: relay.url,
+                authMode: relay.authMode == .staticToken ? .deviceSecret : .none,
+                credentialState: credentialState
+            )
+        }
+    }
+
+    private nonisolated static func settingsPolicySource(
+        _ effective: CmxIrohEffectiveRelayPolicy?
+    ) -> CmxIrohSettingsSnapshot.PolicySource {
+        guard let effective else { return .unavailable }
+        return effective.usedCachedPolicy ? .cached : .server
+    }
+
+    private nonisolated static func canonicalRelayURL(_ rawValue: String) -> String {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard var components = URLComponents(string: trimmed) else { return trimmed }
+        components.host = components.host?.lowercased()
+        if components.path.isEmpty { components.path = "/" }
+        return components.string ?? trimmed
+    }
+
+    nonisolated static func relayPolicyTrustRoot(
+        infoDictionary: [String: Any]?
+    ) -> CmxIrohRelayPolicyTrustRoot? {
+        let records: [[String: String]]
+        if let configured = infoDictionary?["CMUXIrohRelayPolicyTrustKeys"] as? [[String: String]] {
+            records = configured
+        } else if let keyID = infoDictionary?["CMUXIrohRelayPolicyKeyID"] as? String,
+                  let publicKey = infoDictionary?["CMUXIrohRelayPolicyPublicKeyBase64"] as? String {
+            records = [["keyID": keyID, "publicKeyBase64": publicKey]]
+        } else {
+            return nil
+        }
+        let keys = records.compactMap { record -> CmxIrohRelayPolicyVerificationKey? in
+            guard let keyID = record["keyID"],
+                  let publicKey = record["publicKeyBase64"] else { return nil }
+            return try? CmxIrohRelayPolicyVerificationKey(
+                keyID: keyID,
+                rawPublicKeyBase64: publicKey
+            )
+        }
+        guard keys.count == records.count else { return nil }
+        return try? CmxIrohRelayPolicyTrustRoot(keys: keys)
     }
 }

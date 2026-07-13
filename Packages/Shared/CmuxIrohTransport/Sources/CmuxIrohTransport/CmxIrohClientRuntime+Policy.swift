@@ -47,7 +47,7 @@ extension CmxIrohClientRuntime {
             try CmxIrohClientOfflinePolicyExpectation(
                 accountID: configuration.accountID,
                 localBindingExpectation: expectation,
-                managedRelayURLs: configuration.managedRelayURLs
+                managedRelayURLs: managedRelayURLs
             )
         }
         let signer = try CmxIrohRegistrationSigner(
@@ -151,7 +151,7 @@ extension CmxIrohClientRuntime {
             supervisor: supervisor,
             broker: broker,
             localBindingExpectation: policy.expectation,
-            managedRelayURLs: configuration.managedRelayURLs,
+            managedRelayURLs: managedRelayURLs,
             allowedRouteRelayURLs: endpointRelayProfile.allowedRelayURLs,
             networkPathSnapshot: networkPathSnapshot,
             offlinePolicy: offlinePolicy,
@@ -175,7 +175,7 @@ extension CmxIrohClientRuntime {
             coordinator = CmxIrohRelayCredentialCoordinator(
                 supervisor: supervisor,
                 broker: broker,
-                managedRelayURLs: configuration.managedRelayURLs,
+                managedRelayURLs: managedRelayURLs,
                 selectedRelayURLs: endpointRelayProfile.allowedRelayURLs,
                 credentialDidInstall: { [handleRelayCredential] response in
                     await handleRelayCredential(response, policy.binding)
