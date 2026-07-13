@@ -59,7 +59,11 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
             completionHandler(window, nil)
             return
         }
-        guard configuration.tabURLs.allSatisfy({ canOpenExtensionPopupURL($0, for: extensionContext) }) else {
+        guard BrowserWebExtensionPopoutWindowController.supportsInitialTabs(
+            urlCount: configuration.tabURLs.count,
+            existingTabCount: configuration.tabs.count
+        ),
+        configuration.tabURLs.allSatisfy({ canOpenExtensionPopupURL($0, for: extensionContext) }) else {
             completionHandler(nil, openTabsUnsupportedError())
             return
         }

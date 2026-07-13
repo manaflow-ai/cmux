@@ -3305,7 +3305,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Popups inherit this panel's exact WebKit storage context.
     var popupBrowserContext: BrowserPopupBrowserContext {
         BrowserPopupBrowserContext(
-            websiteDataStore: websiteDataStore
+            websiteDataStore: webView.configuration.websiteDataStore
         )
     }
 

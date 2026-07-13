@@ -12,6 +12,8 @@ import WebKit
 @MainActor
 final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionWindow, NSWindowDelegate, WKNavigationDelegate {
     private static let defaultSize = CGSize(width: 400, height: 600)
+    private static let fallbackVisibleFrame = CGRect(x: 0, y: 0, width: 1440, height: 900)
+    private static let minimumDimension: CGFloat = 50
     private static var downloadDelegateAssociationKey: UInt8 = 0
 
     let window: NSWindow
@@ -40,19 +42,13 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
         webView.isInspectable = true
 #endif
 
-        let requestedFrame = configuration.frame
-        let hasUsableOrigin = requestedFrame.origin.x.isFinite && requestedFrame.origin.y.isFinite
-        let width = requestedFrame.width.isFinite && requestedFrame.width >= 50 ? requestedFrame.width : Self.defaultSize.width
-        let height = requestedFrame.height.isFinite && requestedFrame.height >= 50 ? requestedFrame.height : Self.defaultSize.height
-        let frame = CGRect(
-            origin: hasUsableOrigin ? requestedFrame.origin : .zero,
-            size: CGSize(width: width, height: height)
+        let visibleFrame = NSScreen.main?.visibleFrame
+            ?? NSScreen.screens.first?.visibleFrame
+            ?? Self.fallbackVisibleFrame
+        let frame = Self.resolvedContentFrame(
+            requestedFrame: configuration.frame,
+            visibleFrame: visibleFrame
         )
-        let usesFallbackFrame = !hasUsableOrigin
-            || !requestedFrame.width.isFinite
-            || !requestedFrame.height.isFinite
-            || requestedFrame.width < 50
-            || requestedFrame.height < 50
         window = NSWindow(
             contentRect: frame,
             styleMask: [.titled, .closable, .resizable],
@@ -65,9 +61,6 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
         window.isReleasedWhenClosed = false
         window.level = .floating
         window.contentView = webView
-        if usesFallbackFrame {
-            window.center()
-        }
 
         super.init()
         popoutUIDelegate.closeAction = { [weak self] in
@@ -101,6 +94,47 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
         } else {
             window.orderFront(nil)
         }
+    }
+
+    static func resolvedContentFrame(
+        requestedFrame: CGRect,
+        visibleFrame proposedVisibleFrame: CGRect
+    ) -> CGRect {
+        let visibleFrame: CGRect
+        if proposedVisibleFrame.origin.x.isFinite,
+           proposedVisibleFrame.origin.y.isFinite,
+           proposedVisibleFrame.width.isFinite,
+           proposedVisibleFrame.height.isFinite,
+           proposedVisibleFrame.width > 0,
+           proposedVisibleFrame.height > 0 {
+            visibleFrame = proposedVisibleFrame
+        } else {
+            visibleFrame = fallbackVisibleFrame
+        }
+
+        let maximumWidth = visibleFrame.width
+        let maximumHeight = visibleFrame.height
+        let minimumWidth = min(minimumDimension, maximumWidth)
+        let minimumHeight = min(minimumDimension, maximumHeight)
+        let defaultWidth = min(defaultSize.width, maximumWidth)
+        let defaultHeight = min(defaultSize.height, maximumHeight)
+        let width = requestedFrame.width.isFinite && requestedFrame.width >= minimumDimension
+            ? min(requestedFrame.width, maximumWidth)
+            : max(defaultWidth, minimumWidth)
+        let height = requestedFrame.height.isFinite && requestedFrame.height >= minimumDimension
+            ? min(requestedFrame.height, maximumHeight)
+            : max(defaultHeight, minimumHeight)
+        let centeredX = visibleFrame.midX - (width / 2)
+        let centeredY = visibleFrame.midY - (height / 2)
+        let requestedX = requestedFrame.origin.x.isFinite ? requestedFrame.origin.x : centeredX
+        let requestedY = requestedFrame.origin.y.isFinite ? requestedFrame.origin.y : centeredY
+        let x = min(max(requestedX, visibleFrame.minX), visibleFrame.maxX - width)
+        let y = min(max(requestedY, visibleFrame.minY), visibleFrame.maxY - height)
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    static func supportsInitialTabs(urlCount: Int, existingTabCount: Int) -> Bool {
+        urlCount == 1 && existingTabCount == 0
     }
 
     var isKeyWindow: Bool {
