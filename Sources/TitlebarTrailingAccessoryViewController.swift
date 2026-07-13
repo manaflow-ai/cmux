@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// Hosts the per-window controls anchored to the trailing edge of the title bar.
@@ -17,6 +18,9 @@ final class TitlebarTrailingAccessoryViewController: NSTitlebarAccessoryViewCont
             )
         )
         hosting.setContentHuggingPriority(.required, for: .horizontal)
+        hosting.wantsLayer = true
+        hosting.clipsToBounds = false
+        hosting.layer?.masksToBounds = false
         view = hosting
     }
 
@@ -36,6 +40,7 @@ private struct TitlebarTrailingControls: View {
     private var sidebarMatchesTerminalBackground = false
     @AppStorage(AppearanceSettings.appearanceModeKey)
     private var appearanceMode = AppearanceSettings.defaultMode.rawValue
+    @State private var appearanceRefreshTick = 0
 
     private var rightSidebarToggleForegroundColor: Color {
         if fileExplorerState.isVisible && !sidebarMatchesTerminalBackground {
@@ -45,6 +50,7 @@ private struct TitlebarTrailingControls: View {
     }
 
     var body: some View {
+        let _ = appearanceRefreshTick
         HStack(spacing: 4) {
             ProBadgeView()
             MobileConnectTitlebarButton()
@@ -57,5 +63,11 @@ private struct TitlebarTrailingControls: View {
         }
         .padding(.trailing, 8)
         .cmuxAppearanceColorScheme(appearanceMode)
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            appearanceRefreshTick &+= 1
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+            appearanceRefreshTick &+= 1
+        }
     }
 }

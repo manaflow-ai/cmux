@@ -212,6 +212,8 @@ final class BonsplitTabDragUITests: XCTestCase {
             "Expected the trailing titlebar toggle to be hittable. button=\(titlebarToggle.debugDescription)"
         )
         XCTAssertTrue(titlebarToggle.isSelected, "Expected the toggle to reflect the visible sidebar state.")
+        let shortcutHint = app.staticTexts["rightSidebarCloseShortcutHint"]
+        XCTAssertTrue(shortcutHint.waitForExistence(timeout: 5.0), "Expected Cmd+Option+B over the relocated toggle.")
         let openAsPaneButton = app.buttons["RightSidebar.openAsPaneButton"]
         XCTAssertTrue(openAsPaneButton.waitForExistence(timeout: 5.0), "Expected open-as-pane button inside the right sidebar chrome.")
         XCTAssertTrue(
@@ -272,7 +274,8 @@ final class BonsplitTabDragUITests: XCTestCase {
         setMinimalMode(true, app: app)
         XCTAssertTrue(
             waitForCondition(timeout: 5.0) {
-                titlebarToggle.exists && titlebarToggle.isHittable && !titlebarToggle.isSelected
+                titlebarToggle.exists && titlebarToggle.isHittable
+                    && !titlebarToggle.isSelected && shortcutHint.exists
             },
             "Expected the dynamic toggle query to follow the custom minimal-mode host."
         )
@@ -280,7 +283,8 @@ final class BonsplitTabDragUITests: XCTestCase {
         setMinimalMode(false, app: app)
         XCTAssertTrue(
             waitForCondition(timeout: 5.0) {
-                titlebarToggle.exists && titlebarToggle.isHittable && !titlebarToggle.isSelected
+                titlebarToggle.exists && titlebarToggle.isHittable
+                    && !titlebarToggle.isSelected && shortcutHint.exists
             },
             "Expected the dynamic toggle query to return to the native standard-mode host."
         )
