@@ -428,6 +428,24 @@ import Testing
     #expect(vt.contains("\u{1B}]12;rgb:ff/ee/dd\u{1B}\\"))
 }
 
+@Test func renderGridFullSnapshotDoesNotDoubleReverseEffectiveDefaults() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 1,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        terminalForeground: "#EEEEEE",
+        terminalBackground: "#111111",
+        modes: [.init(code: 5, ansi: false, on: true)]
+    )
+
+    let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
+    #expect(vt.contains("\u{1B}]10;rgb:11/11/11\u{1B}\\"))
+    #expect(vt.contains("\u{1B}]11;rgb:ee/ee/ee\u{1B}\\"))
+    #expect(vt.contains("\u{1B}[?5h"))
+}
+
 @Test func renderGridFullSnapshotResetsDefaultDynamicColors() throws {
     let frame = try MobileTerminalRenderGridFrame(
         surfaceID: "terminal-a",
