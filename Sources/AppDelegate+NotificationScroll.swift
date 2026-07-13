@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxNotifications
 import Foundation
 
 @MainActor
