@@ -202,6 +202,83 @@ struct WorktreeIncludeIntegrationTests {
         #expect(branches.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
+    @Test(
+        "cleanup failure preserves worktree artifacts for safe recovery",
+        .timeLimit(.minutes(1))
+    )
+    func cleanupFailureSkipsDestructiveRollback() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-worktree-cleanup-failure-\(UUID().uuidString)", isDirectory: true)
+        let projectRoot = root.appendingPathComponent("Project", isDirectory: true)
+        let marker = root.appendingPathComponent("leader-exited")
+        let childPIDFile = root.appendingPathComponent("pipe-holder-pid")
+        var childPID: pid_t?
+        defer {
+            if let childPID, Darwin.kill(childPID, 0) == 0 {
+                _ = Darwin.kill(childPID, SIGKILL)
+            }
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try runGit(["init"], in: projectRoot)
+        try "hello\n".write(
+            to: projectRoot.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try runGit(["add", "README.md"], in: projectRoot)
+        try runGit([
+            "-c", "user.name=cmux Test",
+            "-c", "user.email=cmux@example.invalid",
+            "commit", "-m", "initial",
+        ], in: projectRoot)
+
+        let hook = projectRoot.appendingPathComponent(".git/hooks/post-checkout")
+        let hookScript = """
+        #!/bin/sh
+        git_pid=$PPID
+        (
+          trap '' TERM HUP
+          while kill -0 "$git_pid" 2>/dev/null; do :; done
+          echo $$ > \(shellEscaped(childPIDFile.path))
+          touch \(shellEscaped(marker.path))
+          while :; do :; done
+        ) &
+        exit 0
+        """
+        try hookScript.write(to: hook, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook.path)
+
+        let watcher = FileWatcher(path: marker.path)
+        let creation = Task {
+            try await CmuxExtensionWorktreePrototype.createWorktree(projectRootPath: projectRoot.path)
+        }
+        for await _ in watcher.events {
+            if FileManager.default.fileExists(atPath: marker.path) { break }
+        }
+        await watcher.stop()
+        childPID = try #require(pid_t(
+            String(contentsOf: childPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+
+        creation.cancel()
+        do {
+            _ = try await creation.value
+            Issue.record("Cancelled worktree creation unexpectedly succeeded.")
+        } catch is CancellationError {
+            Issue.record("Cleanup failure was collapsed into ordinary cancellation.")
+        } catch {
+            // Expected: cleanup failure is preserved and destructive rollback is skipped.
+        }
+
+        let worktreeList = try runGit(["worktree", "list", "--porcelain"], in: projectRoot)
+        let branches = try runGit(["branch", "--list", "cmux-sidebar-*"], in: projectRoot)
+        #expect(worktreeList.contains("/.cmux/worktrees/"))
+        #expect(!branches.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
     @discardableResult
     private func runGit(_ arguments: [String], in directory: URL) throws -> String {
         let process = Process()
