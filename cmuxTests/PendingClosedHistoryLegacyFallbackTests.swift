@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -7,8 +8,10 @@ import XCTest
 #endif
 
 @MainActor
-final class PendingClosedHistoryLegacyFallbackTests: XCTestCase {
-    func testPendingNewerHistoryBlocksLegacyBrowserFallback() throws {
+@Suite(.serialized)
+struct PendingClosedHistoryLegacyFallbackTests {
+    @Test
+    func pendingNewerHistoryBlocksLegacyBrowserFallback() async throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
@@ -19,18 +22,18 @@ final class PendingClosedHistoryLegacyFallbackTests: XCTestCase {
         }
 
         let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let closedBrowserId = try XCTUnwrap(manager.openBrowser(
+        let workspace = try #require(manager.selectedWorkspace)
+        let closedBrowserId = try #require(manager.openBrowser(
             url: URL(string: "https://example.com/blocked-legacy-fallback")
         ))
-        let browserPanel = try XCTUnwrap(workspace.panels[closedBrowserId] as? BrowserPanel)
-        drainMainQueue()
+        let browserPanel = try #require(workspace.panels[closedBrowserId] as? BrowserPanel)
+        await drainMainQueue()
         browserPanel.webView.uiDelegate?.webViewDidClose?(browserPanel.webView)
-        drainMainQueue()
-        XCTAssertNil(workspace.panels[closedBrowserId])
+        await drainMainQueue()
+        #expect(workspace.panels[closedBrowserId] == nil)
 
-        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
-        let pendingPanelSnapshot = try XCTUnwrap(
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let pendingPanelSnapshot = try #require(
             workspace.sessionSnapshot(includeScrollback: false).panels.first
         )
         ClosedItemHistoryStore.shared.pushPendingEnrichment(ClosedItemHistoryRecord(
@@ -43,16 +46,14 @@ final class PendingClosedHistoryLegacyFallbackTests: XCTestCase {
             ))
         ))
 
-        guard !manager.reopenMostRecentlyClosedBrowserPanel() else {
-            XCTFail("A pending newer history item must block the older legacy browser fallback")
-            return
-        }
-        XCTAssertNil(workspace.panels[closedBrowserId])
+        let didReopen = manager.reopenMostRecentlyClosedBrowserPanel()
+        #expect(!didReopen, "A pending newer history item must block the older legacy browser fallback")
+        #expect(workspace.panels[closedBrowserId] == nil)
     }
 
-    private func drainMainQueue() {
-        let expectation = expectation(description: "drain main queue")
-        DispatchQueue.main.async { expectation.fulfill() }
-        XCTAssertEqual(XCTWaiter().wait(for: [expectation], timeout: 3), .completed)
+    private func drainMainQueue() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async { continuation.resume() }
+        }
     }
 }
