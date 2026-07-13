@@ -6,6 +6,19 @@ import Testing
 
 @MainActor
 @Suite struct MobileWorkspaceDiffAuthorizationTests {
+    @Test func workspaceDiffResponseDecodingLeavesMainThread() async throws {
+        let statusData = Data(#"{"repo_root":"/tmp/repo","files":[]}"#.utf8)
+        let fileData = Data(#"{"path":"A.swift","unified_diff":"+new"}"#.utf8)
+
+        let ranOnMainThread = try await MobileShellComposite.decodeWorkspaceDiffResponse {
+            _ = try MobileWorkspaceDiffStatusResponse.decode(statusData)
+            _ = try MobileWorkspaceDiffFileResponse.decode(fileData)
+            return Thread.isMainThread
+        }
+
+        #expect(!ranOnMainThread)
+    }
+
     @Test func secondaryAuthorizationFailurePreservesForegroundConnection() async throws {
         let foregroundRouter = RoutingHostRouter()
         let secondaryRouter = RoutingHostRouter()

@@ -41,6 +41,14 @@ import Testing
         }
     }
 
+    @Test func hunkContentIdentityChangesAcrossHunksAndFiles() {
+        let first = DiffReviewHunkContentIdentity(filePath: "A.swift", hunkID: 0)
+
+        #expect(first != DiffReviewHunkContentIdentity(filePath: "A.swift", hunkID: 1))
+        #expect(first != DiffReviewHunkContentIdentity(filePath: "B.swift", hunkID: 0))
+        #expect(first == DiffReviewHunkContentIdentity(filePath: "A.swift", hunkID: 0))
+    }
+
     @Test func hunkNavigationCrossesFileBoundary() {
         let session = DiffReviewSession(files: [
             file("A.swift"),

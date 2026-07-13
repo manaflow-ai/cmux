@@ -120,6 +120,10 @@ struct DiffReviewFileView: View {
                         moveBackward: session.moveBackward,
                         moveForward: session.moveForward
                     )
+                    .id(DiffReviewHunkContentIdentity(
+                        filePath: session.currentFile?.path ?? "",
+                        hunkID: hunk.id
+                    ))
                 }
             } else {
                 if let file = session.currentFile,
@@ -349,4 +353,9 @@ struct DiffReviewFileView: View {
         }
     }
 
+}
+
+struct DiffReviewHunkContentIdentity: Hashable {
+    let filePath: String
+    let hunkID: Int
 }

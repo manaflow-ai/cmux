@@ -33,7 +33,9 @@ extension MobileShellComposite {
             params: params,
             workspaceID: workspaceID
         )
-        return try MobileWorkspaceDiffStatusResponse.decode(data)
+        return try await Self.decodeWorkspaceDiffResponse {
+            try MobileWorkspaceDiffStatusResponse.decode(data)
+        }
     }
 
     /// Fetches a raw unified diff for one file in a workspace.
@@ -64,7 +66,27 @@ extension MobileShellComposite {
             params: params,
             workspaceID: workspaceID
         )
-        return try MobileWorkspaceDiffFileResponse.decode(data)
+        return try await Self.decodeWorkspaceDiffResponse {
+            try MobileWorkspaceDiffFileResponse.decode(data)
+        }
+    }
+
+    /// Keep bounded but substantial JSON unescaping and DTO construction off
+    /// the main actor. Cancellation discards a stale result at both boundaries.
+    nonisolated static func decodeWorkspaceDiffResponse<Value: Sendable>(
+        _ operation: @escaping @Sendable () throws -> Value
+    ) async throws -> Value {
+        let task = Task.detached(priority: .userInitiated) {
+            try Task.checkCancellation()
+            let value = try operation()
+            try Task.checkCancellation()
+            return value
+        }
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
     }
 
     private func workspaceDiffParams(workspaceID: MobileWorkspacePreview.ID) -> [String: Any] {

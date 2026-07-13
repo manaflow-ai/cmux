@@ -184,6 +184,12 @@ struct GitProcessRunner: Sendable {
         // Diff output feeds a machine parser; an ambient external diff
         // driver must not execute or replace the unified format.
         "GIT_EXTERNAL_DIFF",
+        // Exact-file diffs use explicit pathspec magic. Ambient pathspec modes
+        // can disable that magic or make literal matches case-insensitive.
+        "GIT_LITERAL_PATHSPECS",
+        "GIT_GLOB_PATHSPECS",
+        "GIT_NOGLOB_PATHSPECS",
+        "GIT_ICASE_PATHSPECS",
         // These variables can execute startup files or mutate shell behavior
         // before the wrapper reaches its child-level `env -u` boundary.
         "SHELLOPTS",
