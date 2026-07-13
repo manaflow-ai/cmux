@@ -296,7 +296,7 @@ extension GhosttySurfaceScrollView {
     }
 
     func updateScrollbackRowSpaceRevision(_ revision: UInt64) {
-        currentScrollbackRowSpaceRevision = max(currentScrollbackRowSpaceRevision ?? 0, revision)
+        currentScrollbackRowSpaceRevision = revision
     }
 
     private func notificationScrollRestoreHasInvalidatedReplayGeometry(

@@ -284,6 +284,23 @@ struct NotificationScrollRestoreTests {
         #expect(surfaceView.bindingActions == ["scroll_to_bottom"])
     }
 
+    @Test func rowSpaceRevisionTracksLatestSurfaceIncarnation() {
+        let surfaceView = ActionProbeView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 200, offset: 116, visible: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.updateScrollbackRowSpaceRevision(8)
+        hostedView.updateScrollbackRowSpaceRevision(1)
+
+        #expect(hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(
+                row: 40,
+                totalRows: 200,
+                rowSpaceRevision: 1
+            )
+        ))
+        #expect(surfaceView.bindingActions == ["scroll_to_row:116"])
+    }
+
     @Test func postReplayNotificationUsesItsLiveGeneration() throws {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 100, offset: 56, visible: 44)
