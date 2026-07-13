@@ -11,7 +11,7 @@ import Testing
 @Suite("Agent notification regressions", .serialized)
 @MainActor
 struct AgentNotificationRegressionTests {
-    private struct Fixture {
+    struct Fixture {
         let store: TerminalNotificationStore
         let appDelegate: AppDelegate
         let manager: TabManager
@@ -21,7 +21,7 @@ struct AgentNotificationRegressionTests {
         let restore: () -> Void
     }
 
-    private func makeFixture(policyHookCommand: String? = nil) throws -> Fixture {
+    func makeFixture(policyHookCommand: String? = nil) throws -> Fixture {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
@@ -88,7 +88,7 @@ struct AgentNotificationRegressionTests {
         )
     }
 
-    private func movePanel(_ fixture: Fixture) throws {
+    func movePanel(_ fixture: Fixture) throws {
         let transfer = try #require(fixture.source.detachSurface(panelId: fixture.panelId))
         let destinationPaneId = try #require(fixture.destination.bonsplitController.allPaneIds.first)
         #expect(
@@ -100,7 +100,7 @@ struct AgentNotificationRegressionTests {
         )
     }
 
-    private func waitForNotification(in store: TerminalNotificationStore) async {
+    func waitForNotification(in store: TerminalNotificationStore) async {
         let deadline = ContinuousClock.now + .seconds(5)
         while store.notifications.isEmpty, ContinuousClock.now < deadline {
             await Task.yield()
