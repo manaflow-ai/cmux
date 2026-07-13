@@ -85,7 +85,9 @@ struct MacUpdateHintIndicatorButton: View {
     private var dismissActionTitle: String {
         L10n.string(
             "mobile.macUpdateHint.dismiss",
-            defaultValue: "Don't show again for this version"
+            // Deliberately unqualified: a changed capability gap re-arms the
+            // hint by design, so promising "for this version" would be wrong.
+            defaultValue: "Don't Show Again"
         )
     }
 

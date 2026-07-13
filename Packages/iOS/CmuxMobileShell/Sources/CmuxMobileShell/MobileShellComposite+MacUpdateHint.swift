@@ -21,6 +21,15 @@ extension MobileShellComposite {
         macDeviceID: String?
     ) {
         let version = statusMacAppVersion ?? activeTicket?.macAppVersion
+        // Fail closed without a stable Mac identity: a shared fallback key
+        // would let a dismissal on one anonymous Mac suppress the hint on
+        // another. Identity-free status replies usually lack the version too,
+        // so this hides nothing that could have been shown truthfully.
+        guard let macDeviceID, !macDeviceID.isEmpty else {
+            MobileDebugLog.anchormux("macupdate.hint skipped reason=no_mac_device_id")
+            clearMacUpdateHint()
+            return
+        }
         let hint = MobileMacUpdateAdvisor.hint(
             hostCapabilities: capabilities,
             macAppVersion: version
@@ -33,9 +42,8 @@ extension MobileShellComposite {
             return
         }
 
-        let resolvedMacDeviceID = macDeviceID ?? "unknown"
         guard !MobileMacUpdateHintDismissalStore().isDismissed(
-            macDeviceID: resolvedMacDeviceID,
+            macDeviceID: macDeviceID,
             signature: hint.dismissalSignature
         ) else {
             clearMacUpdateHint()
@@ -43,15 +51,16 @@ extension MobileShellComposite {
         }
 
         macUpdateHint = hint
-        macUpdateHintMacDeviceID = resolvedMacDeviceID
-        guard macUpdateHintShownSignatures.insert(hint.dismissalSignature).inserted else { return }
+        macUpdateHintMacDeviceID = macDeviceID
+        // Keyed per Mac so two hosts sharing one gap signature each emit a
+        // shown event, while reconnects to the same host stay deduplicated.
+        guard macUpdateHintShownSignatures.insert("\(macDeviceID)|\(hint.dismissalSignature)").inserted else { return }
         analytics.capture("ios_mac_update_hint_shown", analyticsProperties(for: hint))
     }
 
     /// Permanently dismisses the currently visible gap for this Mac and version target.
     public func dismissMacUpdateHint() {
-        guard let hint = macUpdateHint else { return }
-        let macDeviceID = macUpdateHintMacDeviceID ?? "unknown"
+        guard let hint = macUpdateHint, let macDeviceID = macUpdateHintMacDeviceID else { return }
         MobileMacUpdateHintDismissalStore().dismiss(
             macDeviceID: macDeviceID,
             signature: hint.dismissalSignature

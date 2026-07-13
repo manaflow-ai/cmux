@@ -23,7 +23,8 @@ extension WorkspaceListView {
                             }
                         }
                         ToolbarItemGroup(placement: .topBarTrailing) {
-                            if let macUpdateHint, let dismissMacUpdateHint {
+                            if let macUpdateHint, let dismissMacUpdateHint,
+                               connectionChrome.showsMacUpdateHintIndicator {
                                 MacUpdateHintIndicatorButton(
                                     hint: macUpdateHint,
                                     macDisplayName: macUpdateHintMacName,

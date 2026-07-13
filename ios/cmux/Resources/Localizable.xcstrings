@@ -3883,13 +3883,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Don't show again for this version"
+            "value": "Don't Show Again"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このバージョンでは再表示しない"
+            "value": "再表示しない"
           }
         }
       }
