@@ -2,6 +2,23 @@
 import CmuxMobileShellModel
 
 extension TaskComposerSheet {
+    func selectTemplate(_ template: MobileTaskTemplate) {
+        updateSubmissionRequest {
+            var draft = draftSnapshot()
+            draft.selectTemplate(
+                id: template.id,
+                suggestedDirectory: Self.suggestedDirectory(
+                    template: template,
+                    macDeviceID: selectedMacDeviceID,
+                    templateStore: store.taskTemplateStore
+                )
+            )
+            selectedTemplateID = draft.templateID
+            directory = draft.directory
+            didEditDirectory = draft.didEditDirectory
+        }
+    }
+
     func restoreSubmittedDraft(_ snapshot: MobileTaskSubmissionSnapshot) {
         prompt = snapshot.prompt
         selectedTemplateID = snapshot.templateID
@@ -36,6 +53,17 @@ extension TaskComposerSheet {
             template: selectedTemplate,
             prompt: prompt,
             macDeviceID: selectedMacDeviceID,
+            directory: directory,
+            didEditDirectory: didEditDirectory,
+            operationID: submissionIdentity.id
+        )
+    }
+
+    func draftSnapshot() -> MobileTaskComposerDraft {
+        MobileTaskComposerDraft(
+            prompt: prompt,
+            templateID: selectedTemplateID,
+            macDeviceID: selectedMacDeviceID.isEmpty ? nil : selectedMacDeviceID,
             directory: directory,
             didEditDirectory: didEditDirectory,
             operationID: submissionIdentity.id

@@ -350,11 +350,7 @@ struct TaskComposerSheet: View {
         let isSelected = template.id == selectedTemplateID
         return Button {
             guard !isSubmitting else { return }
-            updateSubmissionRequest {
-                selectedTemplateID = template.id
-                didEditDirectory = false
-                syncSuggestedDirectory()
-            }
+            selectTemplate(template)
             failureText = nil
         } label: {
             HStack(spacing: 6) {
@@ -467,17 +463,7 @@ struct TaskComposerSheet: View {
             )
             return
         }
-        store.persistTaskComposerDraft(
-            MobileTaskComposerDraft(
-                prompt: prompt,
-                templateID: selectedTemplateID,
-                macDeviceID: selectedMacDeviceID.isEmpty ? nil : selectedMacDeviceID,
-                directory: directory,
-                didEditDirectory: didEditDirectory,
-                operationID: submissionIdentity.id
-            ),
-            ifSessionGeneration: sessionGeneration
-        )
+        store.persistTaskComposerDraft(draftSnapshot(), ifSessionGeneration: sessionGeneration)
     }
 
     private func announceFailure(_ message: String) {

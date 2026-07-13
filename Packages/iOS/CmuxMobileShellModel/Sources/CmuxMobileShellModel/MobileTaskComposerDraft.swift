@@ -31,4 +31,18 @@ public struct MobileTaskComposerDraft: Codable, Equatable, Sendable {
         self.didEditDirectory = didEditDirectory
         self.operationID = operationID
     }
+
+    /// Selects a template and adopts its suggested directory until the user
+    /// has explicitly edited the directory field.
+    /// - Parameters:
+    ///   - id: Identifier of the newly selected template.
+    ///   - suggestedDirectory: Directory suggested by that template and Mac.
+    public mutating func selectTemplate(
+        id: MobileTaskTemplate.ID,
+        suggestedDirectory: String
+    ) {
+        templateID = id
+        guard !didEditDirectory else { return }
+        directory = suggestedDirectory
+    }
 }
