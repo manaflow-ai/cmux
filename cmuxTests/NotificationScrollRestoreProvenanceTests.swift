@@ -55,6 +55,25 @@ extension NotificationScrollRestoreTests {
         #expect(surfaceView.bindingActions.isEmpty)
     }
 
+    @Test func revisionAwarePositionFailsClosedAcrossReplayGenerations() {
+        let surfaceView = ActionProbeView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let marker = completionMarker(named: "cross-generation-row-space-revision")
+        hostedView.beginSessionScrollbackReplay(completionMarker: marker)
+        #expect(completeReplay(
+            hostedView,
+            marker: marker,
+            scrollbar: surfaceView.scrollbar,
+            rowSpaceRevision: 7
+        ))
+
+        #expect(!hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 40, totalRows: 200, rowSpaceRevision: 7)
+        ))
+        #expect(surfaceView.bindingActions.isEmpty)
+    }
+
     @Test func rowSpaceRevisionDoesNotInvalidateBottomAnchor() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
@@ -143,6 +162,7 @@ extension NotificationScrollRestoreTests {
     @Test func authoritativeRestoreGeometryMarksViewportAwayFromBottom() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 100, offset: 56, visible: 44)
+        surfaceView.enqueueScrollbarUpdate(scrollbar(total: 120, offset: 76, visible: 44))
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
 
         #expect(hostedView.performNotificationScrollRestore(
@@ -150,6 +170,9 @@ extension NotificationScrollRestoreTests {
             scrollbar: scrollbar(total: 400, offset: 218, visible: 44)
         ))
         #expect(hostedView.userScrolledAwayFromBottom)
+        #expect(surfaceView.scrollbar?.total == 400)
+        #expect(surfaceView.scrollbar?.offset == 218)
+        #expect(!surfaceView.flushPendingScrollbarIfAvailable())
         #expect(surfaceView.bindingActions == ["scroll_to_row:218"])
     }
 }
