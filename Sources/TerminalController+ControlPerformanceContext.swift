@@ -18,8 +18,11 @@ extension TerminalController: ControlPerformanceContext {
                 data: nil
             )
         }
+        let sidebarMetricsEnabled = await MainActor.run {
+            SidebarGitMetadataService.runtimeMetricsSnapshot().enabled
+        }
         guard GitMetadataService.runtimeMetricsSnapshot().enabled,
-              SidebarGitMetadataService.runtimeMetricsSnapshot().enabled else {
+              sidebarMetricsEnabled else {
             return .err(
                 code: "metrics_disabled",
                 message: "Reset performance metrics before exercising Git and PR owners",
