@@ -121,17 +121,19 @@ import Testing
         #expect(Self.windowID(from: result) == ownerWindowID)
     }
 
-    @Test func synchronousCreateRejectsComposerWorkingDirectoryWithoutFilesystemValidation() throws {
+    @Test func synchronousControlCreateKeepsWorkingDirectoryAsCwdWithoutFilesystemValidation() throws {
         let manager = TabManager()
-        let baselineCount = manager.tabs.count
-        let existingDirectory = FileManager.default.temporaryDirectory.path
+        let baselineIDs = Set(manager.tabs.map(\.id))
+        let requestedDirectory = "/missing/control-cwd-\(UUID().uuidString)"
 
         let result = TerminalController.shared.v2WorkspaceCreate(params: [
-            "working_directory": existingDirectory,
+            "working_directory": requestedDirectory,
         ], tabManager: manager)
+        let createdID = try #require(Self.workspaceID(from: result))
+        let created = try #require(manager.tabs.first { $0.id == createdID })
 
-        #expect(Self.errorCode(from: result) == "invalid_params")
-        #expect(manager.tabs.count == baselineCount)
+        #expect(Set(manager.tabs.map(\.id)).subtracting(baselineIDs) == [createdID])
+        #expect(created.currentDirectory == requestedDirectory)
     }
 
     @Test func legacyCwdRemainsCompatible() {
@@ -195,7 +197,7 @@ import Testing
             guard case let .failure(error) = result else {
                 return #expect(Bool(false), "invalid directory should be rejected")
             }
-            #expect(error.code == "invalid_params")
+            #expect(error.code == "invalid_working_directory")
             #expect(error.message == "working_directory must be an absolute existing directory")
             #expect((error.data as? [String: String])?["field"] == "working_directory")
         }

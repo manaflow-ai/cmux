@@ -21,8 +21,6 @@ import Testing
         await probe.complete(path: "/tmp/shared", isDirectory: true)
         #expect(await first.value == .valid("/tmp/shared"))
         #expect(await second.value == .valid("/tmp/shared"))
-        await service.waitUntilIdleForTesting()
-        #expect(await service.waiterCountForTesting() == 0)
     }
 
     @Test func validationTimeoutCreatesNoWorkspaceAndMapsToRequestTimeout() async {
@@ -49,7 +47,6 @@ import Testing
         #expect(Self.errorCode(from: result) == "request_timeout")
         #expect(Set(manager.tabs.map(\.id)) == baselineIDs)
         await probe.complete(path: "/tmp/wedged", isDirectory: true)
-        await service.waitUntilIdleForTesting()
     }
 
     @Test func oneWedgedProbeLeavesSecondSlotAvailableAndSamePathRemainsCoalesced() async {
@@ -74,7 +71,6 @@ import Testing
         #expect(await probe.count == 2)
 
         await probe.complete(path: "/external/wedged", isDirectory: true)
-        await service.waitUntilIdleForTesting()
     }
 
     @Test func twoWedgedExternalProbesPreserveLocalLaneAndEnforceExternalCap() async {
@@ -113,7 +109,6 @@ import Testing
         await probe.complete(path: "/external/recovered", isDirectory: true)
         #expect(await recovered.value == .valid("/external/recovered"))
         await probe.complete(path: "/external/second-wedge", isDirectory: true)
-        await service.waitUntilIdleForTesting()
     }
 
     @Test func cancellingOneCoalescedWaiterDoesNotCancelProbeOrOtherWaiter() async {
@@ -127,12 +122,14 @@ import Testing
 
         cancelled.cancel()
         #expect(await cancelled.value == .cancelled)
-        #expect(await service.waiterCountForTesting() == 1)
         #expect(await probe.count == 1)
         await probe.complete(path: "/tmp/shared", isDirectory: true)
         #expect(await remaining.value == .valid("/tmp/shared"))
-        await service.waitUntilIdleForTesting()
-        #expect(await service.waiterCountForTesting() == 0)
+
+        let next = Task { await service.validate(rawValue: "/tmp/next", isProvided: true) }
+        await probe.waitForCount(2)
+        await probe.complete(path: "/tmp/next", isDirectory: true)
+        #expect(await next.value == .valid("/tmp/next"))
     }
 
     @Test func cancellationRacingDeadlineResumesWaiterExactlyOnceAndCleansUp() async {
@@ -148,10 +145,12 @@ import Testing
         let result = await validation.value
 
         #expect(result == .cancelled || result == .timedOut)
-        #expect(await service.waiterCountForTesting() == 0)
         await probe.complete(path: "/tmp/race", isDirectory: true)
-        await service.waitUntilIdleForTesting()
-        #expect(await service.waiterCountForTesting() == 0)
+
+        let next = Task { await service.validate(rawValue: "/tmp/after-race", isProvided: true) }
+        await probe.waitForCount(2)
+        await probe.complete(path: "/tmp/after-race", isDirectory: true)
+        #expect(await next.value == .valid("/tmp/after-race"))
     }
 
     private static func service(

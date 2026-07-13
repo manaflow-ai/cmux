@@ -220,6 +220,39 @@ import Testing
         #expect(identity.id != restoredID)
     }
 
+    @Test func submissionSnapshotKeepsSentValuesForSuccessAndFailureSettlement() {
+        let operationID = UUID()
+        let templateID = UUID()
+        let template = MobileTaskTemplate(
+            id: templateID,
+            name: "Codex",
+            icon: "sparkles",
+            command: "codex {prompt}"
+        )
+        let snapshot = MobileTaskSubmissionSnapshot(
+            template: template,
+            prompt: "Fix the race",
+            macDeviceID: "mac-a",
+            directory: "  ~/cmux  ",
+            didEditDirectory: true,
+            operationID: operationID
+        )
+
+        #expect(snapshot.templateID == template.id)
+        #expect(snapshot.macDeviceID == "mac-a")
+        #expect(snapshot.trimmedDirectory == "~/cmux")
+        #expect(snapshot.operationID == operationID)
+        #expect(snapshot.composition.initialCommand == "codex \"${CMUX_TASK_PROMPT}\"")
+        #expect(snapshot.draft == MobileTaskComposerDraft(
+            prompt: "Fix the race",
+            templateID: template.id,
+            macDeviceID: "mac-a",
+            directory: "  ~/cmux  ",
+            didEditDirectory: true,
+            operationID: operationID
+        ))
+    }
+
     @Test func titleUsesFirstTrimmedLineAndTruncatesToSixtyCharacters() {
         let template = MobileTaskTemplate(name: "Codex", icon: "sparkles", command: "codex")
         let prompt = "  123456789012345678901234567890123456789012345678901234567890abcdef\nsecond line  "

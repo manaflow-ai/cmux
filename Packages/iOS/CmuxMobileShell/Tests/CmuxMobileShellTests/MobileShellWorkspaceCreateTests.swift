@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxMobileShell
 
@@ -63,6 +64,44 @@ import Testing
         }
         #expect(store.connectionError == nil)
         #expect(store.connectionErrorGuidance == nil)
+    }
+
+    @Test func specLessCreateReturnsSuccessWhenConnectionChangesAfterHostCreatedWorkspace() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstWorkspaceCreate(true)
+        let store = try await makeRoutingConnectedStore(router: router)
+
+        let create = Task { @MainActor in
+            await store.createWorkspaceRequest()
+        }
+        await router.awaitFirstWorkspaceCreateReached()
+        store.connectionGeneration = UUID()
+        await router.releaseFirstWorkspaceCreate()
+        let result = await create.value
+
+        guard case .success = result else {
+            return #expect(Bool(false), "accepted legacy create must not invite a duplicate retry")
+        }
+        #expect(await router.recordedWorkspaceCreateCount() == 1)
+    }
+
+    @Test func nonIdempotentSpecCreateReturnsSuccessAfterHostCreatedWorkspace() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstWorkspaceCreate(true)
+        let store = try await makeRoutingConnectedStore(router: router)
+
+        let create = Task { @MainActor in
+            await store.createWorkspaceRequest(spec: MobileWorkspaceCreateSpec(title: "Legacy titled create"))
+        }
+        await router.awaitFirstWorkspaceCreateReached()
+        store.connectionGeneration = UUID()
+        await router.releaseFirstWorkspaceCreate()
+        let result = await create.value
+
+        guard case .success = result else {
+            return #expect(Bool(false), "accepted non-idempotent create must not invite a duplicate retry")
+        }
+        #expect(await router.recordedWorkspaceCreateCount() == 1)
     }
 
     @Test func differentGroupCreateWorkspaceRequestDoesNotJoinInFlightResult() async throws {

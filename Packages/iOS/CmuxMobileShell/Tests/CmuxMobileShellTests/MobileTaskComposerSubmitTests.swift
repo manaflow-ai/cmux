@@ -103,48 +103,40 @@ import Testing
         #expect(await currentRouter.recordedWorkspaceCreateCount() == 1)
     }
 
-    @Test func capturedTargetDoesNotRerouteCreateToAmbientReplacementClient() async throws {
+    @Test func pinnedContextRejectsAmbientReplacementClientAndGeneration() async throws {
         let targetRouter = RoutingHostRouter()
         let ambientRouter = RoutingHostRouter()
         let store = try await makeRoutingConnectedStore(router: targetRouter)
-        store.taskComposerBeforeCreateDispatchForTesting = {
-            store.bumpConnectionGenerationForTesting()
-            try installFreshRemoteClient(on: store, router: ambientRouter)
-            store.supportedHostCapabilities = ["workspace.task_create.v1"]
-        }
+        let pinnedContext = try #require(store.captureWorkspaceCreateContext())
 
-        let result = await store.submitTaskComposer(
-            macDeviceID: "test-mac",
-            spec: MobileWorkspaceCreateSpec(title: "Pinned", operationID: UUID())
-        )
+        #expect(pinnedContext.isCurrent(
+            macDeviceID: store.foregroundMacDeviceID,
+            client: store.remoteClient,
+            generation: store.connectionGeneration
+        ))
 
-        guard case .failure(.notConnected) = result else {
-            return #expect(Bool(false), "a replaced target must fail closed, got \(String(describing: result))")
-        }
+        store.bumpConnectionGenerationForTesting()
+        try installFreshRemoteClient(on: store, router: ambientRouter)
+
+        #expect(!pinnedContext.isCurrent(
+            macDeviceID: store.foregroundMacDeviceID,
+            client: store.remoteClient,
+            generation: store.connectionGeneration
+        ))
         #expect(await targetRouter.recordedWorkspaceCreateCount() == 0)
         #expect(await ambientRouter.recordedWorkspaceCreateCount() == 0)
     }
 
-    @Test func capturedTargetCapabilityCannotBeBorrowedFromAmbientReplacement() async throws {
-        let targetRouter = RoutingHostRouter()
-        let ambientRouter = RoutingHostRouter()
-        let store = try await makeRoutingConnectedStore(router: targetRouter, hostCapabilities: [])
-        store.taskComposerBeforeCreateDispatchForTesting = {
-            store.bumpConnectionGenerationForTesting()
-            try installFreshRemoteClient(on: store, router: ambientRouter)
-            store.supportedHostCapabilities = ["workspace.task_create.v1"]
-        }
-
-        let result = await store.submitTaskComposer(
-            macDeviceID: "test-mac",
-            spec: MobileWorkspaceCreateSpec(title: "Unsupported", operationID: UUID())
+    @Test func pinnedContextKeepsTargetCapabilitySnapshot() async throws {
+        let store = try await makeRoutingConnectedStore(
+            router: RoutingHostRouter(),
+            hostCapabilities: []
         )
+        let pinnedContext = try #require(store.captureWorkspaceCreateContext())
 
-        guard case .failure(.unsupported) = result else {
-            return #expect(Bool(false), "target A capability must decide support")
-        }
-        #expect(await targetRouter.recordedWorkspaceCreateCount() == 0)
-        #expect(await ambientRouter.recordedWorkspaceCreateCount() == 0)
+        store.supportedHostCapabilities = ["workspace.task_create.v1"]
+
+        #expect(!pinnedContext.supportedHostCapabilities.contains("workspace.task_create.v1"))
     }
 
     @Test func specLessCreateStillSendsOnlyGroupID() async throws {
@@ -192,6 +184,26 @@ import Testing
         }
     }
 
+    @Test func idempotentCreateRejectsStaleSuccessfulResponseSoCallerCanRetrySafely() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstWorkspaceCreate(true)
+        let store = try await makeRoutingConnectedStore(router: router)
+        let spec = MobileWorkspaceCreateSpec(title: "Task", operationID: UUID())
+
+        let create = Task { @MainActor in
+            await store.createWorkspaceRequest(spec: spec)
+        }
+        await router.awaitFirstWorkspaceCreateReached()
+        store.connectionGeneration = UUID()
+        await router.releaseFirstWorkspaceCreate()
+        let result = await create.value
+
+        guard case .failure(.notConnected) = result else {
+            return #expect(Bool(false), "idempotent create should retry after a stale success")
+        }
+        #expect(await router.recordedWorkspaceCreateCount() == 1)
+    }
+
     @Test func connectionDrivenCancellationNeverReportsCreateSuccess() async throws {
         let router = RoutingHostRouter()
         await router.setHoldFirstWorkspaceCreate(true)
@@ -236,8 +248,8 @@ import Testing
     @Test func invalidWorkingDirectoryMapsToSpecificComposerFailure() async throws {
         let router = RoutingHostRouter()
         await router.setWorkspaceCreateError(
-            code: "invalid_params",
-            message: "working_directory must be an absolute existing directory"
+            code: "invalid_working_directory",
+            message: "The requested folder cannot be used for this task."
         )
         let store = try await makeRoutingConnectedStore(router: router)
 
