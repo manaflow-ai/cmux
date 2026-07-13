@@ -2,6 +2,7 @@
 import Testing
 @testable import CmuxMobileShellUI
 
+@MainActor
 @Suite struct TaskTemplateIconPickerStateTests {
     @Test func customEmojiInputReflectsCurrentSelection() {
         #expect(TaskTemplateIconPicker.customEmojiInput(for: "🚀") == "🚀")

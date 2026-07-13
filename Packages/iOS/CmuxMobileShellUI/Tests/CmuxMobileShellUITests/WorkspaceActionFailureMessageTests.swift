@@ -3,6 +3,7 @@ import CmuxMobileShell
 import Testing
 @testable import CmuxMobileShellUI
 
+@MainActor
 @Suite struct WorkspaceActionFailureMessageTests {
     @Test func invalidWorkingDirectoryExplainsRecovery() {
         let message = WorkspaceShellView.workspaceActionFailureMessage(

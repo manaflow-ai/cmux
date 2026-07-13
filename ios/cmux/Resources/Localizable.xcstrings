@@ -10287,6 +10287,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "Mac に拒否されました" } }
       }
     },
+    "mobile.workspaceAction.failure.reason.invalidWorkingDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "the working directory isn't available on your Mac; choose another directory" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Mac で作業ディレクトリを使用できません。別のディレクトリを選択してください" } }
+      }
+    },
     "mobile.workspaceAction.failure.reason.unsupported.host": {
       "extractionState": "manual",
       "localizations": {

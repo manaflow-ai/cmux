@@ -10,8 +10,7 @@ struct TaskTemplateIconPicker: View {
         self._selection = selection
         // Show an existing custom-emoji icon in the emoji field so reopening
         // the editor reflects the current selection.
-        let current = selection.wrappedValue
-        self._emojiInput = State(initialValue: Self.gridValues.contains(current) ? "" : current)
+        self._emojiInput = State(initialValue: Self.customEmojiInput(for: selection.wrappedValue))
     }
 
     /// Brand icons first (proper nouns, not localized), then SF Symbols.
@@ -65,6 +64,7 @@ struct TaskTemplateIconPicker: View {
         let isSelected = selection == value
         Button {
             selection = value
+            emojiInput = Self.customEmojiInput(for: value)
         } label: {
             TaskTemplateIcon(value: value)
                 .frame(width: 36, height: 36)
@@ -81,6 +81,10 @@ struct TaskTemplateIconPicker: View {
             )
         )
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    static func customEmojiInput(for selection: String) -> String {
+        Self.gridValues.contains(selection) ? "" : selection
     }
 
     private static func accessibilityName(for value: String) -> String {
