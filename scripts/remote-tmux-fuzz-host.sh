@@ -92,7 +92,14 @@ if [ -f "$DIR/sshd.pid" ]; then
       *"/usr/sbin/sshd -f $DIR/sshd_config"*) kill "$old_pid" ;;
       *) echo "refusing to kill unrelated process $old_pid" >&2; exit 1 ;;
     esac
-    sleep 1
+    for _ in $(seq 1 50); do
+      kill -0 "$old_pid" 2>/dev/null || break
+      sleep 0.1
+    done
+    if kill -0 "$old_pid" 2>/dev/null; then
+      echo "timed out waiting for sshd $old_pid to exit" >&2
+      exit 1
+    fi
   fi
 fi
 /usr/sbin/sshd -f "$DIR/sshd_config" -E "$DIR/sshd.log"
