@@ -62,6 +62,22 @@ import Testing
         #expect(!diff.unifiedDiff.contains("new file mode"))
     }
 
+    @Test func staleRenameSourceCannotReturnMultipleFileSections() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let oldFile = repo.appendingPathComponent("Old.swift")
+        try Data("original\n".utf8).write(to: oldFile)
+        try runTestGit(in: repo, ["add", "--", "Old.swift"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add old path"])
+        try runTestGit(in: repo, ["mv", "--", "Old.swift", "New.swift"])
+        try Data("unrelated current edit\n".utf8).write(to: oldFile)
+        try runTestGit(in: repo, ["add", "--", "Old.swift"])
+
+        let service = GitDiffService()
+
+        #expect(service.fileDiff(repoRoot: repo.path, path: "New.swift", oldPath: "Old.swift") == nil)
+    }
+
     @Test func renameSourceCannotExpandToARepositoryDirectory() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
@@ -109,6 +125,25 @@ import Testing
         #expect(diff.unifiedDiff.contains("+replacement file"))
         #expect(!diff.unifiedDiff.contains("old child"))
         #expect(!diff.unifiedDiff.contains("Child.txt"))
+    }
+
+    @Test func baselineFileReplacedByDirectoryDiffsWithoutDescendants() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let replaced = repo.appendingPathComponent("node")
+        try Data("old file\n".utf8).write(to: replaced)
+        try runTestGit(in: repo, ["add", "--", "node"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add file"])
+        try FileManager.default.removeItem(at: replaced)
+        try FileManager.default.createDirectory(at: replaced, withIntermediateDirectories: true)
+        try Data("new child\n".utf8).write(to: replaced.appendingPathComponent("child.txt"))
+        try runTestGit(in: repo, ["add", "-A", "--", "node"])
+
+        let diff = try #require(GitDiffService().fileDiff(repoRoot: repo.path, path: "node"))
+
+        #expect(diff.unifiedDiff.contains("-old file"))
+        #expect(!diff.unifiedDiff.contains("new child"))
+        #expect(!diff.unifiedDiff.contains("child.txt"))
     }
 
     @Test func untrackedFileReplacingBaselineDirectoryDiffsWithoutDescendants() throws {
