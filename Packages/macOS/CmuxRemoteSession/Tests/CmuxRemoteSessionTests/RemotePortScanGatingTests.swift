@@ -102,8 +102,12 @@ struct RemotePortScanGatingTests {
     @Test("A transient empty TTY scan keeps the published port")
     func transientEmptyTTYScanKeepsPublishedPort() {
         let runner = SpyProcessRunner(results: [
-            RemoteCommandResult(status: 0, stdout: "ttys010\t4200\n", stderr: ""),
-            RemoteCommandResult(status: 0, stdout: "", stderr: ""),
+            RemoteCommandResult(status: 0, stdout: "ttys010\t4200\n\(RemoteSessionCoordinator.remotePortScanCompleteMarker)\n", stderr: ""),
+            RemoteCommandResult(
+                status: 0,
+                stdout: "\(RemoteSessionCoordinator.remotePortScanCompleteMarker)\n",
+                stderr: ""
+            ),
         ])
         let host = RecordingRemoteSessionHost()
         let coordinator = Self.makeCoordinator(runner: runner, host: host)
@@ -117,6 +121,29 @@ struct RemotePortScanGatingTests {
         }
 
         #expect(host.detectedPorts == [4200])
+        #expect(host.detectedPortsByPanel[panelId] == [4200])
+        coordinator.stop()
+    }
+
+    @Test("Repeated incomplete TTY scans never age out the published port")
+    func repeatedIncompleteTTYScansKeepPublishedPort() {
+        let runner = SpyProcessRunner(results: [
+            RemoteCommandResult(status: 0, stdout: "ttys010\t4200\n\(RemoteSessionCoordinator.remotePortScanCompleteMarker)\n", stderr: ""),
+            RemoteCommandResult(status: 0, stdout: "", stderr: ""),
+        ])
+        let host = RecordingRemoteSessionHost()
+        let coordinator = Self.makeCoordinator(runner: runner, host: host)
+        let panelId = UUID()
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.updateRemotePortScanTTYsLocked([panelId: "ttys010"])
+            coordinator.performRemotePortScanLocked()
+            coordinator.polledRemotePorts = [8080]
+            coordinator.keepPolledRemotePortsUntilTTYScan = true
+            for _ in 0..<3 { coordinator.performRemotePortScanLocked() }
+        }
+        #expect(host.detectedPortsByPanel[panelId] == [4200])
+        #expect(host.detectedPorts == [4200, 8080])
         coordinator.stop()
     }
 
@@ -360,11 +387,13 @@ private struct NoopRemoteSessionHost: RemoteSessionHosting {
 private final class RecordingRemoteSessionHost: RemoteSessionHosting, @unchecked Sendable {
     private let lock = NSLock()
     private var _connectionStates: [(state: WorkspaceRemoteConnectionState, detail: String?)] = []
+    private var _detectedPortsByPanel: [UUID: [Int]] = [:]
     private var _detectedPorts: [Int] = []
 
     var connectionStates: [(state: WorkspaceRemoteConnectionState, detail: String?)] {
         lock.withLock { _connectionStates }
     }
+    var detectedPortsByPanel: [UUID: [Int]] { lock.withLock { _detectedPortsByPanel } }
     var detectedPorts: [Int] { lock.withLock { _detectedPorts } }
 
     func publishConnectionState(_ state: WorkspaceRemoteConnectionState, detail: String?) {
@@ -376,7 +405,10 @@ private final class RecordingRemoteSessionHost: RemoteSessionHosting, @unchecked
     func publishDaemonStatus(_ status: WorkspaceRemoteDaemonStatus) {}
     func publishProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {}
     func publishPortsSnapshot(detectedByPanel: [UUID: [Int]], detected: [Int]) {
-        lock.withLock { _detectedPorts = detected }
+        lock.withLock {
+            _detectedPortsByPanel = detectedByPanel
+            _detectedPorts = detected
+        }
     }
     func publishHeartbeat(count: Int, lastSeenAt: Date?) {}
     func publishBootstrapRemoteTTY(_ ttyName: String) {}

@@ -1,8 +1,11 @@
 import CmuxCore
+import CmuxFoundation
 import Darwin
 import Foundation
 
 extension PortScanner {
+    static let processScanTimeout: TimeInterval = 3
+
     static func combinedCompleteness(
         _ lhs: PortScanCompleteness,
         _ rhs: PortScanCompleteness
@@ -10,50 +13,9 @@ extension PortScanner {
         lhs == .complete && rhs == .complete ? .complete : .incomplete
     }
 
-    static func captureStandardOutput(executablePath: String, arguments: [String]) -> String? {
-        captureProcess(executablePath: executablePath, arguments: arguments)?.stdout
-    }
-
-    static func captureProcess(
-        executablePath: String,
-        arguments: [String]
-    ) -> (stdout: String, status: Int32)? {
-        autoreleasepool {
-            let process = Process()
-            let stdoutPipe = Pipe()
-            let stdoutReadHandle = stdoutPipe.fileHandleForReading
-            let stdoutWriteHandle = stdoutPipe.fileHandleForWriting
-
-            process.executableURL = URL(fileURLWithPath: executablePath)
-            process.arguments = arguments
-            process.standardInput = FileHandle.nullDevice
-            process.standardOutput = stdoutPipe
-            process.standardError = FileHandle.nullDevice
-
-            defer {
-                try? stdoutReadHandle.close()
-                try? stdoutWriteHandle.close()
-            }
-
-            do {
-                try process.run()
-            } catch {
-                return nil
-            }
-
-            // The reader reaches EOF only after the parent closes its write end.
-            try? stdoutWriteHandle.close()
-            let data = stdoutReadHandle.readDataToEndOfFileOrEmpty()
-            process.waitUntilExit()
-
-            guard let output = String(data: data, encoding: .utf8) else { return nil }
-            return (output, process.terminationStatus)
-        }
-    }
-
     func expandAgentProcessTree(
         agentPIDsByWorkspace: [UUID: Set<Int>]
-    ) -> (values: [Int: Set<UUID>], completeness: PortScanCompleteness) {
+    ) async -> (values: [Int: Set<UUID>], completeness: PortScanCompleteness) {
         let normalizedRoots = agentPIDsByWorkspace.reduce(into: [UUID: Set<Int>]()) { partial, item in
             let valid = Set(item.value.filter { $0 > 0 })
             guard !valid.isEmpty else { return }
@@ -69,7 +31,7 @@ extension PortScanner {
             }
         }
 
-        let processScan = runAllProcesses()
+        let processScan = await runAllProcesses()
         var childrenByParent: [Int: [Int]] = [:]
         for (pid, parentPid) in processScan.values {
             childrenByParent[parentPid, default: []].append(pid)
@@ -88,75 +50,123 @@ extension PortScanner {
         return (pidToWorkspaces, processScan.completeness)
     }
 
-    func runPS(ttyList: String) -> (values: [Int: String], completeness: PortScanCompleteness) {
-        guard let result = Self.captureProcess(
-            executablePath: "/bin/ps",
-            arguments: ["-t", ttyList, "-o", "pid=,tty="]
-        ) else { return ([:], .incomplete) }
+    func runPS(ttyList: String) async -> (values: [Int: String], completeness: PortScanCompleteness) {
+        let result = await commandRunner.run(
+            directory: "/",
+            executable: "/bin/ps",
+            arguments: ["-t", ttyList, "-o", "pid=,tty="],
+            timeout: Self.processScanTimeout
+        )
 
         var mapping: [Int: String] = [:]
-        for line in result.stdout.split(separator: "\n") {
+        var parsedEveryRow = true
+        for line in (result.stdout ?? "").split(separator: "\n") {
             let parts = line.split(whereSeparator: \.isWhitespace)
-            guard parts.count >= 2, let pid = Int(parts[0]) else { continue }
+            guard parts.count == 2, let pid = Int(parts[0]), pid > 0 else {
+                parsedEveryRow = false
+                continue
+            }
             mapping[pid] = String(parts[1])
         }
-        return (mapping, result.status == 0 ? .complete : .incomplete)
+        let complete = Self.isComplete(result) && parsedEveryRow
+        return (mapping, complete ? .complete : .incomplete)
     }
 
-    func runAllProcesses() -> (values: [Int: Int], completeness: PortScanCompleteness) {
-        guard let result = Self.captureProcess(
-            executablePath: "/bin/ps",
-            arguments: ["-ax", "-o", "pid=,ppid="]
-        ) else { return ([:], .incomplete) }
+    func runAllProcesses() async -> (values: [Int: Int], completeness: PortScanCompleteness) {
+        let result = await commandRunner.run(
+            directory: "/",
+            executable: "/bin/ps",
+            arguments: ["-ax", "-o", "pid=,ppid="],
+            timeout: Self.processScanTimeout
+        )
 
         var mapping: [Int: Int] = [:]
-        for line in result.stdout.split(separator: "\n") {
+        var parsedEveryRow = true
+        for line in (result.stdout ?? "").split(separator: "\n") {
             let parts = line.split(whereSeparator: \.isWhitespace)
-            guard parts.count >= 2,
+            guard parts.count == 2,
                   let pid = Int(parts[0]),
-                  let parentPid = Int(parts[1]) else { continue }
+                  let parentPid = Int(parts[1]),
+                  pid > 0,
+                  parentPid >= 0 else {
+                parsedEveryRow = false
+                continue
+            }
             mapping[pid] = parentPid
         }
-        return (mapping, result.status == 0 ? .complete : .incomplete)
+        let complete = Self.isComplete(result) && parsedEveryRow
+        return (mapping, complete ? .complete : .incomplete)
     }
 
-    func runLsof(pidsCsv: String) -> (values: [Int: Set<Int>], completeness: PortScanCompleteness) {
-        guard let result = Self.captureProcess(
-            executablePath: "/usr/sbin/lsof",
-            arguments: ["-nP", "-a", "-p", pidsCsv, "-iTCP", "-sTCP:LISTEN", "-Fpn"]
-        ) else { return ([:], .incomplete) }
+    func runLsof(pidsCsv: String) async -> (values: [Int: Set<Int>], completeness: PortScanCompleteness) {
+        let result = await commandRunner.run(
+            directory: "/",
+            executable: "/usr/sbin/lsof",
+            arguments: ["-nP", "-a", "-p", pidsCsv, "-iTCP", "-sTCP:LISTEN", "-Fpn"],
+            timeout: Self.processScanTimeout
+        )
 
         var portsByPID: [Int: Set<Int>] = [:]
         var currentPID: Int?
-        for line in result.stdout.split(separator: "\n") {
+        var parsedEveryRow = true
+        for line in (result.stdout ?? "").split(separator: "\n") {
             guard let first = line.first else { continue }
             switch first {
             case "p":
-                currentPID = Int(line.dropFirst())
+                guard let pid = Int(line.dropFirst()), pid > 0 else {
+                    currentPID = nil
+                    parsedEveryRow = false
+                    continue
+                }
+                currentPID = pid
             case "n":
-                guard let currentPID else { continue }
+                guard let currentPID else {
+                    parsedEveryRow = false
+                    continue
+                }
                 var name = String(line.dropFirst())
                 if let arrow = name.range(of: "->") {
                     name = String(name[..<arrow.lowerBound])
                 }
-                guard let colon = name.lastIndex(of: ":") else { continue }
-                let digits = name[name.index(after: colon)...].prefix(while: \.isNumber)
-                if let port = Int(digits), port > 0, port <= 65_535 {
-                    portsByPID[currentPID, default: []].insert(port)
+                guard let colon = name.lastIndex(of: ":") else {
+                    parsedEveryRow = false
+                    continue
                 }
+                let portText = name[name.index(after: colon)...]
+                guard portText.allSatisfy(\.isNumber),
+                      let port = Int(portText),
+                      port > 0,
+                      port <= 65_535 else {
+                    parsedEveryRow = false
+                    continue
+                }
+                portsByPID[currentPID, default: []].insert(port)
+            case "f":
+                if line.dropFirst().isEmpty { parsedEveryRow = false }
             default:
-                break
+                parsedEveryRow = false
             }
         }
         // lsof exits 1 both for "no selected files" and when a PID disappeared
         // between ps and lsof. Only the former is authoritative negative evidence.
         let requestedPIDs = pidsCsv.split(separator: ",").compactMap { Int32($0) }
-        let emptyResultIsAuthoritative = result.stdout.isEmpty && requestedPIDs.allSatisfy(Self.canInspectProcess)
+        let emptyResultIsAuthoritative =
+            (result.stdout ?? "").isEmpty
+            && (result.stderr ?? "").isEmpty
+            && requestedPIDs.allSatisfy(Self.canInspectProcess)
         let completeness: PortScanCompleteness =
-            result.status == 0 || (result.status == 1 && emptyResultIsAuthoritative)
+            (Self.isComplete(result) && parsedEveryRow)
+            || (result.exitStatus == 1 && emptyResultIsAuthoritative)
             ? .complete
             : .incomplete
         return (portsByPID, completeness)
+    }
+
+    private static func isComplete(_ result: CommandResult) -> Bool {
+        result.executionError == nil
+            && !result.timedOut
+            && result.exitStatus == 0
+            && (result.stderr ?? "").isEmpty
     }
 
     private static func canInspectProcess(_ pid: Int32) -> Bool {

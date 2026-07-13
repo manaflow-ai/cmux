@@ -88,4 +88,34 @@ struct PortScanSnapshotReconcilerTests {
 
         #expect(snapshot.isEmpty)
     }
+
+    @Test("Explicit removal clears the selected snapshot immediately")
+    func explicitRemovalClearsSelectedKey() {
+        var reconciler = PortScanSnapshotReconciler<String>()
+        reconciler.reconcile(
+            scannedPorts: ["a": [4200], "b": [5173]],
+            scannedKeys: ["a", "b"],
+            trackedKeys: ["a", "b"],
+            completeness: .complete
+        )
+
+        reconciler.remove(keys: ["a"])
+
+        #expect(reconciler.snapshot == ["b": [5173]])
+    }
+
+    @Test("Reset clears every snapshot immediately")
+    func resetClearsEveryKey() {
+        var reconciler = PortScanSnapshotReconciler<String>()
+        reconciler.reconcile(
+            scannedPorts: ["a": [4200], "b": [5173]],
+            scannedKeys: ["a", "b"],
+            trackedKeys: ["a", "b"],
+            completeness: .complete
+        )
+
+        reconciler.reset()
+
+        #expect(reconciler.snapshot.isEmpty)
+    }
 }
