@@ -177,6 +177,8 @@ struct ClaudeHookLifecycleCleanupTests {
             pidTarget: (workspaceId: Self.liveWorkspaceId, surfaceId: Self.liveSurfaceId)
         )
         var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
         environment["CMUX_CLAUDE_PID"] = "43305"
 
         let result = Harness.runHookProcess(
@@ -212,6 +214,8 @@ struct ClaudeHookLifecycleCleanupTests {
             pidTarget: (workspaceId: newWorkspaceId, surfaceId: Self.liveSurfaceId)
         )
         var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
         environment["CMUX_CLAUDE_PID"] = "43306"
 
         let result = Harness.runHookProcess(
@@ -373,7 +377,7 @@ struct ClaudeHookLifecycleCleanupTests {
             context: context,
             arguments: ["hooks", "claude", "pre-tool-use"],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","cwd":"\#(context.root.path)"}"#
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","permission_mode":"bypassPermissions","cwd":"\#(context.root.path)"}"#
         )
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
