@@ -417,20 +417,30 @@ import Testing
         )
     }
 
-    @Test @MainActor func hoverReconcilerRestoresCloseButtonAfterLifecycleHoverReset() {
+    @Test @MainActor func hoverReconcilerRestoresCloseButtonAfterLifecycleHoverReset() async {
         var state = SidebarWorkspaceRowInteractionState()
 
         let view = SidebarWorkspaceRowHoverReconcilerView()
         view.frame = NSRect(x: 0, y: 0, width: 120, height: 28)
-        view.onPointerHoverChanged = { state.setPointerHovering($0) }
-
-        view.reconcilePointerLocation(pointInView: NSPoint(x: 60, y: 14))
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            view.onPointerHoverChanged = {
+                state.setPointerHovering($0)
+                continuation.resume()
+            }
+            view.reconcilePointerLocation(pointInView: NSPoint(x: 60, y: 14))
+        }
         #expect(state.shouldShowCloseButton(canCloseWorkspace: true, shortcutHintModeActive: false))
 
         state.setPointerHovering(false)
         #expect(!state.shouldShowCloseButton(canCloseWorkspace: true, shortcutHintModeActive: false))
 
-        view.reconcilePointerLocation(pointInView: NSPoint(x: 60, y: 14))
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            view.onPointerHoverChanged = {
+                state.setPointerHovering($0)
+                continuation.resume()
+            }
+            view.reconcilePointerLocation(pointInView: NSPoint(x: 60, y: 14))
+        }
 
         #expect(
             state.shouldShowCloseButton(
@@ -441,22 +451,28 @@ import Testing
         )
     }
 
-    @Test @MainActor func hoverReconcilerDoesNotMutateSwiftUIOnTheAppKitLifecycleStack() {
+    @Test @MainActor func hoverReconcilerDoesNotMutateSwiftUIOnTheAppKitLifecycleStack() async {
         var reportedHover: Bool?
         let view = SidebarWorkspaceRowHoverReconcilerView()
         view.frame = NSRect(x: 0, y: 0, width: 120, height: 28)
-        view.onPointerHoverChanged = { reportedHover = $0 }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            view.onPointerHoverChanged = {
+                reportedHover = $0
+                continuation.resume()
+            }
 
-        view.reconcilePointerLocation(pointInView: NSPoint(x: 60, y: 14))
+            view.reconcilePointerLocation(pointInView: NSPoint(x: 60, y: 14))
 
-        #expect(
-            reportedHover == nil,
-            """
-            AppKit hover reconciliation must not call into SwiftUI synchronously. The real row invokes this path from \
-            updateTrackingAreas and viewDidMoveToWindow; a synchronous Binding write there re-enters NSHostingView \
-            layout and can livelock AttributeGraph.
-            """
-        )
+            #expect(
+                reportedHover == nil,
+                """
+                AppKit hover reconciliation must not call into SwiftUI synchronously. The real row invokes this path \
+                from updateTrackingAreas and viewDidMoveToWindow; a synchronous Binding write there re-enters \
+                NSHostingView layout and can livelock AttributeGraph.
+                """
+            )
+        }
+        #expect(reportedHover == true)
     }
 
     @Test func contextMenuAppearanceHidesExistingCloseButtonUntilPointerIsReconciled() {
