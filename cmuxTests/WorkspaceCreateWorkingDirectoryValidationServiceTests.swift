@@ -56,55 +56,63 @@ import Testing
         let probe = ControlledDirectoryProbe()
         let deadlines = ControlledValidationDeadlines()
         let service = Self.service(probe: probe, deadlines: deadlines)
-        let first = Task { await service.validate(rawValue: "/tmp/wedged", isProvided: true) }
+        let first = Task { await service.validate(rawValue: "/external/wedged", isProvided: true) }
         await probe.waitForCount(1)
         await deadlines.waitForCount(1)
         await deadlines.fireAll()
         #expect(await first.value == .timedOut)
 
-        let samePath = Task { await service.validate(rawValue: "/tmp/wedged", isProvided: true) }
-        let differentPath = Task { await service.validate(rawValue: "/tmp/different", isProvided: true) }
+        let samePath = Task { await service.validate(rawValue: "/external/wedged", isProvided: true) }
+        let differentPath = Task { await service.validate(rawValue: "/external/different", isProvided: true) }
         await deadlines.waitForCount(3)
         await probe.waitForCount(2)
         #expect(await probe.count == 2)
-        await probe.complete(path: "/tmp/different", isDirectory: true)
-        #expect(await differentPath.value == .valid("/tmp/different"))
+        await probe.complete(path: "/external/different", isDirectory: true)
+        #expect(await differentPath.value == .valid("/external/different"))
         await deadlines.fireAll()
         #expect(await samePath.value == .timedOut)
         #expect(await probe.count == 2)
 
-        await probe.complete(path: "/tmp/wedged", isDirectory: true)
+        await probe.complete(path: "/external/wedged", isDirectory: true)
         await service.waitUntilIdleForTesting()
     }
 
-    @Test func twoWedgedProbesEnforceCapThenCompletionRestoresCapacity() async {
+    @Test func twoWedgedExternalProbesPreserveLocalLaneAndEnforceExternalCap() async {
         let probe = ControlledDirectoryProbe()
         let deadlines = ControlledValidationDeadlines()
         let service = Self.service(probe: probe, deadlines: deadlines)
-        let first = Task { await service.validate(rawValue: "/tmp/first-wedge", isProvided: true) }
-        let second = Task { await service.validate(rawValue: "/tmp/second-wedge", isProvided: true) }
+        let first = Task { await service.validate(rawValue: "/external/first-wedge", isProvided: true) }
+        let second = Task { await service.validate(rawValue: "/external/second-wedge", isProvided: true) }
         await probe.waitForCount(2)
         await deadlines.waitForCount(2)
         await deadlines.fireAll()
         #expect(await first.value == .timedOut)
         #expect(await second.value == .timedOut)
 
-        let third = Task { await service.validate(rawValue: "/tmp/third", isProvided: true) }
-        let repeated = Task { await service.validate(rawValue: "/tmp/first-wedge", isProvided: true) }
+        let third = Task { await service.validate(rawValue: "/external/third", isProvided: true) }
+        let local = Task { await service.validate(rawValue: "/Users/test/project", isProvided: true) }
         await deadlines.waitForCount(4)
-        #expect(await probe.count == 2)
-        await deadlines.fireAll()
-        #expect(await third.value == .timedOut)
-        #expect(await repeated.value == .timedOut)
-        #expect(await probe.count == 2)
-
-        await probe.complete(path: "/tmp/first-wedge", isDirectory: true)
-        let recovered = Task { await service.validate(rawValue: "/tmp/recovered", isProvided: true) }
         await probe.waitForCount(3)
         #expect(await probe.count == 3)
-        await probe.complete(path: "/tmp/recovered", isDirectory: true)
-        #expect(await recovered.value == .valid("/tmp/recovered"))
-        await probe.complete(path: "/tmp/second-wedge", isDirectory: true)
+        await probe.complete(path: "/Users/test/project", isDirectory: true)
+        #expect(await local.value == .valid("/Users/test/project"))
+        await deadlines.fireAll()
+        #expect(await third.value == .timedOut)
+
+        let repeated = Task { await service.validate(rawValue: "/external/first-wedge", isProvided: true) }
+        await deadlines.waitForCount(5)
+        #expect(await probe.count == 3)
+        await deadlines.fireAll()
+        #expect(await repeated.value == .timedOut)
+        #expect(await probe.count == 3)
+
+        await probe.complete(path: "/external/first-wedge", isDirectory: true)
+        let recovered = Task { await service.validate(rawValue: "/external/recovered", isProvided: true) }
+        await probe.waitForCount(4)
+        #expect(await probe.count == 4)
+        await probe.complete(path: "/external/recovered", isDirectory: true)
+        #expect(await recovered.value == .valid("/external/recovered"))
+        await probe.complete(path: "/external/second-wedge", isDirectory: true)
         await service.waitUntilIdleForTesting()
     }
 
@@ -152,7 +160,9 @@ import Testing
     ) -> TerminalController.WorkspaceCreateWorkingDirectoryValidationService {
         TerminalController.WorkspaceCreateWorkingDirectoryValidationService(
             timeout: .seconds(1),
-            maxConcurrentProbes: 2,
+            localCapacity: 1,
+            externalCapacity: 2,
+            laneClassifier: { path in path.hasPrefix("/external/") ? .external : .local },
             probe: { path in await probe.run(path: path) },
             sleepUntilDeadline: { _ in await deadlines.sleep() }
         )

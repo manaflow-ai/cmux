@@ -1,3 +1,4 @@
+import CmuxMobilePairedMac
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -50,7 +51,13 @@ import Testing
     }
 
     @Test func promotedSecondaryMacUsesItsOwnTaskCreateCapability() async throws {
-        let pairedStore = DelayedTeamPairedMacStore(recordsByTeam: [:], blockedTeams: [])
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["": [
+                Self.pairedMac(macDeviceID: "secondary-old"),
+                Self.pairedMac(macDeviceID: "secondary-current"),
+            ]],
+            blockedTeams: []
+        )
         let unsupportedRouter = RoutingHostRouter()
         let unsupportedStore = try await makeRoutingConnectedStore(
             router: RoutingHostRouter(),
@@ -94,6 +101,50 @@ import Testing
             return #expect(Bool(false), "promoted current Mac should create, got \(String(describing: current))")
         }
         #expect(await currentRouter.recordedWorkspaceCreateCount() == 1)
+    }
+
+    @Test func capturedTargetDoesNotRerouteCreateToAmbientReplacementClient() async throws {
+        let targetRouter = RoutingHostRouter()
+        let ambientRouter = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: targetRouter)
+        store.taskComposerBeforeCreateDispatchForTesting = {
+            store.bumpConnectionGenerationForTesting()
+            try installFreshRemoteClient(on: store, router: ambientRouter)
+            store.supportedHostCapabilities = ["workspace.task_create.v1"]
+        }
+
+        let result = await store.submitTaskComposer(
+            macDeviceID: "test-mac",
+            spec: MobileWorkspaceCreateSpec(title: "Pinned", operationID: UUID())
+        )
+
+        guard case .failure(.notConnected) = result else {
+            return #expect(Bool(false), "a replaced target must fail closed, got \(String(describing: result))")
+        }
+        #expect(await targetRouter.recordedWorkspaceCreateCount() == 0)
+        #expect(await ambientRouter.recordedWorkspaceCreateCount() == 0)
+    }
+
+    @Test func capturedTargetCapabilityCannotBeBorrowedFromAmbientReplacement() async throws {
+        let targetRouter = RoutingHostRouter()
+        let ambientRouter = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: targetRouter, hostCapabilities: [])
+        store.taskComposerBeforeCreateDispatchForTesting = {
+            store.bumpConnectionGenerationForTesting()
+            try installFreshRemoteClient(on: store, router: ambientRouter)
+            store.supportedHostCapabilities = ["workspace.task_create.v1"]
+        }
+
+        let result = await store.submitTaskComposer(
+            macDeviceID: "test-mac",
+            spec: MobileWorkspaceCreateSpec(title: "Unsupported", operationID: UUID())
+        )
+
+        guard case .failure(.unsupported) = result else {
+            return #expect(Bool(false), "target A capability must decide support")
+        }
+        #expect(await targetRouter.recordedWorkspaceCreateCount() == 0)
+        #expect(await ambientRouter.recordedWorkspaceCreateCount() == 0)
     }
 
     @Test func specLessCreateStillSendsOnlyGroupID() async throws {
@@ -234,5 +285,17 @@ import Testing
             return #expect(Bool(false), "directory validation timeout should remain retryable")
         }
         #expect(hostDisplayName == store.connectedHostName)
+    }
+
+    private static func pairedMac(macDeviceID: String) -> MobilePairedMac {
+        MobilePairedMac(
+            macDeviceID: macDeviceID,
+            displayName: macDeviceID,
+            routes: [],
+            createdAt: Date(),
+            lastSeenAt: Date(),
+            isActive: false,
+            stackUserID: "routing-user"
+        )
     }
 }
