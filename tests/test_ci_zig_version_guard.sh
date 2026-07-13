@@ -106,6 +106,11 @@ if grep -Fq 'CMUX_ZIG_VERSION_CHECKED' "$ROOT_DIR/scripts/ensure-ghosttykit.sh" 
   exit 1
 fi
 
+if grep -Fq 'CMUX_REQUIRED_ZIG_VERSION' "$SCRIPT"; then
+  echo "FAIL: an ambient environment variable must not override Ghostty's Zig requirement"
+  exit 1
+fi
+
 REQUIRED_FROM_GHOSTTY="$(python3 - "$ROOT_DIR/ghostty/build.zig.zon" <<'PY'
 from pathlib import Path
 import re

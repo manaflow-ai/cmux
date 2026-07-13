@@ -46,7 +46,7 @@ parse_semver_core() {
   return 1
 }
 
-REQUIRED_ZIG_VERSION="${1:-${CMUX_REQUIRED_ZIG_VERSION:-}}"
+REQUIRED_ZIG_VERSION="${1:-}"
 if [[ -z "$REQUIRED_ZIG_VERSION" ]]; then
   REQUIRED_ZIG_VERSION="$(extract_required_zig_version)"
 fi
