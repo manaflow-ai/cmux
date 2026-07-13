@@ -5654,6 +5654,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func keyDown(with event: NSEvent) {
+        terminalSurface?.hostedView.cancelPendingNotificationScrollRestore()
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         let phaseTotalStart = ProcessInfo.processInfo.systemUptime
@@ -8191,6 +8192,7 @@ final class GhosttySurfaceScrollView: NSView {
     var userScrolledAwayFromBottom = false
     private var pendingExplicitWheelScroll = false
     var allowExplicitScrollbarSync = false
+    var notificationScrollRestorePhase: TerminalNotificationScrollRestorePhase = .idle
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
@@ -8672,6 +8674,7 @@ final class GhosttySurfaceScrollView: NSView {
                   readySurfaceId == self.surfaceView.terminalSurface?.id else {
                 return
             }
+            _ = self.retryPendingNotificationScrollRestore()
             // Session restore can request focus before the runtime surface exists.
             // Re-run the normal first-responder/focus path once the surface is live.
             guard self.isActive || self.surfaceView.desiredFocus || self.isSurfaceViewFirstResponder() else {
@@ -8693,6 +8696,7 @@ final class GhosttySurfaceScrollView: NSView {
             object: surfaceView,
             queue: .main
         ) { [weak self] _ in
+            self?.cancelPendingNotificationScrollRestore()
             self?.pendingExplicitWheelScroll = true
         })
 
@@ -8819,6 +8823,7 @@ final class GhosttySurfaceScrollView: NSView {
     override func layout() {
         super.layout()
         synchronizeGeometryAndContent()
+        _ = retryPendingNotificationScrollRestore()
         _ = setFrameIfNeeded(paneDropTargetView, to: bounds)
         bringPaneDropTargetToFrontIfNeeded()
         scheduleSuppressedFirstResponderFocusReapplyIfReady(
@@ -9923,6 +9928,7 @@ final class GhosttySurfaceScrollView: NSView {
             // path so the Metal layer is nudged immediately on plain visibility restores.
             refreshSurfaceNow(reason: "setVisibleInUI")
             scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
+            _ = retryPendingNotificationScrollRestore()
         }
     }
 
@@ -11393,6 +11399,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func handleLiveScroll() {
+        cancelPendingNotificationScrollRestore()
         let cellHeight = surfaceView.cellSize.height
         guard cellHeight > 0 else { return }
 
@@ -11428,9 +11435,10 @@ final class GhosttySurfaceScrollView: NSView {
         let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
             _ = synchronizeGeometryAndContent()
-            return
+        } else {
+            synchronizeScrollView()
         }
-        synchronizeScrollView()
+        _ = retryPendingNotificationScrollRestore()
     }
 
     @discardableResult
