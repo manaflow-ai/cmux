@@ -98,6 +98,48 @@ struct PortalHitTestingPerformanceTests {
     }
 
     @Test
+    func horizontalDividerOwnsBothSidesWhenTabBarOverlapsOneSide() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let contentView = try #require(window.contentView)
+        let container = try #require(contentView.superview)
+        let splitView = NSSplitView(frame: contentView.bounds)
+        splitView.isVertical = false
+        splitView.dividerStyle = .thin
+        splitView.addArrangedSubview(NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 130)))
+        splitView.addArrangedSubview(NSView(frame: NSRect(x: 0, y: 131, width: 420, height: 129)))
+        contentView.addSubview(splitView)
+        splitView.setPosition(130, ofDividerAt: 0)
+        splitView.adjustSubviews()
+
+        let dividerY = splitView.arrangedSubviews[0].frame.maxY + splitView.dividerThickness * 0.5
+        let tabStrip = NSView(frame: NSRect(x: 0, y: dividerY, width: 420, height: 32))
+        contentView.addSubview(tabStrip)
+        BonsplitTabBarHitRegionRegistry.register(tabStrip)
+        defer { BonsplitTabBarHitRegionRegistry.unregister(tabStrip) }
+
+        let host = WindowTerminalHostView(frame: container.convert(contentView.bounds, from: contentView))
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        for offset in [-6.0, 6.0] {
+            let pointInWindow = splitView.convert(NSPoint(x: 100, y: dividerY + offset), to: nil)
+            let pointInHost = host.convert(pointInWindow, from: nil)
+            let event = makeMouseEvent(type: .mouseMoved, at: pointInWindow, window: window)
+
+            #expect(
+                host.performHitTest(at: pointInHost, currentEvent: event) === host,
+                "The portal must own the centered resize band even where one half overlaps pane chrome."
+            )
+        }
+    }
+
+    @Test
     func terminalSplitDividerHitTestingReusesCachedRegionsForPointerMoves() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 300, height: 180),
