@@ -16358,18 +16358,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @MainActor
     func openTerminalNotification(_ notification: TerminalNotification) -> Bool {
         notificationNavigation.openNotification(
-            NotificationNavSnapshot(
-                id: notification.id,
-                tabId: notification.tabId,
-                surfaceId: notification.surfaceId,
-                panelId: notification.panelId,
-                isRead: notification.isRead,
-                clickAction: notification.clickAction.map(Self.navClickAction),
-                scrollRow: notification.scrollPosition?.row,
-                scrollTotalRows: notification.scrollPosition?.totalRows,
-                scrollReplayGeneration: notification.scrollPosition?.replayGeneration,
-                scrollRowSpaceRevision: notification.scrollPosition?.rowSpaceRevision
-            )
+            Self.notificationNavSnapshot(notification)
         )
     }
 

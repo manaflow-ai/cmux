@@ -262,20 +262,7 @@ extension AppDelegate {
 
     var orderedNotificationsForNav: [NotificationNavSnapshot] {
         guard let notificationStore else { return [] }
-        return notificationStore.notifications.map { notification in
-            NotificationNavSnapshot(
-                id: notification.id,
-                tabId: notification.tabId,
-                surfaceId: notification.surfaceId,
-                panelId: notification.panelId,
-                isRead: notification.isRead,
-                clickAction: notification.clickAction.map(Self.navClickAction),
-                scrollRow: notification.scrollPosition?.row,
-                scrollTotalRows: notification.scrollPosition?.totalRows,
-                scrollReplayGeneration: notification.scrollPosition?.replayGeneration,
-                scrollRowSpaceRevision: notification.scrollPosition?.rowSpaceRevision
-            )
-        }
+        return notificationStore.notifications.map(Self.notificationNavSnapshot)
     }
 
     var workspaceUnreadIndicatorIdsForNav: Set<UUID> {
@@ -314,18 +301,7 @@ extension AppDelegate {
         excludingNotificationId excludedNotificationId: UUID? = nil,
         excludingWorkspaceId excludedWorkspaceId: UUID? = nil
     ) -> Bool {
-        NotificationNavSnapshot(
-            id: notification.id,
-            tabId: notification.tabId,
-            surfaceId: notification.surfaceId,
-            panelId: notification.panelId,
-            isRead: notification.isRead,
-            clickAction: notification.clickAction.map(navClickAction),
-            scrollRow: notification.scrollPosition?.row,
-            scrollTotalRows: notification.scrollPosition?.totalRows,
-            scrollReplayGeneration: notification.scrollPosition?.replayGeneration,
-            scrollRowSpaceRevision: notification.scrollPosition?.rowSpaceRevision
-        )
+        notificationNavSnapshot(notification)
         .isOpenableForJump(
             excludingNotificationId: excludedNotificationId,
             excludingWorkspaceId: excludedWorkspaceId
@@ -476,21 +452,6 @@ extension AppDelegate {
 
     func tabTitle(forTabId tabId: UUID) -> String? {
         tabTitle(for: tabId)
-    }
-
-    private func navScrollPosition(
-        row: Int?,
-        totalRows: Int?,
-        replayGeneration: String?,
-        rowSpaceRevision: UInt64?
-    ) -> TerminalNotificationScrollPosition? {
-        guard let row else { return nil }
-        return TerminalNotificationScrollPosition(
-            row: row,
-            totalRows: totalRows,
-            replayGeneration: replayGeneration,
-            rowSpaceRevision: rowSpaceRevision
-        )
     }
 
     // MARK: FinderRevealing helpers
