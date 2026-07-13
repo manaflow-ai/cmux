@@ -215,6 +215,14 @@ struct SSHDeepSleepReattachTests {
     }
 
     @Test func defaultUnlimitedRetryClampsZeroDelayToAvoidHotLoop() throws {
+        try Self.assertZeroDelayIsClamped(reconnectLimit: nil)
+    }
+
+    @Test func finiteRetryClampsZeroDelayToAvoidHotLoop() throws {
+        try Self.assertZeroDelayIsClamped(reconnectLimit: "100000")
+    }
+
+    private static func assertZeroDelayIsClamped(reconnectLimit: String?) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-persistent-zero-delay-\(UUID().uuidString)", isDirectory: true)
@@ -248,6 +256,9 @@ struct SSHDeepSleepReattachTests {
         environment["CMUX_TEST_SLEEP_LOG"] = sleepLog.path
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
         environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "0"
+        if let reconnectLimit {
+            environment["CMUX_SSH_RECONNECT_LIMIT"] = reconnectLimit
+        }
 
         let result = Self.runProcess(
             command: SSHPTYAttachStartupCommandBuilder.command(sessionID: "ssh-test-session"),
