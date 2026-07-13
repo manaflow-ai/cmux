@@ -31,6 +31,15 @@ struct RemoteTTYPortScanScriptTests {
         #expect(result.output.contains(RemoteSessionCoordinator.remotePortScanCompleteMarker) == false)
     }
 
+    @Test("A successful lsof fallback supersedes an unusable ss scan")
+    func successfulLsofFallbackIsComplete() throws {
+        let result = try runFailedSSWithSuccessfulLsof()
+
+        #expect(result.status == 0)
+        #expect(result.output.split(whereSeparator: \.isNewline).contains("ttys010\t4200"))
+        #expect(result.output.contains(RemoteSessionCoordinator.remotePortScanCompleteMarker))
+    }
+
     private func runFakeSS(exitStatus: Int32, protecting ports: Set<Int>) throws -> (status: Int32, output: String) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -54,6 +63,44 @@ struct RemoteTTYPortScanScriptTests {
             """
         )
 
+        return try runGeneratedScript(in: directory, protecting: ports)
+    }
+
+    private func runFailedSSWithSuccessfulLsof() throws -> (status: Int32, output: String) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try writeExecutable(
+            directory.appendingPathComponent("ss"),
+            body: """
+            #!/bin/sh
+            exit 1
+            """
+        )
+        try writeExecutable(
+            directory.appendingPathComponent("ps"),
+            body: """
+            #!/bin/sh
+            printf '%s\\n' '123 ttys010'
+            """
+        )
+        try writeExecutable(
+            directory.appendingPathComponent("lsof"),
+            body: """
+            #!/bin/sh
+            printf '%s\\n' 'p123' 'n*:4200'
+            """
+        )
+
+        return try runGeneratedScript(in: directory, protecting: [])
+    }
+
+    private func runGeneratedScript(
+        in directory: URL,
+        protecting ports: Set<Int>
+    ) throws -> (status: Int32, output: String) {
         let generatedScript = RemoteSessionCoordinator.remotePortScanScript(
             ttyNames: ["ttys010"],
             excluding: [],

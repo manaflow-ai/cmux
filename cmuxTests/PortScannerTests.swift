@@ -271,6 +271,29 @@ struct PortScanPublicationStateTests {
     }
 }
 
+@Suite("Agent port tracking lifecycle")
+struct AgentPortTrackingStateTests {
+    @Test("Only a changed root PID set starts a new snapshot lifecycle")
+    func rootPIDChangesDelimitSnapshots() {
+        var state = AgentPortTrackingState()
+        let workspaceID = UUID()
+
+        let initial = state.replaceRootPIDs([100], workspaceId: workspaceID)
+        let repeated = state.replaceRootPIDs([100], workspaceId: workspaceID)
+        let expanded = state.replaceRootPIDs([100, 200], workspaceId: workspaceID)
+        let stopped = state.replaceRootPIDs([], workspaceId: workspaceID)
+        let repeatedStop = state.replaceRootPIDs([], workspaceId: workspaceID)
+        let restarted = state.replaceRootPIDs([300], workspaceId: workspaceID)
+
+        #expect(initial)
+        #expect(repeated == false)
+        #expect(expanded)
+        #expect(stopped)
+        #expect(repeatedStop == false)
+        #expect(restarted)
+    }
+}
+
 @Suite("Port scan publication buffer")
 struct PortScanPublicationBufferTests {
     @Test("Repeated panel updates retain only the latest value behind one drain")

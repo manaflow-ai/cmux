@@ -35,6 +35,7 @@ final class PortScanner: @unchecked Sendable {
 
     /// Monotonic revision per workspace for tracked agent PID changes.
     private var agentRevisionByWorkspace: [UUID: UInt64] = [:]
+    private var agentTrackingState = AgentPortTrackingState()
     private var scanCoordination = PortScanCoordination()
 
     /// Workspaces with active agent PID tracking that need background rescans.
@@ -311,9 +312,11 @@ final class PortScanner: @unchecked Sendable {
     private func refreshAgentPortsLocked(workspaceId: UUID, agentPIDs: Set<Int>, revision: UInt64) {
         agentRevisionByWorkspace[workspaceId] = revision
         let normalizedPIDs = Set(agentPIDs.filter { $0 > 0 })
+        if agentTrackingState.replaceRootPIDs(normalizedPIDs, workspaceId: workspaceId) {
+            agentPortSnapshot.remove(keys: [workspaceId])
+        }
         if normalizedPIDs.isEmpty {
             trackedAgentWorkspaces.remove(workspaceId)
-            agentPortSnapshot.remove(keys: [workspaceId])
             scanCoordination.removeAgentWorkspaces([workspaceId])
         } else {
             trackedAgentWorkspaces.insert(workspaceId)

@@ -69,6 +69,35 @@ struct PortScanSnapshotReconcilerTests {
         #expect(snapshot == ["workspace": [3000, 4200, 5173]])
     }
 
+    @Test("Tentative ports learned from incomplete scans are recency bounded")
+    func incompletePortChurnIsBounded() {
+        var reconciler = PortScanSnapshotReconciler<String>(maximumIncompletePortsPerKey: 2)
+        reconciler.reconcile(
+            scannedPorts: ["workspace": [4200]],
+            scannedKeys: ["workspace"],
+            trackedKeys: ["workspace"],
+            completeness: .complete
+        )
+        for port in [5000, 5001, 5002] {
+            reconciler.reconcile(
+                scannedPorts: ["workspace": [port]],
+                scannedKeys: ["workspace"],
+                trackedKeys: ["workspace"],
+                completeness: .incomplete
+            )
+        }
+
+        #expect(reconciler.snapshot == ["workspace": [4200, 5001, 5002]])
+
+        let snapshot = reconciler.reconcile(
+            scannedPorts: ["workspace": [5000]],
+            scannedKeys: ["workspace"],
+            trackedKeys: ["workspace"],
+            completeness: .incomplete
+        )
+        #expect(snapshot == ["workspace": [4200, 5000, 5002]])
+    }
+
     @Test("Stopping tracking removes ports immediately")
     func untrackedKeyIsRemovedImmediately() {
         var reconciler = PortScanSnapshotReconciler<String>()

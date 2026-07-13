@@ -107,6 +107,8 @@ extension RemoteSessionCoordinator {
         fi
 
         if [ "$cmux_used_ss" -eq 0 ] && [ -n "$cmux_tmpdir" ] && command -v lsof >/dev/null 2>&1 && [ -n "$cmux_tty_csv" ]; then
+          rm -f "$cmux_scan_incomplete"
+          cmux_scan_complete=0
           cmux_pid_tty_map="$cmux_tmpdir/pid_tty"
           cmux_ps_stderr="$cmux_tmpdir/ps.stderr"
           cmux_ps_status=0
