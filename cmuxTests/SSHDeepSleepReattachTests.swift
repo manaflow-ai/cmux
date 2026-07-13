@@ -106,6 +106,27 @@ struct SSHDeepSleepReattachTests {
         #expect(!workspace.endedPersistentRemotePTYAttachSurfaceIds.contains(panel.id))
     }
 
+    @MainActor
+    @Test func confirmedRemotePTYExitIsNotSnapshottedAsLive() throws {
+        let workspace = Workspace()
+        workspace.configureRemoteConnection(Self.persistentConfiguration(), autoConnect: false)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let sessionID = Workspace.defaultSSHPTYSessionID(
+            workspaceId: workspace.id,
+            panelId: panel.id
+        )
+        _ = workspace.markRemotePTYAttachEnded(surfaceId: panel.id, sessionID: sessionID)
+
+        workspace.markPersistentRemotePTYAttachFailed(surfaceId: panel.id)
+
+        let terminal = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels
+                .first { $0.id == panel.id }?.terminal
+        )
+        #expect(!terminal.isRemoteTerminal)
+        #expect(terminal.remotePTYSessionID == nil)
+    }
+
     @Test func persistentAttachRetriesPastLegacyBudgetWithCappedBackoff() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
