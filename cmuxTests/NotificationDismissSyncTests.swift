@@ -373,6 +373,33 @@ struct NotificationDismissSyncTests {
         #expect(buffer.flushAll() == [])
     }
 
+    @Test func supersededPhoneDismissBufferTransfersKeysAcrossSessionReplacement() {
+        var buffer = SupersededPhoneDismissBuffer()
+        let oldTabId = UUID()
+        let newTabId = UUID()
+        let oldSurfaceId = UUID()
+        let newSurfaceId = UUID()
+        buffer.stash(
+            ids: ["old"],
+            forKey: SupersededPhoneDismissBuffer.key(tabId: oldTabId, surfaceId: oldSurfaceId)
+        )
+        buffer.stash(
+            ids: ["existing"],
+            forKey: SupersededPhoneDismissBuffer.key(tabId: newTabId, surfaceId: newSurfaceId)
+        )
+
+        buffer.transfer(
+            fromTabId: oldTabId,
+            toTabId: newTabId,
+            panelIdMap: [oldSurfaceId: newSurfaceId]
+        )
+
+        #expect(buffer.flush(matchingTabId: oldTabId) == [])
+        #expect(buffer.flush(
+            forKey: SupersededPhoneDismissBuffer.key(tabId: newTabId, surfaceId: newSurfaceId)
+        ) == ["existing", "old"])
+    }
+
     /// The phone badge counts unread notification entries only. Workspace-level
     /// manual unread indicators feed the Mac Dock badge but have no phone banner,
     /// so they must not inflate the phone count.

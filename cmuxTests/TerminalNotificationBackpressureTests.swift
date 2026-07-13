@@ -99,12 +99,47 @@ final class TerminalNotificationBackpressureTests: XCTestCase {
         XCTAssertEqual(acceptedState.2, acceptedState.2.sorted())
         XCTAssertEqual(Set(acceptedState.2).count, acceptedState.2.count)
     }
+
+    func testCapacityWaitExpiresBeforeNotificationAcceptance() async {
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer {
+            bus.discardPendingNotifications()
+            bus.drainForTesting()
+            bus.setDrainsSuspendedForTesting(false)
+        }
+        for index in 0..<TerminalMutationBus.maximumPendingMutationCount {
+            XCTAssertTrue(bus.enqueueNotification(
+                tabId: UUID(), surfaceId: nil, title: "Seed \(index)", subtitle: "", body: ""
+            ))
+        }
+
+        let completed = expectation(description: "capacity wait expired")
+        let results = NotificationEnqueueResults()
+        DispatchQueue.global(qos: .userInitiated).async {
+            results.append(bus.enqueueNotification(
+                tabId: UUID(), surfaceId: nil, title: "Timed out", subtitle: "", body: ""
+            ))
+            completed.fulfill()
+        }
+        for _ in 0..<10_000 {
+            if bus.notificationQueueStateForTesting().0 == 1 { break }
+            await Task.yield()
+        }
+        XCTAssertEqual(bus.notificationQueueStateForTesting().0, 1)
+        await fulfillment(of: [completed], timeout: TerminalMutationBus.notificationCapacityWaitTimeout + 1)
+        XCTAssertEqual(results.snapshot(), [false])
+        XCTAssertEqual(bus.notificationQueueStateForTesting().0, 0)
+        XCTAssertFalse(bus.notificationQueueStateForTesting().1.contains("Timed out"))
+    }
 }
 
 @MainActor
 final class TerminalNotificationSessionReplacementTests: XCTestCase {
     func testReplacementTransfersLiveAndRestoredNotificationsToRebuiltTargets() {
         let store = TerminalNotificationStore.shared
+        let bus = TerminalMutationBus.shared
         let oldTabId = UUID()
         let newTabId = UUID()
         let oldSurfaceId = UUID()
@@ -115,7 +150,14 @@ final class TerminalNotificationSessionReplacementTests: XCTestCase {
         let unrelatedTabId = UUID()
         let unrelatedSurfaceId = UUID()
         let unrelatedId = UUID()
-        defer { store.replaceNotificationsForTesting([]) }
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer {
+            store.replaceNotificationsForTesting([])
+            bus.discardPendingNotifications()
+            bus.drainForTesting()
+            bus.setDrainsSuspendedForTesting(false)
+        }
 
         let liveCanonical = notification(
             id: restoredId,
@@ -157,7 +199,6 @@ final class TerminalNotificationSessionReplacementTests: XCTestCase {
             replacingTabId: oldTabId,
             panelIdMap: [oldSurfaceId: newSurfaceId]
         )
-
         let duringRelease = notification(
             id: duringReleaseId,
             tabId: oldTabId,
@@ -167,11 +208,26 @@ final class TerminalNotificationSessionReplacementTests: XCTestCase {
             isRead: false
         )
         store.replaceNotificationsForTesting(store.notifications + [duringRelease])
+        store.markUnread(forTabId: oldTabId)
+        store.setPanelDerivedUnread(true, forTabId: oldTabId)
+        store.restoreUnreadIndicator(forTabId: oldTabId)
+        store.setFocusedReadIndicator(forTabId: oldTabId, surfaceId: oldSurfaceId)
+        store.markUnread(forTabId: unrelatedTabId)
+        store.setFocusedReadIndicator(forTabId: unrelatedTabId, surfaceId: unrelatedSurfaceId)
+        XCTAssertTrue(bus.enqueueNotification(
+            tabId: oldTabId,
+            surfaceId: oldSurfaceId,
+            title: "Accepted during restore",
+            subtitle: "",
+            body: ""
+        ))
+        let queuedBeforeTransfer = bus.notificationIdentityStateForTesting()
         store.transferSessionNotifications(
             fromTabId: oldTabId,
             toTabId: newTabId,
             panelIdMap: [oldSurfaceId: newSurfaceId]
         )
+        let queuedAfterTransfer = bus.notificationIdentityStateForTesting()
 
         XCTAssertEqual(store.notifications.map(\.id), [duringReleaseId, lateId, restoredId, unrelatedId])
         XCTAssertEqual(store.notifications.first(where: { $0.id == restoredId })?.title, "Live canonical")
@@ -184,6 +240,74 @@ final class TerminalNotificationSessionReplacementTests: XCTestCase {
         XCTAssertEqual(store.notifications.first(where: { $0.id == duringReleaseId })?.surfaceId, newSurfaceId)
         XCTAssertEqual(store.notifications.first(where: { $0.id == unrelatedId }), unrelated)
         XCTAssertEqual(Set(store.notifications.map(\.id)).count, store.notifications.count)
+        XCTAssertEqual(queuedBeforeTransfer.count, 1)
+        XCTAssertEqual(queuedAfterTransfer.count, 1)
+        XCTAssertEqual(queuedAfterTransfer[0].0, queuedBeforeTransfer[0].0)
+        XCTAssertEqual(queuedAfterTransfer[0].1, queuedBeforeTransfer[0].1)
+        XCTAssertEqual(queuedAfterTransfer[0].4, queuedBeforeTransfer[0].4)
+        XCTAssertEqual(queuedAfterTransfer[0].2, newTabId)
+        XCTAssertEqual(queuedAfterTransfer[0].3, newSurfaceId)
+        XCTAssertFalse(store.hasManualUnread(forTabId: oldTabId))
+        XCTAssertFalse(store.hasPanelDerivedUnread(forTabId: oldTabId))
+        XCTAssertFalse(store.hasRestoredUnreadIndicator(forTabId: oldTabId))
+        XCTAssertNil(store.focusedReadIndicatorSurfaceId(forTabId: oldTabId))
+        XCTAssertTrue(store.hasManualUnread(forTabId: newTabId))
+        XCTAssertTrue(store.hasPanelDerivedUnread(forTabId: newTabId))
+        XCTAssertTrue(store.hasRestoredUnreadIndicator(forTabId: newTabId))
+        XCTAssertEqual(store.focusedReadIndicatorSurfaceId(forTabId: newTabId), newSurfaceId)
+        XCTAssertTrue(store.hasManualUnread(forTabId: unrelatedTabId))
+        XCTAssertEqual(store.focusedReadIndicatorSurfaceId(forTabId: unrelatedTabId), unrelatedSurfaceId)
+    }
+
+    func testReplacementRemapsQueuedSurfaceAndWorkspaceClears() {
+        let store = TerminalNotificationStore.shared
+        let bus = TerminalMutationBus.shared
+        let oldTabId = UUID()
+        let newTabId = UUID()
+        let oldSurfaceId = UUID()
+        let newSurfaceId = UUID()
+        let survivingSurfaceId = UUID()
+        let unrelatedTabId = UUID()
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer {
+            store.replaceNotificationsForTesting([])
+            bus.discardPendingNotifications()
+            bus.drainForTesting()
+            bus.setDrainsSuspendedForTesting(false)
+        }
+
+        let clearedBySurface = notification(
+            id: UUID(), tabId: newTabId, surfaceId: newSurfaceId,
+            title: "Surface", createdAt: Date(timeIntervalSince1970: 3), isRead: false
+        )
+        let clearedByWorkspace = notification(
+            id: UUID(), tabId: newTabId, surfaceId: survivingSurfaceId,
+            title: "Workspace", createdAt: Date(timeIntervalSince1970: 2), isRead: false
+        )
+        let unrelated = notification(
+            id: UUID(), tabId: unrelatedTabId, surfaceId: UUID(),
+            title: "Unrelated", createdAt: Date(timeIntervalSince1970: 1), isRead: false
+        )
+        store.replaceNotificationsForTesting([clearedBySurface, clearedByWorkspace, unrelated])
+
+        bus.enqueueClearNotifications(forTabId: oldTabId, surfaceId: oldSurfaceId)
+        store.transferSessionNotifications(
+            fromTabId: oldTabId,
+            toTabId: newTabId,
+            panelIdMap: [oldSurfaceId: newSurfaceId]
+        )
+        bus.drainForTesting()
+        XCTAssertEqual(store.notifications.map(\.id), [clearedByWorkspace.id, unrelated.id])
+
+        bus.enqueueClearNotifications(forTabId: oldTabId)
+        store.transferSessionNotifications(
+            fromTabId: oldTabId,
+            toTabId: newTabId,
+            panelIdMap: [oldSurfaceId: newSurfaceId]
+        )
+        bus.drainForTesting()
+        XCTAssertEqual(store.notifications, [unrelated])
     }
 
     private func notification(

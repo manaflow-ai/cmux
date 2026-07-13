@@ -66,11 +66,38 @@ struct SessionNotificationSnapshot: Codable, Sendable {
 }
 
 extension TerminalNotificationStore {
+    func restoreSessionNotifications(
+        _ restoredNotifications: [TerminalNotification],
+        forTabId tabId: UUID,
+        replacingTabId: UUID? = nil,
+        panelIdMap: [UUID: UUID] = [:]
+    ) {
+        clearFocusedReadIndicator(forTabId: tabId)
+        let merged = Self.mergeRestoredSessionNotifications(
+            existing: notifications,
+            restored: restoredNotifications,
+            tabId: tabId,
+            replacingTabId: replacingTabId,
+            panelIdMap: panelIdMap
+        )
+        applySessionNotificationMerge(merged)
+    }
+
     func transferSessionNotifications(
         fromTabId: UUID,
         toTabId: UUID,
         panelIdMap: [UUID: UUID]
     ) {
+        TerminalMutationBus.shared.transferPendingNotifications(
+            fromTabId: fromTabId,
+            toTabId: toTabId,
+            panelIdMap: panelIdMap
+        )
+        transferSessionNotificationState(
+            fromTabId: fromTabId,
+            toTabId: toTabId,
+            panelIdMap: panelIdMap
+        )
         let merged = Self.mergeRestoredSessionNotifications(
             existing: notifications,
             restored: [],
@@ -79,6 +106,16 @@ extension TerminalNotificationStore {
             panelIdMap: panelIdMap
         )
         applySessionNotificationMerge(merged)
+    }
+
+    nonisolated static func replacingWorkspaceId(
+        in ids: Set<UUID>,
+        from oldId: UUID,
+        to newId: UUID
+    ) -> Set<UUID> {
+        var result = ids
+        if result.remove(oldId) != nil { result.insert(newId) }
+        return result
     }
 
     nonisolated static func mergeRestoredSessionNotifications(
@@ -176,5 +213,54 @@ private extension TerminalNotification {
             scrollPosition: scrollPosition,
             clickAction: clickAction
         )
+    }
+}
+
+extension TerminalMutationBus {
+    nonisolated static func remappingPendingEntries(
+        _ entries: [TerminalSocketMutationEntry],
+        fromTabId: UUID,
+        toTabId: UUID,
+        panelIdMap: [UUID: UUID]
+    ) -> [TerminalSocketMutationEntry] {
+        entries.map { entry in
+            TerminalSocketMutationEntry(
+                sequence: entry.sequence,
+                mutation: entry.mutation.replacingTarget(
+                    fromTabId: fromTabId,
+                    toTabId: toTabId,
+                    panelIdMap: panelIdMap
+                ),
+                notificationGeneration: entry.notificationGeneration,
+                performReplaceKey: entry.performReplaceKey
+            )
+        }
+    }
+}
+
+private extension TerminalSocketMutation {
+    func replacingTarget(
+        fromTabId: UUID,
+        toTabId: UUID,
+        panelIdMap: [UUID: UUID]
+    ) -> TerminalSocketMutation {
+        switch self {
+        case .deliverNotification(let notification) where notification.key.tabId == fromTabId:
+            let surfaceId = notification.key.surfaceId.flatMap { panelIdMap[$0] }
+            return .deliverNotification(QueuedTerminalNotification(
+                id: notification.id,
+                acceptedAt: notification.acceptedAt,
+                key: QueuedTerminalNotificationKey(tabId: toTabId, surfaceId: surfaceId),
+                title: notification.title,
+                subtitle: notification.subtitle,
+                body: notification.body
+            ))
+        case .clearNotificationsForTab(let tabId) where tabId == fromTabId:
+            return .clearNotificationsForTab(toTabId)
+        case .clearNotificationsForSurface(let tabId, let surfaceId) where tabId == fromTabId:
+            return .clearNotificationsForSurface(toTabId, panelIdMap[surfaceId] ?? surfaceId)
+        default:
+            return self
+        }
     }
 }

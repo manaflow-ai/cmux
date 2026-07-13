@@ -1,11 +1,11 @@
 import CmuxRemoteSession
 import Foundation
-fileprivate struct QueuedTerminalNotificationKey: Hashable, Sendable {
+struct QueuedTerminalNotificationKey: Hashable, Sendable {
     let tabId: UUID
     let surfaceId: UUID?
 }
 
-fileprivate struct QueuedTerminalNotification: Sendable {
+struct QueuedTerminalNotification: Sendable {
     let id: UUID
     let acceptedAt: Date
     let key: QueuedTerminalNotificationKey
@@ -14,7 +14,7 @@ fileprivate struct QueuedTerminalNotification: Sendable {
     let body: String
 }
 
-fileprivate enum TerminalSocketMutation {
+enum TerminalSocketMutation {
     case deliverNotification(QueuedTerminalNotification)
     case clearAllNotifications
     case clearNotificationsForTab(UUID)
@@ -22,7 +22,7 @@ fileprivate enum TerminalSocketMutation {
     case perform(@MainActor () -> Void)
 }
 
-fileprivate struct TerminalSocketMutationEntry {
+struct TerminalSocketMutationEntry {
     let sequence: UInt64
     let mutation: TerminalSocketMutation
     let notificationGeneration: UInt64?
@@ -33,6 +33,7 @@ final class TerminalMutationBus: @unchecked Sendable {
     static let shared = TerminalMutationBus()
     static let maximumPendingMutationCount = 256
     static let maximumWaitingNotificationProducerCount = 16
+    static let notificationCapacityWaitTimeout: TimeInterval = 1
 
     private let lock = NSCondition()
     private var pending: [TerminalSocketMutationEntry] = []
@@ -68,8 +69,13 @@ final class TerminalMutationBus: @unchecked Sendable {
                     return false
                 }
                 waitingNotificationProducerCount += 1
+                let deadline = Date(timeIntervalSinceNow: Self.notificationCapacityWaitTimeout)
                 while pending.count - pendingHead >= Self.maximumPendingMutationCount {
-                    lock.wait()
+                    guard lock.wait(until: deadline) else {
+                        waitingNotificationProducerCount -= 1
+                        lock.unlock()
+                        return false
+                    }
                 }
                 waitingNotificationProducerCount -= 1
             }
@@ -164,6 +170,19 @@ final class TerminalMutationBus: @unchecked Sendable {
         discardPendingNotifications { notification, _ in
             notification.key.tabId == tabId && notification.key.surfaceId == surfaceId
         }
+    }
+    nonisolated func transferPendingNotifications(
+        fromTabId: UUID,
+        toTabId: UUID,
+        panelIdMap: [UUID: UUID]
+    ) {
+        guard fromTabId != toTabId else { return }
+        lock.lock()
+        compactPendingForMutation()
+        pending = Self.remappingPendingEntries(
+            pending, fromTabId: fromTabId, toTabId: toTabId, panelIdMap: panelIdMap
+        )
+        lock.unlock()
     }
 
     private func enqueueClear(
@@ -284,13 +303,19 @@ final class TerminalMutationBus: @unchecked Sendable {
         }
         return (waitingNotificationProducerCount, notifications.map(\.title), live.map(\.sequence))
     }
+    nonisolated func notificationIdentityStateForTesting() -> [(UUID, Date, UUID, UUID?, UInt64)] {
+        lock.lock(); defer { lock.unlock() }
+        return pending[pendingHead...].compactMap { entry in
+            guard case .deliverNotification(let notification) = entry.mutation else { return nil }
+            return (notification.id, notification.acceptedAt, notification.key.tabId, notification.key.surfaceId, entry.sequence)
+        }
+    }
     nonisolated func setDrainsSuspendedForTesting(_ suspended: Bool) {
         let shouldScheduleDrain: Bool
         lock.lock()
         drainsSuspendedForTesting = suspended
         shouldScheduleDrain = !suspended && drainScheduled && pendingHead < pending.count
         lock.unlock()
-
         if shouldScheduleDrain {
             scheduleDrain()
         }

@@ -50,6 +50,18 @@ struct SupersededPhoneDismissBuffer {
         return drained
     }
 
+    mutating func transfer(fromTabId: UUID, toTabId: UUID, panelIdMap: [UUID: UUID]) {
+        let prefix = fromTabId.uuidString + ":"
+        for sourceKey in idsByKey.keys.filter({ $0.hasPrefix(prefix) }).sorted() {
+            let surfaceText = String(sourceKey.dropFirst(prefix.count))
+            let surfaceId = UUID(uuidString: surfaceText).flatMap { panelIdMap[$0] }
+            stash(
+                ids: idsByKey.removeValue(forKey: sourceKey) ?? [],
+                forKey: Self.key(tabId: toTabId, surfaceId: surfaceId)
+            )
+        }
+    }
+
     /// Take (and clear) everything stashed across all keys, for clear-all /
     /// mark-all-read operations.
     mutating func flushAll() -> [String] {

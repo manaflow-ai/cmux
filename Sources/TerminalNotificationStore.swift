@@ -1534,26 +1534,24 @@ final class TerminalNotificationStore: ObservableObject {
         emitNotificationsDismissed(ids: [id.uuidString], drainedSuperseded: supersededDrained)
     }
 
-    func restoreSessionNotifications(
-        _ restoredNotifications: [TerminalNotification],
-        forTabId tabId: UUID,
-        replacingTabId: UUID? = nil,
-        panelIdMap: [UUID: UUID] = [:]
-    ) {
-        clearFocusedReadIndicator(forTabId: tabId)
-        let merged = Self.mergeRestoredSessionNotifications(
-            existing: notifications,
-            restored: restoredNotifications,
-            tabId: tabId,
-            replacingTabId: replacingTabId,
-            panelIdMap: panelIdMap
-        )
-        applySessionNotificationMerge(merged)
-    }
-
     func applySessionNotificationMerge(_ merged: [TerminalNotification]) {
         guard merged != notifications else { return }
         notifications = merged
+    }
+
+    func transferSessionNotificationState(fromTabId: UUID, toTabId: UUID, panelIdMap: [UUID: UUID]) {
+        let manual = Self.replacingWorkspaceId(in: manualUnreadWorkspaceIds, from: fromTabId, to: toTabId)
+        if manual != manualUnreadWorkspaceIds { manualUnreadWorkspaceIds = manual }
+        let panel = Self.replacingWorkspaceId(in: panelDerivedUnreadWorkspaceIds, from: fromTabId, to: toTabId)
+        if panel != panelDerivedUnreadWorkspaceIds { panelDerivedUnreadWorkspaceIds = panel }
+        let restored = Self.replacingWorkspaceId(in: restoredUnreadWorkspaceIds, from: fromTabId, to: toTabId)
+        if restored != restoredUnreadWorkspaceIds { restoredUnreadWorkspaceIds = restored }
+        var focused = focusedReadIndicatorByTabId
+        if let oldSurfaceId = focused.removeValue(forKey: fromTabId), focused[toTabId] == nil {
+            focused[toTabId] = panelIdMap[oldSurfaceId]
+        }
+        if focused != focusedReadIndicatorByTabId { focusedReadIndicatorByTabId = focused }
+        supersededPhoneDismissBuffer.transfer(fromTabId: fromTabId, toTabId: toTabId, panelIdMap: panelIdMap)
     }
 
     private func replaceNotificationsForClear(_ next: [TerminalNotification]) { suppressNotificationDiffPublishing = true; notifications = next; suppressNotificationDiffPublishing = false }
