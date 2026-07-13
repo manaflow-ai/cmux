@@ -536,6 +536,58 @@ import Testing
         #expect(store.connectionError == nil)
         #expect(store.connectionErrorGuidance == nil)
     }
+
+    @Test func manualPairingClearsInactiveQueuedStoredMacReconnect() async throws {
+        let pairedMacStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [:],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedMacStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1")
+        )
+        store.suspendForegroundRefresh()
+        let result = ReconnectResultProbe()
+        let reconnect = Task { @MainActor in
+            let connected = await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+            await result.record(connected)
+            return connected
+        }
+        #expect(try await pollUntil {
+            store.connectionLifecycle.resourceSnapshot.pendingRequestCount == 1
+                && store.connectionLifecycleRequestWaiters.count == 1
+        })
+
+        store.prepareForManualPairing()
+
+        #expect(try await pollUntil { await result.value() == false })
+        #expect(store.connectionLifecycle.resourceSnapshot.pendingRequestCount == 0)
+        #expect(store.connectionLifecycleRequestWaiters.isEmpty)
+        store.resetConnectionLifecycle()
+        #expect(await reconnect.value == false)
+        store.resumeForegroundRefresh()
+        #expect(await pairedMacStore.currentLoadStartCount(teamID: nil) == 0)
+    }
+
+    @Test func emptyPairedMacStoreCompletesWithoutRecoveryFailure() async {
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: DelayedTeamPairedMacStore(
+                recordsByTeam: [:],
+                blockedTeams: []
+            ),
+            identityProvider: StaticIdentityProvider(userID: "user-1")
+        )
+
+        let connected = await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+
+        #expect(!connected)
+        #expect(!store.connectionRecoveryFailed)
+        #expect(store.connectionError == nil)
+        #expect(store.connectionErrorGuidance == nil)
+        #expect(store.didFinishStoredMacReconnectAttempt)
+    }
 }
 
 private func storedMac(
