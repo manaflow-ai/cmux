@@ -659,6 +659,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D1FFC0DE000000000000C002 /* DiffCommentStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FFC0DE000000000000C001 /* DiffCommentStoreTests.swift */; };
 		D1FFC0DE000000000000D002 /* DiffCommentSubmissionPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FFC0DE000000000000D001 /* DiffCommentSubmissionPool.swift */; };
 		D1FFC0DE000000000000E002 /* DiffSidecarBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FFC0DE000000000000E001 /* DiffSidecarBridge.swift */; };
+		D1FFC0DE000000000000F002 /* DiffViewerAssetReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FFC0DE000000000000F001 /* DiffViewerAssetReader.swift */; };
 		A28B087F0000000000000001 /* DiffViewerEditableFocusMessageHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28B087F0000000000000002 /* DiffViewerEditableFocusMessageHandler.swift */; };
 		A28B087F0000000000000019 /* DiffViewerLiveHTTPSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28B087F0000000000000018 /* DiffViewerLiveHTTPSession.swift */; };
 		A28B087F0000000000000017 /* DiffViewerNavigationDocumentSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28B087F0000000000000016 /* DiffViewerNavigationDocumentSnapshot.swift */; };
@@ -2449,6 +2450,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D1FFC0DE000000000000C001 /* DiffCommentStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffCommentStoreTests.swift; sourceTree = "<group>"; };
 		D1FFC0DE000000000000D001 /* DiffCommentSubmissionPool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffCommentSubmissionPool.swift; sourceTree = "<group>"; };
 		D1FFC0DE000000000000E001 /* DiffSidecarBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/DiffSidecarBridge.swift; sourceTree = "<group>"; };
+		D1FFC0DE000000000000F001 /* DiffViewerAssetReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/DiffViewerAssetReader.swift; sourceTree = "<group>"; };
 		A28B087F0000000000000002 /* DiffViewerEditableFocusMessageHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/DiffViewerEditableFocusMessageHandler.swift; sourceTree = "<group>"; };
 		A28B087F0000000000000018 /* DiffViewerLiveHTTPSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/DiffViewerLiveHTTPSession.swift; sourceTree = "<group>"; };
 		A28B087F0000000000000016 /* DiffViewerNavigationDocumentSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/DiffViewerNavigationDocumentSnapshot.swift; sourceTree = "<group>"; };
@@ -4561,6 +4563,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9F100000000000000000013 /* AgentSessionWebRendererCoordinator.swift */,
 				D1FFC0DE000000000000B001 /* DiffCommentsBridge.swift */,
 				D1FFC0DE000000000000E001 /* DiffSidecarBridge.swift */,
+				D1FFC0DE000000000000F001 /* DiffViewerAssetReader.swift */,
 				A28B087F0000000000000002 /* DiffViewerEditableFocusMessageHandler.swift */,
 				A28B087F0000000000000004 /* MarkdownEditableFocusMessageHandler.swift */,
 				A28B087F0000000000000006 /* ViewerNavigationKeyRouter.swift */,
@@ -6241,6 +6244,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D1FFC0DE000000000000A002 /* DiffCommentStore.swift in Sources */,
 				D1FFC0DE000000000000D002 /* DiffCommentSubmissionPool.swift in Sources */,
 				D1FFC0DE000000000000E002 /* DiffSidecarBridge.swift in Sources */,
+				D1FFC0DE000000000000F002 /* DiffViewerAssetReader.swift in Sources */,
 				A28B087F0000000000000001 /* DiffViewerEditableFocusMessageHandler.swift in Sources */,
 				A28B087F0000000000000019 /* DiffViewerLiveHTTPSession.swift in Sources */,
 				A28B087F0000000000000017 /* DiffViewerNavigationDocumentSnapshot.swift in Sources */,

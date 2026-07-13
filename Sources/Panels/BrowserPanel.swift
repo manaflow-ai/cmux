@@ -2478,13 +2478,13 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
                     urlSchemeTask.didReceive(response)
                 }) else { return }
 
-                let handle = try FileHandle(forReadingFrom: file.fileURL)
+                let reader = try DiffViewerAssetReader(fileURL: file.fileURL)
                 defer {
-                    try? handle.close()
+                    try? reader.close()
                 }
 
                 while self.isSchemeTaskActive(taskID) {
-                    let data = try handle.read(upToCount: 64 * 1024) ?? Data()
+                    let data = try reader.read(upToCount: 64 * 1024)
                     if data.isEmpty {
                         break
                     }
@@ -2587,7 +2587,6 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             "X-Content-Type-Options": "nosniff",
             "Cross-Origin-Resource-Policy": "same-origin"
         ]
-        if file.fileURL.lastPathComponent.hasSuffix(".deflate") { headers["Content-Encoding"] = "deflate" }
         if file.mimeType == "text/html" {
             headers["Content-Security-Policy"] = [
                 "default-src 'none'",
