@@ -24676,9 +24676,9 @@ struct CMUXCLI {
                     // A re-homed cleanup scopes the clear to the pane: wiping
                     // the whole DESTINATION workspace would erase sibling
                     // panes' notifications. Non-moved keeps workspace-wide.
-                    let clearScope = workspaceId == consumedSession.workspaceId
-                        ? ""
-                        : socketPanelOption(cleanupSurfaceId)
+                    let cleanupTargetChanged = workspaceId != consumedSession.workspaceId
+                        || cleanupSurfaceId != consumedSession.surfaceId
+                    let clearScope = cleanupTargetChanged ? socketPanelOption(cleanupSurfaceId) : ""
                     _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(clearScope)", client: client)
                 } else {
                     telemetry.breadcrumb("claude-hook.session-end.stale")

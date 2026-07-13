@@ -85,8 +85,7 @@ extension TerminalController: ControlNotificationContext {
             surfaceId: surfaceID,
             title: title,
             subtitle: subtitle,
-            body: body,
-            retargetsToLiveSurfaceOwner: false
+            body: body
         )
         return .delivered(
             workspaceID: ws.id,
@@ -127,7 +126,8 @@ extension TerminalController: ControlNotificationContext {
             surfaceId: surfaceID,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            retargetsToLiveSurfaceOwner: false
         )
         return .delivered(
             workspaceID: ws.id,
