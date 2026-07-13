@@ -404,38 +404,6 @@ struct NotificationChronologyTests {
     }
 
     @Test
-    func sessionReplacementRetainsUnmappedNotificationLocation() throws {
-        let oldTabId = UUID()
-        let newTabId = UUID()
-        let unmappedSurfaceId = UUID()
-        let unmappedPanelId = UUID()
-        let current = TerminalNotification(
-            id: UUID(),
-            tabId: oldTabId,
-            surfaceId: unmappedSurfaceId,
-            panelId: unmappedPanelId,
-            title: "Unmapped surface",
-            subtitle: "",
-            body: "",
-            createdAt: Date(timeIntervalSince1970: 1),
-            isRead: false
-        )
-
-        let merged = TerminalNotificationStore.mergeRestoredSessionNotifications(
-            existing: [current],
-            restored: [],
-            tabId: newTabId,
-            replacingTabId: oldTabId,
-            panelIdMap: [:]
-        )
-        let transferred = try #require(merged.first)
-
-        #expect(transferred.tabId == newTabId)
-        #expect(transferred.surfaceId == unmappedSurfaceId)
-        #expect(transferred.panelId == unmappedPanelId)
-    }
-
-    @Test
     func reversedCooldownCompletionKeepsNewestReservationMonotonic() throws {
         var reservations = NotificationCooldownReservations()
         var dates: [String: Date] = [:]
