@@ -177,12 +177,17 @@ describe("iOS analytics events route", () => {
   });
 
   test("namespaces an unauthenticated distinct id away from account identities", async () => {
-    const response = await POST(analyticsRequest(deletedUserID));
+    const response = await POST(analyticsRequest(deletedUserID, {
+      user_id: deletedUserID,
+      email: "deleted@example.com",
+      screen: "pairing",
+    }));
 
     expect(response.status).toBe(200);
     const [event] = forwardedPostHogBatch();
     expect(event.distinct_id).not.toBe(deletedUserID);
     expect(event.distinct_id).toStartWith("ios-anon-sha256:");
+    expect(event.properties).toEqual({});
   });
 
   test("namespaces the anonymous alias on an authenticated identify event", async () => {
@@ -315,7 +320,10 @@ function conditionColumnNames(condition: unknown): string[] {
   return names;
 }
 
-function analyticsRequest(distinctID: string): Request {
+function analyticsRequest(
+  distinctID: string,
+  properties: Record<string, unknown> = {},
+): Request {
   return new Request("https://cmux.test/api/analytics/events", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -324,7 +332,7 @@ function analyticsRequest(distinctID: string): Request {
         {
           event: "ios_app_launched",
           distinct_id: distinctID,
-          properties: {},
+          properties,
         },
       ],
     }),
