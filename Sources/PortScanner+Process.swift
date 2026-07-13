@@ -41,13 +41,12 @@ extension PortScanner {
         agentRootsByWorkspace: [UUID: Set<AgentPortRootIdentity>]
     ) async -> (
         values: [Int: Set<UUID>],
-        processParents: [Int: Int],
         completenessByWorkspace: [UUID: PortScanCompleteness]
     ) {
-        guard !agentRootsByWorkspace.isEmpty else { return ([:], [:], [:]) }
+        guard !agentRootsByWorkspace.isEmpty else { return ([:], [:]) }
         let initialRootValidation = validateAgentRoots(agentRootsByWorkspace)
         guard !initialRootValidation.values.isEmpty else {
-            return ([:], [:], initialRootValidation.completenessByWorkspace)
+            return ([:], initialRootValidation.completenessByWorkspace)
         }
         let processScan = await runAllProcesses()
         // A root recycled during `ps` must not inherit descendants from the captured graph.
@@ -67,7 +66,6 @@ extension PortScanner {
                 processParents: processScan.values,
                 rootsByWorkspace: postScanRootValidation.values
             ),
-            processScan.values,
             completenessByWorkspace
         )
     }
@@ -188,20 +186,20 @@ extension PortScanner {
         return (retainedOwnership, completenessByWorkspace)
     }
 
-    /// Reapplies recorded root births to the captured process graph before accepting PID continuity.
+    /// Requires captured identities to remain owned in a fresh process graph before accepting PID continuity.
     func finalizeAgentPIDOwnership(
         rootsByWorkspace: [UUID: Set<AgentPortRootIdentity>],
-        processParents: [Int: Int],
         capturedOwnershipByPID: [Int: Set<UUID>],
         capturedIdentitiesByPID: [Int: AgentPIDProcessIdentity],
         workspaceIds: Set<UUID>
-    ) -> (
+    ) async -> (
         ownershipByPID: [Int: Set<UUID>],
         completenessByWorkspace: [UUID: PortScanCompleteness]
     ) {
+        let currentProcessScan = await runAllProcesses()
         let finalRootValidation = validateAgentRoots(rootsByWorkspace)
         let finalRootOwnership = Self.agentProcessOwnership(
-            processParents: processParents,
+            processParents: currentProcessScan.values,
             rootsByWorkspace: finalRootValidation.values
         )
         let rootFencedOwnership = capturedOwnershipByPID.reduce(into: [Int: Set<UUID>]()) { result, item in
@@ -215,14 +213,17 @@ extension PortScanner {
             identitiesByPID: capturedIdentitiesByPID,
             workspaceIds: workspaceIds
         )
-        return (
-            identityValidation.ownershipByPID,
-            combineAgentCompleteness(
-                finalRootValidation.completenessByWorkspace,
-                identityValidation.completenessByWorkspace,
-                workspaceIds: workspaceIds
-            )
+        var completenessByWorkspace = combineAgentCompleteness(
+            finalRootValidation.completenessByWorkspace,
+            identityValidation.completenessByWorkspace,
+            workspaceIds: workspaceIds
         )
+        if currentProcessScan.completeness == .incomplete {
+            for workspaceId in workspaceIds {
+                completenessByWorkspace[workspaceId] = .incomplete
+            }
+        }
+        return (identityValidation.ownershipByPID, completenessByWorkspace)
     }
 
     func combineAgentCompleteness(

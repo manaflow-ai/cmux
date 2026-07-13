@@ -161,9 +161,8 @@ struct PortScannerIdentityContinuityTests {
             workspaceIds: [recycledWorkspaceID, healthyWorkspaceID]
         )
 
-        let finalized = scanner.finalizeAgentPIDOwnership(
+        let finalized = await scanner.finalizeAgentPIDOwnership(
             rootsByWorkspace: rootsByWorkspace,
-            processParents: expanded.processParents,
             capturedOwnershipByPID: captured.ownershipByPID,
             capturedIdentitiesByPID: captured.identitiesByPID,
             workspaceIds: [recycledWorkspaceID, healthyWorkspaceID]
@@ -182,6 +181,58 @@ struct PortScannerIdentityContinuityTests {
         #expect(finalized.completenessByWorkspace[healthyWorkspaceID] == .complete)
         #expect(attributedPorts[recycledWorkspaceID] == nil)
         #expect(attributedPorts[healthyWorkspaceID] == [4300])
+    }
+
+    @Test("A post-capture process graph rejects stale descendant ownership")
+    func postCaptureGraphRejectsReusedDescendant() async {
+        let workspaceID = UUID()
+        let rootIdentity = AgentPIDProcessIdentity(pid: 100, startSeconds: 10, startMicroseconds: 0)
+        let replacementIdentity = AgentPIDProcessIdentity(pid: 101, startSeconds: 20, startMicroseconds: 0)
+        let root = AgentPortRootIdentity(pid: 100, processIdentity: rootIdentity)
+        let runner = RootReuseCommandRunner(
+            firstResult: CommandResult(
+                stdout: "100 1\n101 100\n",
+                stderr: "",
+                exitStatus: 0,
+                timedOut: false,
+                executionError: nil
+            ),
+            secondResult: CommandResult(
+                stdout: "100 1\n101 999\n",
+                stderr: "",
+                exitStatus: 0,
+                timedOut: false,
+                executionError: nil
+            )
+        )
+        let scanner = PortScanner(
+            commandRunner: runner,
+            processIdentityProvider: { pid in
+                switch pid {
+                case 100: rootIdentity
+                case 101: replacementIdentity
+                default: nil
+                }
+            },
+            processPresenceProvider: { _ in .present }
+        )
+        let rootsByWorkspace = [workspaceID: Set([root])]
+        let expanded = await scanner.expandAgentProcessTree(agentRootsByWorkspace: rootsByWorkspace)
+        let captured = scanner.captureAgentPIDIdentities(
+            ownershipByPID: expanded.values,
+            workspaceIds: [workspaceID]
+        )
+
+        let finalized = await scanner.finalizeAgentPIDOwnership(
+            rootsByWorkspace: rootsByWorkspace,
+            capturedOwnershipByPID: captured.ownershipByPID,
+            capturedIdentitiesByPID: captured.identitiesByPID,
+            workspaceIds: [workspaceID]
+        )
+
+        #expect(captured.ownershipByPID[101] == [workspaceID])
+        #expect(finalized.ownershipByPID == [100: [workspaceID]])
+        #expect(finalized.completenessByWorkspace[workspaceID] == .complete)
     }
 
     @Test("Unavailable post-lsof identity is incomplete only for owning workspaces")
@@ -253,10 +304,15 @@ struct PortScannerIdentityContinuityTests {
 }
 
 private actor RootReuseCommandRunner: CommandRunning {
-    let result: CommandResult
+    private let results: [CommandResult]
+    private var nextResultIndex = 0
 
     init(result: CommandResult) {
-        self.result = result
+        self.results = [result]
+    }
+
+    init(firstResult: CommandResult, secondResult: CommandResult) {
+        self.results = [firstResult, secondResult]
     }
 
     func run(
@@ -265,6 +321,8 @@ private actor RootReuseCommandRunner: CommandRunning {
         arguments: [String],
         timeout: TimeInterval?
     ) async -> CommandResult {
-        result
+        let index = min(nextResultIndex, results.count - 1)
+        nextResultIndex += 1
+        return results[index]
     }
 }

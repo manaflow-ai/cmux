@@ -296,9 +296,8 @@ final class PortScanner: @unchecked Sendable {
         let pidsCsv = allPids.sorted().map(String.init).joined(separator: ",")
         let lsofScan = await runLsof(pidsCsv: pidsCsv)
         let pidToPorts = lsofScan.values
-        let finalizedAgentPIDs = finalizeAgentPIDOwnership(
+        let finalizedAgentPIDs = await finalizeAgentPIDOwnership(
             rootsByWorkspace: agentRootsByWorkspace,
-            processParents: agentProcessScan.processParents,
             capturedOwnershipByPID: agentOwnershipBeforeLsof,
             capturedIdentitiesByPID: capturedAgentPIDs.identitiesByPID,
             workspaceIds: workspaceIds
@@ -524,9 +523,8 @@ final class PortScanner: @unchecked Sendable {
                 .joined(separator: ",")
             let lsofScan = await self.runLsof(pidsCsv: pidsCsv)
             let pidToPorts = lsofScan.values
-            let finalizedAgentPIDs = self.finalizeAgentPIDOwnership(
+            let finalizedAgentPIDs = await self.finalizeAgentPIDOwnership(
                 rootsByWorkspace: agentRootsByWorkspace,
-                processParents: agentProcessScan.processParents,
                 capturedOwnershipByPID: capturedAgentPIDs.ownershipByPID,
                 capturedIdentitiesByPID: capturedAgentPIDs.identitiesByPID,
                 workspaceIds: request.workspaceIds

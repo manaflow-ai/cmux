@@ -19,8 +19,10 @@ struct PortScanPublicationStateTests {
         let staleRevision = try #require(state.replacePanelLifecycle(key: key, ttyName: "ttys001"))
         let stale = PanelPortScanPublication(key: key, ports: [4000], revision: staleRevision)
         var buffer = PortScanPublicationBuffer()
-        #expect(buffer.enqueue(panelPublications: [stale]))
-        let claimed = try #require(buffer.takePendingBatch())
+        let didEnqueue = buffer.enqueue(panelPublications: [stale])
+        let pendingBatch = buffer.takePendingBatch()
+        #expect(didEnqueue)
+        let claimed = try #require(pendingBatch)
 
         let currentRevision = try #require(state.replacePanelLifecycle(key: key, ttyName: "ttys002"))
         let current = PanelPortScanPublication(key: key, ports: [], revision: currentRevision)

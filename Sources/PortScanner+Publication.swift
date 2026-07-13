@@ -161,23 +161,28 @@ extension PortScanner {
             eligibleWorkspaceIds: trackedAgentWorkspaces.union(forceAgentResultWorkspaces),
             requestID: requestID
         )
+        guard !validWorkspaceIds.isEmpty else { return [] }
+        var replacementWorkspaces: Set<UUID> = []
+        var scannedPorts: [UUID: [Int]] = [:]
+        var validCompletenessByWorkspace: [UUID: PortScanCompleteness] = [:]
         for workspaceId in validWorkspaceIds {
             let completeness = completenessByWorkspace[workspaceId, default: .incomplete]
-            let replacementWorkspaces = agentSnapshotReplacementState.workspacesToReplace(
+            replacementWorkspaces.formUnion(agentSnapshotReplacementState.workspacesToReplace(
                 from: [workspaceId],
                 completeness: completeness
-            )
-            agentPortSnapshot.remove(keys: replacementWorkspaces)
-            let scannedPorts = agentPortsByWorkspace[workspaceId].map {
-                [workspaceId: Array($0)]
-            } ?? [:]
-            agentPortSnapshot.reconcile(
-                scannedPorts: scannedPorts,
-                scannedKeys: [workspaceId],
-                trackedKeys: trackedAgentWorkspaces,
-                completeness: completeness
-            )
+            ))
+            validCompletenessByWorkspace[workspaceId] = completeness
+            if let ports = agentPortsByWorkspace[workspaceId] {
+                scannedPorts[workspaceId] = Array(ports)
+            }
         }
+        agentPortSnapshot.remove(keys: replacementWorkspaces)
+        agentPortSnapshot.reconcile(
+            scannedPorts: scannedPorts,
+            scannedKeys: validWorkspaceIds,
+            trackedKeys: trackedAgentWorkspaces,
+            completenessByKey: validCompletenessByWorkspace
+        )
         let stableSnapshot = agentPortSnapshot.snapshot
         for workspaceId in validWorkspaceIds {
             let expectedRevision = agentRevisions[workspaceId, default: 0]
