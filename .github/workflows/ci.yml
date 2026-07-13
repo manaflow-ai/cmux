@@ -683,6 +683,7 @@ jobs:
             -only-testing:cmuxTests/SharedLiveAgentIndexHookStoreInvalidationTests \
             -only-testing:cmuxTests/TerminationResumeIndexCoordinatorInvalidationTests \
             -only-testing:cmuxTests/ClosedItemHistoryAgentEnrichmentTests \
+            -only-testing:cmuxTests/AgentHibernationPlannerSwiftTests \
             test
 
       - name: Run unit tests

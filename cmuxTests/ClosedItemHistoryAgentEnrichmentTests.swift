@@ -135,7 +135,7 @@ struct ClosedItemHistoryAgentEnrichmentTests {
     }
 
     @Test
-    func timedOutCaptureClosesOnceEvenWhenLoaderFinishesLate() async throws {
+    func timedOutCaptureKeepsCloseBlockedEvenWhenLoaderFinishesLate() async throws {
         let timeoutGate = AsyncGate()
         let loadStarted = DispatchSemaphore(value: 0)
         let loadCompleted = DispatchSemaphore(value: 0)
@@ -165,27 +165,28 @@ struct ClosedItemHistoryAgentEnrichmentTests {
             )),
             coordinatedBy: sharedIndex
         ))
-        let closeTask = AgentMetadataCloseDeferrer().deferClose(
-            id: UUID(),
+        let closeDeferrer = AgentMetadataCloseDeferrer()
+        let closeID = UUID()
+        let closeTask = closeDeferrer.deferClose(
+            id: closeID,
             until: captureTask
         ) {
             closeCount.withLock { $0 += 1 }
         }
-
         #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: loadStarted))
         #expect(closeCount.withLock { $0 } == 0)
         #expect(!store.canReopen)
         await timeoutGate.open()
         await closeTask.value
-        #expect(closeCount.withLock { $0 } == 1)
-        #expect(store.canReopen)
-
+        #expect(closeCount.withLock { $0 } == 0)
+        #expect(closeDeferrer.isDeferringClose(id: closeID))
+        #expect(!store.canReopen)
         releaseLoad.signal()
         #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: loadCompleted))
         await Task.yield()
-        #expect(closeCount.withLock { $0 } == 1)
+        #expect(closeCount.withLock { $0 } == 0)
+        #expect(!store.canReopen)
     }
-
     @Test
     func newerCaptureReplacesOlderDeferredClose() async {
         let panelId = UUID()

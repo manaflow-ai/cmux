@@ -11,7 +11,7 @@ import Testing
 extension AgentHibernationPlannerSwiftTests {
     @MainActor
     @Test
-    func laterBatchRequestUsesIndexCapturedAfterEarlierMonitorQuiescence() async throws {
+    func multipleRestoreMonitorsShareOnePostQuiescenceIndex() async throws {
         let controller = AgentHibernationController.shared
         let wasEnabled = AgentHibernationTrackingGate.isEnabled()
         let previousAppDelegate = AppDelegate.shared
@@ -42,51 +42,51 @@ extension AgentHibernationPlannerSwiftTests {
             controller: controller,
             confirmationFingerprint: confirmationFingerprint
         )
-        let secondActiveIndex = Self.batchIndexWithLiveProcess(
-            workspaceId: second.record.key.workspaceId,
-            panelId: second.record.key.panelId,
-            agent: second.record.agent,
-            processID: 987_654
-        )
-
-        let monitorReady = DispatchSemaphore(value: 0)
-        let cancellationObserved = DispatchSemaphore(value: 0)
-        let releaseMonitor = DispatchSemaphore(value: 0)
-        let olderMonitorRequestID = UUID()
-        let olderMonitorTask = Task.detached {
-            await withTaskCancellationHandler {
-                monitorReady.signal()
-                releaseMonitor.wait()
-            } onCancel: {
-                cancellationObserved.signal()
+        let fixtures = [first, second]
+        let monitorReady = fixtures.map { _ in DispatchSemaphore(value: 0) }
+        let cancellationObserved = fixtures.map { _ in DispatchSemaphore(value: 0) }
+        let releaseMonitor = fixtures.map { _ in DispatchSemaphore(value: 0) }
+        let olderMonitorRequestIDs = fixtures.map { _ in UUID() }
+        let olderMonitorTasks = fixtures.indices.map { index in
+            Task.detached {
+                await withTaskCancellationHandler {
+                    monitorReady[index].signal()
+                    releaseMonitor[index].wait()
+                } onCancel: {
+                    cancellationObserved[index].signal()
+                }
             }
         }
         defer {
-            releaseMonitor.signal()
-            olderMonitorTask.cancel()
-            controller.clearPostTeardownRestoreTask(
-                transcriptPath: first.transcriptPath,
-                requestID: olderMonitorRequestID
-            )
+            for index in fixtures.indices {
+                releaseMonitor[index].signal()
+                olderMonitorTasks[index].cancel()
+                controller.clearPostTeardownRestoreTask(
+                    transcriptPath: fixtures[index].transcriptPath,
+                    requestID: olderMonitorRequestIDs[index]
+                )
+            }
         }
-        #expect(await Self.wait(for: monitorReady))
-        #expect(controller.storePostTeardownRestoreTask(
-            olderMonitorTask,
-            transcriptPath: first.transcriptPath,
-            requestID: olderMonitorRequestID,
-            cancellationState: AgentHibernationController.PostTeardownRestoreCancellationState()
-        ))
+        for index in fixtures.indices {
+            #expect(await Self.wait(for: monitorReady[index]))
+            #expect(controller.storePostTeardownRestoreTask(
+                olderMonitorTasks[index],
+                transcriptPath: fixtures[index].transcriptPath,
+                requestID: olderMonitorRequestIDs[index],
+                cancellationState: AgentHibernationController.PostTeardownRestoreCancellationState()
+            ))
+        }
 
         controller.postSnapshotValidationIndexSequence = 0
+        // Synchronous loader callbacks can overlap; the lock protects only this test counter.
         let loadCount = OSAllocatedUnfairLock(initialState: 0)
         let teardownTask = controller.beginConfirmedTeardowns(
             [first.request, second.request],
             postSnapshotIndexLoader: {
-                let invocation = loadCount.withLock { count in
+                loadCount.withLock { count in
                     count += 1
-                    return count
                 }
-                return invocation == 1 ? .empty : secondActiveIndex
+                return .empty
             },
             runtimeObservationProvider: { _ in
                 AgentHibernationController.ConfirmedTeardownRuntimeObservation(
@@ -95,16 +95,15 @@ extension AgentHibernationPlannerSwiftTests {
                 )
             }
         )
-        #expect(await Self.wait(for: cancellationObserved))
-        releaseMonitor.signal()
+        for index in fixtures.indices {
+            #expect(await Self.wait(for: cancellationObserved[index]))
+            releaseMonitor[index].signal()
+        }
         await teardownTask.value
 
         #expect(loadCount.withLock { $0 } == 2)
         #expect(first.panel.isAgentHibernated)
-        #expect(
-            !second.panel.isAgentHibernated,
-            "Later batch requests must use the successor index captured after an earlier monitor quiesces."
-        )
+        #expect(second.panel.isAgentHibernated)
 
         _ = await controller.cancelPostTeardownRestoreTaskForReplacement(
             transcriptPath: first.transcriptPath
@@ -192,27 +191,4 @@ extension AgentHibernationPlannerSwiftTests {
         )
     }
 
-    nonisolated private static func batchIndexWithLiveProcess(
-        workspaceId: UUID,
-        panelId: UUID,
-        agent: SessionRestorableAgentSnapshot,
-        processID: Int
-    ) -> RestorableAgentSessionIndex {
-        let key = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
-        let detected: RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry = (
-            snapshot: agent,
-            updatedAt: 42,
-            processIDs: [processID],
-            agentProcessIDs: [processID],
-            sessionIDSource: .explicit
-        )
-        return RestorableAgentSessionIndex.load(
-            homeDirectory: "/tmp/cmux-batch-teardown-missing-home",
-            fileManager: .default,
-            registry: CmuxVaultAgentRegistry(registrations: []),
-            detectedSnapshots: [key: detected],
-            processArgumentsProvider: { _ in nil },
-            processIdentityProvider: { _ in nil }
-        )
-    }
 }
