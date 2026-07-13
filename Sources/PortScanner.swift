@@ -28,8 +28,10 @@ final class PortScanner: @unchecked Sendable {
 
     let queue = DispatchQueue(label: "com.cmux.port-scanner", qos: .utility)
     let processIdentityProvider: @Sendable (pid_t) -> AgentPIDProcessIdentity?
+    let processPresenceProvider: @Sendable (pid_t) -> PIDPresence
 
     private var ttyNames: [PanelKey: String] = [:]
+    private var panelRevisionByKey: [PanelKey: UInt64] = [:]
 
     var agentRevisionByWorkspace: [UUID: UInt64] = [:]
     private var agentTrackingState = AgentPortTrackingState()
@@ -67,32 +69,42 @@ final class PortScanner: @unchecked Sendable {
         commandRunner: any CommandRunning = CommandRunner(),
         processIdentityProvider: @escaping @Sendable (pid_t) -> AgentPIDProcessIdentity? = {
             AgentPIDProcessIdentity(pid: $0)
+        },
+        processPresenceProvider: @escaping @Sendable (pid_t) -> PIDPresence = {
+            PIDPresence.current(pid: $0)
         }
     ) {
         self.commandRunner = commandRunner
         self.processIdentityProvider = processIdentityProvider
+        self.processPresenceProvider = processPresenceProvider
     }
 
+    @MainActor
     func registerTTY(workspaceId: UUID, panelId: UUID, ttyName: String) {
+        let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
+        guard let revision = publicationState.replacePanelLifecycle(key: key, ttyName: ttyName) else {
+            return
+        }
         queue.async { [self] in
-            let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
             let previousTTY = ttyNames[key]
-            guard previousTTY != ttyName else { return }
             panelPortSnapshot.remove(keys: [key])
             ttyNames[key] = ttyName
+            panelRevisionByKey[key] = revision
             if previousTTY != nil {
-                let publication = ttyNames.keys.reduce(into: [PanelKey: [Int]]()) { result, panelKey in
-                    result[panelKey] = panelPortSnapshot.snapshot[panelKey] ?? []
-                }
-                enqueuePanelPublication(publication)
+                enqueuePanelPublication([
+                    PanelPortScanPublication(key: key, ports: [], revision: revision)
+                ])
             }
         }
     }
 
+    @MainActor
     func unregisterPanel(workspaceId: UUID, panelId: UUID) {
+        let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
+        publicationState.invalidatePanelLifecycle(for: key)
         queue.async { [self] in
-            let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
             ttyNames.removeValue(forKey: key)
+            panelRevisionByKey.removeValue(forKey: key)
             pendingKicks.remove(key)
             panelPortSnapshot.remove(keys: [key])
         }
@@ -204,6 +216,9 @@ final class PortScanner: @unchecked Sendable {
         pendingKicks.removeAll()
 
         let workspaceIds = Set(panelSnapshot.keys.map(\.workspaceId))
+        let panelRevisions = panelSnapshot.keys.reduce(into: [PanelKey: UInt64]()) { result, key in
+            result[key] = panelRevisionByKey[key]
+        }
         let agentRevisions = agentRevisionSnapshot(for: workspaceIds)
         let agentRootsByWorkspace = agentTrackingState.roots(for: workspaceIds)
         let requestID = scanCoordination.makeRequestID()
@@ -211,6 +226,7 @@ final class PortScanner: @unchecked Sendable {
             guard let self else { return }
             await self.finishScan(
                 panelSnapshot: panelSnapshot,
+                panelRevisions: panelRevisions,
                 agentRootsByWorkspace: agentRootsByWorkspace,
                 agentRevisions: agentRevisions,
                 requestID: requestID
@@ -220,6 +236,7 @@ final class PortScanner: @unchecked Sendable {
 
     private func finishScan(
         panelSnapshot: [PanelKey: String],
+        panelRevisions: [PanelKey: UInt64],
         agentRootsByWorkspace: [UUID: Set<AgentPortRootIdentity>],
         agentRevisions: [UUID: UInt64],
         requestID: UInt64
@@ -239,10 +256,18 @@ final class PortScanner: @unchecked Sendable {
             : await runPS(ttyList: ttyList)
         let agentProcessScan = await agentProcessScanTask
         let pidToTTY = psScan.values
-        let agentOwnershipByPID = agentProcessScan.values
-        let agentTreeCompletenessByWorkspace = agentProcessScan.completenessByWorkspace
+        let capturedAgentPIDs = captureAgentPIDIdentities(
+            ownershipByPID: agentProcessScan.values,
+            workspaceIds: workspaceIds
+        )
+        let agentOwnershipBeforeLsof = capturedAgentPIDs.ownershipByPID
+        let agentCompletenessBeforeLsof = combineAgentCompleteness(
+            agentProcessScan.completenessByWorkspace,
+            capturedAgentPIDs.completenessByWorkspace,
+            workspaceIds: workspaceIds
+        )
 
-        let allPids = Set(pidToTTY.keys).union(agentOwnershipByPID.keys)
+        let allPids = Set(pidToTTY.keys).union(agentOwnershipBeforeLsof.keys)
         guard !allPids.isEmpty else {
             let panelResults = panelSnapshot.map { ($0.key, [Int]()) }
             let panelCompletenessByKey = Self.panelCompletenessByKey(
@@ -255,11 +280,12 @@ final class PortScanner: @unchecked Sendable {
                 self?.completePanelScan(
                     panelResults,
                     panelTTYs: panelSnapshot,
+                    panelRevisions: panelRevisions,
                     workspaceIds: workspaceIds,
                     agentPortsByWorkspace: [:],
                     agentRevisions: agentRevisions,
                     panelCompletenessByKey: panelCompletenessByKey,
-                    agentCompletenessByWorkspace: agentTreeCompletenessByWorkspace,
+                    agentCompletenessByWorkspace: agentCompletenessBeforeLsof,
                     requestID: requestID
                 )
             }
@@ -270,6 +296,14 @@ final class PortScanner: @unchecked Sendable {
         let pidsCsv = allPids.sorted().map(String.init).joined(separator: ",")
         let lsofScan = await runLsof(pidsCsv: pidsCsv)
         let pidToPorts = lsofScan.values
+        let finalizedAgentPIDs = finalizeAgentPIDOwnership(
+            rootsByWorkspace: agentRootsByWorkspace,
+            processParents: agentProcessScan.processParents,
+            capturedOwnershipByPID: agentOwnershipBeforeLsof,
+            capturedIdentitiesByPID: capturedAgentPIDs.identitiesByPID,
+            workspaceIds: workspaceIds
+        )
+        let agentOwnershipByPID = finalizedAgentPIDs.ownershipByPID
 
         // 3. Join: PID→TTY + PID→ports → TTY→ports
         var portsByTTY: [String: Set<Int>] = [:]
@@ -300,8 +334,12 @@ final class PortScanner: @unchecked Sendable {
             workspaceIds: workspaceIds
         )
         let agentCompletenessByWorkspace = combineAgentCompleteness(
-            agentTreeCompletenessByWorkspace,
-            lsofAgentCompleteness,
+            agentCompletenessBeforeLsof,
+            combineAgentCompleteness(
+                finalizedAgentPIDs.completenessByWorkspace,
+                lsofAgentCompleteness,
+                workspaceIds: workspaceIds
+            ),
             workspaceIds: workspaceIds
         )
         let panelCompletenessByKey = Self.panelCompletenessByKey(
@@ -315,6 +353,7 @@ final class PortScanner: @unchecked Sendable {
             self?.completePanelScan(
                 panelResults,
                 panelTTYs: panelSnapshot,
+                panelRevisions: panelRevisions,
                 workspaceIds: workspaceIds,
                 agentPortsByWorkspace: agentPortsSnapshot,
                 agentRevisions: agentRevisions,
@@ -328,6 +367,7 @@ final class PortScanner: @unchecked Sendable {
     private func completePanelScan(
         _ panelResults: [(PanelKey, [Int])],
         panelTTYs: [PanelKey: String],
+        panelRevisions: [PanelKey: UInt64],
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
         agentRevisions: [UUID: UInt64],
@@ -339,6 +379,7 @@ final class PortScanner: @unchecked Sendable {
         deliverResults(
             panelResults,
             panelTTYs: panelTTYs,
+            panelRevisions: panelRevisions,
             workspaceIds: workspaceIds,
             agentPortsByWorkspace: agentPortsByWorkspace,
             agentRevisions: agentRevisions,
@@ -457,22 +498,40 @@ final class PortScanner: @unchecked Sendable {
             let agentProcessScan = await self.expandAgentProcessTree(
                 agentRootsByWorkspace: agentRootsByWorkspace
             )
-            let agentOwnershipByPID = agentProcessScan.values
-            let agentTreeCompletenessByWorkspace = agentProcessScan.completenessByWorkspace
-            guard !agentOwnershipByPID.isEmpty else {
+            let capturedAgentPIDs = self.captureAgentPIDIdentities(
+                ownershipByPID: agentProcessScan.values,
+                workspaceIds: request.workspaceIds
+            )
+            let agentCompletenessBeforeLsof = self.combineAgentCompleteness(
+                agentProcessScan.completenessByWorkspace,
+                capturedAgentPIDs.completenessByWorkspace,
+                workspaceIds: request.workspaceIds
+            )
+            guard !capturedAgentPIDs.ownershipByPID.isEmpty else {
                 self.queue.async { [weak self] in
                     self?.completeAgentScan(
                         request,
                         agentPortsByWorkspace: [:],
-                        completenessByWorkspace: agentTreeCompletenessByWorkspace
+                        completenessByWorkspace: agentCompletenessBeforeLsof
                     )
                 }
                 return
             }
 
-            let pidsCsv = agentOwnershipByPID.keys.sorted().map(String.init).joined(separator: ",")
+            let pidsCsv = capturedAgentPIDs.ownershipByPID.keys
+                .sorted()
+                .map(String.init)
+                .joined(separator: ",")
             let lsofScan = await self.runLsof(pidsCsv: pidsCsv)
             let pidToPorts = lsofScan.values
+            let finalizedAgentPIDs = self.finalizeAgentPIDOwnership(
+                rootsByWorkspace: agentRootsByWorkspace,
+                processParents: agentProcessScan.processParents,
+                capturedOwnershipByPID: capturedAgentPIDs.ownershipByPID,
+                capturedIdentitiesByPID: capturedAgentPIDs.identitiesByPID,
+                workspaceIds: request.workspaceIds
+            )
+            let agentOwnershipByPID = finalizedAgentPIDs.ownershipByPID
             var agentPortsByWorkspace: [UUID: Set<Int>] = [:]
             for (pid, ports) in pidToPorts {
                 guard let ownership = agentOwnershipByPID[pid] else { continue }
@@ -487,8 +546,12 @@ final class PortScanner: @unchecked Sendable {
                 workspaceIds: request.workspaceIds
             )
             let completenessByWorkspace = self.combineAgentCompleteness(
-                agentTreeCompletenessByWorkspace,
-                lsofCompletenessByWorkspace,
+                agentCompletenessBeforeLsof,
+                self.combineAgentCompleteness(
+                    finalizedAgentPIDs.completenessByWorkspace,
+                    lsofCompletenessByWorkspace,
+                    workspaceIds: request.workspaceIds
+                ),
                 workspaceIds: request.workspaceIds
             )
 
@@ -523,6 +586,7 @@ final class PortScanner: @unchecked Sendable {
     private func deliverResults(
         _ panelResults: [(PanelKey, [Int])],
         panelTTYs: [PanelKey: String],
+        panelRevisions: [PanelKey: UInt64],
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
         agentRevisions: [UUID: UInt64],
@@ -533,6 +597,7 @@ final class PortScanner: @unchecked Sendable {
         if scanCoordination.shouldApplyPanelResult(requestID: requestID) {
             let scannedPorts = Dictionary(uniqueKeysWithValues: panelResults.filter { key, _ in
                 ttyNames[key] == panelTTYs[key]
+                    && panelRevisionByKey[key] == panelRevisions[key]
             })
             let trackedKeys = Set(ttyNames.keys)
             let stableSnapshot = panelPortSnapshot.reconcile(
@@ -541,10 +606,15 @@ final class PortScanner: @unchecked Sendable {
                 trackedKeys: trackedKeys,
                 completenessByKey: panelCompletenessByKey
             )
-            let publication = trackedKeys.reduce(into: [PanelKey: [Int]]()) { result, key in
-                result[key] = stableSnapshot[key] ?? []
+            let publications = scannedPorts.keys.compactMap { key -> PanelPortScanPublication? in
+                guard let revision = panelRevisions[key] else { return nil }
+                return PanelPortScanPublication(
+                    key: key,
+                    ports: stableSnapshot[key] ?? [],
+                    revision: revision
+                )
             }
-            enqueuePanelPublication(publication)
+            enqueuePanelPublication(publications)
         }
         deliverAgentResults(
             workspaceIds: workspaceIds,

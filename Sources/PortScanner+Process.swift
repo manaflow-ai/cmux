@@ -41,12 +41,13 @@ extension PortScanner {
         agentRootsByWorkspace: [UUID: Set<AgentPortRootIdentity>]
     ) async -> (
         values: [Int: Set<UUID>],
+        processParents: [Int: Int],
         completenessByWorkspace: [UUID: PortScanCompleteness]
     ) {
-        guard !agentRootsByWorkspace.isEmpty else { return ([:], [:]) }
+        guard !agentRootsByWorkspace.isEmpty else { return ([:], [:], [:]) }
         let initialRootValidation = validateAgentRoots(agentRootsByWorkspace)
         guard !initialRootValidation.values.isEmpty else {
-            return ([:], initialRootValidation.completenessByWorkspace)
+            return ([:], [:], initialRootValidation.completenessByWorkspace)
         }
         let processScan = await runAllProcesses()
         // A root recycled during `ps` must not inherit descendants from the captured graph.
@@ -66,6 +67,7 @@ extension PortScanner {
                 processParents: processScan.values,
                 rootsByWorkspace: postScanRootValidation.values
             ),
+            processScan.values,
             completenessByWorkspace
         )
     }
@@ -112,11 +114,15 @@ extension PortScanner {
         for (workspaceId, roots) in rootsByWorkspace {
             for root in roots where root.pid > 0 {
                 guard let expectedIdentity = root.processIdentity else {
-                    completenessByWorkspace[workspaceId] = .incomplete
+                    if processPresenceProvider(pid_t(root.pid)) != .absent {
+                        completenessByWorkspace[workspaceId] = .incomplete
+                    }
                     continue
                 }
                 guard let currentIdentity = processIdentityProvider(pid_t(root.pid)) else {
-                    completenessByWorkspace[workspaceId] = .incomplete
+                    if processPresenceProvider(pid_t(root.pid)) != .absent {
+                        completenessByWorkspace[workspaceId] = .incomplete
+                    }
                     continue
                 }
                 guard currentIdentity == expectedIdentity else { continue }
@@ -124,6 +130,99 @@ extension PortScanner {
             }
         }
         return (validRootsByWorkspace, completenessByWorkspace)
+    }
+
+    func captureAgentPIDIdentities(
+        ownershipByPID: [Int: Set<UUID>],
+        workspaceIds: Set<UUID>
+    ) -> (
+        ownershipByPID: [Int: Set<UUID>],
+        identitiesByPID: [Int: AgentPIDProcessIdentity],
+        completenessByWorkspace: [UUID: PortScanCompleteness]
+    ) {
+        var retainedOwnership: [Int: Set<UUID>] = [:]
+        var identitiesByPID: [Int: AgentPIDProcessIdentity] = [:]
+        var completenessByWorkspace = workspaceIds.reduce(into: [UUID: PortScanCompleteness]()) {
+            $0[$1] = .complete
+        }
+        for (pid, workspaceOwnership) in ownershipByPID {
+            guard let identity = processIdentityProvider(pid_t(pid)), Int(identity.pid) == pid else {
+                if processPresenceProvider(pid_t(pid)) != .absent {
+                    for workspaceId in workspaceOwnership {
+                        completenessByWorkspace[workspaceId] = .incomplete
+                    }
+                }
+                continue
+            }
+            retainedOwnership[pid] = workspaceOwnership
+            identitiesByPID[pid] = identity
+        }
+        return (retainedOwnership, identitiesByPID, completenessByWorkspace)
+    }
+
+    func revalidateAgentPIDIdentities(
+        ownershipByPID: [Int: Set<UUID>],
+        identitiesByPID: [Int: AgentPIDProcessIdentity],
+        workspaceIds: Set<UUID>
+    ) -> (
+        ownershipByPID: [Int: Set<UUID>],
+        completenessByWorkspace: [UUID: PortScanCompleteness]
+    ) {
+        var retainedOwnership: [Int: Set<UUID>] = [:]
+        var completenessByWorkspace = workspaceIds.reduce(into: [UUID: PortScanCompleteness]()) {
+            $0[$1] = .complete
+        }
+        for (pid, workspaceOwnership) in ownershipByPID {
+            guard let expectedIdentity = identitiesByPID[pid] else { continue }
+            guard let currentIdentity = processIdentityProvider(pid_t(pid)) else {
+                if processPresenceProvider(pid_t(pid)) != .absent {
+                    for workspaceId in workspaceOwnership {
+                        completenessByWorkspace[workspaceId] = .incomplete
+                    }
+                }
+                continue
+            }
+            guard currentIdentity == expectedIdentity else { continue }
+            retainedOwnership[pid] = workspaceOwnership
+        }
+        return (retainedOwnership, completenessByWorkspace)
+    }
+
+    /// Reapplies recorded root births to the captured process graph before accepting PID continuity.
+    func finalizeAgentPIDOwnership(
+        rootsByWorkspace: [UUID: Set<AgentPortRootIdentity>],
+        processParents: [Int: Int],
+        capturedOwnershipByPID: [Int: Set<UUID>],
+        capturedIdentitiesByPID: [Int: AgentPIDProcessIdentity],
+        workspaceIds: Set<UUID>
+    ) -> (
+        ownershipByPID: [Int: Set<UUID>],
+        completenessByWorkspace: [UUID: PortScanCompleteness]
+    ) {
+        let finalRootValidation = validateAgentRoots(rootsByWorkspace)
+        let finalRootOwnership = Self.agentProcessOwnership(
+            processParents: processParents,
+            rootsByWorkspace: finalRootValidation.values
+        )
+        let rootFencedOwnership = capturedOwnershipByPID.reduce(into: [Int: Set<UUID>]()) { result, item in
+            let retainedWorkspaces = item.value.intersection(finalRootOwnership[item.key] ?? [])
+            if !retainedWorkspaces.isEmpty {
+                result[item.key] = retainedWorkspaces
+            }
+        }
+        let identityValidation = revalidateAgentPIDIdentities(
+            ownershipByPID: rootFencedOwnership,
+            identitiesByPID: capturedIdentitiesByPID,
+            workspaceIds: workspaceIds
+        )
+        return (
+            identityValidation.ownershipByPID,
+            combineAgentCompleteness(
+                finalRootValidation.completenessByWorkspace,
+                identityValidation.completenessByWorkspace,
+                workspaceIds: workspaceIds
+            )
+        )
     }
 
     func combineAgentCompleteness(
@@ -260,6 +359,7 @@ extension PortScanner {
         let requestedPIDs = Set(pidsCsv.split(separator: ",").compactMap { Int($0) })
         let incompletePIDs = Set(requestedPIDs.filter {
             processIdentityProvider(pid_t($0)) == nil
+                && processPresenceProvider(pid_t($0)) != .absent
         })
         let globallyComplete = result.executionError == nil
             && !result.timedOut

@@ -10,9 +10,17 @@ struct PortScanPublicationBuffer {
     private var pending = PortScanPublicationBatch()
     private var claimedAgentPublicationsByWorkspace: [UUID: AgentPortScanPublication] = [:]
 
-    mutating func enqueue(panelPortsByKey: [PortScanner.PanelKey: [Int]]) -> Bool {
-        pending.panelPortsByKey = panelPortsByKey
-        guard !pending.isEmpty else { return false }
+    mutating func enqueue(panelPublications: some Sequence<PanelPortScanPublication>) -> Bool {
+        var didEnqueue = false
+        for publication in panelPublications {
+            if let existing = pending.panelPublicationsByKey[publication.key],
+               !publication.isNewer(than: existing) {
+                continue
+            }
+            pending.panelPublicationsByKey[publication.key] = publication
+            didEnqueue = true
+        }
+        guard didEnqueue else { return false }
         return scheduleDrainIfNeeded()
     }
 
@@ -80,5 +88,11 @@ struct PortScanPublicationBuffer {
 private extension AgentPortScanPublication {
     func isNewer(than other: AgentPortScanPublication) -> Bool {
         revision > other.revision || (revision == other.revision && requestID >= other.requestID)
+    }
+}
+
+private extension PanelPortScanPublication {
+    func isNewer(than other: PanelPortScanPublication) -> Bool {
+        revision >= other.revision
     }
 }

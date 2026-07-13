@@ -12,6 +12,23 @@ import Testing
 @MainActor
 @Suite("Port scan publication lifecycle")
 struct PortScanPublicationStateTests {
+    @Test("A claimed panel publication is rejected after its TTY lifecycle changes")
+    func staleClaimedPanelPublicationIsRejected() throws {
+        let state = PortScanPublicationState()
+        let key = PortScanner.PanelKey(workspaceId: UUID(), panelId: UUID())
+        let staleRevision = try #require(state.replacePanelLifecycle(key: key, ttyName: "ttys001"))
+        let stale = PanelPortScanPublication(key: key, ports: [4000], revision: staleRevision)
+        var buffer = PortScanPublicationBuffer()
+        #expect(buffer.enqueue(panelPublications: [stale]))
+        let claimed = try #require(buffer.takePendingBatch())
+
+        let currentRevision = try #require(state.replacePanelLifecycle(key: key, ttyName: "ttys002"))
+        let current = PanelPortScanPublication(key: key, ports: [], revision: currentRevision)
+
+        #expect(state.acceptCurrentPanelPublications(claimed.panelPublicationsByKey.values).isEmpty)
+        #expect(state.acceptCurrentPanelPublications([current]) == [current])
+    }
+
     @Test("A newer lifecycle revision rejects a queued stale publication")
     func staleRevisionIsRejected() {
         let state = PortScanPublicationState()
@@ -181,26 +198,61 @@ struct AgentPortPublicationHistoryTests {
 
 @Suite("Port scan publication buffer")
 struct PortScanPublicationBufferTests {
+    @MainActor
+    @Test("Changing one TTY enqueues only that panel's empty lifecycle publication")
+    func ttyChangePublicationIsPanelScoped() throws {
+        let scanner = PortScanner()
+        let workspaceID = UUID()
+        let changedPanelID = UUID()
+        let unchangedPanelID = UUID()
+        scanner.registerTTY(workspaceId: workspaceID, panelId: changedPanelID, ttyName: "ttys001")
+        scanner.registerTTY(workspaceId: workspaceID, panelId: unchangedPanelID, ttyName: "ttys002")
+        scanner.queue.sync {}
+
+        scanner.registerTTY(workspaceId: workspaceID, panelId: changedPanelID, ttyName: "ttys003")
+        let batch = scanner.queue.sync { () -> PortScanPublicationBatch? in
+            let batch = scanner.publicationBuffer.takePendingBatch()
+            _ = scanner.publicationBuffer.takePendingBatch()
+            return batch
+        }
+        let publication = try #require(batch?.panelPublicationsByKey[PortScanner.PanelKey(
+            workspaceId: workspaceID,
+            panelId: changedPanelID
+        )])
+
+        #expect(batch?.panelPublicationsByKey.count == 1)
+        #expect(publication.ports.isEmpty)
+
+        scanner.unregisterPanel(workspaceId: workspaceID, panelId: changedPanelID)
+        scanner.unregisterPanel(workspaceId: workspaceID, panelId: unchangedPanelID)
+        scanner.queue.sync {}
+    }
+
     @Test("Repeated panel updates retain only the latest value behind one drain")
     func panelUpdatesAreBoundedAndCoalesced() throws {
         var buffer = PortScanPublicationBuffer()
         let key = PortScanner.PanelKey(workspaceId: UUID(), panelId: UUID())
         let removedKey = PortScanner.PanelKey(workspaceId: UUID(), panelId: UUID())
+        let initial = PanelPortScanPublication(key: key, ports: [4000], revision: 1)
+        let unrelated = PanelPortScanPublication(key: removedKey, ports: [5000], revision: 1)
 
-        let didScheduleInitialDrain = buffer.enqueue(
-            panelPortsByKey: [key: [4000], removedKey: [5000]]
-        )
+        let didScheduleInitialDrain = buffer.enqueue(panelPublications: [initial, unrelated])
         #expect(didScheduleInitialDrain)
         for port in 4001...4100 {
-            let didScheduleAnotherDrain = buffer.enqueue(panelPortsByKey: [key: [port]])
+            let publication = PanelPortScanPublication(
+                key: key,
+                ports: [port],
+                revision: UInt64(port)
+            )
+            let didScheduleAnotherDrain = buffer.enqueue(panelPublications: [publication])
             #expect(didScheduleAnotherDrain == false)
         }
         #expect(buffer.isDrainScheduled)
 
         let pendingBatch = buffer.takePendingBatch()
         let batch = try #require(pendingBatch)
-        #expect(batch.panelPortsByKey[key] == [4100])
-        #expect(batch.panelPortsByKey[removedKey] == nil)
+        #expect(batch.panelPublicationsByKey[key]?.ports == [4100])
+        #expect(batch.panelPublicationsByKey[removedKey]?.ports == [5000])
         let emptyBatch = buffer.takePendingBatch()
         #expect(emptyBatch == nil)
         #expect(buffer.isDrainScheduled == false)

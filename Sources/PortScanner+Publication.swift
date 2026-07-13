@@ -8,8 +8,8 @@ extension PortScanner {
         }
     }
 
-    func enqueuePanelPublication(_ panelPortsByKey: [PanelKey: [Int]]) {
-        guard publicationBuffer.enqueue(panelPortsByKey: panelPortsByKey) else { return }
+    func enqueuePanelPublication(_ publications: some Sequence<PanelPortScanPublication>) {
+        guard publicationBuffer.enqueue(panelPublications: publications) else { return }
         schedulePublicationDrain()
     }
 
@@ -27,9 +27,16 @@ extension PortScanner {
     @MainActor
     private func drainPortPublications() async {
         while let batch = await nextPublicationBatch() {
+            let panelPublications = publicationState.acceptCurrentPanelPublications(
+                batch.panelPublicationsByKey.values
+            )
             if let panelCallback = onPortsUpdated {
-                for (key, ports) in batch.panelPortsByKey {
-                    panelCallback(key.workspaceId, key.panelId, ports)
+                for publication in panelPublications {
+                    panelCallback(
+                        publication.key.workspaceId,
+                        publication.key.panelId,
+                        publication.ports
+                    )
                 }
             }
 

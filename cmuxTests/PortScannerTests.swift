@@ -82,8 +82,8 @@ struct PortScannerProcessCaptureTests {
         #expect(scan.completeness == .incomplete)
     }
 
-    @Test("A vanished PID does not make another PID's lsof evidence incomplete")
-    func vanishedPIDFailureIsScoped() async {
+    @Test("A confirmed absent PID is safe negative lsof evidence")
+    func absentPIDIsCompleteNegativeEvidence() async {
         let runner = StubCommandRunner(result: CommandResult(
             stdout: "p100\nf3\nn*:4200\n",
             stderr: "",
@@ -98,12 +98,13 @@ struct PortScannerProcessCaptureTests {
         )
         let scan = await PortScanner(
             commandRunner: runner,
-            processIdentityProvider: { $0 == liveIdentity.pid ? liveIdentity : nil }
+            processIdentityProvider: { $0 == liveIdentity.pid ? liveIdentity : nil },
+            processPresenceProvider: { $0 == liveIdentity.pid ? .present : .absent }
         ).runLsof(pidsCsv: "100,200")
 
         #expect(scan.values == [100: [4200]])
         #expect(scan.completeness(for: [100]) == .complete)
-        #expect(scan.completeness(for: [200]) == .incomplete)
+        #expect(scan.completeness(for: [200]) == .complete)
     }
 
     @Test("Panel lsof completeness is scoped to PIDs on that panel's TTY")
@@ -242,7 +243,8 @@ struct AgentProcessIdentityValidationTests {
             )
             let scanner = PortScanner(
                 commandRunner: runner,
-                processIdentityProvider: { _ in identity.withLock { $0 } }
+                processIdentityProvider: { _ in identity.withLock { $0 } },
+                processPresenceProvider: { _ in .present }
             )
 
             let scan = await scanner.expandAgentProcessTree(agentRootsByWorkspace: [workspaceID: [root]])
@@ -269,7 +271,11 @@ struct AgentProcessIdentityValidationTests {
             ),
             onRun: { didRun.withLock { $0 = true } }
         )
-        let scanner = PortScanner(commandRunner: runner, processIdentityProvider: { _ in nil })
+        let scanner = PortScanner(
+            commandRunner: runner,
+            processIdentityProvider: { _ in nil },
+            processPresenceProvider: { _ in .present }
+        )
 
         let scan = await scanner.expandAgentProcessTree(agentRootsByWorkspace: [workspaceID: [root]])
 
@@ -286,9 +292,12 @@ struct AgentProcessIdentityValidationTests {
         let unavailableIdentity = AgentPIDProcessIdentity(pid: 200, startSeconds: 20, startMicroseconds: 0)
         let healthyRoot = AgentPortRootIdentity(pid: 100, processIdentity: healthyIdentity)
         let unavailableRoot = AgentPortRootIdentity(pid: 200, processIdentity: unavailableIdentity)
-        let scanner = PortScanner(processIdentityProvider: { pid in
-            pid == healthyIdentity.pid ? healthyIdentity : nil
-        })
+        let scanner = PortScanner(
+            processIdentityProvider: { pid in
+                pid == healthyIdentity.pid ? healthyIdentity : nil
+            },
+            processPresenceProvider: { _ in .present }
+        )
 
         let validation = scanner.validateAgentRoots([
             healthyWorkspaceID: [healthyRoot],
