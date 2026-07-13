@@ -79,10 +79,10 @@ extension AppDelegate {
             "source": source,
             "failureSignals": health.failureSignals.joined(separator: ","),
         ])
-        TerminalController.shared.start(
-            tabManager: tabManager,
-            socketPath: path,
-            accessMode: config.accessMode
+        TerminalController.shared.reconcileSocketConfiguration(
+            config,
+            preferredTabManager: tabManager,
+            source: source
         )
     }
 
