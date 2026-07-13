@@ -888,6 +888,24 @@ describe("account deletion route", () => {
     )).toBe(true);
   });
 
+  test("accepts PostHog zero matches as an already-complete deletion", async () => {
+    postHogDeleteResponse = {
+      persons_found: 0,
+      persons_deleted: 0,
+      events_queued_for_deletion: false,
+      recordings_queued_for_deletion: false,
+      deletion_errors: [],
+    };
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+    expect(tombstoneUpdates.some((values) =>
+      (values as { readonly analyticsDeletedAt?: unknown }).analyticsDeletedAt instanceof Date
+    )).toBe(true);
+  });
+
   test("fails closed before PostHog deletion while an analytics forward lease is active", async () => {
     transactionAnalyticsLeaseSelectResults = [[{ id: "active-forward-lease" }]];
 
