@@ -161,6 +161,15 @@ extension MobileShellComposite {
                 scope: scope,
                 store: store
             )
+            if let previousActiveMac,
+               previousActiveMac.macDeviceID != persistedMacDeviceID,
+               !(await isForgottenMacDeviceID(previousActiveMac.macDeviceID, scope: scope)) {
+                try? await store.setActive(
+                    macDeviceID: previousActiveMac.macDeviceID,
+                    stackUserID: scope.userID,
+                    teamID: scope.teamID
+                )
+            }
             return
         }
         guard reconnectSourceMacDeviceID != nil else { return }

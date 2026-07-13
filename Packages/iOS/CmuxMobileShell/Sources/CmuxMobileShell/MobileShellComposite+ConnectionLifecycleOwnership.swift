@@ -8,6 +8,7 @@ struct MobileConnectionLifecycleTaskOwnership {
     var primaryRetiredGeneration: UInt64 = 0
     var cachedRetiredTask: Task<Void, Never>?
     var cachedRetiredGeneration: UInt64 = 0
+    var pendingCachedReconnectPersistence: (@MainActor @Sendable () async -> Void)?
 }
 
 @MainActor
@@ -47,6 +48,7 @@ extension MobileShellComposite {
         resumeCompletedConnectionLifecycleRequests()
         connectionLifecycleStreamRepairListenerID = nil
         connectionLifecycleReconnectPendingAfterRetirement = false
+        connectionLifecycleTaskOwnership.pendingCachedReconnectPersistence = nil
         invalidateStoredMacReconnectAttempt()
         connectionLifecycleTask = nil
         connectionLifecycleTaskOwnership.activeUsesCachedReconnect = false
@@ -159,7 +161,7 @@ extension MobileShellComposite {
         connectionLifecycleTaskOwnership.activeReconnectFence?.invalidate()
         connectionLifecycleTaskOwnership.activeReconnectFence = fence
         connectionLifecycleTaskOwnership.activeReconnectProgress = progress
-        let persistPairedMac: @MainActor (StoredMacReconnectPersistenceRequest) async -> Bool = {
+        let persistPairedMac: @MainActor @Sendable (StoredMacReconnectPersistenceRequest) async -> Bool = {
             [weak self] request in
             guard let self else { return false }
             let preservesUnclaimedAuthority = request.reportedInstanceTag == nil
@@ -178,7 +180,6 @@ extension MobileShellComposite {
                 }
             )
         }
-        let episodeID = connectionLifecycle.activeEpisode?.id
         return StoredMacReconnectOperation(
             runtime: runtime,
             store: pairedMacStore,
@@ -199,11 +200,7 @@ extension MobileShellComposite {
             forgottenScopeKeys: usesCachedReconnect ? [] : forgottenScopeKeys,
             loadsStoreSnapshot: !usesCachedReconnect,
             persistsPairedMac: !usesCachedReconnect,
-            persistPairedMac: persistPairedMac,
-            renewDeadline: { [weak self] in
-                guard let episodeID else { return }
-                self?.armStoredMacReconnectDeadline(id: episodeID)
-            }
+            persistPairedMac: persistPairedMac
         )
     }
 
@@ -261,6 +258,30 @@ extension MobileShellComposite {
                 guard let self,
                       !Task.isCancelled,
                       self.connectionLifecycle.ownsEpisode(episode.id) else { return }
+                if usesCachedReconnect,
+                   case .connected(let success) = operationOutcome {
+                    let request = StoredMacReconnectPersistenceRequest(
+                        ticket: success.ticket,
+                        sourceMacDeviceID: success.sourceMacDeviceID,
+                        storedAuthorityMac: success.registryMac,
+                        displayName: success.hostStatus?.macDisplayName,
+                        reportedInstanceTag: success.hostStatus?.macInstanceTag,
+                        resolvedInstanceTag: success.resolvedInstanceTag
+                    )
+                    let persist = operation.persistPairedMac
+                    let persistence: @MainActor @Sendable () async -> Void = { [weak self] in
+                        guard let self else { return }
+                        _ = await persist(request)
+                        await self.loadPairedMacs()
+                    }
+                    if self.connectionLifecycleTaskOwnership.primaryRetiredTask == nil {
+                        await persistence()
+                        guard !Task.isCancelled,
+                              self.connectionLifecycle.ownsEpisode(episode.id) else { return }
+                    } else {
+                        self.connectionLifecycleTaskOwnership.pendingCachedReconnectPersistence = persistence
+                    }
+                }
                 let outcome = self.applyStoredMacReconnectOperationOutcome(
                     operationOutcome,
                     generation: operation.generation
@@ -361,6 +382,10 @@ extension MobileShellComposite {
             guard let self,
                   self.connectionLifecycleTaskOwnership.primaryRetiredGeneration == generation else { return }
             self.connectionLifecycleTaskOwnership.primaryRetiredTask = nil
+            if let persistence = self.connectionLifecycleTaskOwnership.pendingCachedReconnectPersistence {
+                self.connectionLifecycleTaskOwnership.pendingCachedReconnectPersistence = nil
+                await persistence()
+            }
             if self.connectionLifecycleReconnectPendingAfterRetirement {
                 self.replayReconnectPendingAfterRetirementIfPossible()
             } else if self.connectionLifecycleTaskOwnership.cachedRetiredTask == nil,
@@ -403,6 +428,7 @@ extension MobileShellComposite {
         connectionLifecycleTaskOwnership.cachedRetiredGeneration &+= 1
         connectionLifecycleTaskOwnership.cachedRetiredTask?.cancel()
         connectionLifecycleTaskOwnership.cachedRetiredTask = nil
+        connectionLifecycleTaskOwnership.pendingCachedReconnectPersistence = nil
         connectionLifecycleReconnectPendingAfterRetirement = false
     }
 

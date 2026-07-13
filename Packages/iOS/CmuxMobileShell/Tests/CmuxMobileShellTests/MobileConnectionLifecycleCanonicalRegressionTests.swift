@@ -297,63 +297,6 @@ import Testing
         #expect(store.hasKnownPairedMac)
     }
 
-    @Test func reconnectRenewsItsDeadlineForEveryFallbackRoute() async throws {
-        let deadline = ControlledStoredMacReconnectDeadline()
-        let routes = [
-            try CmxAttachRoute(
-                id: "stale",
-                kind: .debugLoopback,
-                endpoint: .hostPort(host: "127.0.0.1", port: 51_016),
-                priority: 0
-            ),
-            try CmxAttachRoute(
-                id: "good",
-                kind: .debugLoopback,
-                endpoint: .hostPort(host: "127.0.0.1", port: 51_017),
-                priority: 10
-            ),
-        ]
-        var mac = storedMac(id: "mac-a", route: routes[0])
-        mac.routes = routes
-        let pairedMacStore = DelayedTeamPairedMacStore(
-            recordsByTeam: ["": [mac]],
-            blockedTeams: []
-        )
-        let factory = RouteRecordingTransportFactory(
-            router: LivenessHostRouter(),
-            box: TransportBox(),
-            failingPorts: [51_016],
-            holdFirstFailingPort: 51_016
-        )
-        let store = MobileShellComposite(
-            runtime: LivenessTestRuntime(
-                transportFactory: factory,
-                now: { Date() },
-                supportedRouteKinds: [.debugLoopback]
-            ),
-            isSignedIn: true,
-            pairedMacStore: pairedMacStore,
-            identityProvider: StaticIdentityProvider(userID: "user-1"),
-            storedMacReconnectDeadline: { await deadline.wait() }
-        )
-
-        let reconnect = Task { @MainActor in
-            await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
-        }
-        let firstRouteReached = try await pollUntil {
-            factory.attemptedPorts().contains(51_016)
-        }
-        #expect(firstRouteReached, "attempts=\(factory.attemptedPorts())")
-        await deadline.waitUntilArmed()
-        factory.releaseHeldConnect()
-        let connected = await reconnect.value
-
-        #expect(connected)
-        #expect(factory.attemptedPorts().contains(51_017))
-        #expect(await deadline.currentArmCount() >= 2)
-        store.signOut()
-    }
-
     @Test func joinedNetworkChangeRefreshesStoredSecondaryMacs() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
