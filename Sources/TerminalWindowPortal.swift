@@ -620,7 +620,7 @@ final class WindowTerminalPortal: NSObject {
 #if DEBUG
     static var isPointerDragActiveForTesting = false
 #endif
-    private static let tinyHideThreshold: CGFloat = 1
+    static let tinyHideThreshold: CGFloat = 1
     private static let minimumRevealWidth: CGFloat = 24
     private static let minimumRevealHeight: CGFloat = 18
     private static let transientRecoveryRetryBudget: Int = 12
