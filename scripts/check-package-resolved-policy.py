@@ -193,48 +193,75 @@ def package_roots_requiring_lockfiles(
 
 
 def dependency_call_delta_affects_pins(
-    current_calls: list[str],
-    previous_calls: list[str],
-    manifest: Path,
+    root: str,
     current_manifests: dict[str, Path],
     current_graph: dict[str, tuple[bool, list[str]]],
     previous_manifests: dict[str, Path],
     previous_graph: dict[str, tuple[bool, list[str]]],
-    current_memo: dict[str, bool],
-    previous_memo: dict[str, bool],
+    *,
+    previous_ref: str | None = None,
 ) -> bool:
     """Whether an edited manifest's dependency-call delta can change remote pins.
 
-    A path-only dependency edit whose added/removed packages have no remote
-    dependencies anywhere in their closure cannot add or remove pins in any
-    consumer's Package.resolved, and a consumer's originHash covers only its
-    own manifest, so honest regeneration leaves consumer lockfiles
-    byte-identical.
+    A downstream consumer's originHash covers only its own manifest. Compare
+    the edited package's complete before/after remote requirements so replacing
+    one local wrapper with another pin-equivalent wrapper does not demand an
+    impossible byte change in every consumer lockfile. Unknown dependency forms
+    stay strict.
     """
-    added = [call for call in current_calls if call not in previous_calls]
-    removed = [call for call in previous_calls if call not in current_calls]
-    if dependency_calls_include_url(added + removed):
+    current_remote_calls = transitive_remote_dependency_calls(
+        root,
+        current_manifests,
+        current_graph,
+    )
+    previous_remote_calls = transitive_remote_dependency_calls(
+        root,
+        previous_manifests,
+        previous_graph,
+        ref=previous_ref,
+    )
+    if current_remote_calls is None or previous_remote_calls is None:
         return True
-    for calls, manifests, graph, memo in (
-        (added, current_manifests, current_graph, current_memo),
-        (removed, previous_manifests, previous_graph, previous_memo),
-    ):
-        root_by_resolved_path = {
-            candidate.parent.resolve(): root for root, candidate in manifests.items()
-        }
-        for call in calls:
+    return current_remote_calls != previous_remote_calls
+
+
+def transitive_remote_dependency_calls(
+    root: str,
+    manifests: dict[str, Path],
+    graph: dict[str, tuple[bool, list[str]]],
+    *,
+    ref: str | None = None,
+) -> frozenset[str] | None:
+    """Return normalized remote requirements, or None for an unknown form."""
+    if root not in manifests:
+        return frozenset()
+    root_by_resolved_path = {
+        manifest.parent.resolve(): candidate_root
+        for candidate_root, manifest in manifests.items()
+    }
+    remote_calls: set[str] = set()
+    for dependency_root in package_dependency_closure(root, graph):
+        manifest = manifests.get(dependency_root)
+        if manifest is None:
+            return None
+        text = (
+            file_text_at(ref, manifest.as_posix())
+            if ref is not None
+            else manifest.read_text(encoding="utf-8")
+        )
+        for call in package_dependency_calls(text):
+            if PACKAGE_URL_ARGUMENT_RE.search(call):
+                remote_calls.add(call)
+                continue
             path_match = PACKAGE_PATH_ARGUMENT_RE.search(call)
             if path_match is None:
-                # Unrecognized dependency form: stay strict.
-                return True
-            dependency_root = root_by_resolved_path.get(
+                return None
+            resolved_root = root_by_resolved_path.get(
                 (manifest.parent / path_match.group(1)).resolve()
             )
-            if dependency_root is None:
-                return True
-            if has_remote_dependency(dependency_root, graph, memo, set()):
-                return True
-    return False
+            if resolved_root is None:
+                return None
+    return frozenset(remote_calls)
 
 
 def package_lockfile_path(root: str) -> str:
@@ -374,15 +401,12 @@ def main() -> int:
             ):
                 changed_dependency_roots.add(root)
             if dependency_call_delta_affects_pins(
-                current_calls,
-                previous_calls,
-                manifest,
+                root,
                 all_manifests,
                 graph,
                 previous_manifests,
                 previous_graph,
-                current_remote_memo,
-                previous_remote_memo,
+                previous_ref=merge_base,
             ):
                 pin_affecting_dependency_roots.add(root)
 
