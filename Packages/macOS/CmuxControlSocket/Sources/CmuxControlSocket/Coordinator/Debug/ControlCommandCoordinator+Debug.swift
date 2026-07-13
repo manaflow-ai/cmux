@@ -4,11 +4,8 @@ internal import Foundation
 /// byte-faithfully from the former `TerminalController.v2Debug*` bodies. Each
 /// payload is built directly as a ``JSONValue``; the encoded wire bytes match.
 ///
-/// Every method here was dispatched from inside `#if DEBUG` in the legacy
-/// switch, so the whole domain is DEBUG-gated end to end (handler, seam,
-/// conformance): in release builds `handleDebug` returns `nil` and the
-/// legacy dispatcher's `default:` produces the same `method_not_found` the
-/// compiled-out cases always did. The worker-lane
+/// This domain is DEBUG-gated end to end; release builds fall through to the
+/// same `method_not_found` behavior as the former compiled-out cases. The worker-lane
 /// `debug.sidebar.simulate_drag` and the shared `debug.terminals` stay
 /// app-side/surface-domain and are NOT handled here.
 ///
@@ -26,6 +23,8 @@ extension ControlCommandCoordinator {
     func handleDebug(_ request: ControlRequest) -> ControlCallResult? {
 #if DEBUG
         switch request.method {
+        case "remote.tmux.sizing_settled":
+            return debugRemoteTmuxSizingSettled()
         case "debug.session_snapshot_benchmark":
             return debugSessionSnapshotBenchmark(request.params)
         case "debug.session_snapshot_seed_scrollback":

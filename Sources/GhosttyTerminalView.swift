@@ -9857,6 +9857,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
+    var isVisibleInUI: Bool { surfaceView.isVisibleInUI }
     func setVisibleInUI(_ visible: Bool) {
         let wasVisible = surfaceView.isVisibleInUI
         // Re-realize before marking visible so we never draw into a released swap chain.
@@ -9905,7 +9906,6 @@ final class GhosttySurfaceScrollView: NSView {
             scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
         }
     }
-
     var debugPortalVisibleInUI: Bool {
         surfaceView.isVisibleInUI
     }
@@ -12156,7 +12156,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
         ) else { return }
         TerminalWindowPortalRegistry.synchronizeForAnchor(host, syncLayout: false)
     }
-
     func makeNSView(context: Context) -> NSView {
         let container = HostContainerView(frame: .zero)
         container.wantsLayer = false
@@ -12298,6 +12297,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
                 hostedView.setActive(coordinator.desiredIsActive)
                 hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
+                terminalSurface.flushPendingManualSizeReportIfAttached()
             }
             host.onGeometryChanged = { [weak host, weak hostedView, weak coordinator] in
                 guard let host, let hostedView, let coordinator else { return }

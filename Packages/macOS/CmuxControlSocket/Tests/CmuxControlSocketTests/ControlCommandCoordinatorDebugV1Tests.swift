@@ -15,6 +15,7 @@ private final class FakeDebugV1ControlCommandContext: ControlCommandContext {
     var rightSidebarMode: String??
     var rightSidebarFocusFirstItem: Bool?
     var rightSidebarResolution: ControlDebugRightSidebarFocusResolution = .windowNotFound
+    var remoteTmuxSizingPayload: JSONValue?
 
     var processMetrics = JSONValue.object([
         "process_snapshots": .object(["capture_started": .int(3)])
@@ -55,6 +56,10 @@ private final class FakeDebugV1ControlCommandContext: ControlCommandContext {
         typedTexts.append(text)
         return .inserted
     }
+
+    func controlDebugRemoteTmuxSizingSettled() -> JSONValue? {
+        remoteTmuxSizingPayload
+    }
 }
 
 @MainActor
@@ -84,6 +89,19 @@ struct ControlCommandCoordinatorDebugV1Tests {
         let (coordinator, _) = makeCoordinator()
         #expect(coordinator.handleDebugV1(command: "ping", args: "") == nil)
         #expect(coordinator.handleDebugV1(command: "simulate_type", args: "hi") == nil)
+    }
+
+    @Test func remoteTmuxSizingSettlementUsesMainActorDebugSeam() {
+        let (coordinator, context) = makeCoordinator()
+        let payload: JSONValue = .object([
+            "windows": .array([.object(["window": .int(7), "settled": .bool(true)])]),
+        ])
+        context.remoteTmuxSizingPayload = payload
+        let request = ControlRequest(
+            id: .int(1), method: "remote.tmux.sizing_settled", params: [:]
+        )
+        #expect(coordinator.handle(request) == .ok(payload))
+        #expect(ControlCommandExecutionPolicy(forMethod: request.method) == .mainActor)
     }
 
     @Test func rightSidebarFocusInvalidModeReproducesLegacyString() {
