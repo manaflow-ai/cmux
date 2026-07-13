@@ -254,6 +254,27 @@ split, and any "imposed means not mid-drag" shortcut then swallows the drag's
 `resize-pane` permanently. With sizing deferred for the length of the session,
 an imposed split really cannot be mid-drag — by construction, not assumption.
 
+Ownership also carries a liveness obligation: an apply may never terminate
+off-target without a re-arm edge. Imposing is asynchronous — bonsplit applies
+on a later turn, and the result can land somewhere else entirely (a divider
+parked at a minimum, a retry budget expired against mid-commit bounds). The
+transaction's settled check compares only inputs, so on its own a miss like
+that would sit behind unchanged inputs forever; the live fuzz held a 1199pt
+plan against a 984pt view for over fifty seconds while every trigger reported
+settled. So the transaction verifies the outcome after applying: once the
+geometry has had time to land, it compares the planned outer sizes against
+the hosted views' actual frames, and a parked or budget-expired imposition
+gets one bounded re-apply — a few attempts per input fixed point, reset when
+the inputs change, so an extent bonsplit genuinely cannot hold stops after a
+bounded correction instead of looping.
+
+Settle speed is itself a testable property. A healthy full cycle — claim,
+tmux layout, imposition, rendered frames — settles in well under a second
+(about 0.4s measured on the live lab). The harnesses fail an iteration that
+has not settled within 8 seconds instead of waiting longer: every stall this
+work chased eventually argued itself out within a generous window, so a
+generous window is exactly what masked the defect.
+
 ## Chrome parity
 
 The claim subtracts a model of the chrome — surface padding, per-pane tab-bar

@@ -210,10 +210,21 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     @ObservationIgnored var lastCompletedSizingInputs: SizingInputs?
     @ObservationIgnored var pendingSizingPassIntent = SizingPassIntent.inputChange
 
-    #if DEBUG
     /// The per-pane outer sizes the last imposition granted — the plan side
-    /// of the chrome-parity probe in ``handleSizingSample``.
+    /// of the output-parity check in `rearmIfOutputMissedPlan()` and of the
+    /// chrome-parity probe in ``handleSizingSample``.
     @ObservationIgnored var lastPlannedOuterSizes: [Int: CGSize] = [:]
+    /// Output-parity re-arm state: how many bounded recovery passes this
+    /// input fixed point has spent, and which fixed point they belong to
+    /// (the counter resets when the completed inputs change). Tracked apart
+    /// from `lastCompletedSizingInputs` because a re-arm nils that field —
+    /// folding the two together would reset the counter on every re-arm and
+    /// unbound the loop.
+    @ObservationIgnored var outputParityRearmsSpent = 0
+    @ObservationIgnored var outputParityRearmInputs: SizingInputs?
+    @ObservationIgnored var outputParityCheckScheduled = false
+
+    #if DEBUG
     /// One ancestor-chain dump per window: `dumpProposalAncestors` fires per
     /// dropped container reading, and one chain names the leaking subtree.
     @ObservationIgnored var dumpedAncestorChains = false

@@ -125,11 +125,11 @@ extension RemoteTmuxWindowMirror {
                 ),
                 parentSize: renderFrameSize ?? containerSizePt
             )
+            let plannedOuterSizes = planner.outerSizes(of: plan)
             #if DEBUG
             // Log only a CHANGED plan: settled passes re-impose the same
             // outers every trigger, and repeating the line buries the
             // transitions the log exists to show.
-            let plannedOuterSizes = planner.outerSizes(of: plan)
             if plannedOuterSizes != lastPlannedOuterSizes {
                 let planSummary = plannedOuterSizes
                     .sorted { $0.key < $1.key }
@@ -139,12 +139,16 @@ extension RemoteTmuxWindowMirror {
                     "remote.divider.plan @\(windowId) parent=\(Int((renderFrameSize ?? containerSizePt ?? .zero).width))x\(Int((renderFrameSize ?? containerSizePt ?? .zero).height)) titleRow=\(Int(metrics.paneTitleRowHeight)) outers[\(planSummary)]"
                 )
             }
-            lastPlannedOuterSizes = plannedOuterSizes
             #endif
+            lastPlannedOuterSizes = plannedOuterSizes
             applyDividerPositions(
                 plan: plan, treeNode: treeNode, retryImposedExtents: retryImposedExtents
             )
         } else {
+            // No metrics means no point plan exists: the fraction fallback
+            // below is not the plan the parity check should judge views
+            // against, so a stale exact plan must not linger here.
+            lastPlannedOuterSizes = [:]
             applyFallbackDividerPositions(tmuxTree: splitTree, treeNode: treeNode)
         }
     }

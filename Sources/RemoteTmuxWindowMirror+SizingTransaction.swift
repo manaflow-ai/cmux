@@ -228,7 +228,14 @@ extension RemoteTmuxWindowMirror {
             }
         }
         let inputs = currentSizingInputs()
-        if inputs == lastCompletedSizingInputs { return }
+        if inputs == lastCompletedSizingInputs {
+            // Settled by the input proof — but that proof says nothing about
+            // the OUTPUT. Verify two turns out that the views actually hold
+            // the plan, so an apply that terminated off-target cannot hide
+            // behind unchanged inputs (see rearmIfOutputMissedPlan).
+            scheduleOutputParityCheck()
+            return
+        }
         guard updateClientSize() else { return }
         // A visible transaction is not complete until its live host exists:
         // the claim may be sent while detached, but divider imposition and the
@@ -236,6 +243,13 @@ extension RemoteTmuxWindowMirror {
         guard !inputs.visible || hostingContext != nil else { return }
         pendingSizingPassIntent = .inputChange
         lastCompletedSizingInputs = inputs
+        // A new fixed point gets a fresh re-arm budget; a recovery pass for
+        // the SAME inputs (lastCompletedSizingInputs was nil'd) keeps
+        // spending the old one, or the re-arm edge would loop unbounded.
+        if outputParityRearmInputs != inputs {
+            outputParityRearmInputs = inputs
+            outputParityRearmsSpent = 0
+        }
         if inputs.visible {
             let frameBefore = renderFrameSize
             updateRenderFrameSize()
@@ -268,7 +282,79 @@ extension RemoteTmuxWindowMirror {
                     for: window, forceImmediate: false
                 )
             }
+            // The other half of the transaction's contract: the apply above
+            // lands on later turns (bonsplit's deferred apply, AppKit's
+            // rescale), and it may terminate off-target — bonsplit can park
+            // a divider at a minimum, a retry budget can expire against
+            // mid-commit bounds. Verify the outcome once the geometry has
+            // had two turns to land, and re-arm (bounded) if it missed.
+            scheduleOutputParityCheck()
         }
+    }
+
+    /// Schedules `rearmIfOutputMissedPlan()` two runloop turns out —
+    /// after bonsplit's deferred apply and AppKit's layout pass have landed,
+    /// and OFF any layout callback, like the render-frame restate above.
+    /// Coalesced: a burst of settled triggers buys one check.
+    private func scheduleOutputParityCheck() {
+        guard !outputParityCheckScheduled, !isTornDown else { return }
+        outputParityCheckScheduled = true
+        DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
+                self?.outputParityCheckScheduled = false
+                self?.rearmIfOutputMissedPlan()
+            }
+        }
+    }
+
+    /// The output side of the convergence proof. The transaction's settled
+    /// check compares INPUTS; this compares the OUTCOME — the outer sizes
+    /// the last imposition granted against the hosted views' actual frames
+    /// (the settle payload's own comparison, tolerance and all). An apply
+    /// may never terminate off-target without a re-arm edge: when the views
+    /// miss the plan at an input fixed point, request one recovery pass,
+    /// capped per fixed point so an extent bonsplit genuinely cannot apply
+    /// (a hard minimum) stops after a bounded correction instead of looping.
+    private func rearmIfOutputMissedPlan() {
+        guard !isTornDown, !sizingPassScheduled, isVisibleForSizing,
+              !bonsplitController.isDividerDragActive,
+              let completed = lastCompletedSizingInputs,
+              completed == currentSizingInputs()
+        else { return }
+        guard outputParityRearmsSpent < 3 else { return }
+        guard let mismatch = outputParityMismatch() else { return }
+        outputParityRearmsSpent += 1
+        #if DEBUG
+        cmuxDebugLog(
+            "remote.parity.rearm @\(windowId) \(mismatch) attempt=\(outputParityRearmsSpent)/3"
+        )
+        #endif
+        setNeedsSizingPassIgnoringInputs()
+    }
+
+    /// First pane whose hosted view sits outside the settle tolerance of its
+    /// planned outer size, or nil when every hosted pane holds the plan.
+    /// Planned outers carry the per-pane tab bar; the hosted view is the
+    /// content below it — the same adjustment the settle payload makes.
+    private func outputParityMismatch() -> String? {
+        guard !lastPlannedOuterSizes.isEmpty,
+              let metrics = nativeLayoutMetrics() else { return nil }
+        for (paneId, planned) in lastPlannedOuterSizes {
+            guard let view = panelsByPaneId[paneId]?.hostedView,
+                  view.window != nil else { continue }
+            let content = CGSize(
+                width: planned.width,
+                height: max(0, planned.height - metrics.tabBarHeight)
+            )
+            let actual = view.frame.size
+            if abs(content.width - actual.width) > 1.5
+                || abs(content.height - actual.height) > 1.5 {
+                return "pane=%\(paneId)"
+                    + " plan=\(Int(content.width))x\(Int(content.height))"
+                    + " view=\(Int(actual.width))x\(Int(actual.height))"
+            }
+        }
+        return nil
     }
 
     /// Marks native constraints unsettled so the next pass runs even with
