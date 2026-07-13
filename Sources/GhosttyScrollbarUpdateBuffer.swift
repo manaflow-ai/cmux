@@ -1,14 +1,12 @@
-import Foundation
-
-final class GhosttyScrollbarUpdateBuffer: @unchecked Sendable {
-    private let lock = NSLock()
+/// Mutable coalescing state. Its owner serializes every operation with the
+/// existing Ghostty callback lock because enqueue runs off-main while flushes
+/// and exact replacement run on the main actor.
+final class GhosttyScrollbarUpdateBuffer {
     private var pending: GhosttyScrollbar?
     private var flushScheduled = false
 
     /// Returns true only when the caller must schedule a main-thread flush.
     func enqueue(_ value: GhosttyScrollbar) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
         pending = value
         let needsSchedule = !flushScheduled
         if needsSchedule { flushScheduled = true }
@@ -16,16 +14,12 @@ final class GhosttyScrollbarUpdateBuffer: @unchecked Sendable {
     }
 
     func takePending() -> GhosttyScrollbar? {
-        lock.lock()
-        defer { lock.unlock() }
         flushScheduled = false
         defer { pending = nil }
         return pending
     }
 
     func replaceAndTakeExact(_ value: GhosttyScrollbar) -> GhosttyScrollbar {
-        lock.lock()
-        defer { lock.unlock() }
         pending = value
         let exact = pending!
         pending = nil

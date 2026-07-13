@@ -3419,6 +3419,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     weak var terminalSurface: TerminalSurface?
     var scrollbar: GhosttyScrollbar?
     private let scrollbarUpdateBuffer = GhosttyScrollbarUpdateBuffer()
+    private let _scrollbarLock = NSLock()
     private var _renderedFrameFlushScheduled = false
     private let _renderedFrameLock = NSLock()
     nonisolated let selectionAccessibilitySignal = TerminalSelectionAccessibilitySignal()
@@ -3478,28 +3479,30 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         window?.invalidateCursorRects(for: self)
     }
 
-    /// Coalesce high-frequency scrollbar updates into a single main-thread
-    /// dispatch.  The action callback (which may fire thousands of times per
-    /// second during bulk output like `seq 1 100000`) stores the latest value
-    /// and schedules exactly one async flush.
+    /// Coalesce I/O-thread scrollbar updates into one main-thread flush.
     func enqueueScrollbarUpdate(_ newValue: GhosttyScrollbar) {
-        guard scrollbarUpdateBuffer.enqueue(newValue) else { return }
+        _scrollbarLock.lock()
+        let needsSchedule = scrollbarUpdateBuffer.enqueue(newValue)
+        _scrollbarLock.unlock()
+        guard needsSchedule else { return }
         DispatchQueue.main.async { [weak self] in
             self?.flushPendingScrollbar()
         }
     }
-
     private func flushPendingScrollbar() {
-        guard let pending = scrollbarUpdateBuffer.takePending() else { return }
+        _scrollbarLock.lock()
+        let pending = scrollbarUpdateBuffer.takePending()
+        _scrollbarLock.unlock()
+        guard let pending else { return }
         publishScrollbarUpdate(pending)
     }
 
-    /// Replaces any queued scrollbar packet and publishes exactly `newValue`.
-    /// The supplied value is extracted while holding the same lock used by the
-    /// Ghostty callback, so concurrent output cannot substitute another packet
-    /// between replacement and publication.
+    /// Extracts `newValue` under the callback lock for exact publication.
     func publishExactScrollbarUpdate(_ newValue: GhosttyScrollbar) {
-        publishScrollbarUpdate(scrollbarUpdateBuffer.replaceAndTakeExact(newValue))
+        _scrollbarLock.lock()
+        let exact = scrollbarUpdateBuffer.replaceAndTakeExact(newValue)
+        _scrollbarLock.unlock()
+        publishScrollbarUpdate(exact)
     }
 
     private func publishScrollbarUpdate(_ pending: GhosttyScrollbar) {
@@ -3518,11 +3521,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
     func flushPendingScrollbarIfAvailable() -> Bool {
-        guard let pending = scrollbarUpdateBuffer.takePending() else { return false }
+        _scrollbarLock.lock()
+        let pending = scrollbarUpdateBuffer.takePending()
+        _scrollbarLock.unlock()
+        guard let pending else { return false }
         publishScrollbarUpdate(pending)
         return true
     }
-
     func enqueueRenderedFrameUpdate() {
         guard GhosttyApp.renderedFrameNotificationDemand.isActive else { return }
 
