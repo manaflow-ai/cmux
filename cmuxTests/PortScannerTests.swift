@@ -94,12 +94,18 @@ struct PortScanCoordinationTests {
     func panelScansAreBoundedAndCoalesced() {
         var coordination = PortScanCoordination()
 
-        #expect(coordination.beginPanelScan())
-        #expect(coordination.beginPanelScan() == false)
-        #expect(coordination.beginPanelScan() == false)
-        #expect(coordination.finishPanelScan())
-        #expect(coordination.beginPanelScan())
-        #expect(coordination.finishPanelScan() == false)
+        let firstScan = coordination.beginPanelScan()
+        #expect(firstScan)
+        let firstPendingScan = coordination.beginPanelScan()
+        #expect(firstPendingScan == false)
+        let coalescedPendingScan = coordination.beginPanelScan()
+        #expect(coalescedPendingScan == false)
+        let shouldRunPendingScan = coordination.finishPanelScan()
+        #expect(shouldRunPendingScan)
+        let pendingScan = coordination.beginPanelScan()
+        #expect(pendingScan)
+        let isFinished = coordination.finishPanelScan()
+        #expect(isFinished == false)
     }
 
     @Test("Agent scans merge pending workspace inputs behind one in-flight pass")
@@ -120,9 +126,12 @@ struct PortScanCoordinationTests {
             requestID: coordination.makeRequestID()
         )
 
-        #expect(coordination.enqueueAgentScan(first) == first)
-        #expect(coordination.enqueueAgentScan(newer) == nil)
-        let pending = try #require(coordination.finishAgentScan())
+        let firstScan = coordination.enqueueAgentScan(first)
+        #expect(firstScan == first)
+        let coalescedScan = coordination.enqueueAgentScan(newer)
+        #expect(coalescedScan == nil)
+        let finishedScan = coordination.finishAgentScan()
+        let pending = try #require(finishedScan)
         let pendingPIDs: [UUID: Set<Int>]
         if case .captured(let pids) = pending.pidInput {
             pendingPIDs = pids
@@ -135,8 +144,10 @@ struct PortScanCoordinationTests {
         #expect(pendingPIDs[secondWorkspace] == [200])
         #expect(pending.requestID == newer.requestID)
 
-        #expect(coordination.enqueueAgentScan(first) == nil)
-        #expect(coordination.finishAgentScan()?.requestID == first.requestID)
+        let nextScan = coordination.enqueueAgentScan(first)
+        #expect(nextScan == nil)
+        let nextPending = coordination.finishAgentScan()
+        #expect(nextPending?.requestID == first.requestID)
     }
 
     @Test("Provider refresh dominates captured PID inputs when requests coalesce")
@@ -154,10 +165,14 @@ struct PortScanCoordinationTests {
         let older = coordination.makeRequestID()
         let newer = coordination.makeRequestID()
 
-        #expect(coordination.shouldApplyPanelResult(requestID: newer))
-        #expect(coordination.shouldApplyPanelResult(requestID: older) == false)
-        #expect(coordination.newAgentWorkspaces([workspaceID], requestID: newer) == [workspaceID])
-        #expect(coordination.newAgentWorkspaces([workspaceID], requestID: older).isEmpty)
+        let newerPanelResult = coordination.shouldApplyPanelResult(requestID: newer)
+        #expect(newerPanelResult)
+        let olderPanelResult = coordination.shouldApplyPanelResult(requestID: older)
+        #expect(olderPanelResult == false)
+        let newerAgentWorkspaces = coordination.newAgentWorkspaces([workspaceID], requestID: newer)
+        #expect(newerAgentWorkspaces == [workspaceID])
+        let olderAgentWorkspaces = coordination.newAgentWorkspaces([workspaceID], requestID: older)
+        #expect(olderAgentWorkspaces.isEmpty)
         #expect(coordination.isLatestAgentResult(workspaceId: workspaceID, requestID: newer))
     }
 
