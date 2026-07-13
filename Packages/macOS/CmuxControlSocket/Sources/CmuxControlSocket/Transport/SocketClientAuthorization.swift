@@ -16,7 +16,6 @@ public struct SocketClientAuthorization {
     ///   - peerProcessID: The PID reported by the accepted socket, or nil when
     ///     the platform cannot provide one.
     ///   - peerHasSameUID: Whether the peer process has the same user ID as cmux.
-    ///   - peerExecutableIsTrusted: Whether the peer is the bundled cmux CLI.
     ///   - isDescendant: Predicate that verifies the PID belongs to the trusted
     ///     cmux process tree.
     public func isCmuxOnlyClientAllowed(

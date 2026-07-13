@@ -14,19 +14,24 @@ internal import Foundation
 /// - Reads up to `bufferSize - 1` bytes per `read(2)` call.
 /// - A chunk that is not valid UTF-8 is dropped wholesale (the legacy
 ///   `String(bytes:encoding:) ?? ""` coalesce).
-/// - Lines are split on bare `\n` only. Swift strings treat CRLF as a single
-///   grapheme cluster, so `\r\n` does not terminate a line (clients must
-///   frame with bare `\n`). Returned lines may be empty or whitespace-only.
+/// - Lines are split on bare `\n` only. To preserve legacy framing, `\r\n`
+///   does not terminate a line (clients must frame with bare `\n`). Returned
+///   lines may be empty or whitespace-only.
 /// - `shouldContinueReading` is consulted before each blocking `read(2)` —
 ///   never between lines already buffered — mirroring the legacy per-read
 ///   `isRunning` poll.
 /// - EOF, a read error, or a `false` poll ends the stream (`nil`); buffered
 ///   bytes without a trailing newline are discarded, as before.
+/// - While `initialLimits` remain active, raw bytes are counted cumulatively
+///   before UTF-8 decoding, including invalid chunks and line delimiters, and
+///   the absolute deadline is checked before buffered lines are returned.
 public final class ControlClientLineReader {
     private let socket: Int32
     private var buffer: [UInt8]
-    private var pending = ""
-    private var pendingUTF8ByteCount = 0
+    private var pendingBytes: [UInt8] = []
+    private var pendingStartIndex = 0
+    private var newlineSearchIndex = 0
+    private var limitedBytesRead = 0
     private var limits: ControlClientLineReadLimits?
     private var deadlineUptimeNanoseconds: UInt64?
 
@@ -56,6 +61,7 @@ public final class ControlClientLineReader {
     /// Removes preauthorization limits after the peer proves authorization.
     public func clearLimits() {
         limits = nil
+        limitedBytesRead = 0
         deadlineUptimeNanoseconds = nil
     }
 
@@ -66,18 +72,17 @@ public final class ControlClientLineReader {
     ///   typically the listener's `isRunning`.
     public func nextLine(shouldContinueReading: () -> Bool) -> String? {
         while true {
-            if let newlineIndex = pending.firstIndex(of: "\n") {
-                let line = String(pending[..<newlineIndex])
-                pending = String(pending[pending.index(after: newlineIndex)...])
-                pendingUTF8ByteCount = pending.utf8.count
-                if let limits, line.utf8.count > limits.maximumPendingBytes {
-                    return nil
-                }
-                return line
-            }
+            guard deadlineHasNotExpired else { return nil }
 
-            if let limits, pendingUTF8ByteCount > limits.maximumPendingBytes {
-                return nil
+            if let newlineIndex = nextBareNewlineIndex() {
+                let line = String(
+                    bytes: pendingBytes[pendingStartIndex..<newlineIndex],
+                    encoding: .utf8
+                ) ?? ""
+                pendingStartIndex = newlineIndex + 1
+                newlineSearchIndex = pendingStartIndex
+                compactPendingBytesIfNeeded()
+                return line
             }
 
             guard shouldContinueReading() else { return nil }
@@ -85,10 +90,48 @@ public final class ControlClientLineReader {
             let bytesRead = read(socket, &buffer, buffer.count - 1)
             guard bytesRead > 0 else { return nil }
 
+            if let limits {
+                let (totalBytesRead, overflowed) = limitedBytesRead.addingReportingOverflow(bytesRead)
+                guard !overflowed, totalBytesRead <= limits.maximumBytes else { return nil }
+                limitedBytesRead = totalBytesRead
+            }
+
             let chunk = String(bytes: buffer[0..<bytesRead], encoding: .utf8) ?? ""
-            pending.append(chunk)
-            pendingUTF8ByteCount += chunk.utf8.count
+            pendingBytes.append(contentsOf: chunk.utf8)
         }
+    }
+
+    private var deadlineHasNotExpired: Bool {
+        guard let deadlineUptimeNanoseconds else { return true }
+        return DispatchTime.now().uptimeNanoseconds < deadlineUptimeNanoseconds
+    }
+
+    private func nextBareNewlineIndex() -> Int? {
+        while newlineSearchIndex < pendingBytes.count {
+            let index = newlineSearchIndex
+            newlineSearchIndex += 1
+            guard pendingBytes[index] == 0x0A else { continue }
+            if index > pendingStartIndex, pendingBytes[index - 1] == 0x0D {
+                continue
+            }
+            return index
+        }
+        return nil
+    }
+
+    private func compactPendingBytesIfNeeded() {
+        guard pendingStartIndex > 0 else { return }
+        if pendingStartIndex == pendingBytes.count {
+            pendingBytes.removeAll(keepingCapacity: true)
+            pendingStartIndex = 0
+            newlineSearchIndex = 0
+            return
+        }
+        guard pendingStartIndex >= buffer.count,
+              pendingStartIndex >= pendingBytes.count / 2 else { return }
+        pendingBytes.removeFirst(pendingStartIndex)
+        newlineSearchIndex -= pendingStartIndex
+        pendingStartIndex = 0
     }
 
     private func waitForReadReadinessBeforeDeadline() -> Bool {

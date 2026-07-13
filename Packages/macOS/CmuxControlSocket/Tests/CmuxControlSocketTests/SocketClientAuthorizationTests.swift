@@ -1,4 +1,4 @@
-import CmuxControlSocket
+@testable import CmuxControlSocket
 import Foundation
 import Testing
 

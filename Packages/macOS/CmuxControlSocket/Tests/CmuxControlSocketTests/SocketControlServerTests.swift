@@ -107,10 +107,12 @@ private func waitUntil(
     return predicate()
 }
 
-private func peerClosed(_ socket: Int32) -> Bool {
-    var descriptor = pollfd(fd: socket, events: Int16(POLLIN | POLLHUP), revents: 0)
-    guard poll(&descriptor, 1, 0) > 0 else { return false }
-    return descriptor.revents & Int16(POLLHUP) != 0
+private extension Int32 {
+    var peerIsClosed: Bool {
+        var descriptor = pollfd(fd: self, events: Int16(POLLIN | POLLHUP), revents: 0)
+        guard poll(&descriptor, 1, 0) > 0 else { return false }
+        return descriptor.revents & Int16(POLLHUP) != 0
+    }
 }
 
 extension AsyncStream where Element == ControlConnection {
@@ -241,7 +243,7 @@ struct SocketControlServerLifecycleTests {
         defer { clients.filter { $0 >= 0 }.forEach { close($0) } }
         #expect(clients.allSatisfy { $0 >= 0 })
 
-        #expect(waitUntil { peerClosed(clients[32]) })
+        #expect(waitUntil { clients[32].peerIsClosed })
 
         for _ in 0..<32 {
             let connection = try #require(await server.connections.nextConnection())

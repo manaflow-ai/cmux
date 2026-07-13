@@ -5,7 +5,7 @@ import Foundation
 extension TerminalController {
     private nonisolated static var socketClientPreauthorizationLimits: ControlClientLineReadLimits {
         ControlClientLineReadLimits(
-            maximumPendingBytes: 4 * 1024 * 1024,
+            maximumBytes: 4 * 1024 * 1024,
             timeoutMilliseconds: 2_000
         )
     }

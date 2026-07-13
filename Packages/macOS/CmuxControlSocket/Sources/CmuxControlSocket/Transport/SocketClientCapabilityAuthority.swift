@@ -45,7 +45,7 @@ public struct SocketClientCapabilityAuthority: Sendable {
     ///
     /// - Parameter nonce: Unique 32-byte nonce.
     /// - Returns: An opaque URL-safe token, or an empty string for invalid input.
-    public func issueCapability(nonce: Data) -> String {
+    func issueCapability(nonce: Data) -> String {
         guard nonce.count == Self.secureByteCount else { return "" }
         let signature = HMAC<SHA256>.authenticationCode(
             for: Self.authenticationMessage(nonce: nonce),

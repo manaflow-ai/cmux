@@ -146,7 +146,7 @@ struct ControlClientLineReaderTests {
         let reader = ControlClientLineReader(
             socket: pair.readEnd,
             initialLimits: ControlClientLineReadLimits(
-                maximumPendingBytes: 4,
+                maximumBytes: 4,
                 timeoutMilliseconds: 1_000
             )
         )
@@ -163,7 +163,7 @@ struct ControlClientLineReaderTests {
             socket: pair.readEnd,
             bufferSize: 3,
             initialLimits: ControlClientLineReadLimits(
-                maximumPendingBytes: 4,
+                maximumBytes: 4,
                 timeoutMilliseconds: 1_000
             )
         )
@@ -180,7 +180,7 @@ struct ControlClientLineReaderTests {
             socket: pair.readEnd,
             bufferSize: 2,
             initialLimits: ControlClientLineReadLimits(
-                maximumPendingBytes: 4,
+                maximumBytes: 4,
                 timeoutMilliseconds: 1_000
             )
         )
@@ -195,11 +195,29 @@ struct ControlClientLineReaderTests {
         let reader = ControlClientLineReader(
             socket: pair.readEnd,
             initialLimits: ControlClientLineReadLimits(
-                maximumPendingBytes: 4_096,
+                maximumBytes: 4_096,
                 timeoutMilliseconds: 0
             )
         )
 
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func preauthorizationDeadlineAppliesToBufferedLines() throws {
+        let pair = try SocketPairFixture()
+        pair.write("first\nsecond\n")
+        pair.closeWriteEnd()
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            initialLimits: ControlClientLineReadLimits(
+                maximumBytes: 4_096,
+                timeoutMilliseconds: 100
+            )
+        )
+
+        #expect(reader.nextLine(shouldContinueReading: { true }) == "first")
+        usleep(200_000)
         #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
     }
 
@@ -210,8 +228,9 @@ struct ControlClientLineReaderTests {
 
         let reader = ControlClientLineReader(
             socket: pair.readEnd,
+            bufferSize: 6,
             initialLimits: ControlClientLineReadLimits(
-                maximumPendingBytes: 4,
+                maximumBytes: 5,
                 timeoutMilliseconds: 1_000
             )
         )
