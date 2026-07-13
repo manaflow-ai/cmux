@@ -286,6 +286,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C42660020000000000000001 /* BrowserPDFPrintOperationRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C42660020000000000000002 /* BrowserPDFPrintOperationRunner.swift */; };
 		C2035A090000000000000001 /* BrowserPendingSSLTrustBypass.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A090000000000000002 /* BrowserPendingSSLTrustBypass.swift */; };
 		C67540040000000000000001 /* BrowserPopupPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540040000000000000002 /* BrowserPopupPanel.swift */; };
+		B1CFE03D0000000000000001 /* BrowserPopupStorageContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE03D0000000000000002 /* BrowserPopupStorageContextTests.swift */; };
 		A5007420 /* BrowserPopupWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007421 /* BrowserPopupWindowController.swift */; };
 		C0DE78950000000000000001 /* BrowserPortalFirstRevealScrollTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE78950000000000000002 /* BrowserPortalFirstRevealScrollTests.swift */; };
 		B7380102B7380102B7380102 /* BrowserPortalOmnibarSuggestionsConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7380101B7380101B7380101 /* BrowserPortalOmnibarSuggestionsConfiguration.swift */; };
@@ -2184,6 +2185,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C42660020000000000000002 /* BrowserPDFPrintOperationRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPDFPrintOperationRunner.swift; sourceTree = "<group>"; };
 		C2035A090000000000000002 /* BrowserPendingSSLTrustBypass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPendingSSLTrustBypass.swift; sourceTree = "<group>"; };
 		C67540040000000000000002 /* BrowserPopupPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPopupPanel.swift; sourceTree = "<group>"; };
+		B1CFE03D0000000000000002 /* BrowserPopupStorageContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPopupStorageContextTests.swift; sourceTree = "<group>"; };
 		A5007421 /* BrowserPopupWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPopupWindowController.swift; sourceTree = "<group>"; };
 		C0DE78950000000000000002 /* BrowserPortalFirstRevealScrollTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPortalFirstRevealScrollTests.swift; sourceTree = "<group>"; };
 		B7380101B7380101B7380101 /* BrowserPortalOmnibarSuggestionsConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPortalOmnibarSuggestionsConfiguration.swift; sourceTree = "<group>"; };
@@ -5295,6 +5297,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C59240010000000000000004 /* BrowserDownloadFilenameResolverTests.swift */,
 				C0DE58990000000000000002 /* CmuxWebViewKeyDownReentryTests.swift */,
 				C0DE49870000000000000002 /* BrowserWebContentProcessTests.swift */,
+				B1CFE03D0000000000000002 /* BrowserPopupStorageContextTests.swift */,
 				43F90FAF3FD44F11BF547BE9 /* CmuxWebViewMouseNavigationButtonTests.swift */,
 				D3622001A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift */,
 				D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */,
@@ -7406,6 +7409,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				1F14445B9627DE9D3AF4FD2E /* BrowserPanelTests.swift in Sources */,
 				C42660040000000000000001 /* BrowserPDFPreviewActionRegressionTests.swift in Sources */,
 				C42660050000000000000001 /* BrowserPDFPreviewActionUnitTests.swift in Sources */,
+				B1CFE03D0000000000000001 /* BrowserPopupStorageContextTests.swift in Sources */,
 				C0DE78950000000000000001 /* BrowserPortalFirstRevealScrollTests.swift in Sources */,
 				B6585001B6585001B658PW01 /* BrowserPrewarmedWebViewPoolTests.swift in Sources */,
 				C2035A060000000000000001 /* BrowserSSLTrustBypassStateTests.swift in Sources */,

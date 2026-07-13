@@ -13,6 +13,41 @@ struct BrowserWebExtensionPopoutPolicyTests {
     @MainActor
     @Test
     @available(macOS 15.4, *)
+    func extensionRequestedFrameIsClampedToVisibleScreen() {
+        let visibleFrame = CGRect(x: 100, y: 50, width: 800, height: 600)
+        let resolvedFrame = BrowserWebExtensionPopoutWindowController.resolvedContentFrame(
+            requestedFrame: CGRect(x: -10_000, y: 10_000, width: 1_000_000, height: 1_000_000),
+            visibleFrame: visibleFrame
+        )
+
+        #expect(resolvedFrame == visibleFrame)
+    }
+
+    @MainActor
+    @Test
+    @available(macOS 15.4, *)
+    func popoutAcceptsExactlyOneNewURLAndNoExistingTabs() {
+        #expect(BrowserWebExtensionPopoutWindowController.supportsInitialTabs(
+            urlCount: 1,
+            existingTabCount: 0
+        ))
+        #expect(!BrowserWebExtensionPopoutWindowController.supportsInitialTabs(
+            urlCount: 0,
+            existingTabCount: 0
+        ))
+        #expect(!BrowserWebExtensionPopoutWindowController.supportsInitialTabs(
+            urlCount: 2,
+            existingTabCount: 0
+        ))
+        #expect(!BrowserWebExtensionPopoutWindowController.supportsInitialTabs(
+            urlCount: 1,
+            existingTabCount: 1
+        ))
+    }
+
+    @MainActor
+    @Test
+    @available(macOS 15.4, *)
     func actionDownloadPolicyRequiresSafeURLAndSubframeIntent() throws {
         let secureURL = try #require(URL(string: "https://popup.example/export"))
         #expect(BrowserWebExtensionPopoutWindowController.actionDownloadPolicy(
