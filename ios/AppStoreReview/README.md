@@ -20,6 +20,7 @@ ios/scripts/upload-app-store.sh --export-only
 Defaults:
 
 - Bundle ID: `com.cmux.app`
+- Marketing version: `CMUX_IOS_APPSTORE_MARKETING_VERSION` in `ios/Config/Shared.xcconfig`
 - Display name: `cmux`
 - Provisioning profile: `cmux App Store Distribution`
 - Entitlements: `Config/cmux-release.entitlements`
@@ -38,7 +39,6 @@ Run the App Store readiness package after upload:
 ```bash
 ios/scripts/validate-app-store-release.sh \
   --app "$ASC_APP_ID" \
-  --version "$(sed -nE 's/^[[:space:]]*MARKETING_VERSION[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p' ios/Config/Shared.xcconfig | head -1)" \
   --build-number "$CF_BUNDLE_VERSION" \
   --wait-build \
   --strict

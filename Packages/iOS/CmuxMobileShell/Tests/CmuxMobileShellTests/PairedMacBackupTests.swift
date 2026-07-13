@@ -34,8 +34,8 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
 
     private func uploadedRecord(from op: PairedMacBackupOp) -> PairedMacBackupRecord? {
         switch op {
-        case .upsert(let record), .upsertPreservingCustomizations(let record),
-             .revive(let record), .revivePreservingCustomizations(let record):
+        case .upsert(let record, _), .upsertPreservingCustomizations(let record, _),
+             .revive(let record, _), .revivePreservingCustomizations(let record, _):
             return record
         case .delete:
             return nil
@@ -165,7 +165,7 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
         try await store.remove(macDeviceID: "mac-a", stackUserID: "user-1", teamID: nil)
         try await store.upsert(macDeviceID: "mac-a", displayName: nil, routes: [try route("10.0.0.1", 22)], markActive: true, stackUserID: "user-1", now: Date())
 
-        if case .revivePreservingCustomizations(let record)? = await backup.uploadedOps().last {
+        if case .revivePreservingCustomizations(let record, _)? = await backup.uploadedOps().last {
             #expect(record.macDeviceID == "mac-a")
         } else {
             Issue.record("expected re-pair to upload a customization-preserving revive op")

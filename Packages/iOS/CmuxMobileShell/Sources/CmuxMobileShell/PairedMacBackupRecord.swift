@@ -9,6 +9,9 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
     public var displayName: String?
     /// Reconnect routes the phone can use to reach this Mac.
     public var routes: [CmxAttachRoute]
+    /// Authenticated Mac app-instance tag that owns those routes. `nil` keeps
+    /// the conservative legacy sole-instance policy.
+    public var instanceTag: String?
     /// Creation time in epoch milliseconds.
     public var createdAt: Double
     /// Last update time in epoch milliseconds.
@@ -33,7 +36,8 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
         customName: String? = nil,
         customColor: String? = nil,
         customIcon: String? = nil,
-        routeDisclosureDate: Date = Date()
+        routeDisclosureDate: Date = Date(),
+        instanceTag: String? = nil
     ) {
         self.macDeviceID = macDeviceID
         self.displayName = displayName
@@ -45,11 +49,13 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
         self.customName = customName
         self.customColor = customColor
         self.customIcon = customIcon
+        self.instanceTag = instanceTag
     }
 
     enum CodingKeys: String, CodingKey {
         case macDeviceID, displayName, routes, createdAt, lastSeenAt, isActive
-        case customName, customColor, customIcon
+        case customName, customColor, customIcon, instanceTag
+        case instanceTagWriteMode
     }
 
     /// Decode one saved-host backup record, dropping unsupported route entries
@@ -72,6 +78,7 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
         customName = try c.decodeIfPresent(String.self, forKey: .customName)
         customColor = try c.decodeIfPresent(String.self, forKey: .customColor)
         customIcon = try c.decodeIfPresent(String.self, forKey: .customIcon)
+        instanceTag = try c.decodeIfPresent(String.self, forKey: .instanceTag)
     }
 
     /// Encode custom override keys even when they are `nil`, so clears sync.
@@ -89,6 +96,6 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
         try c.encode(customName, forKey: .customName)
         try c.encode(customColor, forKey: .customColor)
         try c.encode(customIcon, forKey: .customIcon)
+        try c.encode(instanceTag, forKey: .instanceTag)
     }
-
 }

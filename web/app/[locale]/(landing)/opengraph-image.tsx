@@ -1,16 +1,88 @@
 import { ImageResponse } from "next/og";
 import { readFile } from "fs/promises";
 import { join } from "path";
+import { openGraphImageTagline } from "@/i18n/seo";
 
 export const runtime = "nodejs";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
-export const alt = "cmux — The terminal built for multitasking";
 
 const S = 2; // render at 2x for sharper images on social platforms
+const NOTO_BASE =
+  "https://raw.githubusercontent.com/notofonts/notofonts.github.io/main/fonts";
+const NOTO_CJK_BASE =
+  "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF";
+const localeFonts: Record<string, { name: string; url: string }> = {
+  ja: {
+    name: "Noto Sans CJK JP",
+    url: `${NOTO_CJK_BASE}/Japanese/NotoSansCJKjp-Regular.otf`,
+  },
+  "zh-CN": {
+    name: "Noto Sans CJK SC",
+    url: `${NOTO_CJK_BASE}/SimplifiedChinese/NotoSansCJKsc-Regular.otf`,
+  },
+  "zh-TW": {
+    name: "Noto Sans CJK TC",
+    url: `${NOTO_CJK_BASE}/TraditionalChinese/NotoSansCJKtc-Regular.otf`,
+  },
+  ko: {
+    name: "Noto Sans CJK KR",
+    url: `${NOTO_CJK_BASE}/Korean/NotoSansCJKkr-Regular.otf`,
+  },
+  ar: {
+    name: "Noto Naskh Arabic",
+    url: `${NOTO_BASE}/NotoNaskhArabic/hinted/ttf/NotoNaskhArabic-Regular.ttf`,
+  },
+  th: {
+    name: "Noto Sans Thai",
+    url: `${NOTO_BASE}/NotoSansThai/hinted/ttf/NotoSansThai-Regular.ttf`,
+  },
+  km: {
+    name: "Noto Sans Khmer",
+    url: `${NOTO_BASE}/NotoSansKhmer/hinted/ttf/NotoSansKhmer-Regular.ttf`,
+  },
+  ru: {
+    name: "Noto Sans",
+    url: `${NOTO_BASE}/NotoSans/hinted/ttf/NotoSans-Regular.ttf`,
+  },
+  uk: {
+    name: "Noto Sans",
+    url: `${NOTO_BASE}/NotoSans/hinted/ttf/NotoSans-Regular.ttf`,
+  },
+};
+const FONT_FETCH_TIMEOUT_MS = 1500;
+const remoteFontData = new Map<string, ArrayBuffer>();
 
-export default async function Image() {
-  const [logoData, screenshotData, geistRegular, geistSemiBold] =
+async function fetchRemoteFont(url: string) {
+  const existing = remoteFontData.get(url);
+  if (existing) {
+    return existing;
+  }
+
+  try {
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(FONT_FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      return null;
+    }
+    const data = await res.arrayBuffer();
+    remoteFontData.set(url, data);
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+export default async function Image({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  const tagline = openGraphImageTagline(locale);
+  const localeFont = localeFonts[locale];
+  const [logoData, screenshotData, geistRegular, geistSemiBold, localeFontData] =
     await Promise.all([
       readFile(join(process.cwd(), "public", "logo.png")),
       readFile(
@@ -23,16 +95,46 @@ export default async function Image() {
           "og-screenshot.png",
         )
       ),
-      fetch(
+      fetchRemoteFont(
         "https://fonts.gstatic.com/s/geist/v4/gyBhhwUxId8gMGYQMKR3pzfaWI_RnOM4nQ.ttf"
-      ).then((res) => res.arrayBuffer()),
-      fetch(
+      ),
+      fetchRemoteFont(
         "https://fonts.gstatic.com/s/geist/v4/gyBhhwUxId8gMGYQMKR3pzfaWI_RQuQ4nQ.ttf"
-      ).then((res) => res.arrayBuffer()),
+      ),
+      localeFont ? fetchRemoteFont(localeFont.url) : Promise.resolve(null),
     ]);
 
   const logoSrc = `data:image/png;base64,${logoData.toString("base64")}`;
   const screenshotSrc = `data:image/png;base64,${screenshotData.toString("base64")}`;
+  const fonts = [];
+  if (geistRegular) {
+    fonts.push({
+      name: "Geist",
+      data: geistRegular,
+      weight: 400 as const,
+      style: "normal" as const,
+    });
+  }
+  if (geistSemiBold) {
+    fonts.push({
+      name: "Geist",
+      data: geistSemiBold,
+      weight: 600 as const,
+      style: "normal" as const,
+    });
+  }
+  if (localeFont && localeFontData) {
+    fonts.push({
+      name: localeFont.name,
+      data: localeFontData,
+      weight: 400 as const,
+      style: "normal" as const,
+    });
+  }
+  const taglineFontFamily =
+    localeFont && localeFontData ? `${localeFont.name}, Geist` : "Geist";
+  const renderedTagline = localeFont && !localeFontData ? openGraphImageTagline("en") : tagline;
+  const taglineDirection = locale === "ar" && localeFontData ? "rtl" : "ltr";
 
   return new ImageResponse(
     (
@@ -63,7 +165,7 @@ export default async function Image() {
               position: "relative",
             }}
           >
-            <img src={screenshotSrc} width={size.width * S} />
+            <img src={screenshotSrc} width={size.width * S} alt="" />
             <div
               style={{
                 position: "absolute",
@@ -97,6 +199,7 @@ export default async function Image() {
                 src={logoSrc}
                 width={112 * S}
                 height={112 * S}
+                alt=""
                 style={{ borderRadius: 20 * S }}
               />
               <div style={{ display: "flex", flexDirection: "column" }}>
@@ -115,13 +218,15 @@ export default async function Image() {
                 <div
                   style={{
                     fontSize: 34 * S,
+                    fontFamily: taglineFontFamily,
+                    direction: taglineDirection,
                     fontWeight: 400,
                     color: "#cfcfcf",
                     marginTop: 5 * S,
                     lineHeight: 1,
                   }}
                 >
-                  The terminal built for multitasking
+                  {renderedTagline}
                 </div>
               </div>
             </div>
@@ -132,10 +237,7 @@ export default async function Image() {
     {
       width: size.width * S,
       height: size.height * S,
-      fonts: [
-        { name: "Geist", data: geistRegular, weight: 400, style: "normal" },
-        { name: "Geist", data: geistSemiBold, weight: 600, style: "normal" },
-      ],
+      ...(fonts.length > 0 ? { fonts } : {}),
     }
   );
 }

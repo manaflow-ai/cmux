@@ -216,7 +216,9 @@ final class MobilePairingModel {
                 )
             )
             observeConnections()
-        } catch MobileAttachTicketStoreError.noRoutes, MobileAttachTicketStoreError.routeUnavailable {
+        } catch MobileAttachTicketStoreError.noRoutes,
+                MobileAttachTicketStoreError.routeUnavailable,
+                MobileAttachTicketStoreError.invalidAttachURL {
             state = .needsReachableTransport
             observeRouteAvailability()
         } catch {

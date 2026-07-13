@@ -11,6 +11,8 @@ enum MobileAttachTicketStoreError: Error {
     case invalidAttachURL
 }
 
+extension MobileAttachTicketStoreError: Equatable {}
+
 final class MobileAttachTicketStore {
     private struct Record {
         let ticket: CmxAttachTicket
@@ -46,7 +48,7 @@ final class MobileAttachTicketStore {
             workspaceID: workspaceID,
             terminalID: terminalID,
             macDeviceID: MobileHostIdentity.deviceID(),
-            macDisplayName: MobileHostIdentity.displayName(),
+            macDisplayName: MobileHostIdentity.instanceDisplayName(),
             macUserEmail: macUserEmail,
             macUserID: macUserID,
             macPairingCompatibilityVersion: macPairingCompatibilityVersion,
@@ -65,20 +67,32 @@ final class MobileAttachTicketStore {
     func payload(
         for ticket: CmxAttachTicket,
         routeDisclosureMode: CmxPairingRouteDisclosureMode = .legacyPrivateNetworkCompatibility,
+        target: MobileAttachTarget? = nil,
         now: Date = Date()
     ) throws -> [String: Any] {
         let disclosedTicket = try ticket.authenticatedDisclosure(at: now)
         var payload: [String: Any] = [
             "ticket": try Self.jsonObject(disclosedTicket),
-            "attach_url": try attachURL(
-                for: disclosedTicket,
-                routeDisclosureMode: routeDisclosureMode
-            ).absoluteString,
             "routes": disclosedTicket.routes.mobileHostJSONObjects(
                 for: .authenticated,
                 at: now
             )
         ]
+        switch target {
+        case nil:
+            payload["attach_url"] = try attachURL(
+                for: disclosedTicket,
+                routeDisclosureMode: routeDisclosureMode
+            ).absoluteString
+        case .ticketOnly:
+            break
+        case .some(let target):
+            payload["attach_url"] = try attachURL(
+                for: disclosedTicket,
+                target: target,
+                routeDisclosureMode: routeDisclosureMode
+            ).absoluteString
+        }
         // `expires_at` describes the minted attach token's lifetime (tickets
         // from `createTicket` always carry one). The QR payload itself encodes
         // no expiry; a displayed pairing code never goes stale.
@@ -173,6 +187,44 @@ final class MobileAttachTicketStore {
         return url
     }
 
+    private func attachURL(
+        for ticket: CmxAttachTicket,
+        target: MobileAttachTarget,
+        routeDisclosureMode: CmxPairingRouteDisclosureMode
+    ) throws -> URL {
+        switch target {
+        case .ticketOnly:
+            throw MobileAttachTicketStoreError.invalidAttachURL
+        case .simulatorInjection:
+            let data = try CmxAttachTicketCompactCoder().encode(
+                ticket,
+                routeDisclosureMode: routeDisclosureMode
+            )
+            let payload = Self.base64URLEncode(data)
+            guard let url = URL(
+                string: "\(CmxPairingURLScheme.current)://attach?v=\(ticket.version)&payload=\(payload)"
+            ) else {
+                throw MobileAttachTicketStoreError.invalidAttachURL
+            }
+            return url
+        case .physicalDevice:
+            guard ticket.routes.allSatisfy({
+                $0.kind == .tailscale && !CmxLoopbackHost().matches($0)
+            }),
+            let pairingURL = CmxPairingQRCode().encode(
+                ticket,
+                routeDisclosureMode: routeDisclosureMode
+            ),
+            let url = URL(string: pairingURL),
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+            let decoded = try? CmxPairingQRCode().decode(components),
+            decoded.routes == ticket.routes else {
+                throw MobileAttachTicketStoreError.invalidAttachURL
+            }
+            return url
+        }
+    }
+
     private func pruneExpired(now: Date) {
         recordsByAuthToken = recordsByAuthToken.filter { !$0.value.ticket.isExpired(at: now) }
     }
@@ -215,6 +267,8 @@ enum MobileHostIdentity {
     private static let deviceIDKey = "mobileHost.deviceID"
     private static let sharedDeviceIDFileName = "mobile-host-device-id"
     private static let stableBundleIdentifier = "com.cmuxterm.app"
+    private static let maximumDisplayNameUTF16Length = 128
+    private static let maximumDisplayedBuildTagUTF16Length = 64
 
     static func deviceID() -> String {
         let stableDefaults = Bundle.main.bundleIdentifier == stableBundleIdentifier
@@ -312,24 +366,107 @@ enum MobileHostIdentity {
         return settled
     }
 
-    static func displayName() -> String? {
-        displayName(defaults: .standard)
+    /// Stable physical-device name. Device-level registry and backup rows use
+    /// this value because they are shared by every tagged app instance.
+    static func baseDisplayName() -> String? {
+        baseDisplayName(defaults: .standard)
     }
 
-    /// The name the iOS app shows for this Mac during pairing.
-    ///
-    /// Uses the user's override from
-    /// ``SettingCatalog/mobile``.`iOSPairingDisplayName` when it is set to a
-    /// non-empty value, otherwise falls back to the Mac's name from System
-    /// Settings (`Host.current().localizedName`).
-    static func displayName(defaults: UserDefaults) -> String? {
+    static func baseDisplayName(defaults: UserDefaults) -> String? {
+        baseDisplayName(defaults: defaults, hostName: Host.current().localizedName)
+    }
+
+    static func baseDisplayName(
+        defaults: UserDefaults,
+        hostName: String?
+    ) -> String? {
         let key = SettingCatalog().mobile.iOSPairingDisplayName.userDefaultsKey
+        let baseName: String?
         if let override = defaults.string(forKey: key) {
             let trimmed = override.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
-                return trimmed
+                baseName = trimmed
+            } else {
+                baseName = hostName
             }
+        } else {
+            baseName = hostName
         }
-        return Host.current().localizedName
+
+        guard let baseName else { return nil }
+        let trimmedName = baseName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedName.isEmpty ? nil : trimmedName
+    }
+
+    /// Per-app-instance name sent through tickets, authenticated status, and
+    /// presence. Tagged DEBUG builds append their canonical launch tag while
+    /// release and untagged builds keep the stable base name.
+    static func instanceDisplayName() -> String? {
+        instanceDisplayName(defaults: .standard)
+    }
+
+    static func instanceDisplayName(defaults: UserDefaults) -> String? {
+        instanceDisplayName(
+            defaults: defaults,
+            hostName: Host.current().localizedName,
+            buildTag: currentDebugBuildTag()
+        )
+    }
+
+    static func instanceDisplayName(
+        defaults: UserDefaults,
+        hostName: String?,
+        buildTag: String?
+    ) -> String? {
+        guard let trimmedName = baseDisplayName(defaults: defaults, hostName: hostName) else {
+            return nil
+        }
+        let trimmedTag = buildTag?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmedTag.isEmpty, trimmedTag != "default" else {
+            return trimmedName
+        }
+        let originalSuffix = " (\(trimmedTag))"
+        let unsuffixedName = trimmedName.hasSuffix(originalSuffix)
+            ? String(trimmedName.dropLast(originalSuffix.count))
+            : trimmedName
+        let displayedTag = prefix(
+            of: trimmedTag,
+            fittingUTF16Length: maximumDisplayedBuildTagUTF16Length
+        )
+        let suffix = " (\(displayedTag))"
+        let baseNameBudget = maximumDisplayNameUTF16Length - suffix.utf16.count
+        let boundedName = prefix(of: unsuffixedName, fittingUTF16Length: baseNameBudget)
+        return boundedName + suffix
+    }
+
+    /// Canonical app-instance tag used by registry and presence. This is the
+    /// same launch tag that owns the tagged socket and bundle identity.
+    static func instanceTag() -> String {
+        SocketControlSettings.launchTag() ?? "default"
+    }
+
+    /// Returns the longest whole-character prefix that fits a UTF-16 wire limit.
+    /// The cloud presence and paired-Mac APIs cap display names at 128 UTF-16
+    /// code units, matching JavaScript's `String.length` measurement.
+    private static func prefix(of value: String, fittingUTF16Length limit: Int) -> String {
+        guard limit > 0 else { return "" }
+        var result = ""
+        var length = 0
+        for character in value {
+            let characterLength = String(character).utf16.count
+            guard length + characterLength <= limit else { break }
+            result.append(character)
+            length += characterLength
+        }
+        return result
+    }
+
+    private static func currentDebugBuildTag() -> String? {
+        #if DEBUG
+        let tag = instanceTag()
+        return tag == "default" ? nil : tag
+        #else
+        nil
+        #endif
     }
 }

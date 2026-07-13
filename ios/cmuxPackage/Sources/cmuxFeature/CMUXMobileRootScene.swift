@@ -219,11 +219,11 @@ public struct CMUXMobileRootScene: View {
     /// boundaries must hold even when backup is off.
     @MainActor
     private func makeBackedUpPairedMacStore(
-        restoreBoundary: PairedMacRestoreBoundary
+        restoreBoundary: PairedMacRestoreBoundary,
+        buildScope: MobileIOSBuildScope?
     ) -> (any MobilePairedMacStoring)? {
         guard let store = pairedMacStore else { return nil }
         let coordinator = auth.coordinator
-        let buildScope = MobileIOSBuildScope.current()
         let buildScopedStore: any MobilePairedMacStoring
         if let buildScope {
             buildScopedStore = IOSBuildScopedPairedMacStore(inner: store, scope: buildScope)
@@ -303,12 +303,16 @@ public struct CMUXMobileRootScene: View {
     @MainActor
     private func makeStore() -> CMUXMobileShellStore {
         let coordinator = auth.coordinator
+        let buildScope = MobileIOSBuildScope.current()
         let identityProvider = AuthCoordinatorIdentityProvider(
             coordinator: auth.coordinator,
             isDevelopmentAuthEnvironment: auth.authEnvironment == .development
         )
         let restoreBoundary = PairedMacRestoreBoundary()
-        let backedUpPairedMacStore = makeBackedUpPairedMacStore(restoreBoundary: restoreBoundary)
+        let backedUpPairedMacStore = makeBackedUpPairedMacStore(
+            restoreBoundary: restoreBoundary,
+            buildScope: buildScope
+        )
         let deviceRegistry = makeDeviceRegistry(pairedMacStore: backedUpPairedMacStore)
         let forgottenMacStore = UserDefaultsPairedMacForgottenStore()
         let feedbackEmailSubmitter = MobileFeedbackEmailClient(apiBaseURL: auth.config.apiBaseURL)

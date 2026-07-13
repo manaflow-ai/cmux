@@ -663,6 +663,199 @@ export const deviceAppInstances = pgTable(
   ],
 );
 
+/**
+ * Personal-account Iroh trust state. The rendezvous key is derived at the
+ * application boundary from a server-only HMAC secret and this generation, so
+ * Aurora never stores the LAN discovery secret itself. Revoking an endpoint
+ * increments the generation and invalidates previously advertised rendezvous
+ * values for the account.
+ */
+export const irohAccountSecurityStates = pgTable(
+  "iroh_account_security_states",
+  {
+    userId: text("user_id").primaryKey(),
+    lanDiscoveryGeneration: integer("lan_discovery_generation").notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("iroh_account_security_states_generation_check", sql`${table.lanDiscoveryGeneration} >= 1`),
+  ],
+);
+
+/**
+ * Authenticated Iroh endpoint bindings. These rows are intentionally separate
+ * from the legacy team-scoped device registry: Iroh discovery and grants are
+ * always scoped to the exact Stack user id that registered the endpoint.
+ */
+export const irohEndpointBindings = pgTable(
+  "iroh_endpoint_bindings",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    deviceUuid: uuid("device_uuid").notNull(),
+    appInstanceId: uuid("app_instance_id").notNull(),
+    tag: text("tag").notNull(),
+    platform: text("platform").notNull(),
+    displayName: text("display_name"),
+    endpointId: text("endpoint_id").notNull(),
+    identityGeneration: integer("identity_generation").notNull(),
+    pairingEnabled: boolean("pairing_enabled").notNull().default(false),
+    capabilities: jsonb("capabilities").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    pathHints: jsonb("path_hints").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
+    pathHintsNextExpiry: timestamp("path_hints_next_expiry", { withTimezone: true }),
+    deviceLimitOverrideUsed: boolean("device_limit_override_used").notNull().default(false),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    registeredAt: timestamp("registered_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedReason: text("revoked_reason"),
+  },
+  (table) => [
+    check("iroh_endpoint_bindings_endpoint_id_check", sql`${table.endpointId} ~ '^[0-9a-f]{64}$'`),
+    check("iroh_endpoint_bindings_identity_generation_check", sql`${table.identityGeneration} between 1 and 2147483647`),
+    check("iroh_endpoint_bindings_tag_check", sql`${table.tag} ~ '^[A-Za-z0-9._-]{1,64}$'`),
+    check("iroh_endpoint_bindings_platform_check", sql`${table.platform} in ('mac', 'ios')`),
+    check("iroh_endpoint_bindings_display_name_check", sql`${table.displayName} is null or ${table.displayName} !~ '[[:cntrl:]]'`),
+    check("iroh_endpoint_bindings_capabilities_check", sql`jsonb_typeof(${table.capabilities}) = 'array' and jsonb_array_length(${table.capabilities}) <= 32`),
+    check("iroh_endpoint_bindings_path_hints_check", sql`jsonb_typeof(${table.pathHints}) = 'array' and jsonb_array_length(${table.pathHints}) <= 16`),
+    uniqueIndex("iroh_endpoint_bindings_active_endpoint_unique")
+      .on(table.endpointId)
+      .where(sql`${table.revokedAt} is null`),
+    uniqueIndex("iroh_endpoint_bindings_active_app_instance_unique")
+      .on(table.appInstanceId)
+      .where(sql`${table.revokedAt} is null`),
+    index("iroh_endpoint_bindings_user_active_idx")
+      .on(table.userId, table.updatedAt)
+      .where(sql`${table.revokedAt} is null`),
+    index("iroh_endpoint_bindings_user_device_active_idx")
+      .on(table.userId, table.deviceUuid)
+      .where(sql`${table.revokedAt} is null`),
+    index("iroh_endpoint_bindings_user_idx")
+      .on(table.userId),
+    index("iroh_endpoint_bindings_user_revoked_idx")
+      .on(table.userId, table.revokedAt, table.id)
+      .where(sql`${table.revokedAt} is not null`),
+    index("iroh_endpoint_bindings_revoked_idx")
+      .on(table.revokedAt)
+      .where(sql`${table.revokedAt} is not null`),
+    index("iroh_endpoint_bindings_path_hints_expiry_idx")
+      .on(table.pathHintsNextExpiry, table.id)
+      .where(sql`${table.revokedAt} is null and ${table.pathHintsNextExpiry} is not null`),
+    index("iroh_endpoint_bindings_revoked_hints_idx")
+      .on(table.revokedAt, table.id)
+      .where(sql`${table.revokedAt} is not null and ${table.pathHintsNextExpiry} is not null`),
+  ],
+);
+
+/**
+ * One-use registration challenges. Only a SHA-256 hash of the random nonce is
+ * persisted. The payload hash binds all endpoint metadata before signature
+ * verification and the consumed timestamp provides replay protection.
+ */
+export const irohRegistrationChallenges = pgTable(
+  "iroh_registration_challenges",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    deviceUuid: uuid("device_uuid").notNull(),
+    appInstanceId: uuid("app_instance_id").notNull(),
+    tag: text("tag").notNull(),
+    endpointId: text("endpoint_id").notNull(),
+    identityGeneration: integer("identity_generation").notNull(),
+    payloadSha256: text("payload_sha256").notNull(),
+    nonceHash: text("nonce_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  },
+  (table) => [
+    check("iroh_registration_challenges_endpoint_id_check", sql`${table.endpointId} ~ '^[0-9a-f]{64}$'`),
+    check("iroh_registration_challenges_identity_generation_check", sql`${table.identityGeneration} between 1 and 2147483647`),
+    check("iroh_registration_challenges_tag_check", sql`${table.tag} ~ '^[A-Za-z0-9._-]{1,64}$'`),
+    check("iroh_registration_challenges_payload_hash_check", sql`${table.payloadSha256} ~ '^[0-9a-f]{64}$'`),
+    check("iroh_registration_challenges_nonce_hash_check", sql`${table.nonceHash} ~ '^[0-9a-f]{64}$'`),
+    uniqueIndex("iroh_registration_challenges_nonce_hash_unique").on(table.nonceHash),
+    index("iroh_registration_challenges_user_created_idx").on(table.userId, table.createdAt),
+    index("iroh_registration_challenges_user_device_created_idx")
+      .on(table.userId, table.deviceUuid, table.createdAt),
+    index("iroh_registration_challenges_expires_idx")
+      .on(table.expiresAt, table.id),
+    index("iroh_registration_challenges_consumed_idx")
+      .on(table.consumedAt, table.id)
+      .where(sql`${table.consumedAt} is not null`),
+    index("iroh_registration_challenges_user_expires_idx")
+      .on(table.userId, table.expiresAt, table.id),
+    index("iroh_registration_challenges_user_consumed_idx")
+      .on(table.userId, table.consumedAt, table.id)
+      .where(sql`${table.consumedAt} is not null`),
+  ],
+);
+
+/** Audit-only record of an issued compact pair-grant JWS. The JWS is returned
+ * once and is never persisted. */
+export const irohPairGrantIssuances = pgTable(
+  "iroh_pair_grant_issuances",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    jti: uuid("jti").notNull(),
+    initiatorBindingId: uuid("initiator_binding_id")
+      .notNull()
+      .references(() => irohEndpointBindings.id, { onDelete: "cascade" }),
+    acceptorBindingId: uuid("acceptor_binding_id")
+      .notNull()
+      .references(() => irohEndpointBindings.id, { onDelete: "cascade" }),
+    signingKeyId: text("signing_key_id").notNull(),
+    alpn: text("alpn").notNull().default("cmux/mobile/1"),
+    scope: text("scope").notNull().default("cmux.mobile.attach"),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
+    notBefore: timestamp("not_before", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("iroh_pair_grant_issuances_jti_unique").on(table.jti),
+    index("iroh_pair_grant_issuances_user_issued_idx").on(table.userId, table.issuedAt),
+    index("iroh_pair_grant_issuances_initiator_idx").on(table.initiatorBindingId, table.expiresAt),
+    index("iroh_pair_grant_issuances_acceptor_expires_idx").on(table.acceptorBindingId, table.expiresAt),
+    index("iroh_pair_grant_issuances_expires_idx").on(table.expiresAt, table.id),
+    index("iroh_pair_grant_issuances_user_expires_idx").on(table.userId, table.expiresAt, table.id),
+  ],
+);
+
+/**
+ * DB-authoritative relay-mint quota ledger. At most a hash of a successfully
+ * minted token is recorded; plaintext relay credentials never enter Aurora.
+ */
+export const irohRelayTokenIssuances = pgTable(
+  "iroh_relay_token_issuances",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    bindingId: uuid("binding_id")
+      .notNull()
+      .references(() => irohEndpointBindings.id, { onDelete: "cascade" }),
+    endpointIdHash: text("endpoint_id_hash").notNull(),
+    status: text("status")
+      .$type<"pending" | "succeeded" | "failed" | "expired">()
+      .notNull()
+      .default("pending"),
+    tokenHash: text("token_hash"),
+    failureCode: text("failure_code"),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+  },
+  (table) => [
+    check("iroh_relay_token_issuances_endpoint_hash_check", sql`${table.endpointIdHash} ~ '^[0-9a-f]{64}$'`),
+    check("iroh_relay_token_issuances_status_check", sql`${table.status} in ('pending', 'succeeded', 'failed', 'expired')`),
+    index("iroh_relay_token_issuances_binding_requested_idx").on(table.bindingId, table.requestedAt),
+    index("iroh_relay_token_issuances_user_requested_idx").on(table.userId, table.requestedAt, table.id),
+    index("iroh_relay_token_issuances_requested_idx").on(table.requestedAt, table.id),
+  ],
+);
+
 export const cloudVmNotificationEvents = pgTable(
   "cloud_vm_notification_events",
   {

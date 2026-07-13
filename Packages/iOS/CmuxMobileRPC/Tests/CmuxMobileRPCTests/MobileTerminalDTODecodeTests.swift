@@ -38,7 +38,14 @@ import Testing
         let response = try MobileHostStatusResponse.decode(Data("{}".utf8))
         #expect(response.capabilities.isEmpty)
         #expect(response.terminalFidelity == nil)
+        #expect(response.macInstanceTag == nil)
         #expect(response.theme == nil)
+    }
+
+    @Test func hostStatusDecodesMacInstanceTag() throws {
+        let data = Data(#"{"mac_instance_tag":"future-one"}"#.utf8)
+        let response = try MobileHostStatusResponse.decode(data)
+        #expect(response.macInstanceTag == "future-one")
     }
 
     /// A theme nested in the host-status payload, serialized with the Mac

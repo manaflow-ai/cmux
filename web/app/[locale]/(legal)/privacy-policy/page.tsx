@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import { Link } from "../../../../i18n/navigation";
+import { legalMetadata } from "../legal-metadata";
 
-export const metadata: Metadata = {
-  title: "Privacy Policy — cmux",
-  description: "Privacy policy for cmux",
-  alternates: { canonical: "https://cmux.com/privacy-policy" },
-};
+export const metadata: Metadata = legalMetadata(
+  "/privacy-policy",
+  "Privacy Policy — cmux",
+  "Privacy policy for the cmux website and macOS application",
+);
 
 export default function PrivacyPolicyPage() {
   return (

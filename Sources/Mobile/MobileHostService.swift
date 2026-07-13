@@ -243,13 +243,14 @@ final class MobileHostService {
     /// `publicStatusPayload` plus the Mac's identity, for a caller that has
     /// proven same-account Stack ownership. The pairing QR no longer carries
     /// the display name or the device id, so this reply is where a freshly
-    /// paired phone learns what to call this Mac and which paired-Mac record
-    /// the connection belongs to.
+    /// paired phone learns what to call this Mac, which paired-Mac record owns
+    /// the connection, and which app instance owns its routes.
     nonisolated static func identityStatusPayload(routes: [CmxAttachRoute], now: Date = Date()) -> [String: Any] {
         var payload = publicStatusPayload(routes: [], now: now)
         payload["routes"] = routes.mobileHostJSONObjects(for: .authenticated, at: now)
         payload["mac_device_id"] = MobileHostIdentity.deviceID()
-        if let displayName = MobileHostIdentity.displayName() {
+        payload["mac_instance_tag"] = MobileHostIdentity.instanceTag()
+        if let displayName = MobileHostIdentity.instanceDisplayName() {
             payload["mac_display_name"] = displayName
         }
         let build = MobileHostBuildIdentity.current()
@@ -1080,14 +1081,16 @@ final class MobileHostService {
         ttl: TimeInterval,
         routeID: String? = nil,
         routeKind: String? = nil,
-        routeDisclosureMode: CmxPairingRouteDisclosureMode = .legacyPrivateNetworkCompatibility
+        routeDisclosureMode: CmxPairingRouteDisclosureMode = .legacyPrivateNetworkCompatibility,
+        target: MobileAttachTarget? = nil
     ) async throws -> [String: Any] {
         let routes = MobileHostPublicStatusCache.snapshot()
-        let selectedRoutes = try Self.filteredRoutes(
+        let filteredRoutes = try Self.filteredRoutes(
             routes,
             routeID: routeID,
             routeKind: routeKind
         )
+        let selectedRoutes = try target.selectRoutes(from: filteredRoutes)
         let ticket = try ticketStore.createTicket(
             workspaceID: workspaceID,
             terminalID: terminalID,
@@ -1101,7 +1104,8 @@ final class MobileHostService {
         )
         return try ticketStore.payload(
             for: ticket,
-            routeDisclosureMode: routeDisclosureMode
+            routeDisclosureMode: routeDisclosureMode,
+            target: target
         )
     }
 
@@ -1288,7 +1292,7 @@ final class MobileHostService {
 
     private func ticketAuthorizationResultIfNeeded(for request: MobileHostRPCRequest) -> MobileHostRPCResult? {
         let createsWorkspaceInGroup = request.method == "workspace.create" && request.params["group_id"] != nil && !(request.params["group_id"] is NSNull)
-        let requiresCurrentAttachTicket = request.method == "workspace.move" || request.method == "workspace.group.action" || createsWorkspaceInGroup
+        let requiresCurrentAttachTicket = request.method == "workspace.move" || request.method == "workspace.group.action" || request.method == "workspace.group.create" || createsWorkspaceInGroup
         guard let attachToken = request.auth?.attachToken?.trimmingCharacters(in: .whitespacesAndNewlines),
               !attachToken.isEmpty else {
             return requiresCurrentAttachTicket ? .failure(Self.scopedTicketError) : nil
@@ -1366,7 +1370,7 @@ final class MobileHostService {
             )
         case "workspace.action", "workspace.close":
             return ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection.value)
-        case "workspace.group.action":
+        case "workspace.group.action", "workspace.group.create":
             return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)
         case "workspace.group.collapse", "workspace.group.expand":
             // Display-only group state. Keyed by `group_id` (not a workspace or
