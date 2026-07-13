@@ -27,7 +27,6 @@ struct TaskComposerPrimaryAction: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .disabled(isSubmitting || !isEnabled)
-            .keyboardShortcut(.return, modifiers: .command)
             .accessibilityLabel(
                 isSubmitting
                     ? L10n.string("mobile.taskComposer.creating", defaultValue: "Creating Task")

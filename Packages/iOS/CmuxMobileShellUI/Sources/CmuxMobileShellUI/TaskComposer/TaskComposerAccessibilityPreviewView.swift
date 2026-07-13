@@ -9,12 +9,12 @@ public struct TaskComposerAccessibilityPreviewView: View {
     @State private var isPresented = false
     private let store: CMUXMobileShellStore
 
-    /// Creates the preview with the production shell store whose template
-    /// persistence and submission state the sheet exercises.
-    ///
-    /// - Parameter store: The shell store supplied by the app's DEBUG root.
-    public init(store: CMUXMobileShellStore) {
-        self.store = store
+    /// Creates the preview with isolated, in-memory task state so repeated UI
+    /// tests cannot inherit production templates, selections, or drafts.
+    public init() {
+        self.store = CMUXMobileShellStore(
+            taskTemplateStore: TaskComposerAccessibilityTemplateStore()
+        )
     }
 
     /// Presents the production task composer over an otherwise empty host.
@@ -40,4 +40,5 @@ public struct TaskComposerAccessibilityPreviewView: View {
         stackUserID: nil
     )
 }
+
 #endif

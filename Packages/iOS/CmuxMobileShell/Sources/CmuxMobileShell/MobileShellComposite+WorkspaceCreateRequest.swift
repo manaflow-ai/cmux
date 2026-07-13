@@ -26,7 +26,8 @@ extension MobileShellComposite {
     func createWorkspaceRequest(
         inGroup groupID: MobileWorkspaceGroupPreview.ID? = nil,
         spec: MobileWorkspaceCreateSpec? = nil,
-        pinnedContext context: WorkspaceCreatePinnedContext
+        pinnedContext context: WorkspaceCreatePinnedContext,
+        willStartCreate: (@MainActor () -> Void)? = nil
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         guard groupID == nil || allowsMacScopedWorkspaceMutations(targetClient: context.client) else {
             return .failure(.authorizationFailed(hostDisplayName: context.hostDisplayName))
@@ -37,6 +38,7 @@ extension MobileShellComposite {
             }
             return await createWorkspaceTask.value
         }
+        willStartCreate?()
         let taskID = UUID()
         createWorkspaceTaskID = taskID
         let task = Task<Result<Void, MobileWorkspaceMutationFailure>, Never> { @MainActor [weak self] in

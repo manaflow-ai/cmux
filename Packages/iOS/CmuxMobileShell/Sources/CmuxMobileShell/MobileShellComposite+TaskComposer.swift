@@ -46,11 +46,14 @@ extension MobileShellComposite {
     /// - Parameters:
     ///   - macDeviceID: Target Mac device id.
     ///   - spec: Workspace-create parameters derived from the selected template.
+    ///   - willStartCreate: Optional main-actor callback invoked after the target
+    ///     Mac and capability are resolved, immediately before the create begins.
     /// - Returns: `success` when the workspace was created; otherwise the failure to display.
     @discardableResult
     public func submitTaskComposer(
         macDeviceID: String,
-        spec: MobileWorkspaceCreateSpec
+        spec: MobileWorkspaceCreateSpec,
+        willStartCreate: (@MainActor () -> Void)? = nil
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         // A dropped connection can leave `foregroundMacDeviceID` pointing at the
         // selected Mac while `remoteClient` is already gone; a matching id alone
@@ -71,7 +74,8 @@ extension MobileShellComposite {
         }
         return await createWorkspaceRequest(
             spec: spec,
-            pinnedContext: pinnedContext
+            pinnedContext: pinnedContext,
+            willStartCreate: willStartCreate
         )
     }
 

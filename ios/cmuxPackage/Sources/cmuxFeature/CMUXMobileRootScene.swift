@@ -242,7 +242,7 @@ public struct CMUXMobileRootScene: View {
         #if os(iOS)
         #if DEBUG
         if UITestConfig.taskComposerPreviewEnabled {
-            TaskComposerAccessibilityPreviewView(store: makeStore())
+            TaskComposerAccessibilityPreviewView()
         } else if UITestConfig.workspaceListLayoutPreviewEnabled {
             WorkspaceListLayoutPreviewView()
         } else if let recoveryStress = MobileRecoveryStressConfiguration.parse(arguments: ProcessInfo.processInfo.arguments) {

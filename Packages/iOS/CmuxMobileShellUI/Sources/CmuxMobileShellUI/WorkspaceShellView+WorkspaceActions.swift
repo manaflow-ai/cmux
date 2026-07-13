@@ -10,12 +10,19 @@ extension WorkspaceShellView {
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         let store = store
         return { macDeviceID, spec in
-            let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
-            pendingCompactCreateNavigationWorkspaceIDs = usesCompactStack
-                ? existingWorkspaceIDs
-                : nil
-            let result = await store.submitTaskComposer(macDeviceID: macDeviceID, spec: spec)
-            if usesCompactStack {
+            pendingCompactCreateNavigationWorkspaceIDs = nil
+            var existingWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
+            let result = await store.submitTaskComposer(
+                macDeviceID: macDeviceID,
+                spec: spec,
+                willStartCreate: {
+                    guard usesCompactStack else { return }
+                    let targetWorkspaceIDs = Set(store.workspaces.map(\.id))
+                    existingWorkspaceIDs = targetWorkspaceIDs
+                    pendingCompactCreateNavigationWorkspaceIDs = targetWorkspaceIDs
+                }
+            )
+            if usesCompactStack, let existingWorkspaceIDs {
                 settlePendingCompactCreateNavigation(
                     result: result,
                     existingWorkspaceIDs: existingWorkspaceIDs
