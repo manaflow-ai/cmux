@@ -35,6 +35,7 @@ import Testing
         #expect(try await pollUntil {
             await pairedMacStore.currentLoadStartCount(teamID: nil) == 2
         })
+        await pairedMacStore.release(teamID: nil)
         #expect(try await pollUntil {
             store.connectionResourceSnapshotForTesting().retiredLifecycleTaskCount == 0
                 && store.connectionLifecycle.activeEpisode == nil
@@ -87,10 +88,22 @@ import Testing
         if cachedDeadlineArmed {
             await deadline.expire()
         }
+        let boundedResources = store.connectionResourceSnapshotForTesting()
+        #expect(boundedResources.activeEpisodeCount == 0)
+        #expect(boundedResources.retiredLifecycleTaskCount == 1)
+        #expect(boundedResources.retiredCachedLifecycleTaskCount == 1)
+
+        store.retryMobileConnection()
+        let accumulatedAnotherAttempt = try await pollUntil(attempts: 50) {
+            factory.attemptedPorts().count > 1
+        }
+        #expect(!accumulatedAnotherAttempt)
+
         factory.releaseHeldConnect()
         await pairedMacStore.release(teamID: nil)
         #expect(try await pollUntil {
             store.connectionResourceSnapshotForTesting().retiredLifecycleTaskCount == 0
+                && store.connectionResourceSnapshotForTesting().retiredCachedLifecycleTaskCount == 0
                 && store.connectionLifecycle.activeEpisode == nil
         })
     }
@@ -138,16 +151,13 @@ import Testing
         }
         #expect(supersededBeforeStoreReturned)
 
-        if !supersededBeforeStoreReturned {
-            store.signOut()
-        }
+        #expect(try await pollUntil {
+            await pairedMacStore.currentLoadStartCount(teamID: nil) == 3
+        })
+        store.signOut()
         await pairedMacStore.release(teamID: nil)
         #expect(await reconnect.value == false)
-        let didSwitch = await switched.value
-        if supersededBeforeStoreReturned {
-            #expect(didSwitch)
-            #expect(store.foregroundMacDeviceID == "mac-b")
-        }
+        #expect(await switched.value == false)
     }
 
     private func loopbackRoute(id: String, port: Int) throws -> CmxAttachRoute {

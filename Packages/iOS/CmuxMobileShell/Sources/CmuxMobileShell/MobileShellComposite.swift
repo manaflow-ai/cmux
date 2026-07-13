@@ -1025,7 +1025,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             continuation.resume()
         }
         connectionLifecycleTask?.cancel()
-        connectionLifecycleRetiredTask?.cancel()
+        connectionLifecycleTaskOwnership.primaryRetiredTask?.cancel()
+        connectionLifecycleTaskOwnership.cachedRetiredTask?.cancel()
         connectionLifecycleDeadlineTask?.cancel()
         presenceTask?.cancel()
         networkPathObservationTask?.cancel()
@@ -1425,10 +1426,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private(set) var networkPathObservationTask: Task<Void, Never>?
     var connectionLifecycle = MobileConnectionLifecycleStateMachine()
     var connectionLifecycleTask: Task<Void, Never>?
-    var connectionLifecycleRetiredTask: Task<Void, Never>?
-    var connectionLifecycleRetiredTaskGeneration: UInt64 = 0
+    var connectionLifecycleTaskOwnership = MobileConnectionLifecycleTaskOwnership()
     var connectionLifecycleStreamRepairListenerID: UUID?
-    var connectionLifecycleScopeReconnectPendingAfterRetirement = false
+    var connectionLifecycleReconnectPendingAfterRetirement = false
     var connectionLifecycleDeadlineTask: Task<Void, Never>?
     var connectionLifecycleRequestWaiters: [UInt64: CheckedContinuation<Void, Never>] = [:]
 
@@ -5305,6 +5305,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func beginMacSwitchAttempt() -> UUID {
+        supersedeAutomaticReconnectOwnership(clearPairingState: true)
         let attemptID = UUID()
         macSwitchCancelRestoreGeneration &+= 1
         macSwitchRestorePreviousOnCancelAttemptIDs.removeAll(keepingCapacity: true)
@@ -5313,7 +5314,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if hasActiveMacConnection {
             macSwitchRestoreBaseline = nil
         }
-        invalidatePairingAttempt()
         connectionAttemptGeneration = UUID()
         return attemptID
     }

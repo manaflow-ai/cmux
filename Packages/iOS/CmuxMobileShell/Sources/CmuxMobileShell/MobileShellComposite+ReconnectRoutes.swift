@@ -6,17 +6,12 @@ import Foundation
 extension MobileShellComposite {
     var hasStoredMacReconnectDemand: Bool {
         connectionLifecycle.hasStoredMacReconnectDemand
-            || connectionLifecycleScopeReconnectPendingAfterRetirement
+            || connectionLifecycleReconnectPendingAfterRetirement
     }
 
     /// Yield automatic recovery ownership before the user enters manual pairing.
     public func prepareForManualPairing() {
-        if connectionLifecycle.isRecovering || connectionLifecycle.hasStoredMacReconnectDemand {
-            resetConnectionLifecycle()
-        }
-        connectionLifecycleScopeReconnectPendingAfterRetirement = false
-        invalidatePairingAttempt()
-        clearPairingError()
+        supersedeAutomaticReconnectOwnership(clearPairingState: true)
     }
 
     /// The first reachable host/port route to a Mac, in priority order.

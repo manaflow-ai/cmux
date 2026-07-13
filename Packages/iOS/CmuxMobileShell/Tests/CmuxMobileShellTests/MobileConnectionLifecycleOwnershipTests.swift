@@ -229,6 +229,9 @@ import Testing
         }
         let superseded = try await pollUntil { await result.value() == false }
         #expect(superseded)
+        #expect(try await pollUntil {
+            await pairedMacStore.currentLoadStartCount(teamID: nil) == 2
+        })
 
         await pairedMacStore.release(teamID: nil)
         await manualPairing.value
