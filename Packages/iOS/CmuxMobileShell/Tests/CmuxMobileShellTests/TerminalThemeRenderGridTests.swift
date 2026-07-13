@@ -103,7 +103,7 @@ import Testing
 }
 
 @MainActor
-@Test func reconnectKeepsThemeButClearsItsOrderingFence() throws {
+@Test func reconnectToSameMacKeepsThemeOrderingFence() throws {
     let surfaceID = "terminal-reconnect-theme"
     let store = MobileShellComposite.preview()
     var theme = TerminalTheme.monokai
@@ -120,9 +120,49 @@ import Testing
     store.recordTerminalTheme(frame)
 
     store.resetTerminalThemeRevisionsForReconnect()
+    store.recordTerminalTheme(try delayedFrame(
+        surfaceID: surfaceID,
+        theme: .monokai,
+        revision: 9
+    ))
 
     #expect(store.terminalTheme(for: surfaceID) == theme)
-    #expect(store.terminalThemeState.revisionsBySurfaceID.isEmpty)
+    #expect(store.terminalThemeState.revisionsBySurfaceID[surfaceID] == 10)
+}
+
+@MainActor
+@Test func workspaceReplacementRepairsThemeSelectionBeforeVisibleSurfaceUpdates() throws {
+    let removedID = MobileTerminalPreview.ID(rawValue: "terminal-removed")
+    let visibleID = MobileTerminalPreview.ID(rawValue: "terminal-visible")
+    let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-theme-selection")
+    let initialWorkspace = MobileWorkspacePreview(
+        id: workspaceID,
+        name: "Theme selection",
+        terminals: [
+            MobileTerminalPreview(id: removedID, name: "Removed"),
+            MobileTerminalPreview(id: visibleID, name: "Visible"),
+        ]
+    )
+    let store = MobileShellComposite(workspaces: [initialWorkspace])
+    var visibleTheme = TerminalTheme.monokai
+    visibleTheme.background = "#f4f0df"
+    visibleTheme.foreground = "#17212b"
+
+    store.replaceForegroundWorkspaceState([
+        MobileWorkspacePreview(
+            id: workspaceID,
+            name: "Theme selection",
+            terminals: [MobileTerminalPreview(id: visibleID, name: "Visible")]
+        ),
+    ])
+    store.recordTerminalTheme(try delayedFrame(
+        surfaceID: visibleID.rawValue,
+        theme: visibleTheme,
+        revision: 1
+    ))
+
+    #expect(store.selectedTerminalID == visibleID)
+    #expect(store.activeTerminalTheme == visibleTheme)
 }
 
 @MainActor
@@ -144,4 +184,20 @@ import Testing
 
     #expect(store.terminalThemeState.themesBySurfaceID[surfaceID] == nil)
     #expect(store.terminalThemeState.revisionsBySurfaceID[surfaceID] == nil)
+}
+
+private func delayedFrame(
+    surfaceID: String,
+    theme: TerminalTheme,
+    revision: UInt64
+) throws -> MobileTerminalRenderGridFrame {
+    try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 1,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        terminalTheme: theme,
+        terminalThemeRevision: revision
+    )
 }
