@@ -1844,14 +1844,12 @@ enum SessionScrollbackReplayStore {
     private static let directoryName = "cmux-session-scrollback"
     private static let ansiEscape = "\u{001B}"
     private static let ansiReset = "\u{001B}[0m"
-
     nonisolated static func replayEnvironment(
         for scrollback: String?,
         tempDirectory: URL = FileManager.default.temporaryDirectory
     ) -> [String: String] {
         replayEnvironment(forFileURL: replayFileURL(for: scrollback, tempDirectory: tempDirectory))
     }
-
     nonisolated static func replayFileURL(
         for scrollback: String?,
         tempDirectory: URL = FileManager.default.temporaryDirectory
@@ -1859,12 +1857,10 @@ enum SessionScrollbackReplayStore {
         guard let replayText = normalizedScrollback(scrollback) else { return nil }
         return writeReplayFile(contents: replayText, tempDirectory: tempDirectory)
     }
-
     nonisolated static func replayEnvironment(forFileURL replayFileURL: URL?) -> [String: String] {
         guard let replayFileURL else { return [:] }
         return [environmentKey: replayFileURL.path]
     }
-
     nonisolated private static func normalizedScrollback(_ scrollback: String?) -> String? {
         guard let scrollback else { return nil }
         guard scrollback.contains(where: { !$0.isWhitespace }) else { return nil }
@@ -1878,7 +1874,6 @@ enum SessionScrollbackReplayStore {
         guard let truncated = SessionPersistencePolicy.truncatedScrollback(themePortable) else { return nil }
         return ansiSafeReplayText(truncated)
     }
-
     /// Preserve ANSI color state safely across replay boundaries.
     nonisolated private static func ansiSafeReplayText(_ text: String) -> String {
         guard text.contains(ansiEscape) else { return text }
@@ -1982,7 +1977,6 @@ enum SessionScrollbackReplayStore {
         default: return false
         }
     }
-
     nonisolated private static func writeReplayFile(contents: String, tempDirectory: URL) -> URL? {
         guard let data = contents.data(using: .utf8) else { return nil }
         let directory = tempDirectory.appendingPathComponent(directoryName, isDirectory: true)
