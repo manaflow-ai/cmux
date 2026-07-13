@@ -1,8 +1,10 @@
 public import Darwin
 
-/// Authorizes peer processes for cmux-only control socket requests.
+/// Authorizes one peer connection for cmux-only control socket requests.
 public struct SocketClientAuthorization {
-    /// Creates an authorization helper with no retained process state.
+    private var cachedAncestryAuthorization: (peerProcessID: pid_t, isAllowed: Bool)?
+
+    /// Creates an authorization helper for one accepted socket connection.
     public init() {}
 
     /// Returns whether a peer process is allowed to use cmux-only socket operations.
@@ -31,9 +33,10 @@ public struct SocketClientAuthorization {
 
     /// Returns the command carried by an authorized cmux-only request.
     ///
-    /// Descendants retain the existing process-tree authorization. The
-    /// capability parameters form the runtime seam for terminals whose
-    /// process trees are later reparented by a multiplexer.
+    /// A valid same-user capability is accepted before process ancestry is
+    /// evaluated. Ordinary clients retain process-tree authorization, with one
+    /// ancestry result cached for the lifetime of this authorization helper.
+    /// Reusing a helper with a different peer PID invalidates that cache.
     ///
     /// - Parameters:
     ///   - command: The raw command line received from the client.
@@ -42,7 +45,7 @@ public struct SocketClientAuthorization {
     ///   - capabilityAuthority: The authority that verifies inherited tokens.
     ///   - isDescendant: Predicate that verifies current process ancestry.
     /// - Returns: The unwrapped command when authorized, otherwise `nil`.
-    public func authorizedCommand(
+    public mutating func authorizedCommand(
         _ command: String,
         peerProcessID: pid_t?,
         peerHasSameUID: Bool,
@@ -50,14 +53,24 @@ public struct SocketClientAuthorization {
         isDescendant: (pid_t) -> Bool
     ) -> String? {
         let envelope = SocketClientCapabilityCommand(command)
-        if let peerProcessID, isDescendant(peerProcessID) {
-            return envelope?.command ?? command
+        if peerHasSameUID,
+           let envelope,
+           capabilityAuthority.verifies(envelope.capability) {
+            return envelope.command
         }
-        guard peerHasSameUID,
-              let envelope,
-              capabilityAuthority.verifies(envelope.capability) else {
+
+        guard let peerProcessID else {
             return nil
         }
-        return envelope.command
+        let peerIsDescendant: Bool
+        if let cachedAncestryAuthorization,
+           cachedAncestryAuthorization.peerProcessID == peerProcessID {
+            peerIsDescendant = cachedAncestryAuthorization.isAllowed
+        } else {
+            peerIsDescendant = isDescendant(peerProcessID)
+            cachedAncestryAuthorization = (peerProcessID, peerIsDescendant)
+        }
+        guard peerIsDescendant else { return nil }
+        return envelope?.command ?? command
     }
 }

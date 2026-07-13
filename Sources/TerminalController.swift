@@ -1434,7 +1434,7 @@ class TerminalController {
     }
 
     private nonisolated func spawnClientHandler(socket clientSocket: Int32, peerPid: pid_t?) async {
-        let initialReadLimits = socketClientInitialReadLimits(peerProcessID: peerPid)
+        let initialReadLimits = socketClientInitialReadLimits()
         let claimedPreauthorizationSlot = if initialReadLimits != nil {
             await socketClientPreauthorizationLimiter.claim()
         } else {
@@ -1475,6 +1475,7 @@ class TerminalController {
             }
         }
         var authenticated = false
+        var clientAuthorization = SocketClientAuthorization()
         let lineReader = ControlClientLineReader(socket: socket, initialLimits: initialReadLimits)
 
         while let line = lineReader.nextLine(shouldContinueReading: { socketServer.isRunning }) {
@@ -1483,7 +1484,8 @@ class TerminalController {
             guard let trimmed = authorizedSocketCommand(
                 receivedCommand,
                 peerProcessID: pid,
-                peerHasSameUID: peerHasSameUID
+                peerHasSameUID: peerHasSameUID,
+                authorization: &clientAuthorization
             ) else {
                 _ = writeSocketResponse(
                     pid == nil ? "ERROR: Unable to verify client process"
