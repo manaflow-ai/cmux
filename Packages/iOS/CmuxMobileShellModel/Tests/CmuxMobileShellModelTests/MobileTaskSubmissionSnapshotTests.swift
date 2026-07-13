@@ -50,7 +50,7 @@ import Testing
         expectIdentityRotated(from: before, to: after)
     }
 
-    @Test func commandSurroundingWhitespaceTrimmedByWireKeepsIdentity() {
+    @Test func commandSurroundingWhitespaceChangesRequestIdentity() {
         let before = snapshot(template: MobileTaskTemplate(
             name: "Codex",
             icon: "agent:codex",
@@ -62,8 +62,8 @@ import Testing
             command: "  codex  "
         ))
 
-        #expect(before.isRequestEquivalent(to: after))
-        expectIdentityPreserved(from: before, to: after)
+        #expect(!before.isRequestEquivalent(to: after))
+        expectIdentityRotated(from: before, to: after)
     }
 
     @Test func selectedTemplateDefaultDirectoryEditChangesEffectiveRequest() {

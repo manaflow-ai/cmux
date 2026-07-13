@@ -49,6 +49,33 @@ import Testing
         #expect(Self.workspaceID(from: retry) == created.id)
     }
 
+    @Test func initialAgentCommandPreservesSurroundingWhitespaceThroughTerminalStartup() throws {
+        let manager = TabManager()
+        let initialWorkspaceIDs = Set(manager.tabs.map(\.id))
+        let initialCommand = " \nprintf '  preserved  '\n "
+
+        _ = TerminalController.shared.v2WorkspaceCreate(params: [
+            "initial_command": initialCommand,
+        ], tabManager: manager)
+
+        let created = try #require(manager.tabs.first { !initialWorkspaceIDs.contains($0.id) })
+        let panel = try #require(created.panels.values.compactMap { $0 as? TerminalPanel }.first)
+        #expect(panel.surface.debugInitialCommand() == initialCommand)
+    }
+
+    @Test func whitespaceOnlyInitialAgentCommandStartsPlainShell() throws {
+        let manager = TabManager()
+        let initialWorkspaceIDs = Set(manager.tabs.map(\.id))
+
+        _ = TerminalController.shared.v2WorkspaceCreate(params: [
+            "initial_command": " \n\t ",
+        ], tabManager: manager)
+
+        let created = try #require(manager.tabs.first { !initialWorkspaceIDs.contains($0.id) })
+        let panel = try #require(created.panels.values.compactMap { $0 as? TerminalPanel }.first)
+        #expect(panel.surface.debugInitialCommand() == nil)
+    }
+
     @Test func initialEnvironmentRejectsCStringTruncationAndPreservesEmptyPrompt() throws {
         let manager = TabManager()
         let initialWorkspaceIDs = Set(manager.tabs.map(\.id))

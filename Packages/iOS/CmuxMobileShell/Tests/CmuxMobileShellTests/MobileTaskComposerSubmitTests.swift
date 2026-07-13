@@ -35,6 +35,43 @@ import Testing
         ])
     }
 
+    @Test func submitTaskComposerPreservesInitialCommandVerbatim() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: router)
+        let initialCommand = " \nprintf '  preserved  '\n "
+
+        let result = await store.submitTaskComposer(
+            macDeviceID: "test-mac",
+            spec: MobileWorkspaceCreateSpec(
+                initialCommand: initialCommand,
+                operationID: UUID()
+            )
+        )
+
+        guard case .success = result else {
+            return #expect(Bool(false), "task composer create should succeed")
+        }
+        #expect(await router.recordedWorkspaceCreates().map(\.initialCommand) == [initialCommand])
+    }
+
+    @Test func submitTaskComposerOmitsWhitespaceOnlyInitialCommand() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: router)
+
+        let result = await store.submitTaskComposer(
+            macDeviceID: "test-mac",
+            spec: MobileWorkspaceCreateSpec(
+                initialCommand: " \n\t ",
+                operationID: UUID()
+            )
+        )
+
+        guard case .success = result else {
+            return #expect(Bool(false), "task composer create should succeed")
+        }
+        #expect(await router.recordedWorkspaceCreates().map(\.initialCommand) == [nil])
+    }
+
     @Test func taskComposerFailsClosedBeforeCreateWhenForegroundMacLacksCapability() async throws {
         let router = RoutingHostRouter()
         let store = try await makeRoutingConnectedStore(router: router, hostCapabilities: [])
