@@ -102,6 +102,18 @@ func TestOmoSlimEnsurePluginConfiguresShadowTmuxMultiplexer(t *testing.T) {
 		t.Fatalf("shadow plugin list = %#v, want full OMO plugins removed", plugins)
 	}
 
+	sessionPlugin, err := os.ReadFile(filepath.Join(shadowDir, "plugins", "cmux-session.js"))
+	if err != nil {
+		t.Fatalf("read remote session plugin: %v", err)
+	}
+	pluginSource := string(sessionPlugin)
+	if !strings.Contains(pluginSource, "cmux-opencode-session-plugin-marker") {
+		t.Fatal("remote session plugin is missing the cmux ownership marker")
+	}
+	if !strings.Contains(pluginSource, `"rpc", "feed.push"`) {
+		t.Fatal("remote session plugin does not relay lifecycle events through feed.push")
+	}
+
 	var slimConfig map[string]any
 	data, err = os.ReadFile(filepath.Join(shadowDir, "oh-my-opencode-slim.json"))
 	if err != nil {
