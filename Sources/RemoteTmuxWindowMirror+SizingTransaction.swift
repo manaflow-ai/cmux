@@ -111,7 +111,10 @@ extension RemoteTmuxWindowMirror {
         if let size = hostingContentSizeSource?(), size.width > 1, size.height > 1 {
             return (size, nil)
         }
-        if hostingContentSizeSource != nil { return nil }
+        // An injected source that answers nil no longer pins the channel: it
+        // falls through to the live probe and pane scan, so a test can seed
+        // an initial bound and then hand the mirror to a real window. In a
+        // headless composition the fall-through still resolves to nil.
         // The probe view is planted in the mirror's own subtree, so its
         // window survives portal churn that can briefly leave every hosted
         // pane view detached or hidden mid-sync — the pane scan below can go

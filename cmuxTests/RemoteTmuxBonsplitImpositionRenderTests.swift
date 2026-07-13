@@ -186,6 +186,12 @@ import Testing
         let connection = RemoteTmuxControlConnection(
             host: RemoteTmuxHost(destination: "user@host"), sessionName: "work"
         )
+        // Seed an injected bound for the pre-mount pass (the transaction only
+        // completes against a visible hosting context), then hand the mirror
+        // to the real window: a source answering nil falls through to the
+        // live probe, so the mounted window's bound takes over.
+        final class SeedBound { var value: CGSize? = CGSize(width: 800, height: 620) }
+        let seed = SeedBound()
         let mirror = RemoteTmuxWindowMirror(
             windowId: 0,
             panelId: UUID(),
@@ -198,6 +204,7 @@ import Testing
                     scale: 2
                 )
             },
+            hostingContentSizeSource: { seed.value },
             makePanel: { _ in nil }
         )
         mirror.isVisibleForSizing = true
@@ -212,6 +219,7 @@ import Testing
             planned.width >= 700,
             "the stale plan must be far wider than the 500pt window for this test to bite"
         )
+        seed.value = nil
 
         let appearance = PanelAppearance(
             backgroundColor: .black, foregroundColor: .white,

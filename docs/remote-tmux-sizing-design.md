@@ -89,6 +89,25 @@ function of the reading, the current size, the window bound, the display bound,
 and visibility — no measured feedback — so it is unit-tested directly rather than
 left to the live view.
 
+Deferring is only safe when a retry edge exists. A reading and its validator
+must be sampled at the same instant: the geometry callback delivers a size at
+one moment, and the window that could vouch for it may not exist until a
+moment later. If the mirror drops the reading and nothing re-runs the check,
+the bank rots — the mirror keeps rendering a stale-wide tree in a fraction of
+its region with every claim looking sane, because the region never changes
+size again and no further callback ever comes. Two things close that hole:
+
+- A reading deferred for lack of a window is held, not dropped, and stashing
+  it schedules the pass that re-validates it once a window exists. A reading
+  a live window's bound rejects stays dropped — that one is content-derived
+  and carries no truth.
+- The pass resolves its window bound through the probe view planted in the
+  mirror's own subtree, which survives the portal churn that can blank every
+  pane view exactly when a bound is needed most. The full-chain regression
+  test (bank wide, mount narrow, heal) holds with these two alone; stronger
+  liveness edges (a pass on the probe's own move-to-window, same-instant
+  frame sampling) were tried and proved unnecessary on this architecture.
+
 ## One tmux window shown in more than one place: clamp to the smallest
 
 A tmux window can be displayed at two different sizes at once — most obviously
@@ -210,7 +229,10 @@ split's geometry.**
   *stale*, and the correction is the next sizing pass re-imposing from fresh
   inputs, never bonsplit re-applying the old extent mid-layout. The transient
   between container change and re-imposition may render off-plan; that is the
-  settled-property relaxation doing its job.
+  settled-property relaxation doing its job. Re-imposing an extent equal to
+  the one already stored still re-arms one apply: the number being unchanged
+  does not mean the frames hold it (a foreign resize can move frames without
+  touching the model), so an explicit imposition always earns one write.
 - **Mid-drag, the user owns it.** A divider drag is a session with a
   deterministic start and end taken from the mouse-tracking lifecycle itself —
   never inferred from which event happens to be current when a resize callback
