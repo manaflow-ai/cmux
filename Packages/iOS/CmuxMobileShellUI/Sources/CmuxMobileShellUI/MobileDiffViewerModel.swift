@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileRPC
 import CmuxMobileShell
 import CmuxMobileSupport
 import Foundation

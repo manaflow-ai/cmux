@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileRPC
 import CmuxMobileShell
 import SwiftUI
 

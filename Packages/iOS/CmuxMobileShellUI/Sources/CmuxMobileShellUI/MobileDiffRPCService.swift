@@ -1,3 +1,4 @@
+import CmuxMobileRPC
 import CmuxMobileShell
 import Foundation
 
