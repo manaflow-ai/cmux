@@ -8689,8 +8689,10 @@ final class GhosttySurfaceScrollView: NSView {
             object: surfaceView,
             queue: .main
         ) { [weak self] _ in
-            self?.cancelPendingNotificationScrollRestore()
-            self?.pendingExplicitWheelScroll = true
+            MainActor.assumeIsolated {
+                self?.cancelPendingNotificationScrollRestore()
+                self?.pendingExplicitWheelScroll = true
+            }
         })
 
         observers.append(NotificationCenter.default.addObserver(
