@@ -24,13 +24,26 @@ public struct MobileWorkspaceAggregation: Sendable {
         }.map(\.macDeviceID)
     }
 
-    /// A distinct stable color index per Mac, keyed by `macDeviceID`.
+    /// Return stable color index assignments after appending any newly seen Macs.
+    ///
+    /// Existing assignments are preserved verbatim. New non-empty Mac IDs are
+    /// processed in sorted order and assigned unique slots after the currently
+    /// assigned table, so cold-start assignment stays deterministic while a Mac
+    /// that was seen earlier keeps its slot across transient live-set changes.
     public func machineColorIndex(
-        statesByMac: [String: MacWorkspaceState]
+        existingAssignments: [String: Int],
+        adding macIDs: [String]
     ) -> [String: Int] {
-        var result: [String: Int] = [:]
-        for (offset, macID) in statesByMac.keys.filter({ !$0.isEmpty }).sorted().enumerated() {
-            result[macID] = offset
+        var result = existingAssignments
+        var usedSlots = Set(result.values)
+        var nextSlot = (usedSlots.max() ?? -1) + 1
+        for macID in Set(macIDs.filter { !$0.isEmpty }).sorted() where result[macID] == nil {
+            while usedSlots.contains(nextSlot) {
+                nextSlot += 1
+            }
+            result[macID] = nextSlot
+            usedSlots.insert(nextSlot)
+            nextSlot += 1
         }
         return result
     }
@@ -50,9 +63,9 @@ public struct MobileWorkspaceAggregation: Sendable {
     /// Derive the flat, ordered workspace list across all Macs.
     public func derivedWorkspaces(
         statesByMac: [String: MacWorkspaceState],
-        foregroundMacDeviceID: String?
+        foregroundMacDeviceID: String?,
+        machineColorIndex: [String: Int]
     ) -> [MobileWorkspacePreview] {
-        let colorIndex = machineColorIndex(statesByMac: statesByMac)
         let shouldScopeRowIDs = statesByMac.keys.filter { !$0.isEmpty }.count > 1
         var result: [MobileWorkspacePreview] = []
         for macID in orderedMacIDs(statesByMac: statesByMac, foregroundMacDeviceID: foregroundMacDeviceID) {
@@ -63,7 +76,7 @@ public struct MobileWorkspaceAggregation: Sendable {
                 if !ownerID.isEmpty {
                     stamped.macDeviceID = ownerID
                     stamped.macDisplayName = state.displayName
-                    stamped.machineColorIndex = colorIndex[ownerID]
+                    stamped.machineColorIndex = machineColorIndex[ownerID]
                 }
                 let remoteID = workspace.remoteWorkspaceID ?? workspace.id
                 stamped.remoteWorkspaceID = shouldScopeRowIDs && !ownerID.isEmpty ? remoteID : workspace.remoteWorkspaceID
