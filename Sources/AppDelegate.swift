@@ -1112,6 +1112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var screenChangeReconcileRetryBudget = 0
     var isScreenChangeCaptureSuppressed = false
     var inactiveDisplayTransitionState: InactiveDisplayTransitionState = .idle
+    var inactiveDisplayRecoveryInteractionMonitor: Any?
     var screenChangeCaptureSuppressionSignature: String?
     var screenChangeCaptureSuppressionSignatureGeneration: Int?
     var displayReconfigurationGeneration = 0
@@ -3617,7 +3618,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private nonisolated static func display(
+    nonisolated static func display(
         for snapshot: SessionDisplaySnapshot?,
         in displays: [SessionDisplayGeometry]
     ) -> SessionDisplayGeometry? {
@@ -3778,12 +3779,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 guard let self else { return }
                 if self.isTerminatingApp {
                     _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
                     ClosedItemHistoryStore.shared.flushPendingSaves()
                 } else {
+                    self.beginInactiveDisplayTransition()
                     self.saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
                 }
             }
@@ -3795,55 +3797,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
+                self?.markInactiveDisplayRecoveryReady()
                 self?.restartSocketListenerIfEnabled(source: "workspace.didWake")
             }
         }
         lifecycleSnapshotObservers.append(didWakeObserver)
-
-        registerDisplayReconfigurationCallbackIfNeeded()
-        let displayReconfigurationObserver = NotificationCenter.default.addObserver(
-            forName: Self.displayReconfigurationNotification,
-            object: self,
-            queue: .main
-        ) { [weak self] note in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                let isBeginning = note.userInfo?["isBeginning"] as? Bool ?? false
-                self.handleDisplayReconfiguration(isBeginning: isBeginning)
-            }
-        }
-        lifecycleSnapshotObservers.append(displayReconfigurationObserver)
-
-        let screenReconcileObserver = NotificationCenter.default.addObserver(
-            forName: Self.screenChangeReconcileNotification,
-            object: self,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.reconcileMainWindowFramesAfterScreenChange()
-            }
-        }
-        lifecycleSnapshotObservers.append(screenReconcileObserver)
-
-        let screenParamsObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didChangeScreenParametersNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-#if DEBUG
-                let names = NSScreen.screens.map(\.localizedName).joined(separator: ", ")
-                cmuxDebugLog(
-                    "monitorMemory.screenChange displays=\(NSScreen.screens.count) [\(names)]"
-                )
-#endif
-                self.handleScreenParametersDidChange()
-            }
-        }
-        lifecycleSnapshotObservers.append(screenParamsObserver)
+        lifecycleSnapshotObservers.append(contentsOf: makeMonitorMemoryLifecycleObservers())
     }
 
     private func socketListenerConfigurationIfEnabled() -> (mode: SocketControlMode, path: String)? {

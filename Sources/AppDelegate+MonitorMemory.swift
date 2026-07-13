@@ -20,12 +20,6 @@ private func cmuxDisplayReconfigurationCallback(
 }
 
 extension AppDelegate {
-    enum InactiveDisplayTransitionState: Equatable {
-        case idle
-        case armed(signature: String?)
-        case recoveryReady(signature: String?)
-    }
-
     /// The signature of the currently-connected display configuration, used as
     /// the key for per-monitor window-geometry memory. `nil` when no display has
     /// a stable identity (nothing can be persisted reliably) or when displays are
@@ -145,23 +139,34 @@ extension AppDelegate {
             return
         }
 
-        // Restore remembered per-configuration frames only when the connected
-        // display set genuinely changed — so sleep/wake and Dock resize (same
-        // signature) never reposition a deliberately-placed window.
+        reconcileDisplayConfigurationMemory(displays: displays, isMirrored: isMirrored)
+        let visibleFrameFitTopologyChanged = updateVisibleFrameFitTopology(displays.available)
+        let mainWindows = reconcileMainWindowReachability(displays.available)
+        if visibleFrameFitTopologyChanged {
+            MainWindowVisibleFrameFitRescue().performFitIfNeeded(
+                displays: displays.available,
+                windows: mainWindows
+            )
+        }
+    }
+
+    private func reconcileDisplayConfigurationMemory(
+        displays: (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?),
+        isMirrored: Bool
+    ) {
         let signature = displays.available
             .displayConfigurationSignature(isMirrored: isMirrored)
         let signatureChanged = signature.map {
             didObserveUnknownDisplayConfiguration || $0 != lastAppliedConfigurationSignature
         } ?? false
-        let visibleFrameFitTopologySignature = MainWindowVisibleFrameFitCore()
-            .trustedTopologySignature(of: displays.available)
-        let visibleFrameFitTopologyChanged = visibleFrameFitTopologySignature.map {
-            didObserveUnknownVisibleFrameFitTopology || $0 != lastVisibleFrameFitTopologySignature
+        let inactiveRecoveryRequested = signature.map {
+            inactiveDisplayRecoveryMatches(signature: $0)
         } ?? false
 #if DEBUG
         cmuxDebugLog(
             "monitorMemory.reconcile displays=\(displays.available.count) " +
                 "sigChanged=\(signatureChanged ? 1 : 0) " +
+                "inactiveRecovery=\(inactiveRecoveryRequested ? 1 : 0) " +
                 "was=\(Self.signatureLogToken(lastAppliedConfigurationSignature)) " +
                 "now=\(Self.signatureLogToken(signature))"
         )
@@ -169,7 +174,14 @@ extension AppDelegate {
         if let signature {
             if signatureChanged {
                 restoreRememberedFrames(for: signature, displays: displays)
+            } else if inactiveRecoveryRequested {
+                restoreRememberedFrames(
+                    for: signature,
+                    displays: displays,
+                    onlyIfRehomed: true
+                )
             }
+            updateInactiveDisplayRecoveryAfterReconcile(currentSignature: signature)
             lastAppliedConfigurationSignature = signature
             didObserveUnknownDisplayConfiguration = false
             screenChangeReconcileRetryBudget = 0
@@ -181,15 +193,29 @@ extension AppDelegate {
             didObserveUnknownDisplayConfiguration = true
             requeueScreenChangeReconcileIfPossible()
         }
-        if let visibleFrameFitTopologySignature {
-            lastVisibleFrameFitTopologySignature = visibleFrameFitTopologySignature
+    }
+
+    private func updateVisibleFrameFitTopology(
+        _ displays: [SessionDisplayGeometry]
+    ) -> Bool {
+        let signature = MainWindowVisibleFrameFitCore().trustedTopologySignature(of: displays)
+        let changed = signature.map {
+            didObserveUnknownVisibleFrameFitTopology || $0 != lastVisibleFrameFitTopologySignature
+        } ?? false
+        if let signature {
+            lastVisibleFrameFitTopologySignature = signature
             didObserveUnknownVisibleFrameFitTopology = false
             visibleFrameFitTopologyRetryBudget = 0
         } else {
             didObserveUnknownVisibleFrameFitTopology = true
             requeueVisibleFrameFitTopologyIfPossible()
         }
+        return changed
+    }
 
+    private func reconcileMainWindowReachability(
+        _ displays: [SessionDisplayGeometry]
+    ) -> [NSWindow] {
         // Reachability safety net: any window still stranded is clamped back.
         let mainWindows = mainWindowsForVisibilityController()
         for window in mainWindows {
@@ -199,7 +225,7 @@ extension AppDelegate {
             let currentFrame = window.frame
             guard let corrected = Self.reconciledFrameAfterScreenChange(
                 frame: currentFrame,
-                availableDisplays: displays.available
+                availableDisplays: displays
             ) else { continue }
 #if DEBUG
             cmuxDebugLog(
@@ -210,12 +236,7 @@ extension AppDelegate {
 #endif
             window.setFrame(corrected, display: true)
         }
-        if visibleFrameFitTopologyChanged {
-            MainWindowVisibleFrameFitRescue().performFitIfNeeded(
-                displays: displays.available,
-                windows: mainWindows
-            )
-        }
+        return mainWindows
     }
 
     /// Restores each window's remembered frame for `signature`, routed through
@@ -223,7 +244,8 @@ extension AppDelegate {
     /// re-clamped rather than applied raw). Fullscreen windows are skipped.
     func restoreRememberedFrames(
         for signature: String,
-        displays: (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?)
+        displays: (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?),
+        onlyIfRehomed: Bool = false
     ) {
         for window in mainWindowsForVisibilityController() {
             guard !window.styleMask.contains(.fullScreen) else { continue }
@@ -245,6 +267,15 @@ extension AppDelegate {
                 availableDisplays: displays.available,
                 fallbackDisplay: displays.fallback
             ) else { continue }
+            if onlyIfRehomed {
+                guard Self.shouldRestoreAfterInactiveDisplayTransition(
+                    liveFrame: window.frame,
+                    rememberedDisplay: entry.display,
+                    availableDisplays: displays.available
+                ) else {
+                    continue
+                }
+            }
 #if DEBUG
             cmuxDebugLog(
                 "monitorMemory.restore.hit window=\(windowTag) " +
@@ -415,28 +446,9 @@ extension AppDelegate {
         visibleFrameFitTopologyRetryBudget = Self.screenChangeReconcileRetryLimit
     }
 
-    func beginInactiveDisplayTransition(configurationSignature: String? = nil) {
-        let pinnedSignature: String?
-        switch inactiveDisplayTransitionState {
-        case .idle:
-            pinnedSignature = configurationSignature
-                ?? currentDisplayConfigurationSignature()
-                ?? lastAppliedConfigurationSignature
-        case let .armed(signature), let .recoveryReady(signature):
-            pinnedSignature = signature
-        }
-        inactiveDisplayTransitionState = .armed(signature: pinnedSignature)
-        beginScreenChangeCaptureSuppression()
-    }
-
-    func markInactiveDisplayRecoveryReady() {
-        guard case let .armed(signature) = inactiveDisplayTransitionState else { return }
-        inactiveDisplayTransitionState = .recoveryReady(signature: signature)
-        scheduleScreenChangeReconcileWhenIdle()
-    }
-
     func shouldReleaseScreenChangeCaptureSuppression(for signature: String) -> Bool {
         guard isScreenChangeCaptureSuppressed else { return true }
+        guard case .idle = inactiveDisplayTransitionState else { return false }
         return screenChangeCaptureSuppressionSignature == signature
             && screenChangeCaptureSuppressionSignatureGeneration == displayReconfigurationGeneration
     }

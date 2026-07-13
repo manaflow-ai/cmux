@@ -101,7 +101,7 @@ extension AppDelegate {
         return clamped.equalTo(frame.standardized) ? nil : clamped
     }
 
-    private nonisolated static func bestDisplayForFrame(
+    nonisolated static func bestDisplayForFrame(
         _ frame: CGRect,
         in displays: [SessionDisplayGeometry]
     ) -> SessionDisplayGeometry? {
