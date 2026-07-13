@@ -898,7 +898,7 @@ func omoEnsurePlugin(searchPath string) error {
 }
 
 func omoSlimEnsurePlugin(searchPath string) error {
-	return ensureOpencodePlugin(searchPath, opencodePluginSetup{
+	if err := ensureOpencodePlugin(searchPath, opencodePluginSetup{
 		pluginName:      omoSlimPluginName,
 		shadowDir:       omoSlimShadowConfigDir(),
 		configFilenames: []string{"oh-my-opencode-slim.json", "oh-my-opencode-slim.jsonc"},
@@ -912,7 +912,10 @@ func omoSlimEnsurePlugin(searchPath string) error {
 		installingLabel:             "Installing oh-my-opencode-slim plugin...",
 		installedLabel:              "oh-my-opencode-slim plugin installed",
 		installFailLabel:            "failed to install oh-my-opencode-slim",
-	})
+	}); err != nil {
+		return err
+	}
+	return writeRemoteOpenCodeSessionPlugin(omoSlimShadowConfigDir())
 }
 
 func configureOMOPlugin(shadowDir string) error {
