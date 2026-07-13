@@ -5384,7 +5384,7 @@ final class Workspace: Identifiable, ObservableObject {
             reconnectingSurfaceId = remoteReconnectTerminalSurfaceId(requestedSurfaceId: nil)
         }
         if configuration.preserveAfterTerminalExit {
-            let reattached = reattachPersistentRemotePTYPanels(requestedSurfaceId: surfaceId)
+            let reattached = reattachPersistentRemotePTYPanels(requestedSurfaceId: surfaceId, restartEndedSessions: true)
             didRespawnTerminal = surfaceId.map(reattached.contains) ?? !reattached.isEmpty
         } else if let startupCommand = effectiveRemoteTerminalStartupCommand(from: configuration),
            !startupCommand.isEmpty,
@@ -6058,7 +6058,7 @@ final class Workspace: Identifiable, ObservableObject {
         return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
-    private func effectiveRemoteTerminalStartupCommand(from configuration: WorkspaceRemoteConfiguration?) -> String? {
+    func effectiveRemoteTerminalStartupCommand(from configuration: WorkspaceRemoteConfiguration?) -> String? {
         guard let configuration else { return nil }
         if let vmID = defaultFreestyleSSHDVMID(from: configuration) {
             let command = configuration.terminalStartupCommand?
@@ -6139,7 +6139,6 @@ final class Workspace: Identifiable, ObservableObject {
             ?? Self.defaultSSHPTYSessionID(workspaceId: id, panelId: surfaceId)
         remotePTYSessionIDsByPanelId[surfaceId] = sessionID
         remoteDisconnectPlaceholderPanelIds.insert(surfaceId)
-        endedPersistentRemotePTYAttachSurfaceIds.remove(surfaceId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(surfaceId)
         cancelPendingRemoteDisconnectReplacement(surfaceId: surfaceId)
         transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: surfaceId)

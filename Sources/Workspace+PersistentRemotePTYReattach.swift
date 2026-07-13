@@ -13,7 +13,10 @@ extension Workspace {
 
     /// Replaces dead persistent-PTY panels with require-existing attach wrappers.
     @discardableResult
-    func reattachPersistentRemotePTYPanels(requestedSurfaceId: UUID? = nil) -> Set<UUID> {
+    func reattachPersistentRemotePTYPanels(
+        requestedSurfaceId: UUID? = nil,
+        restartEndedSessions: Bool = false
+    ) -> Set<UUID> {
         guard remoteConfiguration?.preserveAfterTerminalExit == true else { return [] }
         let candidateIDs = requestedSurfaceId.map { Set([$0]) } ?? remoteDisconnectPlaceholderPanelIds
         var reattached = Set<UUID>()
@@ -28,7 +31,17 @@ extension Workspace {
             let sessionID = normalizedRemotePTYSessionID(remotePTYSessionIDsByPanelId[panelId])
                 ?? Self.defaultSSHPTYSessionID(workspaceId: id, panelId: panelId)
             let resumeBinding = surfaceResumeBindingsByPanelId[panelId]
-            let command = remotePTYAttachStartupCommand(sessionID: sessionID)
+            let sessionEnded = endedPersistentRemotePTYAttachSurfaceIds.contains(panelId)
+            guard restartEndedSessions || !sessionEnded else { continue }
+            let command: String
+            if sessionEnded {
+                guard let startupCommand = effectiveRemoteTerminalStartupCommand(from: remoteConfiguration) else {
+                    continue
+                }
+                command = startupCommand
+            } else {
+                command = remotePTYAttachStartupCommand(sessionID: sessionID)
+            }
             guard respawnTerminalSurface(
                 panelId: panelId,
                 command: command,
@@ -46,6 +59,7 @@ extension Workspace {
             remoteDisconnectPlaceholderPanelIds.remove(panelId)
             pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
             pendingRemoteDisconnectReplacementsBySurfaceId.removeValue(forKey: panelId)
+            endedPersistentRemotePTYAttachSurfaceIds.remove(panelId)
             trackRemoteTerminalSurface(panelId)
             reattached.insert(panelId)
         }

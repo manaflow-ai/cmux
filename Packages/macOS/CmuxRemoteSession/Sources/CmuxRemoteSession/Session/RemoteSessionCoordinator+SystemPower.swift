@@ -54,12 +54,17 @@ extension RemoteSessionCoordinator {
         cancelReverseRelayRestartLocked()
         stopReverseRelayLocked()
         failPendingPTYBridgeStartsLocked("remote daemon is not ready")
-        proxyLease?.release()
-        proxyLease = nil
+        releaseProxyLeaseLocked()
         proxyEndpoint = nil
         daemonReady = false
         daemonBootstrapVersion = nil
         daemonRemotePath = nil
         publishProxyEndpoint(nil)
+    }
+
+    func releaseProxyLeaseLocked() {
+        proxyLeaseGeneration &+= 1
+        proxyLease?.release()
+        proxyLease = nil
     }
 }

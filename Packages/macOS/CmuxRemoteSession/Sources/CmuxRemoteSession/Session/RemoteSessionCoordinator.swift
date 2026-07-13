@@ -66,7 +66,6 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     /// relay restart, bootstrap-TTY retry, port-scan coalesce and burst).
     let clock: any RemoteProxyRetryClock
     let reconnectPolicy = RemoteReconnectPolicy()
-
     // MARK: - Queue-confined state
     //
     // Every var below is confined to `queue` (see the isolation essay).
@@ -74,6 +73,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
 
     var isStopping = false
     var proxyLease: RemoteProxyLease?
+    var proxyLeaseGeneration: UInt64 = 0
     var proxyEndpoint: BrowserProxyEndpoint?
     var daemonReady = false
     var daemonBootstrapVersion: String?
@@ -127,7 +127,6 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     /// `.some(nil)` = computed and unavailable (legacy process-wide
     /// `static let` cache, made per-coordinator with the build-info seam).
     var remoteDaemonSourceFingerprintCache: String??
-
     /// Grace period the relay-startup failure probe waits for an `ssh -N -R`
     /// transport that may exit immediately (public because it is the default
     /// argument of the test-pinned ``reverseRelayStartupFailureDetail(process:stderrPipe:gracePeriod:)``).
@@ -266,8 +265,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         bootstrapRemoteTTYRetryCount = 0
         failPendingPTYBridgeStartsLocked("remote daemon is not ready")
 
-        proxyLease?.release()
-        proxyLease = nil
+        releaseProxyLeaseLocked()
         proxyEndpoint = nil
         daemonReady = false
         daemonBootstrapVersion = nil
@@ -392,19 +390,22 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             return
         }
 
+        proxyLeaseGeneration &+= 1
+        let leaseGeneration = proxyLeaseGeneration
         let lease = proxyBroker.acquire(
             configuration: configuration,
             remotePath: remotePath
         ) { [weak self] update in
-            self?.queue.async {
-                self?.handleProxyBrokerUpdateLocked(update)
+            guard let coordinator = self else { return }
+            coordinator.queue.async {
+                coordinator.handleProxyBrokerUpdateLocked(update, leaseGeneration: leaseGeneration)
             }
         }
         proxyLease = lease
     }
 
-    func handleProxyBrokerUpdateLocked(_ update: RemoteProxyBrokerUpdate) {
-        guard !isStopping else { return }
+    func handleProxyBrokerUpdateLocked(_ update: RemoteProxyBrokerUpdate, leaseGeneration: UInt64) {
+        guard !isStopping, leaseGeneration == proxyLeaseGeneration else { return }
         switch update {
         case .connecting:
             debugLog("remote.proxy.connecting \(debugConfigSummary())")
@@ -467,8 +468,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             failPendingPTYBridgeStartsLocked("remote daemon is not ready")
             guard Self.shouldEscalateProxyErrorToBootstrap(detail) else { return }
 
-            proxyLease?.release()
-            proxyLease = nil
+            releaseProxyLeaseLocked()
             daemonReady = false
             daemonBootstrapVersion = nil
             daemonRemotePath = nil

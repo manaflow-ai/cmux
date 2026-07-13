@@ -26,7 +26,10 @@ struct RemotePortScanGatingTests {
 
         coordinator.queue.sync {
             coordinator.proxyEndpoint = endpoint
-            coordinator.handleProxyBrokerUpdateLocked(.ready(endpoint))
+            coordinator.handleProxyBrokerUpdateLocked(
+                .ready(endpoint),
+                leaseGeneration: coordinator.proxyLeaseGeneration
+            )
         }
 
         #expect(host.connectionStates.map(\.state).contains(.connected))

@@ -324,11 +324,14 @@ extension CMUXCLI {
             scriptLines.append(trimmedControlPathPreflight)
         }
         let reconnectConfiguration = retryPTYAttachStatus ? [
-            "cmux_ssh_reconnect_limit='∞'",
+            "cmux_ssh_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"",
+            "case \"$cmux_ssh_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_reconnect_limit='∞'; cmux_ssh_reconnect_unbounded=1 ;; *) cmux_ssh_reconnect_unbounded=0 ;; esac",
             "cmux_ssh_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
             "case \"$cmux_ssh_reconnect_delay\" in ''|*[!0-9]*) cmux_ssh_reconnect_delay=2 ;; esac",
             "cmux_ssh_reconnect_max_delay=\"${CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS:-30}\"",
             "case \"$cmux_ssh_reconnect_max_delay\" in ''|*[!0-9]*) cmux_ssh_reconnect_max_delay=30 ;; esac",
+            "if [ \"$cmux_ssh_reconnect_unbounded\" -eq 1 ] && [ \"$cmux_ssh_reconnect_delay\" -lt 1 ]; then cmux_ssh_reconnect_delay=2; fi",
+            "if [ \"$cmux_ssh_reconnect_unbounded\" -eq 1 ] && [ \"$cmux_ssh_reconnect_max_delay\" -lt 1 ]; then cmux_ssh_reconnect_max_delay=30; fi",
             "if [ \"$cmux_ssh_reconnect_delay\" -gt \"$cmux_ssh_reconnect_max_delay\" ]; then cmux_ssh_reconnect_delay=\"$cmux_ssh_reconnect_max_delay\"; fi",
         ] : [
             "cmux_ssh_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-\(max(0, reconnectLimitDefault))}\"",
@@ -364,7 +367,7 @@ extension CMUXCLI {
             // and keep in sync with CMUXCLI.sshPTYAttachRetryLoopLines /
             // SSHPTYAttachStartupCommandBuilder.retryingAttachLines.
             scriptLines += [
-                "  CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=1",
+                "  if [ \"$cmux_ssh_reconnect_unbounded\" -eq 1 ] || [ \"$cmux_ssh_retry\" -lt \"$cmux_ssh_reconnect_limit\" ]; then CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=1; else CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=0; fi",
                 "  export CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY",
             ]
         }
@@ -387,9 +390,10 @@ extension CMUXCLI {
             "  if [ \"$cmux_ssh_status\" -eq 0 ]; then break; fi",
             "  case \"$cmux_ssh_status\" in \(retryableStatusPattern)) ;; *) break ;; esac",
         ]
-        if !retryPTYAttachStatus {
-            scriptLines.append("  if [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi")
-        }
+        let retryLimitCondition = retryPTYAttachStatus
+            ? "  if [ \"$cmux_ssh_reconnect_unbounded\" -eq 0 ] && [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi"
+            : "  if [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi"
+        scriptLines.append(retryLimitCondition)
         scriptLines += [
             "  cmux_ssh_retry=$((cmux_ssh_retry + 1))",
             "  cmux_ssh_note '\\n\\033[33m[cmux] ssh exited with status %s; reconnecting (attempt %s/%s).\\033[0m\\n\\033[2m[cmux] close this pane or press Ctrl-C to stop reconnecting.\\033[0m\\n' \"$cmux_ssh_status\" \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\"",
