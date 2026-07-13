@@ -20,13 +20,23 @@ actor CandidateFilteringCommandRunner: OutputLimitedCommandRunning {
         directory: String,
         executable: String,
         arguments: [String],
+        standardInput: Data?,
+        maximumOutputBytes: Int?,
         timeout: TimeInterval?
     ) async -> CommandResult {
         recordedInvocations.append(Invocation(
             arguments: arguments,
             timeout: timeout,
-            standardInputByteCount: nil
+            standardInputByteCount: standardInput?.count
         ))
+        if let standardInput {
+            let candidates = String(decoding: standardInput, as: UTF8.self)
+                .split(separator: "\0", omittingEmptySubsequences: true)
+            let ignored = candidates.filter { $0 == ".env" }
+            let stdout = ignored.map(String.init).joined(separator: "\0")
+                + (ignored.isEmpty ? "" : "\0")
+            return successfulResult(stdout: stdout)
+        }
         let stdout: String
         if arguments.contains("--directory"), arguments.contains("--exclude-standard") {
             let paths = collapsedDirectoryCount == 1
@@ -39,57 +49,6 @@ actor CandidateFilteringCommandRunner: OutputLimitedCommandRunning {
             stdout = ".env\0"
         }
         return successfulResult(stdout: stdout)
-    }
-
-    func run(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        maximumOutputBytes: Int,
-        timeout: TimeInterval?
-    ) async -> CommandResult {
-        await run(
-            directory: directory,
-            executable: executable,
-            arguments: arguments,
-            timeout: timeout
-        )
-    }
-
-    func run(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        standardInput: Data,
-        timeout: TimeInterval?
-    ) async -> CommandResult {
-        recordedInvocations.append(Invocation(
-            arguments: arguments,
-            timeout: timeout,
-            standardInputByteCount: standardInput.count
-        ))
-        let candidates = String(decoding: standardInput, as: UTF8.self)
-            .split(separator: "\0", omittingEmptySubsequences: true)
-        let ignored = candidates.filter { $0 == ".env" }
-        let stdout = ignored.map(String.init).joined(separator: "\0") + (ignored.isEmpty ? "" : "\0")
-        return successfulResult(stdout: stdout)
-    }
-
-    func run(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        standardInput: Data,
-        maximumOutputBytes: Int,
-        timeout: TimeInterval?
-    ) async -> CommandResult {
-        await run(
-            directory: directory,
-            executable: executable,
-            arguments: arguments,
-            standardInput: standardInput,
-            timeout: timeout
-        )
     }
 
     func invocations() -> [Invocation] {

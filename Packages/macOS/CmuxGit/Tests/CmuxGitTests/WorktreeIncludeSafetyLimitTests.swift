@@ -50,10 +50,18 @@ import Testing
         )
         let fileManager = GrowingWorktreeIncludeFileManager(
             targetDirectory: cache,
-            fileToGrow: growingFile
+            fileToGrow: growingFile,
+            grownByteCount: 2_048
         )
 
-        let diagnostics = await WorktreeIncludeSyncService(fileManager: fileManager).sync(
+        let diagnostics = await WorktreeIncludeSyncService(
+            fileManager: fileManager,
+            copyLimits: WorktreeIncludeCopyLimits(
+                maximumItemCount: 500_000,
+                maximumByteCount: 1_024,
+                freeSpaceReserve: 0
+            )
+        ).sync(
             from: source,
             to: destination
         )

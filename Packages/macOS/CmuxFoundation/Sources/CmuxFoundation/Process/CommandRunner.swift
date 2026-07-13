@@ -34,9 +34,7 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
 
     // Environment is Apple-documented value-like once copied; stored as an immutable
     // dictionary so the struct stays Sendable.
-    private let environment: [String: String]
-    private let bundledBinPath: String?
-    private let fallbackSearchDirectories: [String]
+    let commandPathResolver: CommandPathResolver
 
     /// Creates a command runner.
     /// - Parameters:
@@ -44,121 +42,39 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
     ///   - bundledBinPath: An extra directory searched ahead of the fallbacks (the app's
     ///     bundled CLI directory); defaults to `Bundle.main`'s `Contents/Resources/bin`.
     ///   - fallbackSearchDirectories: Directories searched after `PATH` and the bundled bin.
+    ///   - fileManager: Filesystem seam used to verify executable candidates.
     public init(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundledBinPath: String? = Bundle.main.resourceURL?.appendingPathComponent("bin").path,
-        fallbackSearchDirectories: [String] = CommandRunner.defaultFallbackSearchDirectories
+        fallbackSearchDirectories: [String] = CommandRunner.defaultFallbackSearchDirectories,
+        fileManager: FileManager = .default
     ) {
-        self.environment = environment
-        self.bundledBinPath = bundledBinPath
-        self.fallbackSearchDirectories = fallbackSearchDirectories
-    }
-
-    /// Runs `executable` with `arguments` in `directory`, capturing its output.
-    ///
-    /// Implements ``CommandRunning/run(directory:executable:arguments:timeout:)``:
-    /// resolves `executable` against the configured `PATH`/bundled-bin/fallbacks,
-    /// drains `stdout`/`stderr` concurrently, and enforces `timeout` with a one-shot
-    /// timer that terminates (then `SIGKILL`s) the process. See the protocol for the
-    /// full contract.
-    ///
-    /// - Parameters:
-    ///   - directory: The working directory for the process.
-    ///   - executable: A command name (resolved against `PATH`) or absolute path.
-    ///   - arguments: The arguments passed to the command.
-    ///   - timeout: A deadline in seconds; when it elapses the process is terminated
-    ///     and the result has ``CommandResult/timedOut`` set. `nil` waits indefinitely.
-    /// - Returns: The ``CommandResult`` describing how the command finished.
-    public func run(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        timeout: TimeInterval?
-    ) async -> CommandResult {
-        await runCommand(
-            directory: directory,
-            executable: executable,
-            arguments: arguments,
-            standardInput: nil,
-            maximumOutputBytes: nil,
-            timeout: timeout
+        commandPathResolver = CommandPathResolver(
+            environment: environment,
+            bundledBinPath: bundledBinPath,
+            fallbackSearchDirectories: fallbackSearchDirectories,
+            fileManager: fileManager
         )
     }
 
-    /// Runs `executable` with a byte payload connected to its standard input.
-    ///
-    /// Implements ``StandardInputCommandRunning/run(directory:executable:arguments:standardInput:timeout:)``.
+    /// Runs `executable` with optional stdin data and an optional per-stream output limit.
     ///
     /// - Parameters:
     ///   - directory: The working directory for the process.
     ///   - executable: A command name or absolute path.
     ///   - arguments: The arguments passed to the command.
-    ///   - standardInput: Bytes written to stdin before closing the pipe.
+    ///   - standardInput: Bytes written to stdin before closing the pipe, or `nil`
+    ///     to leave stdin disconnected.
+    ///   - maximumOutputBytes: The greatest number of bytes retained from each stream,
+    ///     or `nil` to capture without a byte limit.
     ///   - timeout: A deadline in seconds, or `nil` to wait indefinitely.
     /// - Returns: The ``CommandResult`` describing how the command finished.
     public func run(
         directory: String,
         executable: String,
         arguments: [String],
-        standardInput: Data,
-        timeout: TimeInterval?
-    ) async -> CommandResult {
-        await runCommand(
-            directory: directory,
-            executable: executable,
-            arguments: arguments,
-            standardInput: standardInput,
-            maximumOutputBytes: nil,
-            timeout: timeout
-        )
-    }
-
-    /// Runs `executable` while bounding each captured output stream.
-    ///
-    /// Implements ``OutputLimitedCommandRunning/run(directory:executable:arguments:maximumOutputBytes:timeout:)``.
-    ///
-    /// - Parameters:
-    ///   - directory: The working directory for the process.
-    ///   - executable: A command name or absolute path.
-    ///   - arguments: The arguments passed to the command.
-    ///   - maximumOutputBytes: The greatest number of bytes retained from each stream.
-    ///   - timeout: A deadline in seconds, or `nil` to wait indefinitely.
-    /// - Returns: The ``CommandResult`` describing how the command finished.
-    public func run(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        maximumOutputBytes: Int,
-        timeout: TimeInterval?
-    ) async -> CommandResult {
-        await runCommand(
-            directory: directory,
-            executable: executable,
-            arguments: arguments,
-            standardInput: nil,
-            maximumOutputBytes: maximumOutputBytes,
-            timeout: timeout
-        )
-    }
-
-    /// Runs `executable` with stdin data and bounded captured output streams.
-    ///
-    /// Implements ``OutputLimitedCommandRunning/run(directory:executable:arguments:standardInput:maximumOutputBytes:timeout:)``.
-    ///
-    /// - Parameters:
-    ///   - directory: The working directory for the process.
-    ///   - executable: A command name or absolute path.
-    ///   - arguments: The arguments passed to the command.
-    ///   - standardInput: Bytes written to stdin before closing the pipe.
-    ///   - maximumOutputBytes: The greatest number of bytes retained from each stream.
-    ///   - timeout: A deadline in seconds, or `nil` to wait indefinitely.
-    /// - Returns: The ``CommandResult`` describing how the command finished.
-    public func run(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        standardInput: Data,
-        maximumOutputBytes: Int,
+        standardInput: Data?,
+        maximumOutputBytes: Int?,
         timeout: TimeInterval?
     ) async -> CommandResult {
         await runCommand(
@@ -198,9 +114,6 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
         }
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
-
-        let outFD = stdoutPipe.fileHandleForReading.fileDescriptor
-        let errFD = stderrPipe.fileHandleForReading.fileDescriptor
 
         return await withCheckedContinuation { (continuation: CheckedContinuation<CommandResult, Never>) in
             // The two stdout/stderr readers, the termination handler, the deadline timer,
@@ -254,22 +167,27 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
             // Resume immediately with a terminal result (timeout or spawn failure),
             // independent of the pipe readers. Returns whether this call won the race.
             @Sendable func claimImmediate(_ result: CommandResult) -> Bool {
-                let (won, timerToCancel, writerToCancel): (
+                let (won, timerToCancel, writerToCancel, readersToCancel): (
                     Bool,
                     (any DispatchSourceTimer)?,
-                    CommandStandardInputWriter?
+                    CommandStandardInputWriter?,
+                    [CommandOutputReader]
                 ) =
                     state.withLock { s in
-                        if s.resumed { return (false, nil, nil) }
+                        if s.resumed { return (false, nil, nil, []) }
                         s.resumed = true
                         let timer = s.deadlineTimer
                         s.deadlineTimer = nil
                         let writer = s.standardInputWriter
                         s.standardInputWriter = nil
-                        return (true, timer, writer)
+                        let readers = [s.standardOutputReader, s.standardErrorReader].compactMap { $0 }
+                        s.standardOutputReader = nil
+                        s.standardErrorReader = nil
+                        return (true, timer, writer, readers)
                     }
                 timerToCancel?.cancel()
                 writerToCancel?.cancel()
+                readersToCancel.forEach { $0.cancel() }
                 if won { continuation.resume(returning: result) }
                 return won
             }
@@ -281,49 +199,12 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
                 }
             }
 
-            // Drain both streams on detached tasks so a full pipe buffer cannot deadlock
-            // the child. Fire-and-forget (never structurally awaited) so the timeout path
-            // does not block on them. Keyed by the raw fd so no non-Sendable `FileHandle`
-            // crosses the task boundary.
-            Task.detached {
-                let capture = CommandOutputCapture(
-                    fileDescriptor: outFD,
-                    maximumBytes: maximumOutputBytes
-                )
-                if capture.limitExceeded {
-                    terminateAfterClaim(CommandResult(
-                        stdout: String(data: capture.data, encoding: .utf8),
-                        stderr: nil,
-                        exitStatus: nil,
-                        timedOut: false,
-                        outputLimitExceeded: true,
-                        executionError: nil
-                    ))
-                } else {
-                    recordAndCompleteIfReady { $0.stdout = capture.data }
-                }
-            }
-            Task.detached {
-                let capture = CommandOutputCapture(
-                    fileDescriptor: errFD,
-                    maximumBytes: maximumOutputBytes
-                )
-                if capture.limitExceeded {
-                    terminateAfterClaim(CommandResult(
-                        stdout: nil,
-                        stderr: String(data: capture.data, encoding: .utf8),
-                        exitStatus: nil,
-                        timedOut: false,
-                        outputLimitExceeded: true,
-                        executionError: nil
-                    ))
-                } else {
-                    recordAndCompleteIfReady { $0.stderr = capture.data }
-                }
-            }
-
             process.terminationHandler = { finished in
                 let status = finished.terminationStatus
+                let readers = state.withLock {
+                    [$0.standardOutputReader, $0.standardErrorReader].compactMap { $0 }
+                }
+                readers.forEach { $0.processDidExit() }
                 recordAndCompleteIfReady {
                     $0.didTerminate = true
                     $0.exitStatus = status
@@ -336,12 +217,94 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
                 let message = String(describing: error)
                 try? stdinPipe?.fileHandleForReading.close()
                 try? stdinPipe?.fileHandleForWriting.close()
+                try? stdoutPipe.fileHandleForReading.close()
                 try? stdoutPipe.fileHandleForWriting.close()
+                try? stderrPipe.fileHandleForReading.close()
                 try? stderrPipe.fileHandleForWriting.close()
                 _ = claimImmediate(CommandResult(
                     stdout: nil, stderr: nil, exitStatus: nil, timedOut: false, executionError: message
                 ))
                 return
+            }
+
+            try? stdoutPipe.fileHandleForWriting.close()
+            try? stderrPipe.fileHandleForWriting.close()
+            guard let outputReader = CommandOutputReader(
+                fileHandle: stdoutPipe.fileHandleForReading,
+                maximumBytes: maximumOutputBytes,
+                completion: { capture in
+                    if capture.limitExceeded {
+                        terminateAfterClaim(CommandResult(
+                            stdout: String(data: capture.data, encoding: .utf8),
+                            stderr: nil,
+                            exitStatus: nil,
+                            timedOut: false,
+                            outputLimitExceeded: true,
+                            executionError: nil
+                        ))
+                    } else {
+                        recordAndCompleteIfReady {
+                            $0.stdout = capture.data
+                            $0.standardOutputReader = nil
+                        }
+                    }
+                }
+            ) else {
+                terminateAfterClaim(CommandResult(
+                    stdout: nil,
+                    stderr: nil,
+                    exitStatus: nil,
+                    timedOut: false,
+                    executionError: "Could not create the process stdout reader."
+                ))
+                return
+            }
+            guard let errorReader = CommandOutputReader(
+                fileHandle: stderrPipe.fileHandleForReading,
+                maximumBytes: maximumOutputBytes,
+                completion: { capture in
+                    if capture.limitExceeded {
+                        terminateAfterClaim(CommandResult(
+                            stdout: nil,
+                            stderr: String(data: capture.data, encoding: .utf8),
+                            exitStatus: nil,
+                            timedOut: false,
+                            outputLimitExceeded: true,
+                            executionError: nil
+                        ))
+                    } else {
+                        recordAndCompleteIfReady {
+                            $0.stderr = capture.data
+                            $0.standardErrorReader = nil
+                        }
+                    }
+                }
+            ) else {
+                outputReader.start()
+                outputReader.cancel()
+                terminateAfterClaim(CommandResult(
+                    stdout: nil,
+                    stderr: nil,
+                    exitStatus: nil,
+                    timedOut: false,
+                    executionError: "Could not create the process stderr reader."
+                ))
+                return
+            }
+            let readerStartup = state.withLock { s -> (cancel: Bool, processExited: Bool) in
+                guard !s.resumed else { return (true, s.didTerminate) }
+                s.standardOutputReader = outputReader
+                s.standardErrorReader = errorReader
+                return (false, s.didTerminate)
+            }
+            outputReader.start()
+            errorReader.start()
+            if readerStartup.cancel {
+                outputReader.cancel()
+                errorReader.cancel()
+            } else if readerStartup.processExited {
+                outputReader.processDidExit()
+                errorReader.processDidExit()
             }
 
             if let stdinPipe, let standardInput {
@@ -360,11 +323,6 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
                     }
                 }
             }
-
-            // Close the parent's write ends so the readers see EOF once the child (and any
-            // descendants that inherited them) close their copies.
-            try? stdoutPipe.fileHandleForWriting.close()
-            try? stderrPipe.fileHandleForWriting.close()
 
             // Arm the deadline only after a successful launch, so the timeout handler can
             // never call `terminate()` on an unlaunched Process (which raises). The deadline
@@ -413,6 +371,8 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
         // The command deadline timer, cancelled when the continuation resumes (any path).
         var deadlineTimer: (any DispatchSourceTimer)?
         var standardInputWriter: CommandStandardInputWriter?
+        var standardOutputReader: CommandOutputReader?
+        var standardErrorReader: CommandOutputReader?
     }
 
     private static func scheduleSigkill(_ process: Process) {
@@ -430,48 +390,4 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
         timer.resume()
     }
 
-    /// Resolves `executable` to an absolute path, searching `PATH`, the bundled
-    /// bin directory, and the fallback directories. Returns `nil` when nothing
-    /// executable is found (the caller then runs it via `/usr/bin/env`).
-    ///
-    /// Internal rather than private so the resolution policy can be unit-tested
-    /// directly with an injected environment and fallback directories.
-    func resolvedCommandPath(executable: String) -> String? {
-        guard !executable.isEmpty else { return nil }
-        let fileManager = FileManager.default
-        if executable.contains("/") {
-            return fileManager.isExecutableFile(atPath: executable) ? executable : nil
-        }
-
-        var searchDirectories: [String] = []
-        var seenDirectories: Set<String> = []
-
-        func appendSearchPath(_ path: String?) {
-            guard let path else { return }
-            for rawComponent in path.split(separator: ":") {
-                let component = String(rawComponent).trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !component.isEmpty,
-                      seenDirectories.insert(component).inserted else {
-                    continue
-                }
-                searchDirectories.append(component)
-            }
-        }
-
-        appendSearchPath(environment["PATH"])
-        appendSearchPath(getenv("PATH").map { String(cString: $0) })
-        appendSearchPath(bundledBinPath)
-        fallbackSearchDirectories.forEach { appendSearchPath($0) }
-        appendSearchPath("/usr/bin:/bin:/usr/sbin:/sbin")
-
-        for directory in searchDirectories {
-            let candidate = URL(fileURLWithPath: directory, isDirectory: true)
-                .appendingPathComponent(executable)
-                .path
-            if fileManager.isExecutableFile(atPath: candidate) {
-                return candidate
-            }
-        }
-        return nil
-    }
 }

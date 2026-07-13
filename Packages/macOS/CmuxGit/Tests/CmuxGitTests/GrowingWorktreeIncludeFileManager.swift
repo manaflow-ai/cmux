@@ -5,11 +5,13 @@ import Foundation
 final class GrowingWorktreeIncludeFileManager: FileManager, @unchecked Sendable {
     private let targetDirectory: URL
     private let fileToGrow: URL
+    private let grownByteCount: UInt64
     private var targetEnumerationCount = 0
 
-    init(targetDirectory: URL, fileToGrow: URL) {
+    init(targetDirectory: URL, fileToGrow: URL, grownByteCount: UInt64) {
         self.targetDirectory = targetDirectory.standardizedFileURL
         self.fileToGrow = fileToGrow
+        self.grownByteCount = grownByteCount
         super.init()
     }
 
@@ -18,7 +20,7 @@ final class GrowingWorktreeIncludeFileManager: FileManager, @unchecked Sendable 
             targetEnumerationCount += 1
             if targetEnumerationCount == 2,
                let handle = try? FileHandle(forWritingTo: fileToGrow) {
-                try? handle.truncate(atOffset: 51 * 1024 * 1024 * 1024)
+                try? handle.truncate(atOffset: grownByteCount)
                 try? handle.close()
             }
         }

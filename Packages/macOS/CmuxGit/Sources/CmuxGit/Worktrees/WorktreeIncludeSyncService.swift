@@ -40,6 +40,21 @@ public struct WorktreeIncludeSyncService: Sendable {
         copyService = WorktreeIncludeCopyService(fileManager: fileManager)
     }
 
+    init(
+        commandRunner: any OutputLimitedCommandRunning = CommandRunner(),
+        fileManager: FileManager = .default,
+        gitTimeout: TimeInterval = 30,
+        copyLimits: WorktreeIncludeCopyLimits
+    ) {
+        self.commandRunner = commandRunner
+        self.fileManager = fileManager
+        self.gitTimeout = gitTimeout
+        copyService = WorktreeIncludeCopyService(
+            fileManager: fileManager,
+            limits: copyLimits
+        )
+    }
+
     /// Copies untracked paths selected by the source repository's `.worktreeinclude` file.
     ///
     /// Missing include files are a no-op. Git-tracked and non-ignored paths are
@@ -73,6 +88,9 @@ public struct WorktreeIncludeSyncService: Sendable {
         guard fileManager.fileExists(atPath: destination.path, isDirectory: &destinationIsDirectory),
               destinationIsDirectory.boolValue else {
             return ["Skipped .worktreeinclude sync because the destination worktree does not exist."]
+        }
+        guard !Task.isCancelled else {
+            return ["Cancelled .worktreeinclude sync before Git matching began."]
         }
 
         let includeArguments = [
@@ -173,6 +191,9 @@ public struct WorktreeIncludeSyncService: Sendable {
         source: URL,
         arguments: [String]
     ) async -> (paths: [String], diagnostic: String?, shouldAbort: Bool) {
+        guard !Task.isCancelled else {
+            return ([], "Cancelled .worktreeinclude sync during Git matching.", true)
+        }
         let result = await commandRunner.run(
             directory: source.path,
             executable: "git",
@@ -180,6 +201,9 @@ public struct WorktreeIncludeSyncService: Sendable {
             maximumOutputBytes: Self.maximumMatchedPathBytes,
             timeout: gitTimeout
         )
+        guard !Task.isCancelled else {
+            return ([], "Cancelled .worktreeinclude sync during Git matching.", true)
+        }
         if result.outputLimitExceeded {
             return ([], matchLimitDiagnostic, true)
         }
@@ -227,6 +251,10 @@ public struct WorktreeIncludeSyncService: Sendable {
         var diagnostics: [String] = []
         var retainedPathBytes = 0
         for pathspecs in literalPathspecBatches(candidates) {
+            guard !Task.isCancelled else {
+                diagnostics.append("Cancelled .worktreeinclude sync during Git matching.")
+                return ([], diagnostics, true)
+            }
             let collapsedResult = await gitPaths(
                 source: source,
                 arguments: [
@@ -268,6 +296,10 @@ public struct WorktreeIncludeSyncService: Sendable {
         var diagnostics: [String] = []
         var retainedPathBytes = 0
         for batch in nulPathBatches(candidates) {
+            guard !Task.isCancelled else {
+                diagnostics.append("Cancelled .worktreeinclude sync during Git matching.")
+                return ([], diagnostics, true)
+            }
             var input = Data()
             input.reserveCapacity(batch.reduce(0) { $0 + $1.utf8.count + 1 })
             for path in batch {
@@ -338,23 +370,26 @@ public struct WorktreeIncludeSyncService: Sendable {
         }
     }
 
-    private nonisolated func literalPathspecBatches(_ paths: [String]) -> [[String]] {
+    private nonisolated func batches(
+        _ paths: [String],
+        transform: (String) -> String
+    ) -> [[String]] {
         var batches: [[String]] = []
         var batch: [String] = []
         var batchBytes = 0
 
         for path in paths {
-            let pathspec = ":(top,literal)\(path)"
-            let pathspecBytes = pathspec.utf8.count + 1
+            let item = transform(path)
+            let itemBytes = item.utf8.count + 1
             if !batch.isEmpty,
                batch.count >= Self.maximumPathspecBatchCount
-                || batchBytes + pathspecBytes > Self.maximumPathspecBatchBytes {
+                || batchBytes + itemBytes > Self.maximumPathspecBatchBytes {
                 batches.append(batch)
                 batch = []
                 batchBytes = 0
             }
-            batch.append(pathspec)
-            batchBytes += pathspecBytes
+            batch.append(item)
+            batchBytes += itemBytes
         }
         if !batch.isEmpty {
             batches.append(batch)
@@ -362,27 +397,12 @@ public struct WorktreeIncludeSyncService: Sendable {
         return batches
     }
 
-    private nonisolated func nulPathBatches(_ paths: [String]) -> [[String]] {
-        var batches: [[String]] = []
-        var batch: [String] = []
-        var batchBytes = 0
+    private nonisolated func literalPathspecBatches(_ paths: [String]) -> [[String]] {
+        batches(paths) { ":(top,literal)\($0)" }
+    }
 
-        for path in paths {
-            let pathBytes = path.utf8.count + 1
-            if !batch.isEmpty,
-               batch.count >= Self.maximumPathspecBatchCount
-                || batchBytes + pathBytes > Self.maximumPathspecBatchBytes {
-                batches.append(batch)
-                batch = []
-                batchBytes = 0
-            }
-            batch.append(path)
-            batchBytes += pathBytes
-        }
-        if !batch.isEmpty {
-            batches.append(batch)
-        }
-        return batches
+    private nonisolated func nulPathBatches(_ paths: [String]) -> [[String]] {
+        batches(paths) { $0 }
     }
 
     private nonisolated func gitignoreEscapedLiteralPath(_ path: String) -> String {

@@ -10,8 +10,13 @@ actor FailingWorktreeIncludeCommandRunner: OutputLimitedCommandRunning {
         directory: String,
         executable: String,
         arguments: [String],
+        standardInput: Data?,
+        maximumOutputBytes: Int?,
         timeout: TimeInterval?
     ) async -> CommandResult {
+        if standardInput != nil {
+            return success(stdout: "")
+        }
         if arguments.contains("--exclude-standard") {
             standardIgnoreCalls += 1
             return CommandResult(
@@ -23,43 +28,6 @@ actor FailingWorktreeIncludeCommandRunner: OutputLimitedCommandRunning {
             )
         }
         return success(stdout: arguments.contains("--directory") ? initialCandidates : "")
-    }
-
-    func run(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        maximumOutputBytes: Int,
-        timeout: TimeInterval?
-    ) async -> CommandResult {
-        await run(directory: directory, executable: executable, arguments: arguments, timeout: timeout)
-    }
-
-    func run(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        standardInput: Data,
-        timeout: TimeInterval?
-    ) async -> CommandResult {
-        success(stdout: "")
-    }
-
-    func run(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        standardInput: Data,
-        maximumOutputBytes: Int,
-        timeout: TimeInterval?
-    ) async -> CommandResult {
-        await run(
-            directory: directory,
-            executable: executable,
-            arguments: arguments,
-            standardInput: standardInput,
-            timeout: timeout
-        )
     }
 
     func standardIgnoreCallCount() -> Int {

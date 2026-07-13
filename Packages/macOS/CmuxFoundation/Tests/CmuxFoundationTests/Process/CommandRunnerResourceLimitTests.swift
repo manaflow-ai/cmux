@@ -62,14 +62,15 @@ import Testing
             executable: "perl",
             arguments: [
                 "-e",
-                "my $fifo = shift; my $pid = fork(); if ($pid == 0) { close STDOUT; $SIG{TERM} = 'IGNORE'; $SIG{HUP} = 'IGNORE'; $SIG{PIPE} = 'IGNORE'; sleep 1; my $ok = defined syswrite(STDERR, 'x'); open my $out, '>', $fifo or die $!; print $out $ok ? 'open' : 'closed'; exit 0; } while (1) { print STDOUT 'output\\n'; }",
+                "my $fifo = shift; pipe(my $ready_r, my $ready_w) or die $!; my $pid = fork(); if ($pid == 0) { close $ready_r; close STDOUT; $SIG{TERM} = 'IGNORE'; $SIG{HUP} = 'IGNORE'; $SIG{PIPE} = 'IGNORE'; syswrite($ready_w, '1'); close $ready_w; while (defined syswrite(STDERR, 'x' x 65536)) {} open my $out, '>', $fifo or die $!; print $out 'closed'; exit 0; } close $ready_w; sysread($ready_r, my $ready, 1); close $ready_r; while (1) { print STDOUT 'output\\n'; }",
                 resultFile.path,
             ],
             maximumOutputBytes: 1_024,
             timeout: 5
         )
         for await _ in watcher.events {
-            if FileManager.default.fileExists(atPath: resultFile.path) { break }
+            let size = try? resultFile.resourceValues(forKeys: [.fileSizeKey]).fileSize
+            if (size ?? 0) > 0 { break }
         }
         await watcher.stop()
         let observedPipeState = try String(contentsOf: resultFile, encoding: .utf8)

@@ -11,53 +11,16 @@ actor OversizedWorktreeCandidateCommandRunner: OutputLimitedCommandRunning {
         directory: String,
         executable: String,
         arguments: [String],
+        standardInput: Data?,
+        maximumOutputBytes: Int?,
         timeout: TimeInterval?
     ) async -> CommandResult {
+        if standardInput != nil {
+            return successfulResult(stdout: "")
+        }
         let isInitialCandidateQuery = arguments.contains("--directory")
             && !arguments.contains("--exclude-standard")
         return successfulResult(stdout: isInitialCandidateQuery ? candidateOutput : "")
-    }
-
-    func run(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        maximumOutputBytes: Int,
-        timeout: TimeInterval?
-    ) async -> CommandResult {
-        await run(
-            directory: directory,
-            executable: executable,
-            arguments: arguments,
-            timeout: timeout
-        )
-    }
-
-    func run(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        standardInput: Data,
-        timeout: TimeInterval?
-    ) async -> CommandResult {
-        successfulResult(stdout: "")
-    }
-
-    func run(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        standardInput: Data,
-        maximumOutputBytes: Int,
-        timeout: TimeInterval?
-    ) async -> CommandResult {
-        await run(
-            directory: directory,
-            executable: executable,
-            arguments: arguments,
-            standardInput: standardInput,
-            timeout: timeout
-        )
     }
 
     private func successfulResult(stdout: String) -> CommandResult {

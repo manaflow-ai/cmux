@@ -92,11 +92,14 @@ final class CmuxExtensionProcessTermination: @unchecked Sendable {
 
 enum CmuxExtensionWorktreePrototype {
     static func createWorktree(projectRootPath: String) async throws -> CmuxExtensionWorktreeCreationResult {
-        try await Task.detached(priority: .userInitiated) {
+        let worker = Task.detached(priority: .userInitiated) {
             let projectRoot = URL(fileURLWithPath: projectRootPath, isDirectory: true).standardizedFileURL
+            try Task.checkCancellation()
             try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
             try await ensureGitRepository(at: projectRoot)
+            try Task.checkCancellation()
             try await ensureCmuxWorktreeDirectoryIsLocallyIgnored(projectRoot: projectRoot)
+            try Task.checkCancellation()
 
             let branchName = "cmux-sidebar-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(8).lowercased())"
             let worktreeRoot = projectRoot
@@ -104,26 +107,49 @@ enum CmuxExtensionWorktreePrototype {
                 .appendingPathComponent("worktrees", isDirectory: true)
             try FileManager.default.createDirectory(at: worktreeRoot, withIntermediateDirectories: true)
             let worktree = worktreeRoot.appendingPathComponent(branchName, isDirectory: true)
-            try await run("git", ["-C", projectRoot.path, "worktree", "add", "-b", branchName, worktree.path, "HEAD"])
-            let worktreeIncludeDiagnostics = await WorktreeIncludeSyncService().sync(
-                from: projectRoot,
-                to: worktree
-            )
-            for diagnostic in worktreeIncludeDiagnostics {
-                extensionWorktreeLogger.warning(
-                    "worktree include sync warning project=\(projectRoot.path, privacy: .private(mask: .hash)) detail=\(diagnostic, privacy: .private)"
+            var worktreeCreated = false
+            do {
+                try Task.checkCancellation()
+                try await run("git", ["-C", projectRoot.path, "worktree", "add", "-b", branchName, worktree.path, "HEAD"])
+                worktreeCreated = true
+                try Task.checkCancellation()
+                let worktreeIncludeDiagnostics = await WorktreeIncludeSyncService().sync(
+                    from: projectRoot,
+                    to: worktree
                 )
-            }
-            try writeSampleDevServerFiles(in: worktree, projectName: projectRoot.lastPathComponent)
+                for diagnostic in worktreeIncludeDiagnostics {
+                    extensionWorktreeLogger.warning(
+                        "worktree include sync warning project=\(projectRoot.path, privacy: .private(mask: .hash)) detail=\(diagnostic, privacy: .private)"
+                    )
+                }
+                try Task.checkCancellation()
+                try writeSampleDevServerFiles(in: worktree, projectName: projectRoot.lastPathComponent)
 
-            let port = 4_100 + abs(branchName.hashValue % 800)
-            let samplePath = shellEscaped(worktree.appendingPathComponent("cmux-sample-dev", isDirectory: true).path)
-            return CmuxExtensionWorktreeCreationResult(
-                worktreePath: worktree.path,
-                workspaceTitle: branchName,
-                setupCommand: "cd \(samplePath) && python3 -m http.server \(port)"
-            )
-        }.value
+                let port = 4_100 + abs(branchName.hashValue % 800)
+                let samplePath = shellEscaped(worktree.appendingPathComponent("cmux-sample-dev", isDirectory: true).path)
+                let result = CmuxExtensionWorktreeCreationResult(
+                    worktreePath: worktree.path,
+                    workspaceTitle: branchName,
+                    setupCommand: "cd \(samplePath) && python3 -m http.server \(port)"
+                )
+                worktreeCreated = false
+                return result
+            } catch {
+                if worktreeCreated {
+                    await rollbackWorktree(
+                        projectRoot: projectRoot,
+                        worktree: worktree,
+                        branchName: branchName
+                    )
+                }
+                throw error
+            }
+        }
+        return try await withTaskCancellationHandler {
+            try await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
     }
 
     private static func ensureGitRepository(at projectRoot: URL) async throws {
@@ -135,6 +161,30 @@ enum CmuxExtensionWorktreePrototype {
             code: 1,
             userInfo: [NSLocalizedDescriptionKey: "Project root is not a git repository."]
         )
+    }
+
+    private static func rollbackWorktree(
+        projectRoot: URL,
+        worktree: URL,
+        branchName: String
+    ) async {
+        do {
+            try await run("git", [
+                "-C", projectRoot.path,
+                "worktree", "remove", "--force", worktree.path,
+            ])
+        } catch {
+            extensionWorktreeLogger.error(
+                "worktree rollback removal failed project=\(projectRoot.path, privacy: .private(mask: .hash)) detail=\(error.localizedDescription, privacy: .private)"
+            )
+        }
+        do {
+            try await run("git", ["-C", projectRoot.path, "branch", "-D", branchName])
+        } catch {
+            extensionWorktreeLogger.error(
+                "worktree rollback branch deletion failed project=\(projectRoot.path, privacy: .private(mask: .hash)) detail=\(error.localizedDescription, privacy: .private)"
+            )
+        }
     }
 
     private static func ensureCmuxWorktreeDirectoryIsLocallyIgnored(projectRoot: URL) async throws {

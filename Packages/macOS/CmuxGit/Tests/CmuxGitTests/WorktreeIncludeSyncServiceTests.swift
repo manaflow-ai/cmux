@@ -103,18 +103,26 @@ struct WorktreeIncludeSyncServiceTests {
             atomically: true,
             encoding: .utf8
         )
+        let sourceModule = source.appendingPathComponent("node_modules/pkg/lib/index.js")
         try "module\n".write(
-            to: source.appendingPathComponent("node_modules/pkg/lib/index.js"),
+            to: sourceModule,
             atomically: true,
             encoding: .utf8
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: sourceModule.path
         )
 
         let diagnostics = await WorktreeIncludeSyncService().sync(from: source, to: destination)
 
         #expect(diagnostics.isEmpty)
-        #expect(
-            try contents(at: destination.appendingPathComponent("node_modules/pkg/lib/index.js")) == "module\n"
+        let destinationModule = destination.appendingPathComponent("node_modules/pkg/lib/index.js")
+        #expect(try contents(at: destinationModule) == "module\n")
+        let destinationAttributes = try FileManager.default.attributesOfItem(
+            atPath: destinationModule.path
         )
+        #expect(destinationAttributes[.posixPermissions] as? Int == 0o755)
     }
 
     @Test("in-repository destinations cannot recursively copy their containing subtree")

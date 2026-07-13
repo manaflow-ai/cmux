@@ -15,49 +15,17 @@ actor DuplicateWorktreeIncludeCommandRunner: OutputLimitedCommandRunning {
         directory: String,
         executable: String,
         arguments: [String],
+        standardInput: Data?,
+        maximumOutputBytes: Int?,
         timeout: TimeInterval?
     ) async -> CommandResult {
+        if let standardInput {
+            return success(stdout: String(decoding: standardInput, as: UTF8.self))
+        }
         let stdout = arguments.contains("--directory") && !arguments.contains("--exclude-standard")
             ? "cache/\0"
             : pathOutput
         return success(stdout: stdout)
-    }
-
-    func run(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        maximumOutputBytes: Int,
-        timeout: TimeInterval?
-    ) async -> CommandResult {
-        await run(directory: directory, executable: executable, arguments: arguments, timeout: timeout)
-    }
-
-    func run(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        standardInput: Data,
-        timeout: TimeInterval?
-    ) async -> CommandResult {
-        success(stdout: String(decoding: standardInput, as: UTF8.self))
-    }
-
-    func run(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        standardInput: Data,
-        maximumOutputBytes: Int,
-        timeout: TimeInterval?
-    ) async -> CommandResult {
-        await run(
-            directory: directory,
-            executable: executable,
-            arguments: arguments,
-            standardInput: standardInput,
-            timeout: timeout
-        )
     }
 
     private func success(stdout: String) -> CommandResult {

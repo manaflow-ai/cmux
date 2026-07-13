@@ -5,11 +5,12 @@ Reads a directory's git metadata directly from the on-disk repository, with no
 sidebar's branch label, dirty indicator, and (in a later stage) the GitHub
 pull-request badge.
 
-It is a Layer-2 service package: a stateless `Sendable` value over pure parsing
-helpers. Its reads are plain `nonisolated async` methods, which run on the global
-concurrent executor (SE-0338) — off the caller's actor and in parallel — with no
-actor serialization, since there is no shared state to protect. Zero AppKit/SwiftUI
-dependencies, fully testable against temp directories.
+It is a Layer-2 service package containing deterministic metadata readers and
+side-effecting synchronization services. `GitMetadataService` is a stateless
+`Sendable` value whose plain `nonisolated async` reads run on the global concurrent
+executor (SE-0338) — off the caller's actor and in parallel — with no actor
+serialization, since there is no shared state to protect. The package has zero
+AppKit/SwiftUI dependencies and is fully testable against temp directories.
 
 ## What it does
 

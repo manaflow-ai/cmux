@@ -2,9 +2,6 @@ import Foundation
 
 /// Copies selected worktree paths with aggregate item, byte, disk, and cancellation guards.
 struct WorktreeIncludeCopyService: Sendable {
-    private static let maximumItemCount = 500_000
-    private static let maximumByteCount: Int64 = 50 * 1024 * 1024 * 1024
-    private static let freeSpaceReserve: Int64 = 512 * 1024 * 1024
     private static let resourceKeys: Set<URLResourceKey> = [
         .fileSizeKey,
         .isDirectoryKey,
@@ -15,9 +12,14 @@ struct WorktreeIncludeCopyService: Sendable {
     // FileManager operations used here are documented thread-safe, and this
     // immutable injected instance has no delegate or mutable caller-owned state.
     private nonisolated(unsafe) let fileManager: FileManager
+    private let limits: WorktreeIncludeCopyLimits
 
-    init(fileManager: FileManager) {
+    init(
+        fileManager: FileManager,
+        limits: WorktreeIncludeCopyLimits = .production
+    ) {
         self.fileManager = fileManager
+        self.limits = limits
     }
 
     func copy(relativePaths: [String], from source: URL, to destination: URL) -> [String] {
@@ -25,6 +27,8 @@ struct WorktreeIncludeCopyService: Sendable {
         var copyablePaths: [String] = []
         var itemCount = 0
         var byteCount: Int64 = 0
+        var copiedItemCount = 0
+        var copiedByteCount: Int64 = 0
 
         for relativePath in relativePaths {
             if Task.isCancelled {
@@ -34,12 +38,15 @@ struct WorktreeIncludeCopyService: Sendable {
             do {
                 try preflight(sourceItem, itemCount: &itemCount, byteCount: &byteCount)
                 copyablePaths.append(relativePath)
+            } catch is CancellationError {
+                diagnostics.append("Cancelled .worktreeinclude copy before it completed.")
+                return diagnostics
             } catch {
                 diagnostics.append(
                     "Could not inspect .worktreeinclude path \(relativePath): \(error.localizedDescription)"
                 )
             }
-            if itemCount > Self.maximumItemCount || byteCount > Self.maximumByteCount {
+            if itemCount > limits.maximumItemCount || byteCount > limits.maximumByteCount {
                 diagnostics.append(copyLimitDiagnostic(itemCount: itemCount, byteCount: byteCount))
                 return diagnostics
             }
@@ -48,7 +55,7 @@ struct WorktreeIncludeCopyService: Sendable {
         if let available = try? destination.resourceValues(
             forKeys: [.volumeAvailableCapacityForImportantUsageKey]
         ).volumeAvailableCapacityForImportantUsage,
-           byteCount > max(0, available - Self.freeSpaceReserve) {
+           byteCount > max(0, available - limits.freeSpaceReserve) {
             diagnostics.append(
                 "Skipped .worktreeinclude copy because the destination volume lacks sufficient free space."
             )
@@ -60,12 +67,25 @@ struct WorktreeIncludeCopyService: Sendable {
                 diagnostics.append("Cancelled .worktreeinclude copy before it completed.")
                 return diagnostics
             }
+            let destinationItem = destination.appendingPathComponent(relativePath).standardizedFileURL
+            let destinationExisted = fileManager.fileExists(atPath: destinationItem.path)
             do {
                 try copyItem(
                     source.appendingPathComponent(relativePath).standardizedFileURL,
-                    to: destination.appendingPathComponent(relativePath).standardizedFileURL
+                    to: destinationItem,
+                    itemCount: &copiedItemCount,
+                    byteCount: &copiedByteCount
                 )
+            } catch is CancellationError {
+                if !destinationExisted { try? fileManager.removeItem(at: destinationItem) }
+                diagnostics.append("Cancelled .worktreeinclude copy before it completed.")
+                return diagnostics
+            } catch let limitError as WorktreeIncludeCopyLimitError {
+                if !destinationExisted { try? fileManager.removeItem(at: destinationItem) }
+                diagnostics.append(limitError.localizedDescription)
+                return diagnostics
             } catch {
+                if !destinationExisted { try? fileManager.removeItem(at: destinationItem) }
                 diagnostics.append(
                     "Could not copy .worktreeinclude path \(relativePath): \(error.localizedDescription)"
                 )
@@ -82,18 +102,15 @@ struct WorktreeIncludeCopyService: Sendable {
         let rootValues = try sourceItem.resourceValues(forKeys: Self.resourceKeys)
         account(rootValues, itemCount: &itemCount, byteCount: &byteCount)
         guard rootValues.isDirectory == true, rootValues.isSymbolicLink != true else { return }
-        guard let enumerator = fileManager.enumerator(
-            at: sourceItem,
-            includingPropertiesForKeys: Array(Self.resourceKeys),
-            options: []
-        ) else {
+        guard let enumerator = fileManager.enumerator(atPath: sourceItem.path) else {
             throw CocoaError(.fileReadUnknown)
         }
-        while let child = enumerator.nextObject() as? URL {
+        while let relativePath = enumerator.nextObject() as? String {
             if Task.isCancelled { throw CancellationError() }
+            let child = sourceItem.appendingPathComponent(relativePath)
             let values = try child.resourceValues(forKeys: Self.resourceKeys)
             account(values, itemCount: &itemCount, byteCount: &byteCount)
-            if itemCount > Self.maximumItemCount || byteCount > Self.maximumByteCount {
+            if itemCount > limits.maximumItemCount || byteCount > limits.maximumByteCount {
                 return
             }
         }
@@ -105,46 +122,125 @@ struct WorktreeIncludeCopyService: Sendable {
         byteCount: inout Int64
     ) {
         itemCount += 1
-        if values.isRegularFile == true, let size = values.fileSize {
+        if values.isRegularFile == true,
+           values.isSymbolicLink != true,
+           let size = values.fileSize {
             byteCount += Int64(size)
         }
     }
 
-    private func copyItem(_ sourceItem: URL, to destinationItem: URL) throws {
+    private func copyItem(
+        _ sourceItem: URL,
+        to destinationItem: URL,
+        itemCount: inout Int,
+        byteCount: inout Int64
+    ) throws {
         let rootValues = try sourceItem.resourceValues(forKeys: Self.resourceKeys)
         guard rootValues.isDirectory == true, rootValues.isSymbolicLink != true else {
             try fileManager.createDirectory(
                 at: destinationItem.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            try fileManager.copyItem(at: sourceItem, to: destinationItem)
+            try accountCopiedItem(itemCount: &itemCount, byteCount: byteCount)
+            if rootValues.isRegularFile == true, rootValues.isSymbolicLink != true {
+                try copyRegularFile(
+                    sourceItem,
+                    to: destinationItem,
+                    itemCount: itemCount,
+                    byteCount: &byteCount
+                )
+            } else {
+                try fileManager.copyItem(at: sourceItem, to: destinationItem)
+            }
             return
         }
 
+        try accountCopiedItem(itemCount: &itemCount, byteCount: byteCount)
         try fileManager.createDirectory(at: destinationItem, withIntermediateDirectories: true)
-        guard let enumerator = fileManager.enumerator(
-            at: sourceItem,
-            includingPropertiesForKeys: Array(Self.resourceKeys),
-            options: []
-        ) else {
+        guard let enumerator = fileManager.enumerator(atPath: sourceItem.path) else {
             throw CocoaError(.fileReadUnknown)
         }
-        while let child = enumerator.nextObject() as? URL {
+        while let relativePath = enumerator.nextObject() as? String {
             if Task.isCancelled { throw CancellationError() }
-            var destinationChild = destinationItem
-            for component in child.pathComponents.suffix(enumerator.level) {
-                destinationChild.appendPathComponent(component)
-            }
+            let child = sourceItem.appendingPathComponent(relativePath)
+            let destinationChild = destinationItem.appendingPathComponent(relativePath)
             let values = try child.resourceValues(forKeys: Self.resourceKeys)
             if values.isDirectory == true, values.isSymbolicLink != true {
+                try accountCopiedItem(itemCount: &itemCount, byteCount: byteCount)
                 try fileManager.createDirectory(at: destinationChild, withIntermediateDirectories: true)
             } else {
                 try fileManager.createDirectory(
                     at: destinationChild.deletingLastPathComponent(),
                     withIntermediateDirectories: true
                 )
-                try fileManager.copyItem(at: child, to: destinationChild)
+                try accountCopiedItem(itemCount: &itemCount, byteCount: byteCount)
+                if values.isRegularFile == true, values.isSymbolicLink != true {
+                    try copyRegularFile(
+                        child,
+                        to: destinationChild,
+                        itemCount: itemCount,
+                        byteCount: &byteCount
+                    )
+                } else {
+                    try fileManager.copyItem(at: child, to: destinationChild)
+                }
             }
+        }
+    }
+
+    private func accountCopiedItem(
+        itemCount: inout Int,
+        byteCount: Int64
+    ) throws {
+        itemCount += 1
+        guard itemCount <= limits.maximumItemCount else {
+            throw WorktreeIncludeCopyLimitError(itemCount: itemCount, byteCount: byteCount)
+        }
+    }
+
+    private func copyRegularFile(
+        _ sourceItem: URL,
+        to destinationItem: URL,
+        itemCount: Int,
+        byteCount: inout Int64
+    ) throws {
+        guard !fileManager.fileExists(atPath: destinationItem.path) else {
+            throw CocoaError(.fileWriteFileExists)
+        }
+        guard fileManager.createFile(atPath: destinationItem.path, contents: nil) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+
+        do {
+            let sourceHandle = try FileHandle(forReadingFrom: sourceItem)
+            defer { try? sourceHandle.close() }
+            let destinationHandle = try FileHandle(forWritingTo: destinationItem)
+            defer { try? destinationHandle.close() }
+
+            while true {
+                if Task.isCancelled { throw CancellationError() }
+                guard let data = try sourceHandle.read(upToCount: 64 * 1024), !data.isEmpty else {
+                    break
+                }
+                let nextByteCount = byteCount + Int64(data.count)
+                guard nextByteCount <= limits.maximumByteCount else {
+                    throw WorktreeIncludeCopyLimitError(
+                        itemCount: itemCount,
+                        byteCount: nextByteCount
+                    )
+                }
+                try destinationHandle.write(contentsOf: data)
+                byteCount = nextByteCount
+            }
+
+            let sourceAttributes = try fileManager.attributesOfItem(atPath: sourceItem.path)
+            var copiedAttributes: [FileAttributeKey: Any] = [:]
+            copiedAttributes[.posixPermissions] = sourceAttributes[.posixPermissions]
+            copiedAttributes[.modificationDate] = sourceAttributes[.modificationDate]
+            try fileManager.setAttributes(copiedAttributes, ofItemAtPath: destinationItem.path)
+        } catch {
+            try? fileManager.removeItem(at: destinationItem)
+            throw error
         }
     }
 
