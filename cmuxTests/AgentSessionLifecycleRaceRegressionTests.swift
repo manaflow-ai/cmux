@@ -8,6 +8,32 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func codexTeamsThreadIdentityDoesNotLeakAcrossProviders() {
+        let inheritedEnvironment = [
+            "CMUX_CODEX_TEAMS_THREAD_ID": "codex-thread",
+            "CMUX_CODEX_TEAMS_PARENT_THREAD_ID": "codex-parent",
+        ]
+        let resolver = AgentHookSessionLineageResolver()
+
+        let claude = resolver.resolve(
+            agentName: "claude",
+            sessionId: "claude-session",
+            pid: nil,
+            environment: inheritedEnvironment
+        )
+        #expect(claude.runId == "session:claude:claude-session")
+        #expect(claude.parentRunId == nil)
+
+        let codex = resolver.resolve(
+            agentName: "codex",
+            sessionId: "codex-session",
+            pid: nil,
+            environment: inheritedEnvironment
+        )
+        #expect(codex.runId == "codex-thread")
+        #expect(codex.parentRunId == "codex-parent")
+    }
+
     @Test func olderProcessGenerationCannotReplaceActiveRun() {
         let currentRun = AgentSessionRunRecord(
             runId: "current-run", pid: 202, processStartedAt: 200,
