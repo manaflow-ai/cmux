@@ -16,6 +16,10 @@ actor TestControllableSecureCredentialStore: CmxIrohSecureCredentialStoring {
     private var nextWrite = NextWrite.normal
     private var suspendedWrite: CheckedContinuation<Void, Never>?
     private var writeSuspensionWaiters: [CheckedContinuation<Void, Never>] = []
+    private var shouldSuspendNextDeleteAll = false
+    private var suspendedDeleteAll: CheckedContinuation<Void, Never>?
+    private var deleteAllSuspensionWaiters: [CheckedContinuation<Void, Never>] = []
+    private var storedDeleteAllCount = 0
 
     func read(account: String) -> Data? {
         records[account]
@@ -48,8 +52,18 @@ actor TestControllableSecureCredentialStore: CmxIrohSecureCredentialStoring {
         records.removeValue(forKey: account)
     }
 
-    func deleteAll() {
+    func deleteAll() async {
+        if shouldSuspendNextDeleteAll {
+            shouldSuspendNextDeleteAll = false
+            await withCheckedContinuation { continuation in
+                suspendedDeleteAll = continuation
+                let waiters = deleteAllSuspensionWaiters
+                deleteAllSuspensionWaiters.removeAll(keepingCapacity: false)
+                for waiter in waiters { waiter.resume() }
+            }
+        }
         records.removeAll(keepingCapacity: false)
+        storedDeleteAllCount += 1
     }
 
     func suspendNextWrite() {
@@ -58,6 +72,10 @@ actor TestControllableSecureCredentialStore: CmxIrohSecureCredentialStoring {
 
     func failNextWrite() {
         nextWrite = .failed
+    }
+
+    func suspendNextDeleteAll() {
+        shouldSuspendNextDeleteAll = true
     }
 
     func waitUntilWriteIsSuspended() async {
@@ -72,4 +90,20 @@ actor TestControllableSecureCredentialStore: CmxIrohSecureCredentialStoring {
         suspendedWrite = nil
         continuation?.resume()
     }
+
+    func waitUntilDeleteAllIsSuspended() async {
+        guard suspendedDeleteAll == nil else { return }
+        await withCheckedContinuation { continuation in
+            deleteAllSuspensionWaiters.append(continuation)
+        }
+    }
+
+    func resumeSuspendedDeleteAll() {
+        let continuation = suspendedDeleteAll
+        suspendedDeleteAll = nil
+        continuation?.resume()
+    }
+
+    func recordCount() -> Int { records.count }
+    func deleteAllCount() -> Int { storedDeleteAllCount }
 }
