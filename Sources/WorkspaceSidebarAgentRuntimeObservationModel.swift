@@ -20,7 +20,7 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     private(set) var changeGeneration: UInt64 = 0
 
     @ObservationIgnored
-    var changeObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
+    private(set) var changeObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
 
     /// Emits whenever any runtime map changes.
     func changes() -> AsyncStream<Void> {

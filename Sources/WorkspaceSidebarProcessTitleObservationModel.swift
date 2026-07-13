@@ -23,7 +23,7 @@ final class WorkspaceSidebarProcessTitleObservationModel {
     @ObservationIgnored
     private(set) var changeGeneration: UInt64 = 0
     @ObservationIgnored
-    var changeObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
+    private(set) var changeObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
     @ObservationIgnored
     private var hasUnobservedChange = false
     @ObservationIgnored
