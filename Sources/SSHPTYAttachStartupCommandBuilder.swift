@@ -49,7 +49,10 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
             " --command-b64 \(shellQuote(Data($0.utf8).base64EncodedString()))"
         } ?? ""
         let attachCommand = "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait\(requireExistingFlag) --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_ssh_attach_session_id\" --lifecycle-id \"$cmux_ssh_attach_lifecycle_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\"\(commandB64Flag)"
-        lines += retryingAttachLines(command: attachCommand)
+        lines += retryingAttachLines(
+            command: attachCommand,
+            reconnectLimitDefault: foregroundAuth == nil ? nil : 20
+        )
         return "/bin/sh -c \(shellQuote(lines.joined(separator: "\n")))"
     }
 
@@ -63,10 +66,14 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
         )
     }
 
-    private static func retryingAttachLines(command: String) -> [String] {
+    private static func retryingAttachLines(
+        command: String,
+        reconnectLimitDefault: Int?
+    ) -> [String] {
         // Retryable 254|255 is owned by SSHPTYAttachExitCode in the CLI target; keep in sync with CMUXCLI.sshPTYAttachRetryLoopLines.
-        [
-            "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"",
+        let defaultLimit = reconnectLimitDefault.map(String.init) ?? ""
+        return [
+            "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-\(defaultLimit)}\"",
             "case \"$cmux_ssh_attach_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_limit='∞'; cmux_ssh_attach_reconnect_unbounded=1 ;; *) cmux_ssh_attach_reconnect_unbounded=0 ;; esac",
             "cmux_ssh_attach_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
             "case \"$cmux_ssh_attach_reconnect_delay\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_delay=2 ;; esac",

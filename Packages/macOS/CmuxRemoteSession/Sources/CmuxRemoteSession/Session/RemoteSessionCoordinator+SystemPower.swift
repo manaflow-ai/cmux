@@ -36,7 +36,10 @@ extension RemoteSessionCoordinator {
     @discardableResult
     func resetReconnectPolicyLocked(reason: String) -> Bool {
         guard !isStopping else { return false }
-        let shouldReconnect = reconnectSuspended || reconnectRetryCount > 0 || proxyEndpoint == nil || !daemonReady
+        let expectsProxyEndpoint = !configuration.skipDaemonBootstrap ||
+            configuration.daemonWebSocketEndpoint != nil
+        let shouldReconnect = reconnectSuspended || reconnectRetryCount > 0 ||
+            (expectsProxyEndpoint && proxyEndpoint == nil) || !daemonReady
         isSystemSleeping = false
         cancelReconnectRetryLocked()
         reconnectRetryCount = 0
@@ -51,6 +54,7 @@ extension RemoteSessionCoordinator {
     }
 
     private func resetTransportForReconnectLocked() {
+        cancelTransportDependentWorkLocked()
         cancelReverseRelayRestartLocked()
         stopReverseRelayLocked()
         failPendingPTYBridgeStartsLocked("remote daemon is not ready")
@@ -60,6 +64,26 @@ extension RemoteSessionCoordinator {
         daemonBootstrapVersion = nil
         daemonRemotePath = nil
         publishProxyEndpoint(nil)
+    }
+
+    private func cancelTransportDependentWorkLocked() {
+        bootstrapRemoteTTYResolved = false
+        cancelBootstrapRemoteTTYRetryLocked()
+        bootstrapRemoteTTYFetchInFlight = false
+        bootstrapRemoteTTYRetryCount = 0
+        remotePortScanGeneration &+= 1
+        remotePortScanBurstTask?.cancel()
+        remotePortScanBurstTask = nil
+        remotePortScanBurstActive = false
+        remotePortScanActiveReason = nil
+        remotePortScanPendingReason = nil
+        cancelRemotePortScanCoalesceLocked()
+        remoteScannedPortsByPanel.removeAll()
+        stopRemotePortPollingLocked()
+        polledRemotePorts = []
+        remotePortPollBaselinePorts = nil
+        keepPolledRemotePortsUntilTTYScan = false
+        publishPortsSnapshotLocked()
     }
 
     func releaseProxyLeaseLocked() {
