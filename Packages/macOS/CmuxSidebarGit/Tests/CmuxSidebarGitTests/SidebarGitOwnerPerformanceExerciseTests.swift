@@ -1,3 +1,5 @@
+import CmuxGit
+import Foundation
 import Testing
 @testable import CmuxSidebarGit
 
@@ -28,5 +30,63 @@ import Testing
         #expect(snapshot.pullRequestStaleCompletionRejectedOffMainCount == 1)
         #expect(snapshot.pullRequestMainActorApplyEnteredCount == 2)
         #expect(snapshot.pullRequestFollowUpStartedCount == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func cancellingGatedFetchReturnsWithoutProducingAResult() async {
+        let executor = SidebarGitOwnerPerformanceExecutor()
+        let resolution = await executor.resolveCandidateSeeds([
+            WorkspacePullRequestCandidateSeed(
+                workspaceId: UUID(),
+                panelId: UUID(),
+                branch: "feature/cancel-fetch",
+                directory: "/isolated/owner-proof"
+            ),
+        ])
+        let fetchTask = Task {
+            await executor.fetchRepoResults(
+                candidateResolution: resolution,
+                cacheBySlug: [:],
+                now: Date(),
+                allowCachedResults: false
+            )
+        }
+
+        try? await executor.waitForFetchCount(1)
+        fetchTask.cancel()
+        await executor.releaseNextFetch()
+
+        #expect(await fetchTask.value.isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func cancellingBadgeWaitThrowsCancellation() async {
+        let host = SidebarGitOwnerPerformanceHost(branch: "feature/cancel-badge")
+        let waitTask = Task { @MainActor in
+            do {
+                try await host.waitForBadgeApplyCount(1)
+                return false
+            } catch is CancellationError {
+                return true
+            } catch {
+                return false
+            }
+        }
+
+        await Task.yield()
+        waitTask.cancel()
+        host.updatePanelPullRequest(
+            workspaceId: host.workspaceId,
+            panelId: host.panelId,
+            badge: SidebarPullRequestBadge(
+                number: 1,
+                label: "PR",
+                url: URL(string: "https://github.invalid/cmux/owner-proof/pull/1")!,
+                status: .open,
+                branch: host.branch
+            )
+        )
+
+        #expect(await waitTask.value)
     }
 }
