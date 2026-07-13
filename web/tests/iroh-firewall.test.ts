@@ -35,7 +35,7 @@ describe("Iroh Vercel firewall client", () => {
     });
 
     expect(result).toEqual({ rateLimited: false });
-    expect(capturedUrl).toBe("https://cmux-preview.vercel.app/.well-known/vercel/rate-limit-api/iroh-rule");
+    expect(capturedUrl).toBe("https://cmux.com/.well-known/vercel/rate-limit-api/iroh-rule");
     expect(capturedInit?.redirect).toBe("manual");
     expect(capturedInit?.signal).toBe(signal);
     const headers = new Headers(capturedInit?.headers);
