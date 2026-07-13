@@ -49,7 +49,7 @@ extension TerminalController {
         peerHasSameUID: Bool
     ) -> String? {
         guard socketServer.accessMode == .cmuxOnly else {
-            return SocketClientCapabilityEnvelope.unwrap(command)?.command ?? command
+            return SocketClientCapabilityCommand(command)?.command ?? command
         }
         return SocketClientAuthorization().authorizedCommand(
             command,

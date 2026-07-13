@@ -52,7 +52,7 @@ struct SocketClientCapabilityTests {
         let envelope = try #require(SocketClientCapabilityEnvelope(capability: capability))
         let command = "hooks claude prompt-submit"
 
-        let parsed = try #require(SocketClientCapabilityEnvelope.unwrap(envelope.wrap(command)))
+        let parsed = try #require(SocketClientCapabilityCommand(envelope.wrap(command)))
         #expect(parsed.capability == capability)
         #expect(parsed.command == command)
     }

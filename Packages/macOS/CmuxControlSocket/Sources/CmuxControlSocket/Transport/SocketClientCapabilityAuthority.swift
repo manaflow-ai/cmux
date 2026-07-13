@@ -48,10 +48,10 @@ public struct SocketClientCapabilityAuthority: Sendable {
     func issueCapability(nonce: Data) -> String {
         guard nonce.count == Self.secureByteCount else { return "" }
         let signature = HMAC<SHA256>.authenticationCode(
-            for: Self.authenticationMessage(nonce: nonce),
+            for: authenticationMessage(nonce: nonce),
             using: signingKey
         )
-        return "v1.\(Self.base64URLEncoded(nonce)).\(Self.base64URLEncoded(Data(signature)))"
+        return "v1.\(base64URLEncoded(nonce)).\(base64URLEncoded(Data(signature)))"
     }
 
     /// Verifies that a capability was issued by this audience-scoped authority.
@@ -62,31 +62,31 @@ public struct SocketClientCapabilityAuthority: Sendable {
         let components = capability.split(separator: ".", omittingEmptySubsequences: false)
         guard components.count == 3,
               components[0] == "v1",
-              let nonce = Self.base64URLDecoded(String(components[1])),
+              let nonce = base64URLDecoded(String(components[1])),
               nonce.count == Self.secureByteCount,
-              let signature = Self.base64URLDecoded(String(components[2])),
+              let signature = base64URLDecoded(String(components[2])),
               signature.count == SHA256.byteCount else {
             return false
         }
         return HMAC<SHA256>.isValidAuthenticationCode(
             signature,
-            authenticating: Self.authenticationMessage(nonce: nonce),
+            authenticating: authenticationMessage(nonce: nonce),
             using: signingKey
         )
     }
 
-    private static func authenticationMessage(nonce: Data) -> Data {
+    private func authenticationMessage(nonce: Data) -> Data {
         Data("cmux.socket-capability.token.v1\0".utf8) + nonce
     }
 
-    private static func base64URLEncoded(_ data: Data) -> String {
+    private func base64URLEncoded(_ data: Data) -> String {
         data.base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
     }
 
-    private static func base64URLDecoded(_ value: String) -> Data? {
+    private func base64URLDecoded(_ value: String) -> Data? {
         guard !value.isEmpty,
               value.unicodeScalars.allSatisfy({
                   CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_"

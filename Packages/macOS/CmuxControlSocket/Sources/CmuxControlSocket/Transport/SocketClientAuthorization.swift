@@ -49,7 +49,7 @@ public struct SocketClientAuthorization {
         capabilityAuthority: SocketClientCapabilityAuthority,
         isDescendant: (pid_t) -> Bool
     ) -> String? {
-        let envelope = SocketClientCapabilityEnvelope.unwrap(command)
+        let envelope = SocketClientCapabilityCommand(command)
         if let peerProcessID, isDescendant(peerProcessID) {
             return envelope?.command ?? command
         }
