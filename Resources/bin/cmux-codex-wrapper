@@ -481,10 +481,15 @@ cmux_codex_read_computer_use_args() {
     return 0
 }
 
+# Computer-use args are generated independently of hook injection: the bundled
+# cua-driver is local and does not need the cmux hook socket, so a failed or
+# empty `hooks codex inject-args` emit must not silently drop computer use.
+cmux_codex_read_computer_use_args "$@" || true
+
 if cmux_codex_read_inject_args; then
-    cmux_codex_read_computer_use_args "$@" || true
     exec "$REAL_CODEX" "${cmux_codex_computer_use_args[@]}" "${cmux_codex_injected_args[@]}" "$@"
 fi
 
-# Emit failed or returned nothing: never break codex, just pass through.
-exec_real_codex_passthrough "$@"
+# Hook emit failed or returned nothing: never break codex, pass through (with
+# the computer-use MCP still attached when it resolved above).
+exec_real_codex_passthrough "${cmux_codex_computer_use_args[@]}" "$@"

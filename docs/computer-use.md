@@ -44,3 +44,20 @@ automatic computer-use MCP injection. Development builds may set
 `CMUX_CUA_DRIVER=/absolute/path/to/cua-driver`; cmux only uses that override
 when the bundled driver is absent and the override path is executable with
 trusted ancestors.
+
+## Building the bundled driver
+
+Every cmux app build runs `scripts/build-cua-driver.sh`, which compiles the
+pinned `manaflow-ai/cmux-cua` commit with Cargo and bundles the resulting
+binary as `Contents/Resources/bin/cmux-cua-driver`. This requires a Rust
+toolchain on the build machine:
+
+- local dev: install via [rustup](https://rustup.rs) (or
+  `brew install rustup && rustup-init`); `rustup` also lets the script add the
+  `aarch64-apple-darwin`/`x86_64-apple-darwin` targets it needs
+- CI: `scripts/install-rust-ci.sh`
+
+The pinned source is cached under `~/Library/Caches/cmux/cua-driver`; after
+the first successful build no network access is needed until the pinned
+commit changes. Set `CMUX_CUA_SRC=/path/to/cmux-cua` to build from a local
+checkout (it must still be at the pinned commit).

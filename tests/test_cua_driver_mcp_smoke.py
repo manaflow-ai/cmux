@@ -26,11 +26,13 @@ def candidate_binaries() -> list[Path]:
         value = os.environ.get(env_key)
         if value:
             candidates.append(Path(value))
+    # Only explicit env overrides and repo/build-output paths are eligible.
+    # Never probe predictable world-writable locations like /tmp: anyone on
+    # the machine could pre-plant an executable there and this test would run
+    # it with the caller's credentials.
     candidates.extend(
         [
             ROOT / "Resources" / "bin" / "cmux-cua-driver",
-            Path("/tmp/cua-driver-test"),
-            Path("/tmp/cua-driver-verify"),
             ROOT / "build-universal" / "Build" / "Products" / "Release" / "cmux.app" / "Contents" / "Resources" / "bin" / "cmux-cua-driver",
         ]
     )

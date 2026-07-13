@@ -69,6 +69,7 @@ def run_wrapper(
     override_driver: bool = False,
     untrusted_override: bool = False,
     disabled: bool = False,
+    hooks_inject_fails: bool = False,
 ) -> tuple[int, list[str], str, Path]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -94,20 +95,23 @@ for arg in "$@"; do
 done
 """,
         )
+        inject_args_body = (
+            "  exit 1\n"
+            if hooks_inject_fails
+            else "  printf '%s\\0' --enable hooks -c hooks.cmux-test=true\n  exit 0\n"
+        )
         make_executable(
             wrapper_dir / "cmux",
-            """#!/usr/bin/env bash
+            f"""#!/usr/bin/env bash
 set -euo pipefail
-if [[ "${1:-}" == "--socket" ]]; then
+if [[ "${{1:-}}" == "--socket" ]]; then
   shift 2
 fi
-if [[ "${1:-}" == "ping" ]]; then
+if [[ "${{1:-}}" == "ping" ]]; then
   exit 0
 fi
-if [[ "${1:-}" == "hooks" && "${2:-}" == "codex" && "${3:-}" == "inject-args" ]]; then
-  printf '%s\\0' --enable hooks -c hooks.cmux-test=true
-  exit 0
-fi
+if [[ "${{1:-}}" == "hooks" && "${{2:-}}" == "codex" && "${{3:-}}" == "inject-args" ]]; then
+{inject_args_body}fi
 exit 1
 """,
         )
@@ -227,6 +231,29 @@ def test_codex_skips_when_disabled(failures: list[str]) -> None:
     expect(command_config(args) is None, f"expected no injection with kill switch, got {args}", failures)
 
 
+def test_codex_gets_cua_driver_when_hook_injection_fails(failures: list[str]) -> None:
+    # The bundled driver is local and independent of the cmux hook socket, so
+    # a failed `hooks codex inject-args` emit must not drop computer use.
+    code, args, stderr, _ = run_wrapper(["hello"], hooks_inject_fails=True)
+    expect(code == 0, f"hook-failure wrapper exited {code}: {stderr}", failures)
+    expect(
+        "hooks.cmux-test=true" not in args,
+        f"expected no hook args when inject-args fails, got {args}",
+        failures,
+    )
+    expect("hello" in args, f"expected user prompt to survive, got {args}", failures)
+    cmd = command_config(args)
+    expect(cmd is not None, f"missing computer-use command config after hook failure in {args}", failures)
+    if cmd is not None:
+        command = json.loads(cmd)
+        expect(
+            Path(command).name == "cmux-cua-driver",
+            f"expected bundled driver command after hook failure, got {cmd}",
+            failures,
+        )
+    expect_scrubbed_mcp_env(args, failures, "hook-injection failure")
+
+
 def test_codex_skips_for_strict_mcp_config(failures: list[str]) -> None:
     code, args, stderr, _ = run_wrapper(["--strict-mcp-config", "-c", "mcp_servers.user.command=\"x\"", "hello"])
     expect(code == 0, f"strict wrapper exited {code}: {stderr}", failures)
@@ -241,6 +268,7 @@ def main() -> int:
     test_codex_rejects_cua_driver_override_under_world_writable_ancestor(failures)
     test_codex_skips_when_driver_unavailable(failures)
     test_codex_skips_when_disabled(failures)
+    test_codex_gets_cua_driver_when_hook_injection_fails(failures)
     test_codex_skips_for_strict_mcp_config(failures)
     if failures:
         for failure in failures:

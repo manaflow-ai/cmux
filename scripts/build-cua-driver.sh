@@ -8,7 +8,6 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUTPUT=""
 ARCHS_RAW=""
 CACHE_DIR="${CMUX_CUA_CACHE_DIR:-${HOME:-/tmp}/Library/Caches/cmux/cua-driver}"
-VERIFY_DOCTOR=1
 
 usage() {
   cat <<'USAGE' >&2
@@ -17,7 +16,6 @@ usage: scripts/build-cua-driver.sh --output <path> [options]
 Options:
   --archs "<archs>"     architectures to build (default: "arm64 x86_64")
   --cache-dir <path>    clone/build cache dir (default: ~/Library/Caches/cmux/cua-driver)
-  --skip-doctor-verify  skip the post-build `doctor --json` probe
   -h, --help            show this help
 
 Environment:
@@ -43,10 +41,6 @@ while (($#)); do
       [[ $# -ge 2 ]] || { usage; exit 2; }
       CACHE_DIR="$2"
       shift 2
-      ;;
-    --skip-doctor-verify)
-      VERIFY_DOCTOR=0
-      shift
       ;;
     -h|--help)
       usage
@@ -77,7 +71,12 @@ if ((${#ARCHS[@]} == 0)); then
 fi
 
 command -v git >/dev/null 2>&1 || { echo "error: git is required" >&2; exit 1; }
-command -v cargo >/dev/null 2>&1 || { echo "error: cargo is required; run scripts/install-rust-ci.sh in CI" >&2; exit 1; }
+command -v cargo >/dev/null 2>&1 || {
+  echo "error: cargo is required to build the bundled cua-driver" >&2
+  echo "  local dev: install Rust via rustup (https://rustup.rs or \`brew install rustup && rustup-init\`)" >&2
+  echo "  CI: run scripts/install-rust-ci.sh" >&2
+  exit 1
+}
 
 mkdir -p "$CACHE_DIR"
 
@@ -92,8 +91,19 @@ else
   if [[ ! -d "$SRC_ROOT/.git" ]]; then
     git clone "$CMUX_CUA_REPO_URL" "$SRC_ROOT"
   fi
-  git -C "$SRC_ROOT" fetch --quiet origin "$CMUX_CUA_PINNED_SHA"
-  git -C "$SRC_ROOT" checkout --quiet --detach "$CMUX_CUA_PINNED_SHA"
+  # Fetch only when the pinned commit is missing locally so incremental app
+  # builds keep working offline (or through GitHub outages) after the first
+  # successful build.
+  if ! git -C "$SRC_ROOT" cat-file -e "$CMUX_CUA_PINNED_SHA^{commit}" 2>/dev/null; then
+    git -C "$SRC_ROOT" fetch --quiet origin "$CMUX_CUA_PINNED_SHA"
+  fi
+  # Materialize the exact pinned tree. A plain `checkout --detach` at the
+  # already-checked-out commit silently keeps modified tracked files, so a
+  # tampered cache would still pass the rev-parse check below while its edits
+  # get compiled, signed, and bundled. `--force` restores tracked files to the
+  # pinned contents and `clean -fdx` drops untracked/ignored files.
+  git -C "$SRC_ROOT" checkout --quiet --force --detach "$CMUX_CUA_PINNED_SHA"
+  git -C "$SRC_ROOT" clean -qfdx
 fi
 
 ACTUAL_SHA="$(git -C "$SRC_ROOT" rev-parse HEAD)"
@@ -160,11 +170,10 @@ chmod 0755 "$OUTPUT"
 
 /usr/bin/codesign --force --sign - --timestamp=none "$OUTPUT"
 /usr/bin/codesign --verify --strict "$OUTPUT"
+# Launchability probe. Deliberately NOT `doctor --json`: doctor's macOS
+# platform probes are mutating (they `launchctl unload` + delete a legacy
+# LaunchAgent plist and remove the hard-coded /usr/local/bin/cua-driver-update,
+# which a temporary HOME does not redirect), so running it here would let an
+# ordinary app build silently modify the developer's machine. Deeper MCP
+# verification lives in tests/test_cua_driver_mcp_smoke.py.
 "$OUTPUT" --version >/dev/null
-if [[ "$VERIFY_DOCTOR" -eq 1 ]]; then
-  verify_home="$TMPDIR_BUILD/home"
-  mkdir -p "$verify_home"
-  HOME="$verify_home" \
-    CUA_DRIVER_RS_TELEMETRY_ENABLED=false \
-    "$OUTPUT" doctor --json >/dev/null
-fi
