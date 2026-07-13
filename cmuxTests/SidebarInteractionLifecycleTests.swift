@@ -294,7 +294,7 @@ final class SidebarInteractionLifecycleTests {
 
         private func rootView() -> AnyView {
             let counter = counter
-            AnyView(
+            return AnyView(
                 VerticalTabsSidebar(
                     updateViewModel: updateModel,
                     fileExplorerState: fileExplorerState,
