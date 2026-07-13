@@ -62,6 +62,7 @@ public actor GitTrackedChangesSnapshotCache {
 
     private let maximumEntryCount: Int
     nonisolated let runtimeMetricsRecorder: CmuxGitRuntimeMetrics
+    private let diagnosticGate: GitTrackedChangesSnapshotDiagnosticGate?
     private var entriesByKey: [
         GitTrackedChangesSnapshotCacheKey: GitTrackedChangesSnapshotCacheEntry
     ] = [:]
@@ -76,14 +77,17 @@ public actor GitTrackedChangesSnapshotCache {
     public init(maximumEntryCount: Int = 256) {
         self.maximumEntryCount = max(1, maximumEntryCount)
         self.runtimeMetricsRecorder = GitMetadataService.runtimeMetrics
+        self.diagnosticGate = nil
     }
 
     init(
         maximumEntryCount: Int = 256,
-        runtimeMetricsRecorder: CmuxGitRuntimeMetrics
+        runtimeMetricsRecorder: CmuxGitRuntimeMetrics,
+        diagnosticGate: GitTrackedChangesSnapshotDiagnosticGate? = nil
     ) {
         self.maximumEntryCount = max(1, maximumEntryCount)
         self.runtimeMetricsRecorder = runtimeMetricsRecorder
+        self.diagnosticGate = diagnosticGate
     }
 
     func snapshot(
@@ -176,18 +180,22 @@ public actor GitTrackedChangesSnapshotCache {
             runtimeMetricsRecorder.recordTrackedStatusInFlightJoin()
             inFlight.waitersByID[waiterID] = waiter
             inFlightSnapshotsByKey[key] = inFlight
+            diagnosticGate?.recordRegisteredWaiterCount(inFlight.waitersByID.count)
             return
         }
 
         let operationID = UUID()
+        let diagnosticGate = diagnosticGate
         let task = Task.detached(priority: Task.currentPriority) {
-            load()
+            diagnosticGate?.waitForExpectedWaiters()
+            return load()
         }
         inFlightSnapshotsByKey[key] = InFlightSnapshot(
             id: operationID,
             task: task,
             waitersByID: [waiterID: waiter]
         )
+        diagnosticGate?.recordRegisteredWaiterCount(1)
         Task { [weak self] in
             let snapshot = await task.value
             await self?.completeOperation(

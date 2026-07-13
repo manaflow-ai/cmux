@@ -226,7 +226,7 @@ public final class PullRequestPollService: PullRequestProbing {
             host.clearAllSidebarPullRequestMetadata()
             return
         }
-        SidebarGitMetadataService.recordPullRequestTraversal()
+        runtimeMetricsRecorder.recordPullRequestTraversal()
 
         let now = Date()
         var candidateSeeds: [WorkspacePullRequestCandidateSeed] = []

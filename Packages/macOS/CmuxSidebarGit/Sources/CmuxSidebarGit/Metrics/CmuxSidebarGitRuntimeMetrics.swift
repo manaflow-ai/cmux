@@ -171,14 +171,6 @@ extension SidebarGitMetadataService {
         runtimeMetrics.recordMaterialChange()
     }
 
-    static func recordPullRequestSeed() {
-        runtimeMetrics.recordPullRequestSeed()
-    }
-
-    static func recordPullRequestTraversal() {
-        runtimeMetrics.recordPullRequestTraversal()
-    }
-
     static func recordStaleApply() {
         runtimeMetrics.recordStaleApply()
     }

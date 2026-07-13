@@ -47,12 +47,14 @@ public actor GitTrackedChangesSnapshotScope {
     init(
         maximumSnapshotCount: Int = 256,
         maximumRepositoryCount: Int = 256,
-        runtimeMetricsRecorder: CmuxGitRuntimeMetrics
+        runtimeMetricsRecorder: CmuxGitRuntimeMetrics,
+        diagnosticGate: GitTrackedChangesSnapshotDiagnosticGate? = nil
     ) {
         self.runtimeMetricsRecorder = runtimeMetricsRecorder
         self.snapshotCache = GitTrackedChangesSnapshotCache(
             maximumEntryCount: maximumSnapshotCount,
-            runtimeMetricsRecorder: runtimeMetricsRecorder
+            runtimeMetricsRecorder: runtimeMetricsRecorder,
+            diagnosticGate: diagnosticGate
         )
         self.maximumRepositoryCount = max(1, maximumRepositoryCount)
     }
