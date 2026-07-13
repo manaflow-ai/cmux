@@ -1,4 +1,5 @@
 import Foundation
+import CmuxTerminal
 import CmuxTerminalCore
 import SwiftUI
 import Testing
@@ -401,6 +402,7 @@ struct NotificationRowSnapshotBoundaryTests {
             c: ghostty_action_scrollbar_s(total: 200, offset: 156, len: 44)
         )
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.beginSessionScrollbackReplay()
 
         #expect(hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 138, totalRows: 400)
@@ -418,6 +420,45 @@ struct NotificationRowSnapshotBoundaryTests {
         )
 
         #expect(surfaceView.bindingActions == ["scroll_to_row:218"])
+    }
+
+    @Test func notificationScrollRestoreClampsWhenReplayCompletesWithTrimmedHistory() {
+        let surfaceView = NotificationScrollActionProbeView(frame: .zero)
+        surfaceView.scrollbar = GhosttyScrollbar(
+            c: ghostty_action_scrollbar_s(total: 200, offset: 156, len: 44)
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.beginSessionScrollbackReplay()
+
+        #expect(hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+        ))
+        #expect(surfaceView.bindingActions.isEmpty)
+
+        hostedView.completeSessionScrollbackReplay()
+
+        #expect(surfaceView.bindingActions == ["scroll_to_row:156"])
+    }
+
+    @Test func terminalPanelPromptCompletesOwnedSessionScrollbackReplay() {
+        let workspaceId = UUID()
+        let terminalSurface = TerminalSurface(
+            tabId: workspaceId,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let panel = TerminalPanel(workspaceId: workspaceId, surface: terminalSurface)
+
+        panel.adoptOwnedSessionScrollbackReplayArtifact(
+            FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-session-scrollback-test")
+        )
+        #expect(panel.hostedView.notificationScrollRestorePhase == .sessionScrollbackReplayActive)
+
+        panel.updateShellActivityState(.promptIdle)
+
+        #expect(panel.hostedView.notificationScrollRestorePhase == .idle)
     }
 
     @Test func userWheelInputCancelsPendingNotificationScrollRestore() {

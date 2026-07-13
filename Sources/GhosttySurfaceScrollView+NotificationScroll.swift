@@ -7,7 +7,20 @@ enum TerminalNotificationScrollRestoreTarget: Equatable {
 
 enum TerminalNotificationScrollRestorePhase: Equatable {
     case idle
-    case pending(TerminalNotificationScrollPosition)
+    case sessionScrollbackReplayActive
+    case pending(
+        TerminalNotificationScrollPosition,
+        waitingForSessionScrollbackReplay: Bool
+    )
+
+    var isSessionScrollbackReplayActive: Bool {
+        switch self {
+        case .sessionScrollbackReplayActive, .pending(_, waitingForSessionScrollbackReplay: true):
+            return true
+        case .idle, .pending(_, waitingForSessionScrollbackReplay: false):
+            return false
+        }
+    }
 }
 
 private enum TerminalNotificationScrollRestoreDecision {
@@ -30,26 +43,37 @@ extension GhosttySurfaceScrollView {
     @discardableResult
     func restoreNotificationScrollPosition(_ position: TerminalNotificationScrollPosition?) -> Bool {
         guard let position, position.totalRows != nil else {
-            notificationScrollRestorePhase = .idle
+            cancelPendingNotificationScrollRestore()
             return false
         }
-        notificationScrollRestorePhase = .pending(position)
+        notificationScrollRestorePhase = .pending(
+            position,
+            waitingForSessionScrollbackReplay: notificationScrollRestorePhase.isSessionScrollbackReplayActive
+        )
         return retryPendingNotificationScrollRestore()
     }
 
     @discardableResult
     func retryPendingNotificationScrollRestore() -> Bool {
-        guard case .pending(let position) = notificationScrollRestorePhase else { return false }
-        switch notificationScrollRestoreDecision(position) {
+        guard case .pending(let position, let waitingForSessionScrollbackReplay) = notificationScrollRestorePhase else {
+            return false
+        }
+        switch notificationScrollRestoreDecision(
+            position,
+            waitingForSessionScrollbackReplay: waitingForSessionScrollbackReplay
+        ) {
         case .unavailable:
-            notificationScrollRestorePhase = .idle
+            notificationScrollRestorePhase = waitingForSessionScrollbackReplay ? .sessionScrollbackReplayActive : .idle
             return false
         case .waitForViewport:
             return true
         case .perform(let target):
-            notificationScrollRestorePhase = .idle
+            notificationScrollRestorePhase = waitingForSessionScrollbackReplay ? .sessionScrollbackReplayActive : .idle
             guard performNotificationScrollRestore(target) else {
-                notificationScrollRestorePhase = .pending(position)
+                notificationScrollRestorePhase = .pending(
+                    position,
+                    waitingForSessionScrollbackReplay: waitingForSessionScrollbackReplay
+                )
                 return true
             }
             return true
@@ -57,7 +81,40 @@ extension GhosttySurfaceScrollView {
     }
 
     func cancelPendingNotificationScrollRestore() {
-        notificationScrollRestorePhase = .idle
+        notificationScrollRestorePhase = notificationScrollRestorePhase.isSessionScrollbackReplayActive
+            ? .sessionScrollbackReplayActive
+            : .idle
+    }
+
+    func beginSessionScrollbackReplay() {
+        switch notificationScrollRestorePhase {
+        case .idle:
+            notificationScrollRestorePhase = .sessionScrollbackReplayActive
+        case .sessionScrollbackReplayActive:
+            break
+        case .pending(let position, _):
+            notificationScrollRestorePhase = .pending(
+                position,
+                waitingForSessionScrollbackReplay: true
+            )
+        }
+    }
+
+    func completeSessionScrollbackReplay() {
+        switch notificationScrollRestorePhase {
+        case .idle:
+            break
+        case .sessionScrollbackReplayActive:
+            notificationScrollRestorePhase = .idle
+        case .pending(let position, waitingForSessionScrollbackReplay: true):
+            notificationScrollRestorePhase = .pending(
+                position,
+                waitingForSessionScrollbackReplay: false
+            )
+            _ = retryPendingNotificationScrollRestore()
+        case .pending(_, waitingForSessionScrollbackReplay: false):
+            break
+        }
     }
 
     private func performNotificationScrollRestore(_ target: TerminalNotificationScrollRestoreTarget) -> Bool {
@@ -85,7 +142,8 @@ extension GhosttySurfaceScrollView {
     }
 
     private func notificationScrollRestoreDecision(
-        _ position: TerminalNotificationScrollPosition
+        _ position: TerminalNotificationScrollPosition,
+        waitingForSessionScrollbackReplay: Bool
     ) -> TerminalNotificationScrollRestoreDecision {
         guard let capturedTotalRows = position.totalRows else { return .unavailable }
         if position.row <= 0 {
@@ -104,7 +162,9 @@ extension GhosttySurfaceScrollView {
         // historical rows finish replaying. Keep the anchor pending until the
         // captured viewport exists instead of permanently clamping it to the
         // partial buffer.
-        guard currentTotalRows >= capturedViewportBottomRow else { return .waitForViewport }
+        if waitingForSessionScrollbackReplay, currentTotalRows < capturedViewportBottomRow {
+            return .waitForViewport
+        }
         guard let target = notificationScrollRestoreTarget(position) else { return .waitForViewport }
         return .perform(target)
     }

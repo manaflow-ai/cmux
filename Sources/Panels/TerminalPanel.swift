@@ -129,8 +129,8 @@ final class TerminalPanel: Panel, ObservableObject {
     var displayIcon: String? {
         "terminal.fill"
     }
-
     func updateShellActivityState(_ state: PanelShellActivityState) {
+        if state == .promptIdle { hostedView.completeSessionScrollbackReplay() }
         if shellActivity.state != state {
             shellActivity.state = state
         }

@@ -3,6 +3,9 @@ import Foundation
 extension TerminalPanel {
     func adoptOwnedSessionScrollbackReplayArtifact(_ fileURL: URL?) {
         ownedSessionScrollbackReplayFileURL = fileURL
+        if fileURL != nil {
+            hostedView.beginSessionScrollbackReplay()
+        }
     }
 
     /// Removes only the replay artifact created for this runtime by session restoration.
