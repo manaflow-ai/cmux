@@ -20,7 +20,7 @@ struct AgentNotificationMoveRaceTests {
         let restore: () -> Void
     }
 
-    private func makeFixture(policyHook: Bool = false) throws -> Fixture {
+    private func makeFixture(policyHookCommand: String? = nil) throws -> Fixture {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
@@ -30,14 +30,15 @@ struct AgentNotificationMoveRaceTests {
 
         var configRoot: URL?
         var configStore: CmuxConfigStore?
-        if policyHook {
+        if let policyHookCommand {
             let root = FileManager.default.temporaryDirectory.appendingPathComponent(
                 "cmux-notification-move-race-\(UUID().uuidString)",
                 isDirectory: true
             )
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             let configURL = root.appendingPathComponent("cmux.json")
-            try #"{"notifications":{"hooks":[{"id":"move-race","command":"cat"}]}}"#
+            let encodedCommand = try String(data: JSONEncoder().encode(policyHookCommand), encoding: .utf8)
+            try #"{"notifications":{"hooks":[{"id":"move-race","command":\#(encodedCommand ?? "\"cat\"")}]}}"#
                 .write(to: configURL, atomically: true, encoding: .utf8)
             let loadedStore = CmuxConfigStore(
                 globalConfigPath: configURL.path,
@@ -130,7 +131,7 @@ struct AgentNotificationMoveRaceTests {
 
     @Test("Policy-delayed delivery resolves the pane owner again after a move")
     func policyDelayedDeliveryRetargetsAtFinalApply() async throws {
-        let fixture = try makeFixture(policyHook: true)
+        let fixture = try makeFixture(policyHookCommand: "cat")
         defer { fixture.restore() }
 
         try await confirmation("policy-delayed notification delivered") { delivered in
@@ -169,7 +170,7 @@ struct AgentNotificationMoveRaceTests {
 
     @Test("Policy-delayed relay delivery stays in its authorized workspace")
     func policyDelayedRelayDeliveryDoesNotCrossWorkspaceBoundary() async throws {
-        let fixture = try makeFixture(policyHook: true)
+        let fixture = try makeFixture(policyHookCommand: "cat")
         defer { fixture.restore() }
 
         try await confirmation("policy-delayed relay notification delivered") { delivered in
@@ -207,6 +208,30 @@ struct AgentNotificationMoveRaceTests {
             forTabId: fixture.source.id,
             surfaceId: fixture.panelId
         )
+        #expect(fixture.store.notifications.isEmpty)
+    }
+
+    @Test("A clear invalidates policy-delayed delivery that has not applied")
+    func clearInvalidatesInFlightPolicyDelivery() async throws {
+        let fixture = try makeFixture(policyHookCommand: "sleep 0.2; cat")
+        defer { fixture.restore() }
+
+        TerminalController.shared.deliverNotificationSynchronously(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Must stay cleared"
+        )
+        try movePanel(fixture)
+        fixture.store.clearNotifications(
+            forTabId: fixture.destination.id,
+            surfaceId: fixture.panelId
+        )
+
+        // The deliberate test hook delay is bounded and longer than the clear
+        // race above; wait for it to finish and prove final apply stayed canceled.
+        try await Task.sleep(for: .seconds(1))
         #expect(fixture.store.notifications.isEmpty)
     }
 

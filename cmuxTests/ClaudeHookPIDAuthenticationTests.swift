@@ -91,6 +91,38 @@ struct ClaudeHookPIDAuthenticationTests {
         #expect(!context.state.snapshot().contains { $0.hasPrefix("notify_target_async ") })
     }
 
+    @Test("Fresh SessionStart validates its invocation surface when PID lookup has no TTY")
+    func freshSessionStartUsesValidatedInvocationSurface() throws {
+        let context = try Harness.makeContext(name: "fresh-session-surface-corroboration")
+        defer { context.cleanup() }
+        let sessionId = "fresh-session-surface-corroboration-session"
+
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.liveSurfaceId]],
+            pidTarget: nil,
+            surfaceTargets: [Self.liveSurfaceId: Self.liveWorkspaceId]
+        )
+
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        environment["CMUX_CLAUDE_PID"] = "43301"
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+        let record = try #require(Harness.sessionRecord(in: context.storeURL, sessionId: sessionId))
+        #expect(record["workspaceId"] as? String == Self.liveWorkspaceId)
+        #expect(record["surfaceId"] as? String == Self.liveSurfaceId)
+    }
+
     private func assertSuccessfulHook(_ result: Harness.ProcessRunResult) {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
