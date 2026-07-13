@@ -140,10 +140,14 @@ extension TerminalController {
                 lineLimit: nil,
                 allowVTExport: includeScrollback
             ) ?? ""
+            let sessionID = agentChatTranscriptService.flatMap {
+                $0.currentOrMostRecentSessionRecord(surfaceID: resolvedSurfaceID.uuidString)?.sessionID
+            }
             return .success(TerminalArtifactReadContext(
                 terminalText: terminalText,
                 workingDirectory: workingDirectory,
-                requestedPath: v2RawString(params, "path")
+                requestedPath: v2RawString(params, "path"),
+                sessionID: sessionID
             ))
         }
     }
@@ -222,15 +226,18 @@ private struct TerminalArtifactReadContext: Sendable {
     private let terminalText: String
     private let workingDirectory: String?
     let requestedPath: String?
+    private let sessionID: String?
 
     init(
         terminalText: String,
         workingDirectory: String?,
-        requestedPath: String?
+        requestedPath: String?,
+        sessionID: String?
     ) {
         self.terminalText = terminalText
         self.workingDirectory = workingDirectory
         self.requestedPath = requestedPath
+        self.sessionID = sessionID
     }
 
     func scan() -> TerminalArtifactScanResponse {
@@ -253,7 +260,7 @@ private struct TerminalArtifactReadContext: Sendable {
                 modifiedAt: stat.modifiedAt
             )
         }
-        return TerminalArtifactScanResponse(artifacts: artifacts)
+        return TerminalArtifactScanResponse(artifacts: artifacts, sessionID: sessionID)
     }
 
     func authorizedRead<T>(

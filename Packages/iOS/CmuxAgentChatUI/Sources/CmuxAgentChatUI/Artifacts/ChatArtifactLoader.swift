@@ -5,15 +5,43 @@ import SwiftUI
 /// In-memory thumbnail cache shared by artifact rows and sheets.
 public actor ChatArtifactThumbnailCache {
     private let cache = NSCache<NSString, CacheEntry>()
+    private let diskCache: ChatArtifactThumbnailDiskCache
+    private var inFlight: [String: Task<ChatArtifactThumbnail, any Error>] = [:]
 
-    public init() {}
-
-    func thumbnail(for key: String) -> ChatArtifactThumbnail? {
-        cache.object(forKey: key as NSString)?.thumbnail
+    /// Creates a memory cache fronting an injected purgeable disk cache.
+    public init(diskCache: ChatArtifactThumbnailDiskCache = .applicationDefault()) {
+        self.diskCache = diskCache
     }
 
-    func insert(_ thumbnail: ChatArtifactThumbnail, for key: String) {
-        cache.setObject(CacheEntry(thumbnail: thumbnail), forKey: key as NSString)
+    func thumbnail(
+        for key: String,
+        diskKey: String?,
+        fetch: @escaping @Sendable () async throws -> ChatArtifactThumbnail
+    ) async throws -> ChatArtifactThumbnail {
+        if let cached = cache.object(forKey: key as NSString)?.thumbnail {
+            return cached
+        }
+        if let diskKey, let thumbnail = await diskCache.thumbnail(for: diskKey) {
+            cache.setObject(CacheEntry(thumbnail: thumbnail), forKey: key as NSString)
+            return thumbnail
+        }
+        if let pending = inFlight[key] {
+            return try await pending.value
+        }
+        let task = Task { try await fetch() }
+        inFlight[key] = task
+        do {
+            let thumbnail = try await task.value
+            inFlight[key] = nil
+            cache.setObject(CacheEntry(thumbnail: thumbnail), forKey: key as NSString)
+            if let diskKey {
+                try? await diskCache.insert(thumbnail, for: diskKey)
+            }
+            return thumbnail
+        } catch {
+            inFlight[key] = nil
+            throw error
+        }
     }
 
     private final class CacheEntry {
@@ -155,22 +183,51 @@ public struct ChatArtifactLoader: Sendable {
         try await fetchHandler(path, progress)
     }
 
-    public func thumbnail(path: String, maxDimension: Int) async throws -> ChatArtifactThumbnail {
-        let key = thumbnailCacheKey(path: path, maxDimension: maxDimension)
-        if let cached = await thumbnailCache.thumbnail(for: key) {
-            return cached
+    public func thumbnail(
+        path: String,
+        maxDimension: Int,
+        modifiedAt: Date? = nil,
+        size: Int64? = nil
+    ) async throws -> ChatArtifactThumbnail {
+        let key = thumbnailCacheKey(
+            path: path,
+            maxDimension: maxDimension,
+            modifiedAt: modifiedAt,
+            size: size
+        )
+        let diskKey = ChatArtifactThumbnailDiskCache.key(
+            scopeKey: scope.cacheNamespace,
+            path: path,
+            modifiedAt: modifiedAt,
+            size: size,
+            maxDimension: maxDimension
+        )
+        let handler = thumbnailHandler
+        return try await thumbnailCache.thumbnail(for: key, diskKey: diskKey) {
+            try await handler(path, maxDimension)
         }
-        let thumbnail = try await thumbnailHandler(path, maxDimension)
-        await thumbnailCache.insert(thumbnail, for: key)
-        return thumbnail
     }
 
     public func list(path: String) async throws -> ChatArtifactDirectoryListing {
         try await listHandler(path)
     }
 
-    private func thumbnailCacheKey(path: String, maxDimension: Int) -> String {
-        "\(scope.cacheNamespace)#\(maxDimension)#\(path)"
+    private func thumbnailCacheKey(
+        path: String,
+        maxDimension: Int,
+        modifiedAt: Date?,
+        size: Int64?
+    ) -> String {
+        if let diskKey = ChatArtifactThumbnailDiskCache.key(
+            scopeKey: scope.cacheNamespace,
+            path: path,
+            modifiedAt: modifiedAt,
+            size: size,
+            maxDimension: maxDimension
+        ) {
+            return diskKey
+        }
+        return "\(scope.cacheNamespace)#\(maxDimension)#\(path)"
     }
 }
 

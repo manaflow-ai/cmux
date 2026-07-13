@@ -12,7 +12,7 @@ struct TerminalArtifactGalleryItemView: View {
         case grid
     }
 
-    let artifact: TerminalArtifactReference
+    let artifact: TerminalArtifactGalleryDisplayItem
     let layout: Layout
     let loader: ChatArtifactLoader
     let open: () -> Void
@@ -36,11 +36,14 @@ struct TerminalArtifactGalleryItemView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(artifact.displayName)
         .accessibilityValue(accessibilityDetail)
+        .opacity(artifact.exists ? 1 : 0.5)
         .task(id: "\(artifact.path)#\(Self.thumbnailDimension)") {
-            guard artifact.kind == .image else { return }
+            guard artifact.kind == .image, artifact.exists else { return }
             thumbnail = try? await loader.thumbnail(
                 path: artifact.path,
-                maxDimension: Self.thumbnailDimension
+                maxDimension: Self.thumbnailDimension,
+                modifiedAt: artifact.modifiedAt,
+                size: artifact.size
             )
         }
     }
@@ -55,8 +58,8 @@ struct TerminalArtifactGalleryItemView: View {
                     .font(.body)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
-                if let metadataText {
-                    Text(metadataText)
+                if let detailText {
+                    Text(detailText)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -64,6 +67,10 @@ struct TerminalArtifactGalleryItemView: View {
             }
 
             Spacer(minLength: 0)
+
+            if !artifact.exists {
+                missingBadge
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
@@ -72,7 +79,7 @@ struct TerminalArtifactGalleryItemView: View {
     }
 
     private var gridContent: some View {
-        let metadata = metadataText
+        let metadata = detailText
         return VStack(alignment: .center, spacing: 7) {
             preview
                 .aspectRatio(1, contentMode: .fit)
@@ -91,6 +98,10 @@ struct TerminalArtifactGalleryItemView: View {
                 .multilineTextAlignment(.center)
                 .opacity(metadata == nil ? 0 : 1)
                 .frame(maxWidth: .infinity, minHeight: gridMetadataMinHeight, alignment: .top)
+
+            if !artifact.exists {
+                missingBadge
+            }
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .contentShape(Rectangle())
@@ -151,6 +162,23 @@ struct TerminalArtifactGalleryItemView: View {
             ))
         }
         return components.isEmpty ? nil : components.joined(separator: " · ")
+    }
+
+    private var detailText: String? {
+        artifact.subtitle ?? metadataText
+    }
+
+    private var missingBadge: some View {
+        Text(String(
+            localized: "terminal.artifact.gallery.missing",
+            defaultValue: "No longer on your Mac",
+            bundle: .module
+        ))
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
+        .background(.quaternary, in: Capsule())
     }
 
     private var accessibilityDetail: String {

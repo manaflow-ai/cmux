@@ -6,6 +6,8 @@ actor AgentChatArtifactIndex {
     struct Snapshot: Sendable {
         let referencedPaths: Set<String>
         let scope: ChatArtifactScope
+        let artifacts: [ChatArtifactIndexedReference]
+        let generation: String
     }
 
     enum Operation: Sendable {
@@ -17,6 +19,10 @@ actor AgentChatArtifactIndex {
         let transcriptPath: String
         let fileSize: UInt64
         let modifiedAt: Date
+
+        var generation: String {
+            "\(fileSize)-\(Int64(modifiedAt.timeIntervalSince1970 * 1_000_000))"
+        }
     }
 
     private struct CacheEntry: Sendable {
@@ -35,7 +41,11 @@ actor AgentChatArtifactIndex {
         if let cached = cacheBySessionID[sessionID], cached.key == key {
             return cached.snapshot
         }
-        let snapshot = try Self.buildSnapshot(agentKind: agentKind, transcriptPath: transcriptPath)
+        let snapshot = try Self.buildSnapshot(
+            agentKind: agentKind,
+            transcriptPath: transcriptPath,
+            generation: key.generation
+        )
         cacheBySessionID[sessionID] = CacheEntry(key: key, snapshot: snapshot)
         return snapshot
     }
@@ -69,7 +79,8 @@ actor AgentChatArtifactIndex {
 
     private static func buildSnapshot(
         agentKind: ChatAgentKind,
-        transcriptPath: String
+        transcriptPath: String,
+        generation: String
     ) throws -> Snapshot {
         let data = try Data(contentsOf: URL(fileURLWithPath: transcriptPath), options: .mappedIfSafe)
         let text = String(decoding: data, as: UTF8.self)
@@ -81,34 +92,16 @@ actor AgentChatArtifactIndex {
         case .claude, .other:
             parseResult = ClaudeTranscriptParser().parse(lines: lines, startingSeq: 0)
         }
-        let referencedPaths = Self.referencedPaths(in: parseResult.messages)
+        let artifacts = ChatArtifactIndexedReference.derive(from: parseResult.messages)
+        let referencedPaths = Set(artifacts.map(\.path))
         return Snapshot(
             referencedPaths: referencedPaths,
             scope: ChatArtifactScope(
                 referencedPaths: referencedPaths,
                 resolver: ChatArtifactScope.FoundationResolver()
-            )
+            ),
+            artifacts: artifacts,
+            generation: generation
         )
-    }
-
-    private static func referencedPaths(in messages: [ChatMessage]) -> Set<String> {
-        var paths: Set<String> = []
-        for message in messages {
-            switch message.kind {
-            case .attachment(let attachment):
-                if let hostPath = attachment.hostPath, !hostPath.isEmpty {
-                    paths.insert(hostPath)
-                }
-            case .fileEdit(let edit):
-                paths.insert(edit.filePath)
-            case .toolUse(let toolUse):
-                for path in toolUse.referencedPaths ?? [] where !path.isEmpty {
-                    paths.insert(path)
-                }
-            case .prose, .thought, .terminal, .permissionRequest, .question, .status, .unsupported:
-                continue
-            }
-        }
-        return paths
     }
 }

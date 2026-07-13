@@ -6,6 +6,69 @@ private enum TerminalControllerChatArtifactIndexProvider {
 }
 
 extension TerminalController {
+    func v2MobileChatArtifactGallery(params: [String: Any]) async -> V2CallResult {
+        guard let sessionID = v2RawString(params, "session_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionID.isEmpty else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "mobile.chat.artifact.error.galleryInvalidParams",
+                    defaultValue: "session_id is required."
+                ),
+                data: nil
+            )
+        }
+        let cursorToken = v2RawString(params, "cursor")
+        let cursor: ChatArtifactGalleryCursor?
+        if let cursorToken {
+            guard let decoded = ChatArtifactGalleryCursor(token: cursorToken) else {
+                return .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "mobile.chat.artifact.error.invalidCursor",
+                        defaultValue: "The gallery cursor is invalid."
+                    ),
+                    data: nil
+                )
+            }
+            cursor = decoded
+        } else {
+            cursor = nil
+        }
+        guard let service = agentChatTranscriptService,
+              let record = service.sessionRecord(sessionID: sessionID),
+              let transcriptPath = service.resolver.transcriptPath(for: record) else {
+            return mobileChatArtifactError(.notFound, path: "")
+        }
+        do {
+            let snapshot = try await TerminalControllerChatArtifactIndexProvider.shared.snapshot(
+                sessionID: record.sessionID,
+                agentKind: record.agentKind,
+                transcriptPath: transcriptPath
+            )
+            let pageSize = min(max(v2Int(params, "page_size") ?? 60, 1), 100)
+            let query = v2RawString(params, "query")
+            let page = await Task.detached(priority: .utility) {
+                AgentChatArtifactGalleryBuilder().page(
+                    sessionID: record.sessionID,
+                    items: snapshot.artifacts,
+                    generation: snapshot.generation,
+                    cursor: cursor,
+                    pageSize: pageSize,
+                    query: query
+                )
+            }.value
+            var payload = ChatArtifactWire.payload(page) ?? [:]
+            if cursor != nil {
+                payload.removeValue(forKey: "created")
+                payload.removeValue(forKey: "attached")
+            }
+            return .ok(payload)
+        } catch {
+            return mobileChatArtifactError(.notFound, path: "")
+        }
+    }
+
     func v2MobileChatArtifactStat(params: [String: Any]) async -> V2CallResult {
         let resolution = await mobileChatArtifactResolution(params: params, operation: .file)
         guard case .success(let resolved) = resolution else {

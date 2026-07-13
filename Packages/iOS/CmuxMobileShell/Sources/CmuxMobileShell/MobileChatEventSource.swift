@@ -14,13 +14,20 @@ public actor MobileChatEventSource: ChatEventSource {
     private let client: MobileCoreRPCClient
     private let coding = ChatWireCoding()
     public nonisolated let supportsArtifacts: Bool
+    /// Whether the connected Mac supports session-wide artifact gallery pages.
+    public nonisolated let supportsArtifactGallery: Bool
 
     /// Creates the adapter.
     ///
     /// - Parameter client: The connected RPC client for the paired Mac.
-    public init(client: MobileCoreRPCClient, supportsArtifacts: Bool = false) {
+    public init(
+        client: MobileCoreRPCClient,
+        supportsArtifacts: Bool = false,
+        supportsArtifactGallery: Bool = false
+    ) {
         self.client = client
         self.supportsArtifacts = supportsArtifacts
+        self.supportsArtifactGallery = supportsArtifactGallery
     }
 
     /// Lists chat-capable agent sessions the Mac knows about.
@@ -296,6 +303,36 @@ public actor MobileChatEventSource: ChatEventSource {
                 "session_id": sessionID,
                 "path": path,
             ]
+        )
+    }
+
+    /// Fetches one stable page of the session-wide artifact gallery.
+    ///
+    /// - Parameters:
+    ///   - sessionID: Session whose transcript authorizes the gallery universe.
+    ///   - cursor: Opaque append-only cursor, or `nil` for a fresh snapshot.
+    ///   - pageSize: Requested page size; the Mac clamps it to 100.
+    ///   - query: Optional whole-session basename/path substring search.
+    /// - Returns: A sectioned first page or flat search page.
+    public func chatArtifactGallery(
+        sessionID: String,
+        cursor: String? = nil,
+        pageSize: Int = 60,
+        query: String? = nil
+    ) async throws -> ChatArtifactGalleryPage {
+        var params: [String: Any] = [
+            "session_id": sessionID,
+            "page_size": pageSize,
+        ]
+        if let cursor {
+            params["cursor"] = cursor
+        }
+        if let query, !query.isEmpty {
+            params["query"] = query
+        }
+        return try await artifactCall(
+            method: "mobile.chat.artifact.gallery",
+            params: params
         )
     }
 

@@ -189,6 +189,61 @@
         }
       }
     },
+    "terminal.artifact.gallery.loading_more" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading more…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "さらに読み込み中…"
+          }
+        }
+      }
+    },
+    "terminal.artifact.gallery.missing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No longer on your Mac"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Macにありません"
+          }
+        }
+      }
+    },
+    "terminal.artifact.gallery.provenance.attached" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Attached" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "添付" } }
+      }
+    },
+    "terminal.artifact.gallery.provenance.created" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Created" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "作成" } }
+      }
+    },
+    "terminal.artifact.gallery.provenance.referenced" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Referenced" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "参照" } }
+      }
+    },
     "terminal.artifact.gallery.retry" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -204,6 +259,72 @@
             "value" : "再試行"
           }
         }
+      }
+    },
+    "terminal.artifact.gallery.scope" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Scope" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "範囲" } }
+      }
+    },
+    "terminal.artifact.gallery.scope.in_view" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "In view" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "表示中" } }
+      }
+    },
+    "terminal.artifact.gallery.scope.session" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Session" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "セッション" } }
+      }
+    },
+    "terminal.artifact.gallery.session_empty" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No files in this session"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このセッションにはファイルがありません"
+          }
+        }
+      }
+    },
+    "terminal.artifact.gallery.search" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Search session files" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "セッションのファイルを検索" } }
+      }
+    },
+    "terminal.artifact.gallery.section.attached" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "You attached" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "あなたの添付" } }
+      }
+    },
+    "terminal.artifact.gallery.section.created" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Created by agent" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "エージェントが作成" } }
+      }
+    },
+    "terminal.artifact.gallery.section.referenced" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Referenced" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "参照" } }
       }
     },
     "terminal.artifact.gallery.title" : {

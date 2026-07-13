@@ -74,9 +74,23 @@ public struct TerminalArtifactReference: Sendable, Equatable, Codable, Identifia
 public struct TerminalArtifactScanResponse: Sendable, Equatable, Codable {
     /// Capped terminal artifacts sorted by detection order.
     public let artifacts: [TerminalArtifactReference]
+    /// Agent session currently or most recently bound to the terminal, when supported.
+    public let sessionID: String?
 
     /// Creates a scan response.
-    public init(artifacts: [TerminalArtifactReference]) {
+    public init(artifacts: [TerminalArtifactReference], sessionID: String? = nil) {
         self.artifacts = artifacts
+        self.sessionID = sessionID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case artifacts
+        case sessionID = "session_id"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        artifacts = (try? container.decode([TerminalArtifactReference].self, forKey: .artifacts)) ?? []
+        sessionID = try? container.decode(String.self, forKey: .sessionID)
     }
 }

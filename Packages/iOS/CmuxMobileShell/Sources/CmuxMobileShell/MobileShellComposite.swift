@@ -94,6 +94,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static let workspaceGroupActionsCapability = "workspace.group_actions.v1"
     private static let workspaceCreateInGroupCapability = "workspace.create_in_group.v1"
     private static let chatArtifactCapability = "chat.artifact.v1"
+    private static let chatArtifactGalleryCapability = "chat.artifact.gallery.v1"
     private static let terminalArtifactCapability = "terminal.artifact.v1"
     private static let dogfoodFeedbackCapability = "dogfood.v1"
     private static let workspaceGroupsCapability = "workspace.groups.v1"
@@ -324,6 +325,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
     /// Whether the Mac supports chat artifact stat/fetch/thumbnail/list RPCs.
     public var supportsChatArtifacts: Bool { supportedHostCapabilities.contains(Self.chatArtifactCapability) }
+    /// Whether the Mac supports session-wide artifact gallery paging and search.
+    public var supportsChatArtifactGallery: Bool {
+        supportedHostCapabilities.contains(Self.chatArtifactGalleryCapability)
+    }
     /// Whether the Mac supports terminal artifact scan/stat/fetch/thumbnail RPCs.
     public var supportsTerminalArtifacts: Bool { supportedHostCapabilities.contains(Self.terminalArtifactCapability) }
     /// Bumped whenever the applied terminal theme actually changes (a connect

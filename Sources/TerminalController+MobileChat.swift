@@ -51,6 +51,8 @@ extension TerminalController {
             return await v2MobileChatArtifactThumbnail(params: params)
         case "mobile.chat.artifact.list":
             return await v2MobileChatArtifactList(params: params)
+        case "mobile.chat.artifact.gallery":
+            return await v2MobileChatArtifactGallery(params: params)
         default:
             return .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": method
