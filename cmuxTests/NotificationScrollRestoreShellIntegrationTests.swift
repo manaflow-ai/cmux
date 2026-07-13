@@ -36,6 +36,32 @@ struct NotificationScrollRestoreShellIntegrationTests {
         )
     }
 
+    @Test func failedReplayDoesNotEmitZshCompletionMarker() throws {
+        try expectFailedIntegrationReplay(
+            shell: URL(fileURLWithPath: "/bin/zsh"),
+            arguments: ["-f"],
+            integrationFilename: "cmux-zsh-integration.zsh"
+        )
+    }
+
+    @Test func failedReplayDoesNotEmitBashCompletionMarker() throws {
+        try expectFailedIntegrationReplay(
+            shell: URL(fileURLWithPath: "/bin/bash"),
+            arguments: ["--noprofile", "--norc"],
+            integrationFilename: "cmux-bash-integration.bash"
+        )
+    }
+
+    @Test func failedReplayDoesNotEmitFishCompletionMarker() throws {
+        guard let shell = ["/opt/homebrew/bin/fish", "/usr/local/bin/fish", "/usr/bin/fish"]
+            .first(where: FileManager.default.isExecutableFile(atPath:)) else { return }
+        try expectFailedIntegrationReplay(
+            shell: URL(fileURLWithPath: shell),
+            arguments: ["--no-config"],
+            integrationFilename: "fish/config.fish"
+        )
+    }
+
     private func expectIntegrationReplay(
         shell: URL,
         arguments: [String],
@@ -71,5 +97,39 @@ struct NotificationScrollRestoreShellIntegrationTests {
         #expect(process.terminationStatus == 0)
         #expect(output == "history\n" + marker.terminalSequence(restoring: repoRoot.path))
         #expect(!FileManager.default.fileExists(atPath: replayFile.path))
+    }
+
+    private func expectFailedIntegrationReplay(
+        shell: URL,
+        arguments: [String],
+        integrationFilename: String
+    ) throws {
+        let replayPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-replay-cat-failure-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: replayPath, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: replayPath) }
+
+        let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let integration = repoRoot
+            .appendingPathComponent("Resources/shell-integration")
+            .appendingPathComponent(integrationFilename)
+        let process = Process()
+        let stdout = Pipe()
+        process.executableURL = shell
+        process.arguments = arguments + ["-c", "source \"\(integration.path)\""]
+        process.currentDirectoryURL = repoRoot
+        process.standardOutput = stdout
+        var environment = ProcessInfo.processInfo.environment
+        environment[SessionScrollbackReplayStore.environmentKey] = replayPath.path
+        environment["CMUX_FISH_USER_CONFIG_ALREADY_LOADED"] = "1"
+        environment["CMUX_SHELL_INTEGRATION"] = "1"
+        process.environment = environment
+        try process.run()
+        process.waitUntilExit()
+
+        let output = stdout.fileHandleForReading.readDataToEndOfFile()
+        #expect(process.terminationStatus == 0)
+        #expect(output.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: replayPath.path))
     }
 }

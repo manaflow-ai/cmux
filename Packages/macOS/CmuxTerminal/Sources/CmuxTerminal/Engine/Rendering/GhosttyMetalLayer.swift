@@ -10,7 +10,7 @@ internal import Foundation
 /// its own thread, so the layer cannot be `@MainActor`; the mutable
 /// instrumentation state is guarded by one lock (the sanctioned shape for
 /// tiny values read by synchronous off-isolation code), and frame
-/// notifications hop to the main actor before touching the receiver.
+/// notifications hop to the main actor after presentation before touching the receiver.
 public final class GhosttyMetalLayer: CAMetalLayer {
     private let lock = NSLock()
     // SAFETY: all four are guarded by `lock`; written/read from the renderer
@@ -29,7 +29,7 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         lock.unlock()
     }
 
-    /// Attaches the view that receives coalesced rendered-frame updates.
+    /// Attaches the view that receives coalesced presented-frame updates.
     public func setFrameReceiver(_ frameReceiver: (any TerminalRenderedFrameReceiving)?) {
         lock.lock()
         self.frameReceiver = frameReceiver
@@ -64,13 +64,14 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         let renderDemand = renderDemand
         let frameReceiver = frameReceiver
         lock.unlock()
-        guard renderDemand?.isActive == true else { return drawable }
-        if let frameReceiver {
-            // Hop to the main actor exactly like the legacy
-            // DispatchQueue.main.async dispatch (the main-actor executor is
-            // the main queue); the receiver coalesces bursts on arrival.
-            Task { @MainActor [weak frameReceiver] in
-                frameReceiver?.enqueueRenderedFrameUpdate(generation: generation)
+        if renderDemand?.isActive == true, let frameReceiver {
+            // Ghostty publishes this frame's scrollbar at the end of drawFrame,
+            // after nextDrawable() returns. Presentation is the first layer
+            // callback that is guaranteed to happen after that publication.
+            drawable.addPresentedHandler { [weak frameReceiver] _ in
+                Task { @MainActor [weak frameReceiver] in
+                    frameReceiver?.enqueueRenderedFrameUpdate(generation: generation)
+                }
             }
         }
         return drawable
