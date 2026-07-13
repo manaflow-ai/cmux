@@ -52,8 +52,8 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         // the runner. FIXED, not per-run: teardown can't run when a test
         // wedges (kill-server rides the app socket, and a wedged app is
         // exactly what doesn't answer), so a unique dir per run leaks one
-        // probe-forking tmux server per wedged run — dozens accumulated once
-        // and drove the host's load average into the hundreds. With a fixed
+        // tmux server per wedged run — dozens accumulated once and drove the
+        // host's load average into the hundreds. With a fixed
         // dir the NEXT run's session builder reaps whatever the last run
         // left behind.
         tmuxTmpDir = "/tmp/ct-sizing"
@@ -64,7 +64,7 @@ final class RemoteTmuxSizingUITests: XCTestCase {
     override func tearDown() {
         _ = tmux(["kill-server"])
         // That kill rides the APP's socket, and a wedged app is exactly what
-        // can't answer — leaving the probe-forking lab server burning until
+        // can't answer — leaving the lab server running until
         // the NEXT run's setup reaps it (stacked across a few dead runs,
         // that load is what times out this suite's own 10s socket calls).
         // Also kill the lab server directly, scoped to its socket dir so a

@@ -116,4 +116,31 @@ import Testing
         #expect(connection.hasPendingSizingSettlementWork(windowId: 4))
         #expect(!connection.hasPendingSizingSettlementWork(windowId: 5))
     }
+
+    @Test(arguments: [
+        ["kill-server"],
+        ["new-session", "-d", "-s", "sizing", "-x", "180", "-y", "45"],
+        ["split-window", "-h", "-t", "sizing:0"],
+        ["select-layout", "-t", "sizing:0", "even-horizontal"],
+        ["new-window", "-t", "sizing", "-n", "nested"],
+        ["set", "-w", "-t", "sizing:0", "pane-border-status", "top"],
+        ["resize-pane", "-t", "sizing:@0.%1", "-x", "13"],
+        ["list-panes", "-t", "sizing:@0", "-F", "#{pane_width} #{pane_top}"],
+        ["list-windows", "-t", "sizing", "-F", "#{window_id} #{window_name}"],
+        ["display-message", "-p", "-t", "sizing:@0", "#{window_width}x#{window_height}"],
+    ])
+    func uiTestTmuxPolicyAllowsOnlyHarnessCommands(_ arguments: [String]) {
+        #expect(TerminalController.isAllowedRemoteTmuxTestCommand(arguments))
+    }
+
+    @Test(arguments: [
+        ["run-shell", "touch /tmp/owned"],
+        ["new-session", "-d", "-s", "sizing", "-x", "180", "-y", "45", "sh -c id"],
+        ["send-keys", "-t", "%1", "sh -c id", "Enter"],
+        ["list-panes", "-t", "sizing", "-F", "#(id)"],
+        ["split-window", "-h", "-t", "sizing", "sh -c id"],
+    ])
+    func uiTestTmuxPolicyRejectsExecutableArguments(_ arguments: [String]) {
+        #expect(!TerminalController.isAllowedRemoteTmuxTestCommand(arguments))
+    }
 }

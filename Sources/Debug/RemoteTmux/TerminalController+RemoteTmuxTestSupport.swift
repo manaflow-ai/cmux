@@ -10,8 +10,8 @@ import CmuxRemoteSession
 
 #if DEBUG
 import AppKit
+import Darwin
 import Foundation
-import os
 
 extension TerminalController {
     /// `remote.tmux.test_exec` (DEBUG only) — runs a tmux argv with a given
@@ -26,10 +26,16 @@ extension TerminalController {
     /// path both its own tmux commands AND its ssh-shim attach can reach.
     /// Never compiled into release.
     nonisolated func v2RemoteTmuxTestExec(id: Any?, params: [String: Any]) -> String {
-        guard let tmpdir = (params["tmpdir"] as? String),
-              tmpdir.hasPrefix("/tmp/"), !tmpdir.contains("..")
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["CMUX_UI_TEST_MODE"] == "1",
+              let tmpdir = params["tmpdir"] as? String,
+              tmpdir == environment["TMUX_TMPDIR"]
         else {
-            return v2Error(id: id, code: "invalid_params", message: "tmpdir must be under /tmp")
+            return v2Error(
+                id: id,
+                code: "unavailable",
+                message: "remote.tmux.test_exec is restricted to its UI-test tmux directory"
+            )
         }
         // JSON arrays arrive as [Any] (NSString elements), not [String] —
         // compactMap through Any so the cast never silently fails.
@@ -40,6 +46,9 @@ extension TerminalController {
         guard args.count == rawArgs.count, !args.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "args must be non-empty strings")
         }
+        guard Self.isAllowedRemoteTmuxTestCommand(args) else {
+            return v2Error(id: id, code: "invalid_params", message: "tmux command is not allowed")
+        }
         // Only known tmux install paths: in allowAll socket mode this verb is
         // reachable by any local user, so it must not be a generic exec.
         let allowedBins: Set<String> = ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"]
@@ -48,63 +57,158 @@ extension TerminalController {
             return v2Error(id: id, code: "invalid_params", message: "bin must be a known tmux path")
         }
         return v2VmCall(id: id, timeoutSeconds: 30) {
-            try? FileManager.default.createDirectory(atPath: tmpdir, withIntermediateDirectories: true)
-            let proc = Process()
-            proc.executableURL = URL(fileURLWithPath: bin)
-            proc.arguments = args
-            var env = ProcessInfo.processInfo.environment
+            try FileManager.default.createDirectory(atPath: tmpdir, withIntermediateDirectories: true)
+            var env = environment
             env["TMUX_TMPDIR"] = tmpdir
             env.removeValue(forKey: "TMUX")
-            proc.environment = env
-            let out = Pipe(), err = Pipe()
-            proc.standardOutput = out
-            proc.standardError = err
-            // Drain BOTH pipes on GCD readability handlers and require both
-            // EOFs before finalizing: every append happens on the handler
-            // queue before its EOF signal, so no chunk can race the join.
-            let drained = DispatchGroup()
-            let stdoutBuffer = OSAllocatedUnfairLock(initialState: Data())
-            let stderrBuffer = OSAllocatedUnfairLock(initialState: Data())
-            for (handle, buffer) in [
-                (out.fileHandleForReading, stdoutBuffer),
-                (err.fileHandleForReading, stderrBuffer),
-            ] {
-                drained.enter()
-                handle.readabilityHandler = { handle in
-                    let chunk = handle.availableData
-                    if chunk.isEmpty {
-                        handle.readabilityHandler = nil
-                        drained.leave()
-                    } else {
-                        buffer.withLock { $0.append(chunk) }
-                    }
-                }
-            }
-            // This closure runs as an async Task on the cooperative pool, so
-            // it must suspend — never park — while the subprocess runs: exit
-            // arrives via terminationHandler (installed before run() so a
-            // fast exit cannot be missed) and the EOF join via the group's
-            // notify, in place of waitUntilExit()/wait().
-            let status: Int32 = try await withCheckedThrowingContinuation { continuation in
-                proc.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
-                do {
-                    try proc.run()
-                } catch {
-                    proc.terminationHandler = nil
-                    continuation.resume(throwing: error)
-                }
-            }
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                drained.notify(queue: .global()) { continuation.resume() }
-            }
-            let stdout = stdoutBuffer.withLock { String(data: $0, encoding: .utf8) ?? "" }
-            let stderr = stderrBuffer.withLock { String(data: $0, encoding: .utf8) ?? "" }
+            let result = try await runBoundedRemoteTmuxTestCommand(
+                executable: bin,
+                arguments: ["-f", "/dev/null"] + args,
+                environment: env
+            )
             return [
-                "exit": Int(status),
-                "stdout": stdout,
-                "stderr": stderr,
+                "exit": Int(result.status),
+                "stdout": result.stdout,
+                "stderr": result.stderr,
             ]
         }
+    }
+
+    /// Exact non-executing tmux grammar required by `RemoteTmuxSizingUITests`.
+    /// Targets and names never reach a shell; formats are pinned because tmux
+    /// format strings can themselves execute `#()` commands.
+    nonisolated static func isAllowedRemoteTmuxTestCommand(_ args: [String]) -> Bool {
+        func isAtom(_ value: String) -> Bool {
+            !value.isEmpty && value.unicodeScalars.allSatisfy {
+                CharacterSet.alphanumerics.contains($0) || "._-:@%".unicodeScalars.contains($0)
+            }
+        }
+        func isDimension(_ value: String) -> Bool {
+            guard let number = Int(value) else { return false }
+            return (1...10_000).contains(number)
+        }
+        guard let command = args.first else { return false }
+        switch command {
+        case "kill-server":
+            return args.count == 1
+        case "new-session":
+            let base = args.count == 8 || args.count == 10
+            return base && args[1] == "-d" && args[2] == "-s" && isAtom(args[3])
+                && args[4] == "-x" && isDimension(args[5])
+                && args[6] == "-y" && isDimension(args[7])
+                && (args.count == 8 || (args[8] == "-n" && isAtom(args[9])))
+        case "split-window":
+            return args.count == 4 && ["-h", "-v"].contains(args[1])
+                && args[2] == "-t" && isAtom(args[3])
+        case "select-layout":
+            return args.count == 4 && args[1] == "-t" && isAtom(args[2])
+                && ["even-horizontal", "even-vertical", "tiled", "main-horizontal"].contains(args[3])
+        case "new-window":
+            return (args.count == 3 || args.count == 5)
+                && args[1] == "-t" && isAtom(args[2])
+                && (args.count == 3 || (args[3] == "-n" && isAtom(args[4])))
+        case "select-window":
+            return args.count == 3 && args[1] == "-t" && isAtom(args[2])
+        case "set":
+            return args.count == 6 && args[1] == "-w" && args[2] == "-t"
+                && isAtom(args[3]) && args[4] == "pane-border-status"
+                && ["top", "bottom"].contains(args[5])
+        case "resize-pane":
+            return args.count == 5 && args[1] == "-t" && isAtom(args[2])
+                && args[3] == "-x" && isDimension(args[4])
+        case "list-panes":
+            return args.count == 5 && args[1] == "-t" && isAtom(args[2]) && args[3] == "-F"
+                && ["#{pane_width}", "#{pane_id}", "#{pane_width} #{pane_top}"].contains(args[4])
+        case "list-windows":
+            return args.count == 5 && args[1] == "-t" && isAtom(args[2]) && args[3] == "-F"
+                && args[4] == "#{window_id} #{window_name}"
+        case "display-message":
+            return args.count == 5 && args[1] == "-p" && args[2] == "-t"
+                && isAtom(args[3]) && args[4] == "#{window_width}x#{window_height}"
+        default:
+            return false
+        }
+    }
+
+    /// Runs one validated tmux command with structured cancellation and bounded
+    /// capture. Cancellation terminates the child and closes both pipe readers,
+    /// so the socket timeout cannot strand a process or an output task.
+    private nonisolated func runBoundedRemoteTmuxTestCommand(
+        executable: String,
+        arguments: [String],
+        environment: [String: String]
+    ) async throws -> (status: Int32, stdout: String, stderr: String) {
+        let process = Process()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        let stdoutHandle = stdoutPipe.fileHandleForReading
+        let stderrHandle = stderrPipe.fileHandleForReading
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        let exits = AsyncStream<Int32> { continuation in
+            process.terminationHandler = {
+                continuation.yield($0.terminationStatus)
+                continuation.finish()
+            }
+        }
+
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            async let stdout = readBoundedRemoteTmuxTestOutput(stdoutHandle)
+            async let stderr = readBoundedRemoteTmuxTestOutput(stderrHandle)
+            do {
+                try process.run()
+            } catch {
+                try? stdoutPipe.fileHandleForWriting.close()
+                try? stderrPipe.fileHandleForWriting.close()
+                process.terminationHandler = nil
+                throw error
+            }
+            try? stdoutPipe.fileHandleForWriting.close()
+            try? stderrPipe.fileHandleForWriting.close()
+            var status: Int32?
+            for await value in exits {
+                status = value
+                break
+            }
+            let output = try await (stdout, stderr)
+            try Task.checkCancellation()
+            guard let status else { throw CancellationError() }
+            try? stdoutHandle.close()
+            try? stderrHandle.close()
+            return (status, output.0, output.1)
+        } onCancel: {
+            if process.isRunning {
+                process.terminate()
+                if process.isRunning {
+                    _ = Darwin.kill(process.processIdentifier, SIGKILL)
+                }
+            }
+            try? stdoutHandle.close()
+            try? stderrHandle.close()
+        }
+    }
+
+    /// Drains a pipe to EOF while retaining at most 256 KiB.
+    private nonisolated func readBoundedRemoteTmuxTestOutput(_ handle: FileHandle) async throws -> String {
+        let limit = 256 * 1_024
+        var data = Data()
+        data.reserveCapacity(limit)
+        var truncated = false
+        for try await byte in handle.bytes {
+            if data.count < limit {
+                data.append(byte)
+            } else {
+                truncated = true
+            }
+        }
+        var text = String(decoding: data, as: UTF8.self)
+        if truncated { text += "\n[output truncated]" }
+        return text
     }
 
     /// `remote.tmux.test_set_frame` (DEBUG only) — resizes a cmux window to an
@@ -181,8 +285,9 @@ extension TerminalController {
                 // While zoomed, the visible tree is what panes render.
                 let tree = mirror.visibleLayout ?? mirror.layout
                 let leavesByPaneID = tree.leavesByPaneID
+                let metrics = mirror.nativeLayoutMetrics()
                 let plannedOuterSizes: [Int: CGSize] = {
-                    guard let metrics = mirror.nativeLayoutMetrics() else { return [:] }
+                    guard let metrics else { return [:] }
                     let planner = RemoteTmuxNativeSplitLayoutPlanner(metrics: metrics)
                     let plan = planner.plan(
                         tree: RemoteTmuxNativeMeasuredSplitTree(
@@ -197,14 +302,19 @@ extension TerminalController {
                 for leaf in tree.paneIDsInOrder {
                     guard let node = leavesByPaneID[leaf] else { continue }
                     if let planned = plannedOuterSizes[leaf],
+                       let metrics,
                        let hostedView = mirror.panelsByPaneId[leaf]?.hostedView {
                         let actual = hostedView.frame.size
-                        if abs(planned.width - actual.width) > 1.5
-                            || abs(planned.height - actual.height) > 1.5 {
+                        let plannedContent = CGSize(
+                            width: planned.width,
+                            height: max(0, planned.height - metrics.tabBarHeight)
+                        )
+                        if abs(plannedContent.width - actual.width) > 1.5
+                            || abs(plannedContent.height - actual.height) > 1.5 {
                             nativeGeometryReady = false
                             mismatches.append(
                                 "%\(leaf) native-geometry"
-                                    + " plan=\(Int(planned.width))x\(Int(planned.height))"
+                                    + " plan=\(Int(plannedContent.width))x\(Int(plannedContent.height))"
                                     + " view=\(Int(actual.width))x\(Int(actual.height))"
                             )
                         }
