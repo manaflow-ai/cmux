@@ -70,6 +70,7 @@ extension TerminalScrollSession {
             receipt: receipt,
             snapGeneration: bottomSnapGeneration
         )
+        recordBottomSnapAdmission(transaction.snapGeneration)
         if case .idle = phase, intents.count == 0 {
             startInput(transaction)
             return receipt

@@ -30,7 +30,7 @@ struct TerminalInputConnectionResetTests {
         }
 
         store.bumpConnectionGenerationForTesting()
-        store.replaceRemoteClient(with: nil)
+        try installFreshRemoteClient(on: store, router: RoutingHostRouter())
 
         guard case .inputSend = session.phase else {
             Issue.record("Connection reset must preserve the dispatched input")
@@ -67,7 +67,7 @@ struct TerminalInputConnectionResetTests {
         }
 
         store.bumpConnectionGenerationForTesting()
-        store.replaceRemoteClient(with: nil)
+        try installFreshRemoteClient(on: store, router: RoutingHostRouter())
 
         guard case .inputSend = session.phase else {
             Issue.record("Connection reset must preserve the dispatched input")

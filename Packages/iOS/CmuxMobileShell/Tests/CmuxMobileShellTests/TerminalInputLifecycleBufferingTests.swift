@@ -233,7 +233,7 @@ struct TerminalInputLifecycleBufferingTests {
         #expect(store.connectionState == .disconnected)
         #expect(session.queuedInputByteCount <= TerminalScrollSession.maximumQueuedInputByteCount)
         await router.releaseFirstPasteImage()
-        #expect(await send.value)
+        #expect(await send.value == false)
         #expect(await router.recordedPasteImages().count == 1)
     }
 

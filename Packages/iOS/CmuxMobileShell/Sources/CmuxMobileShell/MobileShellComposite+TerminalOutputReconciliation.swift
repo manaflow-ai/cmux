@@ -287,6 +287,11 @@ extension MobileShellComposite {
             }
             return
         }
+        // This callback is the claimed consumer's definitive failure result.
+        // Consume it before stream rotation so replay retention cannot wait for
+        // a second callback that the renderer will never send.
+        _ = queue.completeClaimedInFlight(applied: false)
+        terminalOutputQueuesBySurfaceID[surfaceID] = queue
         _ = invalidateTerminalScrollForRecovery(surfaceID: surfaceID)
         if let replayBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID] {
             guard terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken else {

@@ -12,24 +12,24 @@ struct TerminalBottomSnapRearmTests {
         let harness = BottomSnapRearmHarness()
         let session = harness.makeSession()
         let firstInput = session.submitInput(.fence)
-        try await requireEventually { harness.snapReceipts.count == 1 }
+        try #require(await pollUntil { harness.snapReceipts.count == 1 }, "first snap")
 
-        for index in 0..<12 {
-            let lines = index.isMultiple(of: 2) ? -1.0 : 1.0
-            session.submit(lines: lines, col: index, row: index)
+        for _ in 0..<12 {
+            session.submit(lines: -1, col: 1, row: 1)
         }
         harness.snapReceipts[0].resolve(true)
 
         #expect(await firstInput.value)
-        try await requireEventually {
-            harness.scrollRequests.count == 1 && session.phase.isIdle
+        guard case .scroll = session.phase else {
+            Issue.record("queued scroll did not become the active transaction")
+            return
         }
-        #expect(harness.scrollRequests[0].directionalRuns.map(\.lines) == [
-            -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1,
-        ])
+        try #require(await pollUntil { harness.scrollRequests.count == 1 }, "scroll request")
+        try #require(await pollUntil { session.phase.isIdle }, "scroll completion")
+        #expect(harness.scrollRequests[0].directionalRuns.map(\.lines) == [-12])
 
         let secondInput = session.submitInput(.fence)
-        try await requireEventually { harness.snapReceipts.count == 2 }
+        try #require(await pollUntil { harness.snapReceipts.count == 2 }, "rearmed snap")
         harness.snapReceipts[1].resolve(true)
 
         #expect(await secondInput.value)
@@ -38,10 +38,6 @@ struct TerminalBottomSnapRearmTests {
         let repeatedInput = session.submitInput(.fence)
         #expect(await repeatedInput.value)
         #expect(harness.snapReceipts.count == 2)
-    }
-
-    private func requireEventually(_ condition: @MainActor () async -> Bool) async throws {
-        try #require(await pollUntil(condition))
     }
 }
 
@@ -54,6 +50,7 @@ private extension TerminalScrollSession.Phase {
 
 @MainActor
 private final class BottomSnapRearmHarness {
+    let deadline = TerminalInteractionDeadlineSignal()
     var snapReceipts: [TerminalSurfaceMutationReceipt] = []
     var scrollRequests: [TerminalScrollRequest] = []
     var epoch: UInt64 = 1
@@ -80,7 +77,7 @@ private final class BottomSnapRearmHarness {
                     renderGrid: nil
                 )
             },
-            interactionDeadline: { _ in },
+            interactionDeadline: { [deadline] _ in await deadline.wait() },
             prepareIntent: {},
             deliverAuthoritative: { _, _, _ in true },
             completeGridlessAuthoritative: { _ in true },

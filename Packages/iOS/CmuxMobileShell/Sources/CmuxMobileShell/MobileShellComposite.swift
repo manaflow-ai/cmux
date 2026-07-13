@@ -661,9 +661,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var remoteClient: MobileCoreRPCClient? {
         didSet {
             if remoteClient == nil {
+                resetTerminalOutputTracking(
+                    preservingDispatchedInput: false
+                )
                 stopTerminalRefreshPolling()
                 cancelRemoteOperationTasks()
-                resetTerminalOutputTracking()
             }
         }
     }
@@ -5150,11 +5152,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if newValue != nil, previous !== newValue {
             chatEventSourceGeneration = UUID()
         }
+        if newValue == nil {
+            let deferredClients = terminalInputClientsAwaitingDisconnectByID.values
+            terminalInputClientsAwaitingDisconnectByID.removeAll(keepingCapacity: false)
+            for client in deferredClients where client !== previous {
+                Task { await client.disconnect() }
+            }
+        }
         if let previous, previous !== newValue {
             let previousID = ObjectIdentifier(previous)
-            if terminalInputRequestCountsByClientID[previousID, default: 0] > 0 {
+            if newValue != nil,
+               terminalInputRequestCountsByClientID[previousID, default: 0] > 0 {
                 terminalInputClientsAwaitingDisconnectByID[previousID] = previous
             } else {
+                terminalInputClientsAwaitingDisconnectByID.removeValue(forKey: previousID)
                 Task { await previous.disconnect() }
             }
         }
@@ -5179,10 +5190,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         cancelAllTerminalReplayTasks()
     }
 
-    private func resetTerminalOutputTracking() {
+    private func resetTerminalOutputTracking(preservingDispatchedInput: Bool) {
         cancelAllTerminalReplayTasks()
         for session in terminalScrollSessionsBySurfaceID.values {
-            _ = session.invalidateForConnectionReset()
+            _ = session.invalidateForConnectionReset(
+                preservingDispatchedInput: preservingDispatchedInput
+            )
         }
         effectiveViewportSizesBySurfaceID = [:]; reportedTerminalViewportSizesBySurfaceID = [:]
         viewportReportGenerationsBySurfaceID = [:]

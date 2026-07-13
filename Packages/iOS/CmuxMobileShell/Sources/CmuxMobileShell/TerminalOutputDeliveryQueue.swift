@@ -209,6 +209,13 @@ struct TerminalOutputDeliveryQueue: Sendable {
         return next
     }
 
+    @discardableResult
+    mutating func completeClaimedInFlight(applied: Bool) -> Bool {
+        guard inFlightClaimed else { return false }
+        _ = completeInFlight(applied: applied)
+        return true
+    }
+
     mutating func claimInFlight(deliveryID: UUID) -> Bool {
         guard inFlight?.deliveryID == deliveryID, !inFlightClaimed else { return false }
         inFlightClaimed = true

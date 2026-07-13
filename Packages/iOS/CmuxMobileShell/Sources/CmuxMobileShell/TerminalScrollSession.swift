@@ -171,6 +171,7 @@ final class TerminalScrollSession {
     var hasUnsettledScroll = false
     var bottomSnapGeneration: UInt64 = 1
     var consumedBottomSnapGeneration: UInt64 = 0
+    var admittedBottomSnapGeneration: UInt64 = 0
 
     var replayPrefetchWindow: TerminalScrollPrefetchWindow {
         .directional(for: lastDirectionLines)
@@ -301,13 +302,13 @@ final class TerminalScrollSession {
         return interactionEpoch
     }
 
-    func invalidateForConnectionReset() -> UInt64 {
+    func invalidateForConnectionReset(preservingDispatchedInput: Bool) -> UInt64 {
         markBottomSnapNeeded()
         let nextEpoch = advanceEpoch()
         invalidate(
             nextEpoch: nextEpoch,
             cancelLocalInteraction: false,
-            preserveDispatchedInput: true
+            preserveDispatchedInput: preservingDispatchedInput
         )
         return interactionEpoch
     }
@@ -366,9 +367,15 @@ final class TerminalScrollSession {
     }
 
     func markBottomSnapNeeded() {
-        guard consumedBottomSnapGeneration == bottomSnapGeneration else { return }
+        guard consumedBottomSnapGeneration == bottomSnapGeneration
+                || admittedBottomSnapGeneration == bottomSnapGeneration else { return }
         bottomSnapGeneration &+= 1
         if bottomSnapGeneration == 0 { bottomSnapGeneration = 1 }
+    }
+
+    func recordBottomSnapAdmission(_ generation: UInt64) {
+        guard generation != consumedBottomSnapGeneration else { return }
+        admittedBottomSnapGeneration = generation
     }
 
     func prefetchWindow(for lines: Double) -> TerminalScrollPrefetchWindow? {
