@@ -719,7 +719,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var pullToRefreshTask: Task<Void, Never>?
     var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?
-    var connectionGeneration: UUID; private var connectionAttemptGeneration: UUID; var connectionPairedMacPersistenceSuppressedGeneration: UUID?
+    var connectionGeneration: UUID
+    private var connectionAttemptGeneration: UUID
+    var connectionPairedMacPersistenceSuppressedGeneration: UUID?
     @ObservationIgnored var macSwitchAttemptID: UUID?
     @ObservationIgnored private var macSwitchAttemptSignInGeneration: Int?
     @ObservationIgnored private var macSwitchRestorePreviousOnCancelAttemptIDs: Set<UUID> = []
@@ -1234,6 +1236,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacAliasIDsByRepresentativeID = [:]
         pairedMacs = []
         forgottenMacDeviceIDsByScope = [:]
+        forgottenMacIntentDeviceIDsByScope = [:]
         registryDevices = []
         if shouldReplayStoredMacReconnect {
             restartStoredMacReconnectAfterScopeChange()
@@ -1419,7 +1422,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var connectionLifecycleTask: Task<Void, Never>?
     var connectionLifecycleRetiredTask: Task<Void, Never>?
     var connectionLifecycleRetiredTaskGeneration: UInt64 = 0
-    var connectionLifecycleStreamRepairListenerID: UUID?; var connectionLifecycleScopeReconnectPendingAfterRetirement = false
+    var connectionLifecycleStreamRepairListenerID: UUID?
+    var connectionLifecycleScopeReconnectPendingAfterRetirement = false
     var connectionLifecycleDeadlineTask: Task<Void, Never>?
     var connectionLifecycleRequestWaiters: [UInt64: CheckedContinuation<Void, Never>] = [:]
 
@@ -1532,35 +1536,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             recordsPairingAttempt: true
         )
     }
-    func connectStoredMacHost(
-        name: String,
-        host: String,
-        port: Int,
-        pairedMacDeviceID: String, persistsPairedMac: Bool = true,
-        ifStillCurrent: (() -> Bool)? = nil
-    ) async {
-        await connectManualHost(
-            name: name,
-            host: host,
-            port: port,
-            pairedMacDeviceID: pairedMacDeviceID,
-            recordsPairingAttempt: false,
-            clearsForgottenMac: false, persistsPairedMac: persistsPairedMac,
-            ifStillCurrent: ifStillCurrent
-        )
-    }
     /// - Parameter pairedMacDeviceID: the REAL paired-Mac device id when the caller
     ///   knows it (switch/reconnect/device-row paths). A manual host whose Mac lacks
     ///   `mobile.attach_ticket.create` connects via a synthetic `manual-…` ticket;
     ///   passing the real id keys the foreground aggregate state under it instead of
     ///   the synthetic id. `nil` for a genuinely manual/unknown host.
-    private func connectManualHost(
+    func connectManualHost(
         name: String,
         host: String,
         port: Int,
         pairedMacDeviceID: String? = nil,
         recordsPairingAttempt: Bool,
-        clearsForgottenMac: Bool = true, persistsPairedMac: Bool = true,
+        clearsForgottenMac: Bool = true,
+        persistsPairedMac: Bool = true,
         ifStillCurrent: (() -> Bool)? = nil
     ) async {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1612,7 +1600,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 ticket: ticket,
                 allowsStackAuthFallback: true,
                 pairedMacDeviceID: pairedMacDeviceID,
-                clearsForgottenMac: clearsForgottenMac, persistsPairedMac: persistsPairedMac,
+                clearsForgottenMac: clearsForgottenMac,
+                persistsPairedMac: persistsPairedMac,
                 ifStillCurrent: ifStillCurrent
             )
             guard isCurrentPairingAttempt(attemptID) else { return }
@@ -1902,7 +1891,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var storedPairedMacs: [MobilePairedMac] = []
     /// Visible representative id to all stored ids for that logical paired Mac.
     public private(set) var pairedMacAliasIDsByRepresentativeID: [String: [String]] = [:]
-    /// Same-session delete tombstones keyed by signed-in account/team scope.
+    /// Loaded durable delete tombstones keyed by signed-in account/team scope.
     ///
     /// The durable backup layer already preserves deletes across relaunch and
     /// failed cloud tombstone uploads. This in-memory set covers the remaining
@@ -1911,6 +1900,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// completes. Filtering the current scope keeps that late write hidden until
     /// the user explicitly pairs/connects that Mac again.
     @ObservationIgnored var forgottenMacDeviceIDsByScope: [String: Set<String>] = [:]
+    /// Forget ownership published synchronously before durable storage can suspend.
+    @ObservationIgnored var forgottenMacIntentDeviceIDsByScope: [String: Set<String>] = [:]
 
     var pairedMacsForIdentityMatching: [MobilePairedMac] {
         storedPairedMacs.isEmpty ? pairedMacs : storedPairedMacs
@@ -4810,7 +4801,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         ticket: CmxAttachTicket,
         allowsStackAuthFallback: Bool? = nil,
         pairedMacDeviceID: String? = nil,
-        clearsForgottenMac: Bool = true, persistsPairedMac: Bool = true,
+        clearsForgottenMac: Bool = true,
+        persistsPairedMac: Bool = true,
         ifStillCurrent: (() -> Bool)? = nil
     ) async throws -> MobilePairingFailureCategory? {
         let generation = UUID()
@@ -4893,12 +4885,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     )
                     let response = try MobileSyncWorkspaceListResponse.decode(resultData)
                     guard isConnectCurrent() else { return nil }
-                    if persistsPairedMac { await persistPairedMacFromTicket(
+                    if persistsPairedMac {
+                        await persistPairedMacFromTicket(
                             ticket,
                             clearsForgottenMac: clearsForgottenMac,
                             reconnectSourceMacDeviceID: pairedMacDeviceID,
                             ifStillCurrent: isConnectCurrent
-                        ) }
+                        )
+                    }
                     guard isConnectCurrent() else { return nil }
                     replaceRemoteClient(with: client)
                     startTerminalRefreshPolling()

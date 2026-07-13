@@ -23,8 +23,11 @@ extension MobileShellComposite {
     func forgottenMacDeviceIDs(scope: MobileShellScopeSnapshot) async -> Set<String> {
         let key = pairedMacScopeKey(scope)
         let scoped = await storedForgottenMacDeviceIDs(scopeKey: key)
+            .union(forgottenMacIntentDeviceIDsByScope[key] ?? [])
         guard scope.teamID != nil else { return scoped }
-        let userWide = await storedForgottenMacDeviceIDs(scopeKey: pairedMacScopeKey(userWideScope(from: scope)))
+        let userWideKey = pairedMacScopeKey(userWideScope(from: scope))
+        let userWide = await storedForgottenMacDeviceIDs(scopeKey: userWideKey)
+            .union(forgottenMacIntentDeviceIDsByScope[userWideKey] ?? [])
         return scoped.union(userWide)
     }
 
@@ -37,7 +40,17 @@ extension MobileShellComposite {
     }
 
     func isForgottenMacDeviceID(_ macDeviceID: String, scope: MobileShellScopeSnapshot) async -> Bool {
-        await forgottenMacDeviceIDs(scope: scope).contains(macDeviceID)
+        let scopedKey = pairedMacScopeKey(scope)
+        if forgottenMacIntentDeviceIDsByScope[scopedKey]?.contains(macDeviceID) == true {
+            return true
+        }
+        if scope.teamID != nil {
+            let userWideKey = pairedMacScopeKey(userWideScope(from: scope))
+            if forgottenMacIntentDeviceIDsByScope[userWideKey]?.contains(macDeviceID) == true {
+                return true
+            }
+        }
+        return await forgottenMacDeviceIDs(scope: scope).contains(macDeviceID)
     }
 
     func removeStoredPairedMacIfForgotten(
@@ -73,12 +86,13 @@ extension MobileShellComposite {
     }
 
     func rememberForgottenMacDeviceID(_ macDeviceID: String, scopeKey key: String) async {
-        var ids = forgottenMacDeviceIDsByScope[key] ?? []
-        ids.insert(macDeviceID)
-        forgottenMacDeviceIDsByScope[key] = ids
-        let persisted = await forgottenMacStore.load(scope: key)
-        ids = forgottenMacDeviceIDsByScope[key] ?? []
-        ids.formUnion(persisted)
+        var intents = forgottenMacIntentDeviceIDsByScope[key] ?? []
+        intents.insert(macDeviceID)
+        forgottenMacIntentDeviceIDsByScope[key] = intents
+        var ids = await storedForgottenMacDeviceIDs(scopeKey: key)
+        guard forgottenMacIntentDeviceIDsByScope[key]?.contains(macDeviceID) == true else {
+            return
+        }
         ids.insert(macDeviceID)
         forgottenMacDeviceIDsByScope[key] = ids
         await forgottenMacStore.save(ids, scope: key)
@@ -93,6 +107,9 @@ extension MobileShellComposite {
     }
 
     func clearForgottenMacDeviceID(_ macDeviceID: String, scopeKey key: String) async {
+        var intents = forgottenMacIntentDeviceIDsByScope[key] ?? []
+        intents.remove(macDeviceID)
+        forgottenMacIntentDeviceIDsByScope[key] = intents.isEmpty ? nil : intents
         var ids = await storedForgottenMacDeviceIDs(scopeKey: key)
         guard ids.remove(macDeviceID) != nil else { return }
         forgottenMacDeviceIDsByScope[key] = ids

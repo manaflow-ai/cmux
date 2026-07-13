@@ -2,6 +2,7 @@ import CmuxMobileShell
 
 actor BlockingForgottenMacStore: PairedMacForgottenStoring {
     private var loadStarted = false
+    private var loadsReleased = false
     private var loadStartWaiters: [CheckedContinuation<Void, Never>] = []
     private var loadWaiters: [CheckedContinuation<Void, Never>] = []
     private var idsByScope: [String: Set<String>] = [:]
@@ -10,7 +11,9 @@ actor BlockingForgottenMacStore: PairedMacForgottenStoring {
         loadStarted = true
         loadStartWaiters.forEach { $0.resume() }
         loadStartWaiters.removeAll()
-        await withCheckedContinuation { loadWaiters.append($0) }
+        if !loadsReleased {
+            await withCheckedContinuation { loadWaiters.append($0) }
+        }
         return idsByScope[scope] ?? []
     }
 
@@ -28,6 +31,7 @@ actor BlockingForgottenMacStore: PairedMacForgottenStoring {
     }
 
     func releaseLoads() {
+        loadsReleased = true
         loadWaiters.forEach { $0.resume() }
         loadWaiters.removeAll()
     }

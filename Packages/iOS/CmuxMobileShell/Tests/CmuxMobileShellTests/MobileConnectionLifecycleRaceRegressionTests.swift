@@ -50,7 +50,7 @@ import Testing
         }
         await forgottenStore.waitUntilLoadStarted()
 
-        #expect(store.forgottenMacDeviceIDsByScope["scope-a"] == ["mac-a"])
+        #expect(store.forgottenMacIntentDeviceIDsByScope["scope-a"] == ["mac-a"])
 
         await forgottenStore.releaseLoads()
         await remember.value
