@@ -96,4 +96,119 @@ import Testing
         #expect(await stalled.closed())
         await client.disconnect()
     }
+
+    @Test func cancelledInFlightWriteRecyclesTransportForNextRequest() async throws {
+        let stalled = StalledWriteTransport()
+        let recovery = ResponseTimeoutSurvivalTransport()
+        let factory = StalledWriteRecoveryTransportFactory(
+            stalled: stalled,
+            recovery: recovery
+        )
+        let client = try makeClient(factory: factory)
+        let stalledRequest = try inputRequest(id: "cancelled-stalled-write", text: "a")
+        let cancelledTask = Task {
+            try await client.sendRequest(
+                stalledRequest,
+                timeoutNanoseconds: 60 * 1_000_000_000
+            )
+        }
+
+        await stalled.waitUntilSendStarted()
+        cancelledTask.cancel()
+        do {
+            _ = try await cancelledTask.value
+            Issue.record("Expected the stalled request to be cancelled")
+        } catch is CancellationError {
+        } catch {
+            Issue.record("Expected CancellationError, got \(error)")
+        }
+
+        let retry = try inputRequest(id: "second-after-cancel", text: "b")
+        _ = try await client.sendRequest(retry, timeoutNanoseconds: 500_000_000)
+
+        #expect(factory.createdTransportCount() == 2)
+        #expect(await stalled.closed())
+        await stalled.failStalledSend()
+        await client.disconnect()
+    }
+
+    @Test func recoveryResetDoesNotWaitForHangingTransportClose() async throws {
+        let stalled = StalledWriteTransport(hangsOnClose: true)
+        let recovery = ResponseTimeoutSurvivalTransport()
+        let factory = StalledWriteRecoveryTransportFactory(
+            stalled: stalled,
+            recovery: recovery
+        )
+        let client = try makeClient(factory: factory)
+        let firstRequest = try inputRequest(id: "first-before-reset", text: "a")
+        let firstTask = Task {
+            try await client.sendRequest(
+                firstRequest,
+                timeoutNanoseconds: 60 * 1_000_000_000
+            )
+        }
+
+        await stalled.waitUntilSendStarted()
+        let resetFinished = AsyncFlag()
+        let resetTask = Task {
+            await client.resetConnectionForRecovery()
+            await resetFinished.set()
+        }
+        await stalled.waitUntilCloseStarted()
+        for _ in 0..<100 where !(await resetFinished.isSet()) {
+            await Task.yield()
+        }
+        #expect(await resetFinished.isSet())
+
+        let retry = try inputRequest(id: "second-after-hanging-close", text: "b")
+        _ = try await client.sendRequest(retry, timeoutNanoseconds: 500_000_000)
+        #expect(factory.createdTransportCount() == 2)
+
+        await stalled.releaseClose()
+        await stalled.failStalledSend()
+        await resetTask.value
+        _ = try? await firstTask.value
+        await client.disconnect()
+    }
+
+    private func makeClient(
+        factory: StalledWriteRecoveryTransportFactory
+    ) throws -> MobileCoreRPCClient {
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: 59135
+        )
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: factory,
+            rpcRequestTimeoutNanoseconds: 60 * 1_000_000_000
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: "terminal-main",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        return MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+    }
+
+    private func inputRequest(id: String, text: String) throws -> Data {
+        try MobileCoreRPCClient.requestData(
+            method: "terminal.input",
+            params: [
+                "workspace_id": "workspace-main",
+                "terminal_id": "terminal-main",
+                "text": text,
+            ],
+            id: id
+        )
+    }
 }

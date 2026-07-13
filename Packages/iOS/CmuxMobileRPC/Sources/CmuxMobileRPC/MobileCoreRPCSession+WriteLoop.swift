@@ -41,6 +41,14 @@ extension MobileCoreRPCSession {
         activeWrite = nil
     }
 
+    func recycleTransportIfActiveWrite(requestID: String) async -> Bool {
+        guard activeWrite?.requestID == requestID else { return false }
+        activeWrite?.task.cancel()
+        activeWrite = nil
+        await tearDown(error: .connectionClosed)
+        return true
+    }
+
     func tearDownIfInstalled(
         connectionID: UUID,
         error: MobileShellConnectionError

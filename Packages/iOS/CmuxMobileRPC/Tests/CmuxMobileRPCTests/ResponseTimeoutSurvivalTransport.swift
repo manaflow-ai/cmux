@@ -29,6 +29,8 @@ actor ResponseTimeoutSurvivalTransport: CmxByteTransport {
         for payload in payloads {
             let request = try recordedRPCRequest(from: payload)
             guard [
+                "second-after-cancel",
+                "second-after-hanging-close",
                 "second-after-timeout",
                 "third-after-late-failure",
             ].contains(request.id) else { continue }

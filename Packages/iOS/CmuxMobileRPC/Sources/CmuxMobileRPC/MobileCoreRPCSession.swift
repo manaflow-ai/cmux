@@ -182,7 +182,11 @@ actor MobileCoreRPCSession {
         readerTask = nil
         isTearingDown = false
         if let transportToClose {
-            await transportToClose.close()
+            // Session state is already detached, so a transport whose close
+            // callback stalls cannot hold recovery or the UI in limbo.
+            Task.detached {
+                await transportToClose.close()
+            }
         }
         if let connecting { await abandonConnectionTask(connecting) }
     }
@@ -437,12 +441,13 @@ actor MobileCoreRPCSession {
         requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
         cont.resume(returning: .failure(error))
     }
-    private func cancelPendingRequest(requestID: String) {
+    private func cancelPendingRequest(requestID: String) async {
         guard let cont = pending.removeValue(forKey: requestID) else { return }
         requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
         if let queuedWriteID = queuedWriteIDs.removeValue(forKey: requestID) {
             cancelledQueuedWriteIDs.insert(queuedWriteID)
         }
+        _ = await recycleTransportIfActiveWrite(requestID: requestID)
         cont.resume(returning: .failure(.requestTimedOut))
     }
 
@@ -453,11 +458,8 @@ actor MobileCoreRPCSession {
         if let queuedWriteID = queuedWriteIDs.removeValue(forKey: requestID) {
             cancelledQueuedWriteIDs.insert(queuedWriteID)
         }
-        if activeWrite?.requestID == requestID {
+        if await recycleTransportIfActiveWrite(requestID: requestID) {
             timeoutError = .transportWriteTimedOut
-            activeWrite?.task.cancel()
-            activeWrite = nil
-            await tearDown(error: .connectionClosed)
         }
         cont.resume(returning: .failure(timeoutError))
     }
