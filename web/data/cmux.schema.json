@@ -853,6 +853,12 @@
           "default": true,
           "description": "Flash the focused pane when requested."
         },
+        "focusOnNotification": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.notifications.focusOnNotification",
+          "description": "When enabled and cmux is inactive, focus the window, workspace, and surface that produced a desktop-eligible notification. A successful focus marks terminal notifications read and replaces the macOS banner; failed target routing preserves the banner and unread state."
+        },
         "suppressOnlyFocusedSurface": {
           "type": "boolean",
           "default": false,

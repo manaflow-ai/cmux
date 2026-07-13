@@ -920,6 +920,7 @@
           "focusTextBoxOnNewTerminals": "Fokussiert die Beta-TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits. Fokussieren zeigt die TextBox ebenfalls an."
         },
         "notifications": {
+          "focusOnNotification": "Wenn aktiviert und cmux inaktiv ist, wird das Fenster, der Workspace und die Oberfläche fokussiert, die eine für Desktop-Benachrichtigungen geeignete Meldung erzeugt haben. Ein erfolgreicher Fokus markiert Terminal-Benachrichtigungen als gelesen und ersetzt das macOS-Banner; schlägt das Routing zum Ziel fehl, bleiben Banner und Ungelesen-Status erhalten.",
           "suppressOnlyFocusedSurface": "Wenn aktiviert, wird ein Benachrichtigungsbanner nur dann automatisch zurückgezogen, wenn seine Oberfläche genau die fokussierte Oberfläche ist. Ein Banner, das für eine nicht fokussierte Oberfläche im aktuell sichtbaren Workspace zugestellt wurde, bleibt sichtbar, bis Sie diese Oberfläche fokussieren (oder das Banner anklicken bzw. schließen), anstatt zurückgezogen zu werden, sobald der Workspace sichtbar wird. Deaktiviert bleibt das bisherige Zurückziehen anhand der Workspace-Sichtbarkeit erhalten."
         },
         "browser": {

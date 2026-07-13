@@ -920,6 +920,7 @@
           "focusTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak odaklar. Odaklamak TextBox'ı da gösterir."
         },
         "notifications": {
+          "focusOnNotification": "Etkinleştirildiğinde ve cmux etkin değilken, masaüstünde gösterilmeye uygun bildirimi üreten pencere, workspace ve yüzey odaklanır. Başarılı odaklama terminal bildirimlerini okundu olarak işaretler ve macOS banner’ının yerini alır; hedefe yönlendirme başarısız olursa banner ve okunmadı durumu korunur.",
           "suppressOnlyFocusedSurface": "Etkinleştirildiğinde, bir bildirim banner'ı yalnızca yüzeyi tam olarak odaklanmış yüzey olduğunda otomatik olarak geri çekilir. Şu anda görünür olan workspace içinde odaklanmamış bir yüzey için gönderilen bir banner, workspace görünür olduğunda geri çekilmek yerine, siz o yüzeye odaklanana (ya da tıklayana/kapatana) kadar görünür kalır. Kapalı, eski workspace görünürlüğüne dayalı geri çekme davranışını korur."
         },
         "browser": {

@@ -920,6 +920,7 @@
           "focusTextBoxOnNewTerminals": "Foca a entrada TextBox beta por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas. Focar também mostra o TextBox."
         },
         "notifications": {
+          "focusOnNotification": "Quando ativado e o cmux estiver inativo, coloca em foco a janela, o workspace e a superfície que produziram uma notificação qualificada para a área de trabalho. O foco bem-sucedido marca as notificações do terminal como lidas e substitui o banner do macOS; se o roteamento para o destino falhar, o banner e o estado não lido são preservados.",
           "suppressOnlyFocusedSurface": "Quando ativado, um banner de notificação é retirado automaticamente apenas quando sua superfície é exatamente a superfície focada. Um banner entregue para uma superfície não focada no workspace atualmente visível permanece visível até você focar essa superfície (ou clicar nele/dispensá-lo), em vez de ser retirado quando o workspace se torna visível. Desativado preserva a retirada antiga baseada na visibilidade do workspace."
         },
         "browser": {

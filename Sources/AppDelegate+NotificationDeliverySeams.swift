@@ -8,7 +8,11 @@ import Foundation
 /// `AppDelegate -> NotificationDeliveryCoordinator -> adapter -> AppDelegate`
 /// cannot become a retain cycle.
 @MainActor
-final class NotificationDeliverySeamAdapter: NotificationFeedReplying, NotificationApplicationActivating {
+final class NotificationDeliverySeamAdapter:
+    NotificationFeedReplying,
+    NotificationApplicationActivating,
+    IncomingNotificationFocusRouting
+{
     weak var owner: AppDelegate?
 
     init(owner: AppDelegate) {
@@ -26,9 +30,39 @@ final class NotificationDeliverySeamAdapter: NotificationFeedReplying, Notificat
     func activateApplication() {
         owner?.notificationDeliveryActivateApplication()
     }
+
+    func focusIncomingNotification(_ target: IncomingNotificationFocusTarget) -> Bool {
+        guard let owner else { return false }
+        guard owner.notificationNavigation.open(
+            tabId: target.workspaceId,
+            surfaceId: target.surfaceId,
+            panelId: target.panelId,
+            notificationId: nil,
+            scrollRow: nil,
+            scrollTotalRows: nil
+        ) else {
+            return false
+        }
+
+        // Notification navigation normally follows an explicit user action, so
+        // its regular window-ordering path does not need to steal focus from
+        // another app. This opt-in automatic route does: AppKit's
+        // NSRunningApplication activation can be ignored while another app is
+        // active, even after makeKeyAndOrderFront succeeds.
+        owner.activateApplicationForIncomingNotificationFocus()
+        return true
+    }
+
+    func activateApplicationForIncomingNotification() -> Bool {
+        owner?.activateMainWindowFromIncomingNotification() ?? false
+    }
 }
 
 extension AppDelegate {
+    func activateApplicationForIncomingNotificationFocus() {
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     func notificationDeliveryDeliverFeedReply(requestId: String, decision: NotificationFeedDecision) {
         FeedCoordinator.shared.deliverReply(
             requestId: requestId,

@@ -149,6 +149,10 @@ enum NotificationSettingsFileMapping {
         .init(jsonKey: "unreadPaneRing", defaultsKey: NotificationPaneRingSettings.enabledKey),
         .init(jsonKey: "paneFlash", defaultsKey: NotificationPaneFlashSettings.enabledKey),
         .init(
+            jsonKey: "focusOnNotification",
+            defaultsKey: notifications.focusOnNotification.userDefaultsKey
+        ),
+        .init(
             jsonKey: "suppressOnlyFocusedSurface",
             defaultsKey: notifications.suppressOnlyFocusedSurface.userDefaultsKey
         ),
@@ -392,6 +396,7 @@ extension CmuxSettingsFileStore {
         "notifications.showInMenuBar",
         "notifications.unreadPaneRing",
         "notifications.paneFlash",
+        "notifications.focusOnNotification",
         "notifications.sound",
         "notifications.customSoundFilePath",
         "notifications.command",

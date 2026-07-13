@@ -4,6 +4,7 @@ import Foundation
 import os
 import UserNotifications
 import Bonsplit
+import CmuxNotifications
 import CmuxSettings
 
 nonisolated private let terminalNotificationLogger = Logger(
@@ -447,6 +448,7 @@ final class TerminalNotificationStore: ObservableObject {
         effects in
         store.scheduleUserNotification(notification, effects: effects)
     }
+    private var incomingNotificationFocus: (any IncomingNotificationFocusing)?
     private var nativeNotificationDeliveryHooks = NativeNotificationDeliveryHooks()
     private var suppressedNotificationFeedbackHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
         store,
@@ -477,6 +479,10 @@ final class TerminalNotificationStore: ObservableObject {
         }
         refreshDockBadge()
         refreshAuthorizationStatus()
+    }
+
+    func configureIncomingNotificationFocus(_ focus: (any IncomingNotificationFocusing)?) {
+        incomingNotificationFocus = focus
     }
 
     deinit {
@@ -1064,10 +1070,25 @@ final class TerminalNotificationStore: ObservableObject {
         scrollPosition: TerminalNotificationScrollPosition?,
         clickAction: TerminalNotificationClickAction?
     ) {
-        let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
+        let wasAlreadyFocused = shouldSuppressExternalDelivery(
             tabId: request.tabId,
             surfaceId: request.surfaceId
         )
+        let focusOutcome = incomingNotificationFocus?.focusIfNeeded(
+            target: IncomingNotificationFocusTarget(
+                workspaceId: request.tabId,
+                surfaceId: request.surfaceId,
+                panelId: request.panelId
+            ),
+            isDesktopDeliveryEnabled: effects.desktop
+        ) ?? .ignored
+        var effectiveEffects = effects
+        if focusOutcome.suppressesDesktopDelivery {
+            effectiveEffects.desktop = false
+            effectiveEffects.markUnread = false
+            effectiveEffects.paneFlash = false
+        }
+        let shouldSuppressExternalDelivery = wasAlreadyFocused || focusOutcome.suppressesDesktopDelivery
         let notification = TerminalNotification(
             id: UUID(),
             tabId: request.tabId,
@@ -1077,17 +1098,17 @@ final class TerminalNotificationStore: ObservableObject {
             subtitle: request.subtitle,
             body: request.body,
             createdAt: now,
-            isRead: !effects.markUnread,
-            paneFlash: effects.paneFlash,
+            isRead: !effectiveEffects.markUnread,
+            paneFlash: effectiveEffects.paneFlash,
             scrollPosition: scrollPosition,
             clickAction: clickAction
         )
 
-        if effects.record {
+        if effectiveEffects.record {
             recordNotification(
                 notification,
                 shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
-                effects: effects,
+                effects: effectiveEffects,
                 now: now,
                 cooldownReservation: cooldownReservation
             )
@@ -1096,15 +1117,15 @@ final class TerminalNotificationStore: ObservableObject {
 
 #if DEBUG
         cmuxDebugLog(
-            "notification.store.effectsOnly workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") desktop=\(effects.desktop ? 1 : 0) sound=\(effects.sound ? 1 : 0) command=\(effects.command ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0)"
+            "notification.store.effectsOnly workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") desktop=\(effectiveEffects.desktop ? 1 : 0) sound=\(effectiveEffects.sound ? 1 : 0) command=\(effectiveEffects.command ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0)"
         )
 #endif
-        if effects.reorderWorkspace,
+        if effectiveEffects.reorderWorkspace,
            UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
             AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
                 .moveTabToTopForNotification(notification.tabId)
         }
-        if hasAnyNotificationEffect(effects) {
+        if hasAnyNotificationEffect(effectiveEffects) {
             commitCooldownReservation(cooldownReservation, at: now)
         } else {
             restoreCooldownReservation(cooldownReservation)
@@ -1112,7 +1133,7 @@ final class TerminalNotificationStore: ObservableObject {
         deliverNotificationSideEffects(
             notification,
             shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
-            effects: effects
+            effects: effectiveEffects
         )
     }
 

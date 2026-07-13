@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
+import CmuxNotifications
 import Foundation
 @preconcurrency import UserNotifications
 import CmuxSettings
@@ -47,6 +48,7 @@ final class FeedCoordinator: @unchecked Sendable {
     /// Main-actor isolated: read/written only from the `@MainActor` attention
     /// methods.
     @MainActor private var pendingAttentionStates: [AttentionTarget: AttentionOverlayState] = [:]
+    @MainActor private var incomingNotificationFocus: (any IncomingNotificationFocusing)?
 
     private init() {}
 
@@ -62,6 +64,11 @@ final class FeedCoordinator: @unchecked Sendable {
         for ppid in store.pending.compactMap(\.ppid) {
             armPidWatcher(ppid: ppid)
         }
+    }
+
+    @MainActor
+    func configureIncomingNotificationFocus(_ focus: (any IncomingNotificationFocusing)?) {
+        incomingNotificationFocus = focus
     }
 
     /// Installs a one-shot kqueue watcher for `ppid`. The handler
@@ -125,6 +132,14 @@ final class FeedCoordinator: @unchecked Sendable {
         let resolvedAttentionTarget = Self.isBlockingDecisionEvent(event.hookEventName)
             ? Self.resolveAttentionTarget(event: event)
             : nil
+        if let resolvedAttentionTarget {
+            waiterLock.lock()
+            waiters[requestId]?.focusTarget = IncomingNotificationFocusTarget(
+                workspaceId: resolvedAttentionTarget.workspaceId,
+                surfaceId: resolvedAttentionTarget.surfaceId
+            )
+            waiterLock.unlock()
+        }
         DispatchQueue.main.sync {
             MainActor.assumeIsolated {
                 FeedCoordinator.shared.store.ingest(event)
@@ -521,6 +536,9 @@ private final class PendingWaiter: @unchecked Sendable {
     /// needs-input overlay is cleared exactly once. Guarded by
     /// `FeedCoordinator.waiterLock`.
     var attentionTarget: FeedCoordinator.AttentionTarget?
+    /// Notification-navigation target resolved before the blocking item is shown.
+    /// Guarded by `FeedCoordinator.waiterLock` with the rest of the waiter state.
+    var focusTarget: IncomingNotificationFocusTarget?
 
     init(semaphore: DispatchSemaphore) {
         self.semaphore = semaphore
@@ -868,13 +886,22 @@ private extension FeedCoordinator {
               effects.desktop || effects.sound || effects.command
         else { return }
 
-        if !effects.desktop {
+        var effectiveEffects = effects
+        let focusOutcome = focusIncomingNotificationIfStillAwaiting(
+            requestId: requestId,
+            isDesktopDeliveryEnabled: effects.desktop
+        )
+        if focusOutcome.suppressesDesktopDelivery {
+            effectiveEffects.desktop = false
+        }
+
+        if !effectiveEffects.desktop {
             runFallbackEffectsIfStillAwaiting(
                 requestId: requestId,
                 title: title,
                 subtitle: subtitle,
                 body: body,
-                effects: effects,
+                effects: effectiveEffects,
                 runCommand: true
             )
             return
@@ -884,7 +911,7 @@ private extension FeedCoordinator {
         content.title = title
         content.subtitle = subtitle
         content.body = body
-        content.sound = effects.sound ? NotificationSoundSettings.sound() : nil
+        content.sound = effectiveEffects.sound ? NotificationSoundSettings.sound() : nil
         content.categoryIdentifier = categoryId
         content.userInfo = [
             "requestId": requestId,
@@ -907,7 +934,7 @@ private extension FeedCoordinator {
                         center: center,
                         request: request,
                         requestId: requestId,
-                        effects: effects
+                        effects: effectiveEffects
                     )
                 case .notDetermined:
                     var granted = false
@@ -923,7 +950,7 @@ private extension FeedCoordinator {
                             center: center,
                             request: request,
                             requestId: requestId,
-                            effects: effects
+                            effects: effectiveEffects
                         )
                     } else {
                         // A non-grant without an error is the user declining
@@ -936,7 +963,7 @@ private extension FeedCoordinator {
                             subtitle: subtitle,
                             body: body,
                             effects: TerminalNotificationStore.fallbackEffects(
-                                effects,
+                                effectiveEffects,
                                 authorizationState: requestFailed ? .unknown : .denied
                             ),
                             runCommand: false
@@ -949,7 +976,7 @@ private extension FeedCoordinator {
                         subtitle: subtitle,
                         body: body,
                         effects: TerminalNotificationStore.fallbackEffects(
-                            effects,
+                            effectiveEffects,
                             authorizationState: TerminalNotificationStore.authorizationState(
                                 from: settings.authorizationStatus
                             )
@@ -959,6 +986,27 @@ private extension FeedCoordinator {
                 }
             }
         }
+    }
+
+    @MainActor
+    func focusIncomingNotificationIfStillAwaiting(
+        requestId: String,
+        isDesktopDeliveryEnabled: Bool
+    ) -> IncomingNotificationFocusOutcome {
+        // Deliberately keep the existing waiter lock across this synchronous,
+        // non-reentrant MainActor route. This linearizes pending validation,
+        // target capture, and focus ahead of a concurrent feed reply without
+        // introducing a second state owner or allowing an answered request to
+        // steal focus between separate lock acquisitions.
+        waiterLock.lock()
+        defer { waiterLock.unlock() }
+        guard let waiter = waiters[requestId], waiter.decision == nil else {
+            return .ignored
+        }
+        return incomingNotificationFocus?.focusIfNeeded(
+            target: waiter.focusTarget,
+            isDesktopDeliveryEnabled: isDesktopDeliveryEnabled
+        ) ?? .ignored
     }
 
     @MainActor

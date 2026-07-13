@@ -26,6 +26,14 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "notificationPaneFlashEnabled"
     )
 
+    /// Focus the workspace and surface that produced a desktop-eligible
+    /// notification when cmux is not the active application.
+    public let focusOnNotification = DefaultsKey<Bool>(
+        id: "notifications.focusOnNotification",
+        defaultValue: false,
+        userDefaultsKey: "notificationFocusOnNotificationEnabled"
+    )
+
     public let sound = DefaultsKey<String>(
         id: "notifications.sound",
         defaultValue: "default",

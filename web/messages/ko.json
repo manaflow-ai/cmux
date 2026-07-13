@@ -920,6 +920,7 @@
           "focusTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력에 기본으로 포커스합니다. 포커스하면 TextBox도 표시됩니다."
         },
         "notifications": {
+          "focusOnNotification": "활성화하면 cmux가 비활성 상태일 때 데스크톱 알림 대상이 된 창, workspace 및 Surface로 포커스를 이동합니다. 포커스에 성공하면 터미널 알림을 읽음으로 표시하고 macOS 배너를 대체하며, 대상 라우팅에 실패하면 배너와 읽지 않음 상태를 유지합니다.",
           "suppressOnlyFocusedSurface": "활성화하면 알림 배너는 해당 서피스가 정확히 포커스된 서피스일 때만 자동으로 철회됩니다. 현재 표시 중인 workspace에서 포커스되지 않은 서피스로 전달된 배너는 workspace가 표시될 때 철회되지 않고, 해당 서피스에 포커스할 때까지(또는 클릭/해제할 때까지) 계속 표시됩니다. 끄면 기존의 workspace 표시 여부 기반 철회 동작이 유지됩니다."
         },
         "browser": {

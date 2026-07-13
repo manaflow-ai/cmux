@@ -712,6 +712,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Feed/app activation seam.
     lazy var notificationDeliverySeams = NotificationDeliverySeamAdapter(owner: self)
 
+    /// Shared opt-in focus policy for every incoming notification delivery path.
+    /// The app target is the composition root: settings, application state, and
+    /// AppKit routing stay behind injected seams while the decision lives in
+    /// `CmuxNotifications`.
+    lazy var incomingNotificationFocus = IncomingNotificationFocusCoordinator(
+        routing: notificationDeliverySeams,
+        isEnabled: {
+            UserDefaultsSettingsClient(defaults: .standard).value(
+                for: SettingCatalog().notifications.focusOnNotification
+            )
+        },
+        isApplicationActive: { NSApp.isActive }
+    )
+
     lazy var notificationDelivery = NotificationDeliveryCoordinator(
         center: UNUserNotificationCenter.current(),
         terminalNavigation: notificationNavigation,
@@ -2043,6 +2057,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
         self.auth = auth
+        notificationStore.configureIncomingNotificationFocus(incomingNotificationFocus)
+        FeedCoordinator.shared.configureIncomingNotificationFocus(incomingNotificationFocus)
         VMClient.bootstrap(auth: auth.coordinator)
         RemotesClient.bootstrap(auth: auth.coordinator)
         AIAccountsClient.bootstrap(auth: auth.coordinator)
@@ -9225,6 +9241,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             activation: .runningApplication([.activateAllWindows]),
             respectActivationSuppression: false
         )
+    }
+
+    @discardableResult
+    func activateMainWindowFromIncomingNotification() -> Bool {
+        let window = preferredMainWindowForVisibilityActivation() ?? {
+            let windowId = ensureInitialMainWindowIfNeeded(shouldActivate: false)
+            return windowForMainWindowId(windowId)
+        }()
+        guard let window else { return false }
+        guard mainWindowVisibilityController.focus(
+            window,
+            reason: .notification,
+            activation: .none,
+            respectActivationSuppression: false
+        ) else {
+            return false
+        }
+        activateApplicationForIncomingNotificationFocus()
+        return true
     }
 
     @discardableResult

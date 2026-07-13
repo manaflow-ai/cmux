@@ -921,6 +921,7 @@
           "focusTextBoxOnNewTerminals": "Domyślnie ustawia fokus na wejściu TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów. Fokus pokazuje też TextBox."
         },
         "notifications": {
+          "focusOnNotification": "Gdy opcja jest włączona, a cmux jest nieaktywny, fokus zostaje przeniesiony na okno, workspace i Surface, które wygenerowały powiadomienie kwalifikujące się do wyświetlenia na pulpicie. Pomyślne ustawienie fokusu oznacza powiadomienia terminala jako przeczytane i zastępuje baner macOS; nieudane kierowanie do celu zachowuje baner i stan nieprzeczytany.",
           "suppressOnlyFocusedSurface": "Gdy włączone, baner powiadomienia jest automatycznie wycofywany tylko wtedy, gdy jego Surface jest dokładnie tym Surface, który ma fokus. Baner dostarczony dla Surface bez fokusu w aktualnie widocznym workspace pozostaje wyświetlony, dopóki nie ustawisz fokusu na tym Surface (albo go nie klikniesz/odrzucisz), zamiast być wycofywany, gdy workspace stanie się widoczny. Wyłączone zachowuje dawne wycofywanie oparte na widoczności workspace."
         },
         "browser": {
