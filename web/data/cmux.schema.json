@@ -991,7 +991,8 @@
           "minimum": 1,
           "maximum": 50,
           "default": 12,
-          "description": "Maximum lines shown for the latest notification below each workspace title."
+          "description": "Maximum lines shown for the latest notification below each workspace title.",
+          "descriptionKey": "schemaDescriptions.sidebar.notificationMessageLineLimit"
         },
         "showBranchDirectory": {
           "type": "boolean",
