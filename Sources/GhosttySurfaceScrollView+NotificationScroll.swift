@@ -2,11 +2,6 @@ import Foundation
 
 @MainActor
 extension GhosttySurfaceScrollView {
-    private enum NotificationScrollRestoreDecision {
-        case waitForViewport
-        case perform(TerminalNotificationScrollRestoreTarget)
-    }
-
     var notificationScrollPosition: TerminalNotificationScrollPosition? {
         guard let scrollbar = surfaceView.scrollbar else { return nil }
         let rowFromBottom = max(0, scrollbar.total - scrollbar.offset - scrollbar.len)
@@ -119,7 +114,7 @@ extension GhosttySurfaceScrollView {
     private func notificationScrollRestoreDecision(
         _ position: TerminalNotificationScrollPosition,
         waitingForSessionScrollbackReplay: Bool
-    ) -> NotificationScrollRestoreDecision {
+    ) -> TerminalNotificationScrollRestoreDecision {
         if position.row <= 0 {
             return .perform(.bottom)
         }
@@ -131,7 +126,7 @@ extension GhosttySurfaceScrollView {
         guard let capturedTotalRows = position.totalRows else {
             return waitingForSessionScrollbackReplay
                 ? .waitForViewport
-                : notificationScrollRestoreTarget(position).map(NotificationScrollRestoreDecision.perform) ?? .waitForViewport
+                : notificationScrollRestoreTarget(position).map(TerminalNotificationScrollRestoreDecision.perform) ?? .waitForViewport
         }
         let capturedViewportBottomRow = max(0, capturedTotalRows) - min(max(0, capturedTotalRows), max(0, position.row))
 
