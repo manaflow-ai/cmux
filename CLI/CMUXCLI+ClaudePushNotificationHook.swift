@@ -23,12 +23,12 @@ extension CMUXCLI {
         // the structured response.
         guard let pushMessage = claudePushNotificationMessage(parsedInput.rawObject) else {
             telemetry.breadcrumb("claude-hook.push-notification.empty")
-            print("OK")
+            printClaudeHookAck()
             return
         }
         guard claudePushNotificationShouldBridge(parsedInput.rawObject) else {
             telemetry.breadcrumb("claude-hook.push-notification.skipped")
-            print("OK")
+            printClaudeHookAck()
             return
         }
         let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
@@ -39,7 +39,7 @@ extension CMUXCLI {
         ) else {
             markFeedTelemetryHandled()
             telemetry.breadcrumb("claude-hook.push-notification.unresolved")
-            print("OK")
+            printClaudeHookAck()
             return
         }
         let workspaceId = resolvedTarget.workspaceId
@@ -54,7 +54,7 @@ extension CMUXCLI {
             telemetry: telemetry
         ) else {
             telemetry.breadcrumb("claude-hook.push-notification.stale")
-            print("OK")
+            printClaudeHookAck()
             return
         }
         let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
@@ -63,7 +63,7 @@ extension CMUXCLI {
             env: ProcessInfo.processInfo.environment
         ) else {
             telemetry.breadcrumb("claude-hook.push-notification.nested-suppressed")
-            print("OK")
+            printClaudeHookAck()
             return
         }
         let title = String(
@@ -75,8 +75,8 @@ extension CMUXCLI {
         // change: the agent is usually still running when it fires, and a
         // push must not flip a running pane to "Needs input".
         let payload = notificationPayload(title: title, subtitle: "", body: pushMessage)
-        let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
-        print(response)
+        _ = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+        printClaudeHookAck()
     }
 
     /// Message for a PushNotification PostToolUse payload: the tool input's

@@ -853,35 +853,34 @@ class TerminalController {
 
         // Wire batched port scanner results back to workspace state.
         PortScanner.shared.onPortsUpdated = { [weak self] workspaceId, panelId, ports in
-            guard let self, let tabManager = self.tabManager else { return }
-            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
-            let validSurfaceIds = Set(workspace.panels.keys)
-            guard validSurfaceIds.contains(panelId) else { return }
-            workspace.surfaceListeningPorts[panelId] = ports.isEmpty ? nil : ports
-            workspace.recomputeListeningPorts()
+            self?.applyPanelPortPublication(workspaceId: workspaceId, panelId: panelId, ports: ports)
         }
         PortScanner.shared.onAgentPortsUpdated = { [weak self] workspaceId, ports in
-            guard let self, let tabManager = self.tabManager else { return false }
-            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return false }
-            if workspace.agentListeningPorts != ports {
-                workspace.agentListeningPorts = ports
-                workspace.recomputeListeningPorts()
-            }
-            return true
-        }
-        PortScanner.shared.agentPIDsProvider = { [weak self] workspaceIds in
-            guard let self, let tabManager = self.tabManager else { return [:] }
-            var pidsByWorkspace: [UUID: Set<Int>] = [:]
-            for workspaceId in workspaceIds {
-                guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { continue }
-                let pids = Set(workspace.agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
-                if !pids.isEmpty {
-                    pidsByWorkspace[workspaceId] = pids
-                }
-            }
-            return pidsByWorkspace
+            self?.applyAgentPortPublication(workspaceId: workspaceId, ports: ports) ?? false
         }
         PortScanner.shared.setTrackedAgentScanningPaused(!NSApplication.shared.isActive)
+    }
+
+    func applyPanelPortPublication(workspaceId: UUID, panelId: UUID, ports: [Int]) {
+        guard let workspace = portPublicationWorkspace(workspaceId: workspaceId),
+              workspace.panels[panelId] != nil else { return }
+        let nextPorts: [Int]? = ports.isEmpty ? nil : ports
+        guard workspace.surfaceListeningPorts[panelId] != nextPorts else { return }
+        workspace.surfaceListeningPorts[panelId] = nextPorts
+        workspace.recomputeListeningPorts()
+    }
+
+    func applyAgentPortPublication(workspaceId: UUID, ports: [Int]) -> Bool {
+        guard let workspace = portPublicationWorkspace(workspaceId: workspaceId) else { return false }
+        if workspace.agentListeningPorts != ports {
+            workspace.agentListeningPorts = ports
+            workspace.recomputeListeningPorts()
+        }
+        return true
+    }
+
+    private func portPublicationWorkspace(workspaceId: UUID) -> Workspace? {
+        AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?.tabs.first { $0.id == workspaceId }
     }
 
     nonisolated func socketListenerHealth(expectedSocketPath: String) -> SocketListenerHealth {
@@ -6703,46 +6702,6 @@ class TerminalController {
             ])
         }
         return result
-    }
-
-    private func v2IsDiffViewerURL(_ url: URL?) -> Bool {
-        guard let url else { return false }
-        if url.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme {
-            return true
-        }
-        return url.scheme?.lowercased() == "http" &&
-            url.host == "127.0.0.1" &&
-            url.fragment == "cmux-diff-viewer"
-    }
-
-    private func v2RegisterDiffViewerURLIfNeeded(params: [String: Any], url: URL?) -> V2CallResult? {
-        guard let url,
-              url.scheme == CmuxDiffViewerURLSchemeHandler.scheme else {
-            return nil
-        }
-        guard let token = v2String(params, "diff_viewer_token"),
-              token == url.host,
-              let rawFiles = params["diff_viewer_files"] as? [[String: Any]],
-              !rawFiles.isEmpty,
-              rawFiles.count <= CmuxDiffViewerURLSchemeHandler.maxRegisteredFiles else {
-            return .err(code: "invalid_params", message: "Missing or invalid trusted diff viewer allowlist", data: nil)
-        }
-
-        let files = rawFiles.compactMap(CmuxDiffViewerURLSchemeHandler.registeredFile(from:))
-        guard files.count == rawFiles.count else {
-            return .err(code: "invalid_params", message: "Invalid trusted diff viewer allowlist", data: nil)
-        }
-
-        do {
-            try CmuxDiffViewerURLSchemeHandler.shared.register(token: token, files: files)
-            return nil
-        } catch {
-            return .err(
-                code: "invalid_params",
-                message: "Invalid trusted diff viewer allowlist",
-                data: ["details": error.localizedDescription]
-            )
-        }
     }
 
     private nonisolated func v2BrowserNavigate(params: [String: Any]) -> V2CallResult {

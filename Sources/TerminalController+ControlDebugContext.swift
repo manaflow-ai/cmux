@@ -431,5 +431,9 @@ extension TerminalController: ControlDebugContext {
     func controlDebugPortalStats() -> JSONValue? {
         JSONValue(foundationObject: TerminalWindowPortalRegistry.debugPortalStats())
     }
+
+    func controlDebugRemoteTmuxSizingSettled() -> JSONValue? {
+        JSONValue(foundationObject: remoteTmuxSizingSettlementPayload())
+    }
 #endif
 }

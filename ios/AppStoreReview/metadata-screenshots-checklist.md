@@ -79,6 +79,6 @@ asc metadata validate --dir ios/AppStoreReview/metadata --output table
 ```
 
 ```bash
-asc screenshots validate --path ios/AppStoreReview/screenshots --device-type IPHONE_69 --output table
-asc screenshots validate --path ios/AppStoreReview/screenshots --device-type IPAD_PRO_3GEN_129 --output table
+asc screenshots validate --path ios/AppStoreReview/screenshots/en-US/iphone --device-type IPHONE_69 --output table
+asc screenshots validate --path ios/AppStoreReview/screenshots/en-US/ipad --device-type IPAD_PRO_3GEN_129 --output table
 ```
