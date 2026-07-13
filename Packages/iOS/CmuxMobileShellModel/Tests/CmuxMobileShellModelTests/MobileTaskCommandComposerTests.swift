@@ -240,6 +240,44 @@ import Testing
         }
     }
 
+    @Test func implicitAppendInsertsBeforeTrailingSemicolonAndComment() {
+        let template = MobileTaskTemplate(
+            name: "Comment",
+            icon: "terminal",
+            command: "agent; # keep this note"
+        )
+
+        let result = composer.compose(template: template, prompt: "ship it")
+
+        #expect(result.initialCommand == "agent -- \"${CMUX_TASK_PROMPT}\"; # keep this note")
+    }
+
+    @Test func implicitAppendInsertsBeforeTrailingBackgroundOperatorAndComment() {
+        let template = MobileTaskTemplate(
+            name: "Comment",
+            icon: "terminal",
+            command: "agent & # keep this note"
+        )
+
+        let result = composer.compose(template: template, prompt: "ship it")
+
+        #expect(result.initialCommand == "agent -- \"${CMUX_TASK_PROMPT}\" & # keep this note")
+    }
+
+    @Test func implicitAppendKeepsQuotedAndEscapedControlCharactersAsTokens() {
+        let commands = [
+            "agent ';'",
+            "agent \"&\"",
+            "agent \\)",
+        ]
+
+        for command in commands {
+            let template = MobileTaskTemplate(name: "Operator", icon: "terminal", command: command)
+            let result = composer.compose(template: template, prompt: "ship it")
+            #expect(result.initialCommand == command + " -- \"${CMUX_TASK_PROMPT}\"")
+        }
+    }
+
     @Test func appendModeLeavesCommandUnchangedForEmptyPrompt() {
         let template = MobileTaskTemplate(name: "Codex", icon: "sparkles", command: "codex")
 
