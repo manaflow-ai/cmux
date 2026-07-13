@@ -1,0 +1,83 @@
+@testable import CmuxWorktrees
+import Foundation
+import Testing
+
+@Suite
+struct WorktreeStatusTests {
+    @Test
+    func computesAheadAndBehindAgainstUpstream() async throws {
+        let fixture = try await GitTestRepository.make()
+        defer { fixture.cleanup() }
+        let remote = fixture.path("remote.git")
+        _ = try await fixture.git(["init", "--bare", remote.path])
+        _ = try await fixture.git(["remote", "add", "origin", remote.path])
+        _ = try await fixture.git(["push", "-u", "origin", "main"])
+
+        let path = fixture.path("worktrees/diverged")
+        let worktree = try await WorktreeService().create(
+            repoRoot: fixture.repository.path,
+            name: "diverged",
+            baseRef: "main",
+            options: WorktreeCreateOptions(worktreePath: path.path),
+            on: fixture.host
+        )
+        _ = try await fixture.git(["branch", "--set-upstream-to=origin/main", "diverged"])
+        try fixture.write("local\n", to: "local.txt", in: path)
+        try await fixture.commit("local commit", in: path)
+
+        let peer = fixture.path("peer")
+        _ = try await fixture.git(["clone", remote.path, peer.path])
+        _ = try await fixture.git(["config", "user.name", "cmux tests"], in: peer)
+        _ = try await fixture.git(["config", "user.email", "cmux-tests@example.com"], in: peer)
+        try fixture.write("remote\n", to: "remote.txt", in: peer)
+        try await fixture.commit("remote commit", in: peer)
+        _ = try await fixture.git(["push", "origin", "main"], in: peer)
+        _ = try await fixture.git(["fetch", "origin"])
+
+        let status = try await WorktreeService().status(
+            worktree: worktree.identity,
+            on: fixture.host
+        )
+        #expect(status.branch == "diverged")
+        #expect(status.upstream == "origin/main")
+        #expect(status.aheadCount == 1)
+        #expect(status.behindCount == 1)
+        #expect(status.dirtyFileCount == 0)
+        #expect(status.operation == nil)
+    }
+
+    @Test
+    func detectsMergeAndRebaseAdministrativeState() async throws {
+        let fixture = try await GitTestRepository.make()
+        defer { fixture.cleanup() }
+        let path = fixture.path("worktrees/operation")
+        let worktree = try await WorktreeService().create(
+            repoRoot: fixture.repository.path,
+            name: "operation",
+            baseRef: "HEAD",
+            options: WorktreeCreateOptions(worktreePath: path.path),
+            on: fixture.host
+        )
+
+        let dotGit = URL(fileURLWithPath: worktree.identity.worktreePath).appendingPathComponent(".git")
+        let contents = try String(contentsOf: dotGit, encoding: .utf8)
+        let gitDirectory = URL(fileURLWithPath: contents.replacingOccurrences(of: "gitdir:", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines))
+        let head = try #require(worktree.headOID)
+        try head.write(
+            to: gitDirectory.appendingPathComponent("MERGE_HEAD"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let merging = try await WorktreeService().status(worktree: worktree.identity, on: fixture.host)
+        #expect(merging.operation == .merge)
+
+        try FileManager.default.removeItem(at: gitDirectory.appendingPathComponent("MERGE_HEAD"))
+        try FileManager.default.createDirectory(
+            at: gitDirectory.appendingPathComponent("rebase-merge"),
+            withIntermediateDirectories: true
+        )
+        let rebasing = try await WorktreeService().status(worktree: worktree.identity, on: fixture.host)
+        #expect(rebasing.operation == .rebase)
+    }
+}
