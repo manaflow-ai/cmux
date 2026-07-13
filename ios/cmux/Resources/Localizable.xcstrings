@@ -7141,6 +7141,23 @@
         }
       }
     },
+    "mobile.taskComposer.button.accessibilityHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens the task composer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスク作成画面を開きます。"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.button.accessibilityLabel": {
       "extractionState": "manual",
       "localizations": {
@@ -7171,6 +7188,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "作成"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.create.accessibilityHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creates the task on the selected Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したMacでタスクを作成します。"
           }
         }
       }
@@ -7335,6 +7369,23 @@
         }
       }
     },
+    "mobile.taskComposer.machine.accessibilityHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chooses the Mac that will run this task."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタスクを実行するMacを選択します。"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.machine.none": {
       "extractionState": "manual",
       "localizations": {
@@ -7389,6 +7440,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "テンプレート"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.template.accessibilityHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selects this template for the task."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタスクに使用するテンプレートを選択します。"
           }
         }
       }
@@ -7525,6 +7593,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "カスタム絵文字"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.template.icon.accessibilityHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selects this icon for the template."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テンプレートに使用するアイコンを選択します。"
           }
         }
       }

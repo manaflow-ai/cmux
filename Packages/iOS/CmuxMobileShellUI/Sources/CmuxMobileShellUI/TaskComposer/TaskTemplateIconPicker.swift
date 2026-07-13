@@ -74,6 +74,12 @@ struct TaskTemplateIconPicker: View {
         .buttonStyle(.plain)
         .frame(minWidth: 44, minHeight: 44)
         .accessibilityLabel(Self.accessibilityName(for: value))
+        .accessibilityHint(
+            L10n.string(
+                "mobile.taskComposer.template.icon.accessibilityHint",
+                defaultValue: "Selects this icon for the template."
+            )
+        )
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 

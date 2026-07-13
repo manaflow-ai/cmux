@@ -16,6 +16,9 @@ struct TaskComposerButton: View {
         .foregroundStyle(.primary)
         .mobileGlassCircle()
         .accessibilityLabel(L10n.string("mobile.taskComposer.button.accessibilityLabel", defaultValue: "New Task"))
+        .accessibilityHint(
+            L10n.string("mobile.taskComposer.button.accessibilityHint", defaultValue: "Opens the task composer.")
+        )
         .accessibilityIdentifier("MobileTaskComposerButton")
     }
 }

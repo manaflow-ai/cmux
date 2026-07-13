@@ -4,6 +4,27 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 
 extension TaskComposerSheet {
+    static var createAccessibilityHint: String {
+        L10n.string(
+            "mobile.taskComposer.create.accessibilityHint",
+            defaultValue: "Creates the task on the selected Mac."
+        )
+    }
+
+    static var machineAccessibilityHint: String {
+        L10n.string(
+            "mobile.taskComposer.machine.accessibilityHint",
+            defaultValue: "Chooses the Mac that will run this task."
+        )
+    }
+
+    static var templateAccessibilityHint: String {
+        L10n.string(
+            "mobile.taskComposer.template.accessibilityHint",
+            defaultValue: "Selects this template for the task."
+        )
+    }
+
     static func failureMessage(_ failure: MobileWorkspaceMutationFailure) -> String {
         switch failure {
         case .notConnected:

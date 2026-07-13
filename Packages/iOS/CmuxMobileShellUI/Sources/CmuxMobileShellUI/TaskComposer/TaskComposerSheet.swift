@@ -177,6 +177,7 @@ struct TaskComposerSheet: View {
                             ? L10n.string("mobile.taskComposer.creating", defaultValue: "Creating Task")
                             : L10n.string("mobile.taskComposer.create", defaultValue: "Create")
                     )
+                    .accessibilityHint(Self.createAccessibilityHint)
                     .accessibilityIdentifier("MobileTaskComposerCreateButton")
 
                     if let failureText {
@@ -324,6 +325,7 @@ struct TaskComposerSheet: View {
                             Text(mac.resolvedName)
                         }
                     }
+                    .accessibilityAddTraits(mac.macDeviceID == selectedMacDeviceID ? .isSelected : [])
                 }
             } label: {
                 HStack(spacing: 10) {
@@ -338,6 +340,7 @@ struct TaskComposerSheet: View {
                 }
             }
             .accessibilityLabel(L10n.string("mobile.taskComposer.machine", defaultValue: "Machine"))
+            .accessibilityHint(Self.machineAccessibilityHint)
             .accessibilityValue(selectedMachineName)
             .accessibilityIdentifier("MobileTaskComposerMachineMenu")
         }
@@ -363,6 +366,7 @@ struct TaskComposerSheet: View {
         .buttonStyle(.bordered)
         .tint(isSelected ? .accentColor : .secondary)
         .frame(minHeight: 44)
+        .accessibilityHint(Self.templateAccessibilityHint)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
