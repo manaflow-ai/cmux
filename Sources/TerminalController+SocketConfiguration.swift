@@ -45,16 +45,16 @@ extension TerminalController {
     }
 
     nonisolated static var socketClientAccessDeniedResponse: String {
-        "ERROR: \(String(
+        "ERROR: " + String(
             localized: "socket.client.accessDenied",
             defaultValue: "Access denied — only processes started inside cmux can connect"
-        ))"
+        )
     }
 
     nonisolated static var socketClientVerificationFailedResponse: String {
-        "ERROR: \(String(
+        "ERROR: " + String(
             localized: "socket.client.verificationFailed",
             defaultValue: "Unable to verify client process"
-        ))"
+        )
     }
 }
