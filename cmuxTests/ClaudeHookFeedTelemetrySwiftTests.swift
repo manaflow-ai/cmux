@@ -59,7 +59,7 @@ struct ClaudeHookFeedTelemetrySwiftTests {
 
         #expect(result.timedOut == false, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
-        #expect(result.stdout == "OK\n")
+        #expect(result.stdout == "{}\n")
         #expect(feedSeen.wait(timeout: .now() + 5) == .success, "Expected feed.push, saw \(state.commandsSnapshot())")
         let event = try #require(
             state.feedEventsSnapshot().last { $0["hook_event_name"] as? String == "SessionStart" },
