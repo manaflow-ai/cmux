@@ -14,6 +14,19 @@ import Darwin
 import Foundation
 
 extension TerminalController {
+    /// `remote.tmux.window` (DEBUG only) — attach a host's tmux sessions as
+    /// mirror workspaces and report the hosting window, activating by
+    /// default. A thin alias of `remote.tmux.mirror`: the sizing UI suite
+    /// attaches its lab host through this (activation mounts the mirror
+    /// views, and only mounted views have geometry to feed the client-size
+    /// push), while the user-facing entry point is `cmux ssh-tmux` with its
+    /// foreground auth handoff — so the raw verb stays test tooling.
+    nonisolated func v2RemoteTmuxWindow(id: Any?, params: [String: Any]) -> String {
+        var forwarded = params
+        if forwarded["activate"] == nil { forwarded["activate"] = true }
+        return v2RemoteTmuxMirror(id: id, params: forwarded)
+    }
+
     /// `remote.tmux.test_exec` (DEBUG only) — runs a tmux argv with a given
     /// `TMUX_TMPDIR` inside the APP process and returns its exit/stdout/stderr.
     ///
