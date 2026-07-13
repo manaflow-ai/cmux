@@ -91,7 +91,22 @@ extension TranscriptListViewController {
             }
             if let anchor,
                let targetOffset = self.contentOffset(preservingTopOf: anchor) {
+                #if DEBUG
+                let postLayoutAttributeTop = self.screenTop(of: anchor.rowID)
+                let postLayoutVisualTop = self.visualScreenTop(of: anchor.rowID)
+                #endif
                 self.collectionView.setContentOffset(targetOffset, animated: false)
+                #if DEBUG
+                self.collectionView.layoutIfNeeded()
+                self.lastAnchorTrace = (
+                    capturedScreenTop: anchor.screenY,
+                    postLayoutAttributeTop: postLayoutAttributeTop ?? .nan,
+                    postLayoutVisualTop: postLayoutVisualTop ?? .nan,
+                    computedTargetOffset: targetOffset.y,
+                    appliedOffset: self.collectionView.contentOffset.y,
+                    finalScreenTop: self.visualScreenTop(of: anchor.rowID) ?? .nan
+                )
+                #endif
             }
             CATransaction.commit()
         }

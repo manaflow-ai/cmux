@@ -1,10 +1,17 @@
 #if DEBUG && os(iOS)
 import CmuxAgentGUIProjection
+import SwiftUI
 import UIKit
 
 final class TranscriptDemoContainerViewController: UIViewController {
     let transcript: TranscriptListViewController
     private var currentTheme: AgentGUITheme
+    private var composerHost: UIHostingController<TranscriptDemoComposerView>?
+    private(set) var composerBottomConstraint: NSLayoutConstraint?
+
+    var composerHostView: UIView? {
+        composerHost?.view
+    }
 
     init(theme: AgentGUITheme) {
         transcript = TranscriptListViewController(theme: theme)
@@ -30,6 +37,46 @@ final class TranscriptDemoContainerViewController: UIViewController {
             transcript.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             transcript.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard let composerHost else { return }
+        transcript.setBottomChromeHeight(composerHost.view.bounds.height)
+    }
+
+    func installComposer(model: TranscriptDemoModel, density: Binding<TranscriptDensity>) {
+        guard composerHost == nil else { return }
+        loadViewIfNeeded()
+        let host = UIHostingController(rootView: TranscriptDemoComposerView(
+            model: model,
+            density: density,
+            jumpToBottom: { [weak self] in
+                self?.scrollToBottom()
+            }
+        ))
+        host.sizingOptions = .intrinsicContentSize
+        host.view.translatesAutoresizingMaskIntoConstraints = false
+        host.view.backgroundColor = .clear
+        host.view.accessibilityIdentifier = "transcript.demo.composer-host"
+        addChild(host)
+        view.addSubview(host.view)
+        // Keep the Liquid Glass subtree's local bounds fixed. UIKit translates
+        // this hosting layer with the same keyboard guide as the transcript;
+        // SwiftUI therefore does not rematerialize each glass control while its
+        // simultaneously moving backdrop is being sampled.
+        let bottomConstraint = host.view.bottomAnchor.constraint(
+            equalTo: view.keyboardLayoutGuide.topAnchor
+        )
+        NSLayoutConstraint.activate([
+            host.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            host.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomConstraint,
+        ])
+        host.didMove(toParent: self)
+        composerHost = host
+        composerBottomConstraint = bottomConstraint
+        view.setNeedsLayout()
     }
 
     func apply(input: TranscriptProjectionInput) {

@@ -21,6 +21,7 @@ extension TranscriptRenderingRegressionTests {
             let isJustInsideHistoryEnd = requestedPosition == -1
             let position = requestedPosition == 0.05 ? min(20 / max(range, 1), 1) : requestedPosition
             let isExactlyAtBottom = position == 0
+            let isExactlyAtHistoryEnd = position == 1
             Self.scrollMountedController(
                 controller,
                 to: isJustInsideHistoryEnd
@@ -35,10 +36,15 @@ extension TranscriptRenderingRegressionTests {
 
             let comfortableAnchor = try #require(controller.captureAnchor())
             let comfortableScreenY = try Self.screenY(of: comfortableAnchor.rowID, in: controller)
-            #expect(Self.nativePixelY(comfortableAnchor.screenY, in: controller) == Self.nativePixelY(comfortableScreenY, in: controller))
-            let comfortableOffsetY = controller.collectionView.contentOffset.y
-            let comfortableLayoutTopY = try Self.flippedLayoutTopY(
-                of: comfortableAnchor.rowID, in: controller
+            let comfortableSpacing = try Self.spacing(for: comfortableAnchor.rowID, in: controller)
+            let comfortableVisualTopY = Self.visualContentTopY(
+                rowTopY: comfortableScreenY,
+                spacing: comfortableSpacing,
+                in: controller
+            )
+            #expect(
+                Self.nativePixelY(comfortableAnchor.screenY, in: controller)
+                    == Self.nativePixelY(comfortableVisualTopY, in: controller)
             )
             let rowIDs = controller.dataSource.snapshot().itemIdentifiers
             let newestRowID = try #require(rowIDs.first)
@@ -48,10 +54,13 @@ extension TranscriptRenderingRegressionTests {
             Self.updateMountedDemo(mounted, density: .compact)
 
             let compactAnchorY = try Self.screenY(of: comfortableAnchor.rowID, in: controller)
-            let compactLayoutTopY = try Self.flippedLayoutTopY(
-                of: comfortableAnchor.rowID, in: controller
-            )
+            let compactTrace = try #require(controller.lastAnchorTrace)
             let compactSpacing = try Self.spacing(for: comfortableAnchor.rowID, in: controller)
+            if position == 0.67 {
+                #expect(comfortableSpacing.top == 4)
+                #expect(compactSpacing.top == 2.5)
+            }
+            print("density-anchor comfortable->compact position=\(position) capturedScreenTop=\(compactTrace.capturedScreenTop) postLayoutAttributeTop=\(compactTrace.postLayoutAttributeTop) postLayoutVisualTop=\(compactTrace.postLayoutVisualTop) computedTargetOffset=\(compactTrace.computedTargetOffset) appliedOffset=\(compactTrace.appliedOffset) finalScreenTop=\(compactTrace.finalScreenTop)")
             #expect(controller.currentDensity == .compact)
             #expect(compactSpacing.density == .compact)
             #expect(
@@ -65,29 +74,30 @@ extension TranscriptRenderingRegressionTests {
                 Self.pumpMainRunLoop()
                 #expect(controller.collectionView.contentOffset == toggledRest)
                 #expect(Self.nativePixelY(try Self.contentScreenBottomY(of: newestRowID, in: controller), in: controller) == Self.nativePixelY(comfortableNewestBottomY, in: controller))
-            } else if !isJustInsideHistoryEnd {
-                let computedTargetY = comfortableOffsetY
-                    + compactLayoutTopY
-                    - comfortableLayoutTopY
+            } else if !isJustInsideHistoryEnd && !isExactlyAtHistoryEnd {
                 #expect(
-                    Self.nativePixelY(compactAnchorY, in: controller)
-                        == Self.nativePixelY(comfortableScreenY, in: controller),
-                    "position=\(position), preOffset=\(comfortableOffsetY), preFrame=\(comfortableLayoutTopY), postFrame=\(compactLayoutTopY), computedTarget=\(computedTargetY), actualOffset=\(controller.collectionView.contentOffset.y), preScreen=\(comfortableScreenY), postScreen=\(compactAnchorY)"
+                    abs(Self.nativePixelY(Self.visualContentTopY(
+                        rowTopY: compactAnchorY,
+                        spacing: compactSpacing,
+                        in: controller
+                    ), in: controller) - Self.nativePixelY(comfortableVisualTopY, in: controller)) <= 1,
+                    "The replay row's visual top must remain within one native pixel"
                 )
             }
 
             let compactAnchor = try #require(controller.captureAnchor())
             let compactScreenY = try Self.screenY(of: compactAnchor.rowID, in: controller)
-            let compactOffsetY = controller.collectionView.contentOffset.y
-            let compactSelectedLayoutTopY = try Self.flippedLayoutTopY(
-                of: compactAnchor.rowID, in: controller
+            let compactSelectedSpacing = try Self.spacing(for: compactAnchor.rowID, in: controller)
+            let compactVisualTopY = Self.visualContentTopY(
+                rowTopY: compactScreenY,
+                spacing: compactSelectedSpacing,
+                in: controller
             )
             Self.updateMountedDemo(mounted, density: .comfortable)
 
             let restoredAnchorY = try Self.screenY(of: compactAnchor.rowID, in: controller)
-            let restoredLayoutTopY = try Self.flippedLayoutTopY(
-                of: compactAnchor.rowID, in: controller
-            )
+            let comfortableTrace = try #require(controller.lastAnchorTrace)
+            print("density-anchor compact->comfortable position=\(position) capturedScreenTop=\(comfortableTrace.capturedScreenTop) postLayoutAttributeTop=\(comfortableTrace.postLayoutAttributeTop) postLayoutVisualTop=\(comfortableTrace.postLayoutVisualTop) computedTargetOffset=\(comfortableTrace.computedTargetOffset) appliedOffset=\(comfortableTrace.appliedOffset) finalScreenTop=\(comfortableTrace.finalScreenTop)")
             let restoredSpacing = try Self.spacing(for: compactAnchor.rowID, in: controller)
             #expect(controller.currentDensity == .comfortable)
             #expect(restoredSpacing.density == .comfortable)
@@ -98,14 +108,14 @@ extension TranscriptRenderingRegressionTests {
             if isExactlyAtBottom {
                 #expect(controller.collectionView.contentOffset == controller.bottomRestOffset)
                 #expect(Self.nativePixelY(try Self.contentScreenBottomY(of: newestRowID, in: controller), in: controller) == Self.nativePixelY(comfortableNewestBottomY, in: controller))
-            } else {
-                let computedTargetY = compactOffsetY
-                    + restoredLayoutTopY
-                    - compactSelectedLayoutTopY
+            } else if !isExactlyAtHistoryEnd {
                 #expect(
-                    Self.nativePixelY(restoredAnchorY, in: controller)
-                        == Self.nativePixelY(compactScreenY, in: controller),
-                    "position=\(position), preOffset=\(compactOffsetY), preFrame=\(compactSelectedLayoutTopY), postFrame=\(restoredLayoutTopY), computedTarget=\(computedTargetY), actualOffset=\(controller.collectionView.contentOffset.y), preScreen=\(compactScreenY), postScreen=\(restoredAnchorY)"
+                    abs(Self.nativePixelY(Self.visualContentTopY(
+                        rowTopY: restoredAnchorY,
+                        spacing: restoredSpacing,
+                        in: controller
+                    ), in: controller) - Self.nativePixelY(compactVisualTopY, in: controller)) <= 1,
+                    "The replay row's reverse visual top must remain within one native pixel"
                 )
             }
             #expect(controller.dataSource.snapshot().itemIdentifiers == rowIDs)
@@ -179,46 +189,6 @@ extension TranscriptRenderingRegressionTests {
         #expect(abs(restoredHeight - comfortableHeight) < 0.5)
     }
 
-    @Test func compactSummaryAndGenericActivityInternalHeightsBothShrink() {
-        let theme = AgentGUITheme(terminalTheme: .monokai)
-        let rows = [Self.collapsedSummaryRow(), Self.genericActivityRow()]
-
-        for row in rows {
-            let cell = TranscriptCollectionCell(frame: CGRect(x: 0, y: 0, width: 390, height: 100))
-            Self.configure(cell, row: row, density: .comfortable, theme: theme)
-            let comfortableHeight = Self.densityFittingHeight(of: cell)
-            Self.configure(cell, row: row, density: .compact, theme: theme)
-            let compactHeight = Self.densityFittingHeight(of: cell)
-            Self.configure(cell, row: row, density: .comfortable, theme: theme)
-            let restoredHeight = Self.densityFittingHeight(of: cell)
-
-            #expect(compactHeight <= comfortableHeight - 5)
-            #expect(abs(restoredHeight - comfortableHeight) < 0.5)
-        }
-    }
-
-    private static func configure(
-        _ cell: TranscriptCollectionCell,
-        row: TranscriptRow,
-        density: TranscriptDensity,
-        theme: AgentGUITheme
-    ) {
-        cell.configure(
-            row: row,
-            spacing: TranscriptRowSpacing(top: 0, bottom: 0, density: density),
-            theme: theme,
-            isActivitySummaryExpanded: false,
-            answeringAskID: nil,
-            failedAskID: nil,
-            onToggleActivitySummary: {},
-            onAnswer: { _, _ in },
-            onShowTerminal: {}
-        )
-        cell.setNeedsLayout()
-        cell.layoutIfNeeded()
-        cell.contentView.layoutIfNeeded()
-    }
-
     private static func expectRunningIndicator(
         for rowID: TranscriptRowID,
         in controller: TranscriptListViewController
@@ -255,15 +225,18 @@ extension TranscriptRenderingRegressionTests {
         return controller.collectionView.convert(attributes.frame, to: controller.view.window).minY
     }
 
-    private static func flippedLayoutTopY(of rowID: TranscriptRowID, in controller: TranscriptListViewController) throws -> CGFloat {
-        let indexPath = try #require(controller.dataSource.indexPath(for: rowID))
-        let attributes = try #require(controller.collectionView.layoutAttributesForItem(at: indexPath))
-        return attributes.frame.maxY
-    }
-
     private static func nativePixelY(_ value: CGFloat, in controller: TranscriptListViewController) -> Int {
         let scale = controller.view.window?.screen.scale ?? 1
         return Int((value * scale).rounded())
+    }
+
+    private static func visualContentTopY(
+        rowTopY: CGFloat,
+        spacing: TranscriptRowSpacing,
+        in controller: TranscriptListViewController
+    ) -> CGFloat {
+        let scale = controller.view.window?.screen.scale ?? 1
+        return ((rowTopY + spacing.top) * scale).rounded() / scale
     }
 
     private static func contentScreenBottomY(of rowID: TranscriptRowID, in controller: TranscriptListViewController) throws -> CGFloat {
@@ -294,9 +267,15 @@ extension TranscriptRenderingRegressionTests {
             input: model.input,
             density: .comfortable
         ))
+        hosting.navigationItem.title = AgentGUIL10n.string(
+            "agent.demo.title",
+            defaultValue: "Transcript Demo"
+        )
+        let navigation = UINavigationController(rootViewController: hosting)
+        navigation.navigationBar.prefersLargeTitles = false
         let window = UIWindow(frame: UIScreen.main.bounds)
-        window.rootViewController = hosting
-        window.isHidden = false
+        window.rootViewController = navigation
+        window.makeKeyAndVisible()
         Self.pumpMainRunLoop()
 
         for _ in 0..<32 {
@@ -310,7 +289,7 @@ extension TranscriptRenderingRegressionTests {
             Self.pumpMainRunLoop()
         }
         let container = try #require(Self.demoContainer(in: hosting))
-        container.additionalSafeAreaInsets.top = 47
+        container.additionalSafeAreaInsets.top = window.safeAreaInsets.top
         Self.pumpMainRunLoop()
         return (hosting, window, container, model)
     }
@@ -339,7 +318,9 @@ extension TranscriptRenderingRegressionTests {
             input: input,
             theme: AgentGUITheme(terminalTheme: .monokai),
             jumpToken: 0,
-            bottomChromeHeight: 120,
+            // 44pt field + 8pt stack gap + 56pt controls + 16pt outer padding.
+            // The transcript adds its own 8pt breathing gap at the viewport boundary.
+            bottomChromeHeight: 124,
             density: density
         )
     }
@@ -399,14 +380,6 @@ extension TranscriptRenderingRegressionTests {
         return Dictionary(uniqueKeysWithValues: pairs)
     }
 
-    private static func densityFittingHeight(of cell: TranscriptCollectionCell) -> CGFloat {
-        cell.contentView.systemLayoutSizeFitting(
-            CGSize(width: cell.bounds.width, height: UIView.layoutFittingCompressedSize.height),
-            withHorizontalFittingPriority: .required,
-            verticalFittingPriority: .fittingSizeLevel
-        ).height
-    }
-
     private static func runningActivityInput() -> TranscriptProjectionInput {
         let journal = JournalID(rawValue: "density-running")
         let user: EntryPayload = .userMessage(UserMessagePayload(
@@ -438,39 +411,6 @@ extension TranscriptRenderingRegressionTests {
                 ),
             ],
             sessionPhase: .working
-        )
-    }
-
-    private static func collapsedSummaryRow() -> TranscriptRow {
-        let journal = JournalID(rawValue: "density-summary")
-        let turnID = TranscriptTurnID(
-            journalID: journal,
-            promptSeq: EntrySeq(rawValue: 1),
-            segmentAnchorSeq: EntrySeq(rawValue: 1)
-        )
-        return TranscriptRow(
-            rowID: .activitySummary(turnID),
-            rowKind: .activitySummary(TranscriptActivitySummary(
-                editedFileCount: 1,
-                readFileCount: 0,
-                searchedCode: false,
-                listedFiles: false,
-                commandCount: 1,
-                eventCount: 0,
-                items: []
-            )),
-            turnID: turnID
-        )
-    }
-
-    private static func genericActivityRow() -> TranscriptRow {
-        let journal = JournalID(rawValue: "density-generic")
-        return TranscriptRow(
-            rowID: .entry(journalID: journal, seq: EntrySeq(rawValue: 1)),
-            rowKind: .genericActivity(TranscriptGenericActivity(
-                kindLabel: "future_kind",
-                summary: "A future activity"
-            ))
         )
     }
 

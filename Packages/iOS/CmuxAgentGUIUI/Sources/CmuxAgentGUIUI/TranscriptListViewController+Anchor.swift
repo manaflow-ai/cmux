@@ -3,6 +3,28 @@ import CmuxAgentGUIProjection
 import UIKit
 
 extension TranscriptListViewController {
+    func screenTop(of rowID: TranscriptRowID) -> CGFloat? {
+        guard let indexPath = dataSource.indexPath(for: rowID),
+              let attributes = collectionView.layoutAttributesForItem(at: indexPath)
+        else {
+            return nil
+        }
+        let screenCoordinateView = view.window ?? view
+        return collectionView.convert(attributes.frame, to: screenCoordinateView).standardized.minY
+    }
+
+    func visualScreenTop(of rowID: TranscriptRowID) -> CGFloat? {
+        guard let rowTop = screenTop(of: rowID),
+              let spacing = spacingByID[rowID]
+        else {
+            return nil
+        }
+        // UIKit rasterizes the semantic content edge, not the fractional inset in
+        // isolation. Normalize that complete screen-space boundary once so a
+        // 2.5pt compact inset cannot choose the opposite half pixel at restore.
+        return pixelRounded(rowTop + spacing.top)
+    }
+
     func captureAnchor(pinningExactBottomRest: Bool = false) -> TranscriptAnchorSnapshot? {
         let screenCoordinateView = view.window ?? view
         let viewportFrame = collectionView.convert(collectionView.bounds, to: screenCoordinateView).standardized
@@ -48,23 +70,17 @@ extension TranscriptListViewController {
         let pixelTolerance = 1 / max(scale, 1)
         return TranscriptAnchorSnapshot(
             rowID: selected.rowID,
-            screenY: selected.frame.minY,
+            screenY: visualScreenTop(of: selected.rowID) ?? pixelRounded(selected.frame.minY),
             pinsExactBottomRest: pinningExactBottomRest
                 && abs(collectionView.contentOffset.y - bottomRestOffset.y) <= pixelTolerance
         )
     }
 
     func contentOffset(preservingTopOf anchor: TranscriptAnchorSnapshot) -> CGPoint? {
-        guard let indexPath = dataSource.indexPath(for: anchor.rowID),
-              let attributes = collectionView.layoutAttributesForItem(at: indexPath)
-        else {
-            return nil
-        }
-        let screenCoordinateView = view.window ?? view
-        let currentScreenY = collectionView.convert(attributes.frame, to: screenCoordinateView).standardized.minY
+        guard let currentScreenY = visualScreenTop(of: anchor.rowID) else { return nil }
         // The apply-time offset cancels out of this screen-space correction. The
-        // selected row's actual post-layout top edge is the sole pin authority,
-        // independent of which register contributed its surrounding spacing.
+        // selected row's actual post-layout visual edge is the sole pin authority,
+        // including the density register's fractional top inset.
         // `contentOffset` already incorporates `adjustedContentInset`; adding the
         // inset again here would double-count the safe-area/nav contribution.
         let unalignedTargetY = collectionView.contentOffset.y

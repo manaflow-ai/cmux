@@ -18,6 +18,16 @@ public import UIKit
     var currentDensity: TranscriptDensity = .comfortable
     var pendingDensity: TranscriptDensity?
     var isApplyingDensityTransaction = false
+    #if DEBUG
+    var lastAnchorTrace: (
+        capturedScreenTop: CGFloat,
+        postLayoutAttributeTop: CGFloat,
+        postLayoutVisualTop: CGFloat,
+        computedTargetOffset: CGFloat,
+        appliedOffset: CGFloat,
+        finalScreenTop: CGFloat
+    )?
+    #endif
     private var latestInput: TranscriptProjectionInput?
     private var scrollAnimator: UIViewPropertyAnimator?
     var isAutoStickingToBottom = false
