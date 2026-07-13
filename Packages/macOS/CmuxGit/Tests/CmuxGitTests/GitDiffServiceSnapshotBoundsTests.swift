@@ -126,6 +126,90 @@ import Testing
         }
     }
 
+    @Test func filesystemMetadataBatchesStayBelowTheProcessArgumentLimit() {
+        let runner = GitProcessRunner(
+            gitExecutableURL: URL(fileURLWithPath: "/usr/bin/git"),
+            fileSystemStatExecutableURL: URL(fileURLWithPath: "/usr/bin/true"),
+            environment: ProcessInfo.processInfo.environment,
+            processDeadlineSeconds: 2
+        )
+        let longComponent = String(repeating: "nested/", count: 50)
+        let paths = (0..<4_000).map { "/tmp/\(longComponent)file-\($0)" }
+
+        let result = runner.runFileSystemStat(
+            paths: paths,
+            allowMissing: false,
+            maxOutputBytes: 1024
+        )
+
+        #expect(result.failure == nil)
+    }
+
+    @Test func filesystemMetadataBatchesShareOneDeadline() throws {
+        let stalledStat = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-batched-stat-\(UUID().uuidString).sh")
+        defer { try? FileManager.default.removeItem(at: stalledStat) }
+        try Data("#!/bin/sh\nsleep 0.15\n".utf8).write(to: stalledStat)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: stalledStat.path
+        )
+        let runner = GitProcessRunner(
+            gitExecutableURL: URL(fileURLWithPath: "/usr/bin/git"),
+            fileSystemStatExecutableURL: stalledStat,
+            environment: ProcessInfo.processInfo.environment,
+            processDeadlineSeconds: 0.25
+        )
+        let longComponent = String(repeating: "nested/", count: 50)
+        let paths = (0..<4_000).map { "/tmp/\(longComponent)file-\($0)" }
+
+        let result = runner.runFileSystemStat(
+            paths: paths,
+            allowMissing: false,
+            maxOutputBytes: 1024
+        )
+
+        #expect(result.timedOut)
+    }
+
+    @Test func statusSnapshotRejectsWorktreeChangesBetweenListings() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let path = "Racing.swift"
+        let fileURL = repo.appendingPathComponent(path)
+        try Data("let value = 0\n".utf8).write(to: fileURL)
+        try runTestGit(in: repo, ["add", "--", path])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add race fixture"])
+        try Data("let value = 1\n".utf8).write(to: fileURL)
+        let marker = repo.appendingPathComponent("mutation-did-run")
+        let mutatingGit = repo.appendingPathComponent("mutating-git.sh")
+        let script = """
+        #!/bin/sh
+        /usr/bin/git "$@"
+        status=$?
+        for argument in "$@"; do
+          if [ "$argument" = "--numstat" ] && [ ! -e '\(marker.path)' ]; then
+            printf 'let value = 2\\nlet other = 3\\n' > '\(fileURL.path)'
+            : > '\(marker.path)'
+          fi
+        done
+        exit "$status"
+        """
+        try Data(script.utf8).write(to: mutatingGit)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: mutatingGit.path
+        )
+
+        let result = GitDiffService(gitExecutableURL: mutatingGit)
+            .changedFilesResult(repoRoot: repo.path)
+
+        guard case .failed = result else {
+            Issue.record("Expected a worktree race to invalidate the status snapshot")
+            return
+        }
+    }
+
     private func makeTempRepo() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-git-snapshot-bounds-tests-\(UUID().uuidString)")

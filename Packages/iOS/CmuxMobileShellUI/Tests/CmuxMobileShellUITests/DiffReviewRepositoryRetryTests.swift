@@ -40,4 +40,36 @@ import Testing
 
         #expect(value == "fresh metadata")
     }
+
+    @Test func taskRestartDoesNotRenewTheAutomaticRetryBudget() async {
+        let budget = DiffReviewRepositoryRetryBudget()
+        let request = DiffReviewRepositoryRetryRequest(
+            path: "Sources/App.swift",
+            oldPath: nil,
+            status: .modified,
+            manualAttempt: 0
+        )
+        var reloads = 0
+
+        for _ in 0..<2 {
+            let retry = DiffReviewRepositoryRetry(
+                request: request,
+                budget: budget,
+                reloadStatus: {
+                    reloads += 1
+                    return true
+                }
+            )
+            do {
+                let _: String = try await retry.run { _ in
+                    throw WorkspaceDiffError.staleRepository
+                }
+            } catch {
+                // Both generations ultimately surface stale_repository. Only
+                // the first is allowed to refresh status automatically.
+            }
+        }
+
+        #expect(reloads == 1)
+    }
 }
