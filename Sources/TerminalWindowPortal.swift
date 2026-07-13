@@ -86,13 +86,11 @@ final class WindowTerminalHostView: NSView {
         for band in plan.bands {
             let clipped = convert(band.rect, from: nil).intersection(bounds)
             guard !clipped.isNull, clipped.width > 0, clipped.height > 0 else { continue }
-            guard !cursorRectIntersectsChromePassThrough(clipped) else { continue }
             addCursorRect(clipped, cursor: (band.isVertical ? PortalDividerCursorKind.vertical : .horizontal).cursor)
         }
         for corner in plan.corners {
             let clipped = convert(corner, from: nil).intersection(bounds)
             guard !clipped.isNull, clipped.width > 0, clipped.height > 0 else { continue }
-            guard !cursorRectIntersectsChromePassThrough(clipped) else { continue }
             addCursorRect(clipped, cursor: PortalDividerCursorKind.both.cursor)
         }
     }
@@ -176,17 +174,18 @@ final class WindowTerminalHostView: NSView {
         if routingContext.allowsPortalPointerHitTesting {
             let resolveHostedTerminalHitView = hostedTerminalHitViewResolver(at: point)
 
-            // The corner zone outranks pane tab bars and other chrome: its
-            // ~28pt square can overlap the tab bar just below a horizontal
-            // divider, and the four-way affordance must win wherever it
-            // shows. Claims: mouseDown (live pair, same predicate begin()
-            // uses) starts the two-axis drag; hover keeps the view
-            // underneath from flickering its own cursor back.
-            if splitDividerCursorKind(at: point) == .both {
-                let eventType = currentEvent?.type
-                assertDividerCursor(.both)
+            // A divider owns its full centered band, including the half that
+            // overlaps the adjacent pane's tab bar. Letting pane chrome win
+            // there made horizontal resize reachable only from one side.
+            // The same drag resolver used by mouseDown determines whether a
+            // structurally live divider can be claimed.
+            if let kind = splitDividerCursorKind(at: point) {
+                assertDividerCursor(kind)
                 if eventType == .leftMouseDown,
-                   DividerRegion.dividerIntersection(at: convert(point, to: nil), in: splitDividerRegions()) != nil {
+                   PortalDividerDragController.drag(
+                       atWindowPoint: convert(point, to: nil),
+                       regions: splitDividerRegions()
+                   ) != nil {
                     return self
                 }
                 if PortalDividerCursorKind.isPointerHoverEvent(eventType) { return self }
@@ -206,21 +205,6 @@ final class WindowTerminalHostView: NSView {
 
             if shouldPassThroughToSidebarResizer(at: point) {
                 clearActiveDividerCursor(restoreArrow: false)
-                return nil
-            }
-
-            if let kind = splitDividerCursorKind(at: point) {
-                assertDividerCursor(kind)
-                let eventType = currentEvent?.type
-                if eventType == .leftMouseDown,
-                   PortalDividerDragController.drag(
-                       atWindowPoint: convert(point, to: nil),
-                       regions: splitDividerRegions()
-                   ) != nil {
-                    return self
-                }
-                if PortalDividerCursorKind.isPointerHoverEvent(eventType) { return self }
-                TerminalWindowPortalRegistry.noteSplitDividerInteraction(in: window, event: currentEvent)
                 return nil
             }
 
@@ -309,17 +293,6 @@ final class WindowTerminalHostView: NSView {
 
         return shouldPassThroughToTitlebar(at: point, hostedTerminalHitView: resolveHostedTerminalHitView)
             || shouldPassThroughToPaneTabBar(at: point, eventType: eventType, hostedTerminalHitView: resolveHostedTerminalHitView)
-    }
-
-    private func cursorRectIntersectsChromePassThrough(_ rect: NSRect) -> Bool {
-        let samples = [
-            NSPoint(x: rect.midX, y: rect.midY),
-            NSPoint(x: rect.midX, y: rect.maxY - 0.5),
-            NSPoint(x: rect.midX, y: rect.minY + 0.5),
-            NSPoint(x: rect.minX + 0.5, y: rect.midY),
-            NSPoint(x: rect.maxX - 0.5, y: rect.midY),
-        ]
-        return samples.contains { shouldPassThroughToChrome(at: $0, eventType: .cursorUpdate) }
     }
 
     private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {

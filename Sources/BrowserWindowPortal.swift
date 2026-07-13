@@ -410,17 +410,20 @@ final class WindowBrowserHostView: NSView {
         )
         let splitPassThrough = dividerHit.map { !$0.isInHostedContent } ?? false
 
-        // The corner zone outranks chrome (tab strips can sit inside its
-        // ~28pt square just below a horizontal divider); the four-way
-        // affordance must win wherever it shows.
-        if dividerHit?.kind == .both {
-            if claimsIntersectionMouseDown(at: point, eventType: eventType, dividerHitKind: dividerHit?.kind) {
+        // An app divider owns its full centered band, including the half that
+        // overlaps the adjacent pane's tab strip. Hosted WebKit dividers keep
+        // their native routing.
+        if splitPassThrough {
+            if eventType == .leftMouseDown,
+               PortalDividerDragController.drag(
+                   atWindowPoint: convert(point, to: nil),
+                   regions: splitDividerRegions()
+               ) != nil {
                 return self
             }
             if PortalDividerCursorKind.isPointerHoverEvent(eventType) { return self }
-        }
-
-        if titlebarPassThrough {
+            return nil
+        } else if titlebarPassThrough {
 #if DEBUG
             debugLogPointerRouting(
                 stage: "hitTest.titlebarPass",
@@ -453,27 +456,6 @@ final class WindowBrowserHostView: NSView {
                 point: point,
                 titlebarPassThrough: false,
                 sidebarPassThrough: true,
-                dividerHit: dividerHit,
-                hitView: nil
-            )
-#endif
-            return nil
-        }
-        if splitPassThrough {
-            if eventType == .leftMouseDown,
-               PortalDividerDragController.drag(
-                   atWindowPoint: convert(point, to: nil),
-                   regions: splitDividerRegions()
-               ) != nil {
-                return self
-            }
-            if PortalDividerCursorKind.isPointerHoverEvent(eventType) { return self }
-#if DEBUG
-            debugLogPointerRouting(
-                stage: "hitTest.splitPass",
-                point: point,
-                titlebarPassThrough: false,
-                sidebarPassThrough: false,
                 dividerHit: dividerHit,
                 hitView: nil
             )
