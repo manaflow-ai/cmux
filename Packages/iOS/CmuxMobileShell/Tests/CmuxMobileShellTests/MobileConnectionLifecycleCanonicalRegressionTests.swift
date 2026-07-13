@@ -104,8 +104,12 @@ import Testing
         }
         #expect(!accumulatedAnotherAttempt)
 
+        await pairedMacStore.unblockLoads(teamID: nil)
         factory.releaseHeldConnect()
         await pairedMacStore.release(teamID: nil)
+        #expect(try await pollUntil {
+            factory.attemptedPorts().count > 1
+        })
         #expect(try await pollUntil(attempts: 300) {
             store.connectionResourceSnapshotForTesting().retiredLifecycleTaskCount == 0
                 && store.connectionResourceSnapshotForTesting().retiredCachedLifecycleTaskCount == 0

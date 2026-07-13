@@ -212,6 +212,10 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         blockedTeams.insert(teamID ?? "")
     }
 
+    func unblockLoads(teamID: String?) {
+        blockedTeams.remove(teamID ?? "")
+    }
+
     func currentLoadStartCount(teamID: String?) -> Int {
         loadStartCounts[teamID ?? "", default: 0]
     }
