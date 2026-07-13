@@ -91,7 +91,10 @@ struct WorkspaceDetailContainer: View {
                     openMode: openMode
                 )) {
                     guard openMode.opensRemoteWorkspace else { return }
-                    await store.openWorkspace(workspace.id)
+                    await store.openWorkspace(
+                        workspace.id,
+                        failureSelectionPolicy: .clearRequestedSelection
+                    )
                 }
             } else {
                 ContentUnavailableView(

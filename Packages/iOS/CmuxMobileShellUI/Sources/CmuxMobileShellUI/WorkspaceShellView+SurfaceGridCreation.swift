@@ -9,7 +9,10 @@ extension WorkspaceShellView {
             defer { isCreatingTerminalFromSurfaceGrid = false }
             // The compact grid includes aggregated workspaces from secondary
             // Macs. Foreground the owner before terminal.create uses the live client.
-            guard let resolvedWorkspaceID = await store.openWorkspace(workspaceID),
+            guard let resolvedWorkspaceID = await store.openWorkspace(
+                workspaceID,
+                failureSelectionPolicy: .preserveSelection
+            ),
                   store.selectedWorkspaceID == resolvedWorkspaceID,
                   store.workspaces.contains(where: { $0.id == resolvedWorkspaceID }),
                   store.createTerminal(in: resolvedWorkspaceID)
@@ -28,7 +31,10 @@ extension WorkspaceShellView {
         Task { @MainActor in
             defer { isCreatingWorkspaceFromSurfaceGrid = false }
             if let workspaceID {
-                guard await store.openWorkspace(workspaceID) != nil else { return }
+                guard await store.openWorkspace(
+                    workspaceID,
+                    failureSelectionPolicy: .preserveSelection
+                ) != nil else { return }
             }
             createWorkspaceInCompactStack()
         }

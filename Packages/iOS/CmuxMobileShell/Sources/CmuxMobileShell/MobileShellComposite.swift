@@ -37,6 +37,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let maxTerminalReplayFailureRetries = 2
     static let maxTerminalReplayBarrierFollowUps = 1
 
+    public enum WorkspaceOpenFailureSelectionPolicy: Sendable {
+        case clearRequestedSelection
+        case preserveSelection
+    }
+
     enum TerminalOutputTransport: Equatable {
         case hybrid
         case renderGrid
@@ -4230,9 +4235,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Open the workspace preview, switching the foreground Mac first when the workspace belongs to another paired Mac.
+    ///
+    /// Commands preserve selection by default because this operation does not
+    /// own navigation state. Detail navigation explicitly requests selection
+    /// clearing because its row is selected before this async operation starts.
     /// - Returns: The workspace's current UI row id after any Mac switch, or `nil` when opening failed.
     @discardableResult
-    public func openWorkspace(_ id: MobileWorkspacePreview.ID) async -> MobileWorkspacePreview.ID? {
+    public func openWorkspace(
+        _ id: MobileWorkspacePreview.ID,
+        failureSelectionPolicy: WorkspaceOpenFailureSelectionPolicy = .preserveSelection
+    ) async -> MobileWorkspacePreview.ID? {
         let workspace = workspaces.first { $0.id == id }
         let remoteWorkspaceID = workspace?.rpcWorkspaceID ?? id
         let ownerMacDeviceID = workspace?.macDeviceID
@@ -4245,15 +4257,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            !macDeviceID.isEmpty,
            macDeviceID != foregroundMacDeviceID {
             // Only proceed if that Mac actually became the foreground connection.
-            // The tap already selected this workspace and pushed its detail
-            // synchronously (this runs from the detail's task), so on a failed
-            // switch ROLL BACK the selection — popping the compact stack back to the
-            // list — instead of leaving the user in a workspace whose Mac is not the
-            // live connection (terminal input would route to the wrong client). The
-            // offline row's Reconnect / the next aggregation pass recovers it.
+            // Detail navigation selects the row before this task runs and asks
+            // for rollback so a failed switch pops back to the list. Grid
+            // commands have not pushed a detail and preserve their selection.
             guard await switchToMac(macDeviceID: macDeviceID) else {
-                mobileShellLog.error("openWorkspace: switch to mac failed, popping mac=\(macDeviceID, privacy: .public)")
-                if selectedWorkspaceID == id {
+                mobileShellLog.error("openWorkspace: switch to mac failed mac=\(macDeviceID, privacy: .public)")
+                if failureSelectionPolicy == .clearRequestedSelection,
+                   selectedWorkspaceID == id {
                     setSelectedWorkspaceID(nil)
                 }
                 return nil
@@ -4265,7 +4275,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         ) ?? (workspaces.contains(where: { $0.id == id }) ? id : nil)
         guard let resolvedRowID else {
             mobileShellLog.error("openWorkspace: workspace disappeared after switch id=\(remoteWorkspaceID.rawValue, privacy: .private) mac=\(ownerMacDeviceID ?? "", privacy: .public)")
-            if selectedWorkspaceID == id {
+            if failureSelectionPolicy == .clearRequestedSelection,
+               selectedWorkspaceID == id {
                 setSelectedWorkspaceID(nil)
             }
             return nil

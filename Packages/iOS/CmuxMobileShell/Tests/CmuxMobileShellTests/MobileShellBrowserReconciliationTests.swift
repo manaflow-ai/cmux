@@ -41,6 +41,18 @@ import Testing
         #expect(store.selectedWorkspaceID == workspaceID)
     }
 
+    @Test func failedDetailWorkspaceOpenClearsRequestedSelection() async throws {
+        let (store, workspaceID) = try unavailableSecondaryWorkspaceStore()
+
+        let resolvedID = await store.openWorkspace(
+            workspaceID,
+            failureSelectionPolicy: .clearRequestedSelection
+        )
+
+        #expect(resolvedID == nil)
+        #expect(store.selectedWorkspaceID == nil)
+    }
+
     private func unavailableSecondaryWorkspaceStore() throws -> (
         store: MobileShellComposite,
         workspaceID: MobileWorkspacePreview.ID
