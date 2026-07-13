@@ -92,7 +92,7 @@ struct AppDelegateOversizedFrameRestoreTests {
 
         let capped = CmuxMainWindow.frameByCappingOversizedDimensions(
             runaway,
-            displayFrames: [display]
+            displayFrames: [(frame: display, visibleFrame: display)]
         )
 
         #expect(capped.width == display.width)
@@ -106,7 +106,7 @@ struct AppDelegateOversizedFrameRestoreTests {
 
         let capped = CmuxMainWindow.frameByCappingOversizedDimensions(
             runaway,
-            displayFrames: [display]
+            displayFrames: [(frame: display, visibleFrame: display)]
         )
 
         #expect(capped.height == display.height)
@@ -121,7 +121,7 @@ struct AppDelegateOversizedFrameRestoreTests {
 
         let capped = CmuxMainWindow.frameByCappingOversizedDimensions(
             runaway,
-            displayFrames: [physical]
+            displayFrames: [(frame: physical, visibleFrame: visible)]
         )
 
         #expect(capped.height == physical.height)
@@ -131,8 +131,14 @@ struct AppDelegateOversizedFrameRestoreTests {
     @Test
     func runtimeCapPreservesLegitimatePartialAndSpanningFrames() {
         let displays = [
-            CGRect(x: 0, y: 0, width: 1_512, height: 982),
-            CGRect(x: 1_512, y: 0, width: 1_920, height: 1_080),
+            (
+                frame: CGRect(x: 0, y: 0, width: 1_512, height: 982),
+                visibleFrame: CGRect(x: 0, y: 0, width: 1_512, height: 982)
+            ),
+            (
+                frame: CGRect(x: 1_512, y: 0, width: 1_920, height: 1_080),
+                visibleFrame: CGRect(x: 1_512, y: 0, width: 1_920, height: 1_080)
+            ),
         ]
         let partial = CGRect(x: -300, y: 120, width: 900, height: 700)
         let spanning = CGRect(x: 1_000, y: 100, width: 2_000, height: 700)

@@ -87,7 +87,9 @@ final class CmuxMainWindow: NSWindow {
             ? frameRect
             : Self.frameByCappingOversizedDimensions(
                 frameRect,
-                displayFrames: NSScreen.screens.map(\.frame)
+                displayFrames: NSScreen.screens.map {
+                    (frame: $0.frame, visibleFrame: $0.visibleFrame)
+                }
             )
         super.setFrame(frame, display: flag)
     }
@@ -98,10 +100,10 @@ final class CmuxMainWindow: NSWindow {
     /// off-screen and multi-display placement remains user-owned.
     nonisolated static func frameByCappingOversizedDimensions(
         _ proposedFrame: NSRect,
-        displayFrames: [NSRect]
+        displayFrames: [(frame: NSRect, visibleFrame: NSRect)]
     ) -> NSRect {
-        let displays = displayFrames.filter { $0.width > 1 && $0.height > 1 }
-        let displayUnion = displays.reduce(NSRect.null) { $0.union($1) }
+        let displays = displayFrames.filter { $0.frame.width > 1 && $0.frame.height > 1 }
+        let displayUnion = displays.reduce(NSRect.null) { $0.union($1.frame) }
         guard !displayUnion.isNull else { return proposedFrame }
 
         var capped = proposedFrame
@@ -110,25 +112,25 @@ final class CmuxMainWindow: NSWindow {
         guard capped.size != proposedFrame.size else { return proposedFrame }
 
         let target = displays.max { lhs, rhs in
-            let left = proposedFrame.intersection(lhs)
-            let right = proposedFrame.intersection(rhs)
+            let left = proposedFrame.intersection(lhs.frame)
+            let right = proposedFrame.intersection(rhs.frame)
             return left.width * left.height < right.width * right.height
         }
         guard let target,
-              !proposedFrame.intersection(target).isNull,
-              !isTitlebarReachable(frame: capped, visibleFrame: target)
+              !proposedFrame.intersection(target.frame).isNull,
+              !isTitlebarReachable(frame: capped, visibleFrame: target.visibleFrame)
         else { return capped }
 
         let visibleWidth = min(60, capped.width)
         capped.origin.x = min(
-            max(capped.minX, target.minX - capped.width + visibleWidth),
-            target.maxX - visibleWidth
+            max(capped.minX, target.visibleFrame.minX - capped.width + visibleWidth),
+            target.visibleFrame.maxX - visibleWidth
         )
         let stripHeight = min(64, capped.height)
         let visibleHeight = min(16, stripHeight)
         let clampedMaxY = min(
-            max(capped.maxY, target.minY + visibleHeight),
-            target.maxY + stripHeight - visibleHeight
+            max(capped.maxY, target.visibleFrame.minY + visibleHeight),
+            target.visibleFrame.maxY + stripHeight - visibleHeight
         )
         capped.origin.y = clampedMaxY - capped.height
         return capped

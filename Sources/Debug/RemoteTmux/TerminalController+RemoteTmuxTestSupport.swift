@@ -245,8 +245,7 @@ extension TerminalController {
                 // views whose frame drifted off their anchor draw
                 // OVER chrome (tab strips, dividers, neighbors)
                 // even when every grid is exact.
-                if let anyView = mirror.panelsByPaneId.values.first?.hostedView,
-                   let hostWindow = anyView.window {
+                if let hostWindow = mirror.visibleHostingContext()?.window {
                     for desc in TerminalWindowPortalRegistry.misplacedHostedViewDescriptions(for: hostWindow) {
                         mismatches.append("misplaced \(desc)")
                     }

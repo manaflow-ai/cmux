@@ -42,7 +42,7 @@ extension RemoteTmuxWindowMirror {
         // later detached measurement is retained pending a trustworthy bound;
         // the first keeps the guarded display fallback required below.
         var pointSize = pointSize
-        if let bound = visibleHostingContentSize() {
+        if let bound = visibleHostingContext()?.contentSize {
             pointSize.width = min(pointSize.width, bound.width)
             pointSize.height = min(pointSize.height, bound.height)
         } else if containerSizePt == nil {
@@ -65,7 +65,7 @@ extension RemoteTmuxWindowMirror {
         pendingContainerScale = nil
         #if DEBUG
         if pointSize.width > 3000 || pointSize.height > 3000 {
-            let window = panelsByPaneId.values.first?.hostedView.window
+            let window = visibleHostingContext()?.window
             cmuxDebugLog(
                 "remote.container.record @\(windowId)"
                     + " size=\(Int(pointSize.width))x\(Int(pointSize.height))"
@@ -79,11 +79,13 @@ extension RemoteTmuxWindowMirror {
         setNeedsSizingPass()
     }
 
-    /// Finds a trustworthy bound from any pane whose portal is attached to a
-    /// visible window. Dictionary order cannot decide which pane is mounted.
-    private func visibleHostingContentSize() -> CGSize? {
+    /// Finds a trustworthy host from any pane whose portal is attached to a
+    /// visible window. Dictionary order cannot decide which pane is mounted;
+    /// every consumer uses this predicate so sizing and portal catch-up target
+    /// the same host.
+    func visibleHostingContext() -> (contentSize: CGSize, window: NSWindow?)? {
         if let size = hostingContentSizeSource?(), size.width > 1, size.height > 1 {
-            return size
+            return (size, nil)
         }
         if hostingContentSizeSource != nil { return nil }
         for panel in panelsByPaneId.values {
@@ -91,7 +93,7 @@ extension RemoteTmuxWindowMirror {
             guard view.isVisibleInUI, !view.isHidden, view.superview != nil,
                   let window = view.window, window.isVisible else { continue }
             let size = window.contentLayoutRect.size
-            if size.width > 1, size.height > 1 { return size }
+            if size.width > 1, size.height > 1 { return (size, window) }
         }
         return nil
     }
@@ -162,7 +164,8 @@ extension RemoteTmuxWindowMirror {
         sizingPassScheduled = false
         guard !isTornDown else { return }
         let intent = pendingSizingPassIntent
-        let visibleHostingBound = visibleHostingContentSize()
+        let hostingContext = visibleHostingContext()
+        let visibleHostingBound = hostingContext?.contentSize
         // Adopt a detached callback, or re-clamp a prior value, as soon as
         // any pane is visibly hosted. This pass is also the recovery path
         // when attachment itself does not emit another geometry callback.
@@ -184,9 +187,13 @@ extension RemoteTmuxWindowMirror {
         let inputs = currentSizingInputs()
         if inputs == lastCompletedSizingInputs { return }
         guard updateClientSize() else { return }
+        // A visible transaction is not complete until its live host exists:
+        // the claim may be sent while detached, but divider imposition and the
+        // portal catch-up are the other half of the same transaction.
+        guard !inputs.visible || hostingContext != nil else { return }
         pendingSizingPassIntent = .inputChange
         lastCompletedSizingInputs = inputs
-        if inputs.visible, visibleHostingBound != nil {
+        if inputs.visible {
             imposeDividerPlan(retryImposedExtents: intent == .constraintRecovery)
             // The imposition applies to bonsplit on the NEXT runloop turn
             // (coalesced), so the anchors move after this pass returns. The
@@ -197,7 +204,7 @@ extension RemoteTmuxWindowMirror {
             // the resync explicitly two turns out, after the apply has
             // landed: the transaction owns the geometry change, so it owns
             // telling the portal, rather than racing notifications.
-            if let window = panelsByPaneId.values.first?.hostedView.window {
+            if let window = hostingContext?.window {
                 TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(
                     for: window, forceImmediate: false
                 )
