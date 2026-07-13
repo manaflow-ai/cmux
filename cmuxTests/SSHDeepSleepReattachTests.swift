@@ -1,3 +1,4 @@
+import AppKit
 import CmuxCore
 import Foundation
 import Testing
@@ -72,6 +73,41 @@ struct SSHDeepSleepReattachTests {
             #expect(command.contains(Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: panelID)))
             #expect(workspace.isRemoteTerminalSurface(panelID))
         }
+    }
+
+    @MainActor
+    @Test func contextMenuReconnectReattachesFailedPersistentPTY() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager()
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: tabManager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let originalSurface = panel.surface
+        workspace.configureRemoteConnection(Self.persistentConfiguration(), autoConnect: false)
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: "Connected to cmux-macmini via shared local proxy 127.0.0.1:64007",
+            target: "cmux-macmini"
+        )
+        workspace.markPersistentRemotePTYAttachFailed(surfaceId: panel.id)
+
+        let menu = NSMenu()
+        panel.hostedView.surfaceView.appendReconnectRemotePaneMenuItem(to: menu)
+        let reconnectItem = try #require(menu.items.last)
+        reconnectItem.performClick(nil)
+
+        let reattached = try #require(workspace.terminalPanel(for: panel.id))
+        #expect(reattached.surface !== originalSurface)
+        let command = try #require(reattached.surface.initialCommand)
+        #expect(command.contains("--require-existing"))
+        #expect(command.contains(Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: panel.id)))
+        #expect(!workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
     }
 
     @MainActor
