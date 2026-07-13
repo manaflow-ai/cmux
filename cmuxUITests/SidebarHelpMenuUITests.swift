@@ -980,8 +980,8 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     }
 
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
-        sidebarHelpPollUntil(timeout: timeout) {
-            socketCommand("ping") == "PONG"
+        waitForControlSocketReady(socketPath: socketPath, pingTimeout: timeout) {
+            self.socketCommand("ping") == "PONG"
         }
     }
 

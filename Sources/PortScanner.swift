@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Batched port scanner that replaces per-shell `ps + lsof` scanning.
@@ -18,7 +19,7 @@ final class PortScanner: @unchecked Sendable {
     /// Callback delivers `(workspaceId, panelId, ports)` on the main actor.
     var onPortsUpdated: (@MainActor (_ workspaceId: UUID, _ panelId: UUID, _ ports: [Int]) -> Void)?
     /// Callback delivers workspace-scoped ports owned by tracked agents.
-    var onAgentPortsUpdated: (@MainActor (_ workspaceId: UUID, _ ports: [Int]) -> Void)?
+    var onAgentPortsUpdated: (@MainActor (_ workspaceId: UUID, _ ports: [Int]) -> Bool)?
     /// Provider returns tracked agent root PIDs for the given workspaces.
     var agentPIDsProvider: (@MainActor (_ workspaceIds: Set<UUID>) -> [UUID: Set<Int>])?
 
@@ -34,6 +35,9 @@ final class PortScanner: @unchecked Sendable {
 
     /// Workspaces with active agent PID tracking that need background rescans.
     private var trackedAgentWorkspaces: Set<UUID> = []
+    private var lastAgentPortsByWorkspace: [UUID: [Int]] = [:]
+    private var forceAgentResultWorkspaces: Set<UUID> = []
+    private var trackedAgentScanningPaused = false
 
     /// Panels that requested a scan since the last coalesce snapshot.
     private var pendingKicks: Set<PanelKey> = []
@@ -92,6 +96,14 @@ final class PortScanner: @unchecked Sendable {
     func refreshAgentPorts(workspaceId: UUID, agentPIDs: Set<Int>) {
         queue.async { [self] in
             refreshAgentPortsLocked(workspaceId: workspaceId, agentPIDs: agentPIDs)
+        }
+    }
+
+    func setTrackedAgentScanningPaused(_ paused: Bool) {
+        queue.async { [self] in
+            guard trackedAgentScanningPaused != paused else { return }
+            trackedAgentScanningPaused = paused
+            updateAgentScanTimerLocked()
         }
     }
 
@@ -252,6 +264,7 @@ final class PortScanner: @unchecked Sendable {
             trackedAgentWorkspaces.insert(workspaceId)
         }
         updateAgentScanTimerLocked()
+        forceAgentResultWorkspaces.insert(workspaceId)
 
         scanAgentPorts(
             workspaceIds: [workspaceId],
@@ -261,7 +274,7 @@ final class PortScanner: @unchecked Sendable {
     }
 
     private func updateAgentScanTimerLocked() {
-        guard !trackedAgentWorkspaces.isEmpty else {
+        guard !trackedAgentScanningPaused, !trackedAgentWorkspaces.isEmpty else {
             agentScanTimer?.cancel()
             agentScanTimer = nil
             return
@@ -327,6 +340,7 @@ final class PortScanner: @unchecked Sendable {
         let inactiveWorkspaceIds = workspaceIds.subtracting(normalizedPIDsByWorkspace.keys)
         if !inactiveWorkspaceIds.isEmpty {
             trackedAgentWorkspaces.subtract(inactiveWorkspaceIds)
+            forceAgentResultWorkspaces.formUnion(inactiveWorkspaceIds)
             updateAgentScanTimerLocked()
         }
 
@@ -406,10 +420,42 @@ final class PortScanner: @unchecked Sendable {
                 agentRevisions: agentRevisions
             )
             guard !validatedResults.isEmpty else { return }
-            await MainActor.run {
-                for (workspaceId, ports) in validatedResults {
-                    agentCallback(workspaceId, ports)
+            let appliedResults = await MainActor.run {
+                validatedResults.filter { result in
+                    agentCallback(result.workspaceId, result.ports)
                 }
+            }
+            await self.acknowledgeAgentResults(
+                validatedResults,
+                appliedWorkspaceIds: Set(appliedResults.map(\.workspaceId))
+            )
+        }
+    }
+
+    private func acknowledgeAgentResults(
+        _ results: [(workspaceId: UUID, ports: [Int], revision: UInt64)],
+        appliedWorkspaceIds: Set<UUID>
+    ) async {
+        guard !results.isEmpty else { return }
+        await withCheckedContinuation { continuation in
+            queue.async { [self] in
+                for (workspaceId, ports, revision) in results {
+                    guard agentRevisionByWorkspace[workspaceId, default: 0] == revision else { continue }
+                    guard appliedWorkspaceIds.contains(workspaceId) else {
+                        if !trackedAgentWorkspaces.contains(workspaceId) {
+                            forceAgentResultWorkspaces.remove(workspaceId)
+                            lastAgentPortsByWorkspace.removeValue(forKey: workspaceId)
+                        }
+                        continue
+                    }
+                    forceAgentResultWorkspaces.remove(workspaceId)
+                    if ports.isEmpty, !trackedAgentWorkspaces.contains(workspaceId) {
+                        lastAgentPortsByWorkspace.removeValue(forKey: workspaceId)
+                    } else {
+                        lastAgentPortsByWorkspace[workspaceId] = ports
+                    }
+                }
+                continuation.resume()
             }
         }
     }
@@ -418,16 +464,20 @@ final class PortScanner: @unchecked Sendable {
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
         agentRevisions: [UUID: UInt64]
-    ) async -> [(UUID, [Int])] {
+    ) async -> [(workspaceId: UUID, ports: [Int], revision: UInt64)] {
         await withCheckedContinuation { continuation in
             queue.async { [self] in
-                var results: [(UUID, [Int])] = []
+                var results: [(workspaceId: UUID, ports: [Int], revision: UInt64)] = []
                 for workspaceId in workspaceIds.sorted(by: { $0.uuidString < $1.uuidString }) {
-                    let currentRevision = agentRevisionByWorkspace[workspaceId, default: 0]
                     let expectedRevision = agentRevisions[workspaceId, default: 0]
-                    guard currentRevision == expectedRevision else { continue }
+                    guard agentRevisionByWorkspace[workspaceId, default: 0] == expectedRevision else { continue }
                     let ports = Array(agentPortsByWorkspace[workspaceId] ?? []).sorted()
-                    results.append((workspaceId, ports))
+                    let previousPorts = lastAgentPortsByWorkspace[workspaceId]
+                    if !forceAgentResultWorkspaces.contains(workspaceId) {
+                        guard previousPorts != ports else { continue }
+                        guard previousPorts != nil || !ports.isEmpty else { continue }
+                    }
+                    results.append((workspaceId: workspaceId, ports: ports, revision: expectedRevision))
                 }
                 continuation.resume(returning: results)
             }
@@ -476,13 +526,13 @@ final class PortScanner: @unchecked Sendable {
             }
 
             // Close the parent's write end before reading. This is required:
-            // readDataToEndOfFile() blocks until EOF, which only occurs when every
+            // The pipe reader blocks until EOF, which only occurs when every
             // write-fd holder (parent + child) has closed its copy. Keeping the
             // parent's copy open would deadlock the read. The defer below is a
             // safety net for the error path (process.run() throws), not a
             // substitute for this explicit close.
             try? stdoutWriteHandle.close()
-            let data = stdoutReadHandle.readDataToEndOfFile()
+            let data = stdoutReadHandle.readDataToEndOfFileOrEmpty()
             process.waitUntilExit()
 
             guard let output = String(data: data, encoding: .utf8) else {

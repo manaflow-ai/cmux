@@ -1,0 +1,209 @@
+name: reload-build
+
+# Dispatchable tagged dev-build for the cloud reload scripts' Blacksmith builder.
+#
+# scripts/reload-cloud.sh --builder blacksmith and scripts/reload-cloud-ios.sh
+# --builder blacksmith (in the cmuxterm-hq control repo) dispatch this workflow
+# against an ephemeral branch holding the caller's working tree, then download the
+# produced artifact and install it locally. This is the Blacksmith alternative to
+# SSH-leasing a fleet Mac. It is workflow_dispatch ONLY: nothing here runs on push
+# or pull_request, so it never adds to the heavy CI fan-out.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Dev build tag (becomes cmux DEV <tag> / dev.cmux.ios.<tag>)
+        required: true
+        type: string
+      ref:
+        description: Source ref to build (branch or SHA). Defaults to the dispatch ref.
+        required: false
+        default: ""
+        type: string
+      platform:
+        description: Which artifact to build
+        required: false
+        default: macos
+        type: choice
+        options:
+          - macos
+          - ios
+      runner:
+        description: >-
+          macOS runner label to build on. Blacksmith (blacksmith-6vcpu-macos-26),
+          our self-hosted fleet (cmux-macos-26 / cmux-aws-macos-15), warp, or depot.
+          This is the dev-build offload path (reload-cloud), not required CI, so
+          targeting the fleet for a build is intentional.
+        required: false
+        default: blacksmith-6vcpu-macos-26
+        type: string
+      nonce:
+        description: Opaque marker echoed into run-name so the dispatcher can find this run.
+        required: false
+        default: ""
+        type: string
+
+# Surface tag/platform/nonce in the run title so the dispatcher can match its run
+# by the nonce it passed (gh workflow run does not return a run id).
+run-name: "reload-build ${{ inputs.tag }} ${{ inputs.platform }} ${{ inputs.nonce }}"
+
+permissions:
+  contents: read
+
+concurrency:
+  # One in-flight build per tag+platform; a newer dispatch supersedes an older one.
+  group: reload-build-${{ inputs.tag }}-${{ inputs.platform }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 60
+    env:
+      # The ghostty CLI helper zig build is skipped; GhosttyKit comes prebuilt.
+      CMUX_SKIP_ZIG_BUILD: "1"
+      SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
+    steps:
+      - name: Checkout source ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          submodules: recursive
+
+      - name: Start timer
+        id: t0
+        run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          ./scripts/select-ci-xcode.sh
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Provision GhosttyKit (macOS)
+        if: ${{ inputs.platform == 'macos' }}
+        run: ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
+
+      - name: Mark deps-ready
+        id: t1
+        run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      # --- macOS: build the tagged dev app via the same reload.sh the fleet uses ---
+      - name: Build tagged macOS app
+        if: ${{ inputs.platform == 'macos' }}
+        id: build_macos
+        run: |
+          set -euo pipefail
+          # Per-run log path: /tmp/reload.log collides across tenants on the
+          # multi-tenant self-hosted fleet Macs (tee: Permission denied).
+          log="$RUNNER_TEMP/reload.log"
+          ./scripts/reload.sh --tag "${{ inputs.tag }}" --swift-frontend-workaround 2>&1 | tee "$log"
+          app_path="$(awk '/^App path:/{getline; sub(/^  /,""); print; exit}' "$log")"
+          [ -n "$app_path" ] && [ -d "$app_path" ] || { echo "could not locate built app" >&2; exit 1; }
+          echo "app_path=$app_path" >> "$GITHUB_OUTPUT"
+          mkdir -p artifact
+          ( cd "$(dirname "$app_path")" && ditto -c -k --sequesterRsrc --keepParent "$(basename "$app_path")" "$GITHUB_WORKSPACE/artifact/app.zip" )
+
+      # iOS links the CmuxIrohFFI xcframework (gitignored, built from the Rust
+      # crate under Native/cmux-iroh). The macOS path builds it via
+      # reload.sh -> ensure-cmux-iroh.sh; the iOS archive below runs xcodebuild
+      # directly, so provision it here or SwiftPM fails with "local binary target
+      # 'CmuxIrohFFIBinary' ... does not contain a binary artifact". Guarded so
+      # source refs that predate the crate are a no-op (scripts come from
+      # inputs.ref, not this workflow's ref). install-rust-ci.sh is idempotent.
+      - name: Provision cmux-iroh FFI (iOS)
+        if: ${{ inputs.platform == 'ios' }}
+        run: |
+          set -euo pipefail
+          if [ -f scripts/ensure-cmux-iroh.sh ]; then
+            export PATH="$HOME/.cargo/bin:$PATH"
+            [ -f scripts/install-rust-ci.sh ] && ./scripts/install-rust-ci.sh
+            export PATH="$HOME/.cargo/bin:$PATH"
+            ./scripts/ensure-cmux-iroh.sh
+          else
+            echo "scripts/ensure-cmux-iroh.sh absent in source ref; skipping iroh FFI provisioning"
+          fi
+
+      # --- iOS: build an UNSIGNED debug archive (signed locally by the caller) ---
+      - name: Build unsigned iOS archive
+        if: ${{ inputs.platform == 'ios' }}
+        id: build_ios
+        env:
+          BUILD_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          slug="$(printf '%s' "$BUILD_TAG" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | sed 's/-\{2,\}/-/g; s/^-//; s/-$//')"
+          bundle_id="dev.cmux.ios.$slug"
+          display_name="cmux DEV $BUILD_TAG"
+
+          # Register the iOS platform if the runner only has macOS provisioned.
+          ios_ready() { xcrun simctl runtime list 2>/dev/null | grep -qiE "iOS [0-9].*\(Ready\)"; }
+          if ! ios_ready; then
+            echo "iOS platform not registered; installing via downloadPlatform iOS"
+            xcodebuild -downloadPlatform iOS 2>&1 | tr '\r' '\n' | grep -ivE 'Preparing to download|registering download' | tail -8 || true
+            ios_ready || { echo "iOS platform still not registered; archive would fail" >&2; exit 1; }
+          fi
+
+          ./scripts/ensure-ghosttykit.sh
+          out="$GITHUB_WORKSPACE/build"
+          mkdir -p "$out"
+          archive="$out/cmux-ios-$slug.xcarchive"
+          rm -rf "$archive"
+          xcodebuild archive \
+            -workspace ios/cmux.xcworkspace \
+            -scheme cmux-ios \
+            -configuration Debug \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$archive" \
+            -derivedDataPath "$RUNNER_TEMP/cmux-ios-dd" \
+            PRODUCT_BUNDLE_IDENTIFIER="$bundle_id" \
+            PRODUCT_DISPLAY_NAME="$display_name" \
+            CMUX_GIT_SHA="$(git rev-parse --short HEAD)" \
+            CMUX_DEV_TAG="$BUILD_TAG" \
+            EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+          [ -d "$archive" ] || { echo "archive not produced: $archive" >&2; exit 1; }
+          mkdir -p artifact
+          ( cd "$out" && ditto -c -k --keepParent "$(basename "$archive")" "$GITHUB_WORKSPACE/artifact/archive.zip" )
+
+      - name: Write timings.json
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifact
+          now=$(date +%s)
+          t0=${{ steps.t0.outputs.epoch }}
+          t1=${{ steps.t1.outputs.epoch || 0 }}
+          cat > artifact/timings.json <<JSON
+          {
+            "tag": "${{ inputs.tag }}",
+            "platform": "${{ inputs.platform }}",
+            "runner": "${{ inputs.runner }}",
+            "ref": "${{ inputs.ref }}",
+            "deps_seconds": $(( t1 > t0 ? t1 - t0 : 0 )),
+            "build_seconds": $(( t1 > 0 ? now - t1 : 0 )),
+            "post_checkout_total_seconds": $(( now - t0 ))
+          }
+          JSON
+          {
+            echo "### reload-build timings"
+            echo ""
+            echo "- runner: \`${{ inputs.runner }}\`"
+            echo "- platform: \`${{ inputs.platform }}\`"
+            echo "- deps: $(( t1 > t0 ? t1 - t0 : 0 ))s"
+            echo "- build: $(( t1 > 0 ? now - t1 : 0 ))s"
+            echo "- post-checkout total: $(( now - t0 ))s"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: reload-${{ inputs.tag }}-${{ inputs.platform }}
+          path: artifact/
+          retention-days: 3
+          if-no-files-found: error

@@ -1,6 +1,8 @@
 import XCTest
 import Bonsplit
 import Darwin
+import CmuxSidebar
+
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -313,7 +315,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
             workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal)
         )
 
-        workspace.recordAgentPID(key: "grok.grok-session-123", pid: pid_t(12345), panelId: firstPanelId)
+        workspace.recordAgentPID(key: "codex.codex-session-123", pid: pid_t(12345), panelId: firstPanelId)
 
         XCTAssertTrue(workspace.suppressesRawTerminalNotification(panelId: firstPanelId))
         XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: secondPanel.id))
@@ -321,6 +323,17 @@ final class TerminalNotificationClearAllTests: XCTestCase {
 
         workspace.recordAgentPID(key: "custom-tool.session", pid: pid_t(12346), panelId: secondPanel.id)
 
+        XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: secondPanel.id))
+
+        let managedSubagentPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(
+                from: secondPanel.id,
+                orientation: .horizontal,
+                startupEnvironment: ["CMUX_AGENT_MANAGED_SUBAGENT": "1"]
+            )
+        )
+
+        XCTAssertTrue(workspace.suppressesRawTerminalNotification(panelId: managedSubagentPanel.id))
         XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: secondPanel.id))
     }
 

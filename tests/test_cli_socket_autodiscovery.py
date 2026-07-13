@@ -80,7 +80,9 @@ class PingServer:
                 server.settimeout(min(0.2, remaining))
                 try:
                     conn, _ = server.accept()
-                except TimeoutError:
+                # GitHub's macOS Python can report socket polling timeouts as
+                # socket.timeout rather than built-in TimeoutError.
+                except (socket.timeout, TimeoutError):
                     continue
                 connection_thread = threading.Thread(
                     target=self._handle_connection,
@@ -108,7 +110,7 @@ class PingServer:
                     if not chunk:
                         break
                     data += chunk
-            except (ConnectionResetError, TimeoutError):
+            except (ConnectionResetError, socket.timeout, TimeoutError):
                 return
 
             if b"ping" in data:
@@ -117,7 +119,7 @@ class PingServer:
 
 
 def write_marker(home: str, marker_name: str, socket_path: str) -> None:
-    app_support = os.path.join(home, "Library", "Application Support", "cmux")
+    app_support = os.path.join(home, ".local", "state", "cmux")
     os.makedirs(app_support, exist_ok=True)
     with open(os.path.join(app_support, marker_name), "w", encoding="utf-8") as f:
         f.write(f"{socket_path}\n")
@@ -125,7 +127,7 @@ def write_marker(home: str, marker_name: str, socket_path: str) -> None:
 
 def temporary_socket_home(prefix: str) -> tempfile.TemporaryDirectory:
     # Darwin caps Unix socket paths at a little over 100 bytes. Keep fake HOME
-    # roots short because stable sockets live under ~/Library/Application Support.
+    # roots short because stable sockets live under ~/.local/state/cmux.
     return tempfile.TemporaryDirectory(prefix=prefix, dir="/tmp")
 
 
@@ -423,7 +425,7 @@ def test_python_client_treats_stable_override_as_implicit() -> bool:
     expected_socket = f"/tmp/cmux-debug-{tag}.sock"
 
     with temporary_socket_home("cmux-py-") as home:
-        app_support = os.path.join(home, "Library", "Application Support", "cmux")
+        app_support = os.path.join(home, ".local", "state", "cmux")
         os.makedirs(app_support, exist_ok=True)
         stable_socket = os.path.join(app_support, "cmux.sock")
 
@@ -537,8 +539,8 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
 
             stable_default_socket = os.path.join(
                 home,
-                "Library",
-                "Application Support",
+                ".local",
+                "state",
                 "cmux",
                 "cmux.sock",
             )

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CmuxTerminalCore
 
 enum AppearanceMode: String, CaseIterable, Identifiable {
     case system
@@ -33,6 +34,16 @@ enum AppearanceSettings {
         let synchronizeTerminalThemeWithAppearance: (NSAppearance?, String) -> Void
         let systemAppearance: () -> NSAppearance?
 
+        init(
+            setApplicationAppearance: @escaping (NSAppearance?) -> Void,
+            synchronizeTerminalThemeWithAppearance: @escaping (NSAppearance?, String) -> Void,
+            systemAppearance: @escaping () -> NSAppearance?
+        ) {
+            self.setApplicationAppearance = setApplicationAppearance
+            self.synchronizeTerminalThemeWithAppearance = synchronizeTerminalThemeWithAppearance
+            self.systemAppearance = systemAppearance
+        }
+
         static var live: LiveApplyEnvironment {
             AppearanceSettings.currentLiveEnvironmentProvider()()
         }
@@ -63,25 +74,15 @@ enum AppearanceSettings {
         )
     }
 
-    struct SystemAppearance {
-        let interfaceStyle: String?
-
-        var prefersDark: Bool {
-            interfaceStyle?.caseInsensitiveCompare(darkInterfaceStyleValue) == .orderedSame
-        }
-
-        static func current(defaults: UserDefaults = .standard) -> SystemAppearance {
-            let directValue = defaults.string(forKey: appleInterfaceStyleKey)
-            let globalValue = defaults
-                .persistentDomain(forName: UserDefaults.globalDomain)?[appleInterfaceStyleKey] as? String
-            return SystemAppearance(interfaceStyle: directValue ?? globalValue)
-        }
-    }
+    /// The system interface-style snapshot used by terminal color-scheme
+    /// resolution. Lifted to ``TerminalSystemAppearance`` in CmuxTerminalCore so
+    /// the terminal config type no longer reaches up into the app's appearance
+    /// settings; this alias keeps the `AppearanceSettings.SystemAppearance`
+    /// call-site name byte-identical.
+    typealias SystemAppearance = TerminalSystemAppearance
 
     static let appearanceModeKey = "appearanceMode"
     static let defaultMode: AppearanceMode = .system
-    private static let appleInterfaceStyleKey = "AppleInterfaceStyle"
-    private static let darkInterfaceStyleValue = "Dark"
 
     static func mode(for rawValue: String?) -> AppearanceMode {
         guard let rawValue, let mode = AppearanceMode(rawValue: rawValue) else {
@@ -100,19 +101,32 @@ enum AppearanceSettings {
         return resolved
     }
 
+    /// Returns the Ghostty terminal color-scheme preference.
+    /// - Note: `colorSchemePreference` keeps the `appAppearance` parameter for API compatibility
+    ///   and intentionally ignores it.
     static func colorSchemePreference(
-        appAppearance: NSAppearance? = nil,
+        appAppearance _: NSAppearance? = nil,
         defaults: UserDefaults = .standard,
         systemAppearance: SystemAppearance? = nil
     ) -> GhosttyConfig.ColorSchemePreference {
-        if let appAppearance {
-            return appAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
-        }
+        terminalColorSchemePreference(defaults: defaults, systemAppearance: systemAppearance)
+    }
 
-        let mode = mode(for: defaults.string(forKey: appearanceModeKey))
-        if mode == .light { return .light }
-        if mode == .dark { return .dark }
-        return (systemAppearance ?? .current(defaults: defaults)).prefersDark ? .dark : .light
+    // Ghostty split-theme resolution follows cmux's persisted appearance mode.
+    // AppKit view/window appearances can lag during live mode changes.
+    // The resolution itself now lives in CmuxTerminalCore
+    // (TerminalColorSchemePreference.resolve); this forwards the app's
+    // normalized appearance mode into it so both surfaces share one source of
+    // truth.
+    static func terminalColorSchemePreference(
+        defaults: UserDefaults = .standard,
+        systemAppearance: SystemAppearance? = nil
+    ) -> GhosttyConfig.ColorSchemePreference {
+        TerminalColorSchemePreference.resolve(
+            appearanceModeRawValue: mode(for: defaults.string(forKey: appearanceModeKey)).rawValue,
+            systemAppearance: systemAppearance,
+            defaults: defaults
+        )
     }
 
     static func systemNSAppearance(defaults: UserDefaults = .standard) -> NSAppearance? {
@@ -132,6 +146,28 @@ enum AppearanceSettings {
 
     static func colorScheme(for rawValue: String?, fallback: ColorScheme) -> ColorScheme {
         colorSchemeOverride(for: rawValue) ?? fallback
+    }
+
+    /// Resolves the color scheme the chrome should render with. Explicit modes
+    /// win. After launch, system mode resolves from the app's live
+    /// effectiveAppearance, which (unlike the AppleInterfaceStyle default) stays
+    /// fresh on scripted appearance changes. During launch, use the ambient
+    /// fallback because Tahoe can crash if effectiveAppearance is touched before
+    /// applicationDidFinishLaunching.
+    @MainActor
+    static func effectiveColorScheme(
+        for rawValue: String?,
+        fallback: ColorScheme,
+        isApplicationFinishedLaunching: @MainActor () -> Bool = AppIconLaunchState.isApplicationFinishedLaunching,
+        effectivePrefersDark: @MainActor () -> Bool? = {
+            guard let app = NSApp else { return nil }
+            return app.effectiveAppearance.cmuxPrefersDark
+        }
+    ) -> ColorScheme {
+        if let override = colorSchemeOverride(for: rawValue) { return override }
+        guard isApplicationFinishedLaunching() else { return fallback }
+        guard let prefersDark = effectivePrefersDark() else { return fallback }
+        return prefersDark ? .dark : .light
     }
 
     @discardableResult
@@ -305,16 +341,34 @@ final class AppearanceSettingsUserDefaultsObserver {
     }
 }
 
+/// Re-resolves and re-injects the color scheme at the window root.
+///
+/// In system mode, the ambient `colorScheme` supplied by the hosting bridge's
+/// `@Environment` can go stale on scripted OS appearance changes (Shortcuts'
+/// "Set Appearance", #6385) — SwiftUI doesn't reliably re-resolve it for
+/// already-visible windows. So in system mode this modifier ignores the
+/// ambient value and instead resolves fresh from `NSApp.effectiveAppearance`
+/// (see `AppearanceSettings.effectiveColorScheme`), then re-injects the result
+/// at the window root via `.environment(\.colorScheme, ...)` so it propagates
+/// to every descendant that reads the ambient color scheme. Re-resolution is
+/// keyed off `.systemAppearanceDidChange`, which `SystemAppearanceObserver`
+/// posts whenever the effective appearance actually changes while in system
+/// mode.
 private struct AppearanceColorSchemeModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
+    @State private var systemAppearanceGeneration = 0
     let rawValue: String?
 
     func body(content: Content) -> some View {
         let override = AppearanceSettings.colorSchemeOverride(for: rawValue)
-        let effective = AppearanceSettings.colorScheme(for: rawValue, fallback: colorScheme)
+        let _ = systemAppearanceGeneration
+        let effective = AppearanceSettings.effectiveColorScheme(for: rawValue, fallback: colorScheme)
         content
             .environment(\.colorScheme, effective)
             .preferredColorScheme(override)
+            .onReceive(NotificationCenter.default.publisher(for: .systemAppearanceDidChange)) { _ in
+                systemAppearanceGeneration &+= 1
+            }
     }
 }
 

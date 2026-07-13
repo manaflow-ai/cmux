@@ -1,3 +1,4 @@
+import CmuxPanes
 import Foundation
 
 extension TabManager {
@@ -8,34 +9,15 @@ extension TabManager {
         let result = equalizeSplitsOnce(in: tab)
         if result.foundSplit {
             tab.didProgrammaticallyChangeSplitGeometry()
-            scheduleEqualizeSplitsFollowUp(tabId: tabId)
         }
         return result.didFullyEqualize
     }
 
     @discardableResult
-    private func equalizeSplitsOnce(in tab: Workspace) -> TerminalController.EqualizeSplitsResult {
-        TerminalController.equalizeSplitsProportionally(
+    private func equalizeSplitsOnce(in tab: Workspace) -> SplitEqualizeResult {
+        paneLayout.equalizeSplits(
             in: tab.bonsplitController.treeSnapshot(),
-            controller: tab.bonsplitController,
-            fromExternal: true
+            controller: tab.bonsplitController
         )
     }
-
-    private func scheduleEqualizeSplitsFollowUp(tabId: UUID) {
-        DispatchQueue.main.async { [weak self] in
-            self?.runEqualizeSplitsFollowUp(tabId: tabId)
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            self?.runEqualizeSplitsFollowUp(tabId: tabId)
-        }
-    }
-
-    private func runEqualizeSplitsFollowUp(tabId: UUID) {
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        if equalizeSplitsOnce(in: tab).foundSplit {
-            tab.didProgrammaticallyChangeSplitGeometry()
-        }
-    }
-
 }

@@ -5,9 +5,11 @@ import { fileURLToPath } from "node:url";
 import * as ts from "typescript";
 import {
   flatNavItems,
+  hasNavItemContent,
   navItems,
+  navItemsForLocale,
 } from "../app/[locale]/components/docs-nav-items";
-import { changelogMedia } from "../app/[locale]/docs/changelog/changelog-media";
+import { changelogMedia } from "../app/[locale]/(landing)/docs/changelog/changelog-media";
 import { routing } from "../i18n/routing";
 
 const projectRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -19,6 +21,10 @@ const mergedMessagesCache = new Map();
 
 const searchAliases = {
   apiReference: [
+    "CLI reference",
+    "cmux CLI",
+    "command line",
+    "API reference",
     "socket API",
     "JSON RPC",
     "automation API",
@@ -49,14 +55,15 @@ const docsPageMessageKeys = {
 };
 
 export function docsSearchRoutes() {
-  const links = flatNavItems(navItems);
   return routing.locales.flatMap((locale) =>
-    links.map((navItem) => ({
-      locale,
-      navItem,
-      href: navItem.href,
-      path: localizedDocsPath(locale, navItem.href),
-    })),
+    flatNavItems(navItemsForLocale(locale))
+      .filter((navItem) => hasNavItemContent(navItem, locale))
+      .map((navItem) => ({
+        locale,
+        navItem,
+        href: navItem.href,
+        path: localizedDocsPath(locale, navItem.href),
+      })),
   );
 }
 
@@ -246,7 +253,7 @@ function deepMerge(base, override) {
 
 function docsPageSourcePath(href) {
   const docsPath = href.replace(/^\//, "");
-  return path.join(projectRoot, "app", "[locale]", docsPath, "page.tsx");
+  return path.join(projectRoot, "app", "[locale]", "(landing)", docsPath, "page.tsx");
 }
 
 async function docsContentByHref() {

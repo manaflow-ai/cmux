@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import Combine
 import Foundation
@@ -24,13 +25,15 @@ enum FileExplorerStyle: Int, CaseIterable {
     }
 
     var rowHeight: CGFloat {
+        let baseHeight: CGFloat
         switch self {
-        case .liquidGlass: return 28
-        case .highDensity: return 20
-        case .terminalStealth: return 24
-        case .proStudio: return 32
-        case .finder: return 26
+        case .liquidGlass: baseHeight = 28
+        case .highDensity: baseHeight = 20
+        case .terminalStealth: baseHeight = 24
+        case .proStudio: baseHeight = 32
+        case .finder: baseHeight = 26
         }
+        return GlobalFontMagnification.scaledSize(baseHeight)
     }
 
     var indentation: CGFloat {
@@ -65,11 +68,11 @@ enum FileExplorerStyle: Int, CaseIterable {
 
     var nameFont: NSFont {
         switch self {
-        case .liquidGlass: return .systemFont(ofSize: 13, weight: .medium)
-        case .highDensity: return .systemFont(ofSize: 11, weight: .regular)
-        case .terminalStealth: return .monospacedSystemFont(ofSize: 12, weight: .regular)
-        case .proStudio: return .systemFont(ofSize: 14, weight: .semibold)
-        case .finder: return .systemFont(ofSize: 13, weight: .regular)
+        case .liquidGlass: return GlobalFontMagnification.systemFont(ofSize: 13, weight: .medium)
+        case .highDensity: return GlobalFontMagnification.systemFont(ofSize: 11, weight: .regular)
+        case .terminalStealth: return GlobalFontMagnification.monospacedSystemFont(ofSize: 12, weight: .regular)
+        case .proStudio: return GlobalFontMagnification.systemFont(ofSize: 14, weight: .semibold)
+        case .finder: return GlobalFontMagnification.systemFont(ofSize: 13, weight: .regular)
         }
     }
 
@@ -275,15 +278,21 @@ protocol SSHFileExplorerTransport: AnyObject {
         connection: SSHFileExplorerConnection,
         showHidden: Bool
     ) async throws -> [FileExplorerEntry]
+    nonisolated func downloadFile(
+        path: String,
+        connection: SSHFileExplorerConnection,
+        to localURL: URL
+    ) async throws
 }
 
 enum FileExplorerWorkspaceRoot: Equatable {
     case none
-    case local(path: String)
+    case local(workspaceId: UUID, path: String)
     case remoteSSH(
         workspaceId: UUID,
         connection: SSHFileExplorerConnection,
         displayTarget: String,
+        rootPath: String?,
         isAvailable: Bool,
         unavailableDetail: String?
     )
@@ -403,6 +412,13 @@ final class SSHFileExplorerProvider: FileExplorerProvider, @unchecked Sendable {
         }
         return try await transport.listDirectory(path: path, connection: connection, showHidden: showHidden)
     }
+
+    func downloadFile(path: String, to localURL: URL) async throws {
+        guard isAvailable else {
+            throw FileExplorerError.providerUnavailable
+        }
+        try await transport.downloadFile(path: path, connection: connection, to: localURL)
+    }
 }
 
 final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
@@ -422,6 +438,33 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         showHidden: Bool
     ) async throws -> [FileExplorerEntry] {
         try await Self.runSSHListCommand(path: path, connection: connection, showHidden: showHidden)
+    }
+
+    nonisolated func downloadFile(
+        path: String,
+        connection: SSHFileExplorerConnection,
+        to localURL: URL
+    ) async throws {
+        let escapedPath = Self.shellSingleQuote(path)
+        let outputURL = localURL
+        let commandProcess = SSHDownloadCommandProcess(
+            connection: connection,
+            command: "cat -- \(escapedPath)",
+            outputURL: outputURL
+        )
+        let result = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    continuation.resume(with: Result { try commandProcess.run() })
+                }
+            }
+        } onCancel: {
+            commandProcess.terminate()
+        }
+        guard result.terminationStatus == 0 else {
+            try? FileManager.default.removeItem(at: outputURL)
+            throw FileExplorerError.sshCommandFailed(result.stderr)
+        }
     }
 
     private struct SSHCommandResult: Sendable {
@@ -474,8 +517,8 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
                 process.terminate()
             }
 
-            let data = outPipe.fileHandleForReading.readDataToEndOfFile()
-            let stderrData = errPipe.fileHandleForReading.readDataToEndOfFile()
+            let data = outPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
+            let stderrData = errPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
             process.waitUntilExit()
             terminationGate.markFinished()
             lock.lock()
@@ -487,6 +530,91 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
 
             return SSHCommandResult(
                 stdout: String(data: data, encoding: .utf8) ?? "",
+                stderr: String(data: stderrData, encoding: .utf8) ?? "",
+                terminationStatus: process.terminationStatus
+            )
+        }
+
+        func terminate() {
+            lock.lock()
+            cancelled = true
+            lock.unlock()
+
+            guard terminationGate.requestTermination() else {
+                return
+            }
+            guard process.isRunning else {
+                return
+            }
+            process.terminate()
+        }
+    }
+
+    private final class SSHDownloadCommandProcess: @unchecked Sendable {
+        private let process = Process()
+        private let outPipe = Pipe()
+        private let errPipe = Pipe()
+        private let outputURL: URL
+        private let lock = NSLock()
+        private let terminationGate = ProcessTerminationGate()
+        private var cancelled = false
+
+        init(connection: SSHFileExplorerConnection, command: String, outputURL: URL) {
+            self.outputURL = outputURL
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+            process.arguments = ProcessSSHFileExplorerTransport.sshArguments(connection: connection, command: command)
+            process.standardOutput = outPipe
+            process.standardError = errPipe
+        }
+
+        func run() throws -> SSHCommandResult {
+            lock.lock()
+            let wasCancelled = cancelled
+            lock.unlock()
+            if wasCancelled {
+                throw CancellationError()
+            }
+
+            try FileManager.default.createDirectory(
+                at: outputURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+            let outputHandle = try FileHandle(forWritingTo: outputURL)
+            defer { try? outputHandle.close() }
+
+            do {
+                try process.run()
+            } catch {
+                terminationGate.markFinished()
+                throw error
+            }
+
+            lock.lock()
+            let shouldTerminate = cancelled
+            lock.unlock()
+            if terminationGate.markLaunched() || shouldTerminate {
+                guard process.isRunning else {
+                    process.waitUntilExit()
+                    terminationGate.markFinished()
+                    throw CancellationError()
+                }
+                process.terminate()
+            }
+
+            try outPipe.fileHandleForReading.copyDataToEndOfFile(to: outputHandle)
+            let stderrData = errPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
+            process.waitUntilExit()
+            terminationGate.markFinished()
+            lock.lock()
+            let cancelledAfterExit = cancelled
+            lock.unlock()
+            if cancelledAfterExit {
+                throw CancellationError()
+            }
+
+            return SSHCommandResult(
+                stdout: "",
                 stderr: String(data: stderrData, encoding: .utf8) ?? "",
                 terminationStatus: process.terminationStatus
             )
@@ -526,7 +654,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     }
 
     private static func sshArguments(connection: SSHFileExplorerConnection, command: String) -> [String] {
-        var args: [String] = []
+        var args: [String] = SSHHostConfiguredRemoteCommand().overrideArguments
         if let port = connection.port {
             args += ["-p", String(port)]
         }
@@ -548,11 +676,11 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         showHidden: Bool
     ) async throws -> [FileExplorerEntry] {
         // Escape single quotes in path for shell safety
-        let escapedPath = path.replacingOccurrences(of: "'", with: "'\\''")
+        let escapedPath = shellSingleQuote(path)
         let lsFlags = showHidden ? "-1paFA" : "-1paF"
         let output = try await runSSHCommand(
             connection: connection,
-            command: "ls \(lsFlags) '\(escapedPath)' 2>/dev/null"
+            command: "ls \(lsFlags) \(escapedPath) 2>/dev/null"
         )
 
         let normalizedPath = path.hasSuffix("/") ? path : path + "/"
@@ -574,6 +702,10 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             return FileExplorerEntry(name: cleanName, path: fullPath, isDirectory: isDir)
         }
     }
+
+    private static func shellSingleQuote(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
 }
 
 enum FileExplorerError: LocalizedError {
@@ -584,8 +716,8 @@ enum FileExplorerError: LocalizedError {
         switch self {
         case .providerUnavailable:
             return String(localized: "fileExplorer.error.unavailable", defaultValue: "File explorer is not available")
-        case .sshCommandFailed(let detail):
-            return String(localized: "fileExplorer.error.sshFailed", defaultValue: "SSH command failed: \(detail)")
+        case .sshCommandFailed:
+            return String(localized: "fileExplorer.error.sshFailed", defaultValue: "SSH command failed")
         }
     }
 }
@@ -613,6 +745,7 @@ final class FileExplorerStore: ObservableObject {
     @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
     @Published private(set) var contentRevision = 0
     @Published private(set) var rootStatusMessage: String?
+    private(set) var workspaceRootIdentity: UUID?
 
     var provider: FileExplorerProvider?
 
@@ -620,7 +753,9 @@ final class FileExplorerStore: ObservableObject {
     var showHiddenFiles: Bool = false
 
     /// Watches the root directory for filesystem changes (local only).
-    private var directoryWatcher: FileExplorerDirectoryWatcher?
+    private var directoryWatcher: FileWatcher?
+    private var directoryWatchTask: Task<Void, Never>?
+    private var directoryWatchPath: String?
 
     /// Paths that are logically expanded (persisted across provider changes)
     private(set) var expandedPaths: Set<String> = []
@@ -649,6 +784,12 @@ final class FileExplorerStore: ObservableObject {
     private var remoteHomeResolutionTask: Task<Void, Never>?
     private var remoteHomeResolutionKey: String?
 
+    private let gitStatusProvider: GitStatusProvider
+
+    init(gitStatusProvider: GitStatusProvider = GitStatusProvider()) {
+        self.gitStatusProvider = gitStatusProvider
+    }
+
     var displayRootPath: String {
         if let sshProvider = provider as? SSHFileExplorerProvider {
             guard !rootPath.isEmpty else {
@@ -667,33 +808,29 @@ final class FileExplorerStore: ObservableObject {
     ) {
         switch request {
         case .none:
-            cancelRemoteHomeResolution()
-            setRootStatusMessage(nil)
-            if provider != nil {
-                setProvider(nil, reloadIfAvailable: false)
-            }
+            cancelRemoteHomeResolution(); setRootStatusMessage(nil); setWorkspaceRootIdentity(nil)
+            if provider != nil { setProvider(nil, reloadIfAvailable: false) }
             setRootPath("")
-
-        case .local(let path):
-            cancelRemoteHomeResolution()
-            setRootStatusMessage(nil)
+        case .local(let workspaceId, let path):
+            cancelRemoteHomeResolution(); setRootStatusMessage(nil); setWorkspaceRootIdentity(workspaceId)
             if !(provider is LocalFileExplorerProvider) {
                 setRootPath("")
                 setProvider(LocalFileExplorerProvider(), reloadIfAvailable: false)
             }
             setRootPath(path)
-
-        case .remoteSSH(let workspaceId, let connection, let displayTarget, let isAvailable, let unavailableDetail):
+        case .remoteSSH(let workspaceId, let connection, let displayTarget, let rootPath, let isAvailable, let unavailableDetail):
             applyRemoteSSHWorkspaceRoot(
                 workspaceId: workspaceId,
                 connection: connection,
                 displayTarget: displayTarget,
+                rootPath: rootPath,
                 isAvailable: isAvailable,
                 unavailableDetail: unavailableDetail,
                 sshTransport: sshTransport
             )
         }
     }
+    private func setWorkspaceRootIdentity(_ identity: UUID?) { guard workspaceRootIdentity != identity else { return }; objectWillChange.send(); workspaceRootIdentity = identity }
 
     func setRootPath(_ path: String) {
         guard path != rootPath else {
@@ -727,8 +864,9 @@ final class FileExplorerStore: ObservableObject {
             let port = sshProvider.port
             let identity = sshProvider.identityFile
             let opts = sshProvider.sshOptions
+            let gitStatusProvider = self.gitStatusProvider
             DispatchQueue.global(qos: .utility).async {
-                let status = GitStatusProvider.fetchStatusSSH(
+                let status = gitStatusProvider.fetchStatusSSH(
                     directory: path, destination: dest, port: port,
                     identityFile: identity, sshOptions: opts
                 )
@@ -737,8 +875,9 @@ final class FileExplorerStore: ObservableObject {
                 }
             }
         } else {
+            let gitStatusProvider = self.gitStatusProvider
             DispatchQueue.global(qos: .utility).async {
-                let status = GitStatusProvider.fetchStatus(directory: path)
+                let status = gitStatusProvider.fetchStatus(directory: path)
                 DispatchQueue.main.async { [weak self] in
                     self?.gitStatusByPath = status
                 }
@@ -746,18 +885,46 @@ final class FileExplorerStore: ObservableObject {
         }
     }
 
+    func materializeRemoteFileForPreview(path: String) async throws -> URL {
+        guard let sshProvider = provider as? SSHFileExplorerProvider else {
+            throw FileExplorerError.providerUnavailable
+        }
+        let cacheURL = Self.remotePreviewCacheURL(
+            displayTarget: sshProvider.displayTarget,
+            remotePath: path
+        )
+        try await sshProvider.downloadFile(path: path, to: cacheURL)
+        return cacheURL
+    }
+
     private func updateDirectoryWatcher() {
         if provider is LocalFileExplorerProvider, !rootPath.isEmpty {
-            if directoryWatcher == nil {
-                directoryWatcher = FileExplorerDirectoryWatcher { [weak self] in
-                    self?.reload()
-                    self?.refreshGitStatus()
+            guard directoryWatchPath != rootPath || directoryWatcher == nil else { return }
+            stopDirectoryWatcher()
+            // Preserve the previous 0.3s coalescing as a leading-edge throttle.
+            let watcher = FileWatcher(path: rootPath, throttle: .milliseconds(300))
+            directoryWatcher = watcher
+            directoryWatchPath = rootPath
+            let events = watcher.events
+            directoryWatchTask = Task { @MainActor [weak self] in
+                for await _ in events {
+                    guard let self else { break }
+                    self.reload()
+                    self.refreshGitStatus()
                 }
             }
-            directoryWatcher?.watch(path: rootPath)
         } else {
-            directoryWatcher?.stop()
+            stopDirectoryWatcher()
         }
+    }
+
+    /// Cancels the directory-watch consumer and drops the watcher; the watcher's
+    /// deinit cancels its `DispatchSource`s synchronously.
+    private func stopDirectoryWatcher() {
+        directoryWatchTask?.cancel()
+        directoryWatchTask = nil
+        directoryWatcher = nil
+        directoryWatchPath = nil
     }
 
     private func setProvider(_ newProvider: FileExplorerProvider?, reloadIfAvailable: Bool = true) {
@@ -976,10 +1143,13 @@ final class FileExplorerStore: ObservableObject {
         workspaceId: UUID,
         connection: SSHFileExplorerConnection,
         displayTarget: String,
+        rootPath requestedRootPath: String?,
         isAvailable: Bool,
         unavailableDetail: String?,
         sshTransport: SSHFileExplorerTransport
     ) {
+        setWorkspaceRootIdentity(workspaceId)
+
         let existingProvider = provider as? SSHFileExplorerProvider
         let sshProvider: SSHFileExplorerProvider
         if let existingProvider,
@@ -1016,6 +1186,14 @@ final class FileExplorerStore: ObservableObject {
                     String(localized: "fileExplorer.status.sshUnavailable", defaultValue: "SSH files unavailable")
                 )
             }
+            return
+        }
+
+        let requestedRootPath = Self.normalizedRootPath(requestedRootPath)
+        if let requestedRootPath {
+            cancelRemoteHomeResolution()
+            setRootStatusMessage(nil)
+            setRootPath(requestedRootPath)
             return
         }
 
@@ -1106,208 +1284,34 @@ final class FileExplorerStore: ObservableObject {
         return candidate == root || candidate.hasPrefix(root + "/")
     }
 
+    private static func normalizedRootPath(_ path: String?) -> String? {
+        guard let path else { return nil }
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
+    private static func remotePreviewCacheURL(displayTarget: String, remotePath: String) -> URL {
+        let cacheRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-remote-file-previews", isDirectory: true)
+        let target = sanitizedCacheComponent(displayTarget)
+        let remote = sanitizedCacheComponent(remotePath)
+        let basename = URL(fileURLWithPath: remotePath).lastPathComponent
+        let filename = basename.isEmpty ? remote : "\(remote)-\(basename)"
+        return cacheRoot
+            .appendingPathComponent(target, isDirectory: true)
+            .appendingPathComponent(filename, isDirectory: false)
+    }
+
+    private static func sanitizedCacheComponent(_ value: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        let scalars = value.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
+        let candidate = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return candidate.isEmpty ? UUID().uuidString : String(candidate.prefix(160))
+    }
+
     deinit {
         cancelRemoteHomeResolution()
-    }
-}
-
-// MARK: - Directory Watcher
-
-/// Watches a local directory for filesystem changes and calls back on the main thread.
-/// Debounces events to avoid rapid-fire reloads during bulk operations (e.g., git checkout).
-final class FileExplorerDirectoryWatcher {
-    private var fileDescriptor: Int32 = -1
-    private var watchSource: DispatchSourceFileSystemObject?
-    private let watchQueue = DispatchQueue(label: "com.cmux.fileExplorerWatcher", qos: .utility)
-    private var debounceWorkItem: DispatchWorkItem?
-    private let onChange: () -> Void
-
-    init(onChange: @escaping () -> Void) {
-        self.onChange = onChange
-    }
-
-    func watch(path: String) {
-        stop()
-        let fd = open(path, O_EVTONLY)
-        guard fd >= 0 else { return }
-        fileDescriptor = fd
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .link, .rename, .delete],
-            queue: watchQueue
-        )
-
-        source.setEventHandler { [weak self] in
-            self?.scheduleReload()
-        }
-
-        source.setCancelHandler {
-            Darwin.close(fd)
-        }
-
-        source.resume()
-        watchSource = source
-    }
-
-    func stop() {
-        debounceWorkItem?.cancel()
-        debounceWorkItem = nil
-        watchSource?.cancel()
-        watchSource = nil
-        fileDescriptor = -1
-    }
-
-    private func scheduleReload() {
-        debounceWorkItem?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            DispatchQueue.main.async {
-                self?.onChange()
-            }
-        }
-        debounceWorkItem = work
-        watchQueue.asyncAfter(deadline: .now() + 0.3, execute: work)
-    }
-
-    deinit {
-        stop()
-    }
-}
-
-// MARK: - Git Status
-
-enum GitFileStatus {
-    case modified, added, deleted, renamed, untracked
-}
-
-/// Runs `git status --porcelain` and parses results into a path-to-status map.
-enum GitStatusProvider {
-
-    static func fetchStatus(directory: String) -> [String: GitFileStatus] {
-        guard let repoRoot = gitRepoRoot(for: directory) else { return [:] }
-        return parseGitStatus(
-            output: runGit(in: repoRoot, arguments: ["status", "--porcelain"]),
-            repoRoot: repoRoot,
-            explorerRoot: directory
-        )
-    }
-
-    static func fetchStatusSSH(
-        directory: String, destination: String, port: Int?,
-        identityFile: String?, sshOptions: [String]
-    ) -> [String: GitFileStatus] {
-        let escapedDir = directory.replacingOccurrences(of: "'", with: "'\\''")
-        let cmd = "cd '\(escapedDir)' 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null && echo '---GIT_STATUS---' && git status --porcelain 2>/dev/null"
-        guard let output = runSSH(
-            command: cmd, destination: destination,
-            port: port, identityFile: identityFile, sshOptions: sshOptions
-        ) else { return [:] }
-
-        let parts = output.components(separatedBy: "---GIT_STATUS---\n")
-        guard parts.count == 2 else { return [:] }
-        let repoRoot = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
-        return parseGitStatus(output: parts[1], repoRoot: repoRoot, explorerRoot: directory)
-    }
-
-    private static func parseGitStatus(
-        output: String?, repoRoot: String, explorerRoot: String
-    ) -> [String: GitFileStatus] {
-        guard let output, !output.isEmpty else { return [:] }
-        var statusMap: [String: GitFileStatus] = [:]
-
-        for line in output.components(separatedBy: "\n") where line.count >= 4 {
-            let indexStatus = line[line.startIndex]
-            let workTreeStatus = line[line.index(after: line.startIndex)]
-            var path = String(line.dropFirst(3))
-                .trimmingCharacters(in: .whitespaces)
-                .replacingOccurrences(of: "\"", with: "")
-
-            if path.contains(" -> ") {
-                path = String(path.split(separator: " -> ").last ?? Substring(path))
-            }
-
-            guard let status = parseStatusChars(index: indexStatus, workTree: workTreeStatus) else { continue }
-
-            let absolutePath = repoRoot.hasSuffix("/") ? repoRoot + path : repoRoot + "/" + path
-            guard absolutePath.hasPrefix(explorerRoot) else { continue }
-
-            statusMap[absolutePath] = status
-            markParentDirectories(absolutePath: absolutePath, explorerRoot: explorerRoot, status: status, in: &statusMap)
-        }
-        return statusMap
-    }
-
-    private static func parseStatusChars(index: Character, workTree: Character) -> GitFileStatus? {
-        if index == "?" && workTree == "?" { return .untracked }
-        if index == "A" || workTree == "A" { return .added }
-        if index == "D" || workTree == "D" { return .deleted }
-        if index == "R" || workTree == "R" { return .renamed }
-        if index == "M" || workTree == "M" { return .modified }
-        return nil
-    }
-
-    private static func markParentDirectories(
-        absolutePath: String, explorerRoot: String,
-        status: GitFileStatus, in map: inout [String: GitFileStatus]
-    ) {
-        let dirStatus: GitFileStatus = (status == .untracked) ? .untracked : .modified
-        var current = (absolutePath as NSString).deletingLastPathComponent
-        while current.hasPrefix(explorerRoot) && current != explorerRoot {
-            if map[current] == nil {
-                map[current] = dirStatus
-            }
-            current = (current as NSString).deletingLastPathComponent
-        }
-    }
-
-    private static func gitRepoRoot(for directory: String) -> String? {
-        runGit(in: directory, arguments: ["rev-parse", "--show-toplevel"])?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func runGit(in directory: String, arguments: [String]) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = arguments
-        process.currentDirectoryURL = URL(fileURLWithPath: directory)
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
-            return String(data: data, encoding: .utf8)
-        } catch {
-            return nil
-        }
-    }
-
-    private static func runSSH(
-        command: String, destination: String,
-        port: Int?, identityFile: String?, sshOptions: [String]
-    ) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-        var args: [String] = []
-        if let port { args += ["-p", String(port)] }
-        if let identityFile { args += ["-i", identityFile] }
-        for option in sshOptions { args += ["-o", option] }
-        args += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
-        args += [destination, command]
-        process.arguments = args
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
-            return String(data: data, encoding: .utf8)
-        } catch {
-            return nil
-        }
+        directoryWatchTask?.cancel()
     }
 }
