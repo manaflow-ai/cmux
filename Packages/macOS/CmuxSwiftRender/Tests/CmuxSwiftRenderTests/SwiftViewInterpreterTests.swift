@@ -266,7 +266,10 @@ import Testing
 
     @Test func optionalMemberComparisonsDistinguishPresentAndAbsentValues() {
         let workspaces = SwiftValue.array([
-            .object(["description": .string("hello")]),
+            .object([
+                "description": .string("hello"),
+                "profile": .object(["name": .string("cmux")]),
+            ]),
             .object([:]),
         ])
         let empty = SwiftValue.array([])
@@ -282,6 +285,8 @@ import Testing
                 Text(w.description != nil ? "present" : "absent")
                 if w.description == nil { Text("missing") }
                 if w.description != nil { Text("value: \\(w.description)") }
+                if w.profile.name != nil { Text("nested: \\(w.profile.name)") }
+                if w.profile.name == nil { Text("nested-missing") }
                 if let description = w.description {
                     Text("bound: \\(description)")
                 } else {
@@ -292,8 +297,8 @@ import Testing
         """, state: ["workspaces": workspaces, "empty": empty])
         #expect(node?.children.map(\.text) == [
             "nil-equal", "empty-first", "no-selected",
-            "present", "value: hello", "bound: hello",
-            "absent", "missing", "unbound",
+            "present", "value: hello", "nested: cmux", "bound: hello",
+            "absent", "missing", "nested-missing", "unbound",
         ])
     }
 
