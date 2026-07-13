@@ -125,11 +125,20 @@ final class WorkspaceSidebarProcessTitleObservationModel {
     private func publishSettledChange() {
         cancelPendingProcessTitleChange()
         var delivered = false
-        for continuation in changeObservers.values {
+        // Termination cleanup arrives through a separate MainActor task. If
+        // that task is delayed by sidebar work, publication is the
+        // authoritative reconciliation point so dead observers cannot make
+        // every later title progressively more expensive.
+        var terminatedObserverIDs: [UUID] = []
+        for (id, continuation) in changeObservers {
             if case .terminated = continuation.yield(()) {
+                terminatedObserverIDs.append(id)
                 continue
             }
             delivered = true
+        }
+        for id in terminatedObserverIDs {
+            changeObservers[id] = nil
         }
         if delivered {
             changeGeneration &+= 1
