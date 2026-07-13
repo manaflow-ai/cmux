@@ -83,6 +83,8 @@ struct CmxIrohLibEndpointTests {
     @Test
     func onlineStateReplaysToLateHealthObservers() async throws {
         let endpoint = try await makeEndpoint(managedRelayURLs: [])
+        let concrete = try #require(endpoint as? CmxIrohLibEndpoint)
+        await concrete.recordHealthEvent(.online)
 
         let initialEvents = await endpoint.healthEvents()
         #expect(

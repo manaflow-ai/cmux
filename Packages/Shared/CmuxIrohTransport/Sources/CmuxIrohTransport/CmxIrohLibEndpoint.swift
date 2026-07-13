@@ -13,6 +13,7 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
     private var closureTask: Task<Void, Never>?
     private var closing = false
     private var closed = false
+    private var reachedOnline = false
     private var terminalHealthEvent: CmxIrohEndpointHealthEvent?
     private var observers: [
         UUID: AsyncStream<CmxIrohEndpointHealthEvent>.Continuation
@@ -39,14 +40,14 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
         // output for route changes after Iroh's native network monitor runs.
         addressWatch = driver.watchAddr(
             callback: CmxIrohLibAddressChangeCallback { [weak self] in
-                await self?.publish(.networkChanged)
+                await self?.recordHealthEvent(.networkChanged)
             }
         )
         let driver = driver
         onlineTask = Task { [weak self] in
             await driver.online()
             guard !Task.isCancelled else { return }
-            await self?.publish(.online)
+            await self?.recordHealthEvent(.online)
         }
         closureTask = Task { [weak self] in
             await driver.closed()
@@ -184,6 +185,9 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
                 return
             }
             observers[observerID] = continuation
+            if reachedOnline {
+                continuation.yield(.online)
+            }
             continuation.onTermination = { [weak self] _ in
                 Task { await self?.removeObserver(observerID) }
             }
@@ -263,8 +267,11 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
         finishObservers()
     }
 
-    private func publish(_ event: CmxIrohEndpointHealthEvent) {
+    func recordHealthEvent(_ event: CmxIrohEndpointHealthEvent) {
         guard !closing, !closed else { return }
+        if event == .online {
+            reachedOnline = true
+        }
         for continuation in observers.values { continuation.yield(event) }
     }
 

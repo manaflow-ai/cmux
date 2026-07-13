@@ -345,7 +345,10 @@ public actor CmxIrohEndpointSupervisor {
         }
         switch event {
         case .online:
-            break
+            // Initial discovery can finish before or after the runtime registers.
+            // Treat online as a reachability change so the broker receives the
+            // endpoint's first usable relay or direct-address hints.
+            publish(.networkChanged(runtimeGeneration: generation))
         case .networkChanged:
             publish(.networkChanged(runtimeGeneration: generation))
         case .closedUnexpectedly:
