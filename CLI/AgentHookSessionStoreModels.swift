@@ -87,6 +87,17 @@ struct ClaudeHookActiveSessionRecord: Codable {
     var updatedAt: TimeInterval
 }
 
+struct AgentPromptSubmitResult: Sendable, Equatable {
+    var accepted: Bool
+    var staleTerminalTurn: Bool
+    var nested: Bool
+}
+
+struct AgentPromptStopResult: Sendable, Equatable {
+    var accepted: Bool
+    var nested: Bool
+}
+
 struct AgentHookLaunchCommandRecord: Codable {
     var launcher: String?
     var executablePath: String?
@@ -138,6 +149,16 @@ struct AgentHookSessionActivationPolicy: Sendable {
         lineage: AgentHookSessionLineage,
         hasIncomingPID: Bool
     ) -> Bool {
+        if let activeRunId = record.activeRunId,
+           activeRunId != lineage.runId,
+           let activeRun = (record.runs ?? []).first(where: {
+               $0.runId == activeRunId && $0.endedAt == nil
+           }),
+           let activeStartedAt = activeRun.processStartedAt,
+           let incomingStartedAt = lineage.processStartedAt,
+           incomingStartedAt + 0.001 < activeStartedAt {
+            return false
+        }
         guard record.completedAt != nil else { return true }
         // A completed record is a durable root-exit boundary. Only a hook that
         // supplies a verified, different process generation can reopen it.

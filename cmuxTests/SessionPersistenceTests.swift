@@ -1768,7 +1768,7 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["PI_CODING_AGENT_DIR": "/tmp/pi"]
             case .amp:
                 resolvedEnvironment = ["AMP_SETTINGS_FILE": "/tmp/amp-settings.json"]
-            case .cursor, .rovodev, .factory, .ollama, .custom:
+            case .cursor, .rovodev, .factory, .ollama, .kimi, .custom:
                 resolvedEnvironment = [:]
             case .gemini:
                 resolvedEnvironment = ["GEMINI_CLI_HOME": "/tmp/gemini"]
@@ -1786,8 +1786,6 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["CODEBUDDY_CONFIG_DIR": "/tmp/codebuddy"]
             case .qoder:
                 resolvedEnvironment = ["QODER_CONFIG_DIR": "/tmp/qoder"]
-            case .kimi:
-                resolvedEnvironment = ["KIMI_CODE_HOME": "/tmp/kimi"]
             }
         }
         let resolvedExecutablePath = executablePath ?? arguments.first ?? "/usr/local/bin/\(kind.rawValue)"

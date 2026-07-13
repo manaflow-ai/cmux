@@ -289,9 +289,9 @@ final class ClaudeHookSessionStore {
         updateRuntimeStatus: Bool = false,
         autoNameMessages: [AutoNamingTranscriptMessage] = [],
         rejectTerminalTurn: Bool = false
-    ) throws -> (staleTerminalTurn: Bool, nested: Bool) {
+    ) throws -> AgentPromptSubmitResult {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return (staleTerminalTurn: false, nested: false) }
+        guard !normalized.isEmpty else { return AgentPromptSubmitResult(accepted: false, staleTerminalTurn: false, nested: false) }
         return try withLockedState { state in
             let now = Date().timeIntervalSince1970
             var record = makeSessionRecord(
@@ -305,7 +305,7 @@ final class ClaudeHookSessionStore {
             if rejectTerminalTurn,
                let normalizedTurnId,
                terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
-                return (staleTerminalTurn: true, nested: false)
+                return AgentPromptSubmitResult(accepted: false, staleTerminalTurn: true, nested: false)
             }
             guard update(
                 &record,
@@ -324,7 +324,7 @@ final class ClaudeHookSessionStore {
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
-            ) else { return (staleTerminalTurn: false, nested: false) }
+            ) else { return AgentPromptSubmitResult(accepted: false, staleTerminalTurn: false, nested: false) }
             appendAutoNameMessages(autoNameMessages, to: &record)
             if let normalizedTurnId {
                 markPromptTurnActive(normalizedTurnId, on: &record)
@@ -336,7 +336,7 @@ final class ClaudeHookSessionStore {
                     record.activePromptTurnIds = nil
                     record.lastPromptTurnId = normalizedTurnId
                     state.sessions[normalized] = record
-                    return (staleTerminalTurn: false, nested: true)
+                    return AgentPromptSubmitResult(accepted: true, staleTerminalTurn: false, nested: true)
                 } else if let activeTurnId = turnStack.last,
                           activeTurnId != normalizedTurnId {
                     var removedTurnCount = 0
@@ -356,29 +356,28 @@ final class ClaudeHookSessionStore {
                     markPromptTurnsTerminal(removedTerminalTurnIds, on: &record)
                     record.lastPromptTurnId = normalizedTurnId
                     state.sessions[normalized] = record
-                    return (staleTerminalTurn: false, nested: totalDepth > 1)
+                    return AgentPromptSubmitResult(accepted: true, staleTerminalTurn: false, nested: totalDepth > 1)
                 }
                 if turnStack.last == normalizedTurnId {
                     let totalDepth = max(legacyDepth, turnStack.count)
                     setActivePromptTurnStack(turnStack, totalDepth: totalDepth, on: &record)
                     record.lastPromptTurnId = normalizedTurnId
                     state.sessions[normalized] = record
-                    return (staleTerminalTurn: false, nested: totalDepth > 1)
+                    return AgentPromptSubmitResult(accepted: true, staleTerminalTurn: false, nested: totalDepth > 1)
                 }
                 let totalDepth = max(legacyDepth, turnStack.count) + 1
                 turnStack.append(normalizedTurnId)
                 setActivePromptTurnStack(turnStack, totalDepth: totalDepth, on: &record)
                 record.lastPromptTurnId = normalizedTurnId
                 state.sessions[normalized] = record
-                return (staleTerminalTurn: false, nested: totalDepth > 1)
+                return AgentPromptSubmitResult(accepted: true, staleTerminalTurn: false, nested: totalDepth > 1)
             }
             let existingTurnStackDepth = activePromptTurnStack(from: record).count
             record.activePromptDepth = max(max(0, record.activePromptDepth ?? 0), existingTurnStackDepth) + 1
             state.sessions[normalized] = record
-            return (staleTerminalTurn: false, nested: (record.activePromptDepth ?? 0) > 1)
+            return AgentPromptSubmitResult(accepted: true, staleTerminalTurn: false, nested: (record.activePromptDepth ?? 0) > 1)
         }
     }
-
     @discardableResult
     func recordPromptStop(
         sessionId: String,
@@ -398,9 +397,9 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
         autoNameMessages: [AutoNamingTranscriptMessage] = []
-    ) throws -> Bool {
+    ) throws -> AgentPromptStopResult {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return false }
+        guard !normalized.isEmpty else { return AgentPromptStopResult(accepted: false, nested: false) }
         return try withLockedState { state in
             let now = Date().timeIntervalSince1970
             var record = makeSessionRecord(
@@ -429,7 +428,7 @@ final class ClaudeHookSessionStore {
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
-            ) else { return false }
+            ) else { return AgentPromptStopResult(accepted: false, nested: false) }
             appendAutoNameMessages(autoNameMessages, to: &record)
             let normalizedTurnId = normalizeOptional(turnId)
             if let normalizedTurnId {
@@ -462,7 +461,7 @@ final class ClaudeHookSessionStore {
                         )
                         markPromptTurnTerminal(normalizedTurnId, on: &record)
                         state.sessions[normalized] = record
-                        return nested
+                        return AgentPromptStopResult(accepted: true, nested: nested)
                     }
                     if let staleIndex = turnStack.lastIndex(of: normalizedTurnId) {
                         turnStack.remove(at: staleIndex)
@@ -481,16 +480,16 @@ final class ClaudeHookSessionStore {
                         markPromptTurnTerminal(normalizedTurnId, on: &record)
                     }
                     state.sessions[normalized] = record
-                    return true
+                    return AgentPromptStopResult(accepted: true, nested: true)
                 }
                 if totalDepthBeforeStop == 0, terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
                     state.sessions[normalized] = record
-                    return true
+                    return AgentPromptStopResult(accepted: true, nested: true)
                 }
                 markPromptTurnTerminal(normalizedTurnId, on: &record)
                 if totalDepthBeforeStop == 0 {
                     state.sessions[normalized] = record
-                    return false
+                    return AgentPromptStopResult(accepted: true, nested: false)
                 }
                 let depthAfterTurnStop = max(0, totalDepthBeforeStop - 1)
                 if depthAfterTurnStop == 0 {
@@ -501,7 +500,7 @@ final class ClaudeHookSessionStore {
                 record.activePromptTurnId = nil
                 record.activePromptTurnIds = nil
                 state.sessions[normalized] = record
-                return totalDepthBeforeStop > 1
+                return AgentPromptStopResult(accepted: true, nested: totalDepthBeforeStop > 1)
             }
             if depthAfterStop == 0 {
                 record.activePromptDepth = nil
@@ -524,10 +523,9 @@ final class ClaudeHookSessionStore {
                 }
             }
             state.sessions[normalized] = record
-            return depthBeforeStop > 1
+            return AgentPromptStopResult(accepted: true, nested: depthBeforeStop > 1)
         }
     }
-
     func upsert(
         sessionId: String,
         workspaceId: String,
@@ -548,10 +546,10 @@ final class ClaudeHookSessionStore {
         markActive: Bool = false,
         turnId: String? = nil,
         allowsNewSessionReplacement: Bool = false
-    ) throws {
+    ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return }
-        try withLockedState { state in
+        guard !normalized.isEmpty else { return false }
+        return try withLockedState { state in
             let now = Date().timeIntervalSince1970
             var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
                 sessionId: normalized,
@@ -595,7 +593,7 @@ final class ClaudeHookSessionStore {
                 updateRuntimeStatus: updateRuntimeStatus,
                 hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
                 now: now
-            ) else { return }
+            ) else { return false }
             state.sessions[normalized] = record
             if markActive {
                 let activeRecord = ClaudeHookActiveSessionRecord(
@@ -611,9 +609,9 @@ final class ClaudeHookSessionStore {
                     state.activeSessionsBySurface[normalizedSurface] = activeRecord
                 }
             }
+            return true
         }
     }
-
     @discardableResult
     func upsertCodexSessionStartIfFresh(
         sessionId: String,
@@ -23912,11 +23910,12 @@ struct CMUXCLI {
                 telemetry: telemetry
             )
             let shouldPromoteActiveSession = !isForkSessionLaunch && (isClearSessionStart || canReplaceStoppedSession)
+            var acceptedSessionStart = true
             if let sessionId = parsedInput.sessionId, !isForkSessionLaunch {
                 // Non-clear SessionStart can arrive late from startup/resume/compact
                 // after /clear, so only /clear or replacement of a stopped owner
                 // establishes a new active boundary.
-                try? sessionStore.upsert(
+                acceptedSessionStart = (try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -23928,8 +23927,8 @@ struct CMUXCLI {
                     agentLifecycle: shouldPromoteActiveSession ? .running : .unknown,
                     markActive: shouldPromoteActiveSession,
                     turnId: parsedInput.turnId
-                )
-                if shouldPromoteActiveSession {
+                )) ?? false
+                if shouldPromoteActiveSession, acceptedSessionStart {
                     publishAgentSurfaceResumeBinding(
                         client: client,
                         workspaceId: workspaceId,
@@ -23941,6 +23940,10 @@ struct CMUXCLI {
                         launchCommand: launchCommand
                     )
                 }
+            }
+            guard acceptedSessionStart else {
+                telemetry.breadcrumb("claude-hook.session-start.rejected-generation"); didSendFeedTelemetry = true
+                printClaudeHookAck(); return
             }
             // Register PID for stale-session detection and OSC suppression.
             // Startup/resume SessionStart remains non-visible; /clear is a
@@ -24075,7 +24078,7 @@ struct CMUXCLI {
                     sessionRecord: mappedSession
                 )
                 if !suppressVisibleMutations, let sessionId = parsedInput.sessionId {
-                    try? sessionStore.upsert(
+                    let acceptedStopUpdate = (try? sessionStore.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -24091,7 +24094,10 @@ struct CMUXCLI {
                         hadPendingBackgroundWorkAtStop: hasPendingBackgroundWork,
                         markActive: true,
                         allowsNewSessionReplacement: true
-                    )
+                    )) ?? false
+                    guard acceptedStopUpdate else {
+                        telemetry.breadcrumb("claude-hook.stop.rejected-generation"); printClaudeHookAck(); return
+                    }
                     try? sessionStore.reconcileSemanticState(
                         sessionId: sessionId,
                         foregroundState: stopWasInterrupted ? .interrupted : .completed,
@@ -24244,7 +24250,7 @@ struct CMUXCLI {
                         cwd: parsedInput.cwd
                     )
                     : nil
-                try? sessionStore.upsert(
+                let acceptedPromptSubmit = (try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -24256,7 +24262,10 @@ struct CMUXCLI {
                     agentLifecycle: .running,
                     markActive: true,
                     turnId: parsedInput.turnId
-                )
+                )) ?? false
+                guard acceptedPromptSubmit else {
+                    telemetry.breadcrumb("claude-hook.prompt-submit.rejected-generation"); printClaudeHookAck(); return
+                }
                 try? sessionStore.reconcileSemanticState(
                     sessionId: sessionId,
                     foregroundState: .working,
@@ -24464,7 +24473,7 @@ struct CMUXCLI {
             if !suppressVisibleMutations,
                let sessionId = parsedInput.sessionId,
                !suppressNeedsInputState {
-                try? sessionStore.upsert(
+                let acceptedNotification = (try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -24473,7 +24482,10 @@ struct CMUXCLI {
                     agentLifecycle: .needsInput,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
-                )
+                )) ?? false
+                guard acceptedNotification else {
+                    telemetry.breadcrumb("claude-hook.notification.rejected-generation"); printClaudeHookAck(); return
+                }
                 try? sessionStore.reconcileSemanticState(
                     sessionId: sessionId,
                     attentionState: .needsInput
@@ -24712,7 +24724,7 @@ struct CMUXCLI {
                 // Preserve a non-empty surfaceId from SessionStart; passing ""
                 // would overwrite it and cause notifications to target the wrong workspace.
                 let existingSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId
-                try? sessionStore.upsert(
+                let acceptedNeedsInput = (try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: existingSurfaceId,
@@ -24721,7 +24733,10 @@ struct CMUXCLI {
                     agentLifecycle: .needsInput,
                     lastSubtitle: waitingSubtitle,
                     lastBody: needsInputBody
-                )
+                )) ?? false
+                guard acceptedNeedsInput else {
+                    telemetry.breadcrumb("claude-hook.pre-tool-use.rejected-generation"); printClaudeHookAck(); return
+                }
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
@@ -24777,14 +24792,17 @@ struct CMUXCLI {
             }
 
             if let sessionId = parsedInput.sessionId {
-                try? sessionStore.upsert(
+                let acceptedToolUse = (try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
                     agentLifecycle: .running
-                )
+                )) ?? false
+                guard acceptedToolUse else {
+                    telemetry.breadcrumb("claude-hook.pre-tool-use.rejected-generation"); printClaudeHookAck(); return
+                }
             }
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             setAgentLifecycle(
@@ -30446,7 +30464,7 @@ export default CMUXSessionRestore;
                         updateRuntimeStatus: !suppressVisibleMutations
                     )) ?? false
                 } else {
-                    try? store.upsert(
+                    acceptedSessionStart = (try? store.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -30457,8 +30475,7 @@ export default CMUXSessionRestore;
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations
-                    )
-                    acceptedSessionStart = true
+                    )) ?? false
                 }
                 if !acceptedSessionStart {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
@@ -30710,8 +30727,8 @@ export default CMUXSessionRestore;
                             workspaceId: workspaceId
                         ),
                         rejectTerminalTurn: def.name == "codex"
-                    )) ?? (staleTerminalTurn: false, nested: false)
-                    if recordResult.staleTerminalTurn {
+                    )) ?? AgentPromptSubmitResult(accepted: false, staleTerminalTurn: false, nested: false)
+                    if !recordResult.accepted || recordResult.staleTerminalTurn {
                         stopStaleCodexPromptSubmit()
                         return
                     }
@@ -30761,7 +30778,7 @@ export default CMUXSessionRestore;
                         launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped)
                     )) ?? false
                 } else {
-                    try? store.upsert(
+                    acceptedRunningUpdate = (try? store.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -30772,8 +30789,7 @@ export default CMUXSessionRestore;
                         agentLifecycle: .running,
                         runtimeStatus: .running,
                         updateRuntimeStatus: true
-                    )
-                    acceptedRunningUpdate = true
+                    )) ?? false
                 }
                 if !acceptedRunningUpdate || codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit()
@@ -31020,7 +31036,7 @@ export default CMUXSessionRestore;
             }
             let nestedPromptStop: Bool
             if !sessionId.isEmpty, !staleIdleStopHasNewerRunningSession {
-                nestedPromptStop = (try? store.recordPromptStop(
+                let promptStopResult = (try? store.recordPromptStop(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -31039,7 +31055,12 @@ export default CMUXSessionRestore;
                         client: client,
                         workspaceId: workspaceId
                     )
-                )) ?? false
+                )) ?? AgentPromptStopResult(accepted: false, nested: false)
+                guard promptStopResult.accepted else {
+                    telemetry.breadcrumb("\(def.name)-hook.stop.rejected-generation"); didSendFeedTelemetry = true
+                    print("{}"); return
+                }
+                nestedPromptStop = promptStopResult.nested
             } else {
                 nestedPromptStop = false
             }
@@ -31068,7 +31089,7 @@ export default CMUXSessionRestore;
                 : []
 
             if !sessionId.isEmpty, !suppressVisibleMutations {
-                try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
+                let acceptedStopUpdate = (try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
                                   transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                                   pid: pid,
                                   launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
@@ -31078,7 +31099,13 @@ export default CMUXSessionRestore;
                                   lastNotificationStatus: stopNotificationStatus,
                                   updateLastNotificationStatus: true,
                                   runtimeStatus: (antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle) ? .running : runtimeStatus(for: stopNotificationStatus),
-                                  updateRuntimeStatus: true)
+                                  updateRuntimeStatus: true)) ?? false
+                guard acceptedStopUpdate else {
+                    telemetry.breadcrumb("\(def.name)-hook.stop.rejected-generation")
+                    didSendFeedTelemetry = true
+                    print("{}")
+                    return
+                }
             }
             if !sessionId.isEmpty,
                !suppressVisibleMutations || (try? store.lookup(sessionId: sessionId))?.restoreAuthority == false {
@@ -31481,11 +31508,12 @@ export default CMUXSessionRestore;
                 )
                 let lifecycle = suppressPendingWaitingState ? .running : agentLifecycle(for: summary.status)
                 let storedRuntimeStatus: AgentHookRuntimeStatus? = suppressPendingWaitingState ? .running : runtimeStatus(for: summary.status)
+                let acceptedNotificationUpdate: Bool
                 // These agents use completion notifications as turn boundaries;
                 // keep the route but close nested prompt depth.
                 if (def.name == "grok" || def.name == "antigravity"),
                    summary.status == .idle || summary.status == .error {
-                    _ = try? store.recordPromptStop(
+                    acceptedNotificationUpdate = (try? store.recordPromptStop(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -31506,9 +31534,9 @@ export default CMUXSessionRestore;
                             client: client,
                             workspaceId: workspaceId
                         )
-                    )
+                    ).accepted) ?? false
                 } else {
-                    try? store.upsert(
+                    acceptedNotificationUpdate = (try? store.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -31523,7 +31551,13 @@ export default CMUXSessionRestore;
                         updateLastNotificationStatus: true,
                         runtimeStatus: storedRuntimeStatus,
                         updateRuntimeStatus: summary.status != nil
-                    )
+                    )) ?? false
+                }
+                guard acceptedNotificationUpdate else {
+                    telemetry.breadcrumb("\(def.name)-hook.notification.rejected-generation")
+                    didSendFeedTelemetry = true
+                    print("{}")
+                    return
                 }
             }
 

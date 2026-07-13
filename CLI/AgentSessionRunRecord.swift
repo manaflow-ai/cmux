@@ -72,6 +72,8 @@ struct AgentSessionRunReconciler: Sendable {
             let previous = run
             run = Self.newRun(lineage: lineage, now: now)
             if recoversProvisionalFork {
+                run.parentRunId = lineage.parentRunId ?? previous.parentRunId
+                run.parentSessionId = lineage.parentSessionId ?? previous.parentSessionId
                 return
             }
             // A stable logical run can span multiple process generations. Once
@@ -103,8 +105,8 @@ struct AgentSessionRunReconciler: Sendable {
         run.processStartedAt = lineage.processStartedAt ?? run.processStartedAt
         run.cmuxRuntime = run.cmuxRuntime ?? lineage.cmuxRuntime
         if recoversProvisionalFork {
-            run.parentRunId = lineage.parentRunId
-            run.parentSessionId = lineage.parentSessionId
+            run.parentRunId = lineage.parentRunId ?? run.parentRunId
+            run.parentSessionId = lineage.parentSessionId ?? run.parentSessionId
             run.relationship = .forked
             run.restoreAuthority = true
             run.authorityEvidence = .verifiedForkRoot

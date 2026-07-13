@@ -8,6 +8,63 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func olderProcessGenerationCannotReplaceActiveRun() {
+        let currentRun = AgentSessionRunRecord(
+            runId: "current-run", pid: 202, processStartedAt: 200,
+            parentRunId: nil, parentSessionId: nil, relationship: nil,
+            restoreAuthority: true, startedAt: 200, updatedAt: 210, endedAt: nil
+        )
+        let record = ClaudeHookSessionRecord(
+            sessionId: "session", workspaceId: "workspace", surfaceId: "surface",
+            startedAt: 100, updatedAt: 210, runs: [currentRun], activeRunId: currentRun.runId
+        )
+        let staleLineage = AgentHookSessionLineage(
+            runId: "old-run", pid: 101, processStartedAt: 100,
+            parentRunId: nil, parentSessionId: nil, relationship: nil, restoreAuthority: true
+        )
+
+        #expect(!AgentHookSessionActivationPolicy().canActivate(
+            record: record, lineage: staleLineage, hasIncomingPID: true
+        ))
+    }
+
+    @Test func rejectedCompletedGenerationIsReportedByStore() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-rejected-upsert-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let pid = Int(getpid())
+        let environment = ["CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path]
+        let lineage = AgentHookSessionLineageResolver().resolve(
+            agentName: "codex", sessionId: "completed-session", pid: pid, environment: environment
+        )
+        let processStartedAt = try #require(lineage.processStartedAt)
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": ["completed-session": [
+                "sessionId": "completed-session", "workspaceId": "workspace", "surfaceId": "surface",
+                "completedAt": 200.0, "sessionState": "ended", "startedAt": 100.0, "updatedAt": 200.0,
+                "runs": [[
+                    "runId": lineage.runId, "pid": pid, "processStartedAt": processStartedAt,
+                    "restoreAuthority": false, "startedAt": 100.0, "updatedAt": 200.0, "endedAt": 200.0,
+                ]],
+            ]],
+        ], options: [.sortedKeys]).write(to: stateURL, options: .atomic)
+        let store = ClaudeHookSessionStore(processEnv: environment, agentName: "codex")
+
+        let accepted = try store.upsert(
+            sessionId: "completed-session", workspaceId: "workspace", surfaceId: "surface",
+            cwd: root.path, pid: pid
+        )
+
+        #expect(!accepted)
+        let saved = try #require(store.lookup(sessionId: "completed-session"))
+        #expect(saved.completedAt == 200)
+        #expect(saved.sessionState == .ended)
+        #expect(saved.activeRunId == nil)
+    }
+
     @Test func queuedLifecycleCannotOverwriteNewerRecordGeneration() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-lifecycle-fence-\(UUID().uuidString)", isDirectory: true)
