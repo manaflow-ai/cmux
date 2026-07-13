@@ -354,6 +354,10 @@ import Testing
         )?.kind == .vertical)
         #expect(controller.begin(atWindowPoint: start, regions: [vertical]))
         #expect(controller.cursorKind == .vertical)
+        #expect(
+            controller.hasCursorEventMonitorForTesting,
+            "A claimed divider mouse-down must install one cursor owner for the full gesture."
+        )
 
         // Moving diagonally across where another divider could be must still
         // resize only the captured vertical axis and retain its cursor kind.
@@ -363,6 +367,10 @@ import Testing
 
         controller.end()
         #expect(controller.cursorKind == nil)
+        #expect(
+            !controller.hasCursorEventMonitorForTesting,
+            "The cursor owner must be released with the divider mouse-up."
+        )
     }
 
     @Test func updateEndsDragWhenDividerIdentityGoesStale() {
