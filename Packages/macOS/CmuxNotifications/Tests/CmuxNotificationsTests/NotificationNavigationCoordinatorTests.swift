@@ -74,9 +74,10 @@ private final class FakeOpenRouting: NotificationOpenRouting {
         notificationId: UUID?,
         scrollRow: Int?,
         scrollTotalRows: Int?,
-        scrollReplayGeneration: String?
+        scrollReplayGeneration: String?,
+        scrollRowSpaceRevision: UInt64?
     ) -> Bool {
-        log.append("routed(tab=\(short(tabId)),surf=\(short(surfaceId))\(panel(panelId)),notif=\(short(notificationId)),row=\(row(scrollRow)),total=\(row(scrollTotalRows))\(generation(scrollReplayGeneration)))")
+        log.append("routed(tab=\(short(tabId)),surf=\(short(surfaceId))\(panel(panelId)),notif=\(short(notificationId)),row=\(row(scrollRow)),total=\(row(scrollTotalRows))\(generation(scrollReplayGeneration))\(revision(scrollRowSpaceRevision)))")
         return routedSucceeds
     }
 
@@ -88,9 +89,10 @@ private final class FakeOpenRouting: NotificationOpenRouting {
         notificationId: UUID?,
         scrollRow: Int?,
         scrollTotalRows: Int?,
-        scrollReplayGeneration: String?
+        scrollReplayGeneration: String?,
+        scrollRowSpaceRevision: UInt64?
     ) -> Bool {
-        log.append("window(\(short(windowId)),tab=\(short(tabId)),surf=\(short(surfaceId))\(panel(panelId)),notif=\(short(notificationId)),row=\(row(scrollRow)),total=\(row(scrollTotalRows))\(generation(scrollReplayGeneration)))")
+        log.append("window(\(short(windowId)),tab=\(short(tabId)),surf=\(short(surfaceId))\(panel(panelId)),notif=\(short(notificationId)),row=\(row(scrollRow)),total=\(row(scrollTotalRows))\(generation(scrollReplayGeneration))\(revision(scrollRowSpaceRevision)))")
         return windowSucceeds
     }
 
@@ -101,9 +103,10 @@ private final class FakeOpenRouting: NotificationOpenRouting {
         notificationId: UUID?,
         scrollRow: Int?,
         scrollTotalRows: Int?,
-        scrollReplayGeneration: String?
+        scrollReplayGeneration: String?,
+        scrollRowSpaceRevision: UInt64?
     ) -> Bool {
-        log.append("fallback(tab=\(short(tabId)),surf=\(short(surfaceId))\(panel(panelId)),notif=\(short(notificationId)),row=\(row(scrollRow)),total=\(row(scrollTotalRows))\(generation(scrollReplayGeneration)))")
+        log.append("fallback(tab=\(short(tabId)),surf=\(short(surfaceId))\(panel(panelId)),notif=\(short(notificationId)),row=\(row(scrollRow)),total=\(row(scrollTotalRows))\(generation(scrollReplayGeneration))\(revision(scrollRowSpaceRevision)))")
         return fallbackSucceeds
     }
 
@@ -114,6 +117,9 @@ private final class FakeOpenRouting: NotificationOpenRouting {
     private func row(_ row: Int?) -> String { row.map(String.init) ?? "nil" }
     private func generation(_ generation: String?) -> String {
         generation.map { ",generation=\($0)" } ?? ""
+    }
+    private func revision(_ revision: UInt64?) -> String {
+        revision.map { ",revision=\($0)" } ?? ""
     }
 }
 
@@ -157,6 +163,7 @@ private func snapshot(
     scrollRow: Int? = nil,
     scrollTotalRows: Int? = nil,
     scrollReplayGeneration: String? = nil,
+    scrollRowSpaceRevision: UInt64? = nil,
     id: UUID = UUID()
 ) -> NotificationNavSnapshot {
     NotificationNavSnapshot(
@@ -168,7 +175,8 @@ private func snapshot(
         clickAction: clickAction,
         scrollRow: scrollRow,
         scrollTotalRows: scrollTotalRows,
-        scrollReplayGeneration: scrollReplayGeneration
+        scrollReplayGeneration: scrollReplayGeneration,
+        scrollRowSpaceRevision: scrollRowSpaceRevision
     )
 }
 
@@ -391,14 +399,15 @@ struct NotificationNavigationCoordinatorTests {
             panelId: panelId,
             scrollRow: 42,
             scrollTotalRows: 100,
-            scrollReplayGeneration: "replay-1"
+            scrollReplayGeneration: "replay-1",
+            scrollRowSpaceRevision: 7
         )
         let coordinator = makeCoordinator(openRouting: openRouting)
 
         let opened = coordinator.openNotification(notif)
 
         #expect(opened)
-        #expect(openRouting.log == ["routed(tab=\(short(notif.tabId)),surf=\(short(notif.surfaceId)),panel=\(short(panelId)),notif=\(short(notif.id)),row=42,total=100,generation=replay-1)"])
+        #expect(openRouting.log == ["routed(tab=\(short(notif.tabId)),surf=\(short(notif.surfaceId)),panel=\(short(panelId)),notif=\(short(notif.id)),row=42,total=100,generation=replay-1,revision=7)"])
     }
 
     @Test("openNotification by id preserves stored panel and scroll context")

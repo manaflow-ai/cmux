@@ -2918,12 +2918,6 @@ class GhosttyApp {
                 )
             }
             return true
-        case GHOSTTY_ACTION_SCROLLBAR_REVISION:
-            let revision = action.action.scrollbar_revision.value
-            performOnMain {
-                surfaceView.terminalSurface?.hostedView.updateScrollbackRowSpaceRevision(revision)
-            }
-            return true
         case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
             guard let tabId = surfaceView.tabId else { return true }
             let surfaceId = surfaceView.terminalSurface?.id

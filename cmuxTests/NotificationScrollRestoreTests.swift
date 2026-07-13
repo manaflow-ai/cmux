@@ -242,6 +242,48 @@ struct NotificationScrollRestoreTests {
         #expect(hostedView.notificationScrollRestorePhase == .idle)
     }
 
+    @Test func rowSpaceRevisionInvalidatesSameGenerationNotification() {
+        let surfaceView = ActionProbeView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let marker = completionMarker(named: "same-generation-row-space-revision")
+        hostedView.beginSessionScrollbackReplay(completionMarker: marker)
+        #expect(completeReplay(
+            hostedView,
+            marker: marker,
+            scrollbar: scrollbar(total: 200, offset: 156, visible: 44),
+            rowSpaceRevision: 7
+        ))
+
+        hostedView.updateScrollbackRowSpaceRevision(8)
+        #expect(!hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(
+                row: 40,
+                totalRows: 200,
+                replayGeneration: marker.reportedDirectory,
+                rowSpaceRevision: 7
+            )
+        ))
+        #expect(surfaceView.bindingActions.isEmpty)
+    }
+
+    @Test func rowSpaceRevisionDoesNotInvalidateBottomAnchor() {
+        let surfaceView = ActionProbeView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.updateScrollbackRowSpaceRevision(8)
+
+        #expect(hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(
+                row: 0,
+                totalRows: 200,
+                replayGeneration: "older-generation",
+                rowSpaceRevision: 7
+            )
+        ))
+        #expect(surfaceView.bindingActions == ["scroll_to_bottom"])
+    }
+
     @Test func postReplayNotificationUsesItsLiveGeneration() throws {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 100, offset: 56, visible: 44)

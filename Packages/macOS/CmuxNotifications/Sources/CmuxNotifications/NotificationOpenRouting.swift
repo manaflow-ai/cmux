@@ -26,7 +26,8 @@ public protocol NotificationOpenRouting: AnyObject {
         notificationId: UUID?,
         scrollRow: Int?,
         scrollTotalRows: Int?,
-        scrollReplayGeneration: String?
+        scrollReplayGeneration: String?,
+        scrollRowSpaceRevision: UInt64?
     ) -> Bool
 
     /// Focus `tabId`/`surfaceId` in the specific registered window `windowId`,
@@ -40,7 +41,8 @@ public protocol NotificationOpenRouting: AnyObject {
         notificationId: UUID?,
         scrollRow: Int?,
         scrollTotalRows: Int?,
-        scrollReplayGeneration: String?
+        scrollReplayGeneration: String?,
+        scrollRowSpaceRevision: UInt64?
     ) -> Bool
 
     /// Focus `tabId`/`surfaceId` in the active window when no registered context
@@ -52,7 +54,8 @@ public protocol NotificationOpenRouting: AnyObject {
         notificationId: UUID?,
         scrollRow: Int?,
         scrollTotalRows: Int?,
-        scrollReplayGeneration: String?
+        scrollReplayGeneration: String?,
+        scrollRowSpaceRevision: UInt64?
     ) -> Bool
 
     /// The workspace's title, resolved from whichever window owns it, falling

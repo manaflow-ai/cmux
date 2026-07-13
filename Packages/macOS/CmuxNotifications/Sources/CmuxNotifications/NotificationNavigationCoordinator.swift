@@ -157,7 +157,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             notificationId: nil,
             scrollRow: nil,
             scrollTotalRows: nil,
-            scrollReplayGeneration: nil
+            scrollReplayGeneration: nil,
+            scrollRowSpaceRevision: nil
         )
         if didOpen {
             signalDidFocusForJumpUnread(tabId: workspaceId, surfaceId: panelId)
@@ -176,7 +177,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             notificationId: nil,
             scrollRow: nil,
             scrollTotalRows: nil,
-            scrollReplayGeneration: nil
+            scrollReplayGeneration: nil,
+            scrollRowSpaceRevision: nil
         )
         if didOpen {
             signalDidFocusForJumpUnread(tabId: workspaceId, surfaceId: panelId)
@@ -213,7 +215,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             notificationId: notification.id,
             scrollRow: notification.scrollRow,
             scrollTotalRows: notification.scrollTotalRows,
-            scrollReplayGeneration: notification.scrollReplayGeneration
+            scrollReplayGeneration: notification.scrollReplayGeneration,
+            scrollRowSpaceRevision: notification.scrollRowSpaceRevision
         )
     }
 
@@ -250,7 +253,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             notificationId: notificationId,
             scrollRow: nil,
             scrollTotalRows: nil,
-            scrollReplayGeneration: nil
+            scrollReplayGeneration: nil,
+            scrollRowSpaceRevision: nil
         )
     }
 
@@ -278,7 +282,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         notificationId: UUID?,
         scrollRow: Int?,
         scrollTotalRows: Int?,
-        scrollReplayGeneration: String?
+        scrollReplayGeneration: String?,
+        scrollRowSpaceRevision: UInt64?
     ) -> Bool {
         openRouting.openRouted(
             tabId: tabId,
@@ -287,7 +292,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             notificationId: notificationId,
             scrollRow: scrollRow,
             scrollTotalRows: scrollTotalRows,
-            scrollReplayGeneration: scrollReplayGeneration
+            scrollReplayGeneration: scrollReplayGeneration,
+            scrollRowSpaceRevision: scrollRowSpaceRevision
         )
     }
 

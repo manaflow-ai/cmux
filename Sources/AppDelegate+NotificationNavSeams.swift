@@ -102,7 +102,8 @@ final class NotificationNavSeamAdapter:
         notificationId: UUID?,
         scrollRow: Int?,
         scrollTotalRows: Int?,
-        scrollReplayGeneration: String?
+        scrollReplayGeneration: String?,
+        scrollRowSpaceRevision: UInt64?
     ) -> Bool {
         owner?.openRouted(
             tabId: tabId,
@@ -111,7 +112,8 @@ final class NotificationNavSeamAdapter:
             notificationId: notificationId,
             scrollRow: scrollRow,
             scrollTotalRows: scrollTotalRows,
-            scrollReplayGeneration: scrollReplayGeneration
+            scrollReplayGeneration: scrollReplayGeneration,
+            scrollRowSpaceRevision: scrollRowSpaceRevision
         ) ?? false
     }
 
@@ -123,7 +125,8 @@ final class NotificationNavSeamAdapter:
         notificationId: UUID?,
         scrollRow: Int?,
         scrollTotalRows: Int?,
-        scrollReplayGeneration: String?
+        scrollReplayGeneration: String?,
+        scrollRowSpaceRevision: UInt64?
     ) -> Bool {
         owner?.openInWindow(
             windowId: windowId,
@@ -133,7 +136,8 @@ final class NotificationNavSeamAdapter:
             notificationId: notificationId,
             scrollRow: scrollRow,
             scrollTotalRows: scrollTotalRows,
-            scrollReplayGeneration: scrollReplayGeneration
+            scrollReplayGeneration: scrollReplayGeneration,
+            scrollRowSpaceRevision: scrollRowSpaceRevision
         ) ?? false
     }
 
@@ -144,7 +148,8 @@ final class NotificationNavSeamAdapter:
         notificationId: UUID?,
         scrollRow: Int?,
         scrollTotalRows: Int?,
-        scrollReplayGeneration: String?
+        scrollReplayGeneration: String?,
+        scrollRowSpaceRevision: UInt64?
     ) -> Bool {
         owner?.openInActiveWindowFallback(
             tabId: tabId,
@@ -153,7 +158,8 @@ final class NotificationNavSeamAdapter:
             notificationId: notificationId,
             scrollRow: scrollRow,
             scrollTotalRows: scrollTotalRows,
-            scrollReplayGeneration: scrollReplayGeneration
+            scrollReplayGeneration: scrollReplayGeneration,
+            scrollRowSpaceRevision: scrollRowSpaceRevision
         ) ?? false
     }
 
@@ -266,7 +272,8 @@ extension AppDelegate {
                 clickAction: notification.clickAction.map(Self.navClickAction),
                 scrollRow: notification.scrollPosition?.row,
                 scrollTotalRows: notification.scrollPosition?.totalRows,
-                scrollReplayGeneration: notification.scrollPosition?.replayGeneration
+                scrollReplayGeneration: notification.scrollPosition?.replayGeneration,
+                scrollRowSpaceRevision: notification.scrollPosition?.rowSpaceRevision
             )
         }
     }
@@ -316,7 +323,8 @@ extension AppDelegate {
             clickAction: notification.clickAction.map(navClickAction),
             scrollRow: notification.scrollPosition?.row,
             scrollTotalRows: notification.scrollPosition?.totalRows,
-            scrollReplayGeneration: notification.scrollPosition?.replayGeneration
+            scrollReplayGeneration: notification.scrollPosition?.replayGeneration,
+            scrollRowSpaceRevision: notification.scrollPosition?.rowSpaceRevision
         )
         .isOpenableForJump(
             excludingNotificationId: excludedNotificationId,
@@ -395,7 +403,8 @@ extension AppDelegate {
         notificationId: UUID?,
         scrollRow: Int?,
         scrollTotalRows: Int?,
-        scrollReplayGeneration: String?
+        scrollReplayGeneration: String?,
+        scrollRowSpaceRevision: UInt64?
     ) -> Bool {
         openNotification(
             tabId: tabId,
@@ -405,7 +414,8 @@ extension AppDelegate {
             scrollPosition: navScrollPosition(
                 row: scrollRow,
                 totalRows: scrollTotalRows,
-                replayGeneration: scrollReplayGeneration
+                replayGeneration: scrollReplayGeneration,
+                rowSpaceRevision: scrollRowSpaceRevision
             )
         )
     }
@@ -418,7 +428,8 @@ extension AppDelegate {
         notificationId: UUID?,
         scrollRow: Int?,
         scrollTotalRows: Int?,
-        scrollReplayGeneration: String?
+        scrollReplayGeneration: String?,
+        scrollRowSpaceRevision: UInt64?
     ) -> Bool {
         guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) else {
             return false
@@ -433,7 +444,8 @@ extension AppDelegate {
             scrollPosition: navScrollPosition(
                 row: scrollRow,
                 totalRows: scrollTotalRows,
-                replayGeneration: scrollReplayGeneration
+                replayGeneration: scrollReplayGeneration,
+                rowSpaceRevision: scrollRowSpaceRevision
             )
         )
     }
@@ -445,7 +457,8 @@ extension AppDelegate {
         notificationId: UUID?,
         scrollRow: Int?,
         scrollTotalRows: Int?,
-        scrollReplayGeneration: String?
+        scrollReplayGeneration: String?,
+        scrollRowSpaceRevision: UInt64?
     ) -> Bool {
         openNotificationFallback(
             tabId: tabId,
@@ -455,7 +468,8 @@ extension AppDelegate {
             scrollPosition: navScrollPosition(
                 row: scrollRow,
                 totalRows: scrollTotalRows,
-                replayGeneration: scrollReplayGeneration
+                replayGeneration: scrollReplayGeneration,
+                rowSpaceRevision: scrollRowSpaceRevision
             )
         )
     }
@@ -467,13 +481,15 @@ extension AppDelegate {
     private func navScrollPosition(
         row: Int?,
         totalRows: Int?,
-        replayGeneration: String?
+        replayGeneration: String?,
+        rowSpaceRevision: UInt64?
     ) -> TerminalNotificationScrollPosition? {
         guard let row else { return nil }
         return TerminalNotificationScrollPosition(
             row: row,
             totalRows: totalRows,
-            replayGeneration: replayGeneration
+            replayGeneration: replayGeneration,
+            rowSpaceRevision: rowSpaceRevision
         )
     }
 

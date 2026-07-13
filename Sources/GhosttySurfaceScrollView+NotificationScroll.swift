@@ -6,12 +6,16 @@ import GhosttyKit
 @MainActor
 extension GhosttySurfaceScrollView {
     var notificationScrollPosition: TerminalNotificationScrollPosition? {
-        guard let scrollbar = surfaceView.scrollbar else { return nil }
+        guard let snapshot = authoritativeNotificationScrollbarSnapshot() ?? surfaceView.scrollbar.map({
+            (scrollbar: $0, rowSpaceRevision: currentScrollbackRowSpaceRevision ?? 0)
+        }) else { return nil }
+        let scrollbar = snapshot.scrollbar
         let rowFromBottom = max(0, scrollbar.total - scrollbar.offset - scrollbar.len)
         return TerminalNotificationScrollPosition(
             row: Int(clamping: rowFromBottom),
             totalRows: Int(clamping: scrollbar.total),
-            replayGeneration: sessionScrollbackReplayGeneration
+            replayGeneration: sessionScrollbackReplayGeneration,
+            rowSpaceRevision: snapshot.rowSpaceRevision
         )
     }
 
@@ -37,13 +41,20 @@ extension GhosttySurfaceScrollView {
             return false
         }
         guard completionMarker == nil else { return true }
+        let authoritativeSnapshot = authoritativeNotificationScrollbarSnapshot()
+        if let authoritativeSnapshot {
+            updateScrollbackRowSpaceRevision(authoritativeSnapshot.rowSpaceRevision)
+        }
         if notificationScrollRestoreHasInvalidatedReplayGeometry(position) {
             notificationScrollRestorePhase = .idle
             return false
         }
         switch notificationScrollRestoreDecision(
             position,
-            scrollbar: scrollbarForNotificationScrollRestore(position)
+            scrollbar: scrollbarForNotificationScrollRestore(
+                position,
+                liveScrollbar: authoritativeSnapshot?.scrollbar ?? surfaceView.scrollbar
+            )
         ) {
         case .waitForViewport:
             return true
@@ -246,19 +257,42 @@ extension GhosttySurfaceScrollView {
     }
 
     private func scrollbarForNotificationScrollRestore(
-        _ position: TerminalNotificationScrollPosition
+        _ position: TerminalNotificationScrollPosition,
+        liveScrollbar: GhosttyScrollbar?
     ) -> GhosttyScrollbar? {
         if let replayGeneration = sessionScrollbackReplayGeneration,
            position.replayGeneration != replayGeneration,
            let replayScrollbar = sessionScrollbackReplayCompletionScrollbar,
-           let liveScrollbar = surfaceView.scrollbar {
+           let liveScrollbar {
             return GhosttyScrollbar(c: ghostty_action_scrollbar_s(
                 total: replayScrollbar.total,
                 offset: liveScrollbar.offset,
                 len: liveScrollbar.len
             ))
         }
-        return surfaceView.scrollbar
+        return liveScrollbar
+    }
+
+    private func authoritativeNotificationScrollbarSnapshot() -> (
+        scrollbar: GhosttyScrollbar,
+        rowSpaceRevision: UInt64
+    )? {
+        guard let surface = surfaceView.terminalSurface?.surface else { return nil }
+        var snapshot = ghostty_surface_scrollbar_s(
+            total: 0,
+            offset: 0,
+            len: 0,
+            row_space_revision: 0
+        )
+        guard ghostty_surface_scrollbar(surface, &snapshot) else { return nil }
+        return (
+            scrollbar: GhosttyScrollbar(c: ghostty_action_scrollbar_s(
+                total: snapshot.total,
+                offset: snapshot.offset,
+                len: snapshot.len
+            )),
+            rowSpaceRevision: snapshot.row_space_revision
+        )
     }
 
     func updateScrollbackRowSpaceRevision(_ revision: UInt64) {
@@ -268,13 +302,17 @@ extension GhosttySurfaceScrollView {
     private func notificationScrollRestoreHasInvalidatedReplayGeometry(
         _ position: TerminalNotificationScrollPosition
     ) -> Bool {
-        guard let replayGeneration = sessionScrollbackReplayGeneration,
-              position.replayGeneration != replayGeneration,
-              let markerRevision = sessionScrollbackReplayCompletionRowSpaceRevision,
-              let currentRevision = currentScrollbackRowSpaceRevision else {
-            return false
+        guard position.row > 0,
+              let currentRevision = currentScrollbackRowSpaceRevision else { return false }
+        if let replayGeneration = sessionScrollbackReplayGeneration,
+           position.replayGeneration != replayGeneration {
+            guard let markerRevision = sessionScrollbackReplayCompletionRowSpaceRevision else {
+                return false
+            }
+            return currentRevision != markerRevision
         }
-        return currentRevision != markerRevision
+        guard let capturedRevision = position.rowSpaceRevision else { return false }
+        return currentRevision != capturedRevision
     }
 
     func notificationScrollRestoreTarget(
