@@ -3667,7 +3667,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // Visibility is used for focus gating. Explicit portal visibility transitions
     // also drive Ghostty occlusion so hidden workspace/split surfaces pause and
     // queue a redraw when they become visible again.
-    var isVisibleInUI: Bool { visibleInUI }
+    fileprivate var isVisibleInUI: Bool { visibleInUI }
     fileprivate func setVisibleInUI(_ visible: Bool) {
         visibleInUI = visible
     }
@@ -9875,6 +9875,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
+    var isVisibleInUI: Bool { surfaceView.isVisibleInUI }
     func setVisibleInUI(_ visible: Bool) {
         let wasVisible = surfaceView.isVisibleInUI
         // Re-realize before marking visible so we never draw into a released swap chain.
@@ -9923,7 +9924,6 @@ final class GhosttySurfaceScrollView: NSView {
             scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
         }
     }
-
     var debugPortalVisibleInUI: Bool {
         surfaceView.isVisibleInUI
     }
