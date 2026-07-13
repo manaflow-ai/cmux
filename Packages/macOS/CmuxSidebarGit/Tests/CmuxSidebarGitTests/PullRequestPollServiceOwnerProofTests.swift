@@ -120,4 +120,58 @@ import Testing
         #expect(await executor.fetchCount == 2)
         service.resetWorkspacePullRequestRefreshState()
     }
+
+    @Test(.timeLimit(.minutes(1)))
+    func commandRefreshForIdlePanelSurvivesAnotherPanelsActiveRefresh() async throws {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, panelAId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        let panelBId = UUID()
+        host.workspaces[0].state.panels[panelBId] = .init(directory: "/tmp/repo")
+        host.workspaces[0].state.panels[panelAId]?.branch = SidebarPanelGitBranch(
+            branch: "feature/a",
+            isDirty: false
+        )
+        host.workspaces[0].state.panels[panelBId]?.branch = SidebarPanelGitBranch(
+            branch: "feature/b",
+            isDirty: false
+        )
+        let executor = GatedPullRequestRefreshExecutor()
+        let service = makeService(host: host, executor: executor)
+        let panelBKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelBId)
+        service.workspacePullRequestNextPollAtByKey[panelBKey] = .distantFuture
+
+        service.refreshTrackedWorkspacePullRequestsIfNeeded(reason: "timer")
+        await executor.waitForFetchCount(1)
+
+        service.scheduleWorkspacePullRequestRefresh(
+            workspaceId: workspaceId,
+            panelId: panelBId,
+            reason: "commandHint:merge"
+        )
+        #expect(service.workspacePullRequestPendingRefreshRequest?.shouldBypassRepoCache == true)
+
+        await executor.releaseNextFetch()
+        await executor.waitForFetchCount(2)
+
+        let betweenFetches = service.runtimeMetricsRecorder.snapshot()
+        #expect(betweenFetches.pullRequestStaleCompletionRejectedOffMainCount == 0)
+        #expect(betweenFetches.pullRequestFollowUpStartedCount == 1)
+        #expect(betweenFetches.pullRequestTaskStartedCount == 2)
+        #expect(await executor.allowCachedResultsRequests == [true, false])
+
+        let events = host.projectionEvents()
+        await executor.releaseNextFetch()
+        for await event in events {
+            if case .pullRequestBadge(workspaceId, panelBId, let badge) = event {
+                #expect(badge.branch == "feature/b")
+                break
+            }
+        }
+
+        let applied = service.runtimeMetricsRecorder.snapshot()
+        #expect(applied.pullRequestFollowUpStartedCount == 1)
+        #expect(await executor.fetchCount == 2)
+        service.resetWorkspacePullRequestRefreshState()
+    }
 }

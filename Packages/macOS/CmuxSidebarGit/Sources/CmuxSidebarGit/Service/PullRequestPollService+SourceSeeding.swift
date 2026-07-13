@@ -58,12 +58,10 @@ extension PullRequestPollService {
         }
 
         let shouldBypassRepoCache = !PullRequestProbeService.refreshAllowsRepoCache(reason: reason)
-        if shouldBypassRepoCache, workspacePullRequestRefreshTask != nil {
-            workspacePullRequestFollowUpShouldBypassRepoCache = true
-        }
         if case .inFlight = workspacePullRequestProbeStateByKey[key] {
             markWorkspacePullRequestProbeRerunPending(
                 for: key,
+                reason: reason,
                 bypassRepoCache: shouldBypassRepoCache
             )
         } else {

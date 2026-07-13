@@ -134,6 +134,7 @@ extension ProbeSchedulingTests {
             action: "merge",
             target: nil
         )
+        await host.waitForOrderedWorkspaceIdsReadCount(4)
         #expect(host.orderedWorkspaceIdsReadCount == 4)
     }
 
@@ -193,6 +194,7 @@ extension ProbeSchedulingTests {
             action: "merge",
             target: nil
         )
+        await host.waitForOrderedWorkspaceIdsReadCount(readsBeforeCommandHint[0] + 1)
         #expect(pullRequestTraversalReads(host) == readsBeforeCommandHint.map { $0 + 1 })
     }
 

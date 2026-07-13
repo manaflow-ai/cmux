@@ -60,7 +60,7 @@ public final class PullRequestPollService: PullRequestProbing {
     var workspacePullRequestRefreshTask: Task<Void, Never>?
     var workspacePullRequestRefreshAuthority: DetachedCompletionAuthority?
     var workspacePullRequestRefreshGeneration: UInt64 = 0
-    var workspacePullRequestFollowUpShouldBypassRepoCache = false
+    var workspacePullRequestPendingRefreshRequest: PendingRefreshRequest?
     var workspacePullRequestSourceByKey: [WorkspaceGitProbeKey: SourceIdentity] = [:]
     var workspacePullRequestSeedRefreshTask: Task<Void, Never>?
     var workspacePullRequestPendingSeedRefresh: PendingSeedRefresh?
@@ -181,8 +181,13 @@ public final class PullRequestPollService: PullRequestProbing {
         if workspacePullRequestRefreshTask != nil,
            sidebarPullRequestPollingEnabled,
            host?.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) != true,
-           workspacePullRequestPendingSeedRefresh == nil,
-           PullRequestProbeService.refreshAllowsRepoCache(reason: reason) {
+           workspacePullRequestPendingSeedRefresh == nil {
+            if !PullRequestProbeService.refreshAllowsRepoCache(reason: reason) {
+                queueWorkspacePullRequestRefreshFollowUp(
+                    reason: reason,
+                    shouldBypassRepoCache: true
+                )
+            }
             runtimeMetricsRecorder.recordPullRequestRefreshRequest()
             runtimeMetricsRecorder.recordPullRequestTaskJoined()
             return
@@ -194,9 +199,15 @@ public final class PullRequestPollService: PullRequestProbing {
         let pendingSeedRefresh = workspacePullRequestRefreshTask == nil
             ? takePendingSeedRefresh()
             : workspacePullRequestPendingSeedRefresh
+        let pendingRefreshRequest = workspacePullRequestRefreshTask == nil
+            ? takePendingRefreshRequest()
+            : workspacePullRequestPendingRefreshRequest
         refreshTrackedWorkspacePullRequestsIfNeeded(
-            reason: reason,
-            allowCachedResultsOverride: pendingSeedRefresh?.shouldBypassRepoCache == true ? false : nil
+            reason: pendingRefreshRequest?.reason ?? reason,
+            allowCachedResultsOverride: (
+                pendingSeedRefresh?.shouldBypassRepoCache == true ||
+                    pendingRefreshRequest?.shouldBypassRepoCache == true
+            ) ? false : nil
         )
     }
 
@@ -260,6 +271,7 @@ public final class PullRequestPollService: PullRequestProbing {
                    previousSource != source {
                     markWorkspacePullRequestProbeRerunPending(
                         for: key,
+                        reason: reason,
                         bypassRepoCache: !PullRequestProbeService.refreshAllowsRepoCache(reason: reason)
                     )
                     continue
@@ -278,6 +290,7 @@ public final class PullRequestPollService: PullRequestProbing {
                     if bypassesRepoCache {
                         markWorkspacePullRequestProbeRerunPending(
                             for: key,
+                            reason: reason,
                             bypassRepoCache: bypassesRepoCache
                         )
                     }
@@ -353,12 +366,16 @@ public final class PullRequestPollService: PullRequestProbing {
             return
         }
         let shouldBypassRepoCache = !PullRequestProbeService.refreshAllowsRepoCache(reason: reason)
-        if shouldBypassRepoCache, workspacePullRequestRefreshTask != nil {
-            workspacePullRequestFollowUpShouldBypassRepoCache = true
+        if workspacePullRequestRefreshTask != nil {
+            queueWorkspacePullRequestRefreshFollowUp(
+                reason: reason,
+                shouldBypassRepoCache: shouldBypassRepoCache
+            )
         }
         if case .inFlight = workspacePullRequestProbeStateByKey[key] {
             markWorkspacePullRequestProbeRerunPending(
                 for: key,
+                reason: reason,
                 bypassRepoCache: shouldBypassRepoCache
             )
         } else {

@@ -49,12 +49,13 @@ extension PullRequestPollService {
 
         defer {
             let pendingSeedRefresh = takePendingSeedRefresh()
-            if needsFollowUpPass || pendingSeedRefresh != nil {
-                let shouldBypassRepoCache = workspacePullRequestFollowUpShouldBypassRepoCache ||
+            let pendingRefreshRequest = takePendingRefreshRequest()
+            if needsFollowUpPass || pendingSeedRefresh != nil || pendingRefreshRequest != nil {
+                let shouldBypassRepoCache =
                     pendingSeedRefresh?.shouldBypassRepoCache == true
-                workspacePullRequestFollowUpShouldBypassRepoCache = false
+                    || pendingRefreshRequest?.shouldBypassRepoCache == true
                 startWorkspacePullRequestFollowUp(
-                    reason: "\(reason).followUp",
+                    reason: "\(pendingRefreshRequest?.reason ?? reason).followUp",
                     shouldBypassRepoCache: shouldBypassRepoCache
                 )
             }
@@ -95,7 +96,8 @@ extension PullRequestPollService {
             }
 
             if rerunPending,
-               workspacePullRequestFollowUpShouldBypassRepoCache,
+               (workspacePullRequestPendingSeedRefresh?.shouldBypassRepoCache == true ||
+                   workspacePullRequestPendingRefreshRequest?.shouldBypassRepoCache == true),
                result.usedCachedRepoData {
                 continue
             }
@@ -350,7 +352,7 @@ extension PullRequestPollService {
         workspacePullRequestTransientFailureCountByKey.removeAll()
         workspacePullRequestRepoCacheBySlug.removeAll()
         workspacePullRequestSourceByKey.removeAll()
-        workspacePullRequestFollowUpShouldBypassRepoCache = false
+        workspacePullRequestPendingRefreshRequest = nil
         updateWorkspacePullRequestPollTimer()
     }
 
@@ -369,6 +371,7 @@ extension PullRequestPollService {
 
     func markWorkspacePullRequestProbeRerunPending(
         for key: WorkspaceGitProbeKey,
+        reason: String,
         bypassRepoCache: Bool
     ) {
         // A rerun means the active result no longer has mutation authority.
@@ -378,13 +381,19 @@ extension PullRequestPollService {
         guard case .inFlight(let rerunPending) = workspacePullRequestProbeStateByKey[key],
               !rerunPending else {
             if bypassRepoCache {
-                workspacePullRequestFollowUpShouldBypassRepoCache = true
+                queueWorkspacePullRequestRefreshFollowUp(
+                    reason: reason,
+                    shouldBypassRepoCache: true
+                )
             }
             return
         }
         workspacePullRequestProbeStateByKey[key] = .inFlight(rerunPending: true)
         if bypassRepoCache {
-            workspacePullRequestFollowUpShouldBypassRepoCache = true
+            queueWorkspacePullRequestRefreshFollowUp(
+                reason: reason,
+                shouldBypassRepoCache: true
+            )
         }
     }
 

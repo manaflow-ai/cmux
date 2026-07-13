@@ -4,6 +4,11 @@ import CmuxGit
 // MARK: - Detached pull-request lookup execution and main-actor apply.
 
 extension PullRequestPollService {
+    struct PendingRefreshRequest {
+        var reason: String
+        var shouldBypassRepoCache: Bool
+    }
+
     struct RefreshRequest {
         let seeds: [WorkspacePullRequestCandidateSeed]
         let keys: [WorkspaceGitProbeKey]
@@ -105,18 +110,41 @@ extension PullRequestPollService {
         }
 
         let pendingSeedRefresh = takePendingSeedRefresh()
-        guard needsFollowUp || pendingSeedRefresh != nil else {
-            workspacePullRequestFollowUpShouldBypassRepoCache = false
+        let pendingRefreshRequest = takePendingRefreshRequest()
+        guard needsFollowUp || pendingSeedRefresh != nil || pendingRefreshRequest != nil else {
             updateWorkspacePullRequestPollTimer()
             return
         }
 
-        let shouldBypassRepoCache = workspacePullRequestFollowUpShouldBypassRepoCache ||
+        let shouldBypassRepoCache =
             pendingSeedRefresh?.shouldBypassRepoCache == true
-        workspacePullRequestFollowUpShouldBypassRepoCache = false
+            || pendingRefreshRequest?.shouldBypassRepoCache == true
         startWorkspacePullRequestFollowUp(
-            reason: "\(request.reason).followUp",
+            reason: "\(pendingRefreshRequest?.reason ?? request.reason).followUp",
             shouldBypassRepoCache: shouldBypassRepoCache
         )
+    }
+
+    func queueWorkspacePullRequestRefreshFollowUp(
+        reason: String,
+        shouldBypassRepoCache: Bool
+    ) {
+        if var pending = workspacePullRequestPendingRefreshRequest {
+            pending.reason = reason
+            pending.shouldBypassRepoCache =
+                pending.shouldBypassRepoCache || shouldBypassRepoCache
+            workspacePullRequestPendingRefreshRequest = pending
+        } else {
+            workspacePullRequestPendingRefreshRequest = PendingRefreshRequest(
+                reason: reason,
+                shouldBypassRepoCache: shouldBypassRepoCache
+            )
+        }
+    }
+
+    @discardableResult
+    func takePendingRefreshRequest() -> PendingRefreshRequest? {
+        defer { workspacePullRequestPendingRefreshRequest = nil }
+        return workspacePullRequestPendingRefreshRequest
     }
 }

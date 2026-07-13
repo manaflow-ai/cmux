@@ -268,6 +268,7 @@ actor GatedPullRequestRefreshExecutor: PullRequestRefreshExecuting {
     private var fetchWaiters: [FetchWaiter] = []
     private(set) var resolutionCount = 0
     private(set) var fetchCount = 0
+    private(set) var allowCachedResultsRequests: [Bool] = []
 
     func resolveCandidateSeeds(
         _ seeds: [WorkspacePullRequestCandidateSeed]
@@ -296,6 +297,7 @@ actor GatedPullRequestRefreshExecutor: PullRequestRefreshExecuting {
         allowCachedResults: Bool
     ) async -> [String: WorkspacePullRequestRepoFetchResult] {
         fetchCount += 1
+        allowCachedResultsRequests.append(allowCachedResults)
         resumeSatisfiedFetchWaiters()
         await withCheckedContinuation { continuation in
             fetchGateContinuations.append(continuation)
