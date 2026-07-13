@@ -1,6 +1,12 @@
 import Foundation
 import Testing
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
 extension CMUXCLIErrorOutputRegressionTests {
     @Test func queuedLifecycleCannotOverwriteNewerRecordGeneration() throws {
         let root = FileManager.default.temporaryDirectory
