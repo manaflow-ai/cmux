@@ -52,6 +52,25 @@ final class MobileTerminalThemeInvalidationScheduler {
     }
 }
 
+struct MobileTerminalThemeEmissionDecision: Equatable {
+    let theme: TerminalTheme
+    let shouldScheduleCandidate: Bool
+
+    static func resolve(
+        candidate: TerminalTheme,
+        cached: TerminalTheme?,
+        forceCandidate: Bool
+    ) -> Self {
+        guard let cached, !forceCandidate else {
+            return Self(theme: candidate, shouldScheduleCandidate: false)
+        }
+        return Self(
+            theme: cached,
+            shouldScheduleCandidate: candidate != cached
+        )
+    }
+}
+
 /// Pushes terminal render events only while a mobile client is actively subscribed.
 /// Ghostty notification demand is tied to subscriptions so the desktop terminal
 /// path is untouched when no iPhone/iPad is attached.
@@ -327,11 +346,20 @@ final class MobileTerminalRenderObserver {
         }
 
         var themedFrame = snapshot.frame
-        let theme = (themedFrame.terminalTheme
+        let candidateTheme = (themedFrame.terminalTheme
             ?? terminalThemesBySurfaceID[surfaceID]
             ?? cachedTerminalTheme).applyingSurfaceColors(from: snapshot.frame)
-        themedFrame.terminalTheme = theme
-        terminalThemesBySurfaceID[surfaceID] = theme
+        let themeDecision = MobileTerminalThemeEmissionDecision.resolve(
+            candidate: candidateTheme,
+            cached: terminalThemesBySurfaceID[surfaceID],
+            forceCandidate: forceIncludeTheme || didReplaceRuntimeSurface
+        )
+        themedFrame.terminalTheme = themeDecision.theme
+        if themeDecision.shouldScheduleCandidate {
+            themeInvalidationScheduler.schedule(surfaceID: surfaceID)
+        } else {
+            terminalThemesBySurfaceID[surfaceID] = themeDecision.theme
+        }
         runtimeSurfaceIdentitiesBySurfaceID[surfaceID] = runtimeIdentity
         themedFrame.terminalThemeRevision = MobileTerminalThemeFrameRevision.next()
         guard let emission = try? themedFrame.renderGridEmission(

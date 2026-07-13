@@ -628,6 +628,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// button's armed/sticky style. Split out of ``updateModifierLabels(isMacRemote:)``
     /// so a configuration-driven rebuild can re-apply it without toggling the flag.
     private func applyModifierPresentation() {
+        if let button = composerButton as? AccessoryActionButton {
+            applyAccessoryButtonStyle(button, item: button.item, armed: false, sticky: false)
+        }
         guard let stack = accessoryStackView else { return }
         // Restyle every visible button for the current remote (built-in titles
         // depend on `isMacRemote`) and its armed/sticky state. Custom actions
@@ -643,6 +646,13 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
                 sticky = false
             }
             applyAccessoryButtonStyle(button, item: button.item, armed: armed, sticky: sticky)
+        }
+        let tint = themeChromeColor.withAlphaComponent(0.72)
+        for case let button as UIButton in stack.arrangedSubviews where !(button is AccessoryActionButton) {
+            var configuration = button.configuration
+            configuration?.baseForegroundColor = tint
+            button.configuration = configuration
+            button.tintColor = tint
         }
         // Disarm command state if switching away from Mac remote (clears a
         // sticky lock too, matching the legacy unconditional setter).
@@ -1201,40 +1211,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
 
     private func refreshAccessoryButtonStyles() {
-        if let composerButton = composerButton as? AccessoryActionButton {
-            applyAccessoryButtonStyle(
-                composerButton,
-                item: composerButton.item,
-                armed: false,
-                sticky: false
-            )
-        }
-        guard let stack = accessoryStackView else { return }
-        for button in stack.arrangedSubviews.compactMap({ $0 as? UIButton }) {
-            guard let actionButton = button as? AccessoryActionButton else {
-                var configuration = button.configuration
-                configuration?.baseForegroundColor = themeChromeColor.withAlphaComponent(0.72)
-                button.configuration = configuration
-                button.tintColor = themeChromeColor.withAlphaComponent(0.72)
-                continue
-            }
-            // Only built-in modifier keys arm; custom actions always render normal.
-            let armed: Bool
-            let sticky: Bool
-            if case let .builtin(action) = actionButton.item {
-                armed = isAccessoryActionArmed(action)
-                sticky = isAccessoryActionSticky(action)
-            } else {
-                armed = false
-                sticky = false
-            }
-            applyAccessoryButtonStyle(
-                actionButton,
-                item: actionButton.item,
-                armed: armed,
-                sticky: sticky
-            )
-        }
+        applyModifierPresentation()
     }
 
     private func emitCommittedText(_ committedText: String, source: String) {

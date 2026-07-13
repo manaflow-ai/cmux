@@ -67,4 +67,27 @@ import Testing
 
         #expect(batches == [Set([first, second])])
     }
+
+    @Test func ordinaryTicksDeferChangedThemeUntilProducerBatch() {
+        var cached = TerminalTheme.monokai
+        cached.background = "#101522"
+        var candidate = TerminalTheme.monokai
+        candidate.background = "#f4f0df"
+
+        let ordinaryTick = MobileTerminalThemeEmissionDecision.resolve(
+            candidate: candidate,
+            cached: cached,
+            forceCandidate: false
+        )
+        let invalidationBatch = MobileTerminalThemeEmissionDecision.resolve(
+            candidate: candidate,
+            cached: cached,
+            forceCandidate: true
+        )
+
+        #expect(ordinaryTick.theme == cached)
+        #expect(ordinaryTick.shouldScheduleCandidate)
+        #expect(invalidationBatch.theme == candidate)
+        #expect(!invalidationBatch.shouldScheduleCandidate)
+    }
 }
