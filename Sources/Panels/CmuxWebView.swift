@@ -420,6 +420,7 @@ final class CmuxWebView: WKWebView {
     private var pointerFocusAllowanceDepth: Int = 0
     private var pasteAsPlainTextTargetAvailable = false
     private var lastPasteAsPlainTextPerformKeyEventTimestamp: TimeInterval?
+    private var diffViewerDocumentConfirmed = false
     private var diffViewerEditableElementFocused = false
     private let diffViewerNavigationKeyRouter = ViewerNavigationKeyRouter(actions: [
         .diffViewerScrollDown, .diffViewerScrollUp,
@@ -462,11 +463,12 @@ final class CmuxWebView: WKWebView {
               const handler = window.webkit?.messageHandlers?.['\(name)'];
               if (!handler) return;
               const publish = () => {
+                const viewer = !!document.getElementById('cmux-diff-viewer-config');
                 const helpers = window.__cmuxPasteAsPlainTextHelpers;
                 const element = helpers?.deepestActiveElement?.(document) ?? document.activeElement;
-                const editable = !!helpers?.editableTarget?.(element) ||
-                  !!element?.closest?.("select, [contenteditable='true']");
-                handler.postMessage({ editable });
+                const editable = viewer && (!!helpers?.editableTarget?.(element) ||
+                  !!element?.closest?.("select, [contenteditable='true']"));
+                handler.postMessage({ viewer, editable });
               };
               document.addEventListener('focusin', publish, true);
               document.addEventListener('focusout', () => queueMicrotask(publish), true);
@@ -484,15 +486,17 @@ final class CmuxWebView: WKWebView {
         )
     }
 
-    func diffViewerEditableFocusDidChange(_ editable: Bool) {
+    func diffViewerFocusStateDidChange(viewer: Bool, editable: Bool) {
+        diffViewerDocumentConfirmed = viewer
         diffViewerEditableElementFocused = editable
-        if editable {
+        if !viewer || editable {
             diffViewerNavigationKeyRouter.reset()
         }
     }
 
     private func handleDiffViewerNavigationKey(_ event: NSEvent) -> Bool {
         guard DiffCommentsBridge.diffViewerToken(from: url) != nil,
+              diffViewerDocumentConfirmed,
               !diffViewerEditableElementFocused else {
             diffViewerNavigationKeyRouter.reset()
             return false
