@@ -101,3 +101,47 @@ import Testing
 
     #expect(store.terminalTheme(for: surfaceID) == newTheme)
 }
+
+@MainActor
+@Test func reconnectKeepsThemeButClearsItsOrderingFence() throws {
+    let surfaceID = "terminal-reconnect-theme"
+    let store = MobileShellComposite.preview()
+    var theme = TerminalTheme.monokai
+    theme.background = "#063f46"
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 1,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        terminalTheme: theme,
+        terminalThemeRevision: 10
+    )
+    store.recordTerminalTheme(frame)
+
+    store.resetTerminalThemeRevisionsForReconnect()
+
+    #expect(store.terminalTheme(for: surfaceID) == theme)
+    #expect(store.terminalThemeState.revisionsBySurfaceID.isEmpty)
+}
+
+@MainActor
+@Test func workspacePruningDropsClosedSurfaceThemes() throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal-closed-theme"
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 1,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        terminalTheme: .monokai,
+        terminalThemeRevision: 1
+    )
+    store.recordTerminalTheme(frame)
+
+    store.pruneTerminalThemes(to: [])
+
+    #expect(store.terminalThemeState.themesBySurfaceID[surfaceID] == nil)
+    #expect(store.terminalThemeState.revisionsBySurfaceID[surfaceID] == nil)
+}

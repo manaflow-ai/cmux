@@ -1,4 +1,5 @@
 public import CMUXMobileCore
+import CmuxMobileShellModel
 
 extension MobileShellComposite {
     /// Applies the host-wide theme reported during connection negotiation.
@@ -39,6 +40,20 @@ extension MobileShellComposite {
 
     func resetTerminalThemes() {
         terminalThemeState = MobileTerminalThemeState()
+    }
+
+    func resetTerminalThemeRevisionsForReconnect() {
+        terminalThemeState.revisionsBySurfaceID.removeAll(keepingCapacity: true)
+    }
+
+    func pruneTerminalThemes(to workspaces: [MobileWorkspacePreview]) {
+        let surfaceIDs = Set(workspaces.flatMap { $0.terminals.map(\.id.rawValue) })
+        terminalThemeState.themesBySurfaceID = terminalThemeState.themesBySurfaceID.filter {
+            surfaceIDs.contains($0.key)
+        }
+        terminalThemeState.revisionsBySurfaceID = terminalThemeState.revisionsBySurfaceID.filter {
+            surfaceIDs.contains($0.key)
+        }
     }
 
     private func setActiveTerminalTheme(_ theme: TerminalTheme) {

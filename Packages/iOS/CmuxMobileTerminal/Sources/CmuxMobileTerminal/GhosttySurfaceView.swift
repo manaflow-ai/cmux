@@ -2682,8 +2682,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             syncSurfaceGeometry(shouldReassertNaturalSize: reassert)
         }
     }
-
     private func updateCursorOverlay() {
+        guard terminalTheme.cursorColorSemantic == nil else {
+            cursorOverlayLayer?.isHidden = true
+            return
+        }
         guard let surface,
               hostCursorVisible,
               window != nil,

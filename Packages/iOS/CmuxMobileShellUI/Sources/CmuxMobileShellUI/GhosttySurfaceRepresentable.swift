@@ -67,7 +67,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             fontSize: fontSize,
             terminalTheme: terminalTheme
         )
-        GhosttyRuntime.applyTheme(terminalTheme, to: view)
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         #if DEBUG
         // Hand the surface the structured diagnostic log so the composer-dock
