@@ -3,7 +3,6 @@ import createMiddleware from "next-intl/middleware";
 import { routing } from "./i18n/routing";
 import { isAgentPageVariantPath } from "./app/lib/agent-page-paths";
 import {
-  fallbackContentLocales,
   fallbackContentRequestForPathname,
   featureWorkflowContentLocales,
   featureWorkflowDocRequestForPathname,
@@ -81,7 +80,10 @@ export default function middleware(request: NextRequest) {
 
   const fallbackContentRequest = fallbackContentRequestForPathname(pathname);
   if (fallbackContentRequest && !fallbackContentRequest.locale) {
-    const preferredLocale = preferredFallbackContentLocale(request);
+    const preferredLocale = preferredFallbackContentLocale(
+      request,
+      fallbackContentRequest.locales,
+    );
     const url = request.nextUrl.clone();
     url.pathname = `/${preferredLocale}${fallbackContentRequest.path}`;
     const response =
@@ -92,22 +94,27 @@ export default function middleware(request: NextRequest) {
       response,
       request,
       fallbackContentRequest.path,
+      fallbackContentRequest.locales,
     );
     return response;
   }
   if (
     fallbackContentRequest?.locale &&
-    !hasFallbackContent(fallbackContentRequest.locale)
+    !hasFallbackContent(
+      fallbackContentRequest.locale,
+      fallbackContentRequest.locales,
+    )
   ) {
     const url = request.nextUrl.clone();
     url.pathname = fallbackContentRequest.path;
     return NextResponse.redirect(url, 301);
   }
 
-  // Legal pages are English-only. Redirect /<locale>/legal-page to /legal-page,
-  // and skip next-intl for /legal-page so locale detection can't redirect back.
+  // The remaining legal pages are English-only. Redirect
+  // /<locale>/legal-page to /legal-page, and skip next-intl for /legal-page so
+  // locale detection can't redirect back. The privacy policy has complete
+  // localized content and follows the normal next-intl path.
   const englishOnlyPages = new Set([
-    "/privacy-policy",
     "/terms-of-service",
     "/eula",
   ]);
@@ -124,6 +131,22 @@ export default function middleware(request: NextRequest) {
       url.pathname = rest;
       return NextResponse.redirect(url, 301);
     }
+  }
+
+  // Base docs are English-only. Keep the canonical URL unprefixed and bypass
+  // locale detection so browser language preferences cannot select a 404.
+  const baseDocsMatch = pathname.match(
+    /^\/([a-z]{2}(?:-[A-Z]{2})?)\/docs\/base\/?$/,
+  );
+  if (baseDocsMatch && baseDocsMatch[1] !== "en") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/docs/base";
+    return NextResponse.redirect(url, 301);
+  }
+  if (pathname === "/docs/base" || pathname === "/docs/base/") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/en/docs/base";
+    return NextResponse.rewrite(url);
   }
 
   const remoteTmuxMatch = pathname.match(
@@ -158,6 +181,7 @@ export default function middleware(request: NextRequest) {
       response,
       request,
       fallbackContentRequest.path,
+      fallbackContentRequest.locales,
     );
   }
 
@@ -168,21 +192,25 @@ function setFallbackContentLinkHeader(
   response: NextResponse,
   request: NextRequest,
   path: string,
+  availableLocales: readonly (typeof routing.locales)[number][],
 ) {
   response.headers.set(
     "Link",
     buildAlternateLinkHeader(
       requestOrigin(request),
       path,
-      fallbackContentLocales,
+      availableLocales,
     ),
   );
 }
 
-function preferredFallbackContentLocale(request: NextRequest): "en" | "ja" {
+function preferredFallbackContentLocale(
+  request: NextRequest,
+  availableLocales: readonly (typeof routing.locales)[number][],
+): (typeof routing.locales)[number] {
   const cookieLocale = request.cookies.get("NEXT_LOCALE")?.value;
-  if (cookieLocale && hasFallbackContent(cookieLocale)) {
-    return cookieLocale;
+  if (cookieLocale && hasFallbackContent(cookieLocale, availableLocales)) {
+    return cookieLocale as (typeof routing.locales)[number];
   }
   if (cookieLocale && routing.locales.some((locale) => locale === cookieLocale)) {
     return "en";
@@ -212,21 +240,22 @@ function preferredFallbackContentLocale(request: NextRequest): "en" | "ja" {
         quality <= 1,
     );
 
-  const english = effectiveLanguageQuality("en", preferences);
-  const japanese = effectiveLanguageQuality("ja", preferences);
-  if (japanese.quality > english.quality) return "ja";
-  if (
-    japanese.quality === english.quality &&
-    japanese.quality > 0 &&
-    japanese.index < english.index
-  ) {
-    return "ja";
-  }
-  return "en";
+  const preferred = availableLocales
+    .map((locale) => ({
+      locale,
+      ...effectiveLanguageQuality(locale, preferences),
+    }))
+    .sort(
+      (left, right) =>
+        right.quality - left.quality || left.index - right.index,
+    )[0];
+  return preferred && preferred.quality > 0
+    ? preferred.locale
+    : (availableLocales[0] ?? "en");
 }
 
 function effectiveLanguageQuality(
-  locale: "en" | "ja",
+  locale: (typeof routing.locales)[number],
   preferences: Array<{ tag: string; quality: number; index: number }>,
 ) {
   const explicitMatches = preferences.filter(({ tag }) => {

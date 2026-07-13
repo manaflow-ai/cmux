@@ -589,7 +589,7 @@
     },
     "showHnLaunch": {
       "metaTitle": "Lansiranje cmux-a na Show HN",
-      "metaDescription": "Priča o lansiranju cmux-a na Hacker News."
+      "metaDescription": "cmux je dostigao drugo mjesto na Hacker Newsu, podijelio ga je Mitchell Hashimoto i postao viralan u Japanu nakon lansiranja na Show HN."
     },
     "introducingCmux": {
       "metaTitle": "Predstavljamo cmux",
@@ -939,6 +939,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "Maksimalan broj redova prikazanih za najnoviju obavijest ispod naslova svakog radnog prostora.",
           "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje."
         },
         "fileExplorer": {

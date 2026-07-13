@@ -996,7 +996,7 @@
     },
     "cmuxOmo": {
       "metaTitle": "oh-my-openagent subagents as native cmux panes",
-      "metaDescription": "oh-my-openagent (formerly oh-my-opencode) orchestrates parallel specialist agents across Claude, GPT, and Gemini. cmux omo turns their tmux panes into native splits."
+      "metaDescription": "oh-my-openagent orchestrates specialist Claude, GPT, and Gemini agents in parallel. cmux omo turns each tmux pane into a native split."
     },
     "gpl": {
       "metaTitle": "cmux is now GPL",
@@ -1092,7 +1092,7 @@
       },
       "cmuxOmo": {
         "title": "oh-my-openagent subagents as native cmux panes",
-        "summary": "oh-my-openagent (formerly oh-my-opencode) orchestrates parallel specialist agents across Claude, GPT, and Gemini. cmux omo turns their tmux panes into native splits.",
+        "summary": "oh-my-openagent orchestrates specialist Claude, GPT, and Gemini agents in parallel. cmux omo turns each tmux pane into a native split.",
         "date": "March 30, 2026",
         "p1": "<code>cmux omo</code> integrates oh-my-openagent (formerly oh-my-opencode), a plugin for OpenCode that orchestrates specialist agents across Claude, GPT, and Gemini in parallel. Each agent gets its own tmux pane. <code>cmux omo</code> uses the same tmux shim as <claudeTeamsLink><code>cmux claude-teams</code></claudeTeamsLink>: fake <code>TMUX</code> env var, every tmux command translated to cmux splits. It auto-installs the plugin into a shadow config so <code>~/.config/opencode</code> stays untouched.",
         "p2": "The shim also intercepts <code>terminal-notifier</code> calls and routes them through <code>cmux notify</code>. Works over SSH via the Go relay daemon."
@@ -1742,6 +1742,7 @@
           "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "Maximum lines shown for the latest notification below each workspace title.",
           "rightMaxWidth": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies."
         },
         "fileExplorer": {
