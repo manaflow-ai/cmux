@@ -11,5 +11,13 @@ import Testing
 
         #expect(message == "Choose an existing folder on that Mac.")
     }
+
+    @Test func persistenceFailureExplainsSafeReservationFailure() {
+        let message = TaskComposerSheet.failureMessage(
+            .persistenceUnavailable(hostDisplayName: "Test Mac")
+        )
+
+        #expect(message == "The Mac could not safely reserve this task.")
+    }
 }
 #endif

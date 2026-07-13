@@ -171,6 +171,27 @@ import Testing
         #expect(Self.containsInitialCommand("must-not-launch-after-reservation", in: manager) == false)
     }
 
+    @Test func persistenceFailureAbortsBeforeWorkspaceConstruction() throws {
+        let suiteName = "WorkspaceCreateIdempotencyTombstoneTests.\(UUID().uuidString)"
+        let defaults = try #require(DroppingUserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let manager = TabManager()
+        let baselineIDs = Set(manager.tabs.map(\.id))
+
+        let result = TerminalController.shared.v2WorkspaceCreate(
+            params: [
+                "operation_id": UUID().uuidString,
+                "initial_command": "must-not-launch-without-tombstone",
+            ],
+            tabManager: manager,
+            idempotencyCache: Self.cache(defaults: defaults)
+        )
+
+        #expect(Self.errorCode(result) == "persistence_failed")
+        #expect(Set(manager.tabs.map(\.id)) == baselineIDs)
+        #expect(Self.containsInitialCommand("must-not-launch-without-tombstone", in: manager) == false)
+    }
+
     @Test func restoredLiveWorkspaceResolvesBeforeDurableTombstone() async throws {
         let defaults = Self.makeDefaults()
         defer { defaults.removePersistentDomain(forName: Self.defaultsSuiteName(defaults)) }
@@ -267,8 +288,133 @@ import Testing
         #expect(Self.containsInitialCommand("launch-after-bounded-eviction", in: manager))
     }
 
+    @Test func fileStoreReloadsAcceptedTombstoneBeforeWorkspaceConstruction() throws {
+        let fixture = try Self.makeFileStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let operationID = UUID()
+        try TerminalController.WorkspaceCreateIdempotencyCache(
+            capacity: 2,
+            persistence: fixture.store
+        ).accept(operationID: operationID)
+
+        let reloaded = TerminalController.WorkspaceCreateIdempotencyCache(
+            capacity: 2,
+            persistence: TerminalController.WorkspaceCreateIdempotencyFileStore(fileURL: fixture.store.fileURL)
+        )
+        #expect(reloaded.containsCompletedOperation(operationID))
+    }
+
+    @Test func corruptOrUnknownFileStoreFailsClosed() throws {
+        for data in [
+            Data("{".utf8),
+            Data("{\"version\":99,\"operationIDs\":[]}".utf8),
+        ] {
+            let fixture = try Self.makeFileStore()
+            defer { try? FileManager.default.removeItem(at: fixture.directory) }
+            try data.write(to: fixture.store.fileURL)
+            let cache = TerminalController.WorkspaceCreateIdempotencyCache(
+                capacity: 2,
+                persistence: fixture.store
+            )
+            #expect(throws: (any Error).self) {
+                try cache.accept(operationID: UUID())
+            }
+        }
+    }
+
+    @Test func interruptedAtomicWritePreservesOldSnapshotAndCleansTemporaryFile() throws {
+        let fixture = try Self.makeFileStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let original = UUID()
+        try fixture.store.saveOperationIDs([original])
+        let failing = TerminalController.WorkspaceCreateIdempotencyFileStore(
+            fileURL: fixture.store.fileURL,
+            beforeRename: { throw TombstonePersistenceTestError.injectedFailure }
+        )
+
+        #expect(throws: (any Error).self) {
+            try failing.saveOperationIDs([UUID()])
+        }
+        #expect(try fixture.store.loadOperationIDs() == [original])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.directory.path).count == 1)
+    }
+
+    @Test func loadRemovesStaleTemporaryFile() throws {
+        let fixture = try Self.makeFileStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let stale = fixture.directory.appendingPathComponent(
+            ".\(fixture.store.fileURL.lastPathComponent).stale.tmp"
+        )
+        try Data("partial".utf8).write(to: stale)
+
+        #expect(try fixture.store.loadOperationIDs().isEmpty)
+        #expect(FileManager.default.fileExists(atPath: stale.path) == false)
+    }
+
+    @Test func legacyMigrationRetriesWithNextAcceptedOperation() throws {
+        let fixture = try Self.makeFileStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let defaults = Self.makeDefaults()
+        defer { defaults.removePersistentDomain(forName: Self.defaultsSuiteName(defaults)) }
+        let key = "legacy.\(UUID().uuidString)"
+        let legacyID = UUID()
+        let nextID = UUID()
+        defaults.set([legacyID.uuidString], forKey: key)
+        var rejectWrite = true
+        let store = TerminalController.WorkspaceCreateIdempotencyFileStore(
+            fileURL: fixture.store.fileURL,
+            beforeRename: {
+                if rejectWrite { throw TombstonePersistenceTestError.injectedFailure }
+            }
+        )
+        let cache = TerminalController.WorkspaceCreateIdempotencyCache(
+            capacity: 2,
+            persistence: store,
+            legacyDefaults: defaults,
+            legacyPersistenceKey: key
+        )
+        #expect(cache.containsCompletedOperation(legacyID))
+        #expect(defaults.stringArray(forKey: key) != nil)
+
+        rejectWrite = false
+        try cache.accept(operationID: nextID)
+        #expect(try fixture.store.loadOperationIDs() == [legacyID, nextID])
+        #expect(defaults.stringArray(forKey: key) == nil)
+    }
+
+    @Test func fileStoreFIFOIsBoundedAndDeduplicated() throws {
+        let fixture = try Self.makeFileStore()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let ids = [UUID(), UUID(), UUID()]
+        let cache = TerminalController.WorkspaceCreateIdempotencyCache(
+            capacity: 2,
+            persistence: fixture.store
+        )
+        try cache.accept(operationID: ids[0])
+        try cache.accept(operationID: ids[1])
+        try cache.accept(operationID: ids[1])
+        try cache.accept(operationID: ids[2])
+
+        #expect(try fixture.store.loadOperationIDs() == [ids[1], ids[2]])
+    }
+
     private static func makeDefaults() -> UserDefaults {
         UserDefaults(suiteName: "WorkspaceCreateIdempotencyTombstoneTests.\(UUID().uuidString)")!
+    }
+
+    private static func makeFileStore() throws -> (
+        directory: URL,
+        store: TerminalController.WorkspaceCreateIdempotencyFileStore
+    ) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-tombstone-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return (
+            directory,
+            TerminalController.WorkspaceCreateIdempotencyFileStore(
+                fileURL: directory.appendingPathComponent("tombstones.json")
+            )
+        )
     }
 
     private static func cache(defaults: UserDefaults) -> TerminalController.WorkspaceCreateIdempotencyCache {
@@ -323,6 +469,10 @@ private enum TombstoneDecodeError: Error {
     case notSuccess
 }
 
+private enum TombstonePersistenceTestError: Error {
+    case injectedFailure
+}
+
 private final class ObservingUserDefaults: UserDefaults, @unchecked Sendable {
     var onSet: ((String) -> Void)?
 
@@ -330,4 +480,8 @@ private final class ObservingUserDefaults: UserDefaults, @unchecked Sendable {
         super.set(value, forKey: defaultName)
         onSet?(defaultName)
     }
+}
+
+private final class DroppingUserDefaults: UserDefaults, @unchecked Sendable {
+    override func set(_ value: Any?, forKey defaultName: String) {}
 }

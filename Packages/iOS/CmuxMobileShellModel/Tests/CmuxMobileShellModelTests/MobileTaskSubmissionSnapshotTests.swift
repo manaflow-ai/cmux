@@ -169,14 +169,136 @@ import Testing
         )))
     }
 
+    @Test func dirtyMarksDeferOneHundredKilobytePromptCompositionUntilResolution() throws {
+        let template = MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex")
+        let baseline = snapshot(template: template, prompt: "baseline")
+        var identity = MobileTaskSubmissionIdentity(
+            id: baseline.operationID,
+            initialRequest: baseline
+        )
+        let largePrompt = String(repeating: "x", count: 100_000)
+        var buildCount = 0
+
+        for _ in 0..<10_000 {
+            identity.markRequestDirty()
+        }
+        #expect(buildCount == 0)
+        let resolved = try #require(identity.resolveCurrentRequest {
+            buildCount += 1
+            return self.snapshot(template: template, prompt: largePrompt)
+        })
+        #expect(buildCount == 1)
+        let resolvedID = resolved.operationID
+
+        let cleanRetry = identity.resolveCurrentRequest {
+            buildCount += 1
+            return self.snapshot(template: template, prompt: largePrompt)
+        }
+        #expect(buildCount == 1)
+        #expect(cleanRetry?.operationID == resolvedID)
+    }
+
+    @Test func editThenRevertBeforeResolutionRestoresBaselineID() throws {
+        let template = MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex")
+        let baseline = snapshot(template: template, prompt: "A")
+        var identity = MobileTaskSubmissionIdentity(
+            id: baseline.operationID,
+            initialRequest: baseline
+        )
+
+        identity.markRequestDirty()
+        identity.markRequestDirty()
+        let resolved = try #require(identity.resolveCurrentRequest {
+            self.snapshot(template: template, prompt: "A")
+        })
+
+        #expect(resolved.operationID == baseline.operationID)
+    }
+
+    @Test func resolvedBaselineAndDivergentRequestsRestoreBothIDs() throws {
+        let template = MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex")
+        let baseline = snapshot(template: template, prompt: "A")
+        var identity = MobileTaskSubmissionIdentity(
+            id: baseline.operationID,
+            initialRequest: baseline
+        )
+        identity.markRequestDirty()
+        let divergent = try #require(identity.resolveCurrentRequest {
+            self.snapshot(template: template, prompt: "B")
+        })
+        #expect(divergent.operationID != baseline.operationID)
+
+        identity.markRequestDirty()
+        let restoredBaseline = try #require(identity.resolveCurrentRequest {
+            self.snapshot(template: template, prompt: "A")
+        })
+        identity.markRequestDirty()
+        let restoredDivergent = try #require(identity.resolveCurrentRequest {
+            self.snapshot(template: template, prompt: "B")
+        })
+
+        #expect(restoredBaseline.operationID == baseline.operationID)
+        #expect(restoredDivergent.operationID == divergent.operationID)
+    }
+
+    @Test func missingTemplateTransitionUsesStableDivergentID() {
+        let template = MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex")
+        let baseline = snapshot(template: template)
+        var identity = MobileTaskSubmissionIdentity(
+            id: baseline.operationID,
+            initialRequest: baseline
+        )
+        identity.markRequestDirty()
+        #expect(identity.resolveCurrentRequest { nil } == nil)
+        let missingID = identity.id
+        identity.markRequestDirty()
+        _ = identity.resolveCurrentRequest { baseline }
+        #expect(identity.id == baseline.operationID)
+        identity.markRequestDirty()
+        #expect(identity.resolveCurrentRequest { nil } == nil)
+        #expect(identity.id == missingID)
+    }
+
+    @Test func adoptingFailedSubmissionCreatesNewRetryBaseline() throws {
+        let template = MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex")
+        let original = snapshot(template: template, prompt: "A")
+        let failed = snapshot(template: template, prompt: "B")
+        var identity = MobileTaskSubmissionIdentity(
+            id: original.operationID,
+            initialRequest: original
+        )
+
+        identity.adoptResolvedRequest(failed)
+        let retry = try #require(identity.resolveCurrentRequest {
+            self.snapshot(template: template, prompt: "unused")
+        })
+        #expect(retry.operationID == failed.operationID)
+        #expect(retry.prompt == failed.prompt)
+    }
+
+    @Test func rebindingOperationIDPreservesExactWireRequest() {
+        let original = snapshot(
+            template: MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex caf\u{00E9}"),
+            prompt: "cafe\u{301}",
+            macDeviceID: "mac-caf\u{00E9}",
+            directory: " ~/cafe\u{301} "
+        )
+        let rebound = original.withOperationID(UUID())
+
+        #expect(rebound.operationID != original.operationID)
+        #expect(rebound.composition == original.composition)
+        #expect(rebound.trimmedDirectory == original.trimmedDirectory)
+    }
+
     private func expectIdentityPreserved(
         from before: MobileTaskSubmissionSnapshot?,
         to after: MobileTaskSubmissionSnapshot?
     ) {
-        var identity = MobileTaskSubmissionIdentity()
+        var identity = MobileTaskSubmissionIdentity(initialRequest: before)
         let originalID = identity.id
 
-        identity.rotateIfRequestChanged(from: before, to: after)
+        identity.markRequestDirty()
+        _ = identity.resolveCurrentRequest { after }
 
         #expect(identity.id == originalID)
     }
@@ -185,10 +307,11 @@ import Testing
         from before: MobileTaskSubmissionSnapshot?,
         to after: MobileTaskSubmissionSnapshot?
     ) {
-        var identity = MobileTaskSubmissionIdentity()
+        var identity = MobileTaskSubmissionIdentity(initialRequest: before)
         let originalID = identity.id
 
-        identity.rotateIfRequestChanged(from: before, to: after)
+        identity.markRequestDirty()
+        _ = identity.resolveCurrentRequest { after }
 
         #expect(identity.id != originalID)
     }

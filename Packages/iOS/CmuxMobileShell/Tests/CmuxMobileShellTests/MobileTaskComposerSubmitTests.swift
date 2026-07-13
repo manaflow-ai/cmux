@@ -384,6 +384,24 @@ import Testing
         #expect(hostDisplayName == store.connectedHostName)
     }
 
+    @Test func tombstonePersistenceFailureMapsToSpecificComposerFailure() async throws {
+        let router = RoutingHostRouter()
+        await router.setWorkspaceCreateError(
+            code: "persistence_failed",
+            message: "Workspace task could not be reserved safely"
+        )
+        let store = try await makeRoutingConnectedStore(router: router)
+
+        let result = await store.createWorkspaceRequest(
+            spec: MobileWorkspaceCreateSpec(title: "Task", operationID: UUID())
+        )
+
+        guard case let .failure(.persistenceUnavailable(hostDisplayName)) = result else {
+            return #expect(Bool(false), "persistence failure should map specifically")
+        }
+        #expect(hostDisplayName == store.connectedHostName)
+    }
+
     @Test func unrelatedInvalidParamsRemainsGenericRejection() async throws {
         let router = RoutingHostRouter()
         await router.setWorkspaceCreateError(
