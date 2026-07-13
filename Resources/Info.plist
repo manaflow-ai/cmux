@@ -14,6 +14,8 @@
 	<string>6.0</string>
 	<key>CMUXSidebarExtensionPointIdentifier</key>
 	<string>$(CMUX_SIDEBAR_EXTENSION_POINT_ID)</string>
+	<key>NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac</key>
+	<true/>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
