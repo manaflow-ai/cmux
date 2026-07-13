@@ -71,6 +71,7 @@ public struct MobileTaskCommandComposer: Sendable {
 
     private struct ShellWord {
         var end: String.Index?
+        var unquotedText: String? = ""
         var assignmentName = ""
         var isAssignment = false
         var canBeAssignment = true
@@ -79,10 +80,12 @@ public struct MobileTaskCommandComposer: Sendable {
         mutating func consume(_ character: Character, isUnquotedLiteral: Bool, end: String.Index) {
             self.end = end
             guard isUnquotedLiteral else {
+                unquotedText = nil
                 canBeAssignment = false
                 isUnquotedDigits = false
                 return
             }
+            unquotedText?.append(character)
             guard canBeAssignment else {
                 isUnquotedDigits = isUnquotedDigits && character.isNumber
                 return
@@ -101,6 +104,7 @@ public struct MobileTaskCommandComposer: Sendable {
     private struct ShellCommandScan {
         var containsCommand = false
         var promptInsertionIndex: String.Index?
+        var supportsImplicitPrompt = true
     }
 
     /// Creates a command composer.
@@ -127,17 +131,27 @@ public struct MobileTaskCommandComposer: Sendable {
         let interpolation = Self.interpolatingPromptEnvironment(in: command)
         let explicitlyReferencesPrompt = Self.referencesPromptEnvironment(in: command)
         let initialCommand: String
+        let usesPromptEnvironment: Bool
         if interpolation.didReplacePrompt {
             initialCommand = interpolation.command
+            usesPromptEnvironment = true
         } else if explicitlyReferencesPrompt {
             initialCommand = command
+            usesPromptEnvironment = true
         } else if !prompt.isEmpty {
-            initialCommand = Self.appendingPromptArgument(to: command)
+            if let appendedCommand = Self.appendingPromptArgument(to: command) {
+                initialCommand = appendedCommand
+                usesPromptEnvironment = true
+            } else {
+                initialCommand = command
+                usesPromptEnvironment = false
+            }
         } else {
             initialCommand = command
+            usesPromptEnvironment = false
         }
 
-        let env = interpolation.didReplacePrompt || explicitlyReferencesPrompt || !prompt.isEmpty
+        let env = usesPromptEnvironment
             ? ["CMUX_TASK_PROMPT": prompt]
             : [:]
         return MobileTaskComposition(initialCommand: initialCommand, initialEnv: env, title: title)
@@ -191,8 +205,9 @@ public struct MobileTaskCommandComposer: Sendable {
 
     /// Inserts the fallback prompt argument after the final executable token,
     /// preserving any trailing shell whitespace and comments byte-for-byte.
-    private static func appendingPromptArgument(to command: String) -> String {
-        let insertionIndex = scanShellCommand(command).promptInsertionIndex ?? command.startIndex
+    private static func appendingPromptArgument(to command: String) -> String? {
+        let scan = scanShellCommand(command)
+        guard scan.supportsImplicitPrompt, let insertionIndex = scan.promptInsertionIndex else { return nil }
         return String(command[..<insertionIndex])
             + " -- \"${CMUX_TASK_PROMPT}\""
             + String(command[insertionIndex...])
@@ -218,6 +233,11 @@ public struct MobileTaskCommandComposer: Sendable {
                 return
             }
             if !commandInSegment && word.isAssignment { return }
+            if !commandInSegment,
+               let unquotedText = word.unquotedText,
+               unsupportedCommandWords.contains(unquotedText) {
+                result.supportsImplicitPrompt = false
+            }
             commandInSegment = true
             result.containsCommand = true
             result.promptInsertionIndex = wordEnd
@@ -251,10 +271,17 @@ public struct MobileTaskCommandComposer: Sendable {
                 case "\n":
                     finishWord()
                     resetSegment()
-                case ";", "|", "&", "(", ")":
+                case ";", "|", "&":
                     finishWord()
                     resetSegment()
+                case "(", ")", "{", "}":
+                    finishWord()
+                    result.supportsImplicitPrompt = false
+                    resetSegment()
                 case "<", ">":
+                    if character == "<", command[index...].hasPrefix("<<") {
+                        result.supportsImplicitPrompt = false
+                    }
                     finishWord(asFileDescriptor: word.end == index)
                     expectsRedirectionOperand = true
                 default:
@@ -314,6 +341,12 @@ public struct MobileTaskCommandComposer: Sendable {
         guard let first = name.first, first == "_" || first.isLetter else { return false }
         return name.dropFirst().allSatisfy(isShellIdentifierCharacter)
     }
+
+    private static let unsupportedCommandWords: Set<String> = [
+        "if", "then", "elif", "else", "fi",
+        "for", "while", "until", "do", "done",
+        "case", "esac",
+    ]
 
     /// The suggested workspace title for a task prompt: its first line, capped
     /// at 60 characters. Static (not file-scope): the package conventions lint
