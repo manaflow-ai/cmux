@@ -2,6 +2,32 @@ import CmuxWorkspaces
 import Foundation
 
 extension Workspace {
+    func agentRootExitCandidate(
+        panelId: UUID,
+        previousState: PanelShellActivityState,
+        state: PanelShellActivityState
+    ) -> SurfaceResumeBindingSnapshot? {
+        // Resume-state handlers can clear the binding on the same transition,
+        // so capture the owner before those handlers run.
+        AgentHookSessionStateWriter.rootExitCandidate(
+            previousWasRunning: previousState == .commandRunning,
+            isPromptIdle: state == .promptIdle,
+            isHibernated: (panels[panelId] as? TerminalPanel)?.isAgentHibernated == true,
+            binding: surfaceResumeBindingsByPanelId[panelId]
+        )
+    }
+
+    func recordAgentRootExit(
+        panelId: UUID,
+        binding: SurfaceResumeBindingSnapshot?
+    ) {
+        guard let binding else { return }
+        markAgentRootExitLocally(panelId: panelId, binding: binding)
+        AgentHookSessionStateWriter.recordRootExitIfNeeded(binding: binding) {
+            clearStaleAgentPIDs(panelId: panelId, refreshPorts: true)
+        }
+    }
+
     func allowsAgentContinuation(forPanelId panelId: UUID) -> Bool {
         restoredAgentResumeStatesByPanelId[panelId] != .completedAgentExit ||
             restoredAgentSnapshotForContinuation(panelId: panelId) != nil

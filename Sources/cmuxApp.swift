@@ -232,7 +232,6 @@ struct cmuxApp: App {
         NSLog("%@", message)
         Darwin.exit(64)
     }
-
     private static func configureGhosttyEnvironment() {
         let fileManager = FileManager.default
         setenv("CMUX_RUNTIME_ID", TerminalSurface.managedCmuxRuntimeId, 1)

@@ -52,7 +52,17 @@ struct AgentSessionRunReconciler: Sendable {
             lineage.processStartedAt.map { abs(previousStartedAt - $0) > 0.001 }
         } == true
         if replacesProcessGeneration {
+            let previous = run
             run = Self.newRun(lineage: lineage, now: now)
+            // A stable logical run can span multiple process generations. Once
+            // process ancestry proves it is a child, loss of that transient
+            // evidence after the parent exits must not turn it into a root.
+            run.parentRunId = lineage.parentRunId ?? previous.parentRunId
+            run.parentSessionId = lineage.parentSessionId ?? previous.parentSessionId
+            if previous.relationship == .spawned {
+                run.relationship = .spawned
+            }
+            run.restoreAuthority = previous.restoreAuthority && lineage.restoreAuthority
             return
         }
         run.pid = lineage.pid ?? run.pid

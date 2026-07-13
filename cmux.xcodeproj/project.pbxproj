@@ -482,6 +482,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE64950000000000000007 /* CMUXCLI+SessionsListForkDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64950000000000000008 /* CMUXCLI+SessionsListForkDiagnostics.swift */; };
 		C0DE64960000000000000003 /* CMUXCLI+SessionsListForkStartupInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64960000000000000004 /* CMUXCLI+SessionsListForkStartupInput.swift */; };
 		C0DE64960000000000000001 /* CMUXCLI+SessionsListProcessArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64960000000000000002 /* CMUXCLI+SessionsListProcessArguments.swift */; };
+		A78670400000000000000001 /* CMUXCLI+SessionsListRendering.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670400000000000000002 /* CMUXCLI+SessionsListRendering.swift */; };
 		A78670090000000000000001 /* CMUXCLI+SessionsTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670090000000000000002 /* CMUXCLI+SessionsTree.swift */; };
 		C12984000000000000000002 /* CMUXCLI+SIGPIPEProbes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12984000000000000000001 /* CMUXCLI+SIGPIPEProbes.swift */; };
 		C79470010000000000000001 /* CMUXCLI+SocketClientCapability.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79470010000000000000002 /* CMUXCLI+SocketClientCapability.swift */; };
@@ -2308,6 +2309,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE64950000000000000008 /* CMUXCLI+SessionsListForkDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SessionsListForkDiagnostics.swift"; sourceTree = "<group>"; };
 		C0DE64960000000000000004 /* CMUXCLI+SessionsListForkStartupInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SessionsListForkStartupInput.swift"; sourceTree = "<group>"; };
 		C0DE64960000000000000002 /* CMUXCLI+SessionsListProcessArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SessionsListProcessArguments.swift"; sourceTree = "<group>"; };
+		A78670400000000000000002 /* CMUXCLI+SessionsListRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SessionsListRendering.swift"; sourceTree = "<group>"; };
 		C12984000000000000000001 /* CMUXCLI+SIGPIPEProbes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SIGPIPEProbes.swift"; sourceTree = "<group>"; };
 		C79470010000000000000002 /* CMUXCLI+SocketClientCapability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SocketClientCapability.swift"; sourceTree = "<group>"; };
 		B9000040A1B2C3D4E5F60719 /* CMUXCLI+SSHCommandSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SSHCommandSupport.swift"; sourceTree = "<group>"; };
@@ -4966,6 +4968,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					B9000065A1B2C3D4E5F60719 /* CMUXCLI+Events.swift */,
 					B9000055A1B2C3D4E5F60719 /* CMUXCLI+Process.swift */,
 					C0DE64950000000000000002 /* CMUXCLI+SessionsList.swift */,
+					A78670400000000000000002 /* CMUXCLI+SessionsListRendering.swift */,
 					C0DE64960000000000000006 /* CMUXCLI+SessionsListClaudeWorkflow.swift */,
 					C0DE64950000000000000008 /* CMUXCLI+SessionsListForkDiagnostics.swift */,
 					C0DE64960000000000000002 /* CMUXCLI+SessionsListProcessArguments.swift */,
@@ -7022,6 +7025,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					C0DE64950000000000000007 /* CMUXCLI+SessionsListForkDiagnostics.swift in Sources */,
 					C0DE64960000000000000003 /* CMUXCLI+SessionsListForkStartupInput.swift in Sources */,
 					C0DE64960000000000000001 /* CMUXCLI+SessionsListProcessArguments.swift in Sources */,
+					A78670400000000000000001 /* CMUXCLI+SessionsListRendering.swift in Sources */,
 					C12984000000000000000002 /* CMUXCLI+SIGPIPEProbes.swift in Sources */,
 				C79470010000000000000001 /* CMUXCLI+SocketClientCapability.swift in Sources */,
 				B9000041A1B2C3D4E5F60719 /* CMUXCLI+SSHCommandSupport.swift in Sources */,

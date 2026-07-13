@@ -4532,15 +4532,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let terminalPanel = panels[panelId] as? TerminalPanel {
             terminalPanel.updateShellActivityState(state)
         }
-        // Resume-state handlers can clear this binding on the same transition.
-        // Root-exit persistence must use the pre-transition owner snapshot.
-        let rootExitBinding = surfaceResumeBindingsByPanelId[panelId]
-        let rootExitCandidate = AgentHookSessionStateWriter.rootExitCandidate(
-            previousWasRunning: previousState == .commandRunning,
-            isPromptIdle: state == .promptIdle,
-            isHibernated: (panels[panelId] as? TerminalPanel)?.isAgentHibernated == true,
-            binding: rootExitBinding
-        )
+        let rootExitCandidate = agentRootExitCandidate(panelId: panelId, previousState: previousState, state: state)
         if let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] {
             updateRestoredAgentResumeState(
                 panelId: panelId,
@@ -4550,12 +4542,7 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             updateBindingOnlyRestoredAgentResumeState(panelId: panelId, shellState: state)
         }
-        if let rootExitCandidate {
-            markAgentRootExitLocally(panelId: panelId, binding: rootExitCandidate)
-            AgentHookSessionStateWriter.recordRootExitIfNeeded(binding: rootExitCandidate) {
-                clearStaleAgentPIDs(panelId: panelId, refreshPorts: true)
-            }
-        }
+        recordAgentRootExit(panelId: panelId, binding: rootExitCandidate)
 #if DEBUG
         cmuxDebugLog(
             "surface.shellState workspace=\(id.uuidString.prefix(5)) " +
