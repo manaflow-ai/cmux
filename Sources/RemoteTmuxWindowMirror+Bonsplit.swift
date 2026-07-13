@@ -107,7 +107,7 @@ extension RemoteTmuxWindowMirror {
     /// function directly. (Hidden tabs never get here: their portal hosts
     /// have no window clamping them, and imposing absolute extents into an
     /// unclamped host once inflated it without bound.)
-    func imposeDividerPlan() {
+    func imposeDividerPlan(retryImposedExtents: Bool) {
         lastDividerPositions.removeAll()
         let treeNode = bonsplitController.treeSnapshot()
         let splitTree = RemoteTmuxNativeSplitTree(layout: renderedLayout)
@@ -120,7 +120,9 @@ extension RemoteTmuxWindowMirror {
                 ),
                 parentSize: containerSizePt
             )
-            applyDividerPositions(plan: plan, treeNode: treeNode)
+            applyDividerPositions(
+                plan: plan, treeNode: treeNode, retryImposedExtents: retryImposedExtents
+            )
             // Re-baseline the drag detector on what the tree ACTUALLY holds:
             // bonsplit may clamp a requested fraction (minimum pane sizes),
             // and a stale requested-vs-actual gap would read as a user drag
@@ -139,7 +141,8 @@ extension RemoteTmuxWindowMirror {
     /// it loud in DEBUG instead of silently misrendering.
     func applyDividerPositions(
         plan: RemoteTmuxNativeSplitLayoutPlanner.Plan,
-        treeNode: ExternalTreeNode
+        treeNode: ExternalTreeNode,
+        retryImposedExtents: Bool
     ) {
         guard case .split(let split) = treeNode,
               case .split(
@@ -167,9 +170,16 @@ extension RemoteTmuxWindowMirror {
         // is kept only for the no-container fallback, because fractions pass
         // through drift deadbands that can eat several columns at terminal
         // container sizes.
+        let repeatsExistingExtent = retryImposedExtents
+            && firstExtent.flatMap { planned in
+                split.imposedFirstExtent.map { abs(CGFloat($0) - planned) <= 0.01 }
+            } == true
         _ = bonsplitController.setImposedFirstExtent(
             firstExtent, forSplit: splitId, fromExternal: true
         )
+        if repeatsExistingExtent {
+            _ = bonsplitController.retryImposedFirstExtent(forSplit: splitId)
+        }
         if firstExtent == nil {
             _ = bonsplitController.setDividerPosition(fraction, forSplit: splitId, fromExternal: true)
         }
@@ -177,8 +187,12 @@ extension RemoteTmuxWindowMirror {
         // recordActualDividerPositions after the apply pass: writing the
         // plan's ideal fraction here would leave a requested-vs-actual gap
         // a geometry event could misread as a user drag.
-        applyDividerPositions(plan: firstPlan, treeNode: split.first)
-        applyDividerPositions(plan: secondPlan, treeNode: split.second)
+        applyDividerPositions(
+            plan: firstPlan, treeNode: split.first, retryImposedExtents: retryImposedExtents
+        )
+        applyDividerPositions(
+            plan: secondPlan, treeNode: split.second, retryImposedExtents: retryImposedExtents
+        )
     }
 
     /// Overwrites the drag-detection baseline with the fractions the

@@ -161,6 +161,7 @@ extension RemoteTmuxWindowMirror {
     func performSizingPassNow() {
         sizingPassScheduled = false
         guard !isTornDown else { return }
+        let intent = pendingSizingPassIntent
         // Adopt a detached callback, or re-clamp a prior value, as soon as
         // any pane is visibly hosted. This pass is also the recovery path
         // when attachment itself does not emit another geometry callback.
@@ -182,9 +183,10 @@ extension RemoteTmuxWindowMirror {
         let inputs = currentSizingInputs()
         if inputs == lastCompletedSizingInputs { return }
         guard updateClientSize() else { return }
+        pendingSizingPassIntent = .inputChange
         lastCompletedSizingInputs = inputs
         if inputs.visible {
-            imposeDividerPlan()
+            imposeDividerPlan(retryImposedExtents: intent == .constraintRecovery)
             // The imposition applies to bonsplit on the NEXT runloop turn
             // (coalesced), so the anchors move after this pass returns. The
             // portal syncs its hosted views from AppKit's async geometry
@@ -202,12 +204,12 @@ extension RemoteTmuxWindowMirror {
         }
     }
 
-    /// Marks the mirror unsettled so the next pass runs even with identical
-    /// inputs — for triggers that replace the bonsplit tree itself (rebuilds,
-    /// structural edits, tab re-shows): fresh split views do not hold the
-    /// previous plan even though the plan's inputs are unchanged.
+    /// Marks native constraints unsettled so the next pass runs even with
+    /// identical sizing inputs. Rebuilds, structural edits, appearance changes,
+    /// and tab re-shows can all leave live split views without the prior plan.
     func setNeedsSizingPassIgnoringInputs() {
         guard !isTornDown else { return }
+        pendingSizingPassIntent = .constraintRecovery
         lastCompletedSizingInputs = nil
         setNeedsSizingPass()
     }

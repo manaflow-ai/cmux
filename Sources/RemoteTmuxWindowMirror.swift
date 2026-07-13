@@ -185,8 +185,15 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         var visible: Bool
     }
 
+    /// Identifies whether a sizing pass follows new inputs or must reapply refused constraints.
+    enum SizingPassIntent {
+        case inputChange
+        case constraintRecovery
+    }
+
     @ObservationIgnored var sizingPassScheduled = false
     @ObservationIgnored var lastCompletedSizingInputs: SizingInputs?
+    @ObservationIgnored var pendingSizingPassIntent = SizingPassIntent.inputChange
 
     #if DEBUG
     static var dumpedAncestorChains = Set<Int>()
@@ -418,6 +425,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         isVisibleForSizing = false
         sizingPassScheduled = false
         lastCompletedSizingInputs = nil
+        pendingSizingPassIntent = .inputChange
         pendingContainerSizePt = nil
         pendingContainerScale = nil
         let activeConnection = connection

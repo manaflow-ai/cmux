@@ -45,7 +45,11 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     ) -> (columns: Int, rows: Int)? {
         guard contentSize.width > 1, contentSize.height > 1,
               cellSize.width > 1, cellSize.height > 1 else { return nil }
-        let overhead = chromeResidual(of: layout)
+        // Tmux owns pane-title rows inside the client grid: after the client
+        // claims the window size, tmux removes those rows from pane_height.
+        // Native layout adds them back to each pane's outer extent below, but
+        // subtracting them here would charge the same server chrome twice.
+        let overhead = clientGridResidual(of: layout)
         let columns = Int(floor((contentSize.width - overhead.width) / cellSize.width))
         let rows = Int(floor((contentSize.height - overhead.height) / cellSize.height))
         return (
@@ -62,16 +66,29 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     /// Pane residuals also include placement slack for whole-point rail
     /// rounding; tmux grid claims use a separate chrome-only residual.
     public func residual(of node: RemoteTmuxLayoutNode) -> CGSize {
-        residual(of: node, panePlacementSlack: Self.paneQuantizationSlack)
+        residual(
+            of: node,
+            panePlacementSlack: Self.paneQuantizationSlack,
+            paneTitleRowHeight: paneTitleRowHeight
+        )
     }
 
     private func chromeResidual(of node: RemoteTmuxLayoutNode) -> CGSize {
-        residual(of: node, panePlacementSlack: 0)
+        residual(
+            of: node,
+            panePlacementSlack: 0,
+            paneTitleRowHeight: paneTitleRowHeight
+        )
+    }
+
+    private func clientGridResidual(of node: RemoteTmuxLayoutNode) -> CGSize {
+        residual(of: node, panePlacementSlack: 0, paneTitleRowHeight: 0)
     }
 
     private func residual(
         of node: RemoteTmuxLayoutNode,
-        panePlacementSlack: CGFloat
+        panePlacementSlack: CGFloat,
+        paneTitleRowHeight: CGFloat
     ) -> CGSize {
         switch node.content {
         case .pane:
@@ -82,7 +99,11 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
             )
         case .horizontal(let children):
             let childResiduals = children.map {
-                residual(of: $0, panePlacementSlack: panePlacementSlack)
+                residual(
+                    of: $0,
+                    panePlacementSlack: panePlacementSlack,
+                    paneTitleRowHeight: paneTitleRowHeight
+                )
             }
             return CGSize(
                 width: childResiduals.reduce(0) { $0 + $1.width }
@@ -94,7 +115,11 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
             )
         case .vertical(let children):
             let childResiduals = children.map {
-                residual(of: $0, panePlacementSlack: panePlacementSlack)
+                residual(
+                    of: $0,
+                    panePlacementSlack: panePlacementSlack,
+                    paneTitleRowHeight: paneTitleRowHeight
+                )
             }
             return CGSize(
                 width: childResiduals.map(\.width).max() ?? 0,
