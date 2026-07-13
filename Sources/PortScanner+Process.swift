@@ -324,7 +324,7 @@ extension PortScanner {
             }
             mapping[pid] = String(parts[1])
         }
-        let complete = Self.isComplete(result) && parsedEveryRow
+        let complete = Self.isCompletePSResult(result) && parsedEveryRow
         return (mapping, complete ? .complete : .incomplete)
     }
 
@@ -440,5 +440,15 @@ extension PortScanner {
             && !result.timedOut
             && result.exitStatus == 0
             && (result.stderr ?? "").isEmpty
+    }
+
+    private static func isCompletePSResult(_ result: CommandResult) -> Bool {
+        // BSD ps exits 1 when a valid selector matches no processes.
+        return isComplete(result)
+            || (result.executionError == nil
+                && !result.timedOut
+                && result.exitStatus == 1
+                && (result.stdout ?? "").isEmpty
+                && (result.stderr ?? "").isEmpty)
     }
 }

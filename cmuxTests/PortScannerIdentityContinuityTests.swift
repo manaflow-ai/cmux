@@ -376,6 +376,38 @@ struct PortScannerIdentityContinuityTests {
         #expect(revalidated.completenessByWorkspace[healthyWorkspaceID] == .complete)
     }
 
+    @Test("ps status one is complete only for an empty no-match result")
+    func psNoMatchStatusIsEvidenceSensitive() async {
+        let emptyScan = await PortScanner(commandRunner: RootReuseCommandRunner(result: CommandResult(
+            stdout: "",
+            stderr: "",
+            exitStatus: 1,
+            timedOut: false,
+            executionError: nil
+        ))).runPS(ttyList: "ttys001")
+        let partialScan = await PortScanner(commandRunner: RootReuseCommandRunner(result: CommandResult(
+            stdout: "123 ttys001\n",
+            stderr: "",
+            exitStatus: 1,
+            timedOut: false,
+            executionError: nil
+        ))).runPS(ttyList: "ttys001")
+        let diagnosticScan = await PortScanner(commandRunner: RootReuseCommandRunner(result: CommandResult(
+            stdout: "",
+            stderr: "ps: inspection failed\n",
+            exitStatus: 1,
+            timedOut: false,
+            executionError: nil
+        ))).runPS(ttyList: "ttys001")
+
+        #expect(emptyScan.values.isEmpty)
+        #expect(emptyScan.completeness == .complete)
+        #expect(partialScan.values == [123: "ttys001"])
+        #expect(partialScan.completeness == .incomplete)
+        #expect(diagnosticScan.values.isEmpty)
+        #expect(diagnosticScan.completeness == .incomplete)
+    }
+
     private struct IdentityState: Sendable {
         var identities: [Int: AgentPIDProcessIdentity]
         var presenceByPID: [Int: PIDPresence] = [:]

@@ -139,7 +139,11 @@ extension RemoteSessionCoordinator {
           cmux_ps_stderr="$cmux_tmpdir/ps.stderr"
           cmux_ps_status=0
           cmux_ps_output="$(ps -t "$cmux_tty_csv" -o pid=,tty= 2>"$cmux_ps_stderr")" || cmux_ps_status=$?
-          [ "$cmux_ps_status" -eq 0 ] && [ ! -s "$cmux_ps_stderr" ] || exit 0
+          if [ -s "$cmux_ps_stderr" ]; then exit 0; fi
+          # BSD ps exits 1 when a valid selector matches no processes.
+          if [ "$cmux_ps_status" -ne 0 ] && { [ "$cmux_ps_status" -ne 1 ] || [ -n "$cmux_ps_output" ]; }; then
+            exit 0
+          fi
           printf '%s\\n' "$cmux_ps_output" | awk -v globally_incomplete="$cmux_global_incomplete" '
             NF == 2 && $1 ~ /^[0-9]+$/ {
               tty = $2

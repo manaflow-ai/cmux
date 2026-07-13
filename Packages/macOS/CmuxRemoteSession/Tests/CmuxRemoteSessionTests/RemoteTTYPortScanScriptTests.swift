@@ -40,6 +40,33 @@ struct RemoteTTYPortScanScriptTests {
         #expect(hasCompletionMarker(result.output, for: "ttys010"))
     }
 
+    @Test("An empty ps no-match result completes every tracked TTY")
+    func emptyPSNoMatchIsComplete() throws {
+        let result = try runFailedSSWithLsofFallback(
+            psBody: "exit 1",
+            lsofBody: "exit 99"
+        )
+
+        #expect(result.status == 0)
+        #expect(hasCompletionMarker(result.output, for: "ttys010"))
+        #expect(hasCompletionMarker(result.output, for: "ttys011"))
+    }
+
+    @Test("A failed ps result with output or diagnostics stays incomplete")
+    func failedPSWithEvidenceIsIncomplete() throws {
+        let partial = try runFailedSSWithLsofFallback(
+            psBody: "printf '%s\\n' '123 ttys010'; exit 1",
+            lsofBody: "exit 99"
+        )
+        let diagnostic = try runFailedSSWithLsofFallback(
+            psBody: "printf '%s\\n' 'inspection failed' >&2; exit 1",
+            lsofBody: "exit 99"
+        )
+
+        #expect(hasCompletionMarker(partial.output, for: "ttys010") == false)
+        #expect(hasCompletionMarker(diagnostic.output, for: "ttys010") == false)
+    }
+
     @Test("Readlink failures withhold each protected owner's marker but preserve a healthy TTY")
     func readlinkFailuresAreScopedToProtectedTTYs() throws {
         let directory = FileManager.default.temporaryDirectory
@@ -111,6 +138,16 @@ struct RemoteTTYPortScanScriptTests {
     }
 
     private func runFailedSSWithSuccessfulLsof() throws -> (status: Int32, output: String) {
+        try runFailedSSWithLsofFallback(
+            psBody: "printf '%s\\n' '123 ttys010'",
+            lsofBody: "printf '%s\\n' 'p123' 'n*:4200'"
+        )
+    }
+
+    private func runFailedSSWithLsofFallback(
+        psBody: String,
+        lsofBody: String
+    ) throws -> (status: Int32, output: String) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -127,20 +164,20 @@ struct RemoteTTYPortScanScriptTests {
             directory.appendingPathComponent("ps"),
             body: """
             #!/bin/sh
-            printf '%s\\n' '123 ttys010'
+            \(psBody)
             """
         )
         try writeExecutable(
             directory.appendingPathComponent("lsof"),
             body: """
             #!/bin/sh
-            printf '%s\\n' 'p123' 'n*:4200'
+            \(lsofBody)
             """
         )
 
         return try runGeneratedScript(
             in: directory,
-            ttyNames: ["ttys010"],
+            ttyNames: ["ttys010", "ttys011"],
             protecting: [:]
         )
     }
