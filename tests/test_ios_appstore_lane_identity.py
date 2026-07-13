@@ -23,6 +23,8 @@ APPSTORE_APP_ID = f"{TEAM_ID}.{APPSTORE_BUNDLE_ID}"
 BETA_BUNDLE_ID = "dev.cmux.app.beta"
 BETA_APP_ID = f"{TEAM_ID}.{BETA_BUNDLE_ID}"
 ASC_APP_ID = "6783338052"
+ASC_VERSION_ID = "version-1.0.0"
+ASC_BUILD_ID = "build-1.0.0"
 IDENTITY = f"Apple Distribution: Manaflow, Inc. ({TEAM_ID})"
 APPSTORE_MARKETING_VERSION = "1.0.0"
 BETA_MARKETING_VERSION = "1.0.4"
@@ -292,6 +294,7 @@ if "archive" in args:
     bundle_id = setting("PRODUCT_BUNDLE_IDENTIFIER=")
     build_number = setting("CURRENT_PROJECT_VERSION=") or "1"
     marketing_version = setting("MARKETING_VERSION=") or {BETA_MARKETING_VERSION!r}
+    crash_reporting_enabled = setting("CMUX_CRASH_REPORTING_ENABLED=") or "YES"
     app = archive / "Products" / "Applications" / "cmux.app"
     write_plist(
         archive / "Info.plist",
@@ -309,6 +312,7 @@ if "archive" in args:
             "CFBundleIdentifier": bundle_id,
             "CFBundleVersion": build_number,
             "CFBundleShortVersionString": marketing_version,
+            "CMUXCrashReportingEnabled": crash_reporting_enabled,
         }},
     )
     sys.exit(0)
@@ -417,6 +421,10 @@ if args[:2] == ["apps", "view"]:
             }
         }
     }))
+    sys.exit(0)
+
+if args[:2] == ["versions", "list"]:
+    print(json.dumps({"data": [{"id": "version-1.0.0"}]}))
     sys.exit(0)
 
 sys.exit(0)
@@ -592,6 +600,10 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
         f"MARKETING_VERSION={APPSTORE_MARKETING_VERSION}" not in archive_call,
         "beta archive command does not stamp the App Store marketing version",
     )
+    _check(
+        "CMUX_CRASH_REPORTING_ENABLED=YES" in archive_call,
+        "beta archive keeps crash reporting enabled",
+    )
 
     export_options = plistlib.loads((tmp / "ExportOptions.plist").read_bytes())
     profiles = export_options.get("provisioningProfiles", {})
@@ -766,6 +778,10 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
         "archive command does not stamp the beta marketing version",
     )
     _check(
+        "CMUX_CRASH_REPORTING_ENABLED=NO" in archive_call,
+        "App Store archive disables crash reporting",
+    )
+    _check(
         all("PRODUCT_BUNDLE_IDENTIFIER=com.cmuxterm.app" not in call for call in archive_call),
         "archive command does not stamp the retired com.cmuxterm.app id",
     )
@@ -786,6 +802,10 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
     _check(
         info.get("CFBundleShortVersionString") == APPSTORE_MARKETING_VERSION,
         "final signed IPA keeps the App Store marketing version",
+    )
+    _check(
+        info.get("CMUXCrashReportingEnabled") == "NO",
+        "final signed IPA disables crash reporting",
     )
 
 
@@ -902,6 +922,74 @@ def test_validate_appstore_release_requires_numeric_app_id(tmp: Path, fakebin: P
     _check("must be numeric" in bad_result.stderr, "validation helper explains that --app must be numeric")
 
 
+def test_validate_appstore_release_prepares_content_rights_and_build(
+    tmp: Path, fakebin: Path
+) -> None:
+    env = _base_env(tmp, fakebin)
+    env["ASC_APP_ID"] = ASC_APP_ID
+    result = _run(
+        [
+            "bash",
+            str(ROOT / "ios" / "scripts" / "validate-app-store-release.sh"),
+            "--build-id",
+            ASC_BUILD_ID,
+            "--prepare-submission",
+        ],
+        env=env,
+        tmp=tmp,
+        log_failure=False,
+    )
+    _check(result.returncode == 0, "App Store validation helper prepares submission state")
+
+    asc_log = tmp / "asc.jsonl"
+    asc_calls = [
+        json.loads(line)
+        for line in asc_log.read_text(encoding="utf-8").splitlines()
+    ] if asc_log.exists() else []
+    content_rights_call = next(
+        (call for call in asc_calls if call[:2] == ["apps", "update"]),
+        None,
+    )
+    attach_build_call = next(
+        (call for call in asc_calls if call[:2] == ["versions", "attach-build"]),
+        None,
+    )
+    validate_call = next(
+        (call for call in asc_calls if call and call[0] == "validate"),
+        None,
+    )
+    _check(
+        content_rights_call == [
+            "apps",
+            "update",
+            "--id",
+            ASC_APP_ID,
+            "--content-rights",
+            "USES_THIRD_PARTY_CONTENT",
+        ],
+        "submission preparation declares that cmux accesses user-controlled third-party content",
+    )
+    _check(
+        attach_build_call == [
+            "versions",
+            "attach-build",
+            "--version-id",
+            ASC_VERSION_ID,
+            "--build",
+            ASC_BUILD_ID,
+        ],
+        "submission preparation attaches the selected build to version 1.0.0",
+    )
+    if content_rights_call and attach_build_call and validate_call:
+        _check(
+            asc_calls.index(content_rights_call) < asc_calls.index(validate_call)
+            and asc_calls.index(attach_build_call) < asc_calls.index(validate_call),
+            "submission state is prepared before canonical readiness validation",
+        )
+    else:
+        _check(False, "submission state is prepared before canonical readiness validation")
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as temp_dir:
         tmp = Path(temp_dir)
@@ -916,6 +1004,9 @@ def main() -> None:
         test_profile_installer_accepts_production_profile_by_default(tmp / "profile-test", fakebin)
         test_profile_installer_ignores_stale_primary_secret(tmp / "profile-stale-test", fakebin)
         test_validate_appstore_release_requires_numeric_app_id(tmp / "validate-test", fakebin)
+        test_validate_appstore_release_prepares_content_rights_and_build(
+            tmp / "prepare-submission-test", fakebin
+        )
 
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s)")
