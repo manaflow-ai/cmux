@@ -72,6 +72,88 @@ struct AppDelegateDisplayConfigRestoreTests {
         window.close()
     }
 
+    private struct SameConfigurationFixture {
+        let appDelegate: AppDelegate
+        let windowId: UUID
+        let window: NSWindow
+        let signature: String
+        let externalFrame: CGRect
+        let rescuedBuiltInFrame: CGRect
+    }
+
+    @MainActor
+    private struct DisplayReconcileState {
+        let lastAppliedSignature: String?
+        let lastVisibleTopology: [MainWindowVisibleFrameTopologySignatureEntry]?
+        let unknownConfiguration: Bool
+        let unknownVisibleTopology: Bool
+        let inactiveState: AppDelegate.InactiveDisplayTransitionState
+        let captureSuppressed: Bool
+        let suppressionSignature: String?
+        let suppressionGeneration: Int?
+        let reconcileRetryBudget: Int
+        let topologyRetryBudget: Int
+
+        init(_ appDelegate: AppDelegate) {
+            lastAppliedSignature = appDelegate.lastAppliedConfigurationSignature
+            lastVisibleTopology = appDelegate.lastVisibleFrameFitTopologySignature
+            unknownConfiguration = appDelegate.didObserveUnknownDisplayConfiguration
+            unknownVisibleTopology = appDelegate.didObserveUnknownVisibleFrameFitTopology
+            inactiveState = appDelegate.inactiveDisplayTransitionState
+            captureSuppressed = appDelegate.isScreenChangeCaptureSuppressed
+            suppressionSignature = appDelegate.screenChangeCaptureSuppressionSignature
+            suppressionGeneration = appDelegate.screenChangeCaptureSuppressionSignatureGeneration
+            reconcileRetryBudget = appDelegate.screenChangeReconcileRetryBudget
+            topologyRetryBudget = appDelegate.visibleFrameFitTopologyRetryBudget
+        }
+
+        func restore(on appDelegate: AppDelegate) {
+            appDelegate.lastAppliedConfigurationSignature = lastAppliedSignature
+            appDelegate.lastVisibleFrameFitTopologySignature = lastVisibleTopology
+            appDelegate.didObserveUnknownDisplayConfiguration = unknownConfiguration
+            appDelegate.didObserveUnknownVisibleFrameFitTopology = unknownVisibleTopology
+            appDelegate.inactiveDisplayTransitionState = inactiveState
+            appDelegate.isScreenChangeCaptureSuppressed = captureSuppressed
+            appDelegate.screenChangeCaptureSuppressionSignature = suppressionSignature
+            appDelegate.screenChangeCaptureSuppressionSignatureGeneration = suppressionGeneration
+            appDelegate.screenChangeReconcileRetryBudget = reconcileRetryBudget
+            appDelegate.visibleFrameFitTopologyRetryBudget = topologyRetryBudget
+        }
+    }
+
+    private func makeSameConfigurationFixture() throws -> SameConfigurationFixture {
+        let appDelegate = testAppDelegate()
+        let windowId = UUID()
+        let signature = try #require([builtIn, external].displayConfigurationSignature())
+        let externalWindowFrame = CGRect(x: -1_600, y: 200, width: 1_000, height: 700)
+        let rescuedBuiltInFrame = CGRect(x: 220, y: 160, width: 1_000, height: 700)
+        let rememberedEntry = SessionConfigFrameEntry(
+            signature: signature,
+            frame: SessionRectSnapshot(externalWindowFrame),
+            display: SessionDisplaySnapshot(
+                displayID: 2,
+                stableID: "uuid:EXTERNAL",
+                frame: SessionRectSnapshot(externalFrame),
+                visibleFrame: SessionRectSnapshot(externalVisible)
+            ),
+            lastUsedAt: 100
+        )
+        let snapshot = emptyWindowSnapshot(windowId: windowId, configFrames: [rememberedEntry])
+        let createdWindowId = appDelegate.createMainWindow(
+            sessionWindowSnapshot: snapshot,
+            preferredWindowId: windowId,
+            shouldActivate: false
+        )
+        return SameConfigurationFixture(
+            appDelegate: appDelegate,
+            windowId: createdWindowId,
+            window: try #require(appDelegate.mainWindow(for: createdWindowId)),
+            signature: signature,
+            externalFrame: externalWindowFrame,
+            rescuedBuiltInFrame: rescuedBuiltInFrame
+        )
+    }
+
     // MARK: the headline round-trip
 
     @Test
@@ -135,6 +217,64 @@ struct AppDelegateDisplayConfigRestoreTests {
         let resolved = try #require(restored)
         #expect(resolved == externalWindowFrame, "remembered external frame should round-trip exactly")
         #expect(externalVisible.intersects(resolved), "restored frame lands on the external monitor")
+    }
+
+    @Test
+    func sameDisplayConfigurationReconcileRespectsInactiveRecovery() throws {
+        let fixture = try makeSameConfigurationFixture()
+        let appDelegate = fixture.appDelegate
+        let previousState = DisplayReconcileState(appDelegate)
+        defer {
+            previousState.restore(on: appDelegate)
+            appDelegate.windowConfigFrames.removeValue(forKey: fixture.windowId)
+            closeCreatedWindow(appDelegate, windowId: fixture.windowId)
+        }
+
+        appDelegate.inactiveDisplayTransitionState = .idle
+        appDelegate.lastAppliedConfigurationSignature = fixture.signature
+        appDelegate.beginInactiveDisplayTransition(configurationSignature: fixture.signature)
+        fixture.window.setFrame(fixture.rescuedBuiltInFrame, display: false)
+
+        // A screen-parameter callback can arrive while the session is still
+        // inactive. It must neither restore early nor consume the pending repair.
+        appDelegate.reconcileMainWindowFramesAfterScreenChange(
+            displays: (available: [builtIn, external], fallback: builtIn),
+            isMirrored: false
+        )
+        #expect(fixture.window.frame.equalTo(fixture.rescuedBuiltInFrame))
+        #expect(appDelegate.inactiveDisplayTransitionState == .armed(signature: fixture.signature))
+
+        appDelegate.markInactiveDisplayRecoveryReady()
+        appDelegate.reconcileMainWindowFramesAfterScreenChange(
+            displays: (available: [builtIn, external], fallback: builtIn),
+            isMirrored: false
+        )
+
+        #expect(fixture.window.frame.equalTo(fixture.externalFrame))
+        #expect(appDelegate.inactiveDisplayTransitionState == .idle)
+    }
+
+    @Test
+    func sameDisplayConfigurationReconcileWithoutInactiveRecoveryLeavesWindowAlone() throws {
+        let fixture = try makeSameConfigurationFixture()
+        let appDelegate = fixture.appDelegate
+        let previousState = DisplayReconcileState(appDelegate)
+        defer {
+            previousState.restore(on: appDelegate)
+            appDelegate.windowConfigFrames.removeValue(forKey: fixture.windowId)
+            closeCreatedWindow(appDelegate, windowId: fixture.windowId)
+        }
+
+        appDelegate.inactiveDisplayTransitionState = .idle
+        appDelegate.lastAppliedConfigurationSignature = fixture.signature
+        fixture.window.setFrame(fixture.rescuedBuiltInFrame, display: false)
+        appDelegate.reconcileMainWindowFramesAfterScreenChange(
+            displays: (available: [builtIn, external], fallback: builtIn),
+            isMirrored: false
+        )
+
+        #expect(fixture.window.frame.equalTo(fixture.rescuedBuiltInFrame))
+        #expect(appDelegate.inactiveDisplayTransitionState == .idle)
     }
 
     @Test

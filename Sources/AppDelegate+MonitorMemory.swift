@@ -20,6 +20,12 @@ private func cmuxDisplayReconfigurationCallback(
 }
 
 extension AppDelegate {
+    enum InactiveDisplayTransitionState: Equatable {
+        case idle
+        case armed(signature: String?)
+        case recoveryReady(signature: String?)
+    }
+
     /// The signature of the currently-connected display configuration, used as
     /// the key for per-monitor window-geometry memory. `nil` when no display has
     /// a stable identity (nothing can be persisted reliably) or when displays are
@@ -119,12 +125,21 @@ extension AppDelegate {
     }
 
     func reconcileMainWindowFramesAfterScreenChange() {
+        reconcileMainWindowFramesAfterScreenChange(
+            displays: currentDisplayGeometries(),
+            isMirrored: Self.displaysAreMirrored()
+        )
+    }
+
+    func reconcileMainWindowFramesAfterScreenChange(
+        displays: (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?),
+        isMirrored: Bool
+    ) {
         // Never fight a deliberate frame the restore path or teardown is
         // applying, and never persist a frame clamped against transient
         // mid-teardown geometry. Leaving suppression armed fails closed; restore
         // completion reruns this pass if a screen change was skipped.
         guard !isApplyingSessionRestore, !isTerminatingApp else { return }
-        let displays = currentDisplayGeometries()
         guard !displays.available.isEmpty else {
             requeueScreenChangeReconcileIfPossible()
             return
@@ -134,7 +149,7 @@ extension AppDelegate {
         // display set genuinely changed — so sleep/wake and Dock resize (same
         // signature) never reposition a deliberately-placed window.
         let signature = displays.available
-            .displayConfigurationSignature(isMirrored: Self.displaysAreMirrored())
+            .displayConfigurationSignature(isMirrored: isMirrored)
         let signatureChanged = signature.map {
             didObserveUnknownDisplayConfiguration || $0 != lastAppliedConfigurationSignature
         } ?? false
@@ -398,6 +413,26 @@ extension AppDelegate {
         screenChangeCaptureSuppressionSignatureGeneration = nil
         screenChangeReconcileRetryBudget = Self.screenChangeReconcileRetryLimit
         visibleFrameFitTopologyRetryBudget = Self.screenChangeReconcileRetryLimit
+    }
+
+    func beginInactiveDisplayTransition(configurationSignature: String? = nil) {
+        let pinnedSignature: String?
+        switch inactiveDisplayTransitionState {
+        case .idle:
+            pinnedSignature = configurationSignature
+                ?? currentDisplayConfigurationSignature()
+                ?? lastAppliedConfigurationSignature
+        case let .armed(signature), let .recoveryReady(signature):
+            pinnedSignature = signature
+        }
+        inactiveDisplayTransitionState = .armed(signature: pinnedSignature)
+        beginScreenChangeCaptureSuppression()
+    }
+
+    func markInactiveDisplayRecoveryReady() {
+        guard case let .armed(signature) = inactiveDisplayTransitionState else { return }
+        inactiveDisplayTransitionState = .recoveryReady(signature: signature)
+        scheduleScreenChangeReconcileWhenIdle()
     }
 
     func shouldReleaseScreenChangeCaptureSuppression(for signature: String) -> Bool {

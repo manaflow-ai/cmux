@@ -1111,6 +1111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var visibleFrameFitTopologyRetryBudget = 0
     var screenChangeReconcileRetryBudget = 0
     var isScreenChangeCaptureSuppressed = false
+    var inactiveDisplayTransitionState: InactiveDisplayTransitionState = .idle
     var screenChangeCaptureSuppressionSignature: String?
     var screenChangeCaptureSuppressionSignatureGeneration: Int?
     var displayReconfigurationGeneration = 0
@@ -1119,7 +1120,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Owns the per-window command-palette state.
     let commandPaletteWindowStore = CommandPaletteWindowStore()
     private static let sessionAutosaveTypingQuietPeriod: TimeInterval = 0.65
-
     var updateViewModel: UpdateStateModel {
         updateController.model
     }
