@@ -76,11 +76,13 @@ extension CMUXCLI {
                 // not fall back to a reusable persisted pid or an uncorroborated
                 // record; only matching record+invocation surface identity may
                 // be re-homed through the app's live surface ownership map.
-                guard nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId)
-                        == nonEmptyClaudeHookIdentifier(routing.surfaceArg),
+                let invocationSurfaceId = nonEmptyClaudeHookIdentifier(routing.surfaceArg)
+                let recordedSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId)
+                guard let invocationSurfaceId,
+                      recordedSurfaceId == nil || recordedSurfaceId == invocationSurfaceId,
                       let corroborated = rehomedClaudeHookDeliveryTarget(
-                          surfaceId: routing.surfaceArg,
-                          claimedWorkspaceId: mappedSession?.workspaceId,
+                          surfaceId: invocationSurfaceId,
+                          claimedWorkspaceId: mappedSession?.workspaceId ?? routing.workspaceArg,
                           client: client
                       ) else { return nil }
                 return corroborated

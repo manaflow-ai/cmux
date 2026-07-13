@@ -463,7 +463,7 @@ final class TerminalNotificationStore: ObservableObject {
     var lastNotificationDateByCooldownKey: [String: Date] = [:]
     var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
     private var indexes = NotificationIndexes()
-
+    private let inFlightPolicyRequests = TerminalNotificationPolicyInFlightStore()
     private init() {
         indexes = Self.buildIndexes(for: notifications)
         userDefaultsObserver = NotificationCenter.default.addObserver(
@@ -886,6 +886,7 @@ final class TerminalNotificationStore: ObservableObject {
             )
             return
         }
+        let policyRequestId = inFlightPolicyRequests.register(policyContext.request)
         Task { @MainActor [weak self] in
             guard let self else { return }
             let authorizedHooks = await NotificationPolicyHookAuthorizer.authorize(
@@ -899,7 +900,7 @@ final class TerminalNotificationStore: ObservableObject {
                     now: Date(),
                     cooldownReservation: cooldownReservation,
                     scrollPosition: policyContext.scrollPosition,
-                    clickAction: clickAction
+                    clickAction: clickAction, policyRequestId: policyRequestId
                 )
                 return
             }
@@ -915,7 +916,7 @@ final class TerminalNotificationStore: ObservableObject {
                     now: Date(),
                     cooldownReservation: cooldownReservation,
                     scrollPosition: policyContext.scrollPosition,
-                    clickAction: clickAction
+                    clickAction: clickAction, policyRequestId: policyRequestId
                 )
             case .failure(let failure):
                 self.applyNotification(
@@ -924,7 +925,7 @@ final class TerminalNotificationStore: ObservableObject {
                     now: Date(),
                     cooldownReservation: cooldownReservation,
                     scrollPosition: policyContext.scrollPosition,
-                    clickAction: clickAction
+                    clickAction: clickAction, policyRequestId: policyRequestId
                 )
                 self.reportNotificationHookFailure(failure)
             }
@@ -1025,14 +1026,13 @@ final class TerminalNotificationStore: ObservableObject {
             globalConfigPath: cmuxConfigStore?.globalConfigPath
         )
     }
-
     private func applyNotification(
         request: TerminalNotificationPolicyRequest,
         envelope: TerminalNotificationPolicyEnvelope,
         now: Date,
         cooldownReservation: NotificationCooldownReservation?,
         scrollPosition: TerminalNotificationScrollPosition?,
-        clickAction: TerminalNotificationClickAction?
+        clickAction: TerminalNotificationClickAction?, policyRequestId: UUID?
     ) {
         let payload = envelope.notification
         applyNotification(
@@ -1052,7 +1052,7 @@ final class TerminalNotificationStore: ObservableObject {
             now: now,
             cooldownReservation: cooldownReservation,
             scrollPosition: scrollPosition,
-            clickAction: clickAction
+            clickAction: clickAction, policyRequestId: policyRequestId
         )
     }
 
@@ -1062,8 +1062,9 @@ final class TerminalNotificationStore: ObservableObject {
         now: Date,
         cooldownReservation: NotificationCooldownReservation?,
         scrollPosition: TerminalNotificationScrollPosition?,
-        clickAction: TerminalNotificationClickAction?
+        clickAction: TerminalNotificationClickAction?, policyRequestId: UUID? = nil
     ) {
+        guard inFlightPolicyRequests.claim(policyRequestId) else { restoreCooldownReservation(cooldownReservation); return }
         guard let request = notificationPolicyRequestAtLiveOwner(request) else { restoreCooldownReservation(cooldownReservation); return }
         let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
             tabId: request.tabId,
@@ -1116,7 +1117,6 @@ final class TerminalNotificationStore: ObservableObject {
             effects: effects
         )
     }
-
     private func recordNotification(
         _ notification: TerminalNotification,
         shouldSuppressExternalDelivery: Bool,
@@ -1570,8 +1570,8 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private func replaceNotificationsForClear(_ next: [TerminalNotification]) { suppressNotificationDiffPublishing = true; notifications = next; suppressNotificationDiffPublishing = false }
-
     func clearAll(discardQueuedNotifications: Bool = true) {
+        inFlightPolicyRequests.discardAll()
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications() }
         guard !notifications.isEmpty ||
             !focusedReadIndicatorByTabId.isEmpty ||
@@ -1599,6 +1599,7 @@ final class TerminalNotificationStore: ObservableObject {
     ) {
         let liveTabId = surfaceId.flatMap { AppDelegate.shared?.agentNotificationDeliveryTarget(claimedTabId: tabId, surfaceId: $0)?.tabId } ?? tabId
         let tabIds = Set([tabId, liveTabId])
+        inFlightPolicyRequests.discard(forTabId: liveTabId, surfaceId: surfaceId)
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotificationsForClear(tabId: liveTabId, surfaceId: surfaceId) }
         let hadFocusedReadIndicator = tabIds.contains { focusedReadIndicatorByTabId[$0].map { $0 == surfaceId } ?? false }
         let hadRestoredWorkspaceUnread = surfaceId == nil && restoredUnreadWorkspaceIds.contains(tabId)
@@ -1669,8 +1670,8 @@ final class TerminalNotificationStore: ObservableObject {
             }
         }
     }
-
     func clearNotifications(forTabId tabId: UUID, discardQueuedNotifications: Bool = true) {
+        inFlightPolicyRequests.discard(forTabId: tabId, surfaceId: nil)
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotificationsForClear(tabId: tabId, surfaceId: nil) }
         let hadFocusedReadIndicator = focusedReadIndicatorByTabId[tabId] != nil
         var updated: [TerminalNotification] = []
