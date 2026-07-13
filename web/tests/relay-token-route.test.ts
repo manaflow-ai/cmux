@@ -129,7 +129,11 @@ describe("POST /api/relay/token", () => {
         signedPolicy: async () => ({
           policy: "signed.policy.value",
           payload: { ...PAYLOAD, relays: [...PAYLOAD.relays, secondRelay] },
-          preference: { mode: "automatic" },
+          preference: {
+            mode: "automatic",
+            selectedManagedRelayIds: [],
+            customRelays: [],
+          },
           preferenceRevision: 4,
         }),
         issueCredentials: ({ relayUrls, nowSeconds }) => relayUrls.map(
@@ -179,7 +183,11 @@ describe("POST /api/relay/token", () => {
         signedPolicy: async () => ({
           policy: "signed.policy.value",
           payload: { ...PAYLOAD, relays: [...PAYLOAD.relays, secondRelay] },
-          preference: { mode: "automatic" },
+          preference: {
+            mode: "automatic",
+            selectedManagedRelayIds: [],
+            customRelays: [],
+          },
           preferenceRevision: 4,
         }),
         issueCredentials: ({ relayUrls, nowSeconds }) => relayUrls.map(

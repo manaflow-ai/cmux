@@ -6,6 +6,45 @@ import Testing
 @Suite
 struct CmxIrohRelayPolicyTests {
     @Test
+    func appPinnedTrustRootAcceptsCurrentAndStagedNextKeys() throws {
+        let current = Curve25519.Signing.PrivateKey()
+        let next = Curve25519.Signing.PrivateKey()
+        let trustRoot = CmxIrohRelayPolicyTrustRoot.appPinned(infoDictionary: [
+            "CMUXIrohRelayPolicyTrustKeys": [
+                [
+                    "keyID": "policy-current",
+                    "publicKeyBase64": current.publicKey.rawRepresentation.base64EncodedString(),
+                ],
+                [
+                    "keyID": "policy-next",
+                    "publicKeyBase64": next.publicKey.rawRepresentation.base64EncodedString(),
+                ],
+            ],
+        ])
+
+        #expect(trustRoot?.keys.map(\.keyID) == ["policy-current", "policy-next"])
+    }
+
+    @Test
+    func appPinnedTrustRootFailsClosedForPartialRotationConfiguration() throws {
+        let current = Curve25519.Signing.PrivateKey()
+        let trustRoot = CmxIrohRelayPolicyTrustRoot.appPinned(infoDictionary: [
+            "CMUXIrohRelayPolicyTrustKeys": [
+                [
+                    "keyID": "policy-current",
+                    "publicKeyBase64": current.publicKey.rawRepresentation.base64EncodedString(),
+                ],
+                ["keyID": "policy-next"],
+            ],
+            "CMUXIrohRelayPolicyKeyID": "policy-current",
+            "CMUXIrohRelayPolicyPublicKeyBase64": current.publicKey.rawRepresentation
+                .base64EncodedString(),
+        ])
+
+        #expect(trustRoot == nil)
+    }
+
+    @Test
     func signatureAuthorizesCatalogAndSelectionFiltersByStableID() throws {
         let fixture = try Fixture()
         let token = try fixture.token(sequence: 7)

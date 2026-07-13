@@ -1879,24 +1879,6 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
     nonisolated static func relayPolicyTrustRoot(
         infoDictionary: [String: Any]?
     ) -> CmxIrohRelayPolicyTrustRoot? {
-        let records: [[String: String]]
-        if let configured = infoDictionary?["CMUXIrohRelayPolicyTrustKeys"] as? [[String: String]] {
-            records = configured
-        } else if let keyID = infoDictionary?["CMUXIrohRelayPolicyKeyID"] as? String,
-                  let publicKey = infoDictionary?["CMUXIrohRelayPolicyPublicKeyBase64"] as? String {
-            records = [["keyID": keyID, "publicKeyBase64": publicKey]]
-        } else {
-            return nil
-        }
-        let keys = records.compactMap { record -> CmxIrohRelayPolicyVerificationKey? in
-            guard let keyID = record["keyID"],
-                  let publicKey = record["publicKeyBase64"] else { return nil }
-            return try? CmxIrohRelayPolicyVerificationKey(
-                keyID: keyID,
-                rawPublicKeyBase64: publicKey
-            )
-        }
-        guard keys.count == records.count else { return nil }
-        return try? CmxIrohRelayPolicyTrustRoot(keys: keys)
+        CmxIrohRelayPolicyTrustRoot.appPinned(infoDictionary: infoDictionary)
     }
 }
