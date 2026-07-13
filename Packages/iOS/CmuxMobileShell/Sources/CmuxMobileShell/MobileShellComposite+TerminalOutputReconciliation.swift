@@ -119,7 +119,9 @@ extension MobileShellComposite {
     ) {
         if var queue = terminalOutputQueuesBySurfaceID[surfaceID] {
             if preservingBarrierInteractions {
-                queue.resetForReplayBarrier()
+                queue.resetForReplayBarrier(
+                    claimedStreamToken: terminalOutputStreamTokensBySurfaceID[surfaceID]
+                )
             } else {
                 queue.reset()
             }
@@ -267,8 +269,24 @@ extension MobileShellComposite {
     /// surface. Reset the queue, invalidate stale acks, then request a fresh
     /// authoritative replay from the Mac.
     public func terminalOutputDidReset(surfaceID: String, streamToken: UUID) {
-        guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken,
-              terminalOutputQueuesBySurfaceID[surfaceID] != nil else { return }
+        guard var queue = terminalOutputQueuesBySurfaceID[surfaceID] else { return }
+        guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else {
+            let next = queue.completeClaimedReplayInteraction(
+                streamToken: streamToken,
+                applied: false
+            )
+            terminalOutputQueuesBySurfaceID[surfaceID] = queue
+            if let next,
+               let continuation = terminalByteContinuationsBySurfaceID[surfaceID],
+               let currentStreamToken = terminalOutputStreamTokensBySurfaceID[surfaceID] {
+                continuation.yield(MobileTerminalOutputChunk(
+                    mutation: next.mutation,
+                    streamToken: currentStreamToken,
+                    deliveryID: next.deliveryID
+                ))
+            }
+            return
+        }
         _ = invalidateTerminalScrollForRecovery(surfaceID: surfaceID)
         if let replayBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID] {
             guard terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken else {
@@ -297,7 +315,7 @@ extension MobileShellComposite {
         guard terminalReplayBarrierTokensBySurfaceID[surfaceID] == replayBarrierToken else {
             return
         }
-        resetTerminalMutationQueue(surfaceID: surfaceID)
+        resetTerminalMutationQueue(surfaceID: surfaceID, preservingBarrierInteractions: true)
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
         // Post-reset retry: rebuilt surface, so drop the floor, don't stash.
         rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)

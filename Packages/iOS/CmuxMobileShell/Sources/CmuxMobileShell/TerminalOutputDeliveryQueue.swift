@@ -25,6 +25,12 @@ struct TerminalOutputDeliveryQueue: Sendable {
         var reconciliationGeneration: UInt64
     }
 
+    private struct ClaimedReplayInteraction: Sendable {
+        let delivery: TerminalOutputDelivery
+        let streamToken: UUID
+        var applied: Bool?
+    }
+
     private static let maximumQueuedInteractionCount = 64
     static let maximumQueuedRawByteCount = 1_048_576
     static let maximumQueuedRawDeliveryCount = 129
@@ -36,6 +42,8 @@ struct TerminalOutputDeliveryQueue: Sendable {
     private var queuedRawByteCount = 0
     private var queuedRawDeliveryCount = 0
     private var barrierInteractions: [TerminalOutputDelivery] = []
+    private var claimedReplayInteractions: [ClaimedReplayInteraction] = []
+    private var barrierInteractionReleaseRequested = false
     private var rawBacklogOverflowed = false
     private var reconciliationSupersessions: [TerminalScrollReconciliationSupersession] = []
     private(set) var optimisticInvalidationGeneration: UInt64 = 0
@@ -88,7 +96,7 @@ struct TerminalOutputDeliveryQueue: Sendable {
             barrierInteractions[barrierInteractions.count - 1] = tail
             return tail.primaryReceipt ?? candidateReceipt
         }
-        guard barrierInteractions.count < Self.maximumQueuedInteractionCount else {
+        guard retainedReplayInteractionCount < Self.maximumQueuedInteractionCount else {
             delivery.resolveReceipt(false)
             return candidateReceipt
         }
@@ -97,6 +105,33 @@ struct TerminalOutputDeliveryQueue: Sendable {
     }
 
     mutating func releaseBarrierInteractions() -> TerminalOutputDelivery? {
+        barrierInteractionReleaseRequested = true
+        return releaseReplayInteractionsIfReady()
+    }
+
+    mutating func completeClaimedReplayInteraction(
+        streamToken: UUID,
+        applied: Bool
+    ) -> TerminalOutputDelivery? {
+        guard let index = claimedReplayInteractions.firstIndex(where: {
+            $0.streamToken == streamToken && $0.applied == nil
+        }) else {
+            return nil
+        }
+        claimedReplayInteractions[index].applied = applied
+        return releaseReplayInteractionsIfReady()
+    }
+
+    private mutating func releaseReplayInteractionsIfReady() -> TerminalOutputDelivery? {
+        guard barrierInteractionReleaseRequested,
+              claimedReplayInteractions.allSatisfy({ $0.applied != nil }) else {
+            return nil
+        }
+        for claimed in claimedReplayInteractions {
+            claimed.delivery.resolveReceipt(claimed.applied == true)
+        }
+        claimedReplayInteractions.removeAll(keepingCapacity: true)
+        barrierInteractionReleaseRequested = false
         let retained = barrierInteractions
         barrierInteractions.removeAll(keepingCapacity: true)
         var immediate: TerminalOutputDelivery?
@@ -208,6 +243,9 @@ struct TerminalOutputDeliveryQueue: Sendable {
         for delivery in barrierInteractions {
             delivery.resolveReceipt(false)
         }
+        for claimed in claimedReplayInteractions {
+            claimed.delivery.resolveReceipt(false)
+        }
         inFlight = nil
         inFlightClaimed = false
         pending.removeAll(keepingCapacity: false)
@@ -216,6 +254,8 @@ struct TerminalOutputDeliveryQueue: Sendable {
         queuedRawByteCount = 0
         queuedRawDeliveryCount = 0
         barrierInteractions.removeAll(keepingCapacity: false)
+        claimedReplayInteractions.removeAll(keepingCapacity: false)
+        barrierInteractionReleaseRequested = false
         rawBacklogOverflowed = false
         reconciliationSupersessions.removeAll(keepingCapacity: false)
         optimisticInvalidationGeneration = 0
@@ -223,11 +263,52 @@ struct TerminalOutputDeliveryQueue: Sendable {
         pendingTraversalCount = 0
     }
 
-    mutating func resetForReplayBarrier() {
-        let retained = barrierInteractions
-        barrierInteractions.removeAll(keepingCapacity: false)
-        reset()
+    mutating func resetForReplayBarrier(claimedStreamToken: UUID? = nil) {
+        var retained: [TerminalOutputDelivery] = []
+        if let inFlight, inFlight.isInteractionMutation {
+            if inFlightClaimed {
+                guard let claimedStreamToken else {
+                    preconditionFailure("claimed replay interactions require their original stream token")
+                }
+                claimedReplayInteractions.append(ClaimedReplayInteraction(
+                    delivery: inFlight,
+                    streamToken: claimedStreamToken,
+                    applied: nil
+                ))
+            } else {
+                retained.append(inFlight)
+            }
+        }
+        for index in pendingHeadIndex..<pending.count {
+            let delivery = pending[index].delivery
+            if delivery.isInteractionMutation {
+                retained.append(delivery)
+            }
+        }
+        retained.append(contentsOf: barrierInteractions)
+        precondition(
+            retained.count + claimedReplayInteractions.count <= Self.maximumQueuedInteractionCount,
+            "replay interaction retention must remain bounded"
+        )
+
+        inFlight = nil
+        inFlightClaimed = false
+        pending.removeAll(keepingCapacity: false)
+        pendingHeadIndex = 0
+        queuedInteractionCount = 0
+        queuedRawByteCount = 0
+        queuedRawDeliveryCount = 0
         barrierInteractions = retained
+        barrierInteractionReleaseRequested = false
+        rawBacklogOverflowed = false
+        reconciliationSupersessions.removeAll(keepingCapacity: false)
+        optimisticInvalidationGeneration = 0
+        reconciliationInvalidationGeneration = 0
+        pendingTraversalCount = 0
+    }
+
+    private var retainedReplayInteractionCount: Int {
+        claimedReplayInteractions.count + barrierInteractions.count
     }
 
     private mutating func accountRawDeliveryAdded(_ delivery: TerminalOutputDelivery) {

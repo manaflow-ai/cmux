@@ -190,7 +190,10 @@ extension MobileShellComposite {
                     || terminalRenderGridBaselineReplayBarrierTokensBySurfaceID[renderGrid.surfaceID] == activeReplayBarrierToken
             )
         if bypassLiveBaselineBarrier {
-            resetTerminalMutationQueue(surfaceID: renderGrid.surfaceID)
+            resetTerminalMutationQueue(
+                surfaceID: renderGrid.surfaceID,
+                preservingBarrierInteractions: true
+            )
             terminalOutputStreamTokensBySurfaceID[renderGrid.surfaceID] = UUID()
             terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: renderGrid.surfaceID)
             terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: renderGrid.surfaceID)
@@ -357,8 +360,24 @@ extension MobileShellComposite {
 
     /// Mark the current yielded terminal-output chunk as applied by the iOS surface.
     public func terminalOutputDidProcess(surfaceID: String, streamToken: UUID) {
-        guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken,
-              var queue = terminalOutputQueuesBySurfaceID[surfaceID] else { return }
+        guard var queue = terminalOutputQueuesBySurfaceID[surfaceID] else { return }
+        guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else {
+            let next = queue.completeClaimedReplayInteraction(
+                streamToken: streamToken,
+                applied: true
+            )
+            terminalOutputQueuesBySurfaceID[surfaceID] = queue
+            if let next,
+               let continuation = terminalByteContinuationsBySurfaceID[surfaceID],
+               let currentStreamToken = terminalOutputStreamTokensBySurfaceID[surfaceID] {
+                continuation.yield(MobileTerminalOutputChunk(
+                    mutation: next.mutation,
+                    streamToken: currentStreamToken,
+                    deliveryID: next.deliveryID
+                ))
+            }
+            return
+        }
         let completedDelivery = queue.currentInFlight
         let next = queue.completeInFlight()
         let superseded = queue.takeScrollReconciliationSupersessions()
