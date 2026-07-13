@@ -272,6 +272,39 @@ struct AgentNotificationMoveRaceTests {
         #expect(fixture.store.notifications.isEmpty)
     }
 
+    @Test("Immediate relay delivery stays in its authorized workspace after a move")
+    func immediateRelayDeliveryDoesNotRebindAcrossWorkspaceBoundary() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: false,
+            windowID: nil,
+            groupID: nil,
+            workspaceID: fixture.source.id,
+            surfaceID: nil,
+            paneID: nil
+        )
+        let result = TerminalController.shared.controlNotificationCreateForTarget(
+            routing: routing,
+            workspaceID: fixture.source.id,
+            surfaceID: fixture.panelId,
+            title: "Relay immediate",
+            subtitle: "Completed",
+            body: "Must remain source-confined"
+        )
+        guard case .delivered = result else {
+            Issue.record("Expected relay-target delivery, got \(result)")
+            return
+        }
+
+        try movePanel(fixture)
+
+        let recorded = fixture.store.notifications.filter { $0.title == "Relay immediate" }
+        #expect(recorded.map(\.tabId) == [fixture.source.id])
+        #expect(!recorded.contains { $0.tabId == fixture.destination.id })
+    }
+
     @Test("A destination clear preserves source-confined in-flight relay delivery")
     func destinationClearPreservesInFlightRelayDelivery() async throws {
         let completionURL = FileManager.default.temporaryDirectory.appendingPathComponent(
