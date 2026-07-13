@@ -1524,12 +1524,8 @@ final class TerminalNotificationStore: ObservableObject {
     private func supersededPhoneDismissesForRowAction(_ notification: TerminalNotification) -> [String] {
         let key = TabSurfaceKey(tabId: notification.tabId, surfaceId: notification.surfaceId)
         guard indexes.latestByTabSurface[key]?.id == notification.id else { return [] }
-        return supersededPhoneDismissBuffer.flush(
-            forKey: SupersededPhoneDismissBuffer.key(
-                tabId: notification.tabId,
-                surfaceId: notification.surfaceId
-            )
-        )
+        let phoneKey = SupersededPhoneDismissBuffer.key(tabId: notification.tabId, surfaceId: notification.surfaceId)
+        return supersededPhoneDismissBuffer.flush(forKey: phoneKey)
     }
 
     func applySessionNotificationMerge(_ merged: [TerminalNotification]) {
