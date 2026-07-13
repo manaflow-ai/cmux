@@ -292,7 +292,11 @@ private final class InteractionLaneHarness {
                     runs: request.directionalRuns.map(\.lines)
                 ))
                 return await withCheckedContinuation { continuation in
-                    self?.remoteScrolls.append(PendingScroll(
+                    guard let self else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+                    self.remoteScrolls.append(PendingScroll(
                         request: request,
                         continuation: continuation
                     ))
@@ -301,16 +305,21 @@ private final class InteractionLaneHarness {
             sendClick: { [weak self] _, epoch, col, row in
                 self?.events.append(.click(epoch: epoch, col: col, row: row))
                 return await withCheckedContinuation { continuation in
-                    self?.remoteClicks.append(PendingClick(continuation: continuation))
+                    guard let self else {
+                        continuation.resume(returning: false)
+                        return
+                    }
+                    self.remoteClicks.append(PendingClick(continuation: continuation))
                 }
             },
             sendInput: { [weak self] _, epoch, input in
                 if case .text(let text, _) = input {
                     self?.events.append(.input(epoch: epoch, text: text))
                 }
-                guard self?.holdInputs == true else { return true }
+                guard let self else { return false }
+                guard self.holdInputs else { return true }
                 return await withCheckedContinuation { continuation in
-                    self?.remoteInputs.append(PendingInput(continuation: continuation))
+                    self.remoteInputs.append(PendingInput(continuation: continuation))
                 }
             },
             supportsOrderedRemoteRuns: { [weak self] in

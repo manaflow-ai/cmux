@@ -97,7 +97,11 @@ private final class ScrollReconciliationSupersessionHarness {
             cancelLocal: {},
             sendRemote: { [weak self] request in
                 await withCheckedContinuation { continuation in
-                    self?.remoteScrolls.append(PendingRemote(
+                    guard let self else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+                    self.remoteScrolls.append(PendingRemote(
                         request: request,
                         continuation: continuation
                     ))

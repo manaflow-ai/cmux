@@ -39,6 +39,11 @@ struct TerminalScrollClickCausalityTests {
         #expect(harness.remoteClicks[0].epoch == 2)
         #expect(harness.remoteClicks[0].col == 7)
         #expect(harness.remoteClicks[0].row == 9)
+        harness.remoteClicks[0].continuation.resume(returning: true)
+        try await requireEventually {
+            if case .idle = session.phase { return true }
+            return false
+        }
     }
 
     @Test("scroll submitted during a pending click cannot overtake it")
@@ -63,6 +68,12 @@ struct TerminalScrollClickCausalityTests {
         }
         #expect(harness.remoteScrolls[0].request.interactionEpoch == 2)
         #expect(harness.remoteScrolls[0].request.clientRevision == 1)
+        harness.localReceipts[0].resolve(true)
+        harness.remoteScrolls[0].continuation.resume(returning: nil)
+        try await requireEventually {
+            if case .idle = session.phase { return true }
+            return false
+        }
     }
 
     @Test("rapid taps preserve every click in order")
@@ -116,7 +127,7 @@ struct TerminalScrollClickCausalityTests {
     }
 
     @Test("click queue overflow recovers instead of growing or dropping silently")
-    func clickQueueOverflowRecovers() {
+    func clickQueueOverflowRecovers() async throws {
         let harness = ClickCausalityHarness()
         let session = harness.makeSession()
 
@@ -130,6 +141,14 @@ struct TerminalScrollClickCausalityTests {
 
         #expect(harness.replayEpochs == [2])
         #expect(session.interactionEpoch == 2)
+        session.cancelForUnmount(nextEpoch: 3)
+        for receipt in harness.barrierReceipts {
+            receipt.resolve(false)
+        }
+        try await requireEventually {
+            if case .idle = session.phase { return true }
+            return false
+        }
     }
 
     private func requireEventually(_ condition: @MainActor () async -> Bool) async throws {
@@ -187,7 +206,11 @@ private final class ClickCausalityHarness {
             cancelLocal: {},
             sendRemote: { [weak self] request in
                 await withCheckedContinuation { continuation in
-                    self?.remoteScrolls.append(PendingScroll(
+                    guard let self else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+                    self.remoteScrolls.append(PendingScroll(
                         request: request,
                         continuation: continuation
                     ))
@@ -195,7 +218,11 @@ private final class ClickCausalityHarness {
             },
             sendClick: { [weak self] _, epoch, col, row in
                 await withCheckedContinuation { continuation in
-                    self?.remoteClicks.append(PendingClick(
+                    guard let self else {
+                        continuation.resume(returning: false)
+                        return
+                    }
+                    self.remoteClicks.append(PendingClick(
                         epoch: epoch,
                         col: col,
                         row: row,
