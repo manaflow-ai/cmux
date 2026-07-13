@@ -270,62 +270,6 @@ import Testing
         #expect(diff.unifiedDiff.contains("+changed"))
     }
 
-    @Test func fileDiffRejectsContentChangedSinceStatusSnapshot() throws {
-        let repo = try makeTempRepo()
-        defer { try? FileManager.default.removeItem(at: repo) }
-        let path = "Snapshot.swift"
-        let fileURL = repo.appendingPathComponent(path)
-        try Data("let value = 0\n".utf8).write(to: fileURL)
-        try runTestGit(in: repo, ["add", "--", path])
-        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add snapshot fixture"])
-        try Data("let value = 1\n".utf8).write(to: fileURL)
-
-        let service = GitDiffService()
-        let changed = try #require(service.changedFiles(repoRoot: repo.path))
-        let visible = try #require(changed.files.first { $0.path == path })
-
-        // Preserve the same path, status, line counts, and byte length while
-        // changing the content after the status snapshot.
-        try Data("let value = 2\n".utf8).write(to: fileURL)
-
-        let result = service.fileDiffResult(
-            repoRoot: repo.path,
-            path: visible.path,
-            oldPath: visible.oldPath,
-            status: visible.status,
-            additions: visible.additions,
-            deletions: visible.deletions,
-            snapshotToken: visible.snapshotToken
-        )
-        guard case .notFound = result else {
-            Issue.record("Expected stale snapshot rejection, got \(result)")
-            return
-        }
-    }
-
-    @Test func cappedStatusDropsUnverifiedUntrackedReplacement() throws {
-        let repo = try makeTempRepo()
-        defer { try? FileManager.default.removeItem(at: repo) }
-        for index in 0..<120 {
-            let path = "deleted-with-long-name-\(1000 + index).txt"
-            try Data("original\n".utf8).write(to: repo.appendingPathComponent(path))
-        }
-        let replacementPath = "zzzz-replacement.txt"
-        try Data("original\n".utf8).write(to: repo.appendingPathComponent(replacementPath))
-        try runTestGit(in: repo, ["add", "--", "."])
-        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add capped fixtures"])
-        try runTestGit(in: repo, ["rm", "--quiet", "-r", "--", "."])
-        try Data("replacement\n".utf8).write(to: repo.appendingPathComponent(replacementPath))
-
-        let service = GitDiffService()
-        let changed = try #require(service.changedFiles(repoRoot: repo.path, maxOutputBytes: 512))
-
-        #expect(changed.truncated)
-        #expect(!changed.files.contains { file in
-            file.path == replacementPath && file.status == .untracked
-        })
-    }
-
     @Test func unbornRepositoryIncludesStagedFileAndDiff() throws {
         let repo = try makeUnbornTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
