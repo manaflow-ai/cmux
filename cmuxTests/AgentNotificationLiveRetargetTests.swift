@@ -439,7 +439,7 @@ extension AgentNotificationRegressionTests {
     }
 
     @Test
-    func testPidSignalCombiningRequiresTTYMatch() {
+    func pidSignalCombiningUsesExactProcessEnvironmentFallback() {
         let tty = AgentDeliveryTargetCandidate(workspaceId: UUID(), surfaceId: UUID())
         let otherEnv = AgentDeliveryTargetCandidate(workspaceId: UUID(), surfaceId: UUID())
         #expect(agentDeliveryTargetCombining(ttyTarget: tty, envTarget: nil) == tty)
@@ -455,8 +455,8 @@ extension AgentNotificationRegressionTests {
             "Disagreement between two individually stale-able signals must fail closed"
         )
         #expect(
-            agentDeliveryTargetCombining(ttyTarget: nil, envTarget: otherEnv) == nil,
-            "Inherited CMUX_SURFACE_ID alone is spawn-time evidence (leakable from the operator's pane) and must never resolve by itself"
+            agentDeliveryTargetCombining(ttyTarget: nil, envTarget: otherEnv) == otherEnv,
+            "A start-time-keyed live process environment must resolve nested-PTY sessions whose controlling TTY differs"
         )
         #expect(agentDeliveryTargetCombining(ttyTarget: nil, envTarget: nil) == nil)
     }

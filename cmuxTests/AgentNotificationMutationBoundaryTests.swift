@@ -99,6 +99,39 @@ extension AgentNotificationRegressionTests {
         #expect(fixture.store.notifications.map(\.body) == ["Registered after clear"])
     }
 
+    @Test("Clearing policy work immediately releases its cooldown reservation")
+    func clearReleasesInFlightPolicyCooldownForReplacement() async throws {
+        let fixture = try makeFixture(policyHookCommand: "sleep 1; cat")
+        defer { fixture.restore() }
+        let cooldownKey = "replace-after-clear-\(UUID().uuidString)"
+
+        fixture.store.addNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Discarded in flight",
+            cooldownKey: cooldownKey,
+            cooldownInterval: 60
+        )
+        fixture.store.clearNotifications(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId
+        )
+        fixture.store.addNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Replacement after clear",
+            cooldownKey: cooldownKey,
+            cooldownInterval: 60
+        )
+
+        await waitForNotification(in: fixture.store)
+        #expect(fixture.store.notifications.map(\.body) == ["Replacement after clear"])
+    }
+
     @Test("Agent runtime mutations follow a pane that moves before queue drain")
     func queuedAgentRuntimeMutationsResolveLivePanelOwner() throws {
         let fixture = try makeFixture()
