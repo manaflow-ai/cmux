@@ -232,6 +232,37 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    /// Regression: preparation must durably save the exact retry identity
+    /// before routing starts, while Cancel remains available until the create
+    /// boundary is committed.
+    @MainActor
+    func testTaskComposerPersistsDraftAndAllowsCancelDuringPreparation() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_HOLD_PREPARATION": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
+        let create = app.buttons["MobileTaskComposerCreateButton"]
+        XCTAssertTrue(create.waitForExistence(timeout: 3))
+        tap(create, in: app)
+
+        let draftState = app.staticTexts["MobileTaskComposerSubmissionDraftState"]
+        XCTAssertTrue(draftState.waitForExistence(timeout: 3))
+        XCTAssertEqual(draftState.label, "persisted")
+        let cancel = app.buttons["Cancel"]
+        XCTAssertTrue(cancel.exists)
+        XCTAssertTrue(cancel.isEnabled, "Cancel must stay enabled before the create boundary")
+        if cancel.isEnabled {
+            cancel.tap()
+            XCTAssertFalse(
+                app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 2),
+                "Pre-boundary Cancel must dismiss the composer"
+            )
+        }
+    }
+
     /// Regression: fast pinch-zoom must not hang the main thread (the
     /// scene-update watchdog `0x8BADF00D` was killing the app because
     /// libghostty surface calls block on the main thread) and must not

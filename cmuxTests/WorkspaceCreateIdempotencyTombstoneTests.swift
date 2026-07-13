@@ -131,6 +131,46 @@ import Testing
         #expect(Self.containsInitialCommand("must-not-launch", in: manager) == false)
     }
 
+    @Test func acceptedOperationIsDurableBeforeWorkspaceConstruction() throws {
+        let suiteName = "WorkspaceCreateIdempotencyTombstoneTests.\(UUID().uuidString)"
+        let defaults = try #require(ObservingUserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let cache = Self.cache(defaults: defaults)
+        let manager = TabManager()
+        let baselineIDs = Set(manager.tabs.map(\.id))
+        let operationID = UUID()
+        var persistedBeforeConstruction = false
+        var retryWasCompleted = false
+        defaults.onSet = { key in
+            guard key == "tests.completed" else { return }
+            defaults.onSet = nil
+            persistedBeforeConstruction = Set(manager.tabs.map(\.id)) == baselineIDs
+                && !Self.containsInitialCommand("launch-once", in: manager)
+            let retry = TerminalController.shared.v2WorkspaceCreate(
+                params: [
+                    "operation_id": operationID.uuidString,
+                    "initial_command": "must-not-launch-after-reservation",
+                ],
+                tabManager: manager,
+                idempotencyCache: Self.cache(defaults: defaults)
+            )
+            retryWasCompleted = Self.errorCode(retry) == "already_completed"
+        }
+
+        _ = TerminalController.shared.v2WorkspaceCreate(
+            params: [
+                "operation_id": operationID.uuidString,
+                "initial_command": "launch-once",
+            ],
+            tabManager: manager,
+            idempotencyCache: cache
+        )
+
+        #expect(persistedBeforeConstruction)
+        #expect(retryWasCompleted)
+        #expect(Self.containsInitialCommand("must-not-launch-after-reservation", in: manager) == false)
+    }
+
     @Test func restoredLiveWorkspaceResolvesBeforeDurableTombstone() async throws {
         let defaults = Self.makeDefaults()
         defer { defaults.removePersistentDomain(forName: Self.defaultsSuiteName(defaults)) }
@@ -281,4 +321,13 @@ private struct TombstoneWorkspaceList: Decodable {
 
 private enum TombstoneDecodeError: Error {
     case notSuccess
+}
+
+private final class ObservingUserDefaults: UserDefaults, @unchecked Sendable {
+    var onSet: ((String) -> Void)?
+
+    override func set(_ value: Any?, forKey defaultName: String) {
+        super.set(value, forKey: defaultName)
+        onSet?(defaultName)
+    }
 }

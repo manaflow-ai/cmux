@@ -66,6 +66,49 @@ import Testing
         expectIdentityRotated(from: before, to: after)
     }
 
+    @Test func canonicallyEquivalentCommandBytesChangeRequestIdentity() {
+        let before = snapshot(template: MobileTaskTemplate(
+            name: "Codex",
+            icon: "agent:codex",
+            command: "codex caf\u{00E9}"
+        ))
+        let after = snapshot(template: MobileTaskTemplate(
+            name: "Codex",
+            icon: "agent:codex",
+            command: "codex cafe\u{301}"
+        ))
+
+        #expect(!before.isRequestEquivalent(to: after))
+        expectIdentityRotated(from: before, to: after)
+    }
+
+    @Test func canonicallyEquivalentPromptEnvironmentAndTitleBytesChangeRequestIdentity() {
+        let template = MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex")
+        let before = snapshot(template: template, prompt: "caf\u{00E9}")
+        let after = snapshot(template: template, prompt: "cafe\u{301}")
+
+        #expect(!before.isRequestEquivalent(to: after))
+        expectIdentityRotated(from: before, to: after)
+    }
+
+    @Test func canonicallyEquivalentDirectoryBytesChangeRequestIdentity() {
+        let template = MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex")
+        let before = snapshot(template: template, directory: "~/caf\u{00E9}")
+        let after = snapshot(template: template, directory: "~/cafe\u{301}")
+
+        #expect(!before.isRequestEquivalent(to: after))
+        expectIdentityRotated(from: before, to: after)
+    }
+
+    @Test func canonicallyEquivalentMacIdentifierBytesChangeRequestIdentity() {
+        let template = MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex")
+        let before = snapshot(template: template, macDeviceID: "mac-caf\u{00E9}")
+        let after = snapshot(template: template, macDeviceID: "mac-cafe\u{301}")
+
+        #expect(!before.isRequestEquivalent(to: after))
+        expectIdentityRotated(from: before, to: after)
+    }
+
     @Test func selectedTemplateDefaultDirectoryEditChangesEffectiveRequest() {
         let template = MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex")
         let before = snapshot(template: template, directory: "~/cmux")

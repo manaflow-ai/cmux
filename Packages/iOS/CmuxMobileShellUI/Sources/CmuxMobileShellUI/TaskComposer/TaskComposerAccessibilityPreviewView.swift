@@ -8,9 +8,11 @@ import SwiftUI
 /// composer as a real sheet, including its iPad presentation behavior.
 public struct TaskComposerAccessibilityPreviewView: View {
     @State private var isPresented = false
+    @State private var draftWasPersistedAtSubmit: Bool?
     private let store: CMUXMobileShellStore
     private let returnsSubmissionFailure: Bool
     private let presentsTemplateForm: Bool
+    private let holdsSubmissionInPreparation: Bool
 
     /// Creates the preview with isolated, in-memory task state so repeated UI
     /// tests cannot inherit production templates, selections, or drafts. Set
@@ -28,6 +30,9 @@ public struct TaskComposerAccessibilityPreviewView: View {
         self.presentsTemplateForm = ProcessInfo.processInfo.environment[
             "CMUX_UITEST_TASK_TEMPLATE_FORM_PREVIEW"
         ] == "1"
+        self.holdsSubmissionInPreparation = ProcessInfo.processInfo.environment[
+            "CMUX_UITEST_TASK_COMPOSER_HOLD_PREPARATION"
+        ] == "1"
     }
 
     /// Presents the requested production task-composer surface over an otherwise empty host.
@@ -42,12 +47,26 @@ public struct TaskComposerAccessibilityPreviewView: View {
                         store: store,
                         availableMachines: [Self.previewMac],
                         submitTaskComposer: { _, _ in
+                            draftWasPersistedAtSubmit = store.taskTemplateStore?.composerDraft() != nil
+                            if holdsSubmissionInPreparation {
+                                do {
+                                    try await Task.sleep(for: .seconds(30))
+                                } catch {
+                                    return .failure(.notConnected(hostDisplayName: "Preview Mac"))
+                                }
+                            }
                             if returnsSubmissionFailure {
                                 return .failure(.invalidWorkingDirectory(hostDisplayName: "Preview Mac"))
                             }
                             return .success(())
                         }
                     )
+                    .overlay(alignment: .top) {
+                        if let draftWasPersistedAtSubmit {
+                            Text(draftWasPersistedAtSubmit ? "persisted" : "missing")
+                                .accessibilityIdentifier("MobileTaskComposerSubmissionDraftState")
+                        }
+                    }
                 }
             }
     }

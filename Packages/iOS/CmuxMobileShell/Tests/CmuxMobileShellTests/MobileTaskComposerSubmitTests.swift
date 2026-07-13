@@ -209,6 +209,27 @@ import Testing
         #expect(await targetRouter.recordedWorkspaceCreateCount() == 1)
     }
 
+    @Test func cancelledSubmissionDoesNotCrossCreateBoundary() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: router)
+        var boundaryCallCount = 0
+
+        let submission = Task { @MainActor in
+            withUnsafeCurrentTask { task in
+                task?.cancel()
+            }
+            return await store.submitTaskComposer(
+                macDeviceID: "test-mac",
+                spec: MobileWorkspaceCreateSpec(title: "Cancelled", operationID: UUID()),
+                willStartCreate: { boundaryCallCount += 1 }
+            )
+        }
+        _ = await submission.value
+
+        #expect(boundaryCallCount == 0)
+        #expect(await router.recordedWorkspaceCreateCount() == 0)
+    }
+
     @Test func pinnedContextRejectsAmbientReplacementClientAndGeneration() async throws {
         let targetRouter = RoutingHostRouter()
         let ambientRouter = RoutingHostRouter()
