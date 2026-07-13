@@ -12,14 +12,16 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
-    // v3 resets the unshipped agent seed commands onto safe implicit append.
-    private static let templatesKey = "cmux.mobile.taskTemplates.v3"
-    private static let seededKey = "cmux.mobile.taskTemplates.seeded.v3"
+    // v4 resets the unshipped seeds onto the environment-only prompt contract.
+    private static let templatesKey = "cmux.mobile.taskTemplates.v4"
+    private static let seededKey = "cmux.mobile.taskTemplates.seeded.v4"
     private static let legacyKeys = [
         "cmux.mobile.taskTemplates.v1",
         "cmux.mobile.taskTemplates.seeded.v1",
         "cmux.mobile.taskTemplates.v2",
         "cmux.mobile.taskTemplates.seeded.v2",
+        "cmux.mobile.taskTemplates.v3",
+        "cmux.mobile.taskTemplates.seeded.v3",
     ]
     private static let lastTemplateIDKey = "cmux.mobile.taskComposer.lastTemplateID"
     private static let lastMacDeviceIDKey = "cmux.mobile.taskComposer.lastMacDeviceID"

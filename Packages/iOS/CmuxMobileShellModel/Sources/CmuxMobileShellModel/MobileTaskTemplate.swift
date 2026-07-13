@@ -14,9 +14,9 @@ public struct MobileTaskTemplate: Codable, Equatable, Sendable, Identifiable {
     /// Optional default working directory for workspaces created from this template.
     public var defaultDirectory: String?
 
-    /// Whether the command contains no executable text and should open a plain shell.
+    /// Whether the command is blank and should open a plain shell.
     public var isPlainShell: Bool {
-        !MobileTaskCommandComposer.containsExecutableCommand(in: command)
+        command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// Creates a mobile task template.
@@ -76,9 +76,21 @@ public struct MobileTaskTemplate: Codable, Equatable, Sendable, Identifiable {
         shellName: String
     ) -> [MobileTaskTemplate] {
         [
-            MobileTaskTemplate(name: claudeName, icon: "agent:claude", command: "claude"),
-            MobileTaskTemplate(name: codexName, icon: "agent:codex", command: "codex"),
-            MobileTaskTemplate(name: openCodeName, icon: "agent:opencode", command: "opencode --prompt {prompt}"),
+            MobileTaskTemplate(
+                name: claudeName,
+                icon: "agent:claude",
+                command: "claude -- \"$CMUX_TASK_PROMPT\""
+            ),
+            MobileTaskTemplate(
+                name: codexName,
+                icon: "agent:codex",
+                command: "codex -- \"$CMUX_TASK_PROMPT\""
+            ),
+            MobileTaskTemplate(
+                name: openCodeName,
+                icon: "agent:opencode",
+                command: "opencode --prompt \"$CMUX_TASK_PROMPT\""
+            ),
             MobileTaskTemplate(name: shellName, icon: "terminal", command: ""),
         ]
     }

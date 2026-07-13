@@ -48,7 +48,10 @@ struct TaskTemplateEditorView: View {
                         refresh()
                     }
                 } footer: {
-                    Text(L10n.string("mobile.taskComposer.template.hint", defaultValue: "{prompt} and $CMUX_TASK_PROMPT receive the task prompt."))
+                    Text(L10n.string(
+                        "mobile.taskComposer.template.hint",
+                        defaultValue: "The task prompt is available to the command as $CMUX_TASK_PROMPT. Example: claude -- \"$CMUX_TASK_PROMPT\""
+                    ))
                 }
             }
             .navigationTitle(L10n.string("mobile.taskComposer.templates.title", defaultValue: "Task Templates"))

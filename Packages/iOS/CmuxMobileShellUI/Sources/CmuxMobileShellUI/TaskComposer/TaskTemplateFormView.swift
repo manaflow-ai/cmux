@@ -32,7 +32,10 @@ struct TaskTemplateFormView: View {
                 }
                 Section(L10n.string("mobile.taskComposer.template.command", defaultValue: "Command")) {
                     TextField(
-                        L10n.string("mobile.taskComposer.template.commandPlaceholder", defaultValue: "claude {prompt}"),
+                        L10n.string(
+                            "mobile.taskComposer.template.commandPlaceholder",
+                            defaultValue: "claude -- \"$CMUX_TASK_PROMPT\""
+                        ),
                         text: $command,
                         axis: .vertical
                     )
@@ -40,7 +43,10 @@ struct TaskTemplateFormView: View {
                     .font(.system(.body, design: .monospaced))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                    Text(L10n.string("mobile.taskComposer.template.hint", defaultValue: "{prompt} and $CMUX_TASK_PROMPT receive the task prompt."))
+                    Text(L10n.string(
+                        "mobile.taskComposer.template.hint",
+                        defaultValue: "The task prompt is available to the command as $CMUX_TASK_PROMPT. Example: claude -- \"$CMUX_TASK_PROMPT\""
+                    ))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

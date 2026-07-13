@@ -14,7 +14,7 @@ import Testing
             "value=$((1 << 2))\nagent {prompt}",
             "result=\"`agent {prompt}`\"",
             "result=\"$(case x in x) agent {prompt} ;; esac)\"",
-            "agent \\\n+# {prompt}",
+            "agent \\\n# {prompt}",
             "2>&1",
             "agent $$CMUX_TASK_PROMPT",
             "cat <<''\n{prompt}\n\n",

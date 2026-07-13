@@ -7518,13 +7518,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "claude {prompt}"
+            "value": "claude -- \"$CMUX_TASK_PROMPT\""
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "claude {prompt}"
+            "value": "claude -- \"$CMUX_TASK_PROMPT\""
           }
         }
       }
@@ -7569,13 +7569,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "{prompt} and $CMUX_TASK_PROMPT receive the task prompt."
+            "value": "The task prompt is available to the command as $CMUX_TASK_PROMPT. Example: claude -- \"$CMUX_TASK_PROMPT\""
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "{prompt} と $CMUX_TASK_PROMPT にタスクプロンプトが渡されます。"
+            "value": "タスクプロンプトは $CMUX_TASK_PROMPT としてコマンドで使用できます。例: claude -- \"$CMUX_TASK_PROMPT\""
           }
         }
       }
