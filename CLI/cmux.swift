@@ -24605,6 +24605,7 @@ struct CMUXCLI {
             ) else {
                 // Keep the persisted route so a later authoritative cleanup
                 // can still clear the visible state this attempt could not.
+                didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.session-end.unresolved")
                 print("OK")
                 return

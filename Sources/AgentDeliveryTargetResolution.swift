@@ -200,7 +200,7 @@ extension TerminalController {
                     code: "invalid_params",
                     message: String(
                         localized: "agent.deliveryTarget.error.invalidPid",
-                        defaultValue: "pid must be a positive integer representable as pid_t"
+                        defaultValue: "PID must be a positive integer"
                     ),
                     data: nil
                 )

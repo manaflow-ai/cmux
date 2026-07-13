@@ -93,8 +93,15 @@ extension CMUXCLI {
         if !routing.allowsPidProbe, rehomeAllowed, !client.isRelayBacked {
             let invocationSurfaceId = nonEmptyClaudeHookIdentifier(routing.surfaceArg)
             let recordedSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId)
-            guard let invocationSurfaceId,
-                  recordedSurfaceId == nil || recordedSurfaceId == invocationSurfaceId else { return nil }
+            guard let invocationSurfaceId else { return nil }
+            if let recordedSurfaceId, recordedSurfaceId != invocationSurfaceId {
+                guard let recordedWorkspaceId = nonEmptyClaudeHookIdentifier(mappedSession?.workspaceId),
+                      !claudeHookSurfaceIsListed(
+                          recordedSurfaceId,
+                          workspaceId: recordedWorkspaceId,
+                          client: client
+                      ) else { return nil }
+            }
             switch liveAgentSurfaceDeliveryTarget(
                 surfaceId: invocationSurfaceId,
                 claimedWorkspaceId: mappedSession?.workspaceId ?? routing.workspaceArg,

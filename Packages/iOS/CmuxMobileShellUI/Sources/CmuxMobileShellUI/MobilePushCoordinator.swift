@@ -291,10 +291,27 @@ public final class MobilePushCoordinator {
         if let surfaceId = pending.surfaceId,
            !store.workspace(workspaceTarget, containsSurfaceID: surfaceId) {
             // The workspace is here but its terminal snapshot is not (still
-            // loading, or the terminal was closed). Land the user in the right
-            // workspace now and keep only the surface part parked so it can
-            // resolve if the terminal arrives, bounded by the same expiry.
+            // loading, closed, or moved). Land the user in the right workspace.
             store.navigateToWorkspaceForDeeplink(workspaceTarget)
+            if !pending.retargetsToLiveSurfaceOwner,
+               let liveOwner = store.workspaceID(
+                   containingSurfaceID: surfaceId,
+                   macDeviceID: pending.macDeviceId
+               ),
+               liveOwner != workspaceTarget {
+                // The loaded topology proves the terminal moved elsewhere. A
+                // confined tap cannot follow it, and retaining the request
+                // would replay navigation to the authorized workspace on every
+                // topology update.
+                pendingDeeplink = nil
+                analytics.capture("ios_push_deeplink_resolved", [
+                    "resolved_workspace": .bool(true),
+                    "resolved_surface": .bool(false),
+                ])
+                return
+            }
+            // No live owner is loaded yet. Keep the surface parked so a pending
+            // snapshot can still arrive, bounded by the original expiry.
             pendingDeeplink = PendingDeeplink(
                 workspaceId: pending.retargetsToLiveSurfaceOwner ? nil : pending.workspaceId,
                 surfaceId: surfaceId,

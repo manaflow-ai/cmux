@@ -129,6 +129,7 @@ extension TerminalController {
             guard let self else { return }
             var tab = self.controlSidebarResolveMutationTab(target)
             if let panelID, case .workspace = target,
+               tab?.panels.keys.contains(panelID) != true,
                let owner = AppDelegate.shared?.workspaceContainingPanel(panelId: panelID) {
                 tab = owner.workspace
             }

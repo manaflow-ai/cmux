@@ -12,15 +12,23 @@ extension AppDelegate {
         notificationId: UUID?,
         scrollPosition: TerminalNotificationScrollPosition? = nil
     ) -> Bool {
-        // Re-home at click time: if the pane moved workspaces after the
-        // notification was recorded, navigate to the workspace that owns the
-        // surface NOW, not the one stamped at delivery (issues #7939/#2792).
+        // Resolve move provenance at click time. Trusted local notifications
+        // follow the pane's live owner; source-confined notifications open only
+        // their authorized workspace and drop a surface that moved elsewhere.
         var tabId = tabId
-        if retargetsToLiveSurfaceOwner,
-           let liveSurfaceId = panelId ?? surfaceId,
+        var surfaceId = surfaceId
+        var panelId = panelId
+        var scrollPosition = scrollPosition
+        if let liveSurfaceId = panelId ?? surfaceId,
            let owner = workspaceContainingPanel(panelId: liveSurfaceId, preferredWorkspaceId: tabId),
            owner.workspace.id != tabId {
-            tabId = owner.workspace.id
+            if retargetsToLiveSurfaceOwner {
+                tabId = owner.workspace.id
+            } else {
+                surfaceId = nil
+                panelId = nil
+                scrollPosition = nil
+            }
         }
 #if DEBUG
         let isJumpUnreadUITest = ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1"
