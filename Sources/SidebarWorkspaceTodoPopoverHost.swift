@@ -261,7 +261,13 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
             }
             if requestToken != lastRequestToken {
                 lastRequestToken = requestToken
-                awaitingDismissAck = false
+                // Only a real request unlatches. Token zero is the CONSUMED
+                // state (the container resets the activation token after the
+                // add field arms) — treating that reset as a fresh request
+                // re-presented a popover the user had just dismissed.
+                if requestToken != 0 {
+                    awaitingDismissAck = false
+                }
             }
         }
 
