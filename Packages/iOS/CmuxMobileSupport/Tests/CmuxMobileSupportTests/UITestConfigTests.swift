@@ -128,6 +128,22 @@ import Testing
         ) == false)
     }
 
+    @Test func taskComposerPreviewFlagIsDebugOnly() {
+        let env = ["CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1"]
+        #if DEBUG
+        #expect(UITestConfig.taskComposerPreviewEnabled(from: env))
+        #else
+        #expect(!UITestConfig.taskComposerPreviewEnabled(from: env))
+        #endif
+    }
+
+    @Test func taskComposerPreviewFlagRequiresOne() {
+        #expect(!UITestConfig.taskComposerPreviewEnabled(from: [:]))
+        #expect(!UITestConfig.taskComposerPreviewEnabled(from: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "0",
+        ]))
+    }
+
     @Test func agentChatPreviewFlagIsDebugOnly() {
         let env = ["CMUX_UITEST_AGENT_CHAT_PREVIEW": "1"]
         let config = UITestEnvironmentConfig(environment: env)

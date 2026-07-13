@@ -32,6 +32,7 @@ struct TaskComposerSheet: View {
     @State private var activeSubmissionSnapshot: MobileTaskSubmissionSnapshot?
 
     private let sessionGeneration: Int
+    private let availableMachines: [MobilePairedMac]?
     private let submitTaskComposer: @MainActor (
         _ macDeviceID: String,
         _ spec: MobileWorkspaceCreateSpec
@@ -39,12 +40,14 @@ struct TaskComposerSheet: View {
 
     init(
         store: CMUXMobileShellStore,
+        availableMachines: [MobilePairedMac]? = nil,
         submitTaskComposer: (@MainActor (
             _ macDeviceID: String,
             _ spec: MobileWorkspaceCreateSpec
         ) async -> Result<Void, MobileWorkspaceMutationFailure>)? = nil
     ) {
         self.store = store
+        self.availableMachines = availableMachines
         self.sessionGeneration = store.currentSessionGeneration
         self.submitTaskComposer = submitTaskComposer ?? { macDeviceID, spec in
             await store.submitTaskComposer(macDeviceID: macDeviceID, spec: spec)
@@ -54,7 +57,7 @@ struct TaskComposerSheet: View {
         let draft = store.taskTemplateStore?.composerDraft()
         let foregroundMacID = store.connectedMacDeviceID
         // Restore persisted Mac IDs only while they remain paired.
-        let pairedMacIDs = store.displayPairedMacs.map(\.macDeviceID)
+        let pairedMacIDs = (availableMachines ?? store.displayPairedMacs).map(\.macDeviceID)
         let restoredMacID = store.taskTemplateStore?.lastMacDeviceID()
             .flatMap { id in pairedMacIDs.contains(id) ? id : nil }
         let draftMacID = draft?.macDeviceID
@@ -151,42 +154,21 @@ struct TaskComposerSheet: View {
                         .accessibilityIdentifier("MobileTaskComposerDirectory")
                 }
 
-                Section {
-                    Button {
-                        guard submitTask == nil else { return }
-                        submitTask = Task {
-                            await submit()
-                            submitTask = nil
-                        }
-                    } label: {
-                        HStack {
-                            Spacer()
-                            if isSubmitting {
-                                ProgressView()
-                            } else {
-                                Text(L10n.string("mobile.taskComposer.create", defaultValue: "Create"))
-                                    .fontWeight(.semibold)
-                            }
-                            Spacer()
-                        }
-                    }
-                    .disabled(isSubmitting || selectedTemplate == nil || selectedMachine == nil)
-                    .keyboardShortcut(.return, modifiers: .command)
-                    .accessibilityLabel(
-                        isSubmitting
-                            ? L10n.string("mobile.taskComposer.creating", defaultValue: "Creating Task")
-                            : L10n.string("mobile.taskComposer.create", defaultValue: "Create")
-                    )
-                    .accessibilityHint(Self.createAccessibilityHint)
-                    .accessibilityIdentifier("MobileTaskComposerCreateButton")
-
-                    if let failureText {
+                if let failureText {
+                    Section {
                         Text(failureText)
                             .font(.footnote)
                             .foregroundStyle(.red)
                             .accessibilityIdentifier("MobileTaskComposerFailure")
                     }
                 }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                TaskComposerPrimaryAction(
+                    isSubmitting: isSubmitting,
+                    isEnabled: selectedTemplate != nil && selectedMachine != nil,
+                    action: startSubmission
+                )
             }
             .navigationTitle(L10n.string("mobile.taskComposer.title", defaultValue: "New Task"))
             .mobileInlineNavigationTitle()
@@ -245,7 +227,7 @@ struct TaskComposerSheet: View {
     }
 
     private var machines: [MobilePairedMac] {
-        store.displayPairedMacs
+        availableMachines ?? store.displayPairedMacs
     }
 
     private var selectedMachineName: String {
@@ -298,7 +280,7 @@ struct TaskComposerSheet: View {
                         .labelStyle(.titleAndIcon)
                 }
                 .buttonStyle(.bordered)
-                .frame(minHeight: 44)
+                .controlSize(.large)
             }
             .padding(.vertical, 2)
         }
@@ -360,10 +342,18 @@ struct TaskComposerSheet: View {
             }
         }
         .buttonStyle(.bordered)
+        .controlSize(.large)
         .tint(isSelected ? .accentColor : .secondary)
-        .frame(minHeight: 44)
         .accessibilityHint(Self.templateAccessibilityHint)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func startSubmission() {
+        guard submitTask == nil else { return }
+        submitTask = Task {
+            await submit()
+            submitTask = nil
+        }
     }
 
     private func submit() async {
