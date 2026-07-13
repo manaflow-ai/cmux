@@ -9,7 +9,17 @@ import UIKit
 @MainActor
 @Suite("iOS swipe-back over terminal/browser surfaces")
 struct MobileSwipeBackGestureTests {
-    private final class GestureDelegate: NSObject, UIGestureRecognizerDelegate {}
+    private final class GestureDelegate: NSObject, UIGestureRecognizerDelegate {
+        let allowsBegin: Bool
+
+        init(allowsBegin: Bool = true) {
+            self.allowsBegin = allowsBegin
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            allowsBegin
+        }
+    }
 
     /// The browser pane is pushed onto the workspace `NavigationStack`. With the
     /// web view's own edge gesture enabled, a left-edge swipe is eaten by the web
@@ -37,6 +47,35 @@ struct MobileSwipeBackGestureTests {
         #expect(policy.shouldBegin(navigationController: nav) == false)
         nav.pushViewController(UIViewController(), animated: false)
         #expect(policy.shouldBegin(navigationController: nav) == true)
+    }
+
+    @Test("pop gesture rejects an in-progress navigation transition")
+    func popGestureRejectsTransitionInProgress() {
+        let policy = InteractiveSwipeBackGesturePolicy()
+        let nav = UINavigationController(rootViewController: UIViewController())
+        nav.pushViewController(UIViewController(), animated: false)
+
+        #expect(policy.shouldBegin(
+            navigationController: nav,
+            isTransitionInProgress: true
+        ) == false)
+    }
+
+    @Test("gesture host preserves the saved delegate veto")
+    func gestureHostPreservesSavedDelegateVeto() throws {
+        let root = UIViewController()
+        let navigationController = UINavigationController(rootViewController: root)
+        navigationController.pushViewController(UIViewController(), animated: false)
+        let popGesture = try #require(navigationController.interactivePopGestureRecognizer)
+        let vetoingDelegate = GestureDelegate(allowsBegin: false)
+        popGesture.delegate = vetoingDelegate
+        let host = InteractiveSwipeBackGestureHostController()
+
+        root.addChild(host)
+        root.view.addSubview(host.view)
+        host.didMove(toParent: root)
+
+        #expect(host.gestureRecognizerShouldBegin(popGesture) == false)
     }
 
     /// The terminal and browser surfaces have their own pan/scroll recognizers;

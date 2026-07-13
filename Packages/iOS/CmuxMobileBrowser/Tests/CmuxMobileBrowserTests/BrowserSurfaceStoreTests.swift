@@ -46,7 +46,7 @@ import Testing
         #expect(first === second)
     }
 
-    @Test func aliasLookupReusesAndMigratesStoredBrowser() {
+    @Test func aliasLookupWaitsForAuthoritativeUniqueReconciliation() {
         let store = makeStore()
         let browser = store.openBrowser(for: "legacy-workspace")
         let stableIdentity = BrowserWorkspaceIdentity(
@@ -54,10 +54,36 @@ import Testing
             aliases: ["legacy-workspace"]
         )
 
-        #expect(store.browser(for: stableIdentity) === browser)
+        #expect(store.browser(for: stableIdentity) == nil)
+        #expect(store.browser(for: "legacy-workspace") === browser)
+
+        store.reconcileWorkspaces([stableIdentity])
+
         #expect(store.openBrowser(for: stableIdentity) === browser)
         #expect(store.browser(for: stableIdentity) === browser)
         #expect(store.browser(for: "legacy-workspace") == nil)
+    }
+
+    @Test func partialMultiMacLookupCannotClaimAmbiguousRestoredAlias() {
+        let store = makeStore()
+        let restored = store.openBrowser(for: "shared")
+        let firstIdentity = BrowserWorkspaceIdentity(
+            rawValue: "5:mac-a:shared",
+            aliases: ["shared"]
+        )
+        let secondIdentity = BrowserWorkspaceIdentity(
+            rawValue: "5:mac-b:shared",
+            aliases: ["shared"]
+        )
+
+        #expect(store.browser(for: firstIdentity) == nil)
+        #expect(store.browser(for: secondIdentity) == nil)
+        #expect(store.browser(for: "shared") === restored)
+
+        store.reconcileWorkspaces([firstIdentity])
+
+        #expect(store.browser(for: firstIdentity) === restored)
+        #expect(store.browser(for: "shared") == nil)
     }
 
     @Test func browsersAreScopedPerWorkspace() {
