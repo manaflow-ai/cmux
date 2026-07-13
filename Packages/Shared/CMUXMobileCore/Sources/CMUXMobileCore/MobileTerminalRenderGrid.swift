@@ -85,10 +85,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         guard columns > 0, rows > 0 else {
             throw MobileTerminalRenderGridError.invalidDimensions(columns: columns, rows: rows)
         }
-        if let cursor,
-           !(0..<rows).contains(cursor.row) || !(0..<columns).contains(cursor.column) {
-            throw MobileTerminalRenderGridError.invalidCursor(row: cursor.row, column: cursor.column)
-        }
+        try cursor?.validate(columns: columns, rows: rows)
         for row in clearedRows {
             guard (0..<rows).contains(row) else {
                 throw MobileTerminalRenderGridError.invalidRow(row)
@@ -426,6 +423,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         /// The cursor's position relative to the captured viewport. Older
         /// render-grid producers omit this field.
         public var location: Location?
+        public var activeRow: Int?
         public var style: Style
         public var blinking: Bool
 
@@ -434,6 +432,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             column: Int,
             visible: Bool = true,
             location: Location? = nil,
+            activeRow: Int? = nil,
             style: Style = .block,
             blinking: Bool = false
         ) {
@@ -441,6 +440,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             self.column = column
             self.visible = visible
             self.location = location
+            self.activeRow = activeRow
             self.style = style
             self.blinking = blinking
         }
@@ -451,10 +451,10 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             self.column = try container.decode(Int.self, forKey: .column)
             self.visible = try container.decodeIfPresent(Bool.self, forKey: .visible) ?? true
             self.location = try container.decodeIfPresent(Location.self, forKey: .location)
+            self.activeRow = try container.decodeIfPresent(Int.self, forKey: .activeRow)
             self.style = try container.decodeIfPresent(Style.self, forKey: .style) ?? .block
             self.blinking = try container.decodeIfPresent(Bool.self, forKey: .blinking) ?? false
         }
-
     }
 
     public struct Style: Codable, Equatable, Sendable {

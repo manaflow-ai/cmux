@@ -144,6 +144,7 @@ import Testing
 
         let cursor = ReplayCursorProbe.finalCursor(after: bytes, rows: frame.rows)
 
+        #expect(frame.cursor?.activeRow == testCase.activeRow, "\(testCase.name) DTO")
         #expect(cursor.row == testCase.activeRow, "\(testCase.name) replay")
     }
 }
@@ -161,7 +162,46 @@ import Testing
 
     let cursor = ReplayCursorProbe.finalCursor(after: bytes, rows: frame.rows)
 
+    #expect(frame.cursor?.activeRow == 1)
     #expect(cursor.row == 1)
+}
+
+@Test func activeCursorRowRoundTripsWithSnakeCaseWireKey() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-window",
+        stateSeq: 10,
+        columns: 12,
+        rows: 3,
+        cursor: .init(
+            row: 0,
+            column: 4,
+            visible: false,
+            location: .belowViewport,
+            activeRow: 1
+        ),
+        rowSpans: []
+    )
+
+    let object = try frame.jsonObject()
+    let cursorObject = try #require(object["cursor"] as? [String: Any])
+    let decoded = try MobileTerminalRenderGridFrame.decodeJSONObject(object)
+
+    #expect(cursorObject["active_row"] as? Int == 1)
+    #expect(cursorObject["activeRow"] == nil)
+    #expect(decoded.cursor?.activeRow == 1)
+}
+
+@Test func activeCursorRowRejectsOutOfRangeValue() {
+    #expect(throws: MobileTerminalRenderGridError.invalidCursor(row: 3, column: 4)) {
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "terminal-window",
+            stateSeq: 10,
+            columns: 12,
+            rows: 3,
+            cursor: .init(row: 0, column: 4, activeRow: 3),
+            rowSpans: []
+        )
+    }
 }
 
 private func decodeCursorFrame(
