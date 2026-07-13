@@ -717,11 +717,29 @@ jobs:
             -only-testing:cmuxTests/SharedLiveAgentIndexFingerprintInvalidationTests \
             -only-testing:cmuxTests/SharedLiveAgentIndexGenerationAuthorityTests \
             -only-testing:cmuxTests/SharedLiveAgentIndexHookStoreInvalidationTests \
-            -only-testing:cmuxTests/ProcessDetectedResumeIndexCoordinationTests \
-            -only-testing:cmuxTests/ProcessDetectedResumeIndexPersistenceFallbackTests \
             -only-testing:cmuxTests/TerminationResumeIndexCoordinatorInvalidationTests \
             -only-testing:cmuxTests/ClosedItemHistoryAgentEnrichmentTests \
             -only-testing:cmuxTests/AgentHibernationPlannerSwiftTests \
+            test
+
+      - name: Run process-detected resume index regressions
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Keep these semaphore-driven suites in a separate process. Running them
+          # concurrently with the shared-index gate can exhaust the cooperative
+          # executor and let five-second production deadlines beat queued loaders.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/ProcessDetectedResumeIndexCoordinationTests \
+            -only-testing:cmuxTests/ProcessDetectedResumeIndexPersistenceFallbackTests \
             test
 
       - name: Run unit tests
