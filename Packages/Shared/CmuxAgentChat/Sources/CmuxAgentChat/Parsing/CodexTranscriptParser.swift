@@ -5,11 +5,12 @@ import Foundation
 /// Reads the format written under `~/.codex/sessions/YYYY/MM/DD/` as of
 /// Codex CLI 0.139: every line is `{timestamp, type, payload}`. Content
 /// lives in `response_item` payloads (`message`, `reasoning`,
-/// `function_call`, `function_call_output`, `custom_tool_call`, ...);
-/// `event_msg`, `turn_context`, and token bookkeeping are skipped. The
-/// parser is stateless and fails open: malformed or unknown lines are
-/// dropped silently. Pairing of calls with their `*_output` works across
-/// parse calls through ``ChatTranscriptParseState``.
+/// `function_call`, `function_call_output`, `custom_tool_call`, ...), while
+/// modern patch completions arrive as `event_msg` `patch_apply_end` payloads.
+/// Other event messages, `turn_context`, and token bookkeeping are skipped.
+/// The parser is stateless and fails open: malformed or unknown lines are
+/// dropped silently. Pairing of calls with their `*_output` works across parse
+/// calls through ``ChatTranscriptParseState``.
 public struct CodexTranscriptParser: Sendable {
     private static let userNoisePrefixes = [
         "<user_instructions",
@@ -77,6 +78,8 @@ public struct CodexTranscriptParser: Sendable {
                 )
             case "response_item":
                 appendResponseItem(payload, seq: seq, timestamp: timestamp, into: &assembler)
+            case "event_msg":
+                appendEventMessage(payload, seq: seq, timestamp: timestamp, into: &assembler)
             default:
                 continue
             }
@@ -132,6 +135,16 @@ public struct CodexTranscriptParser: Sendable {
         default:
             return
         }
+    }
+
+    private func appendEventMessage(
+        _ payload: TranscriptJSONValue?,
+        seq: Int,
+        timestamp: Date,
+        into assembler: inout TranscriptBatchAssembler
+    ) {
+        guard payload?["type"]?.string == "patch_apply_end" else { return }
+        appendPatchApplyEnd(payload, seq: seq, timestamp: timestamp, into: &assembler)
     }
 
     private func appendMessage(
@@ -238,6 +251,42 @@ public struct CodexTranscriptParser: Sendable {
     }
 
     // MARK: - Tool calls
+
+    private func appendPatchApplyEnd(
+        _ payload: TranscriptJSONValue?,
+        seq: Int,
+        timestamp: Date,
+        into assembler: inout TranscriptBatchAssembler
+    ) {
+        guard payload?["success"]?.bool == true else { return }
+        let changes = payload?["changes"]?.object ?? [:]
+        let changedPaths = changes.keys.sorted()
+        let movePaths = changedPaths.compactMap { changes[$0]?["move_path"]?.string }
+        let paths = deduplicatedPaths(changedPaths + movePaths)
+        var summary = "apply_patch"
+        if let firstPath = changedPaths.first {
+            summary += " \(budget.summaryArgument(firstPath))"
+            if paths.count > 1 {
+                summary += " (+\(paths.count - 1))"
+            }
+        }
+        assembler.append(
+            ChatMessage(
+                id: payload?["call_id"]?.string ?? "line-\(seq)",
+                seq: seq,
+                role: .agent,
+                timestamp: timestamp,
+                kind: .toolUse(
+                    ChatToolUse(
+                        toolName: "apply_patch",
+                        summary: summary,
+                        status: .succeeded,
+                        referencedPaths: paths.isEmpty ? nil : paths
+                    )
+                )
+            )
+        )
+    }
 
     private func appendFunctionCall(
         _ payload: TranscriptJSONValue,

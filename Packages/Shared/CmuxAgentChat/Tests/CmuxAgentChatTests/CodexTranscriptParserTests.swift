@@ -292,9 +292,81 @@ struct CodexTranscriptParserTests {
         #expect(artifact.provenance == .created)
     }
 
+    @Test("patch_apply_end emits a succeeded apply_patch tool use with Created paths")
+    func patchApplyEnd() throws {
+        let event = line(
+            type: "event_msg",
+            payload: [
+                "type": "patch_apply_end",
+                "call_id": "call_modern_patch",
+                "turn_id": "turn-1",
+                "stdout": "Done!",
+                "stderr": "",
+                "success": true,
+                "changes": [
+                    "/repo/Sources/App.swift": [
+                        "type": "update",
+                        "unified_diff": "@@ -1 +1 @@",
+                    ],
+                    "/repo/Sources/OldName.swift": [
+                        "type": "update",
+                        "unified_diff": "@@ -1 +1 @@",
+                        "move_path": "/repo/Sources/NewName.swift",
+                    ],
+                ],
+            ],
+            timestamp: "2026-07-13T18:02:16.123Z"
+        )
+
+        let messages = parser.parse(lines: [event], startingSeq: 42).messages
+        let message = try #require(messages.first)
+        #expect(messages.count == 1)
+        #expect(message.id == "call_modern_patch")
+        #expect(message.seq == 42)
+        #expect(abs(message.timestamp.timeIntervalSince1970 - 1_783_965_736.123) < 0.001)
+        guard case .toolUse(let tool) = message.kind else {
+            Issue.record("expected toolUse kind")
+            return
+        }
+        #expect(tool.toolName == "apply_patch")
+        #expect(tool.summary == "apply_patch /repo/Sources/App.swift (+2)")
+        #expect(tool.status == .succeeded)
+        #expect(tool.referencedPaths == [
+            "/repo/Sources/App.swift",
+            "/repo/Sources/OldName.swift",
+            "/repo/Sources/NewName.swift",
+        ])
+
+        let artifacts = ChatArtifactIndexedReference.derive(from: messages)
+        #expect(Set(artifacts.map(\.path)) == Set(tool.referencedPaths ?? []))
+        #expect(artifacts.allSatisfy { $0.provenance == .created })
+    }
+
+    @Test("failed patch_apply_end emits no tool use")
+    func failedPatchApplyEnd() {
+        let event = line(type: "event_msg", payload: [
+            "type": "patch_apply_end",
+            "call_id": "call_failed_patch",
+            "turn_id": "turn-2",
+            "stdout": "",
+            "stderr": "patch failed",
+            "success": false,
+            "changes": [
+                "/repo/Sources/App.swift": [
+                    "type": "update",
+                    "unified_diff": "@@ -1 +1 @@",
+                ],
+            ],
+        ])
+
+        let result = parser.parse(lines: [event], startingSeq: 0)
+        #expect(result.messages.isEmpty)
+        #expect(result.updatedMessages.isEmpty)
+    }
+
     // MARK: - Robustness
 
-    @Test("event_msg, turn_context, and malformed lines are skipped; seq tracks line offsets")
+    @Test("unhandled event_msg, turn_context, and malformed lines are skipped; seq tracks line offsets")
     func noiseAndSeq() {
         let lines = [
             line(type: "event_msg", payload: ["type": "task_started", "turn_id": "t-1"]),
