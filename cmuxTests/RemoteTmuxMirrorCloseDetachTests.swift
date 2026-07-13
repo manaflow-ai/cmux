@@ -1,5 +1,6 @@
 import AppKit
 import CmuxControlSocket
+import CmuxSettings
 import Testing
 
 #if canImport(cmux_DEV)
@@ -178,6 +179,68 @@ import Testing
         #expect(targetManager.tabs.filter(\.isRemoteTmuxMirror).count == 2)
         #expect(harness.manager.tabs.allSatisfy { !$0.isRemoteTmuxMirror })
         #expect(secondManager.tabs.allSatisfy { !$0.isRemoteTmuxMirror })
+    }
+
+    /// A direct socket caller must opt into focus. The CLI supplies an explicit
+    /// `activate` value, but a raw `remote.tmux.window` request with no such field
+    /// must leave the caller's current cmux window active.
+    @Test func dedicatedWindowSocketDefaultsToFocusNeutral() async throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("remote-tmux-focus-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sshURL = root.appendingPathComponent("ssh")
+        try writeExecutable(
+            at: sshURL,
+            contents: """
+            #!/bin/sh
+            case "$*" in
+              *display-message*) printf '3.4\\n' ;;
+              *list-sessions*) printf '$1:1:0:1:one\\n' ;;
+            esac
+            exit 0
+            """
+        )
+        let previousSSH = environmentValue(for: sshOverrideKey)
+        setenv(sshOverrideKey, sshURL.path, 1)
+        defer { restoreEnvironment(sshOverrideKey, previousValue: previousSSH) }
+        let remoteTmuxKey = SettingCatalog().betaFeatures.remoteTmux.userDefaultsKey
+        let previousRemoteTmux = UserDefaults.standard.object(forKey: remoteTmuxKey)
+        UserDefaults.standard.set(true, forKey: remoteTmuxKey)
+        defer {
+            if let previousRemoteTmux {
+                UserDefaults.standard.set(previousRemoteTmux, forKey: remoteTmuxKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: remoteTmuxKey)
+            }
+        }
+
+        let harness = try Harness()
+        var targetWindowID: UUID?
+        defer {
+            if let targetWindowID { harness.closeWindow(targetWindowID) }
+            harness.tearDown()
+        }
+        let host = RemoteTmuxHost(destination: "focus-\(UUID().uuidString)@example.test")
+        defer { harness.controller.detach(host: host, sessionName: "one") }
+        harness.cacheConnection(host: host, session: "one")
+        #expect(harness.appDelegate.focusMainWindow(windowId: harness.windowId))
+        #expect(harness.appDelegate.tabManager === harness.manager)
+
+        let responseText = await Task.detached {
+            TerminalController.shared.v2RemoteTmuxWindow(
+                id: 1,
+                params: ["host": host.destination]
+            )
+        }.value
+        let responseData = try #require(responseText.data(using: .utf8))
+        let response = try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
+        let result = try #require(response["result"] as? [String: Any])
+        targetWindowID = try #require(
+            (result["window_id"] as? String).flatMap(UUID.init(uuidString:))
+        )
+
+        #expect(harness.appDelegate.tabManager === harness.manager)
     }
 
     private func writeExecutable(at url: URL, contents: String) throws {
