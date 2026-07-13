@@ -370,6 +370,15 @@ final class WindowTerminalHostView: NSView {
     }
 
     private func updateDividerCursor(at point: NSPoint) {
+        if let latched = PortalDividerCursorKind.resolvedDuringDrag(
+            hovered: nil,
+            active: activeDividerCursorKind,
+            isDragActive: intersectionDrag.isActive || TerminalWindowPortalRegistry.isSplitDividerDragActive(in: window)
+        ) {
+            latched.cursor.set()
+            return
+        }
+
         // The corner zone outranks chrome (see performHitTest).
         let kind = splitDividerCursorKind(at: point)
         if kind == .both {

@@ -760,6 +760,17 @@ final class WindowBrowserHostView: NSView {
         dividerHit: DividerHit? = nil,
         hostedInspectorHit: HostedInspectorDividerHit? = nil
     ) {
+        if let latched = PortalDividerCursorKind.resolvedDuringDrag(
+            hovered: nil,
+            active: activeDividerCursorKind,
+            isDragActive: intersectionDrag.isActive
+                || hostedInspectorDividerDrag != nil
+                || window?.browserPortalHasInteractiveSplitDividerDrag == true
+        ) {
+            latched.cursor.set()
+            return
+        }
+
         let resolvedDividerHit = dividerHit ?? splitDividerHit(at: point)
         let resolvedHostedInspectorHit = resolvedDividerHit == nil ? (hostedInspectorHit ?? hostedInspectorDividerHit(at: point)) : nil
         // The corner zone outranks chrome (see hit testing).

@@ -277,6 +277,24 @@ import Testing
         #expect(cursor.image.size.height > 0)
     }
 
+    @Test func activeResizeKeepsItsStartingCursorUntilMouseUp() {
+        #expect(PortalDividerCursorKind.resolvedDuringDrag(
+            hovered: .horizontal,
+            active: .vertical,
+            isDragActive: true
+        ) == .vertical)
+        #expect(PortalDividerCursorKind.resolvedDuringDrag(
+            hovered: .vertical,
+            active: .both,
+            isDragActive: true
+        ) == .both)
+        #expect(PortalDividerCursorKind.resolvedDuringDrag(
+            hovered: .horizontal,
+            active: .vertical,
+            isDragActive: false
+        ) == .horizontal)
+    }
+
     @Test func updateEndsDragWhenDividerIdentityGoesStale() {
         let window = NSWindow(
             contentRect: Self.contentBounds,

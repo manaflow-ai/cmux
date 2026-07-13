@@ -41,4 +41,17 @@ enum PortalDividerCursorKind: Equatable {
         default: return false
         }
     }
+
+    /// A resize gesture owns the cursor it started with until mouse-up.
+    /// Tracking areas remain enabled during drags, so resolving directly from
+    /// the moving pointer would let a vertical drag adopt a horizontal or
+    /// four-way cursor as it crosses another divider.
+    static func resolvedDuringDrag(
+        hovered: Self?,
+        active: Self?,
+        isDragActive: Bool
+    ) -> Self? {
+        if isDragActive, let active { return active }
+        return hovered
+    }
 }
