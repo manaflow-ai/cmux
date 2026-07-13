@@ -1486,8 +1486,8 @@ class TerminalController {
                 peerHasSameUID: peerHasSameUID
             ) else {
                 _ = writeSocketResponse(
-                    pid == nil ? "ERROR: Unable to verify client process"
-                        : "ERROR: Access denied — only processes started inside cmux can connect",
+                    pid == nil ? Self.socketClientVerificationFailedResponse
+                        : Self.socketClientAccessDeniedResponse,
                     to: socket
                 )
                 return

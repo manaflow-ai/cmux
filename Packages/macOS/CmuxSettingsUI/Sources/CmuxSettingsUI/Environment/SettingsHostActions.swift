@@ -41,6 +41,9 @@ public protocol SettingsHostActions: AnyObject {
     /// language picker, which requires a full process restart.
     func restartApp()
 
+    /// Applies the current persisted control-socket configuration to the live server.
+    func socketControlConfigurationDidChange()
+
     /// Launches the host's browser-import flow (Safari / Chrome /
     /// Firefox source picker + profile selection + cookie prompt).
     func openBrowserImportFlow()
@@ -174,6 +177,9 @@ public protocol SettingsHostActions: AnyObject {
 }
 
 public extension SettingsHostActions {
+    /// Default no-op for previews and tests without a live control socket.
+    func socketControlConfigurationDidChange() {}
+
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}
 

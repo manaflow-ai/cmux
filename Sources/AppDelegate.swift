@@ -812,6 +812,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         }
     }()
+
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
@@ -3844,72 +3845,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         lifecycleSnapshotObservers.append(screenParamsObserver)
-    }
-
-    private func socketListenerConfigurationIfEnabled() -> (mode: SocketControlMode, path: String)? {
-        let raw = UserDefaults.standard.string(forKey: SocketControlSettings.appStorageKey)
-            ?? SocketControlSettings.defaultMode.rawValue
-        let userMode = SocketControlSettings.migrateMode(raw)
-        let mode = SocketControlSettings.effectiveMode(userMode: userMode)
-        guard mode != .off else { return nil }
-        return (mode: mode, path: SocketControlSettings.socketPath())
-    }
-
-    private func reserveInitialSocketPathIfNeeded() {
-        guard let config = socketListenerConfigurationIfEnabled() else { return }
-        let startupPath = SocketControlSettings.initialSocketPathBeforeListenerStart(
-            preferredPath: config.path,
-            stableDefaultSocketCanBeReclaimed: socketTransport.pathCanBeReclaimedForStartup
-        )
-        TerminalController.shared.reserveStartupSocketPath(startupPath)
-    }
-
-    private func startSocketListenerIfEnabled(tabManager: TabManager, source: String) {
-        guard let config = socketListenerConfigurationIfEnabled() else {
-            TerminalController.shared.stop()
-            return
-        }
-        let path = TerminalController.shared.activeSocketPath(preferredPath: config.path)
-        sentryBreadcrumb("socket.listener.start", category: "socket", data: [
-            "mode": config.mode.rawValue,
-            "path": path,
-            "source": source
-        ])
-        TerminalController.shared.start(tabManager: tabManager, socketPath: path, accessMode: config.mode)
-    }
-
-    private func ensureSocketListenerIfEnabled(tabManager: TabManager, source: String) {
-        guard let config = socketListenerConfigurationIfEnabled() else {
-            TerminalController.shared.stop()
-            return
-        }
-
-        let path = TerminalController.shared.activeSocketPath(preferredPath: config.path)
-        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: path)
-        guard !health.isHealthy else { return }
-
-        sentryBreadcrumb("socket.listener.ensure", category: "socket", data: [
-            "mode": config.mode.rawValue,
-            "path": path,
-            "source": source,
-            "failureSignals": health.failureSignals.joined(separator: ",")
-        ])
-        TerminalController.shared.start(tabManager: tabManager, socketPath: path, accessMode: config.mode)
-    }
-
-    private func restartSocketListenerIfEnabled(source: String) {
-        guard let manager = tabManager
-            ?? preferredRegisteredMainWindowContext()?.tabManager
-            ?? mainWindowContexts.values.first?.tabManager,
-              let config = socketListenerConfigurationIfEnabled() else { return }
-        let restartPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
-        sentryBreadcrumb("socket.listener.restart", category: "socket", data: [
-            "mode": config.mode.rawValue,
-            "path": restartPath,
-            "source": source
-        ])
-        TerminalController.shared.stop()
-        TerminalController.shared.start(tabManager: manager, socketPath: restartPath, accessMode: config.mode)
     }
 
     private func disableSuddenTerminationIfNeeded() {
@@ -12718,6 +12653,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func reloadCmuxConfigStores(source: String) {
         configStoreReloadCoordinator.reload(source: source)
+        reconcileSocketListenerConfiguration(source: source)
     }
 
     var reloadableConfigStores: [any CmuxConfigStoreReloading] {

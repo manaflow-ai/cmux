@@ -1,0 +1,109 @@
+import CmuxControlSocket
+import CmuxSettings
+import Foundation
+
+extension AppDelegate {
+    func reconcileSocketListenerConfiguration(source: String) {
+        let activeTabManager = tabManager
+            ?? preferredRegisteredMainWindowContext()?.tabManager
+            ?? mainWindowContexts.values.first?.tabManager
+        TerminalController.shared.reconcileSocketConfiguration(
+            resolvedSocketListenerConfiguration(),
+            preferredTabManager: activeTabManager,
+            source: source
+        )
+    }
+
+    private func resolvedSocketListenerConfiguration() -> SocketControlServerConfiguration {
+        let raw = UserDefaults.standard.string(forKey: SocketControlSettings.appStorageKey)
+            ?? SocketControlSettings.defaultMode.rawValue
+        let userMode = SocketControlSettings.migrateMode(raw)
+        return SocketControlServerConfiguration(
+            accessMode: SocketControlSettings.effectiveMode(userMode: userMode),
+            preferredSocketPath: SocketControlSettings.socketPath()
+        )
+    }
+
+    func socketListenerConfigurationIfEnabled() -> SocketControlServerConfiguration? {
+        let configuration = resolvedSocketListenerConfiguration()
+        return configuration.accessMode == .off ? nil : configuration
+    }
+
+    func reserveInitialSocketPathIfNeeded() {
+        guard let config = socketListenerConfigurationIfEnabled() else { return }
+        let startupPath = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: config.preferredSocketPath,
+            stableDefaultSocketCanBeReclaimed: socketTransport.pathCanBeReclaimedForStartup
+        )
+        TerminalController.shared.reserveStartupSocketPath(startupPath)
+    }
+
+    func startSocketListenerIfEnabled(tabManager: TabManager, source: String) {
+        guard let config = socketListenerConfigurationIfEnabled() else {
+            TerminalController.shared.stop()
+            return
+        }
+        let path = TerminalController.shared.activeSocketPath(
+            preferredPath: config.preferredSocketPath
+        )
+        sentryBreadcrumb("socket.listener.start", category: "socket", data: [
+            "mode": config.accessMode.rawValue,
+            "path": path,
+            "source": source,
+        ])
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: path,
+            accessMode: config.accessMode
+        )
+    }
+
+    func ensureSocketListenerIfEnabled(tabManager: TabManager, source: String) {
+        guard let config = socketListenerConfigurationIfEnabled() else {
+            TerminalController.shared.stop()
+            return
+        }
+
+        let path = TerminalController.shared.activeSocketPath(
+            preferredPath: config.preferredSocketPath
+        )
+        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: path)
+        guard !health.isHealthy else {
+            TerminalController.shared.reconcileSocketConfiguration(config, source: source)
+            return
+        }
+
+        sentryBreadcrumb("socket.listener.ensure", category: "socket", data: [
+            "mode": config.accessMode.rawValue,
+            "path": path,
+            "source": source,
+            "failureSignals": health.failureSignals.joined(separator: ","),
+        ])
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: path,
+            accessMode: config.accessMode
+        )
+    }
+
+    func restartSocketListenerIfEnabled(source: String) {
+        guard let manager = tabManager
+            ?? preferredRegisteredMainWindowContext()?.tabManager
+            ?? mainWindowContexts.values.first?.tabManager,
+              let config = socketListenerConfigurationIfEnabled() else { return }
+        let restartPath = TerminalController.shared.activeSocketPath(
+            preferredPath: config.preferredSocketPath
+        )
+        sentryBreadcrumb("socket.listener.restart", category: "socket", data: [
+            "mode": config.accessMode.rawValue,
+            "path": restartPath,
+            "source": source,
+        ])
+        TerminalController.shared.stop()
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: restartPath,
+            accessMode: config.accessMode
+        )
+    }
+}

@@ -1103,29 +1103,15 @@ struct cmuxApp: App {
     }
 
     private func updateSocketController() {
-        let mode = SocketControlSettings.effectiveMode(userMode: currentSocketMode)
-        if mode != .off {
-            let socketPath = TerminalController.shared.activeSocketPath(
-                preferredPath: SocketControlSettings.socketPath()
-            )
-            TerminalController.shared.start(
-                tabManager: activeTabManager,
-                socketPath: socketPath,
-                accessMode: mode
-            )
-        } else {
-            TerminalController.shared.stop()
-        }
+        appDelegate.reconcileSocketListenerConfiguration(
+            source: "settings.automation.socketControlMode.appStorage"
+        )
     }
 
     private func bootstrapMainWindowScene() {
         appDelegate.scheduleInitialMainWindowBootstrap(debugSource: "swiftUIBootstrap")
         appDelegate.installReloadConfigurationMenuItemAction()
         applyAppearance()
-    }
-
-    private var currentSocketMode: SocketControlMode {
-        SocketControlSettings.migrateMode(socketControlMode)
     }
 
     func menuShortcut(for action: KeyboardShortcutSettings.Action) -> StoredShortcut {

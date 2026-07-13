@@ -467,7 +467,8 @@ public struct SettingsWindowRoot: View {
             jsonStore: jsonStore,
             secretStore: secretStore,
             catalog: catalog,
-            errorLog: runtime.errorLog
+            errorLog: runtime.errorLog,
+            hostActions: hostActions
         )
         .id(anchorID(for: .automation))
 
