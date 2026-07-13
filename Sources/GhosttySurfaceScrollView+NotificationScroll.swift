@@ -37,7 +37,8 @@ extension GhosttySurfaceScrollView {
             position,
             sessionScrollbackReplayCompletionMarker: notificationScrollRestorePhase.sessionScrollbackReplayCompletionMarker
         )
-        if notificationScrollRestorePhase.sessionScrollbackReplayCompletionMarker != nil {
+        if notificationScrollRestorePhase.sessionScrollbackReplayCompletionMarker != nil,
+           sessionScrollbackReplayCompletionDeadlineTimer == nil {
             scheduleSessionScrollbackReplayCompletionDeadline()
         }
         return retryPendingNotificationScrollRestore()
@@ -68,12 +69,19 @@ extension GhosttySurfaceScrollView {
 
     func cancelPendingNotificationScrollRestore() {
         guard case .pending(_, let completionMarker) = notificationScrollRestorePhase else { return }
-        cancelSessionScrollbackReplayCompletionDeadline()
-        notificationScrollRestorePhase = completionMarker
-            .map(TerminalNotificationScrollRestorePhase.sessionScrollbackReplayActive) ?? .idle
+        if let completionMarker {
+            notificationScrollRestorePhase = .sessionScrollbackReplayActive(completionMarker)
+            if sessionScrollbackReplayCompletionDeadlineTimer == nil {
+                scheduleSessionScrollbackReplayCompletionDeadline()
+            }
+        } else {
+            cancelSessionScrollbackReplayCompletionDeadline()
+            notificationScrollRestorePhase = .idle
+        }
     }
 
     func beginSessionScrollbackReplay(completionMarker: SessionScrollbackReplayCompletionMarker) {
+        cancelSessionScrollbackReplayCompletionDeadline()
         let completedBeforeActivation = earlySessionScrollbackReplayCompletionDirectory == completionMarker.reportedDirectory
         earlySessionScrollbackReplayCompletionDirectory = nil
         if completedBeforeActivation {
@@ -102,9 +110,7 @@ extension GhosttySurfaceScrollView {
                 sessionScrollbackReplayCompletionMarker: completionMarker
             )
         }
-        if case .pending = notificationScrollRestorePhase {
-            scheduleSessionScrollbackReplayCompletionDeadline()
-        }
+        scheduleSessionScrollbackReplayCompletionDeadline()
     }
 
     func hasSessionScrollbackReplayCompletionMarker(matching reportedDirectory: String) -> Bool {
@@ -114,6 +120,17 @@ extension GhosttySurfaceScrollView {
     @discardableResult
     func completeSessionScrollbackReplay(
         ifMatches reportedDirectory: String
+    ) -> Bool {
+        completeSessionScrollbackReplay(
+            ifMatches: reportedDirectory,
+            authoritativeScrollbarSnapshot: { self.surfaceView.authoritativeScrollbarSnapshot() }
+        )
+    }
+
+    @discardableResult
+    func completeSessionScrollbackReplay(
+        ifMatches reportedDirectory: String,
+        authoritativeScrollbarSnapshot: () -> GhosttyScrollbar?
     ) -> Bool {
         guard hasSessionScrollbackReplayCompletionMarker(matching: reportedDirectory) else {
             guard SessionScrollbackReplayCompletionMarker.isReservedReportedDirectory(reportedDirectory) else { return false }
@@ -139,7 +156,7 @@ extension GhosttySurfaceScrollView {
             )
         }
 
-        guard refreshAuthoritativeScrollbar() else {
+        guard refreshAuthoritativeScrollbar(authoritativeScrollbarSnapshot()) else {
             cancelPendingNotificationScrollRestore()
             return true
         }
@@ -148,7 +165,11 @@ extension GhosttySurfaceScrollView {
     }
 
     func expireSessionScrollbackReplayCompletionDeadline() {
-        guard case .pending(_, sessionScrollbackReplayCompletionMarker: .some(_)) = notificationScrollRestorePhase else {
+        switch notificationScrollRestorePhase {
+        case .sessionScrollbackReplayActive,
+             .pending(_, sessionScrollbackReplayCompletionMarker: .some(_)):
+            break
+        case .idle, .pending(_, sessionScrollbackReplayCompletionMarker: nil):
             return
         }
         cancelSessionScrollbackReplayCompletionDeadline()
@@ -171,8 +192,8 @@ extension GhosttySurfaceScrollView {
         sessionScrollbackReplayCompletionDeadlineTimer = nil
     }
 
-    private func refreshAuthoritativeScrollbar() -> Bool {
-        guard let snapshot = surfaceView.authoritativeScrollbarSnapshot() else { return false }
+    private func refreshAuthoritativeScrollbar(_ snapshot: GhosttyScrollbar?) -> Bool {
+        guard let snapshot else { return false }
         surfaceView.enqueueScrollbarUpdate(snapshot)
         return surfaceView.flushPendingScrollbarIfAvailable()
     }
