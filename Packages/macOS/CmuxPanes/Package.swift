@@ -14,12 +14,14 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../../vendor/bonsplit"),
     ],
     targets: [
         .target(
             name: "CmuxPanes",
             dependencies: [
+                "CMUXMobileCore",
                 .product(name: "Bonsplit", package: "bonsplit"),
             ],
             swiftSettings: [
@@ -30,7 +32,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxPanesTests",
-            dependencies: ["CmuxPanes"],
+            dependencies: ["CmuxPanes", "CMUXMobileCore"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
