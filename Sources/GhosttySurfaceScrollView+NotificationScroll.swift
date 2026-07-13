@@ -227,13 +227,10 @@ extension GhosttySurfaceScrollView {
                 ? .waitForViewport
                 : notificationScrollRestoreTarget(position).map(TerminalNotificationScrollRestoreDecision.perform) ?? .waitForViewport
         }
-        let capturedViewportBottomRow = max(0, capturedTotalRows) - min(max(0, capturedTotalRows), max(0, position.row))
-
-        // A newly restored terminal can report a nonzero viewport before its
-        // historical rows finish replaying. Keep the anchor pending until the
-        // captured viewport exists instead of permanently clamping it to the
-        // partial buffer.
-        if waitingForSessionScrollbackReplay, currentTotalRows < capturedViewportBottomRow {
+        // The final row count determines how much of the captured prefix session
+        // persistence discarded. Do not choose an absolute row while replay is
+        // still growing and that prefix length is unknown.
+        if waitingForSessionScrollbackReplay {
             return .waitForViewport
         }
         guard let target = notificationScrollRestoreTarget(position) else { return .waitForViewport }
@@ -258,11 +255,12 @@ extension GhosttySurfaceScrollView {
         let normalizedCapturedTotalRows = max(0, capturedTotalRows)
         let capturedRowsBelowViewport = min(normalizedCapturedTotalRows, max(0, position.row))
         let capturedViewportBottomRow = normalizedCapturedTotalRows - capturedRowsBelowViewport
+        let discardedPrefixRows = max(0, normalizedCapturedTotalRows - currentTotalRows)
+        let retainedViewportBottomRow = max(0, capturedViewportBottomRow - discardedPrefixRows)
 
-        // Explicitly scrolled captures retain their historical viewport. Ghostty's
-        // scroll_to_row action takes the absolute first visible row, with zero at
-        // the top of history.
-        let unclampedTopRow = max(0, capturedViewportBottomRow - currentVisibleRows)
+        // Session persistence retains a suffix of scrollback. Translate the
+        // captured viewport into that suffix before using Ghostty's absolute row.
+        let unclampedTopRow = max(0, retainedViewportBottomRow - currentVisibleRows)
         return .absoluteRow(min(currentLastTopRow, unclampedTopRow))
     }
 }

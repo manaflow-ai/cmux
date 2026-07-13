@@ -46,11 +46,18 @@ struct NotificationScrollRestoreTests {
         ) == nil)
     }
 
-    @Test func targetClampsWhenHistoryIsTrimmed() {
+    @Test func targetRebasesWhenHistoryRetainsOnlyCapturedSuffix() {
         let hostedView = makeHostedView(total: 200, offset: 156, visible: 44)
         #expect(hostedView.notificationScrollRestoreTarget(
             TerminalNotificationScrollPosition(row: 138, totalRows: 400)
-        ) == .absoluteRow(156))
+        ) == .absoluteRow(18))
+    }
+
+    @Test func targetClampsToTopWhenCapturedViewportWasDiscarded() {
+        let hostedView = makeHostedView(total: 200, offset: 156, visible: 44)
+        #expect(hostedView.notificationScrollRestoreTarget(
+            TerminalNotificationScrollPosition(row: 300, totalRows: 400)
+        ) == .absoluteRow(0))
     }
 
     @Test func targetSupportsLegacyRowOnlyPosition() {
@@ -60,7 +67,7 @@ struct NotificationScrollRestoreTests {
         ) == .absoluteRow(218))
     }
 
-    @Test func restoreClampsWhenHistoryIsPermanentlyTrimmed() {
+    @Test func restoreRebasesWhenHistoryRetainsOnlyCapturedSuffix() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
@@ -68,7 +75,7 @@ struct NotificationScrollRestoreTests {
         #expect(hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 138, totalRows: 400)
         ))
-        #expect(surfaceView.bindingActions == ["scroll_to_row:156"])
+        #expect(surfaceView.bindingActions == ["scroll_to_row:18"])
     }
 
     @Test func restoreWaitsForUsableViewport() {
@@ -98,7 +105,7 @@ struct NotificationScrollRestoreTests {
         #expect(hostedView.notificationScrollRestorePhase == .idle)
     }
 
-    @Test func restoreWaitsForCapturedRowsDuringReplay() {
+    @Test func restoreWaitsForReplayCompletionBeforeRebasing() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
@@ -112,10 +119,13 @@ struct NotificationScrollRestoreTests {
         #expect(hostedView.sessionScrollbackReplayCompletionDeadlineTimer != nil)
         #expect(surfaceView.bindingActions.isEmpty)
         postScrollbar(total: 300, offset: 256, visible: 44, to: surfaceView)
-        #expect(surfaceView.bindingActions == ["scroll_to_row:218"])
+        #expect(surfaceView.bindingActions.isEmpty)
+        #expect(hostedView.completeSessionScrollbackReplay(ifMatches: marker.reportedDirectory))
+        postRenderedFrame(to: surfaceView)
+        #expect(surfaceView.bindingActions == ["scroll_to_row:118"])
     }
 
-    @Test func restoreClampsWhenReplayCompletesWithTrimmedHistory() {
+    @Test func restoreRebasesWhenReplayCompletesWithRetainedSuffix() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 100, offset: 56, visible: 44)
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
@@ -140,7 +150,7 @@ struct NotificationScrollRestoreTests {
         surfaceView.enqueueScrollbarUpdate(scrollbar(total: 200, offset: 156, visible: 44))
         #expect(surfaceView.flushPendingScrollbarIfAvailable())
         postRenderedFrame(to: surfaceView)
-        #expect(surfaceView.bindingActions == ["scroll_to_row:156"])
+        #expect(surfaceView.bindingActions == ["scroll_to_row:18"])
     }
 
     @Test func restoreUsesFinalScrollbarWhenMarkerFrameDoesNotChangeIt() {
@@ -155,7 +165,7 @@ struct NotificationScrollRestoreTests {
         ))
         #expect(hostedView.completeSessionScrollbackReplay(ifMatches: marker.reportedDirectory))
         postRenderedFrame(to: surfaceView)
-        #expect(surfaceView.bindingActions == ["scroll_to_row:156"])
+        #expect(surfaceView.bindingActions == ["scroll_to_row:18"])
     }
 
     @Test func replayCompletionBeforeRestoreKeepsRendererBarrier() {
@@ -173,7 +183,7 @@ struct NotificationScrollRestoreTests {
         #expect(hostedView.sessionScrollbackReplayCompletionDeadlineTimer != nil)
         #expect(surfaceView.bindingActions.isEmpty)
         postRenderedFrame(to: surfaceView)
-        #expect(surfaceView.bindingActions == ["scroll_to_row:156"])
+        #expect(surfaceView.bindingActions == ["scroll_to_row:18"])
     }
 
     @Test func replayCompletionBeforeArtifactAdoptionIsPreserved() {
@@ -191,7 +201,7 @@ struct NotificationScrollRestoreTests {
         #expect(hostedView.sessionScrollbackReplayCompletionDeadlineTimer != nil)
         #expect(surfaceView.bindingActions.isEmpty)
         postRenderedFrame(to: surfaceView)
-        #expect(surfaceView.bindingActions == ["scroll_to_row:156"])
+        #expect(surfaceView.bindingActions == ["scroll_to_row:18"])
     }
 
     @Test func delayedPreMarkerFrameCannotCompleteRendererWait() {
@@ -209,7 +219,7 @@ struct NotificationScrollRestoreTests {
         postRenderedFrame(generation: 7, to: surfaceView)
         #expect(surfaceView.bindingActions.isEmpty)
         postRenderedFrame(generation: 8, to: surfaceView)
-        #expect(surfaceView.bindingActions == ["scroll_to_row:156"])
+        #expect(surfaceView.bindingActions == ["scroll_to_row:18"])
     }
 
     @Test func hostedViewDeinitReleasesRendererWaitResources() {
