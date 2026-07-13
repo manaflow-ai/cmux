@@ -83,13 +83,17 @@ extension GitDiffService {
         }
         let numstat = initialListing.numstat
         let nameStatus = initialListing.nameStatus
+        let unmerged = initialListing.unmerged
         let untracked = initialListing.untracked
         guard let numstatData = completeRecordData(numstat),
               let nameStatusData = completeRecordData(nameStatus),
+              let unmergedData = completeRecordData(unmerged),
+              !unmerged.capped,
               let untrackedData = completeRecordData(untracked) else { return .failed }
         let parsed = verifiedChangedFiles(
             numstatData: numstatData,
             nameStatusData: nameStatusData,
+            unmergedData: unmergedData,
             untrackedData: untrackedData,
             numstatCapped: numstat.capped,
             nameStatusCapped: nameStatus.capped

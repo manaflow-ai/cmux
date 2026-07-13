@@ -2,12 +2,14 @@ struct GitDiffNameStatusToken {
     let path: String
     let oldPath: String?
     let status: GitDiffStatus
+    let isUnmerged: Bool
 
     init?(token: String?, tokens: [String?], index: inout Int) {
         guard let token else { return nil }
         let pieces = token.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
         let statusRaw = pieces[0]
         guard let first = statusRaw.first else { return nil }
+        isUnmerged = first == "U"
         switch first {
         case "A":
             status = .added

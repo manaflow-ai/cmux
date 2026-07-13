@@ -3,6 +3,7 @@ internal import Foundation
 struct GitChangedFilesListing: Sendable {
     let numstat: GitProcessResult
     let nameStatus: GitProcessResult
+    let unmerged: GitProcessResult
     let untracked: GitProcessResult
     let raw: GitProcessResult
 
@@ -11,6 +12,8 @@ struct GitChangedFilesListing: Sendable {
             && numstat.capped == other.numstat.capped
             && nameStatus.rawOutput == other.nameStatus.rawOutput
             && nameStatus.capped == other.nameStatus.capped
+            && unmerged.rawOutput == other.unmerged.rawOutput
+            && unmerged.capped == other.unmerged.capped
             && untracked.rawOutput == other.untracked.rawOutput
             && untracked.capped == other.untracked.capped
             && raw.rawOutput == other.raw.rawOutput
@@ -46,6 +49,17 @@ extension GitDiffService {
         if let failure: GitDiffQueryResult<GitChangedFilesListing> = queryFailure(from: nameStatus) {
             return failure
         }
+        let unmerged = runGit(
+            in: repoRoot,
+            arguments: [
+                "diff", "--ignore-submodules=none", "-O/dev/null", "--name-only",
+                "--diff-filter=U", "-z", "--no-color", "--no-ext-diff", "--no-textconv",
+            ],
+            maxOutputBytes: maxOutputBytes
+        )
+        if let failure: GitDiffQueryResult<GitChangedFilesListing> = queryFailure(from: unmerged) {
+            return failure
+        }
         let untracked = runGit(
             in: repoRoot,
             arguments: ["ls-files", "--others", "--exclude-standard", "-z"],
@@ -73,6 +87,7 @@ extension GitDiffService {
             GitChangedFilesListing(
                 numstat: numstat,
                 nameStatus: nameStatus,
+                unmerged: unmerged,
                 untracked: untracked,
                 raw: raw
             )
