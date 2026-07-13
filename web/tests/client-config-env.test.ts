@@ -58,6 +58,24 @@ describe("client config env validation", () => {
     expect(result.exitCode).toBe(0);
   });
 
+  test("accepts the self-hosted relay path without the legacy hosted minter", () => {
+    const result = importEnv({
+      ...requiredEnv,
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
+      CMUX_IROH_LAN_DISCOVERY_SECRET_B64: requiredIrohProductionEnv.CMUX_IROH_LAN_DISCOVERY_SECRET_B64,
+      CMUX_IROH_ACCOUNT_SUBJECT_SECRET_B64: requiredIrohProductionEnv.CMUX_IROH_ACCOUNT_SUBJECT_SECRET_B64,
+      CMUX_IROH_GRANT_SIGNING_KEY_P8: requiredIrohProductionEnv.CMUX_IROH_GRANT_SIGNING_KEY_P8,
+      CMUX_IROH_GRANT_SIGNING_KID: requiredIrohProductionEnv.CMUX_IROH_GRANT_SIGNING_KID,
+      CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON:
+        requiredIrohProductionEnv.CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON,
+      CMUX_IROH_RATE_LIMIT_ID: requiredIrohProductionEnv.CMUX_IROH_RATE_LIMIT_ID,
+    });
+
+    expect(result.exitCode).toBe(0);
+  });
+
   test("requires the Iroh limiter id in explicit Vercel production deployments", () => {
     const result = importEnv({
       ...requiredEnv,
