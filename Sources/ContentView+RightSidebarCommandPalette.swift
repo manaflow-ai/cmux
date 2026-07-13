@@ -182,19 +182,13 @@ extension ContentView {
     }
 
     func handleCommandPaletteRightSidebarMode(_ mode: RightSidebarMode, observedWindow: NSWindow?) {
-        guard mode.isAvailable() else {
-            NSSound.beep()
-            return
-        }
-        if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+        guard AppDelegate.shared?.showRightSidebarModeInActiveMainWindow(
             mode: mode,
             focusFirstItem: true,
             preferredWindow: observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
-        ) != true {
-            fileExplorerState.setVisible(true)
-            if fileExplorerState.mode != mode {
-                fileExplorerState.mode = mode
-            }
+        ) == true else {
+            NSSound.beep()
+            return
         }
     }
 
