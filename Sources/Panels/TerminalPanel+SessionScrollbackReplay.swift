@@ -3,8 +3,10 @@ import Foundation
 extension TerminalPanel {
     func adoptOwnedSessionScrollbackReplayArtifact(_ fileURL: URL?) {
         ownedSessionScrollbackReplayFileURL = fileURL
-        if fileURL != nil {
-            hostedView.beginSessionScrollbackReplay()
+        if let fileURL {
+            hostedView.beginSessionScrollbackReplay(
+                completionMarker: SessionScrollbackReplayCompletionMarker(fileURL: fileURL)
+            )
         }
     }
 

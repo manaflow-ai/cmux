@@ -200,6 +200,8 @@ extension Workspace {
         cmux_disconnect_scrollback_file="${CMUX_RESTORE_SCROLLBACK_FILE:-}"
         if [ -n "$cmux_disconnect_scrollback_file" ] && [ -f "$cmux_disconnect_scrollback_file" ]; then
           /bin/cat -- "$cmux_disconnect_scrollback_file" 2>/dev/null || true
+          cmux_disconnect_replay_id="${cmux_disconnect_scrollback_file##*/}"
+          printf '\\033]2;cmux:scrollback-replay-complete:%s\\007' "${cmux_disconnect_replay_id%.*}"
           printf '\\n'
           /bin/rm -f -- "$cmux_disconnect_scrollback_file" 2>/dev/null || true
           unset CMUX_RESTORE_SCROLLBACK_FILE

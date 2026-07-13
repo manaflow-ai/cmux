@@ -2892,8 +2892,8 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_SET_TITLE:
-            let title = action.action.set_title.title
-                .flatMap { String(cString: $0) } ?? ""
+            let title = action.action.set_title.title.flatMap { String(cString: $0) } ?? ""
+            if performOnMain({ surfaceView.terminalSurface?.hostedView.completeSessionScrollbackReplay(ifMatches: title) ?? false }) { return true }
             if let tabId = surfaceView.tabId,
                let sourceSurface = surfaceView.terminalSurface {
                 let change = GhosttyTitleChange(tabId: tabId, surfaceId: sourceSurface.id, title: title)
@@ -3527,7 +3527,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    private func flushPendingScrollbarIfAvailable() -> Bool {
+    func flushPendingScrollbarIfAvailable() -> Bool {
         _scrollbarLock.lock()
         let hasPending = _pendingScrollbar != nil
         _scrollbarLock.unlock()

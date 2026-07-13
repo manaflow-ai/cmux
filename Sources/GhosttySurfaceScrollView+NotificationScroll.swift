@@ -7,24 +7,23 @@ enum TerminalNotificationScrollRestoreTarget: Equatable {
 
 enum TerminalNotificationScrollRestorePhase: Equatable {
     case idle
-    case sessionScrollbackReplayActive
+    case sessionScrollbackReplayActive(SessionScrollbackReplayCompletionMarker)
     case pending(
         TerminalNotificationScrollPosition,
-        waitingForSessionScrollbackReplay: Bool
+        sessionScrollbackReplayCompletionMarker: SessionScrollbackReplayCompletionMarker?
     )
 
-    var isSessionScrollbackReplayActive: Bool {
+    var sessionScrollbackReplayCompletionMarker: SessionScrollbackReplayCompletionMarker? {
         switch self {
-        case .sessionScrollbackReplayActive, .pending(_, waitingForSessionScrollbackReplay: true):
-            return true
-        case .idle, .pending(_, waitingForSessionScrollbackReplay: false):
-            return false
+        case .idle:
+            return nil
+        case .sessionScrollbackReplayActive(let marker), .pending(_, let marker):
+            return marker
         }
     }
 }
 
 private enum TerminalNotificationScrollRestoreDecision {
-    case unavailable
     case waitForViewport
     case perform(TerminalNotificationScrollRestoreTarget)
 }
@@ -42,37 +41,34 @@ extension GhosttySurfaceScrollView {
 
     @discardableResult
     func restoreNotificationScrollPosition(_ position: TerminalNotificationScrollPosition?) -> Bool {
-        guard let position, position.totalRows != nil else {
+        guard let position else {
             cancelPendingNotificationScrollRestore()
             return false
         }
         notificationScrollRestorePhase = .pending(
             position,
-            waitingForSessionScrollbackReplay: notificationScrollRestorePhase.isSessionScrollbackReplayActive
+            sessionScrollbackReplayCompletionMarker: notificationScrollRestorePhase.sessionScrollbackReplayCompletionMarker
         )
         return retryPendingNotificationScrollRestore()
     }
 
     @discardableResult
     func retryPendingNotificationScrollRestore() -> Bool {
-        guard case .pending(let position, let waitingForSessionScrollbackReplay) = notificationScrollRestorePhase else {
+        guard case .pending(let position, let completionMarker) = notificationScrollRestorePhase else {
             return false
         }
         switch notificationScrollRestoreDecision(
             position,
-            waitingForSessionScrollbackReplay: waitingForSessionScrollbackReplay
+            waitingForSessionScrollbackReplay: completionMarker != nil
         ) {
-        case .unavailable:
-            notificationScrollRestorePhase = waitingForSessionScrollbackReplay ? .sessionScrollbackReplayActive : .idle
-            return false
         case .waitForViewport:
             return true
         case .perform(let target):
-            notificationScrollRestorePhase = waitingForSessionScrollbackReplay ? .sessionScrollbackReplayActive : .idle
+            notificationScrollRestorePhase = completionMarker.map(TerminalNotificationScrollRestorePhase.sessionScrollbackReplayActive) ?? .idle
             guard performNotificationScrollRestore(target) else {
                 notificationScrollRestorePhase = .pending(
                     position,
-                    waitingForSessionScrollbackReplay: waitingForSessionScrollbackReplay
+                    sessionScrollbackReplayCompletionMarker: completionMarker
                 )
                 return true
             }
@@ -81,40 +77,42 @@ extension GhosttySurfaceScrollView {
     }
 
     func cancelPendingNotificationScrollRestore() {
-        notificationScrollRestorePhase = notificationScrollRestorePhase.isSessionScrollbackReplayActive
-            ? .sessionScrollbackReplayActive
-            : .idle
+        notificationScrollRestorePhase = notificationScrollRestorePhase.sessionScrollbackReplayCompletionMarker
+            .map(TerminalNotificationScrollRestorePhase.sessionScrollbackReplayActive) ?? .idle
     }
 
-    func beginSessionScrollbackReplay() {
+    func beginSessionScrollbackReplay(completionMarker: SessionScrollbackReplayCompletionMarker) {
         switch notificationScrollRestorePhase {
         case .idle:
-            notificationScrollRestorePhase = .sessionScrollbackReplayActive
+            notificationScrollRestorePhase = .sessionScrollbackReplayActive(completionMarker)
         case .sessionScrollbackReplayActive:
-            break
+            notificationScrollRestorePhase = .sessionScrollbackReplayActive(completionMarker)
         case .pending(let position, _):
             notificationScrollRestorePhase = .pending(
                 position,
-                waitingForSessionScrollbackReplay: true
+                sessionScrollbackReplayCompletionMarker: completionMarker
             )
         }
     }
 
-    func completeSessionScrollbackReplay() {
+    @discardableResult
+    func completeSessionScrollbackReplay(ifMatches title: String) -> Bool {
+        guard let marker = notificationScrollRestorePhase.sessionScrollbackReplayCompletionMarker,
+              marker.title == title else { return false }
+        _ = surfaceView.flushPendingScrollbarIfAvailable()
         switch notificationScrollRestorePhase {
         case .idle:
             break
         case .sessionScrollbackReplayActive:
             notificationScrollRestorePhase = .idle
-        case .pending(let position, waitingForSessionScrollbackReplay: true):
+        case .pending(let position, _):
             notificationScrollRestorePhase = .pending(
                 position,
-                waitingForSessionScrollbackReplay: false
+                sessionScrollbackReplayCompletionMarker: nil
             )
             _ = retryPendingNotificationScrollRestore()
-        case .pending(_, waitingForSessionScrollbackReplay: false):
-            break
         }
+        return true
     }
 
     private func performNotificationScrollRestore(_ target: TerminalNotificationScrollRestoreTarget) -> Bool {
@@ -145,7 +143,6 @@ extension GhosttySurfaceScrollView {
         _ position: TerminalNotificationScrollPosition,
         waitingForSessionScrollbackReplay: Bool
     ) -> TerminalNotificationScrollRestoreDecision {
-        guard let capturedTotalRows = position.totalRows else { return .unavailable }
         if position.row <= 0 {
             return .perform(.bottom)
         }
@@ -154,9 +151,12 @@ extension GhosttySurfaceScrollView {
         let currentVisibleRows = min(currentTotalRows, Int(clamping: scrollbar.len))
         guard currentVisibleRows > 0 else { return .waitForViewport }
 
-        let normalizedCapturedTotalRows = max(0, capturedTotalRows)
-        let capturedRowsBelowViewport = min(normalizedCapturedTotalRows, max(0, position.row))
-        let capturedViewportBottomRow = normalizedCapturedTotalRows - capturedRowsBelowViewport
+        guard let capturedTotalRows = position.totalRows else {
+            return waitingForSessionScrollbackReplay
+                ? .waitForViewport
+                : notificationScrollRestoreTarget(position).map(TerminalNotificationScrollRestoreDecision.perform) ?? .waitForViewport
+        }
+        let capturedViewportBottomRow = max(0, capturedTotalRows) - min(max(0, capturedTotalRows), max(0, position.row))
 
         // A newly restored terminal can report a nonzero viewport before its
         // historical rows finish replaying. Keep the anchor pending until the
@@ -173,7 +173,6 @@ extension GhosttySurfaceScrollView {
         _ position: TerminalNotificationScrollPosition?
     ) -> TerminalNotificationScrollRestoreTarget? {
         guard let position else { return nil }
-        guard let capturedTotalRows = position.totalRows else { return nil }
         if position.row <= 0 {
             return .bottom
         }
@@ -182,6 +181,9 @@ extension GhosttySurfaceScrollView {
         let currentVisibleRows = min(currentTotalRows, Int(clamping: scrollbar.len))
         guard currentVisibleRows > 0 else { return nil }
         let currentLastTopRow = currentTotalRows - currentVisibleRows
+        guard let capturedTotalRows = position.totalRows else {
+            return .absoluteRow(max(0, currentLastTopRow - max(0, position.row)))
+        }
         let normalizedCapturedTotalRows = max(0, capturedTotalRows)
         let capturedRowsBelowViewport = min(normalizedCapturedTotalRows, max(0, position.row))
         let capturedViewportBottomRow = normalizedCapturedTotalRows - capturedRowsBelowViewport
