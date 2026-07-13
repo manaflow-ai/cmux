@@ -3452,7 +3452,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "snapshotDisplay={\(debugSessionDisplayDescription(snapshot.display))}"
         )
 #endif
-        context.tabManager.restoreSessionSnapshot(snapshot.tabManager)
+        context.tabManager.restoreSessionSnapshot(
+            snapshot.tabManager,
+            workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache
+        )
         // Seed the in-memory per-config ring from the restored snapshot so the
         // window can return to remembered frames on later configuration switches.
         if let configFrames = snapshot.configFrames {
@@ -8637,7 +8640,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let restoredPanelIdsByWorkspaceIndex = tabManager.restoreSessionSnapshot(
                 sessionWindowSnapshot.tabManager,
                 remapClosedPanelHistory: remapClosedPanelHistoryFromSessionSnapshot,
-                excludingStableIdentities: excludingStableIdentitiesFromSessionSnapshot
+                excludingStableIdentities: excludingStableIdentitiesFromSessionSnapshot,
+                workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache
             )
             if let configFrames = sessionWindowSnapshot.configFrames {
                 windowConfigFrames[windowId] = SessionConfigFrameRing(entries: configFrames)
