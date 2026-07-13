@@ -8,6 +8,34 @@ import Testing
 #endif
 
 extension AgentNotificationRegressionTests {
+    @Test("A stale source clear preserves a destination-confined stored notification")
+    func staleSourceClearPreservesDestinationConfinedStoredNotification() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        try movePanel(fixture)
+
+        fixture.store.addNotification(
+            tabId: fixture.destination.id,
+            surfaceId: fixture.panelId,
+            title: "Relay",
+            subtitle: "Completed",
+            body: "Authorized only for destination",
+            retargetsToLiveSurfaceOwner: false
+        )
+
+        fixture.store.clearNotifications(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId
+        )
+
+        let recorded = fixture.store.notifications.filter {
+            $0.body == "Authorized only for destination"
+        }
+        #expect(recorded.map(\.tabId) == [fixture.destination.id])
+        #expect(recorded.first?.surfaceId == fixture.panelId)
+        #expect(recorded.first?.retargetsToLiveSurfaceOwner == false)
+    }
+
     @Test("A queued workspace clear lets a moved surface notification drain first")
     func queuedWorkspaceClearPreservesNotificationMovedToAnotherWorkspace() throws {
         let fixture = try makeFixture()
