@@ -36,10 +36,13 @@ extension GhosttySurfaceScrollView {
         let currentLastTopRow = currentTotalRows - currentVisibleRows
         let normalizedCapturedTotalRows = max(0, capturedTotalRows)
         let capturedRowsBelowViewport = min(normalizedCapturedTotalRows, max(0, position.row))
+        if capturedRowsBelowViewport == 0 {
+            return currentLastTopRow
+        }
         let capturedViewportBottomRow = normalizedCapturedTotalRows - capturedRowsBelowViewport
 
-        // Notifications retain the viewport's bottom edge so new output does not
-        // move the captured content. Ghostty's scroll_to_row action instead takes
+        // A bottom-pinned capture follows live output. Explicitly scrolled captures
+        // retain their historical viewport. Ghostty's scroll_to_row action takes
         // the absolute first visible row, with zero at the top of history.
         let unclampedTopRow = max(0, capturedViewportBottomRow - currentVisibleRows)
         return min(currentLastTopRow, unclampedTopRow)
