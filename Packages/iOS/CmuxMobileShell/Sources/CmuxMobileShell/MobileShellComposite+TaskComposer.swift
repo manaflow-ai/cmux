@@ -42,6 +42,34 @@ extension MobileShellComposite {
         return true
     }
 
+    /// Persists successful task-composer defaults and clears the submitted
+    /// draft as one generation-checked main-actor transaction. A completion
+    /// from a signed-out session must not repopulate the next account's store.
+    /// - Parameters:
+    ///   - snapshot: Immutable values used by the successful submission.
+    ///   - capturedGeneration: ``currentSessionGeneration`` captured when the
+    ///     composer sheet was created.
+    /// - Returns: `true` when the success belonged to the active session and
+    ///   was applied to the configured template store.
+    @discardableResult
+    public func completeTaskComposerSubmission(
+        _ snapshot: MobileTaskSubmissionSnapshot,
+        ifSessionGeneration capturedGeneration: Int
+    ) -> Bool {
+        guard isSignedIn, capturedGeneration == currentSessionGeneration,
+              let taskTemplateStore else {
+            return false
+        }
+        taskTemplateStore.setLastTemplateID(snapshot.templateID)
+        taskTemplateStore.setLastMacDeviceID(snapshot.macDeviceID)
+        taskTemplateStore.setLastDirectory(
+            snapshot.trimmedDirectory.isEmpty ? nil : snapshot.trimmedDirectory,
+            macDeviceID: snapshot.macDeviceID
+        )
+        taskTemplateStore.setComposerDraft(nil)
+        return true
+    }
+
     /// Submit a task-composer workspace create request to the selected Mac.
     /// - Parameters:
     ///   - macDeviceID: Target Mac device id.

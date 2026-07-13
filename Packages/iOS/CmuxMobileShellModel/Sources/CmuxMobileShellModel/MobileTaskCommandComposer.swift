@@ -304,7 +304,7 @@ public struct MobileTaskCommandComposer: Sendable {
     /// so the composer must not append a second prompt argument.
     private static func referencesPromptEnvironment(in command: String) -> Bool {
         let unbraced = "$CMUX_TASK_PROMPT"
-        let braced = "${CMUX_TASK_PROMPT}"
+        let bracedPrefix = "${CMUX_TASK_PROMPT"
         var lexicalState = ShellLexicalState()
         var index = command.startIndex
         while index < command.endIndex {
@@ -320,8 +320,12 @@ public struct MobileTaskCommandComposer: Sendable {
                 continue
             }
             if lexicalState.permitsEnvironmentExpansion {
-                if command[index...].hasPrefix(braced) {
-                    return true
+                if command[index...].hasPrefix(bracedPrefix) {
+                    let nameEnd = command.index(index, offsetBy: bracedPrefix.count)
+                    if nameEnd < command.endIndex,
+                       !Self.isShellIdentifierCharacter(command[nameEnd]) {
+                        return true
+                    }
                 }
                 if command[index...].hasPrefix(unbraced) {
                     let end = command.index(index, offsetBy: unbraced.count)

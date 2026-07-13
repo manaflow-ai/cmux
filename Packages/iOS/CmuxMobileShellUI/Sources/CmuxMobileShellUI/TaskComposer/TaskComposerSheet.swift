@@ -376,18 +376,18 @@ struct TaskComposerSheet: View {
         guard !Task.isCancelled else { return }
         switch result {
         case .success:
-            store.taskTemplateStore?.setLastTemplateID(snapshot.templateID)
-            store.taskTemplateStore?.setLastMacDeviceID(snapshot.macDeviceID)
-            store.taskTemplateStore?.setLastDirectory(
-                snapshot.trimmedDirectory.isEmpty ? nil : snapshot.trimmedDirectory,
-                macDeviceID: snapshot.macDeviceID
-            )
+            guard store.completeTaskComposerSubmission(
+                snapshot,
+                ifSessionGeneration: sessionGeneration
+            ) else { return }
             shouldPersistDraftOnDisappear = false
-            store.clearTaskComposerDraft(ifSessionGeneration: sessionGeneration)
             dismiss()
         case .failure(let failure):
+            guard store.persistTaskComposerDraft(
+                snapshot.draft,
+                ifSessionGeneration: sessionGeneration
+            ) else { return }
             restoreSubmittedDraft(snapshot)
-            _ = store.persistTaskComposerDraft(snapshot.draft, ifSessionGeneration: sessionGeneration)
             let message = Self.failureMessage(failure)
             failureText = message
             announceFailure(message)
