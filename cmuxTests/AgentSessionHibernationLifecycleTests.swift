@@ -30,6 +30,24 @@ extension AgentHibernationTests {
         expectEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .completedAgentExit)
     }
 
+    @MainActor
+    @Test
+    func testPromptIdleClearsDeadAgentPIDWithoutResumeBinding() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.recordAgentPID(
+            key: "codex.dead-without-binding",
+            pid: 999_999,
+            panelId: panelId,
+            refreshPorts: false
+        )
+
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+
+        expectNil(workspace.agentPIDs["codex.dead-without-binding"])
+    }
+
     @Test
     func testPassiveMonitorPreventsHibernationEvenWhenProviderLifecycleSaysIdle() throws {
         let home = FileManager.default.temporaryDirectory

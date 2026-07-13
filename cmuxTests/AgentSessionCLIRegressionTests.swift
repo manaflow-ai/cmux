@@ -160,6 +160,56 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(monitoringSessions.first?["session_id"] as? String == "root-session")
     }
 
+    @Test func agentsTreeHandlesDuplicateRunIdentifiersWithoutCrashing() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-duplicate-run-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store: [String: Any] = [
+            "version": 2,
+            "sessions": [
+                "duplicate-session": [
+                    "sessionId": "duplicate-session",
+                    "workspaceId": "workspace-a",
+                    "surfaceId": "surface-a",
+                    "startedAt": 100.0,
+                    "updatedAt": 120.0,
+                    "runs": [
+                        [
+                            "runId": "duplicate-run",
+                            "restoreAuthority": false,
+                            "startedAt": 100.0,
+                            "updatedAt": 110.0,
+                        ],
+                        [
+                            "runId": "duplicate-run",
+                            "restoreAuthority": true,
+                            "startedAt": 100.0,
+                            "updatedAt": 120.0,
+                        ],
+                    ],
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
+            .write(to: root.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["agents", "tree", "--all"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut)
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout.contains("duplicate-session"))
+    }
+
     @Test func rootExitCancelsEveryOwnedWorkloadAndRetainsHistory() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-root-exit-\(UUID().uuidString)", isDirectory: true)

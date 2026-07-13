@@ -18,6 +18,19 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(lineage.restoreAuthority == false)
     }
 
+    @Test func unresolvedProcessAncestryCannotGrantRestoreAuthority() {
+        let authority = AgentHookSessionAuthorityPolicy().classify(
+            managedChild: false,
+            explicitRelationship: nil,
+            processIdentityAvailable: true,
+            hasAgentAncestor: false,
+            ancestryProvenAbsent: false
+        )
+
+        #expect(authority.relationship == .spawned)
+        #expect(authority.restoreAuthority == false)
+    }
+
     @Test func lateHookFromCompletedProcessCannotReactivateSession() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-late-hook-\(UUID().uuidString)", isDirectory: true)
@@ -124,6 +137,36 @@ extension CMUXCLIErrorOutputRegressionTests {
 
         #expect(AgentSessionStateProjection(record: record, run: liveRun).process == .alive)
         #expect(AgentSessionStateProjection(record: record, run: staleRun).process == .exited)
+    }
+
+    @Test func exitedProcessCannotRemainEffectivelyWorking() throws {
+        let now = Date().timeIntervalSince1970
+        let recordData = try JSONSerialization.data(withJSONObject: [
+            "sessionId": "stale-working-session",
+            "workspaceId": "workspace-a",
+            "surfaceId": "surface-a",
+            "runtimeStatus": "running",
+            "startedAt": now - 10,
+            "updatedAt": now,
+        ])
+        let record = try JSONDecoder().decode(ClaudeHookSessionRecord.self, from: recordData)
+        let staleRun = AgentSessionRunRecord(
+            runId: "stale-working-run",
+            pid: Int(getpid()),
+            processStartedAt: 0,
+            parentRunId: nil,
+            parentSessionId: nil,
+            relationship: nil,
+            restoreAuthority: true,
+            startedAt: now - 10,
+            updatedAt: now,
+            endedAt: nil
+        )
+
+        let projection = AgentSessionStateProjection(record: record, run: staleRun)
+
+        #expect(projection.process == .exited)
+        #expect(projection.effective == .ended)
     }
 
     @Test func workloadHistoryAppliesHardCapWhenEveryRecordIsActive() {
