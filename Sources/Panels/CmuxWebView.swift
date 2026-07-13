@@ -384,9 +384,16 @@ final class CmuxWebView: WKWebView {
         }
     }
 
+    func diffViewerNavigationDidStart() {
+        diffViewerDocumentConfirmed = false
+        diffViewerFocusStateConfirmed = false
+        diffViewerEditableElementFocused = false
+        diffViewerNavigationKeyRouter.reset()
+    }
+
     private func handleDiffViewerNavigationKey(_ event: NSEvent) -> Bool {
         guard cmuxOwnsKeyEvent(event),
-              DiffCommentsBridge.diffViewerToken(from: url) != nil,
+              DiffCommentsBridge.isTrustedDiffViewerURL(url),
               diffViewerDocumentConfirmed,
               diffViewerFocusStateConfirmed,
               !diffViewerEditableElementFocused else {

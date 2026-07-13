@@ -10,8 +10,7 @@ final class DiffViewerEditableFocusMessageHandler: NSObject, WKScriptMessageHand
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
-        guard message.frameInfo.isMainFrame,
-              DiffCommentsBridge.diffViewerToken(from: message.frameInfo.request.url) != nil,
+        guard DiffCommentsBridge.isTrustedDiffViewerFrame(message.frameInfo),
               let webView = message.webView as? CmuxWebView,
               let body = message.body as? [String: Any],
               let viewer = body["viewer"] as? Bool,

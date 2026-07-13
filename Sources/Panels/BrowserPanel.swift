@@ -3730,10 +3730,10 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didClearPDFDocument = { [weak self] in
             MainActor.assumeIsolated { self?.clearRenderedPDFDocument() }
         }
-
         navigationDelegate.didStartProvisionalNavigation = { [weak self] webView in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                (webView as? CmuxWebView)?.diffViewerNavigationDidStart()
                 self.isMainFrameProvisionalNavigationActive = true
                 self.refreshBackgroundAppearance()
                 self.applyMuteState(to: webView, reason: "navigationStart")

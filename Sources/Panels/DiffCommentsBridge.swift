@@ -112,10 +112,11 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     static func isTrustedDiffViewerFrame(_ frameInfo: WKFrameInfo) -> Bool {
-        guard frameInfo.isMainFrame,
-              let token = diffViewerToken(from: frameInfo.request.url) else {
-            return false
-        }
+        frameInfo.isMainFrame && isTrustedDiffViewerURL(frameInfo.request.url)
+    }
+
+    static func isTrustedDiffViewerURL(_ url: URL?) -> Bool {
+        guard let token = diffViewerToken(from: url) else { return false }
         return CmuxDiffViewerURLSchemeHandler.shared.hasActiveSession(token: token)
     }
 
