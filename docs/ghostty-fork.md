@@ -12,17 +12,19 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `e215e78bf`. It combines the previous cmux pin
-`dd726a9a6`, current fork `main` (`8495e581a`), and upstream
+Current cmux pinned fork head: `096622763`. It extends the prior cmux pin
+`5ae712a89`, current fork `main` (`81a6daa8e`), and upstream
 `ghostty-org/ghostty` `main` through `7e02af879` (2026-07-09), followed by the
 render-grid preserved-page OOM fix, lock-free selection notifications, and
-compressed-storage-preserving full scrollback reads.
+compressed-storage-preserving full scrollback reads. It also exports a locked,
+read-only scrollbar snapshot for cmux notification navigation.
 Published via
 https://github.com/manaflow-ai/ghostty/pull/96 and
 https://github.com/manaflow-ai/ghostty/pull/99 and
 https://github.com/manaflow-ai/ghostty/pull/104 and
 https://github.com/manaflow-ai/ghostty/pull/105 and
-https://github.com/manaflow-ai/ghostty/pull/106.
+https://github.com/manaflow-ai/ghostty/pull/106, with the scrollbar export on
+https://github.com/manaflow-ai/ghostty/tree/task-notification-scrollbar-snapshot.
 
 ### Upstream TLDR (`d560c645..7e02af879`)
 
@@ -84,8 +86,12 @@ https://github.com/manaflow-ai/ghostty/pull/106.
    wide/grapheme cells, and compressed-page ownership. Upstream conflicts should
    keep this beside the existing embedded read-text APIs and retain
    `PageListFormatter.pagePreservingState` rather than restoring cold pages.
+10. `ghostty_surface_scrollbar` copies `PageList.scrollbar()` while holding the
+    renderer-state mutex. cmux uses this ordered snapshot after its replay OSC
+    marker, instead of inferring replay completion from the Swift backing layer
+    that Ghostty replaces with an `IOSurfaceLayer` at runtime.
 
-Verified with Zig 0.15.2: compression, formatter, selection activity, and
+Verified with Zig 0.15.2: an embedded build, compression, formatter, selection activity, and
 libghostty-vt compression tests,
 the cmux link-click regression test, the `wasm32-freestanding` libghostty-vt
 build, a clean universal GhosttyKit build, tagged cmux reloads `gcmp` and
@@ -96,7 +102,8 @@ https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5ae712a89479f16d
 
 ### Previous pin
 
-The previous cmux pin was `1ae98c991`. It was superseded by `e215e78bf` after
+The previous cmux pin was `5ae712a89`, which added bounded VT screen-tail
+export. The earlier pin `1ae98c991` was superseded by `e215e78bf` after
 full scrollback formatting was changed to preserve compressed storage and
 selection notifications moved to a lock-free terminal-wide epoch. The initial
 compression merge for this update was `870ed36f9`; it was superseded by

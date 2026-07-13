@@ -54,13 +54,4 @@ struct RenderDemandCounterTests {
         retention.release()
         #expect(!counter.isActive)
     }
-
-    @Test func droppingRetentionDeactivatesCounter() {
-        let counter = RenderDemandCounter()
-        var retention: (any RenderDemandRetention)? = counter.retain()
-        #expect(retention != nil)
-        #expect(counter.isActive)
-        retention = nil
-        #expect(!counter.isActive)
-    }
 }

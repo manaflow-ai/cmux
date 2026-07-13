@@ -3424,7 +3424,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var _pendingScrollbar: GhosttyScrollbar?
     private var _scrollbarFlushScheduled = false
     private let _scrollbarLock = NSLock()
-    private var _renderedFrameFlushScheduled = false; private var _pendingRenderedFrameGeneration: UInt64 = 0
+    private var _renderedFrameFlushScheduled = false
     private let _renderedFrameLock = NSLock()
     nonisolated let selectionAccessibilitySignal = TerminalSelectionAccessibilitySignal()
     private var selectionAccessibilityNotifier: TerminalSelectionAccessibilityNotifier?
@@ -3535,10 +3535,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
-    func enqueueRenderedFrameUpdate(generation: UInt64) {
+    func enqueueRenderedFrameUpdate() {
         guard GhosttyApp.renderedFrameNotificationDemand.isActive else { return }
 
-        _renderedFrameLock.lock(); _pendingRenderedFrameGeneration = max(_pendingRenderedFrameGeneration, generation)
+        _renderedFrameLock.lock()
         let needsSchedule = !_renderedFrameFlushScheduled
         if needsSchedule {
             _renderedFrameFlushScheduled = true
@@ -3553,16 +3553,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func flushRenderedFrameUpdate() {
         _renderedFrameLock.lock()
-        _renderedFrameFlushScheduled = false; let generation = _pendingRenderedFrameGeneration; _pendingRenderedFrameGeneration = 0
+        _renderedFrameFlushScheduled = false
         _renderedFrameLock.unlock()
 
         guard GhosttyApp.renderedFrameNotificationDemand.isActive else { return }
         NotificationCenter.default.post(
             name: .ghosttyDidRenderFrame,
-            object: self, userInfo: [GhosttyNotificationKey.renderedFrameGeneration: generation]
+            object: self
         )
     }
-    func currentRenderedFrameSourceGeneration() -> UInt64 { (layer as? GhosttyMetalLayer)?.currentFrameGeneration() ?? 0 }
     var desiredFocus: Bool = false
     var suppressingReparentFocus: Bool = false
     var tabId: UUID?
@@ -8187,7 +8186,7 @@ final class GhosttySurfaceScrollView: NSView {
     var userScrolledAwayFromBottom = false
     private var pendingExplicitWheelScroll = false
     var allowExplicitScrollbarSync = false
-    var notificationScrollRestorePhase: TerminalNotificationScrollRestorePhase = .idle; var earlySessionScrollbackReplayCompletionDirectory: String?; var sessionScrollbackReplayCompletionDeadlineTimer: Timer?; var sessionScrollbackReplayMarkerRenderedFrameGeneration: UInt64?; var sessionScrollbackReplayRenderedFrameObserver: NSObjectProtocol?; var releaseSessionScrollbackReplayFrameDemand: (() -> Void)?
+    var notificationScrollRestorePhase: TerminalNotificationScrollRestorePhase = .idle; var earlySessionScrollbackReplayCompletionDirectory: String?; var sessionScrollbackReplayCompletionDeadlineTimer: Timer?
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
@@ -8750,7 +8749,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     deinit {
-        sessionScrollbackReplayCompletionDeadlineTimer?.invalidate(); if let observer = sessionScrollbackReplayRenderedFrameObserver { NotificationCenter.default.removeObserver(observer) }; releaseSessionScrollbackReplayFrameDemand?()
+        sessionScrollbackReplayCompletionDeadlineTimer?.invalidate()
 #if DEBUG
         cmuxDebugLog(
             "surface.hosted.deinit surface=\(debugSurfaceId?.uuidString.prefix(5) ?? "nil") " +
