@@ -70,6 +70,69 @@ struct ClaudeHookFeedTelemetrySwiftTests {
             "Feed telemetry must use the resolved agent TTY surface, not leaked CMUX_SURFACE_ID; event=\(event)"
         )
     }
+
+    // Regression for https://github.com/manaflow-ai/cmux/issues/7962: Claude Code
+    // renders any plain-text hook stdout as a visible "hook success" block in the
+    // conversation transcript — for prompt-submit hooks, a bare "OK" on every
+    // prompt. A bare JSON object is consumed as structured hook output with
+    // nothing rendered — the same contract the `echo '{}'` no-op fallback in
+    // AgentHookDefinitions already relies on — and success is signaled by the
+    // exit code, so hook stdout must stay machine-consumable.
+    @Test func sessionStartStdoutIsSilentJSONAck() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-silent-ack-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let socketPath = makeSocketPath("silent-ack")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = FeedTelemetryMockState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+        let ttyName = "ttys-claude-silent-ack"
+        let feedSeen = DispatchSemaphore(value: 0)
+        startServer(
+            listenerFD: listenerFD,
+            state: state,
+            workspaceID: workspaceID,
+            focusedSurfaceID: surfaceID,
+            ttyName: ttyName,
+            resolvedSurfaceID: surfaceID,
+            feedSeen: feedSeen
+        )
+
+        let environment = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceID,
+            "CMUX_SURFACE_ID": surfaceID,
+            "CMUX_CLI_TTY_NAME": ttyName,
+            "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("claude-hook-sessions.json").path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+            "CMUX_AGENT_LAUNCH_KIND": "claude",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/claude",
+            "CMUX_AGENT_LAUNCH_CWD": root.path,
+            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/claude"]),
+        ]
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"claude-silent-ack-session","source":"startup","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+
+        #expect(result.timedOut == false, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+    }
 }
 
 private final class FeedTelemetryMockState: @unchecked Sendable {
