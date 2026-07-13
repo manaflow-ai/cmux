@@ -327,7 +327,17 @@ public struct IrohNetworkingSection: View {
         case let .relayed(provider, region):
             String(localized: "settings.networking.status.relayed", defaultValue: "Connected through \(provider), \(region)")
         case let .privateNetwork(displayName):
-            String(localized: "settings.networking.status.private", defaultValue: "Connected through \(displayName)")
+            if displayName.isEmpty {
+                String(
+                    localized: "settings.networking.status.private.generic",
+                    defaultValue: "Connected through a private network"
+                )
+            } else {
+                String(
+                    localized: "settings.networking.status.private",
+                    defaultValue: "Connected through \(displayName)"
+                )
+            }
         case .degraded:
             String(localized: "settings.networking.status.degraded", defaultValue: "Direct-only until relay settings recover")
         }

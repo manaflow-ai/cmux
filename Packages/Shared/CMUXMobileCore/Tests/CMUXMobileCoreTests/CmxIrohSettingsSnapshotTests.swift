@@ -5,11 +5,32 @@ import Testing
 
 @Suite
 struct CmxIrohSettingsSnapshotTests {
+    @Test
+    func activeRuntimeStatusPreservesOnlyRedactedPathLabels() {
+        #expect(CmxIrohSettingsSnapshot.RuntimeStatus(
+            activePath: .direct
+        ) == .direct)
+        #expect(CmxIrohSettingsSnapshot.RuntimeStatus(
+            activePath: .privateNetwork
+        ) == .privateNetwork(displayName: ""))
+        #expect(CmxIrohSettingsSnapshot.RuntimeStatus(
+            activePath: .managedRelay(provider: "cmux", region: "us-east1")
+        ) == .relayed(provider: "cmux", region: "us-east1"))
+        #expect(CmxIrohSettingsSnapshot.RuntimeStatus(
+            activePath: .customRelay(
+                displayName: "Office Relay",
+                provider: "My Network",
+                region: "Office"
+            )
+        ) == .relayed(provider: "My Network", region: "Office"))
+    }
+
     @Test func snapshotCopiesMutableInputsIntoAnImmutableValue() {
         var managedRelays = [Self.managedRelay(id: "use1")]
         var staleRelayIDs: Set<String> = ["retired"]
         let snapshot = CmxIrohSettingsSnapshot(
             runtimeStatus: .relayed(provider: "cmux", region: "us-east"),
+            selectedTransportPath: .managedRelay(provider: "cmux", region: "us-east"),
             preference: .managed(["use1"]),
             managedRelays: managedRelays,
             customRelays: [],
@@ -24,6 +45,10 @@ struct CmxIrohSettingsSnapshotTests {
         #expect(snapshot.managedRelays.map(\.id) == ["use1"])
         #expect(snapshot.staleRelayIDs == ["retired"])
         #expect(snapshot.preference == .managed(["use1"]))
+        #expect(snapshot.selectedTransportPath == .managedRelay(
+            provider: "cmux",
+            region: "us-east"
+        ))
     }
 
     @Test func customRelayProjectionExposesCredentialStateWithoutSecretMaterial() {

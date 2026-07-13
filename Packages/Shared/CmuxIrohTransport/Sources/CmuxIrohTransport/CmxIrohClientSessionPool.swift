@@ -18,6 +18,7 @@ actor CmxIrohClientSessionPool {
         let id: UUID
         let session: CmxIrohClientSession
         let closureTask: Task<Void, Never>
+        let pathObservationTask: Task<Void, Never>
     }
 
     private let supervisor: CmxIrohEndpointSupervisor
@@ -26,8 +27,10 @@ actor CmxIrohClientSessionPool {
     private var lifecycleRevision: UInt64 = 0
     private var runtimeGeneration: UInt64?
     private var sessions: [SessionKey: PooledSession] = [:]
+    private var sessionOrder: [SessionKey] = []
     private var connectionTasks: [SessionKey: PendingConnection] = [:]
     private var controlOwners: [SessionKey: UUID] = [:]
+    private var selectedPathContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
 
     init(
         supervisor: CmxIrohEndpointSupervisor,
@@ -116,11 +119,25 @@ actor CmxIrohClientSessionPool {
                 guard !Task.isCancelled else { return }
                 await self?.sessionDidClose(key: key, sessionID: sessionID)
             }
+            let pathObservationTask = Task { [weak self] in
+                let changes = await connected.observedSelectedPathChanges()
+                for await _ in changes {
+                    guard !Task.isCancelled else { return }
+                    await self?.publishSelectedPathChange(
+                        key: key,
+                        sessionID: sessionID
+                    )
+                }
+            }
             sessions[key] = PooledSession(
                 id: sessionID,
                 session: connected,
-                closureTask: closureTask
+                closureTask: closureTask,
+                pathObservationTask: pathObservationTask
             )
+            sessionOrder.removeAll { $0 == key }
+            sessionOrder.append(key)
+            publishSelectedPathChange()
             return connected
         } catch {
             if connectionTasks[key]?.id == pending.id {
@@ -195,26 +212,67 @@ actor CmxIrohClientSessionPool {
         for task in tasks { task.cancel() }
         let closing = sessions.values
         sessions.removeAll(keepingCapacity: false)
+        sessionOrder.removeAll(keepingCapacity: false)
         controlOwners.removeAll(keepingCapacity: false)
         for pooled in closing {
             pooled.closureTask.cancel()
+            pooled.pathObservationTask.cancel()
             await pooled.session.close()
+        }
+        publishSelectedPathChange()
+    }
+
+    func selectedObservedPath() async -> CmxIrohObservedConnectionPath {
+        guard let key = sessionOrder.last,
+              let session = sessions[key]?.session else { return .unavailable }
+        return await session.observedSelectedPath()
+    }
+
+    func selectedPathChanges() -> AsyncStream<Void> {
+        let id = UUID()
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            selectedPathContinuations[id] = continuation
+            continuation.yield(())
+            continuation.onTermination = { @Sendable [weak self] _ in
+                Task { await self?.removeSelectedPathContinuation(id: id) }
+            }
         }
     }
 
     private func sessionDidClose(key: SessionKey, sessionID: UUID) async {
         guard let pooled = sessions[key], pooled.id == sessionID else { return }
         sessions[key] = nil
+        sessionOrder.removeAll { $0 == key }
         controlOwners[key] = nil
+        pooled.pathObservationTask.cancel()
         await pooled.session.close()
+        publishSelectedPathChange()
     }
 
     private func invalidateSession(for key: SessionKey) async {
         connectionTasks[key]?.task.cancel()
         connectionTasks[key] = nil
         let pooled = sessions.removeValue(forKey: key)
+        sessionOrder.removeAll { $0 == key }
         pooled?.closureTask.cancel()
+        pooled?.pathObservationTask.cancel()
         await pooled?.session.close()
+        publishSelectedPathChange()
+    }
+
+    private func publishSelectedPathChange() {
+        for continuation in selectedPathContinuations.values {
+            continuation.yield(())
+        }
+    }
+
+    private func publishSelectedPathChange(key: SessionKey, sessionID: UUID) {
+        guard sessions[key]?.id == sessionID else { return }
+        publishSelectedPathChange()
+    }
+
+    private func removeSelectedPathContinuation(id: UUID) {
+        selectedPathContinuations[id] = nil
     }
 
     private func sessionKey(for request: CmxByteTransportRequest) throws -> SessionKey {

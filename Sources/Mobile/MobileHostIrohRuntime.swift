@@ -49,6 +49,7 @@ final class MobileHostIrohRuntime {
     var relayPolicyEndpointID: CmxIrohPeerIdentity?
     var relayPolicyObservationTask: Task<Void, Never>?
     var relayPolicyRefreshTask: Task<Void, Never>?
+    var selectedPathObservationTask: Task<Void, Never>?
     var irohSettingsContinuations: [UUID: AsyncStream<CmxIrohSettingsSnapshot>.Continuation] = [:]
     var desiredActive = false
     var observedAccountID: String?
@@ -171,6 +172,8 @@ final class MobileHostIrohRuntime {
                     || targetAccountID == nil {
             let previousRuntime = runtime
             runtime = nil
+            selectedPathObservationTask?.cancel()
+            selectedPathObservationTask = nil
             activeAccountID = nil
             activeAppInstanceID = nil
             await previousRuntime?.stop()
@@ -513,6 +516,11 @@ final class MobileHostIrohRuntime {
         relayPolicyEffective = resolvedEffectivePolicy
         relayPolicyDiagnostics = await resolvedPolicyService?.diagnosticsSnapshot()
         relayPolicyEndpointID = derivedEndpointID
+        observeSelectedPathChanges(
+            runtime: hostRuntime,
+            accountID: accountID,
+            revision: revision
+        )
         observeRelayPolicyDiagnostics(
             service: resolvedPolicyService,
             accountID: accountID,
@@ -566,6 +574,9 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         let diagnostics = await service?.diagnosticsSnapshot() ?? relayPolicyDiagnostics
         let managedPolicy = await service?.managedPolicy() ?? effective?.managedPolicy
         let runtimeState = await runtime?.snapshot().state
+        let selectedPath = await runtime?.selectedTransportPath(
+            relayPolicy: effective
+        ) ?? .unavailable
         let configuration = effective?.requestedConfiguration
         let requested = configuration?.activePreference
         let selectedIDs = configuration?.selectedManagedRelayIDs.isEmpty == false
@@ -585,8 +596,10 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         return CmxIrohSettingsSnapshot(
             runtimeStatus: Self.settingsRuntimeStatus(
                 runtimeState,
-                failure: diagnostics?.failure
+                failure: diagnostics?.failure,
+                selectedPath: selectedPath
             ),
+            selectedTransportPath: selectedPath,
             preference: Self.settingsPreference(requested),
             managedRelays: managedPolicy?.relays.map { relay in
                 CmxIrohSettingsSnapshot.ManagedRelay(
@@ -782,6 +795,25 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                       self.activeAccountID == accountID else { return }
                 self.relayPolicyDiagnostics = snapshot
                 self.relayPolicyEffective = await service.effectivePolicy()
+                self.publishIrohSettingsUpdate()
+            }
+        }
+    }
+
+    func observeSelectedPathChanges(
+        runtime: CmxIrohHostRuntime,
+        accountID: String,
+        revision: UInt64
+    ) {
+        selectedPathObservationTask?.cancel()
+        selectedPathObservationTask = Task { @MainActor [weak self] in
+            let changes = await runtime.selectedTransportPathChanges()
+            for await _ in changes {
+                guard !Task.isCancelled,
+                      let self,
+                      revision == self.lifecycleRevision,
+                      self.activeAccountID == accountID,
+                      self.runtime === runtime else { return }
                 self.publishIrohSettingsUpdate()
             }
         }
@@ -988,12 +1020,13 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
 
     private nonisolated static func settingsRuntimeStatus(
         _ state: CmxIrohHostRuntimeSnapshot.State?,
-        failure: CmxIrohRelayPolicyFailure?
+        failure: CmxIrohRelayPolicyFailure?,
+        selectedPath: CmxIrohSelectedTransportPath
     ) -> CmxIrohSettingsSnapshot.RuntimeStatus {
         if failure != nil { return .degraded }
         switch state {
         case .active:
-            return .active
+            return CmxIrohSettingsSnapshot.RuntimeStatus(activePath: selectedPath)
         case .starting:
             return .starting
         case .failed, .quarantined:

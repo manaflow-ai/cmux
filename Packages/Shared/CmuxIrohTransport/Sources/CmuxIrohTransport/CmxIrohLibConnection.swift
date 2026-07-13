@@ -2,7 +2,7 @@ import CMUXMobileCore
 import Foundation
 import IrohLib
 
-struct CmxIrohLibConnection: CmxIrohConnection {
+struct CmxIrohLibConnection: CmxIrohConnection, CmxIrohConnectionPathInspecting {
     let driver: Connection
     let peerIdentity: CmxIrohPeerIdentity
 
@@ -13,6 +13,27 @@ struct CmxIrohLibConnection: CmxIrohConnection {
 
     func remoteIdentity() async -> CmxIrohPeerIdentity {
         peerIdentity
+    }
+
+    func observedSelectedPath() async -> CmxIrohObservedConnectionPath {
+        CmxIrohObservedConnectionPath(
+            snapshots: driver.paths().map(CmxIrohConnectionPathSnapshot.init)
+        )
+    }
+
+    func observedSelectedPathChanges() async -> AsyncStream<CmxIrohObservedConnectionPath> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let callback = CmxIrohLibPathChangeCallback(continuation: continuation)
+            let handle = driver.watchPaths(callback: callback)
+            continuation.yield(
+                CmxIrohObservedConnectionPath(
+                    snapshots: driver.paths().map(CmxIrohConnectionPathSnapshot.init)
+                )
+            )
+            continuation.onTermination = { @Sendable _ in
+                Task { await handle.stop() }
+            }
+        }
     }
 
     func setIncomingStreamLimits(

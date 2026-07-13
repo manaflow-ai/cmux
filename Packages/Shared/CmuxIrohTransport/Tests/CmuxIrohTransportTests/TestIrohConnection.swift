@@ -13,12 +13,15 @@ actor TestIrohEventRecorder {
     }
 }
 
-actor TestIrohConnection: CmxIrohConnection {
+actor TestIrohConnection: CmxIrohConnection, CmxIrohConnectionPathInspecting {
     private let peerIdentity: CmxIrohPeerIdentity
     private var bidirectionalStreams: [CmxIrohBidirectionalStream]
     private var receiveStreams: [any CmxIrohReceiveStream]
     private let natTraversalAuthorizationError: TestIrohTransportError?
     private let eventRecorder: TestIrohEventRecorder?
+    private var selectedPath: CmxIrohObservedConnectionPath
+    private let selectedPathStream: AsyncStream<CmxIrohObservedConnectionPath>
+    private let selectedPathContinuation: AsyncStream<CmxIrohObservedConnectionPath>.Continuation
     private var incomingStreamLimits: [(
         maximumBidirectionalStreamCount: UInt64,
         maximumUnidirectionalStreamCount: UInt64
@@ -38,13 +41,21 @@ actor TestIrohConnection: CmxIrohConnection {
         bidirectionalStreams: [CmxIrohBidirectionalStream],
         receiveStreams: [any CmxIrohReceiveStream] = [],
         natTraversalAuthorizationError: TestIrohTransportError? = nil,
-        eventRecorder: TestIrohEventRecorder? = nil
+        eventRecorder: TestIrohEventRecorder? = nil,
+        selectedPath: CmxIrohObservedConnectionPath = .unavailable
     ) {
         peerIdentity = remoteIdentity
         self.bidirectionalStreams = bidirectionalStreams
         self.receiveStreams = receiveStreams
         self.natTraversalAuthorizationError = natTraversalAuthorizationError
         self.eventRecorder = eventRecorder
+        self.selectedPath = selectedPath
+        let pathChanges = AsyncStream<CmxIrohObservedConnectionPath>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        selectedPathStream = pathChanges.stream
+        selectedPathContinuation = pathChanges.continuation
+        selectedPathContinuation.yield(selectedPath)
         let closes = AsyncStream<(code: UInt64, reason: String)>.makeStream()
         closeStream = closes.stream
         closeContinuation = closes.continuation
@@ -52,6 +63,19 @@ actor TestIrohConnection: CmxIrohConnection {
 
     func remoteIdentity() -> CmxIrohPeerIdentity {
         peerIdentity
+    }
+
+    func observedSelectedPath() -> CmxIrohObservedConnectionPath {
+        selectedPath
+    }
+
+    func observedSelectedPathChanges() -> AsyncStream<CmxIrohObservedConnectionPath> {
+        selectedPathStream
+    }
+
+    func setObservedSelectedPath(_ path: CmxIrohObservedConnectionPath) {
+        selectedPath = path
+        selectedPathContinuation.yield(path)
     }
 
     func setIncomingStreamLimits(

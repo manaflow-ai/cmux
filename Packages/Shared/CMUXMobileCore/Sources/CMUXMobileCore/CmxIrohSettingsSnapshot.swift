@@ -11,6 +11,24 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
         case relayed(provider: String, region: String)
         case privateNetwork(displayName: String)
         case degraded
+
+        /// Creates an active runtime status from one coordinate-free path.
+        ///
+        /// - Parameter path: The redacted selected transport path.
+        public init(activePath path: CmxIrohSelectedTransportPath) {
+            switch path {
+            case .unavailable:
+                self = .active
+            case .direct:
+                self = .direct
+            case .privateNetwork:
+                self = .privateNetwork(displayName: "")
+            case let .managedRelay(provider, region):
+                self = .relayed(provider: provider, region: region)
+            case let .customRelay(_, provider, region):
+                self = .relayed(provider: provider, region: region)
+            }
+        }
     }
 
     public enum PolicySource: Equatable, Sendable {
@@ -71,6 +89,8 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
     }
 
     public let runtimeStatus: RuntimeStatus
+    /// Redacted selected-path attribution, independent from lifecycle status.
+    public let selectedTransportPath: CmxIrohSelectedTransportPath
     public let preference: CmxIrohRelayPreferenceDraft
     public let managedRelays: [ManagedRelay]
     public let customRelays: [CustomRelay]
@@ -84,6 +104,7 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
 
     public init(
         runtimeStatus: RuntimeStatus,
+        selectedTransportPath: CmxIrohSelectedTransportPath = .unavailable,
         preference: CmxIrohRelayPreferenceDraft,
         managedRelays: [ManagedRelay],
         customRelays: [CustomRelay],
@@ -95,6 +116,7 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
         debugRelayOnlyEnabled: Bool? = nil
     ) {
         self.runtimeStatus = runtimeStatus
+        self.selectedTransportPath = selectedTransportPath
         self.preference = preference
         self.managedRelays = managedRelays
         self.customRelays = customRelays

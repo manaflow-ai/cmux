@@ -269,6 +269,41 @@ struct CmxIrohClientSessionPoolTests {
         #expect(await provider.observedAuthorizations() == [authorization])
         await transport.close()
     }
+
+    @Test
+    func selectedPathLifecycleIsEventDrivenAndCoordinateFree() async throws {
+        let fixture = try PoolFixture()
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()],
+            selectedPath: .privateNetwork
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: fixture.localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let pool = try await fixture.pool(endpoint: endpoint, generation: 1)
+        let changes = await pool.selectedPathChanges()
+        var iterator = changes.makeAsyncIterator()
+        #expect(await iterator.next() != nil)
+
+        let transport = try CmxIrohByteTransportFactory(sessionPool: pool)
+            .makeTransport(for: fixture.request)
+        try await transport.connect()
+
+        #expect(await iterator.next() != nil)
+        #expect(await pool.selectedObservedPath() == .privateNetwork)
+
+        await connection.setObservedSelectedPath(.direct)
+
+        #expect(await iterator.next() != nil)
+        #expect(await pool.selectedObservedPath() == .direct)
+
+        await transport.close()
+
+        #expect(await iterator.next() != nil)
+        #expect(await pool.selectedObservedPath() == .unavailable)
+    }
 }
 
 private struct PoolFixture {

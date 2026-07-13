@@ -189,6 +189,25 @@ public actor CmxIrohClientSession {
         await connection.waitUntilClosed()
     }
 
+    /// Reads package-private path evidence from the exact admitted connection.
+    func observedSelectedPath() async -> CmxIrohObservedConnectionPath {
+        guard let connection = connection as? any CmxIrohConnectionPathInspecting else {
+            return .unavailable
+        }
+        return await connection.observedSelectedPath()
+    }
+
+    /// Observes path-selection changes without exposing transport coordinates.
+    func observedSelectedPathChanges() async -> AsyncStream<CmxIrohObservedConnectionPath> {
+        guard let connection = connection as? any CmxIrohConnectionPathInspecting else {
+            return AsyncStream { continuation in
+                continuation.yield(.unavailable)
+                continuation.finish()
+            }
+        }
+        return await connection.observedSelectedPathChanges()
+    }
+
     /// Closes the control stream and complete QUIC connection.
     public func close() async {
         guard !closed else { return }

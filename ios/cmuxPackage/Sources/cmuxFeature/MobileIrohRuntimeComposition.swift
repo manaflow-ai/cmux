@@ -96,6 +96,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     private var relayPolicyEndpointID: CmxIrohPeerIdentity?
     private var relayPolicyObservationTask: Task<Void, Never>?
     private var relayPolicyRefreshTask: Task<Void, Never>?
+    private var selectedPathObservationTask: Task<Void, Never>?
     private var irohSettingsContinuations: [UUID: AsyncStream<CmxIrohSettingsSnapshot>.Continuation] = [:]
     private var observedAccountID: String?
     private var activeAccountID: String?
@@ -469,6 +470,8 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
 
         let previousRuntime = runtime
         runtime = nil
+        selectedPathObservationTask?.cancel()
+        selectedPathObservationTask = nil
         activeAccountID = nil
         let fallbackBindingID = lastKnownBindingID
         let preparation: CmxIrohClientSignOutPreparation
@@ -878,6 +881,8 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
             let previousAccountID = activeAccountID ?? lastKnownBindingAccountID
             let fallbackBindingID = lastKnownBindingID
             runtime = nil
+            selectedPathObservationTask?.cancel()
+            selectedPathObservationTask = nil
             activeAccountID = nil
             await lanPeerDiscovery?.stop()
             if let previousRuntime {
@@ -1153,6 +1158,8 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
                           revision == self.lifecycleRevision,
                           self.activeAccountID == accountID else { return }
                     self.runtime = nil
+                    self.selectedPathObservationTask?.cancel()
+                    self.selectedPathObservationTask = nil
                     self.clearLastKnownBinding()
                 }
             }
@@ -1182,6 +1189,11 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         relayPolicyEffective = resolvedEffectivePolicy
         relayPolicyDiagnostics = await resolvedPolicyService?.diagnosticsSnapshot()
         relayPolicyEndpointID = endpointID
+        observeSelectedPathChanges(
+            runtime: runtime,
+            accountID: accountID,
+            revision: revision
+        )
         observeRelayPolicyDiagnostics(
             service: resolvedPolicyService,
             accountID: accountID,
@@ -1367,6 +1379,9 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         let diagnostics = await service?.diagnosticsSnapshot() ?? relayPolicyDiagnostics
         let managedPolicy = await service?.managedPolicy() ?? effective?.managedPolicy
         let runtimeState = await runtime?.snapshot().state
+        let selectedPath = await runtime?.selectedTransportPath(
+            relayPolicy: effective
+        ) ?? .unavailable
         let configuration = effective?.requestedConfiguration
         let requested = configuration?.activePreference
         let selectedIDs = configuration?.selectedManagedRelayIDs.isEmpty == false
@@ -1378,7 +1393,12 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             Optional<Set<String>>.none
         }
         return CmxIrohSettingsSnapshot(
-            runtimeStatus: Self.settingsRuntimeStatus(runtimeState, failure: diagnostics?.failure),
+            runtimeStatus: Self.settingsRuntimeStatus(
+                runtimeState,
+                failure: diagnostics?.failure,
+                selectedPath: selectedPath
+            ),
+            selectedTransportPath: selectedPath,
             preference: Self.settingsPreference(requested),
             managedRelays: managedPolicy?.relays.map { relay in
                 CmxIrohSettingsSnapshot.ManagedRelay(
@@ -1573,6 +1593,25 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                       self.activeAccountID == accountID else { return }
                 self.relayPolicyDiagnostics = snapshot
                 self.relayPolicyEffective = await service.effectivePolicy()
+                self.publishIrohSettingsUpdate()
+            }
+        }
+    }
+
+    private func observeSelectedPathChanges(
+        runtime: CmxIrohClientRuntime,
+        accountID: String,
+        revision: UInt64
+    ) {
+        selectedPathObservationTask?.cancel()
+        selectedPathObservationTask = Task { @MainActor [weak self] in
+            let changes = await runtime.selectedTransportPathChanges()
+            for await _ in changes {
+                guard !Task.isCancelled,
+                      let self,
+                      revision == self.lifecycleRevision,
+                      self.activeAccountID == accountID,
+                      self.runtime === runtime else { return }
                 self.publishIrohSettingsUpdate()
             }
         }
@@ -1773,11 +1812,12 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
 
     private nonisolated static func settingsRuntimeStatus(
         _ state: CmxIrohClientRuntimeState?,
-        failure: CmxIrohRelayPolicyFailure?
+        failure: CmxIrohRelayPolicyFailure?,
+        selectedPath: CmxIrohSelectedTransportPath
     ) -> CmxIrohSettingsSnapshot.RuntimeStatus {
         if failure != nil { return .degraded }
         switch state {
-        case .active: return .active
+        case .active: return CmxIrohSettingsSnapshot.RuntimeStatus(activePath: selectedPath)
         case .starting: return .starting
         case .failed, .quarantined: return .degraded
         case .inactive, .stopping, .signingOut, nil: return .inactive

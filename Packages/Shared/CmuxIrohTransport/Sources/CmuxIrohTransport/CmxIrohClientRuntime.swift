@@ -177,6 +177,29 @@ public actor CmxIrohClientRuntime {
         currentSnapshot
     }
 
+    /// Returns the selected live path after removing raw transport coordinates.
+    ///
+    /// Relay attribution succeeds only when the selected relay is present in
+    /// the exact verified effective policy installed by the composition root.
+    ///
+    /// - Parameter relayPolicy: The current verified effective relay policy.
+    /// - Returns: A credential-free path category safe for settings and diagnostics.
+    public func selectedTransportPath(
+        relayPolicy: CmxIrohEffectiveRelayPolicy?
+    ) async -> CmxIrohSelectedTransportPath {
+        let observed = await sessionPool.selectedObservedPath()
+        return CmxIrohSelectedTransportPathClassifier(policy: relayPolicy)
+            .classify(observed)
+    }
+
+    /// Emits when connection lifecycle changes may alter the selected path.
+    ///
+    /// Consumers re-read ``selectedTransportPath(relayPolicy:)`` for the
+    /// credential-free value. The stream never carries raw path data.
+    public func selectedTransportPathChanges() async -> AsyncStream<Void> {
+        await sessionPool.selectedPathChanges()
+    }
+
     /// Binds the endpoint, registers it, and installs exact discovery and relay policy.
     ///
     /// - Throws: A bind, broker, signature, fleet, or local-binding validation error.

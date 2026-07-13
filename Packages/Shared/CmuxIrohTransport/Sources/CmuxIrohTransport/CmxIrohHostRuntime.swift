@@ -1,4 +1,4 @@
-import CMUXMobileCore
+public import CMUXMobileCore
 public import Foundation
 
 /// Owns one account-scoped Mac endpoint, broker binding, relay rotation, and accept loop.
@@ -90,6 +90,10 @@ public actor CmxIrohHostRuntime {
     var currentEndpointRelayProfile: CmxIrohEndpointRelayProfile?
     var endpointAttestation: CmxIrohEndpointAttestationResponse?
     var lanRendezvous: CmxIrohLANRendezvous?
+    var activePathConnections: [UUID: any CmxIrohConnection] = [:]
+    var activePathConnectionOrder: [UUID] = []
+    var activePathObservationTasks: [UUID: Task<Void, Never>] = [:]
+    var selectedPathContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
     var currentSnapshot = CmxIrohHostRuntimeSnapshot(
         state: .inactive,
         endpointID: nil,
@@ -130,6 +134,40 @@ public actor CmxIrohHostRuntime {
 
     public func snapshot() -> CmxIrohHostRuntimeSnapshot {
         currentSnapshot
+    }
+
+    /// Returns the most recently admitted live path with coordinates removed.
+    ///
+    /// Relay attribution succeeds only when the selected relay is present in
+    /// the exact verified effective policy installed by the composition root.
+    ///
+    /// - Parameter relayPolicy: The current verified effective relay policy.
+    /// - Returns: A credential-free path category safe for settings and diagnostics.
+    public func selectedTransportPath(
+        relayPolicy: CmxIrohEffectiveRelayPolicy?
+    ) async -> CmxIrohSelectedTransportPath {
+        guard let id = activePathConnectionOrder.last,
+              let connection = activePathConnections[id] as? any CmxIrohConnectionPathInspecting else {
+            return .unavailable
+        }
+        let observed = await connection.observedSelectedPath()
+        return CmxIrohSelectedTransportPathClassifier(policy: relayPolicy)
+            .classify(observed)
+    }
+
+    /// Emits when admitted connection lifecycle may alter the selected path.
+    ///
+    /// Consumers re-read ``selectedTransportPath(relayPolicy:)`` for the
+    /// credential-free value. The stream never carries raw path data.
+    public func selectedTransportPathChanges() -> AsyncStream<Void> {
+        let id = UUID()
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            selectedPathContinuations[id] = continuation
+            continuation.yield(())
+            continuation.onTermination = { @Sendable [weak self] _ in
+                Task { await self?.removeSelectedPathContinuation(id: id) }
+            }
+        }
     }
 
     /// Returns current verified private alias material without broker path hints.
@@ -425,10 +463,45 @@ public actor CmxIrohHostRuntime {
                 await session.close()
             }
         }
+        let pathConnectionID = UUID()
+        activePathConnections[pathConnectionID] = connection
+        activePathConnectionOrder.append(pathConnectionID)
+        if let inspecting = connection as? any CmxIrohConnectionPathInspecting {
+            activePathObservationTasks[pathConnectionID] = Task { [weak self] in
+                let changes = await inspecting.observedSelectedPathChanges()
+                for await _ in changes {
+                    guard !Task.isCancelled else { return }
+                    await self?.publishSelectedPathChange(connectionID: pathConnectionID)
+                }
+            }
+        }
+        publishSelectedPathChange()
+        defer {
+            activePathObservationTasks[pathConnectionID]?.cancel()
+            activePathObservationTasks[pathConnectionID] = nil
+            activePathConnections[pathConnectionID] = nil
+            activePathConnectionOrder.removeAll { $0 == pathConnectionID }
+            publishSelectedPathChange()
+        }
         await handleTransport(
             CmxIrohAdmittedServerSession(peer: peer, session: session),
             isCurrent
         )
+    }
+
+    func publishSelectedPathChange() {
+        for continuation in selectedPathContinuations.values {
+            continuation.yield(())
+        }
+    }
+
+    func publishSelectedPathChange(connectionID: UUID) {
+        guard activePathConnections[connectionID] != nil else { return }
+        publishSelectedPathChange()
+    }
+
+    func removeSelectedPathContinuation(id: UUID) {
+        selectedPathContinuations[id] = nil
     }
 
     private func isCurrent(revision: UInt64, runtimeGeneration: UInt64) async -> Bool {

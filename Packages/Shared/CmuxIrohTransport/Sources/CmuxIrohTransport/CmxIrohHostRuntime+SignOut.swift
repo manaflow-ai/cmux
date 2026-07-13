@@ -81,6 +81,11 @@ extension CmxIrohHostRuntime {
         registrationRefreshEnabled = false
         await endpointServer?.stop()
         endpointServer = nil
+        activePathConnections.removeAll(keepingCapacity: false)
+        activePathConnectionOrder.removeAll(keepingCapacity: false)
+        for task in activePathObservationTasks.values { task.cancel() }
+        activePathObservationTasks.removeAll(keepingCapacity: false)
+        publishSelectedPathChange()
         await relayCoordinator?.deactivate()
         relayCoordinator = nil
         await offlineSessions?.invalidate()
