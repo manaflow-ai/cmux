@@ -240,11 +240,12 @@ extension CmxIrohHostRuntime {
 
     func refreshRegistration(revision: UInt64) async {
         defer {
-            registrationRefreshTask = nil
-            if registrationRefreshPending,
-               lifecyclePhase == .active,
-               lifecycleRevision == revision {
-                scheduleRegistrationRefresh(revision: revision)
+            if lifecycleRevision == revision {
+                registrationRefreshTask = nil
+                if registrationRefreshPending,
+                   lifecyclePhase == .active {
+                    scheduleRegistrationRefresh(revision: revision)
+                }
             }
         }
         guard lifecyclePhase == .active,
@@ -287,6 +288,8 @@ extension CmxIrohHostRuntime {
         } catch is CancellationError {
             return
         } catch {
+            guard lifecyclePhase == .active,
+                  lifecycleRevision == revision else { return }
             guard CmxIrohTrustBrokerClientError
                 .preservesVerifiedPolicyDuringRefresh(error) else {
                 lifecyclePhase = .stopping

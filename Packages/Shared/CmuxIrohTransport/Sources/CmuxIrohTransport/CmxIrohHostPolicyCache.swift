@@ -7,6 +7,10 @@ public actor CmxIrohHostPolicyCache {
 
     private let secureStore: any CmxIrohSecureCredentialStoring
     private let verifier: CmxIrohGrantVerifier
+    private var lifecycleEpoch: UInt64 = 0
+    private var deactivationCount = 0
+    private var activeStorageMutationCount = 0
+    private var storageMutationDrainWaiters: [CheckedContinuation<Void, Never>] = []
 
     /// Creates a cache with injectable secure storage and signature verification.
     ///
@@ -41,10 +45,11 @@ public actor CmxIrohHostPolicyCache {
         for expectation: CmxIrohHostPolicyExpectation,
         now: Date
     ) async throws {
+        let epoch = try beginOperation()
         do {
             try validate(policy, for: expectation, now: now)
         } catch {
-            try await secureStore.delete(account: Self.storageAccount)
+            try await deleteSecureRecord(epoch: epoch)
             throw error
         }
         let record = CmxIrohStoredHostPolicyRecord(
@@ -52,10 +57,9 @@ public actor CmxIrohHostPolicyCache {
             policy: policy
         )
         let data = try JSONEncoder().encode(record)
-        try await secureStore.write(
+        try await writeSecureRecord(
             data,
-            account: Self.storageAccount,
-            accessibility: .afterFirstUnlockThisDeviceOnly
+            epoch: epoch
         )
     }
 
@@ -75,7 +79,8 @@ public actor CmxIrohHostPolicyCache {
         for expectation: CmxIrohHostPolicyExpectation,
         now: Date
     ) async throws -> CmxIrohCachedHostPolicy? {
-        guard let data = try await secureStore.read(account: Self.storageAccount) else {
+        let epoch = try beginOperation()
+        guard let data = try await readSecureRecord(epoch: epoch) else {
             return nil
         }
         do {
@@ -88,9 +93,11 @@ public actor CmxIrohHostPolicyCache {
                 throw CmxIrohHostPolicyCacheError.policyMismatch
             }
             try validate(record.policy, for: expectation, now: now)
+            try requireCurrent(epoch)
             return record.policy
         } catch {
-            try await secureStore.delete(account: Self.storageAccount)
+            if error is CancellationError { throw error }
+            try await deleteSecureRecord(epoch: epoch)
             return nil
         }
     }
@@ -102,27 +109,84 @@ public actor CmxIrohHostPolicyCache {
     /// - Parameter expectation: The current account and app-instance scope.
     /// - Throws: A secure-storage error.
     public func delete(for expectation: CmxIrohHostPolicyExpectation) async throws {
-        guard let data = try await secureStore.read(account: Self.storageAccount) else {
+        let epoch = try beginOperation()
+        guard let data = try await readSecureRecord(epoch: epoch) else {
             return
         }
         guard let record = try? JSONDecoder().decode(
             CmxIrohStoredHostPolicyRecord.self,
             from: data
         ) else {
-            try await secureStore.delete(account: Self.storageAccount)
+            try await deleteSecureRecord(epoch: epoch)
             return
         }
         guard record.scopeDigest == Self.scopeDigest(for: expectation) else {
             return
         }
-        try await secureStore.delete(account: Self.storageAccount)
+        try await deleteSecureRecord(epoch: epoch)
     }
 
     /// Removes every host-policy cache entry during sign-out or app-instance revocation.
     ///
     /// - Throws: A secure-storage error.
     public func deactivate() async throws {
+        lifecycleEpoch &+= 1
+        deactivationCount += 1
+        defer { deactivationCount -= 1 }
+        await waitForStorageMutations()
         try await secureStore.deleteAll()
+    }
+
+    private func beginOperation() throws -> UInt64 {
+        guard deactivationCount == 0 else { throw CancellationError() }
+        return lifecycleEpoch
+    }
+
+    private func requireCurrent(_ epoch: UInt64) throws {
+        guard deactivationCount == 0,
+              lifecycleEpoch == epoch else { throw CancellationError() }
+    }
+
+    private func readSecureRecord(epoch: UInt64) async throws -> Data? {
+        try requireCurrent(epoch)
+        let data = try await secureStore.read(account: Self.storageAccount)
+        try requireCurrent(epoch)
+        return data
+    }
+
+    private func writeSecureRecord(_ data: Data, epoch: UInt64) async throws {
+        try requireCurrent(epoch)
+        activeStorageMutationCount += 1
+        defer { finishStorageMutation() }
+        try await secureStore.write(
+            data,
+            account: Self.storageAccount,
+            accessibility: .afterFirstUnlockThisDeviceOnly
+        )
+        try requireCurrent(epoch)
+    }
+
+    private func deleteSecureRecord(epoch: UInt64) async throws {
+        try requireCurrent(epoch)
+        activeStorageMutationCount += 1
+        defer { finishStorageMutation() }
+        try await secureStore.delete(account: Self.storageAccount)
+        try requireCurrent(epoch)
+    }
+
+    private func finishStorageMutation() {
+        activeStorageMutationCount -= 1
+        guard activeStorageMutationCount == 0 else { return }
+        let waiters = storageMutationDrainWaiters
+        storageMutationDrainWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters { waiter.resume() }
+    }
+
+    private func waitForStorageMutations() async {
+        guard activeStorageMutationCount > 0 else { return }
+        await withCheckedContinuation { continuation in
+            storageMutationDrainWaiters.append(continuation)
+        }
     }
 
     private func validate(

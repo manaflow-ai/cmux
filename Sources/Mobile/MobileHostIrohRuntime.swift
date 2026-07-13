@@ -290,12 +290,20 @@ final class MobileHostIrohRuntime {
                 )
             },
             handleBinding: { [weak self] registration, discovery, attestation in
+                guard await self?.allowsPersistence(
+                    accountID: accountID,
+                    revision: revision
+                ) == true else { return }
                 let binding = registration.binding
                 let metadata = CmxIrohBrokerBindingMetadata(binding: binding)
                 try? await credentialRepository.saveBinding(
                     metadata,
                     accountID: accountID
                 )
+                guard await self?.allowsPersistence(
+                    accountID: accountID,
+                    revision: revision
+                ) == true else { return }
                 if let attestation,
                    let discovered = discovery.bindings.first(where: {
                        $0.bindingID == binding.bindingID
@@ -339,7 +347,11 @@ final class MobileHostIrohRuntime {
                     MobileHostService.shared.updateIrohBinding(nil)
                 }
             },
-            handleRelayCredential: { response, binding in
+            handleRelayCredential: { [weak self] response, binding in
+                guard await self?.allowsPersistence(
+                    accountID: accountID,
+                    revision: revision
+                ) == true else { return }
                 try? await credentialRepository.saveRelayCredential(
                     response,
                     accountID: accountID,
@@ -407,6 +419,16 @@ final class MobileHostIrohRuntime {
             preparedSignOut = nil
         }
         MobileHostService.shared.updateIrohBinding(binding)
+    }
+
+    private func allowsPersistence(
+        accountID: String,
+        revision: UInt64
+    ) -> Bool {
+        revision == lifecycleRevision
+            && !signOutIntentActive
+            && desiredActive
+            && observedAccountID == accountID
     }
 
 }

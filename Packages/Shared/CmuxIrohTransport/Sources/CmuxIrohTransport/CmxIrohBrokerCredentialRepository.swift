@@ -8,6 +8,10 @@ public actor CmxIrohBrokerCredentialRepository {
 
     private let secureStore: any CmxIrohSecureCredentialStoring
     private let installState: any CmxIrohInstallStateStoring
+    private var lifecycleEpoch: UInt64 = 0
+    private var deactivationCount = 0
+    private var activeStorageMutationCount = 0
+    private var storageMutationDrainWaiters: [CheckedContinuation<Void, Never>] = []
 
     /// Creates a broker credential repository with injectable persistence.
     ///
@@ -36,11 +40,17 @@ public actor CmxIrohBrokerCredentialRepository {
         accountID: String,
         appInstanceID: String
     ) async throws -> CmxIrohBrokerBindingMetadata? {
+        let epoch = try beginOperation()
         let scope = try await prepareScope(
             accountID: accountID,
-            appInstanceID: appInstanceID
+            appInstanceID: appInstanceID,
+            epoch: epoch
         )
-        return try await loadBinding(scope: scope, appInstanceID: appInstanceID)
+        return try await loadBinding(
+            scope: scope,
+            appInstanceID: appInstanceID,
+            epoch: epoch
+        )
     }
 
     /// Saves an exact broker binding, invalidating relay credentials if it changed.
@@ -53,18 +63,22 @@ public actor CmxIrohBrokerCredentialRepository {
         _ binding: CmxIrohBrokerBindingMetadata,
         accountID: String
     ) async throws {
+        let epoch = try beginOperation()
         let scope = try await prepareScope(
             accountID: accountID,
-            appInstanceID: binding.appInstanceID
+            appInstanceID: binding.appInstanceID,
+            epoch: epoch
         )
         let existing = try await loadBinding(
             scope: scope,
-            appInstanceID: binding.appInstanceID
+            appInstanceID: binding.appInstanceID,
+            epoch: epoch
         )
         if existing != binding {
-            try await secureStore.delete(account: scope)
+            try await deleteSecureRecord(account: scope, epoch: epoch)
         }
         let encoded = try JSONEncoder().encode(binding)
+        try requireCurrent(epoch)
         installState.set(String(decoding: encoded, as: UTF8.self), forKey: Self.bindingKey)
     }
 
@@ -86,18 +100,21 @@ public actor CmxIrohBrokerCredentialRepository {
         expectedRelayFleet: Set<String>,
         now: Date
     ) async throws -> CmxIrohRelayTokenResponse? {
+        let epoch = try beginOperation()
         let scope = try await prepareScope(
             accountID: accountID,
-            appInstanceID: binding.appInstanceID
+            appInstanceID: binding.appInstanceID,
+            epoch: epoch
         )
         guard try await loadBinding(
             scope: scope,
-            appInstanceID: binding.appInstanceID
+            appInstanceID: binding.appInstanceID,
+            epoch: epoch
         ) == binding else {
-            try await secureStore.delete(account: scope)
+            try await deleteSecureRecord(account: scope, epoch: epoch)
             return nil
         }
-        guard let data = try await secureStore.read(account: scope),
+        guard let data = try await readSecureRecord(account: scope, epoch: epoch),
               let stored = try? JSONDecoder().decode(
                   CmxIrohStoredRelayCredential.self,
                   from: data
@@ -107,9 +124,10 @@ public actor CmxIrohBrokerCredentialRepository {
               hasExactFleet(stored.relayFleet, expected: expectedRelayFleet),
               (try? stored.response.relayConfigurations(now: now))?.count
                   == expectedRelayFleet.count else {
-            try await secureStore.delete(account: scope)
+            try await deleteSecureRecord(account: scope, epoch: epoch)
             return nil
         }
+        try requireCurrent(epoch)
         return stored.response
     }
 
@@ -129,18 +147,21 @@ public actor CmxIrohBrokerCredentialRepository {
         expectedRelayFleet: Set<String>,
         now: Date
     ) async throws {
+        let epoch = try beginOperation()
         let scope = try await prepareScope(
             accountID: accountID,
-            appInstanceID: binding.appInstanceID
+            appInstanceID: binding.appInstanceID,
+            epoch: epoch
         )
         guard let storedBinding = try await loadBinding(
             scope: scope,
-            appInstanceID: binding.appInstanceID
+            appInstanceID: binding.appInstanceID,
+            epoch: epoch
         ) else {
             throw CmxIrohBrokerCredentialRepositoryError.bindingNotStored
         }
         guard storedBinding == binding else {
-            try await secureStore.delete(account: scope)
+            try await deleteSecureRecord(account: scope, epoch: epoch)
             throw CmxIrohBrokerCredentialRepositoryError.bindingMismatch
         }
         guard hasExactFleet(response.relayFleet, expected: expectedRelayFleet) else {
@@ -151,10 +172,11 @@ public actor CmxIrohBrokerCredentialRepository {
             throw CmxIrohBrokerCredentialRepositoryError.invalidRelayCredential
         }
         let record = CmxIrohStoredRelayCredential(binding: binding, response: response)
-        try await secureStore.write(
+        try await writeSecureRecord(
             JSONEncoder().encode(record),
             account: scope,
-            accessibility: .afterFirstUnlockThisDeviceOnly
+            accessibility: .afterFirstUnlockThisDeviceOnly,
+            epoch: epoch
         )
     }
 
@@ -168,11 +190,13 @@ public actor CmxIrohBrokerCredentialRepository {
         accountID: String,
         appInstanceID: String
     ) async throws {
+        let epoch = try beginOperation()
         let scope = try await prepareScope(
             accountID: accountID,
-            appInstanceID: appInstanceID
+            appInstanceID: appInstanceID,
+            epoch: epoch
         )
-        try await secureStore.delete(account: scope)
+        try await deleteSecureRecord(account: scope, epoch: epoch)
     }
 
     /// Removes a broker binding and every capability scoped to it.
@@ -185,11 +209,14 @@ public actor CmxIrohBrokerCredentialRepository {
         accountID: String,
         appInstanceID: String
     ) async throws {
+        let epoch = try beginOperation()
         let scope = try await prepareScope(
             accountID: accountID,
-            appInstanceID: appInstanceID
+            appInstanceID: appInstanceID,
+            epoch: epoch
         )
-        try await secureStore.delete(account: scope)
+        try await deleteSecureRecord(account: scope, epoch: epoch)
+        try requireCurrent(epoch)
         installState.set(nil, forKey: Self.bindingKey)
     }
 
@@ -197,6 +224,10 @@ public actor CmxIrohBrokerCredentialRepository {
     ///
     /// - Throws: A secure-storage error.
     public func deactivate() async throws {
+        lifecycleEpoch &+= 1
+        deactivationCount += 1
+        defer { deactivationCount -= 1 }
+        await waitForStorageMutations()
         try await secureStore.deleteAll()
         installState.set(nil, forKey: Self.bindingKey)
         installState.set(nil, forKey: Self.activeScopeKey)
@@ -204,8 +235,10 @@ public actor CmxIrohBrokerCredentialRepository {
 
     private func prepareScope(
         accountID: String,
-        appInstanceID: String
+        appInstanceID: String,
+        epoch: UInt64
     ) async throws -> String {
+        try requireCurrent(epoch)
         guard !accountID.isEmpty,
               accountID.utf8.count <= 1_024,
               Self.isCanonicalUUID(appInstanceID) else {
@@ -215,7 +248,8 @@ public actor CmxIrohBrokerCredentialRepository {
         guard installState.string(forKey: Self.activeScopeKey) != scope else {
             return scope
         }
-        try await secureStore.deleteAll()
+        try await deleteAllSecureRecords(epoch: epoch)
+        try requireCurrent(epoch)
         installState.set(nil, forKey: Self.bindingKey)
         installState.set(scope, forKey: Self.activeScopeKey)
         return scope
@@ -223,8 +257,10 @@ public actor CmxIrohBrokerCredentialRepository {
 
     private func loadBinding(
         scope: String,
-        appInstanceID: String
+        appInstanceID: String,
+        epoch: UInt64
     ) async throws -> CmxIrohBrokerBindingMetadata? {
+        try requireCurrent(epoch)
         guard let encoded = installState.string(forKey: Self.bindingKey) else {
             return nil
         }
@@ -233,10 +269,82 @@ public actor CmxIrohBrokerCredentialRepository {
             from: Data(encoded.utf8)
         ), binding.appInstanceID == appInstanceID else {
             installState.set(nil, forKey: Self.bindingKey)
-            try await secureStore.delete(account: scope)
+            try await deleteSecureRecord(account: scope, epoch: epoch)
             return nil
         }
+        try requireCurrent(epoch)
         return binding
+    }
+
+    private func beginOperation() throws -> UInt64 {
+        guard deactivationCount == 0 else { throw CancellationError() }
+        return lifecycleEpoch
+    }
+
+    private func requireCurrent(_ epoch: UInt64) throws {
+        guard deactivationCount == 0,
+              lifecycleEpoch == epoch else { throw CancellationError() }
+    }
+
+    private func readSecureRecord(
+        account: String,
+        epoch: UInt64
+    ) async throws -> Data? {
+        try requireCurrent(epoch)
+        let data = try await secureStore.read(account: account)
+        try requireCurrent(epoch)
+        return data
+    }
+
+    private func writeSecureRecord(
+        _ data: Data,
+        account: String,
+        accessibility: CmxIrohSecureCredentialAccessibility,
+        epoch: UInt64
+    ) async throws {
+        try requireCurrent(epoch)
+        activeStorageMutationCount += 1
+        defer { finishStorageMutation() }
+        try await secureStore.write(
+            data,
+            account: account,
+            accessibility: accessibility
+        )
+        try requireCurrent(epoch)
+    }
+
+    private func deleteSecureRecord(
+        account: String,
+        epoch: UInt64
+    ) async throws {
+        try requireCurrent(epoch)
+        activeStorageMutationCount += 1
+        defer { finishStorageMutation() }
+        try await secureStore.delete(account: account)
+        try requireCurrent(epoch)
+    }
+
+    private func deleteAllSecureRecords(epoch: UInt64) async throws {
+        try requireCurrent(epoch)
+        activeStorageMutationCount += 1
+        defer { finishStorageMutation() }
+        try await secureStore.deleteAll()
+        try requireCurrent(epoch)
+    }
+
+    private func finishStorageMutation() {
+        activeStorageMutationCount -= 1
+        guard activeStorageMutationCount == 0 else { return }
+        let waiters = storageMutationDrainWaiters
+        storageMutationDrainWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters { waiter.resume() }
+    }
+
+    private func waitForStorageMutations() async {
+        guard activeStorageMutationCount > 0 else { return }
+        await withCheckedContinuation { continuation in
+            storageMutationDrainWaiters.append(continuation)
+        }
     }
 
     private func hasExactFleet(_ fleet: [String], expected: Set<String>) -> Bool {

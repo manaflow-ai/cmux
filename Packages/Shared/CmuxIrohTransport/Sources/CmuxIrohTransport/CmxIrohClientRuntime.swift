@@ -85,6 +85,8 @@ public actor CmxIrohClientRuntime {
     var relayCoordinator: CmxIrohRelayCredentialCoordinator?
     var supervisorEventTask: Task<Void, Never>?
     var registrationRefreshTask: Task<Void, Never>?
+    var registrationRefreshPending = false
+    var registrationRefreshEnabled = false
     var localBinding: CmxIrohBrokerBinding?
     var currentSnapshot = CmxIrohClientRuntimeSnapshot(
         state: .inactive,
@@ -183,6 +185,8 @@ public actor CmxIrohClientRuntime {
         lifecyclePhase = .starting
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
+        registrationRefreshPending = false
+        registrationRefreshEnabled = false
         currentSnapshot = CmxIrohClientRuntimeSnapshot(
             state: .starting,
             endpointID: nil,
@@ -190,6 +194,7 @@ public actor CmxIrohClientRuntime {
         )
 
         do {
+            await startSupervisorObservation(revision: revision)
             let endpointSnapshot = try await supervisor.activate()
             try requireCurrent(revision)
             guard let endpointID = endpointSnapshot.identity else {
@@ -204,7 +209,6 @@ public actor CmxIrohClientRuntime {
                 runtimeGeneration: endpointSnapshot.runtimeGeneration
             )
             try await install(policy: policy, revision: revision, startRelays: true)
-            startSupervisorObservation(revision: revision)
             lifecyclePhase = .active
             currentSnapshot = CmxIrohClientRuntimeSnapshot(
                 state: .active,
@@ -216,6 +220,11 @@ public actor CmxIrohClientRuntime {
                 await handleBinding(registration, discovery)
             } else if let lanRendezvous = policy.cachedLANRendezvous {
                 await handleCachedBindings(policy.cachedTargetBindings, lanRendezvous)
+            }
+            registrationRefreshEnabled = true
+            if registrationRefreshPending {
+                registrationRefreshPending = false
+                scheduleRegistrationRefresh(revision: revision)
             }
         } catch {
             guard lifecyclePhase == .starting,
@@ -258,6 +267,23 @@ public actor CmxIrohClientRuntime {
         let checked = try await supervisor.ensureHealthy()
         try requireCurrent(revision)
         await sessionPool.activate(runtimeGeneration: checked.runtimeGeneration)
+        if let registrationRefreshTask {
+            registrationRefreshPending = true
+            await registrationRefreshTask.value
+            try requireCurrent(revision)
+            return
+        }
+        registrationRefreshEnabled = false
+        defer {
+            if lifecyclePhase == .active,
+               lifecycleRevision == revision {
+                registrationRefreshEnabled = true
+                if registrationRefreshPending {
+                    registrationRefreshPending = false
+                    scheduleRegistrationRefresh(revision: revision)
+                }
+            }
+        }
         try await refreshRegistration(revision: revision)
     }
 
@@ -367,97 +393,6 @@ public actor CmxIrohClientRuntime {
         }
         signOutOperation = operation
         return await operation.value
-    }
-
-    private func startSupervisorObservation(revision: UInt64) {
-        supervisorEventTask?.cancel()
-        supervisorEventTask = Task { [weak self] in
-            guard let self else { return }
-            let events = await supervisor.events()
-            for await event in events {
-                guard !Task.isCancelled else { return }
-                switch event {
-                case .networkChanged:
-                    await self.scheduleRegistrationRefresh(revision: revision)
-                case let .recovered(_, newGeneration):
-                    await self.sessionPool.activate(runtimeGeneration: newGeneration)
-                    await self.scheduleRegistrationRefresh(revision: revision)
-                case .snapshot:
-                    break
-                }
-            }
-        }
-    }
-
-    private func scheduleRegistrationRefresh(revision: UInt64) {
-        guard lifecyclePhase == .active,
-              lifecycleRevision == revision,
-              registrationRefreshTask == nil else { return }
-        registrationRefreshTask = Task { [weak self] in
-            do {
-                try await self?.refreshRegistration(revision: revision)
-            } catch {
-                // Terminal errors already revoke local policy and stop networking.
-            }
-        }
-    }
-
-    private func refreshRegistration(revision: UInt64) async throws {
-        defer { registrationRefreshTask = nil }
-        guard lifecyclePhase == .active,
-              lifecycleRevision == revision,
-              let previousBinding = localBinding else { return }
-        do {
-            let endpoint = try await supervisor.activeEndpoint()
-            let endpointID = await endpoint.identity()
-            let policy = try await resolvePolicy(
-                expectedEndpointID: endpointID,
-                revision: revision
-            )
-            guard policy.binding.bindingID == previousBinding.bindingID else {
-                throw CmxIrohClientRuntimeError.invalidLocalBinding
-            }
-            try await install(policy: policy, revision: revision, startRelays: false)
-            try requireCurrent(revision)
-            currentSnapshot = CmxIrohClientRuntimeSnapshot(
-                state: .active,
-                endpointID: endpointID,
-                bindingID: policy.binding.bindingID
-            )
-            if let registration = policy.registration,
-               let discovery = policy.discovery {
-                await handleBinding(registration, discovery)
-            } else if let lanRendezvous = policy.cachedLANRendezvous {
-                await handleCachedBindings(policy.cachedTargetBindings, lanRendezvous)
-            }
-        } catch {
-            guard !CmxIrohTrustBrokerClientError
-                .preservesVerifiedPolicyDuringRefresh(error) else {
-                // Keep the last exact verified binding while broker availability
-                // prevents a refresh.
-                return
-            }
-            lifecyclePhase = .stopping
-            lifecycleRevision &+= 1
-            let failureRevision = lifecycleRevision
-            currentSnapshot = CmxIrohClientRuntimeSnapshot(
-                state: .failed,
-                endpointID: nil,
-                bindingID: previousBinding.bindingID
-            )
-            await tearDownNetwork()
-            guard lifecyclePhase == .stopping,
-                  lifecycleRevision == failureRevision else {
-                throw error
-            }
-            try? await offlinePolicyCache?.deactivate()
-            await handlePolicyInvalidation()
-            if lifecyclePhase == .stopping,
-               lifecycleRevision == failureRevision {
-                lifecyclePhase = .failed
-            }
-            throw error
-        }
     }
 
 }

@@ -964,11 +964,19 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
                 }
             },
             handleBinding: { [weak self] registration, discovery in
+                guard await self?.allowsPersistence(
+                    accountID: accountID,
+                    revision: revision
+                ) == true else { return }
                 let binding = registration.binding
                 try? await credentialRepository.saveBinding(
                     CmxIrohBrokerBindingMetadata(binding: binding),
                     accountID: accountID
                 )
+                guard await self?.allowsPersistence(
+                    accountID: accountID,
+                    revision: revision
+                ) == true else { return }
                 await routeCatalog.replace(with: discovery, scope: revision)
                 await MainActor.run {
                     guard let self,
@@ -978,10 +986,18 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
                     self.lastKnownBindingTag = self.tag
                 }
             },
-            handleCachedBindings: { bindings, _ in
+            handleCachedBindings: { [weak self] bindings, _ in
+                guard await self?.allowsPersistence(
+                    accountID: accountID,
+                    revision: revision
+                ) == true else { return }
                 await routeCatalog.replaceCachedBindings(bindings, scope: revision)
             },
-            handleRelayCredential: { response, binding in
+            handleRelayCredential: { [weak self] response, binding in
+                guard await self?.allowsPersistence(
+                    accountID: accountID,
+                    revision: revision
+                ) == true else { return }
                 try? await credentialRepository.saveRelayCredential(
                     response,
                     accountID: accountID,
@@ -1031,6 +1047,15 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         }
         self.runtime = runtime
         activeAccountID = accountID
+    }
+
+    private func allowsPersistence(
+        accountID: String,
+        revision: UInt64
+    ) -> Bool {
+        revision == lifecycleRevision
+            && signOutPhase.allowsLifecycle
+            && observedAccountID == accountID
     }
 
     private func wipeLocalState() async {
