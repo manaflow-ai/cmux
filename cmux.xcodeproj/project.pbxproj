@@ -73,6 +73,7 @@
 		A5D41234A1B2C3D4E5F60718 /* AgentNotificationGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41235A1B2C3D4E5F60718 /* AgentNotificationGate.swift */; };
 		A5D41230A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41231A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift */; };
 		C3744E030000000000000001 /* AgentPIDProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */; };
+		B79500040000000000000001 /* AgentPortScanPIDInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500040000000000000002 /* AgentPortScanPIDInput.swift */; };
 		B79500020000000000000001 /* AgentPortScanRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500020000000000000002 /* AgentPortScanRequest.swift */; };
 		D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */; };
 		D3610B020000000000000001 /* AgentSessionAutoResumeSwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610B020000000000000002 /* AgentSessionAutoResumeSwiftTests.swift */; };
@@ -1860,6 +1861,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5D41235A1B2C3D4E5F60718 /* AgentNotificationGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationGate.swift; sourceTree = "<group>"; };
 		A5D41231A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationGateTests.swift; sourceTree = "<group>"; };
 		C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPIDProcessIdentity.swift; sourceTree = "<group>"; };
+		B79500040000000000000002 /* AgentPortScanPIDInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPortScanPIDInput.swift; sourceTree = "<group>"; };
 		B79500020000000000000002 /* AgentPortScanRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPortScanRequest.swift; sourceTree = "<group>"; };
 		D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionAutoResumeSettingsTests.swift; sourceTree = "<group>"; };
 		D3610B020000000000000002 /* AgentSessionAutoResumeSwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionAutoResumeSwiftTests.swift; sourceTree = "<group>"; };
@@ -4213,6 +4215,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7A506000000000000000001 /* TaskManagerView.swift */,
 				C7A503000000000000000001 /* TaskManagerSnapshot.swift */,
 				C7A504000000000000000001 /* TaskManagerTypes.swift */,
+				B79500040000000000000002 /* AgentPortScanPIDInput.swift */,
 				B79500020000000000000002 /* AgentPortScanRequest.swift */,
 				B79500030000000000000002 /* PortScanCoordination.swift */,
 				A5001541 /* PortScanner.swift */,
@@ -5751,6 +5754,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F65760210000000000000001 /* AgentHibernationTranscriptHookStoreRecord.swift in Sources */,
 				A5D41234A1B2C3D4E5F60718 /* AgentNotificationGate.swift in Sources */,
 				C3744E030000000000000001 /* AgentPIDProcessIdentity.swift in Sources */,
+				B79500040000000000000001 /* AgentPortScanPIDInput.swift in Sources */,
 				B79500020000000000000001 /* AgentPortScanRequest.swift in Sources */,
 				A9E020000000000000000008 /* AgentSessionBridge.swift in Sources */,
 				A9F20000000000000000000B /* AgentSessionBridgeError.swift in Sources */,

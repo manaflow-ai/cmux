@@ -109,13 +109,13 @@ struct PortScanCoordinationTests {
         let secondWorkspace = UUID()
         let first = AgentPortScanRequest(
             workspaceIds: [firstWorkspace],
-            agentPIDsByWorkspace: [firstWorkspace: [100]],
+            pidInput: .captured([firstWorkspace: [100]]),
             agentRevisions: [firstWorkspace: 1],
             requestID: coordination.makeRequestID()
         )
         let newer = AgentPortScanRequest(
             workspaceIds: [firstWorkspace, secondWorkspace],
-            agentPIDsByWorkspace: [firstWorkspace: [101], secondWorkspace: [200]],
+            pidInput: .captured([firstWorkspace: [101], secondWorkspace: [200]]),
             agentRevisions: [firstWorkspace: 2, secondWorkspace: 1],
             requestID: coordination.makeRequestID()
         )
@@ -123,13 +123,28 @@ struct PortScanCoordinationTests {
         #expect(coordination.enqueueAgentScan(first) == first)
         #expect(coordination.enqueueAgentScan(newer) == nil)
         let pending = try #require(coordination.finishAgentScan())
+        let pendingPIDs: [UUID: Set<Int>]
+        if case .captured(let pids) = pending.pidInput {
+            pendingPIDs = pids
+        } else {
+            pendingPIDs = [:]
+            Issue.record("Expected coalesced captured PID input")
+        }
         #expect(pending.workspaceIds == [firstWorkspace, secondWorkspace])
-        #expect(pending.agentPIDsByWorkspace[firstWorkspace] == [101])
-        #expect(pending.agentPIDsByWorkspace[secondWorkspace] == [200])
+        #expect(pendingPIDs[firstWorkspace] == [101])
+        #expect(pendingPIDs[secondWorkspace] == [200])
         #expect(pending.requestID == newer.requestID)
 
         #expect(coordination.enqueueAgentScan(first) == nil)
         #expect(coordination.finishAgentScan()?.requestID == first.requestID)
+    }
+
+    @Test("Provider refresh dominates captured PID inputs when requests coalesce")
+    func providerRefreshDominatesCapturedPIDs() {
+        let captured = AgentPortScanPIDInput.captured([UUID(): [100]])
+
+        #expect(captured.merging(.refreshProvider) == .refreshProvider)
+        #expect(AgentPortScanPIDInput.refreshProvider.merging(captured) == .refreshProvider)
     }
 
     @Test("Older asynchronous results are rejected after a newer result applies")
@@ -144,6 +159,27 @@ struct PortScanCoordinationTests {
         #expect(coordination.newAgentWorkspaces([workspaceID], requestID: newer) == [workspaceID])
         #expect(coordination.newAgentWorkspaces([workspaceID], requestID: older).isEmpty)
         #expect(coordination.isLatestAgentResult(workspaceId: workspaceID, requestID: newer))
+    }
+
+    @Test("PID refresh resolution filters stale workspaces before lifecycle removal")
+    func stalePIDRefreshCannotRemoveRestartedWorkspace() {
+        let staleWorkspace = UUID()
+        let inactiveWorkspace = UUID()
+        let request = AgentPortScanRequest(
+            workspaceIds: [staleWorkspace, inactiveWorkspace],
+            pidInput: .refreshProvider,
+            agentRevisions: [staleWorkspace: 1, inactiveWorkspace: 1],
+            requestID: 1
+        )
+
+        let resolution = request.resolvingPIDs(
+            [:],
+            currentRevisions: [staleWorkspace: 2, inactiveWorkspace: 1]
+        )
+
+        #expect(resolution.request.workspaceIds == [inactiveWorkspace])
+        #expect(resolution.inactiveWorkspaceIds == [inactiveWorkspace])
+        #expect(resolution.inactiveWorkspaceIds.contains(staleWorkspace) == false)
     }
 }
 

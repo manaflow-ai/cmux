@@ -42,19 +42,27 @@ extension RemoteSessionCoordinator {
               cmux_scan_complete=1
               printf '%s\\n' "$cmux_ss_output" | while IFS= read -r cmux_line; do
                 [ -n "$cmux_line" ] || continue
-                cmux_pids="$(printf '%s\\n' "$cmux_line" | awk '
+                cmux_pid_tokens="$(printf '%s\\n' "$cmux_line" | awk '
                   {
                     line = $0
-                    while (match(line, /pid=[0-9]+/)) {
-                      print substr(line, RSTART + 4, RLENGTH - 4)
+                    while (match(line, /pid=[^,)]*/)) {
+                      token = substr(line, RSTART, RLENGTH)
+                      if (token ~ /^pid=[0-9]+$/) {
+                        print substr(token, 5)
+                      } else {
+                        print "__cmux_invalid_pid__"
+                      }
                       line = substr(line, RSTART + RLENGTH)
                     }
                   }
                 ')"
-                [ -n "$cmux_pids" ] || continue
+                [ -n "$cmux_pid_tokens" ] || continue
+                case "$cmux_pid_tokens" in
+                  *__cmux_invalid_pid__*) : > "$cmux_scan_incomplete"; continue ;;
+                esac
                 cmux_port="$(printf '%s\\n' "$cmux_line" | awk '{print $4}' | sed -E 's/.*:([0-9]+)$/\\1/' | awk '/^[0-9]+$/ { print $1; exit }')"
                 if [ -z "$cmux_port" ]; then : > "$cmux_scan_incomplete"; continue; fi
-                for cmux_pid in $cmux_pids; do
+                for cmux_pid in $cmux_pid_tokens; do
                   cmux_tty_path="$(readlink "/proc/$cmux_pid/fd/0" 2>/dev/null || true)"
                   if [ -z "$cmux_tty_path" ]; then : > "$cmux_scan_incomplete"; continue; fi
                   cmux_tty="${cmux_tty_path##*/}"

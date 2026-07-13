@@ -363,7 +363,7 @@ final class PortScanner: @unchecked Sendable {
         }
 
         let agentRevisions = agentRevisionSnapshot(for: workspaceIds)
-        guard let agentPIDsProvider else {
+        guard agentPIDsProvider != nil else {
             trackedAgentWorkspaces.removeAll()
             agentPortSnapshot.reset()
             updateAgentScanTimerLocked()
@@ -376,46 +376,15 @@ final class PortScanner: @unchecked Sendable {
             )
             return
         }
-
-        Task { [weak self] in
-            guard let self else { return }
-            let agentPIDsByWorkspace = await MainActor.run {
-                agentPIDsProvider(workspaceIds)
-            }
-            self.queue.async { [weak self] in
-                self?.finishTrackedAgentScan(
-                    workspaceIds: workspaceIds,
-                    agentPIDsByWorkspace: agentPIDsByWorkspace,
-                    agentRevisions: agentRevisions
-                )
-            }
-        }
-    }
-
-    private func finishTrackedAgentScan(
-        workspaceIds: Set<UUID>,
-        agentPIDsByWorkspace: [UUID: Set<Int>],
-        agentRevisions: [UUID: UInt64]
-    ) {
-        let normalizedPIDsByWorkspace = agentPIDsByWorkspace.reduce(into: [UUID: Set<Int>]()) { partial, item in
-            let valid = Set(item.value.filter { $0 > 0 })
-            guard !valid.isEmpty else { return }
-            partial[item.key] = valid
-        }
-        let inactiveWorkspaceIds = workspaceIds.subtracting(normalizedPIDsByWorkspace.keys)
-        if !inactiveWorkspaceIds.isEmpty {
-            trackedAgentWorkspaces.subtract(inactiveWorkspaceIds)
-            agentPortSnapshot.remove(keys: inactiveWorkspaceIds)
-            scanCoordination.removeAgentWorkspaces(inactiveWorkspaceIds)
-            forceAgentResultWorkspaces.formUnion(inactiveWorkspaceIds)
-            updateAgentScanTimerLocked()
-        }
-
-        scanAgentPorts(
+        let request = AgentPortScanRequest(
             workspaceIds: workspaceIds,
-            agentPIDsByWorkspace: normalizedPIDsByWorkspace,
-            agentRevisions: agentRevisions
+            pidInput: .refreshProvider,
+            agentRevisions: agentRevisions,
+            requestID: scanCoordination.makeRequestID()
         )
+        if let requestToStart = scanCoordination.enqueueAgentScan(request) {
+            startAgentScan(requestToStart)
+        }
     }
 
     private func scanAgentPorts(
@@ -426,7 +395,7 @@ final class PortScanner: @unchecked Sendable {
         guard !workspaceIds.isEmpty else { return }
         let request = AgentPortScanRequest(
             workspaceIds: workspaceIds,
-            agentPIDsByWorkspace: agentPIDsByWorkspace,
+            pidInput: .captured(agentPIDsByWorkspace),
             agentRevisions: agentRevisions,
             requestID: scanCoordination.makeRequestID()
         )
@@ -436,11 +405,46 @@ final class PortScanner: @unchecked Sendable {
     }
 
     private func startAgentScan(_ request: AgentPortScanRequest) {
+        switch request.pidInput {
+        case .refreshProvider:
+            guard let agentPIDsProvider else {
+                completeAgentScan(request, agentPortsByWorkspace: [:], completeness: .incomplete)
+                return
+            }
+            Task { [weak self] in
+                guard let self else { return }
+                let agentPIDsByWorkspace = await MainActor.run {
+                    agentPIDsProvider(request.workspaceIds)
+                }
+                self.queue.async { [weak self] in
+                    self?.finishAgentPIDRefresh(request, agentPIDsByWorkspace: agentPIDsByWorkspace)
+                }
+            }
+        case .captured:
+            startAgentProcessScan(request)
+        }
+    }
+
+    private func finishAgentPIDRefresh(
+        _ request: AgentPortScanRequest,
+        agentPIDsByWorkspace: [UUID: Set<Int>]
+    ) {
+        let resolution = request.resolvingPIDs(agentPIDsByWorkspace, currentRevisions: agentRevisionByWorkspace)
+        let inactiveWorkspaceIds = resolution.inactiveWorkspaceIds
+        if !inactiveWorkspaceIds.isEmpty {
+            trackedAgentWorkspaces.subtract(inactiveWorkspaceIds)
+            agentPortSnapshot.remove(keys: inactiveWorkspaceIds)
+            scanCoordination.removeAgentWorkspaces(inactiveWorkspaceIds)
+            forceAgentResultWorkspaces.formUnion(inactiveWorkspaceIds)
+            updateAgentScanTimerLocked()
+        }
+        startAgentProcessScan(resolution.request)
+    }
+    private func startAgentProcessScan(_ request: AgentPortScanRequest) {
+        guard case .captured(let agentPIDsByWorkspace) = request.pidInput else { return }
         Task { [weak self] in
             guard let self else { return }
-            let agentProcessScan = await self.expandAgentProcessTree(
-                agentPIDsByWorkspace: request.agentPIDsByWorkspace
-            )
+            let agentProcessScan = await self.expandAgentProcessTree(agentPIDsByWorkspace: agentPIDsByWorkspace)
             let agentPidToWorkspaces = agentProcessScan.values
             guard !agentPidToWorkspaces.isEmpty else {
                 self.queue.async { [weak self] in
