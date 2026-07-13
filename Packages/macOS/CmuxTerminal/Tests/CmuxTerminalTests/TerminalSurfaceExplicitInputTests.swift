@@ -43,15 +43,15 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(fixture.paneHost.explicitInputCount == 1)
     }
 
-    @Test func explicitBindingActionNotifiesWithoutChangingInternalBindingActions() {
+    @Test func bindingActionsAlwaysNotifyThePaneHost() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
 
         #expect(!fixture.surface.performBindingAction("scroll_to_bottom"))
-        #expect(fixture.paneHost.explicitInputCount == 0)
+        #expect(fixture.paneHost.explicitInputCount == 1)
 
         #expect(!fixture.surface.performExplicitInputBindingAction("paste_from_clipboard"))
-        #expect(fixture.paneHost.explicitInputCount == 1)
+        #expect(fixture.paneHost.explicitInputCount == 2)
     }
 
     @Test func emptyInputDoesNotNotifyThePaneHost() {
