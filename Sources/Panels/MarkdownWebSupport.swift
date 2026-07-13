@@ -32,6 +32,7 @@ final class MarkdownWebView: WKWebView {
     var onReenterWindow: (() -> Void)?
 
     private var needsRenderingReattach = false
+    private var editableFocusStateConfirmed = false
     private var editableElementFocused = false
     private let viewerNavigationKeyRouter = ViewerNavigationKeyRouter(actions: [
         .diffViewerScrollDown, .diffViewerScrollUp,
@@ -72,15 +73,17 @@ final class MarkdownWebView: WKWebView {
               };
               document.addEventListener('focusin', publish, true);
               document.addEventListener('focusout', () => queueMicrotask(publish), true);
+              document.addEventListener('DOMContentLoaded', publish, { once: true });
               publish();
             })();
             """,
-            injectionTime: .atDocumentEnd,
+            injectionTime: .atDocumentStart,
             forMainFrameOnly: true
         ))
     }
 
     func markdownEditableFocusDidChange(_ editable: Bool) {
+        editableFocusStateConfirmed = true
         editableElementFocused = editable
         if editable {
             viewerNavigationKeyRouter.reset()
@@ -96,11 +99,19 @@ final class MarkdownWebView: WKWebView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        editableFocusStateConfirmed = false
         onPointerDown?()
         super.mouseDown(with: event)
     }
 
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        handleViewerNavigationKey(event) || super.performKeyEquivalent(with: event)
+    }
+
     override func keyDown(with event: NSEvent) {
+        if event.keyCode == 48 {
+            editableFocusStateConfirmed = false
+        }
         if handleViewerNavigationKey(event) {
             return
         }
@@ -108,7 +119,7 @@ final class MarkdownWebView: WKWebView {
     }
 
     func handleViewerNavigationKey(_ event: NSEvent) -> Bool {
-        guard !editableElementFocused else {
+        guard editableFocusStateConfirmed, !editableElementFocused else {
             viewerNavigationKeyRouter.reset()
             return false
         }

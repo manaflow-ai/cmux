@@ -756,6 +756,9 @@ final class CmuxWebView: WKWebView {
 #else
         func finish(_ result: Bool) -> Bool { result }
 #endif
+        if handleDiffViewerNavigationKey(event) {
+            return finish(true)
+        }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
         if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(
