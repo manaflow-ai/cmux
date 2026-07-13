@@ -430,7 +430,17 @@ import Testing
 
         let service = GitDiffService()
         let changed = try #require(service.changedFiles(repoRoot: repo.path))
-        let diff = try #require(service.fileDiff(repoRoot: repo.path, path: "Nested"))
+        let visible = try #require(changed.files.first { $0.path == "Nested" })
+        let diff = try #require(
+            service.fileDiff(
+                repoRoot: repo.path,
+                path: visible.path,
+                status: visible.status,
+                additions: visible.additions,
+                deletions: visible.deletions,
+                snapshotToken: visible.snapshotToken
+            )
+        )
 
         #expect(changed.files.map(\.path) == ["Nested"])
         #expect(diff.unifiedDiff.contains("Subproject commit"))

@@ -37,8 +37,9 @@ extension GitDiffService {
         let result = runGit(
             in: repoRoot,
             arguments: [
-                "diff", baseline, "--name-status", "-z", "--no-color", "--find-renames",
-                "--find-object=\(objectID)", "--diff-filter=DR", "--no-ext-diff", "--no-textconv",
+                "diff", baseline, "--ignore-submodules=none", "--name-status", "-z", "--no-color",
+                "--find-renames", "--find-object=\(objectID)", "--diff-filter=DR", "--no-ext-diff",
+                "--no-textconv",
             ],
             maxOutputBytes: maxOutputBytes
         )
@@ -84,9 +85,9 @@ extension GitDiffService {
         let trackedResult = runGit(
             in: repoRoot,
             arguments: [
-                "diff", baseline, "--no-ext-diff", "--no-textconv", "--no-color",
-                "--submodule=short", "--find-renames", "--", literalPathspec(path),
-                descendantExclusionPathspec(path),
+                "diff", baseline, "--ignore-submodules=none", "--no-ext-diff", "--no-textconv",
+                "--no-color", "--submodule=short", "--find-renames", "--",
+                literalPathspec(path), descendantExclusionPathspec(path),
             ],
             maxOutputBytes: trackedOutputBytes
         )

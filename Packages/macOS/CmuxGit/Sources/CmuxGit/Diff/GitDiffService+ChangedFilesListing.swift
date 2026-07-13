@@ -27,8 +27,8 @@ extension GitDiffService {
         let numstat = runGit(
             in: repoRoot,
             arguments: [
-                "diff", baseline, "-O/dev/null", "--numstat", "-z", "--no-color", "--find-renames",
-                "--no-ext-diff", "--no-textconv",
+                "diff", baseline, "--ignore-submodules=none", "-O/dev/null", "--numstat", "-z",
+                "--no-color", "--find-renames", "--no-ext-diff", "--no-textconv",
             ],
             maxOutputBytes: maxOutputBytes
         )
@@ -38,8 +38,8 @@ extension GitDiffService {
         let nameStatus = runGit(
             in: repoRoot,
             arguments: [
-                "diff", baseline, "-O/dev/null", "--name-status", "-z", "--no-color", "--find-renames",
-                "--no-ext-diff", "--no-textconv",
+                "diff", baseline, "--ignore-submodules=none", "-O/dev/null", "--name-status", "-z",
+                "--no-color", "--find-renames", "--no-ext-diff", "--no-textconv",
             ],
             maxOutputBytes: maxOutputBytes
         )
@@ -61,8 +61,8 @@ extension GitDiffService {
         let raw = runGit(
             in: repoRoot,
             arguments: [
-                "diff", baseline, "-O/dev/null", "--raw", "--full-index", "-z", "--no-color", "--find-renames",
-                "--no-ext-diff", "--no-textconv",
+                "diff", baseline, "--ignore-submodules=none", "-O/dev/null", "--raw", "--full-index",
+                "-z", "--no-color", "--find-renames", "--no-ext-diff", "--no-textconv",
             ],
             maxOutputBytes: rawOutputBytes
         )
