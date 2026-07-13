@@ -127,6 +127,7 @@ class TerminalController {
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     // Sendable value type; injected at construction so socket auth never reaches a global.
     private nonisolated let passwordStore: SocketControlPasswordStore
+    nonisolated let socketClientCapabilityAuthority: SocketClientCapabilityAuthority
     /// Process-wide proxy-tunnel broker (one shared tunnel per remote transport across all
     /// windows), constructed at this app-hub composition point and injected into each
     /// `WorkspaceRemoteSessionController`; ownership moves to the composition root with the
@@ -354,6 +355,7 @@ class TerminalController {
         )
     ) {
         self.passwordStore = passwordStore
+        self.socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
         let serverEventTarget = ServerEventTarget()
@@ -1470,34 +1472,26 @@ class TerminalController {
 
     private nonisolated func handleClient(_ socket: Int32, peerPid: pid_t? = nil) {
         defer { close(socket) }
+        let pid = peerPid ?? transport.peerProcessID(of: socket)
+        let peerHasSameUID = transport.peerHasSameUID(socket)
+        var authenticated = false
+        let lineReader = ControlClientLineReader(socket: socket)
 
-        // In cmuxOnly mode, verify the connecting process is a descendant of cmux.
-        // In allowAll mode (env-var only), skip the ancestry check.
-        if socketServer.accessMode == .cmuxOnly {
-            // Use pre-captured peer PID if available (captured in accept loop before
-            // the peer can disconnect), falling back to live lookup.
-            let pid = peerPid ?? transport.peerProcessID(of: socket)
-            guard SocketClientAuthorization().isCmuxOnlyClientAllowed(
+        while let line = lineReader.nextLine(shouldContinueReading: { socketServer.isRunning }) {
+            let receivedCommand = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !receivedCommand.isEmpty else { continue }
+            guard let trimmed = authorizedSocketCommand(
+                receivedCommand,
                 peerProcessID: pid,
-                peerHasSameUID: false,
-                isDescendant: { isDescendant($0) }
+                peerHasSameUID: peerHasSameUID
             ) else {
                 _ = writeSocketResponse(
-                    pid == nil
-                        ? "ERROR: Unable to verify client process"
+                    pid == nil ? "ERROR: Unable to verify client process"
                         : "ERROR: Access denied — only processes started inside cmux can connect",
                     to: socket
                 )
                 return
             }
-        }
-
-        var authenticated = false
-        let lineReader = ControlClientLineReader(socket: socket)
-
-        while let line = lineReader.nextLine(shouldContinueReading: { socketServer.isRunning }) {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
 
             var shouldCloseSocket = false
             autoreleasepool {

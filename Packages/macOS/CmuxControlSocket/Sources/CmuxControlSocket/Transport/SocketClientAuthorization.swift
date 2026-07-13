@@ -46,13 +46,19 @@ public struct SocketClientAuthorization {
     public func authorizedCommand(
         _ command: String,
         peerProcessID: pid_t?,
-        peerHasSameUID _: Bool,
-        capabilityAuthority _: SocketClientCapabilityAuthority,
+        peerHasSameUID: Bool,
+        capabilityAuthority: SocketClientCapabilityAuthority,
         isDescendant: (pid_t) -> Bool
     ) -> String? {
-        guard let peerProcessID, isDescendant(peerProcessID) else {
+        let envelope = SocketClientCapabilityEnvelope.unwrap(command)
+        if let peerProcessID, isDescendant(peerProcessID) {
+            return envelope?.command ?? command
+        }
+        guard peerHasSameUID,
+              let envelope,
+              capabilityAuthority.verifies(envelope.capability) else {
             return nil
         }
-        return SocketClientCapabilityEnvelope.unwrap(command)?.command ?? command
+        return envelope.command
     }
 }

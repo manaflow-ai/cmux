@@ -43,6 +43,7 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
     func currentSpawnPolicy() -> TerminalSurfaceSpawnPolicy {
         let integrations = AgentIntegrationSettingsStore(defaults: .standard)
         return TerminalSurfaceSpawnPolicy(
+            socketAuthenticationEnvironment: TerminalController.shared.socketClientCapabilityEnvironment(),
             claudeHooksEnabled: integrations.claudeCodeHooksEnabled,
             codexHooksEnabled: integrations.codexHooksEnabled,
             customClaudePath: integrations.customClaudePath,

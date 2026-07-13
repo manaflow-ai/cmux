@@ -1922,7 +1922,7 @@ final class SocketClient {
         )
         recordOperation(operation)
 
-        let payload = command + "\n"
+        let payload = capabilityWrappedCommand(command) + "\n"
         try writeAll(
             Data(payload.utf8),
             timeoutMessage: "Command timed out",
@@ -2014,7 +2014,7 @@ final class SocketClient {
 
         do {
             try writeAllNonBlocking(
-                Data((command + "\n").utf8),
+                Data((capabilityWrappedCommand(command) + "\n").utf8),
                 deadline: Date().addingTimeInterval(writeTimeout),
                 timeoutMessage: "Command timed out",
                 failureMessage: "Failed to write to socket"
