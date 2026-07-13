@@ -395,7 +395,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         #endif
         containerSizePt = pointSize
         containerScale = scale
-        setNeedsSizingPass()
+        setNeedsSizingPassAfterContainerQuiesces()
     }
 
     /// Ingests one sizing sample into the min-tracked pad constants.
@@ -471,6 +471,25 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         sizingPassScheduled = true
         DispatchQueue.main.async { [weak self] in
             self?.performSizingPassNow()
+        }
+    }
+
+    @ObservationIgnored private var containerQuiesceToken = 0
+
+    /// Container geometry arrives as a burst during any relayout, and each
+    /// intermediate frame is a transient the pass must not claim on — a
+    /// mid-relayout height or a pre-window-visible width would be pushed to
+    /// tmux and then never corrected once the layout settles. Coalesce the
+    /// pass to fire only after the geometry has been quiet briefly, so it
+    /// acts on the settled measurement. Structural triggers still use the
+    /// immediate ``setNeedsSizingPass``; only the noisy container path
+    /// debounces.
+    private func setNeedsSizingPassAfterContainerQuiesces() {
+        containerQuiesceToken &+= 1
+        let token = containerQuiesceToken
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(60)) { [weak self] in
+            guard let self, self.containerQuiesceToken == token else { return }
+            self.performSizingPassNow()
         }
     }
 
