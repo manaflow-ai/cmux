@@ -1383,6 +1383,12 @@ final class MobileHostService {
         switch request.method {
         case "mobile.workspace.list", "workspace.list":
             return nil
+        case "mobile.workspace.git.status", "workspace.git.status",
+             "mobile.workspace.git.diff", "workspace.git.diff":
+            return ticketWorkspaceAuthorizationError(
+                authorization: authorization,
+                workspaceSelection: workspaceSelection.value
+            )
         case "workspace.create":
             guard request.params["group_id"] == nil || request.params["group_id"] is NSNull else {
                 return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)

@@ -310,6 +310,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         switch method {
         case "mobile.workspace.list", "workspace.list":
             return false
+        case "mobile.workspace.git.status", "workspace.git.status",
+             "mobile.workspace.git.diff", "workspace.git.diff":
+            return !ticketCoverage.ticketCoversWorkspaceRequest(
+                ticket: ticket,
+                workspaceSelection: workspaceSelection.value
+            )
         case "workspace.create":
             return false
         case "workspace.action", "workspace.close":
@@ -346,7 +352,15 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         // Only the unauthenticated host probe is exempt. attach_ticket.create has no
         // attach token yet (it mints the ticket), so requiring auth routes it through
         // the Stack Auth account token: a ticket can only be created by a signed-in user.
-        return method != "mobile.host.status"
+        switch method {
+        case "mobile.host.status":
+            return false
+        case "mobile.workspace.git.status", "workspace.git.status",
+             "mobile.workspace.git.diff", "workspace.git.diff":
+            return true
+        default:
+            return true
+        }
     }
 
     private static func stringParamSelection(
