@@ -54,6 +54,7 @@ actor LivenessHostRouter {
     private var macDeviceID: String? = "test-mac"
     private var macInstanceTag: String? = "default"
     private var macDisplayName: String? = "Test Mac"
+    private var requestFailures: [String: (code: String?, message: String)] = [:]
     private var workspaceListResponseHook: (@Sendable () -> Void)?
     private var replayPayloads: [(text: String?, sequence: UInt64?, renderGrid: MobileTerminalRenderGridFrame?)] = []
     private var replayTexts: [String] = []
@@ -168,6 +169,10 @@ actor LivenessHostRouter {
         macDisplayName = displayName
     }
 
+    func failRequests(method: String, code: String?, message: String) {
+        requestFailures[method] = (code, message)
+    }
+
     func setWorkspaceListResponseHook(_ hook: @escaping @Sendable () -> Void) {
         workspaceListResponseHook = hook
     }
@@ -264,6 +269,13 @@ actor LivenessHostRouter {
     }
 
     func response(method: String?, id: String?, viewportReport: LivenessViewportReport? = nil) async -> Data? {
+        if let method, let failure = requestFailures[method] {
+            return try? Self.errorFrame(
+                id: id,
+                code: failure.code,
+                message: failure.message
+            )
+        }
         switch method {
         case "mobile.attach_ticket.create":
             return try? Self.resultFrame(
@@ -406,11 +418,17 @@ actor LivenessHostRouter {
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }
 
-    private static func errorFrame(id: String?, message: String) throws -> Data {
+    private static func errorFrame(
+        id: String?,
+        code: String? = nil,
+        message: String
+    ) throws -> Data {
+        var error: [String: Any] = ["message": message]
+        if let code { error["code"] = code }
         let envelope: [String: Any] = [
             "id": id ?? UUID().uuidString,
             "ok": false,
-            "error": ["message": message],
+            "error": error,
         ]
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }
