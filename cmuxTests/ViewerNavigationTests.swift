@@ -29,6 +29,23 @@ struct ViewerNavigationTests {
     }
 
     @Test
+    func diffViewerNavigationStateRestoresOnlyAfterCancelledNavigation() {
+        let state = DiffViewerNavigationDocumentState()
+        state.update(viewer: true, editable: false)
+        #expect(state.canHandleNavigation)
+
+        state.navigationDidStart()
+        #expect(!state.canHandleNavigation)
+        state.navigationDidCancel()
+        #expect(state.canHandleNavigation)
+
+        state.navigationDidStart()
+        state.navigationDidCommit()
+        state.navigationDidCancel()
+        #expect(!state.canHandleNavigation)
+    }
+
+    @Test
     func viewerEmacsBindingsDoNotConflictWithCommandPaletteNavigation() {
         let next = KeyboardShortcutSettings.Action.commandPaletteNext.defaultShortcut
         let previous = KeyboardShortcutSettings.Action.commandPalettePrevious.defaultShortcut
