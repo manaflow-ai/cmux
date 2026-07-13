@@ -27,11 +27,11 @@ import Testing
             dividerThickness: 1
         )
 
-        // Placement slack belongs to the native divider plan, not the tmux
-        // claim. Width has no chrome; height is two 30pt tab bars minus the
-        // divider-for-separator credit (1 − 10): 800/10 → 80,
-        // (300 − 51)/10 → 24.
-        #expect(grid?.columns == 80)
+        // The claim charges chrome plus one rail-slack point per pane (the
+        // widest child on the cross axis). Width: (800 − 1)/10 → 79; height
+        // is two (30pt tab bar + 1pt slack) minus the divider-for-separator
+        // credit (1 − 10): (300 − 53)/10 → 24.
+        #expect(grid?.columns == 79)
         #expect(grid?.rows == 24)
     }
 
@@ -52,10 +52,10 @@ import Testing
             dividerThickness: 1
         )
 
-        // Width chrome: 0 + 0 + (1 − 10) = −9 → (800 + 9)/10 → 80;
-        // height is one real 30pt tab bar: (300 − 30)/10 → 27.
+        // Width chrome: two slack points + (1 − 10) = −7 → (800 + 7)/10 → 80;
+        // height is one 30pt tab bar + 1pt slack: (300 − 31)/10 → 26.
         #expect(grid?.columns == 80)
-        #expect(grid?.rows == 27)
+        #expect(grid?.rows == 26)
     }
 
     @Test func mixedTreeSubtractsWorstPathChrome() throws {

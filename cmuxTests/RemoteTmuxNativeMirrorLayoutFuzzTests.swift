@@ -320,15 +320,15 @@ private struct SplitMix64 {
             let structure = Self.placeholderNode(scenario.shape)
             let window = scenario.window
 
-            // Leg 1: the claim is exactly floor((window − chrome) / cell),
-            // and it is a function of the WINDOW only. Chrome here is the
-            // claim-side residual — real chrome without the per-pane rail
-            // slack, which belongs to the native plan, not the claim.
+            // Leg 1: the claim is exactly floor((window − overhead) / cell),
+            // and it is a function of the WINDOW only. Overhead is chrome
+            // plus the per-pane rail slack the claim charges so whole-point
+            // rails can honor every claimed cell.
             guard let claim = metrics.clientGrid(layout: structure, contentSize: window) else {
                 Issue.record("\(scenario.name): no claim for a valid window")
                 continue
             }
-            let overhead = metrics.minimumResidual(of: structure)
+            let overhead = metrics.residual(of: structure)
             let expectCols = max(
                 RemoteTmuxMirrorGeometry.minCols,
                 Int(((window.width - overhead.width) / metrics.cellSize.width).rounded(.down))

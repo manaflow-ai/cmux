@@ -26,8 +26,13 @@ import Testing
             contentSize: CGSize(width: 300, height: 300)
         ))
 
-        #expect(grid.columns == 30)
-        #expect(grid.rows == 27)
+        // The claim charges the per-pane rail slack too: 300pt is EXACTLY
+        // 30 cells with zero chrome, and a slack-free claim at that boundary
+        // is the one the whole-point rails cannot always honor (the
+        // tight-container fuzz measures the dropped cell). One point per
+        // pane buys honest placement for every claimed cell.
+        #expect(grid.columns == 29)
+        #expect(grid.rows == 26)
         #expect(metrics.residual(of: pane()) == CGSize(width: 1, height: 31))
     }
 
@@ -65,10 +70,13 @@ import Testing
             contentSize: CGSize(width: 302, height: 340)
         ))
 
-        #expect(horizontalGrid.columns == 30)
-        #expect(horizontalGrid.rows == 27)
-        #expect(verticalGrid.columns == 30)
-        #expect(verticalGrid.rows == 28)
+        // One rail-slack point per pane comes off the claim (see the
+        // single-pane claim test); title rows still cost the claim nothing —
+        // they live in the tree's coordinates.
+        #expect(horizontalGrid.columns == 29)
+        #expect(horizontalGrid.rows == 26)
+        #expect(verticalGrid.columns == 29)
+        #expect(verticalGrid.rows == 27)
     }
 
     @Test func titleRowsOnlyChargePanesTouchingTheirConfiguredEdge() {
@@ -182,7 +190,7 @@ import Testing
             y: 0,
             content: .horizontal([first, second])
         )
-        let container = CGSize(width: 1_001, height: 240)
+        let container = CGSize(width: 1_003, height: 240)
         let claim = try #require(metrics.clientGrid(layout: layout, contentSize: container))
         #expect(claim.columns == 101)
 

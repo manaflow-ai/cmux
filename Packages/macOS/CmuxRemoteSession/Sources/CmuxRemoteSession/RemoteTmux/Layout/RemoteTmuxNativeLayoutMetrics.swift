@@ -83,11 +83,16 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     ) -> (columns: Int, rows: Int)? {
         guard contentSize.width > 1, contentSize.height > 1,
               cellSize.width > 1, cellSize.height > 1 else { return nil }
-        // Tmux owns pane-title rows inside the client grid: after the client
-        // claims the window size, tmux removes those rows from pane_height.
-        // Native layout adds them back to each pane's outer extent below, but
-        // subtracting them here would charge the same server chrome twice.
-        let overhead = clientGridResidual(of: layout)
+        // The claim charges real chrome AND the per-pane rail slack. The
+        // slack is not chrome — nothing paints it — but the native plan
+        // places extents on the whole-point rail, and at a container exactly
+        // at a slack-free claim boundary the rounded rails cannot give every
+        // pane its cells: with fractional chrome, one side of some split
+        // lands a device pixel under a cell boundary and the surface floors
+        // it away (the tight-container fuzz measures exactly this). Claiming
+        // one point per pane fewer cells keeps every claimed cell honestly
+        // placeable; the cost is at most one column/row at boundary sizes.
+        let overhead = residual(of: layout)
         let columns = Int(floor((contentSize.width - overhead.width) / cellSize.width))
         let rows = Int(floor((contentSize.height - overhead.height) / cellSize.height))
         return (
@@ -111,19 +116,13 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         )
     }
 
-    /// Native chrome residual without optional placement slack — the
-    /// claim-side chrome (rail slack belongs to the native plan). Public so
-    /// claim-exactness tests can state the boundary without re-deriving it.
-    public func minimumResidual(of node: RemoteTmuxLayoutNode) -> CGSize {
+    /// Native chrome residual without optional placement slack.
+    func minimumResidual(of node: RemoteTmuxLayoutNode) -> CGSize {
         residual(
             of: node,
             panePlacementSlack: 0,
             paneTitleRowPaneIDs: resolvedPaneTitleRowPaneIDs(for: node)
         )
-    }
-
-    private func clientGridResidual(of node: RemoteTmuxLayoutNode) -> CGSize {
-        residual(of: node, panePlacementSlack: 0, paneTitleRowPaneIDs: [])
     }
 
     private func residual(
