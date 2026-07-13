@@ -1,8 +1,8 @@
-import Bonsplit
-import Foundation
+public import Bonsplit
+public import Foundation
 
 /// Binary tmux tree with native chrome residuals folded once for a geometry snapshot.
-indirect enum RemoteTmuxNativeMeasuredSplitTree: Sendable {
+public indirect enum RemoteTmuxNativeMeasuredSplitTree: Sendable {
     case atomic(layout: RemoteTmuxLayoutNode, residual: CGSize)
     case split(
         layout: RemoteTmuxLayoutNode,
@@ -12,7 +12,7 @@ indirect enum RemoteTmuxNativeMeasuredSplitTree: Sendable {
         second: RemoteTmuxNativeMeasuredSplitTree
     )
 
-    init(tree: RemoteTmuxNativeSplitTree, metrics: RemoteTmuxNativeLayoutMetrics) {
+    public init(tree: RemoteTmuxNativeSplitTree, metrics: RemoteTmuxNativeLayoutMetrics) {
         switch tree {
         case .atomic(let layout):
             self = .atomic(layout: layout, residual: metrics.residual(of: layout))
@@ -33,14 +33,14 @@ indirect enum RemoteTmuxNativeMeasuredSplitTree: Sendable {
         }
     }
 
-    var layout: RemoteTmuxLayoutNode {
+    public var layout: RemoteTmuxLayoutNode {
         switch self {
         case .atomic(let layout, _), .split(let layout, _, _, _, _):
             return layout
         }
     }
 
-    var residual: CGSize {
+    public var residual: CGSize {
         switch self {
         case .atomic(_, let residual), .split(_, let residual, _, _, _):
             return residual

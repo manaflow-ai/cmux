@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Bonsplit
 import Foundation
 
@@ -111,12 +112,12 @@ extension RemoteTmuxWindowMirror {
         let treeNode = bonsplitController.treeSnapshot()
         let splitTree = RemoteTmuxNativeSplitTree(layout: renderedLayout)
         if let metrics = nativeLayoutMetrics() {
-            let plan = RemoteTmuxNativeSplitLayout.plan(
+            let planner = RemoteTmuxNativeSplitLayoutPlanner(metrics: metrics)
+            let plan = planner.plan(
                 tree: RemoteTmuxNativeMeasuredSplitTree(
                     tree: splitTree,
                     metrics: metrics
                 ),
-                metrics: metrics,
                 parentSize: containerSizePt
             )
             applyDividerPositions(plan: plan, treeNode: treeNode)
@@ -130,14 +131,14 @@ extension RemoteTmuxWindowMirror {
         }
     }
 
-    /// Applies a computed divider plan (``RemoteTmuxNativeSplitLayout``) to
+    /// Applies a computed divider plan (``RemoteTmuxNativeSplitLayoutPlanner``) to
     /// the bonsplit tree — position-by-position, so the plan's shape must
     /// match the snapshot it was computed against. A mismatch means the
     /// bonsplit tree drifted from the layout the plan was computed for;
     /// every divider below the mismatch keeps its stale fraction, so make
     /// it loud in DEBUG instead of silently misrendering.
     func applyDividerPositions(
-        plan: RemoteTmuxNativeSplitLayout.Plan,
+        plan: RemoteTmuxNativeSplitLayoutPlanner.Plan,
         treeNode: ExternalTreeNode
     ) {
         guard case .split(let split) = treeNode,

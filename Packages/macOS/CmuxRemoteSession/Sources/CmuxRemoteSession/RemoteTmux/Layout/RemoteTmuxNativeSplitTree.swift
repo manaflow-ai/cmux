@@ -1,17 +1,16 @@
-import Bonsplit
-import Foundation
+public import Bonsplit
 
 extension SplitOrientation {
     /// The orientation string Bonsplit's external tree snapshot carries for
     /// a split — the one place this mapping lives, so a guard comparing a
     /// snapshot against a tmux orientation can't drift per call site.
-    var bonsplitTreeName: String {
+    public var bonsplitTreeName: String {
         self == .horizontal ? "horizontal" : "vertical"
     }
 }
 
 /// Right-associated binary view of tmux's n-ary layout, matching Bonsplit's split tree.
-indirect enum RemoteTmuxNativeSplitTree: Sendable {
+public indirect enum RemoteTmuxNativeSplitTree: Sendable {
     case atomic(RemoteTmuxLayoutNode)
     case split(
         layout: RemoteTmuxLayoutNode,
@@ -20,7 +19,7 @@ indirect enum RemoteTmuxNativeSplitTree: Sendable {
         second: RemoteTmuxNativeSplitTree
     )
 
-    init(layout: RemoteTmuxLayoutNode) {
+    public init(layout: RemoteTmuxLayoutNode) {
         switch layout.content {
         case .pane:
             self = .atomic(layout)
@@ -31,7 +30,7 @@ indirect enum RemoteTmuxNativeSplitTree: Sendable {
         }
     }
 
-    var layout: RemoteTmuxLayoutNode {
+    public var layout: RemoteTmuxLayoutNode {
         switch self {
         case .atomic(let layout), .split(let layout, _, _, _):
             return layout
@@ -40,7 +39,7 @@ indirect enum RemoteTmuxNativeSplitTree: Sendable {
 
     /// Finds a pane and records whether the right-associated native tree gives
     /// it a split ancestor and resizable border along `orientation`.
-    func paneResizeContext(
+    public func paneResizeContext(
         paneID: Int,
         orientation: SplitOrientation
     ) -> (

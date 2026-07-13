@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Bonsplit
 import Foundation
 import Testing
@@ -27,7 +28,7 @@ private struct SplitMix64 {
 /// Seeded fuzz of the native mirror sizing pipeline, end to end and pure:
 /// claim a client grid for a random container (`clientGrid`), assign the
 /// claimed cells across a random tree the way tmux does, then run the exact
-/// divider walk the mirror applies (`RemoteTmuxNativeSplitLayout.plan`) and
+/// divider walk the mirror applies (`RemoteTmuxNativeSplitLayoutPlanner.plan`) and
 /// derive each pane's rendered grid from its outer size the way the terminal
 /// surface does. Every pane must render AT LEAST its assigned span — one
 /// column short means every full-width line in that pane wraps, which is the
@@ -138,12 +139,12 @@ private struct SplitMix64 {
                     tree: RemoteTmuxNativeSplitTree(layout: layout),
                     metrics: metrics
                 )
-                let plan = RemoteTmuxNativeSplitLayout.plan(
+                let planner = RemoteTmuxNativeSplitLayoutPlanner(metrics: metrics)
+                let plan = planner.plan(
                     tree: measured,
-                    metrics: metrics,
                     parentSize: container
                 )
-                let outers = RemoteTmuxNativeSplitLayout.outerSizes(of: plan)
+                let outers = planner.outerSizes(of: plan)
 
                 for leaf in Self.leaves(of: layout) {
                     guard case .pane(let paneId) = leaf.content else { continue }

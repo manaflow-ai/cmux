@@ -1,6 +1,47 @@
 import Foundation
 
 extension RemoteTmuxControlConnection {
+
+    @discardableResult
+    func recordWindowSizeClaim(
+        windowId: Int,
+        columns: Int,
+        rows: Int
+    ) -> (columns: Int, rows: Int) {
+        let previous = lastWindowSizes.updateValue((columns, rows), forKey: windowId)
+        if previous?.0 == maximumWindowClaimColumns, columns < maximumWindowClaimColumns {
+            maximumWindowClaimColumns = lastWindowSizes.values.reduce(0) { max($0, $1.0) }
+        } else {
+            maximumWindowClaimColumns = max(maximumWindowClaimColumns, columns)
+        }
+        if previous?.1 == maximumWindowClaimRows, rows < maximumWindowClaimRows {
+            maximumWindowClaimRows = lastWindowSizes.values.reduce(0) { max($0, $1.1) }
+        } else {
+            maximumWindowClaimRows = max(maximumWindowClaimRows, rows)
+        }
+        return (maximumWindowClaimColumns, maximumWindowClaimRows)
+    }
+
+    func removeWindowSizeClaim(windowId: Int) {
+        guard let removed = lastWindowSizes.removeValue(forKey: windowId) else {
+            sentWindowSizes.removeValue(forKey: windowId)
+            return
+        }
+        sentWindowSizes.removeValue(forKey: windowId)
+        if removed.0 == maximumWindowClaimColumns {
+            maximumWindowClaimColumns = lastWindowSizes.values.reduce(0) { max($0, $1.0) }
+        }
+        if removed.1 == maximumWindowClaimRows {
+            maximumWindowClaimRows = lastWindowSizes.values.reduce(0) { max($0, $1.1) }
+        }
+    }
+
+    func retainWindowSizeClaims(for liveWindowIDs: Set<Int>) {
+        lastWindowSizes = lastWindowSizes.filter { liveWindowIDs.contains($0.key) }
+        sentWindowSizes = sentWindowSizes.filter { liveWindowIDs.contains($0.key) }
+        maximumWindowClaimColumns = lastWindowSizes.values.reduce(0) { max($0, $1.0) }
+        maximumWindowClaimRows = lastWindowSizes.values.reduce(0) { max($0, $1.1) }
+    }
     /// Sizes the tmux control client to `columns`×`rows` cells (tmux
     /// `refresh-client -C`) so the remote windows/panes reflow to the rendered
     /// cmux grid. Without this a freshly attached session stays at ssh's default
@@ -86,7 +127,7 @@ extension RemoteTmuxControlConnection {
         // hidden-mirror claim ledger (updateClientSize's write-once gate) and
         // the per-window dedup baseline — skipping it on the fallback would
         // let every hidden mirror re-push a session-wide size forever.
-        lastWindowSizes[windowId] = (columns, rows)
+        let maximumClaim = recordWindowSizeClaim(windowId: windowId, columns: columns, rows: rows)
         lastSizeRequestWindowId = windowId
         guard supportsPerWindowSize else {
             setClientSize(columns: columns, rows: rows)
@@ -100,8 +141,8 @@ extension RemoteTmuxControlConnection {
         // every window near 80 regardless of pins. Keep the session-wide
         // client size at the running maximum of live claims (setClientSize
         // dedups and debounces; reseed replays it on reconnect).
-        let maxColumns = lastWindowSizes.values.map(\.0).max() ?? columns
-        let maxRows = lastWindowSizes.values.map(\.1).max() ?? rows
+        let maxColumns = maximumClaim.columns
+        let maxRows = maximumClaim.rows
         if lastClientSize == nil
             || lastClientSize!.columns < maxColumns
             || lastClientSize!.rows < maxRows {

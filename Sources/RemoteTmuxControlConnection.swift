@@ -147,6 +147,8 @@ final class RemoteTmuxControlConnection {
     /// The last size any writer requested per window — per-window dedup
     /// baseline and the reconnect re-pin table.
     var lastWindowSizes: [Int: (Int, Int)] = [:]
+    var maximumWindowClaimColumns = 0
+    var maximumWindowClaimRows = 0
     /// What the SERVER has actually been sent, per window — the dedup
     /// baseline. Distinct from ``lastWindowSizes`` (what callers requested):
     /// a request made while the connection is attaching is recorded but not
@@ -750,7 +752,7 @@ final class RemoteTmuxControlConnection {
             // Release the closed window's per-window sizing state: a stale
             // entry would be replayed by the reconnect reseed, and a pending
             // debounce could still fire at a dead @id target.
-            lastWindowSizes[id] = nil
+            removeWindowSizeClaim(windowId: id)
             windowSizeDebounceTasks[id]?.cancel()
             windowSizeDebounceTasks[id] = nil
             // Release the closed window's per-pane/per-window diagnostic state so

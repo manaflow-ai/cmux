@@ -42,4 +42,26 @@ import Testing
         connection.setWindowSize(windowId: 0, columns: 98, rows: -1)
         #expect(connection.lastWindowSizes[0] == nil)
     }
+
+    @Test func claimMaximaTrackReplacementRemovalAndRetention() {
+        let connection = makeConnection()
+        connection.recordWindowSizeClaim(windowId: 1, columns: 120, rows: 30)
+        connection.recordWindowSizeClaim(windowId: 2, columns: 90, rows: 44)
+        #expect(connection.maximumWindowClaimColumns == 120)
+        #expect(connection.maximumWindowClaimRows == 44)
+
+        connection.recordWindowSizeClaim(windowId: 1, columns: 80, rows: 20)
+        #expect(connection.maximumWindowClaimColumns == 90)
+        #expect(connection.maximumWindowClaimRows == 44)
+
+        connection.removeWindowSizeClaim(windowId: 2)
+        #expect(connection.maximumWindowClaimColumns == 80)
+        #expect(connection.maximumWindowClaimRows == 20)
+
+        connection.recordWindowSizeClaim(windowId: 3, columns: 140, rows: 50)
+        connection.retainWindowSizeClaims(for: [1])
+        #expect(Set(connection.lastWindowSizes.keys) == [1])
+        #expect(connection.maximumWindowClaimColumns == 80)
+        #expect(connection.maximumWindowClaimRows == 20)
+    }
 }

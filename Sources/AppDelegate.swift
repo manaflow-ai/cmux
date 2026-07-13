@@ -3546,24 +3546,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 displaySnapshot: displaySnapshot,
                 targetDisplay: targetDisplay
             ) {
-                // Same display, same geometry: keep the exact frame — unless
-                // its SIZE exceeds the display itself. No user interaction
-                // produces a window larger than its own screen (interactive
-                // resizing and zoom are both display-bounded), so such a
-                // frame can only be programmatic growth — a content-sizing
-                // feedback loop once persisted a 13,000-point-wide window
-                // here — and restoring it verbatim resurrects the pathology
-                // on every launch.
-                if frame.width <= targetDisplay.visibleFrame.width + 1,
-                   frame.height <= targetDisplay.visibleFrame.height + 1 {
-                    return frame
-                }
-                return clampFrame(
-                    frame,
-                    within: targetDisplay.visibleFrame,
-                    minWidth: minWidth,
-                    minHeight: minHeight
-                )
+                return preservingOrClampingExactFrame(frame, targetDisplay: targetDisplay, minWidth: minWidth, minHeight: minHeight)
             }
             return resolvedWindowFrame(
                 frame: frame,

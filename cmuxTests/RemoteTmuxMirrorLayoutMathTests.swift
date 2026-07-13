@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Bonsplit
 import Foundation
 import Testing
@@ -215,6 +216,23 @@ import Testing
 
         #expect(grid?.columns == 20)
         #expect(grid?.rows == 5)
+    }
+
+    @Test func railAllocationNeverPropagatesMoreThanHalfPointOfCarry() throws {
+        let metrics = RemoteTmuxNativeLayoutMetrics(
+            cellSize: CGSize(width: 10, height: 10),
+            surfacePadding: .zero,
+            tabBarHeight: 30,
+            dividerThickness: 1
+        )
+        let positive = try #require(metrics.railAllocation(
+            firstIdeal: 0, secondIdeal: 0, carry: 4, available: 1
+        ))
+        let negative = try #require(metrics.railAllocation(
+            firstIdeal: 0, secondIdeal: 0, carry: -4, available: 1
+        ))
+        #expect(positive.secondCarry == 0.5)
+        #expect(negative.secondCarry == -0.5)
     }
 
 }

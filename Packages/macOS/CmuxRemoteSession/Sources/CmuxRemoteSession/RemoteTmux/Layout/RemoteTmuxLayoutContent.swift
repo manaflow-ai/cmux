@@ -1,4 +1,4 @@
-enum RemoteTmuxLayoutContent: Sendable, Equatable {
+public enum RemoteTmuxLayoutContent: Sendable, Equatable {
     /// A leaf pane, identified by its numeric tmux pane id (the `%N` without the
     /// leading `%`).
     case pane(Int)

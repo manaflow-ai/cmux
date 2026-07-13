@@ -138,33 +138,6 @@ struct AppDelegateDisplayConfigRestoreTests {
     }
 
     @Test
-    func oversizedSavedFrameClampsToItsDisplay() throws {
-        // A saved frame larger than its own display can only be programmatic
-        // growth — interactive resizing and zoom are both display-bounded. A
-        // content-sizing feedback loop once persisted a 13,000-point-wide
-        // window, and exact-frame preservation round-tripped it verbatim on
-        // every launch, resurrecting the pathology. Same display, same
-        // geometry, absurd size: the restore must clamp.
-        let poisoned = CGRect(x: 4, y: 4, width: 13_375, height: 889)
-        let restored = try #require(
-            AppDelegate.resolvedWindowFrame(
-                from: SessionRectSnapshot(poisoned),
-                display: SessionDisplaySnapshot(
-                    displayID: 1,
-                    stableID: "uuid:BUILTIN",
-                    frame: SessionRectSnapshot(builtInFrame),
-                    visibleFrame: SessionRectSnapshot(builtInVisible)
-                ),
-                availableDisplays: [builtIn],
-                fallbackDisplay: builtIn
-            )
-        )
-        #expect(restored.width <= builtInVisible.width)
-        #expect(restored.height <= builtInVisible.height)
-        #expect(builtInVisible.contains(restored))
-    }
-
-    @Test
     func stableDisplayIdentityWinsWhenDisplayIDIsReassigned() throws {
         let savedFrame = CGRect(x: -1_600, y: 200, width: 1_000, height: 700)
         let savedDisplay = SessionDisplaySnapshot(

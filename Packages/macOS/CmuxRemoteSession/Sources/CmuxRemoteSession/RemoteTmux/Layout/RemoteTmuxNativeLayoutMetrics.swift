@@ -1,19 +1,19 @@
-import Bonsplit
-import Foundation
+public import Bonsplit
+public import Foundation
 
 /// Converts between tmux cell geometry and the outer sizes of native Bonsplit panes.
-struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
-    let cellSize: CGSize
-    let surfacePadding: CGSize
-    let tabBarHeight: CGFloat
-    let dividerThickness: CGFloat
+public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
+    public let cellSize: CGSize
+    public let surfacePadding: CGSize
+    public let tabBarHeight: CGFloat
+    public let dividerThickness: CGFloat
     /// Extra height each pane's outer size carries for tmux's own title row
     /// (`pane-border-status`): one cell when active, zero otherwise. tmux
     /// assigns the pane one row FEWER than its visual region — the title row
     /// is tmux chrome inside the pane's rectangle but outside its grid — so
     /// the claim must reserve it and the ideals must grant it, or every pane
     /// renders one row over and the accounting drifts.
-    var paneTitleRowHeight: CGFloat = 0
+    public var paneTitleRowHeight: CGFloat
     /// One point of slack per pane per axis: extents are quantized to whole
     /// points on cumulative rails rounded to NEAREST, so a pane sits within
     /// half a point of its exact span — and half a point below an exact
@@ -23,9 +23,24 @@ struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     /// nested view edges on half pixels where backing alignment shaves a
     /// device pixel, and rounding UP would overshoot into trailing siblings
     /// and compound across cross-axis nesting levels.
-    static let paneQuantizationSlack: CGFloat = 1
+    public static let paneQuantizationSlack: CGFloat = 1
 
-    func clientGrid(
+    /// Creates the point-space metrics used by the remote-tmux layout planner.
+    public init(
+        cellSize: CGSize,
+        surfacePadding: CGSize,
+        tabBarHeight: CGFloat,
+        dividerThickness: CGFloat,
+        paneTitleRowHeight: CGFloat = 0
+    ) {
+        self.cellSize = cellSize
+        self.surfacePadding = surfacePadding
+        self.tabBarHeight = tabBarHeight
+        self.dividerThickness = dividerThickness
+        self.paneTitleRowHeight = paneTitleRowHeight
+    }
+
+    public func clientGrid(
         layout: RemoteTmuxLayoutNode,
         contentSize: CGSize
     ) -> (columns: Int, rows: Int)? {
@@ -45,7 +60,7 @@ struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     /// A tmux separator already consumes one cell in the parent span. Replacing
     /// it with a native divider therefore contributes `divider - cell`, which
     /// may be negative when the native divider is thinner than a terminal cell.
-    func residual(of node: RemoteTmuxLayoutNode) -> CGSize {
+    public func residual(of node: RemoteTmuxLayoutNode) -> CGSize {
         switch node.content {
         case .pane:
             return CGSize(
@@ -76,7 +91,7 @@ struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         }
     }
 
-    func dividerFraction(
+    public func dividerFraction(
         first: RemoteTmuxLayoutNode,
         rest: [RemoteTmuxLayoutNode],
         orientation: SplitOrientation
@@ -86,7 +101,7 @@ struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         return firstExtent / max(1, firstExtent + restExtent)
     }
 
-    func dividerFraction(
+    public func dividerFraction(
         first: RemoteTmuxNativeMeasuredSplitTree,
         second: RemoteTmuxNativeMeasuredSplitTree,
         orientation: SplitOrientation
@@ -106,7 +121,7 @@ struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
 
     /// The exact points a subtree needs along one axis: its cell span plus
     /// its folded chrome residual.
-    func idealExtent(
+    public func idealExtent(
         of tree: RemoteTmuxNativeMeasuredSplitTree,
         along orientation: SplitOrientation
     ) -> CGFloat {
@@ -120,7 +135,7 @@ struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     /// `round(ideal + carry)` is "round the boundary's absolute coordinate,
     /// measured from the region's rounded leading edge", so allocations
     /// track exact boundary positions and per-split error cannot accumulate
-    /// with depth (see the plan walk in ``RemoteTmuxNativeSplitLayout`` for
+    /// with depth (see the plan walk in ``RemoteTmuxNativeSplitLayoutPlanner`` for
     /// how the carries flow through the tree).
     ///
     /// When the ideals do not fit (mid-resize, a co-attached client holding
@@ -132,7 +147,7 @@ struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     /// `secondCarry` is the rounding error of the freshly placed boundary —
     /// its exact position minus its rounded position — which is precisely
     /// the trailing subtree's leading-edge error along this split's axis.
-    func railAllocation(
+    public func railAllocation(
         firstIdeal: CGFloat,
         secondIdeal: CGFloat,
         carry: CGFloat,
@@ -154,10 +169,11 @@ struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         // one point of ideal, which the per-pane quantization slack covers.
         // Rounding up instead would overshoot into trailing siblings.
         let allocated = min(max(0, target.rounded()), available)
-        return (firstExtent: allocated, secondCarry: target - allocated)
+        let secondCarry = min(max(target - allocated, -0.5), 0.5)
+        return (firstExtent: allocated, secondCarry: secondCarry)
     }
 
-    func requestedTmuxSpan(
+    public func requestedTmuxSpan(
         first: RemoteTmuxLayoutNode,
         orientation: SplitOrientation,
         parentExtent: CGFloat,
@@ -173,7 +189,7 @@ struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         return max(1, Int(cells.rounded()))
     }
 
-    func requestedTmuxSpan(
+    public func requestedTmuxSpan(
         first: RemoteTmuxNativeMeasuredSplitTree,
         orientation: SplitOrientation,
         parentExtent: CGFloat,
@@ -187,7 +203,7 @@ struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     }
 
     /// Converts a native point delta to tmux cells along one split axis.
-    func requestedTmuxCellDelta(
+    public func requestedTmuxCellDelta(
         pointDelta: CGFloat,
         orientation: SplitOrientation
     ) -> Int {
@@ -199,7 +215,7 @@ struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
 
     /// Converts a requested outer native pane extent to terminal-grid cells,
     /// removing the pane chrome that tmux does not represent in its grid span.
-    func requestedTmuxSpan(
+    public func requestedTmuxSpan(
         pane: RemoteTmuxLayoutNode,
         orientation: SplitOrientation,
         outerExtent: CGFloat
@@ -211,7 +227,7 @@ struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         return max(1, NSNumber(value: Double(cells.rounded())).intValue)
     }
 
-    func childExtents(parentExtent: CGFloat, dividerPosition: CGFloat) -> (first: CGFloat, second: CGFloat) {
+    public func childExtents(parentExtent: CGFloat, dividerPosition: CGFloat) -> (first: CGFloat, second: CGFloat) {
         let available = max(0, parentExtent - dividerThickness)
         // Whole points: the native split view lays children out on the point
         // grid, so modeling the division unrounded would disagree with the
@@ -225,7 +241,7 @@ struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     /// model of a split's geometry, used by the divider plan (writing
     /// fractions to the native tree) and the drag sync walk (reading them
     /// back), so the two directions can never disagree about child sizes.
-    func childSizes(
+    public func childSizes(
         parentSize: CGSize,
         orientation: SplitOrientation,
         firstExtent: CGFloat

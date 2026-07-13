@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 // DEBUG-only socket verbs that exist solely for the UI test suite.
 //
 // They live in this dedicated file (never compiled into release — see the
@@ -178,8 +179,21 @@ extension TerminalController {
                         var mismatches: [String] = []
                         // While zoomed, the visible tree is what panes render.
                         let tree = mirror.visibleLayout ?? mirror.layout
+                        let leavesByPaneID = tree.leavesByPaneID
+                        let plannedOuterSizes: [Int: CGSize] = {
+                            guard let metrics = mirror.nativeLayoutMetrics() else { return [:] }
+                            let planner = RemoteTmuxNativeSplitLayoutPlanner(metrics: metrics)
+                            let plan = planner.plan(
+                                tree: RemoteTmuxNativeMeasuredSplitTree(
+                                    tree: RemoteTmuxNativeSplitTree(layout: tree),
+                                    metrics: metrics
+                                ),
+                                parentSize: mirror.containerSizePt
+                            )
+                            return planner.outerSizes(of: plan)
+                        }()
                         for leaf in tree.paneIDsInOrder {
-                            guard let node = tree.firstLeaf(withPaneId: leaf) else { continue }
+                            guard let node = leavesByPaneID[leaf] else { continue }
                             // Only a SHORTFALL is a defect: a pane one
                             // column under its span wraps every full line,
                             // while surplus is blank margin (the trailing
@@ -216,18 +230,8 @@ extension TerminalController {
                                 // means the split tree diverged from the
                                 // plan; plan==view but surface short means
                                 // the portal-hosted surface lags its view.
-                                if let metrics = mirror.nativeLayoutMetrics() {
-                                    let plan = RemoteTmuxNativeSplitLayout.plan(
-                                        tree: RemoteTmuxNativeMeasuredSplitTree(
-                                            tree: RemoteTmuxNativeSplitTree(layout: tree),
-                                            metrics: metrics
-                                        ),
-                                        metrics: metrics,
-                                        parentSize: mirror.containerSizePt
-                                    )
-                                    if let outer = RemoteTmuxNativeSplitLayout.outerSizes(of: plan)[leaf] {
-                                        detail += " plan=\(Int(outer.width))x\(Int(outer.height))"
-                                    }
+                                if let outer = plannedOuterSizes[leaf] {
+                                    detail += " plan=\(Int(outer.width))x\(Int(outer.height))"
                                 }
                                 if let view = mirror.panelsByPaneId[leaf]?.hostedView {
                                     detail += " view=\(Int(view.frame.width))x\(Int(view.frame.height))"

@@ -1,5 +1,5 @@
-import Bonsplit
-import Foundation
+public import Bonsplit
+public import Foundation
 
 /// The pure sizing walk behind the mirror's divider imposition: given a
 /// measured tmux split tree, the native metrics, and the container's actual
@@ -10,13 +10,20 @@ import Foundation
 /// allocation, per-level rounding — is testable without views: the fuzz
 /// drives random trees and containers through this exact walk and checks
 /// every pane still derives its assigned tmux span.
-enum RemoteTmuxNativeSplitLayout {
+public struct RemoteTmuxNativeSplitLayoutPlanner: Sendable {
+    /// Metrics applied by every plan this value computes.
+    public let metrics: RemoteTmuxNativeLayoutMetrics
+
+    /// Creates a planner for one measured terminal geometry profile.
+    public init(metrics: RemoteTmuxNativeLayoutMetrics) {
+        self.metrics = metrics
+    }
     /// One node of the computed plan, shaped like the measured tree it was
     /// derived from. `firstExtent` is the exact point extent to IMPOSE on
     /// the split's first child; `fraction` is the equivalent normalized
     /// value, kept for the paths that cannot impose (no container measured
     /// yet — `firstExtent` nil — and readers that think in ratios).
-    indirect enum Plan {
+    public indirect enum Plan: Sendable {
         case leaf(paneId: Int?, outer: CGSize?)
         case split(
             orientation: SplitOrientation,
@@ -49,9 +56,8 @@ enum RemoteTmuxNativeSplitLayout {
     /// extent mid-collapse), fractions fall back to the proportional
     /// ideal-over-ideal split and sizes stop being modeled below that
     /// point.
-    static func plan(
+    public func plan(
         tree: RemoteTmuxNativeMeasuredSplitTree,
-        metrics: RemoteTmuxNativeLayoutMetrics,
         parentSize: CGSize?,
         horizontalCarry: CGFloat = 0,
         verticalCarry: CGFloat = 0
@@ -101,13 +107,13 @@ enum RemoteTmuxNativeSplitLayout {
                     orientation == .horizontal ? $0.width : $0.height
                 } : nil,
                 first: plan(
-                    tree: firstTree, metrics: metrics,
+                    tree: firstTree,
                     parentSize: firstSize,
                     horizontalCarry: horizontalCarry,
                     verticalCarry: verticalCarry
                 ),
                 second: plan(
-                    tree: secondTree, metrics: metrics,
+                    tree: secondTree,
                     parentSize: secondSize,
                     horizontalCarry: orientation == .horizontal ? secondCarry : horizontalCarry,
                     verticalCarry: orientation == .vertical ? secondCarry : verticalCarry
@@ -118,7 +124,7 @@ enum RemoteTmuxNativeSplitLayout {
 
     /// Flattens a plan's leaves into pane-id → outer size (panes whose size
     /// the plan could not model are absent).
-    static func outerSizes(of plan: Plan) -> [Int: CGSize] {
+    public func outerSizes(of plan: Plan) -> [Int: CGSize] {
         switch plan {
         case .leaf(let paneId, let outer):
             guard let paneId, let outer else { return [:] }

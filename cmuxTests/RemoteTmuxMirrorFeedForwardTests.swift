@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import AppKit
 import Bonsplit
 import Foundation
@@ -327,16 +328,16 @@ import Testing
 
         // The settled impositions are the plan for the FINAL inputs.
         if let metrics = mirror.nativeLayoutMetrics() {
-            let plan = RemoteTmuxNativeSplitLayout.plan(
+            let planner = RemoteTmuxNativeSplitLayoutPlanner(metrics: metrics)
+            let plan = planner.plan(
                 tree: RemoteTmuxNativeMeasuredSplitTree(
                     tree: RemoteTmuxNativeSplitTree(layout: mirror.renderedLayout),
                     metrics: metrics
                 ),
-                metrics: metrics,
                 parentSize: mirror.containerSizePt
             )
             var planned: [CGFloat] = []
-            func walk(_ node: RemoteTmuxNativeSplitLayout.Plan) {
+            func walk(_ node: RemoteTmuxNativeSplitLayoutPlanner.Plan) {
                 if case .split(_, _, let extent, let first, let second) = node {
                     if let extent { planned.append(extent) }
                     walk(first); walk(second)

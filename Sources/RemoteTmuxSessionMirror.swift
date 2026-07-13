@@ -198,20 +198,6 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         windowIdByPane[paneId]
     }
 
-    /// Adds a tab for any window that doesn't yet have one, refreshes existing
-    /// tab titles after a tmux rename, activates/reconciles the in-tab multi-pane
-    /// renderer for multi-pane windows, then closes the workspace's original
-    /// local tab(s) once at least one remote tab exists.
-    /// Re-runs the sizing pass on every visible window mirror (used on
-    /// reconnect completion): the in-pass container re-validation makes each
-    /// pass re-derive its claim from the live window, correcting any size
-    /// that went stale across the transport gap.
-    func forceResizeAllVisibleMirrors() {
-        for mirror in windowMirrorByWindowId.values where mirror.isVisibleForSizing {
-            mirror.setNeedsSizingPassIgnoringInputs()
-        }
-    }
-
     func rebuild() {
         guard let workspace else { return }
         workspace.performRemoteTmuxMirrorMutation {
@@ -311,8 +297,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             // stale entries from windows tmux removed (server restarts
             // reuse low ids) replayed obsolete pins and dragged the client
             // floor to sizes no live window claims.
-            connection.lastWindowSizes.removeValue(forKey: windowId)
-            connection.sentWindowSizes.removeValue(forKey: windowId)
+            connection.removeWindowSizeClaim(windowId: windowId)
         }
         // Belt for a mirror that outlived its panel bookkeeping: a mirror
         // whose window tmux no longer lists must die even if the
@@ -324,8 +309,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         for (windowId, mirror) in windowMirrorByWindowId where !liveWindows.contains(windowId) {
             mirror.teardown()
             windowMirrorByWindowId[windowId] = nil
-            connection.lastWindowSizes.removeValue(forKey: windowId)
-            connection.sentWindowSizes.removeValue(forKey: windowId)
+            connection.removeWindowSizeClaim(windowId: windowId)
         }
         // Drop cached directories for panes tmux no longer reports, so the cache
         // stays bounded across window/pane churn (tmux pane ids never recur).
