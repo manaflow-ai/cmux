@@ -941,7 +941,9 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C9CFB398DF94D6DDEAF42D67 /* MobileTerminalRenderObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */; };
 		D1FF10000000000000000002 /* MobileWorkspaceDiffActiveRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF10000000000000000001 /* MobileWorkspaceDiffActiveRequest.swift */; };
 		D1FF10000000000000000004 /* MobileWorkspaceDiffFileResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF10000000000000000003 /* MobileWorkspaceDiffFileResult.swift */; };
+		D1FF1000000000000000000C /* MobileWorkspaceDiffPendingRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF1000000000000000000B /* MobileWorkspaceDiffPendingRequest.swift */; };
 		D1FF00000000000000000004 /* MobileWorkspaceDiffRequestCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF00000000000000000003 /* MobileWorkspaceDiffRequestCoordinator.swift */; };
+		D1FF1000000000000000000E /* MobileWorkspaceDiffRequestCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF1000000000000000000D /* MobileWorkspaceDiffRequestCoordinatorTests.swift */; };
 		D1FF10000000000000000006 /* MobileWorkspaceDiffSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF10000000000000000005 /* MobileWorkspaceDiffSnapshot.swift */; };
 		D1FF10000000000000000008 /* MobileWorkspaceDiffSnapshotResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF10000000000000000007 /* MobileWorkspaceDiffSnapshotResult.swift */; };
 		D1FF1000000000000000000A /* MobileWorkspaceDiffStatusResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF10000000000000000009 /* MobileWorkspaceDiffStatusResult.swift */; };
@@ -2696,7 +2698,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalRenderObserver.swift; sourceTree = "<group>"; };
 		D1FF10000000000000000001 /* MobileWorkspaceDiffActiveRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceDiffActiveRequest.swift; sourceTree = "<group>"; };
 		D1FF10000000000000000003 /* MobileWorkspaceDiffFileResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceDiffFileResult.swift; sourceTree = "<group>"; };
+		D1FF1000000000000000000B /* MobileWorkspaceDiffPendingRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceDiffPendingRequest.swift; sourceTree = "<group>"; };
 		D1FF00000000000000000003 /* MobileWorkspaceDiffRequestCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceDiffRequestCoordinator.swift; sourceTree = "<group>"; };
+		D1FF1000000000000000000D /* MobileWorkspaceDiffRequestCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceDiffRequestCoordinatorTests.swift; sourceTree = "<group>"; };
 		D1FF10000000000000000005 /* MobileWorkspaceDiffSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceDiffSnapshot.swift; sourceTree = "<group>"; };
 		D1FF10000000000000000007 /* MobileWorkspaceDiffSnapshotResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceDiffSnapshotResult.swift; sourceTree = "<group>"; };
 		D1FF10000000000000000009 /* MobileWorkspaceDiffStatusResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceDiffStatusResult.swift; sourceTree = "<group>"; };
@@ -3712,6 +3716,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				7ACA497A6831165EA879C642 /* MobileHostService.swift */,
 				D1FF00000000000000000003 /* MobileWorkspaceDiffRequestCoordinator.swift */,
 				D1FF10000000000000000001 /* MobileWorkspaceDiffActiveRequest.swift */,
+				D1FF1000000000000000000B /* MobileWorkspaceDiffPendingRequest.swift */,
 				D1FF10000000000000000003 /* MobileWorkspaceDiffFileResult.swift */,
 				D1FF10000000000000000005 /* MobileWorkspaceDiffSnapshot.swift */,
 				D1FF10000000000000000007 /* MobileWorkspaceDiffSnapshotResult.swift */,
@@ -5348,6 +5353,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FE002010 /* FileExplorerDoubleClickActionTests.swift */,
 				FE002003 /* FileSearchRipgrepParserTests.swift */,
 				9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */,
+				D1FF1000000000000000000D /* MobileWorkspaceDiffRequestCoordinatorTests.swift */,
 				C0DE73840000000000000002 /* MobileHostWorkspaceTicketAuthorizationTests.swift */,
 				B8B056D80000000000000002 /* MobileHostIdentityTests.swift */,
 				A7C0F0010000000000000001 /* MacPairedMacBackupPublisherScopeTests.swift */,
@@ -6311,6 +6317,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C9CFB398DF94D6DDEAF42D67 /* MobileTerminalRenderObserver.swift in Sources */,
 				D1FF10000000000000000002 /* MobileWorkspaceDiffActiveRequest.swift in Sources */,
 				D1FF10000000000000000004 /* MobileWorkspaceDiffFileResult.swift in Sources */,
+				D1FF1000000000000000000C /* MobileWorkspaceDiffPendingRequest.swift in Sources */,
 				D1FF00000000000000000004 /* MobileWorkspaceDiffRequestCoordinator.swift in Sources */,
 				D1FF10000000000000000006 /* MobileWorkspaceDiffSnapshot.swift in Sources */,
 				D1FF10000000000000000008 /* MobileWorkspaceDiffSnapshotResult.swift in Sources */,
@@ -7263,6 +7270,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				4C1A7E10B2D34F56A8C90013 /* MobileHostStatusVerificationLimiterTests.swift in Sources */,
 				C0DE73840000000000000001 /* MobileHostWorkspaceTicketAuthorizationTests.swift in Sources */,
 				9B08F916D7FF7626C6820727 /* MobilePairingConnectionTransitionTests.swift in Sources */,
+				D1FF1000000000000000000E /* MobileWorkspaceDiffRequestCoordinatorTests.swift in Sources */,
 				F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */,
 				13AB1A2E5DA6AD02DCAE971D /* MockBridgeInputCapture.swift in Sources */,
 				596100000000000000000001 /* NativeNotificationFallbackCommandTests.swift in Sources */,

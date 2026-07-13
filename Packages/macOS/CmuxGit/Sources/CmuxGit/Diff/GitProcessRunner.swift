@@ -33,25 +33,29 @@ struct GitProcessRunner: Sendable {
         in directory: String,
         arguments: [String],
         acceptedTerminationStatuses: Set<Int32>,
-        maxOutputBytes: Int?
+        maxOutputBytes: Int?,
+        deadlineSeconds: Double? = nil
     ) -> GitProcessResult {
         runExecutable(
             executableURL: gitExecutableURL,
             arguments: ["-C", directory] + arguments,
             acceptedTerminationStatuses: acceptedTerminationStatuses,
-            maxOutputBytes: maxOutputBytes
+            maxOutputBytes: maxOutputBytes,
+            deadlineSeconds: deadlineSeconds
         )
     }
 
     func runFileSystemStat(
         paths: [String],
         allowMissing: Bool,
-        maxOutputBytes: Int
+        maxOutputBytes: Int,
+        deadlineSeconds: Double? = nil
     ) -> GitProcessResult {
         guard !paths.isEmpty else {
             return GitProcessResult(rawOutput: Data(), output: "", terminationStatus: 0)
         }
-        let deadline = ProcessInfo.processInfo.systemUptime + processDeadlineSeconds
+        let deadline = ProcessInfo.processInfo.systemUptime
+            + effectiveDeadlineSeconds(deadlineSeconds)
         var accumulatedOutput = Data()
         for batch in argumentBatches(paths) {
             guard !Task.isCancelled else {
@@ -124,12 +128,14 @@ struct GitProcessRunner: Sendable {
     func runGitWorkingTreeHeads(
         repoRoot: String,
         paths: [String],
-        maxOutputBytes: Int
+        maxOutputBytes: Int,
+        deadlineSeconds: Double? = nil
     ) -> GitProcessResult {
         guard !paths.isEmpty else {
             return GitProcessResult(rawOutput: Data(), output: "", terminationStatus: 0)
         }
-        let deadline = ProcessInfo.processInfo.systemUptime + processDeadlineSeconds
+        let deadline = ProcessInfo.processInfo.systemUptime
+            + effectiveDeadlineSeconds(deadlineSeconds)
         var accumulatedOutput = Data()
         for batch in argumentBatches(paths) {
             guard !Task.isCancelled else {
@@ -241,7 +247,7 @@ struct GitProcessRunner: Sendable {
                 outputHandle: pipe.fileHandleForReading
             )
             let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-            timer.schedule(deadline: .now() + (deadlineSeconds ?? processDeadlineSeconds))
+            timer.schedule(deadline: .now() + effectiveDeadlineSeconds(deadlineSeconds))
             timer.setEventHandler { watchdog.fire() }
             timer.activate()
             defer { timer.cancel() }
@@ -285,6 +291,10 @@ struct GitProcessRunner: Sendable {
         } catch {
             return GitProcessResult(output: nil, failure: .launchFailed)
         }
+    }
+
+    private func effectiveDeadlineSeconds(_ requested: Double?) -> Double {
+        max(0, min(processDeadlineSeconds, requested ?? processDeadlineSeconds))
     }
 
     /// The wrapper shell starts the helper as a monitored background job, which

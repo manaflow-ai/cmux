@@ -33,6 +33,20 @@ extension GitDiffService {
         maxOutputBytes: Int = 4 * 1024 * 1024,
         maxFiles: Int = 4_000
     ) -> GitDiffQueryResult<GitChangedFiles> {
+        withOperationDeadline {
+            changedFilesResultWithinOperation(
+                repoRoot: repoRoot,
+                maxOutputBytes: maxOutputBytes,
+                maxFiles: maxFiles
+            )
+        }
+    }
+
+    private func changedFilesResultWithinOperation(
+        repoRoot: String,
+        maxOutputBytes: Int,
+        maxFiles: Int
+    ) -> GitDiffQueryResult<GitChangedFiles> {
         guard maxOutputBytes > 0, maxFiles > 0 else { return .notFound }
         let baseline: String
         switch diffBaselineResult(in: repoRoot) {

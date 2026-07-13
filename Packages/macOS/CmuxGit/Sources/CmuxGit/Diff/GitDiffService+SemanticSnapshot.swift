@@ -191,7 +191,8 @@ extension GitDiffService {
         let result = processRunner.runGitWorkingTreeHeads(
             repoRoot: repoRoot,
             paths: paths,
-            maxOutputBytes: maxOutputBytes
+            maxOutputBytes: maxOutputBytes,
+            deadlineSeconds: remainingOperationDeadlineSeconds
         )
         if let failure: GitDiffQueryResult<[String: String]> = queryFailure(from: result) {
             return failure

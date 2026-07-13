@@ -156,7 +156,8 @@ extension GitDiffService {
         let result = processRunner.runFileSystemStat(
             paths: paths,
             allowMissing: allowMissing,
-            maxOutputBytes: maxOutputBytes
+            maxOutputBytes: maxOutputBytes,
+            deadlineSeconds: remainingOperationDeadlineSeconds
         )
         if let failure: GitDiffQueryResult<[FileSystemIdentity]> = queryFailure(from: result) {
             return failure

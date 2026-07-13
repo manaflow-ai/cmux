@@ -96,7 +96,8 @@ extension GitDiffService {
             in: directory,
             arguments: arguments,
             acceptedTerminationStatuses: acceptedTerminationStatuses,
-            maxOutputBytes: maxOutputBytes
+            maxOutputBytes: maxOutputBytes,
+            deadlineSeconds: remainingOperationDeadlineSeconds
         )
     }
 }

@@ -200,35 +200,37 @@ extension TerminalController {
 
     private nonisolated static func mobileWorkspaceDiffStatusResultSync(directory: String) -> MobileWorkspaceDiffStatusResult {
         let service = GitDiffService()
-        let repoRoot: String
-        switch service.repositoryRootResult(for: directory) {
-        case .success(let root):
-            repoRoot = root
-        case .notFound:
-            return .repositoryNotFound
-        case .failed:
-            return .gitFailed
-        case .timedOut:
-            return .gitTimedOut
+        return service.withOperationDeadline {
+            let repoRoot: String
+            switch service.repositoryRootResult(for: directory) {
+            case .success(let root):
+                repoRoot = root
+            case .notFound:
+                return .repositoryNotFound
+            case .failed:
+                return .gitFailed
+            case .timedOut:
+                return .gitTimedOut
+            }
+            let changed: GitChangedFiles
+            switch service.changedFilesResult(
+                repoRoot: repoRoot,
+                maxOutputBytes: mobileWorkspaceDiffStatusReadCap,
+                maxFiles: mobileWorkspaceDiffMaxFiles
+            ) {
+            case .success(let value):
+                changed = value
+            case .notFound, .failed:
+                return .gitFailed
+            case .timedOut:
+                return .gitTimedOut
+            }
+            return .ok(
+                repoRoot: repoRoot,
+                files: changed.files,
+                truncated: changed.truncated
+            )
         }
-        let changed: GitChangedFiles
-        switch service.changedFilesResult(
-            repoRoot: repoRoot,
-            maxOutputBytes: mobileWorkspaceDiffStatusReadCap,
-            maxFiles: mobileWorkspaceDiffMaxFiles
-        ) {
-        case .success(let value):
-            changed = value
-        case .notFound, .failed:
-            return .gitFailed
-        case .timedOut:
-            return .gitTimedOut
-        }
-        return .ok(
-            repoRoot: repoRoot,
-            files: changed.files,
-            truncated: changed.truncated
-        )
     }
 
     private nonisolated static func mobileWorkspaceDiffFileResultSync(
@@ -242,52 +244,54 @@ extension TerminalController {
         expectedRepoRoot: String
     ) -> MobileWorkspaceDiffFileResult {
         let service = GitDiffService()
-        let repoRoot: String
-        switch service.repositoryRootResult(for: directory) {
-        case .success(let root):
-            repoRoot = root
-        case .notFound:
-            return .repositoryNotFound
-        case .failed:
-            return .gitFailed
-        case .timedOut:
-            return .gitTimedOut
+        return service.withOperationDeadline {
+            let repoRoot: String
+            switch service.repositoryRootResult(for: directory) {
+            case .success(let root):
+                repoRoot = root
+            case .notFound:
+                return .repositoryNotFound
+            case .failed:
+                return .gitFailed
+            case .timedOut:
+                return .gitTimedOut
+            }
+            // `expectedRepoRoot` identifies the repository returned by the status
+            // request. Comparing it directly avoids unsupervised filesystem probes
+            // and detects when the workspace starts pointing at another repository.
+            guard repoRoot == expectedRepoRoot else {
+                return .repositoryChanged
+            }
+            let diff: GitFileDiff
+            switch service.fileDiffResult(
+                repoRoot: repoRoot,
+                path: path,
+                oldPath: oldPath,
+                status: status,
+                additions: additions,
+                deletions: deletions,
+                snapshotToken: snapshotToken,
+                maxOutputBytes: mobileWorkspaceDiffReadCap
+            ) {
+            case .success(let value):
+                diff = value
+            case .notFound:
+                // The path and optional rename source came from the previous status
+                // snapshot. If that exact pair is no longer diffable, make the
+                // client refresh status instead of retrying stale row metadata.
+                return .repositoryChanged
+            case .failed:
+                return .gitFailed
+            case .timedOut:
+                return .gitTimedOut
+            }
+            let capped = utf8BoundaryCapped(diff.unifiedDiff, byteLimit: mobileWorkspaceDiffFileByteCap)
+            return .ok(
+                path: diff.path,
+                unifiedDiff: capped.text,
+                truncated: diff.truncated || capped.truncated
+            )
         }
-        // `expectedRepoRoot` identifies the repository returned by the status
-        // request. Comparing it directly avoids unsupervised filesystem probes
-        // and detects when the workspace starts pointing at another repository.
-        guard repoRoot == expectedRepoRoot else {
-            return .repositoryChanged
-        }
-        let diff: GitFileDiff
-        switch service.fileDiffResult(
-            repoRoot: repoRoot,
-            path: path,
-            oldPath: oldPath,
-            status: status,
-            additions: additions,
-            deletions: deletions,
-            snapshotToken: snapshotToken,
-            maxOutputBytes: mobileWorkspaceDiffReadCap
-        ) {
-        case .success(let value):
-            diff = value
-        case .notFound:
-            // The path and optional rename source came from the previous status
-            // snapshot. If that exact pair is no longer diffable, make the
-            // client refresh status instead of retrying stale row metadata.
-            return .repositoryChanged
-        case .failed:
-            return .gitFailed
-        case .timedOut:
-            return .gitTimedOut
-        }
-        let capped = utf8BoundaryCapped(diff.unifiedDiff, byteLimit: mobileWorkspaceDiffFileByteCap)
-        return .ok(
-            path: diff.path,
-            unifiedDiff: capped.text,
-            truncated: diff.truncated || capped.truncated
-        )
     }
 
     private nonisolated static func utf8BoundaryCapped(_ text: String, byteLimit: Int) -> (text: String, truncated: Bool) {

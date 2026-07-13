@@ -1,61 +1,9 @@
-public import Foundation
+internal import Foundation
 
 /// Runs git commands needed by the mobile diff-review flow.
 public struct GitDiffService: Sendable {
     let processRunner: GitProcessRunner
-
-    /// Creates a git diff service.
-    ///
-    /// - Parameters:
-    ///   - gitExecutableURL: Git executable URL.
-    ///   - fileSystemStatExecutableURL: Filesystem metadata executable URL.
-    ///   - environment: Base process environment.
-    ///   - processDeadlineSeconds: Wall-clock bound on each git subprocess.
-    ///     The mobile RPC timeout cancels only the awaiting task, never the
-    ///     spawned process, so a stalled git (fsmonitor hang, dead network
-    ///     filesystem) is terminated here instead of accumulating across
-    ///     phone retries.
-    public init(
-        gitExecutableURL: URL = URL(fileURLWithPath: "/usr/bin/git"),
-        fileSystemStatExecutableURL: URL = URL(fileURLWithPath: "/usr/bin/stat"),
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        processDeadlineSeconds: Double = 20
-    ) {
-        self.processRunner = GitProcessRunner(
-            gitExecutableURL: gitExecutableURL,
-            fileSystemStatExecutableURL: fileSystemStatExecutableURL,
-            environment: environment,
-            processDeadlineSeconds: processDeadlineSeconds
-        )
-    }
-
-    /// Resolves the enclosing repository root for a directory.
-    ///
-    /// - Parameter directory: Directory inside a git repository.
-    /// - Returns: Repository root, or `nil` when `directory` is not in a repo.
-    public func repositoryRoot(for directory: String) -> String? {
-        guard case .success(let root) = repositoryRootResult(for: directory) else { return nil }
-        return root
-    }
-
-    /// Resolves an enclosing repository root without flattening Git failures
-    /// into the same result as a directory outside a repository.
-    public func repositoryRootResult(for directory: String) -> GitDiffQueryResult<String> {
-        let result = runGit(in: directory, arguments: ["rev-parse", "--show-toplevel"])
-        switch result.failure {
-        case .timedOut:
-            return .timedOut
-        case .unsuccessfulExit:
-            return .notFound
-        case .cancelled, .launchFailed:
-            return .failed
-        case nil:
-            guard let output = result.successOutput,
-                  let root = removingGitLineTerminator(output),
-                  !root.isEmpty else { return .notFound }
-            return .success(root)
-        }
-    }
+    let operationDeadlineSeconds: Double
 
     /// Reads a unified diff for one repository-relative file path.
     ///
@@ -111,6 +59,30 @@ public struct GitDiffService: Sendable {
         deletions: Int? = nil,
         snapshotToken: String? = nil,
         maxOutputBytes: Int = 4 * 1024 * 1024
+    ) -> GitDiffQueryResult<GitFileDiff> {
+        withOperationDeadline {
+            fileDiffResultWithinOperation(
+                repoRoot: repoRoot,
+                path: path,
+                oldPath: oldPath,
+                status: status,
+                additions: additions,
+                deletions: deletions,
+                snapshotToken: snapshotToken,
+                maxOutputBytes: maxOutputBytes
+            )
+        }
+    }
+
+    private func fileDiffResultWithinOperation(
+        repoRoot: String,
+        path: String,
+        oldPath: String?,
+        status: GitDiffStatus?,
+        additions: Int?,
+        deletions: Int?,
+        snapshotToken: String?,
+        maxOutputBytes: Int
     ) -> GitDiffQueryResult<GitFileDiff> {
         guard maxOutputBytes > 0 else { return .notFound }
         // Validate on a trimmed copy only; the pathspec passed to git must stay

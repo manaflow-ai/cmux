@@ -63,7 +63,7 @@ struct DiffReviewHunkView: View {
         } else {
             L10n.string(
                 "mobile.diff.oldLineRangeAccessibility",
-                defaultValue: "Old lines \(hunk.oldStart) through \(hunk.oldStart + hunk.oldCount - 1)"
+                defaultValue: "Old lines \(hunk.oldStart) through \(hunk.oldStart + (hunk.oldCount - 1))"
             )
         }
         let newLines = if hunk.newCount == 0 {
@@ -71,7 +71,7 @@ struct DiffReviewHunkView: View {
         } else {
             L10n.string(
                 "mobile.diff.newLineRangeAccessibility",
-                defaultValue: "New lines \(hunk.newStart) through \(hunk.newStart + hunk.newCount - 1)"
+                defaultValue: "New lines \(hunk.newStart) through \(hunk.newStart + (hunk.newCount - 1))"
             )
         }
         return L10n.string(
