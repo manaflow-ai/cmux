@@ -118,6 +118,38 @@ struct AgentNotificationMoveRaceTests {
         return FileManager.default.fileExists(atPath: url.path)
     }
 
+    @Test("Workspace clear resolves a repeated pending surface only once")
+    func workspaceClearMemoizesPendingSurfaceResolution() {
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        defer { bus.discardPendingNotifications() }
+        let claimedTabId = UUID()
+        let liveTabId = UUID()
+        let surfaceId = UUID()
+        for index in 0..<128 {
+            bus.enqueueNotification(
+                tabId: claimedTabId,
+                surfaceId: surfaceId,
+                title: "Claude Code",
+                subtitle: "Completed",
+                body: "Queued \(index)",
+                coalesces: false
+            )
+        }
+
+        var resolutionCount = 0
+        let sequences = bus.pendingNotificationSequencesResolvingLiveOwner(
+            forTabId: liveTabId,
+            liveOwnerResolver: { _, _ in
+                resolutionCount += 1
+                return liveTabId
+            }
+        )
+
+        #expect(sequences.count == 128)
+        #expect(resolutionCount == 1)
+    }
+
     @Test("Moving a pane preserves its pending notification")
     func paneMovePreservesPendingNotification() throws {
         let fixture = try makeFixture()

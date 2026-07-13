@@ -53,7 +53,7 @@ extension CMUXCLI {
         var allowsPidProbe: Bool = true
     }
 
-    private enum LiveAgentPidProbeResult {
+    private enum LiveAgentDeliveryTargetProbeResult {
         case notAttempted
         case unsupported
         case failed
@@ -90,16 +90,27 @@ extension CMUXCLI {
                 break
             }
         }
-        if !routing.allowsPidProbe, rehomeAllowed {
+        if !routing.allowsPidProbe, rehomeAllowed, !client.isRelayBacked {
             let invocationSurfaceId = nonEmptyClaudeHookIdentifier(routing.surfaceArg)
             let recordedSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId)
             guard let invocationSurfaceId,
                   recordedSurfaceId == nil || recordedSurfaceId == invocationSurfaceId else { return nil }
-            return rehomedClaudeHookDeliveryTarget(
+            switch liveAgentSurfaceDeliveryTarget(
                 surfaceId: invocationSurfaceId,
                 claimedWorkspaceId: mappedSession?.workspaceId ?? routing.workspaceArg,
                 client: client
-            )
+            ) {
+            case .resolved(let live):
+                return live
+            case .unsupported:
+                // Older apps do not expose the resolver. Preserve the
+                // validated legacy chain used before live re-homing existed.
+                break
+            case .failed, .notAttempted:
+                // A present resolver rejected this invocation identity (or
+                // the identity could not be formed), so stay fail-closed.
+                return nil
+            }
         }
         guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
             preferred: mappedSession?.workspaceId,
@@ -180,7 +191,7 @@ extension CMUXCLI {
     private func liveAgentPidDeliveryTarget(
         pid: Int?,
         client: SocketClient
-    ) -> LiveAgentPidProbeResult {
+    ) -> LiveAgentDeliveryTargetProbeResult {
         // A relay-backed connection means this hook is not running in the
         // app's process namespace (SSH/cloud host): its CMUX_CLAUDE_PID is a
         // REMOTE pid, and resolving that number against the Mac's local
@@ -223,27 +234,49 @@ extension CMUXCLI {
         claimedWorkspaceId: String?,
         client: SocketClient
     ) -> ClaudeHookDeliveryTarget? {
+        guard case .resolved(let target) = liveAgentSurfaceDeliveryTarget(
+            surfaceId: surfaceId,
+            claimedWorkspaceId: claimedWorkspaceId,
+            client: client
+        ) else { return nil }
+        return target
+    }
+
+    private func liveAgentSurfaceDeliveryTarget(
+        surfaceId: String?,
+        claimedWorkspaceId: String?,
+        client: SocketClient
+    ) -> LiveAgentDeliveryTargetProbeResult {
         guard let surfaceId = nonEmptyClaudeHookIdentifier(surfaceId), isUUID(surfaceId) else {
-            return nil
+            return .notAttempted
         }
         var params: [String: Any] = ["surface_id": surfaceId]
         if let claimedWorkspaceId = nonEmptyClaudeHookIdentifier(claimedWorkspaceId), isUUID(claimedWorkspaceId) {
             params["workspace_id"] = claimedWorkspaceId
         }
-        guard let payload = try? client.sendV2(
-                  method: "agent.resolve_delivery_target",
-                  params: params,
-                  responseTimeout: 2.0
-              ),
+        let payload: [String: Any]
+        do {
+            payload = try client.sendV2(
+                method: "agent.resolve_delivery_target",
+                params: params,
+                responseTimeout: 2.0
+            )
+        } catch let error as CLIError where error.v2Code == "method_not_found"
+                || error.v2Code == "unrecognized_method" {
+            return .unsupported
+        } catch {
+            return .failed
+        }
+        guard
               (payload["source"] as? String) == "surface",
               let workspaceId = normalizedHandleValue(payload["workspace_id"] as? String),
               isUUID(workspaceId) else {
-            return nil
+            return .failed
         }
-        return ClaudeHookDeliveryTarget(
+        return .resolved(ClaudeHookDeliveryTarget(
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             isAuthoritative: true
-        )
+        ))
     }
 }

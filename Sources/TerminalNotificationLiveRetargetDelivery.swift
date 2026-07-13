@@ -118,18 +118,51 @@ extension TerminalMutationBus {
     /// `tabId` — drain-time delivery retargets them there (#7939), so a
     /// claimed-key-only match would let the notification reappear right after
     /// the clear. Two-phase: snapshot the pending addresses under the bus
-    /// lock, resolve each pending surface's live owner on the main actor
-    /// (mirroring `agentNotificationDeliveryTarget`'s preferred-workspace
-    /// resolution), then discard exactly the snapshotted sequences. Entries
-    /// enqueued between snapshot and discard are newer than the clear and are
-    /// deliberately preserved.
+    /// lock, resolve each UNIQUE pending surface's live owner on the main
+    /// actor (mirroring `agentNotificationDeliveryTarget`'s
+    /// preferred-workspace resolution), then discard exactly the snapshotted
+    /// sequences. Repeated non-coalescing notifications for one pane share a
+    /// cached lookup, keeping the global workspace scan bounded by unique live
+    /// surfaces instead of total backlog length. Entries enqueued between
+    /// snapshot and discard are newer than the clear and are deliberately
+    /// preserved.
     func pendingNotificationSequencesResolvingLiveOwner(forTabId tabId: UUID) -> Set<UInt64> {
+        pendingNotificationSequencesResolvingLiveOwner(
+            forTabId: tabId,
+            liveOwnerResolver: { claimedTabId, surfaceId in
+                AppDelegate.shared?.agentNotificationDeliveryTarget(
+                    claimedTabId: claimedTabId,
+                    surfaceId: surfaceId
+                )?.tabId
+            }
+        )
+    }
+
+    func pendingNotificationSequencesResolvingLiveOwner(
+        forTabId tabId: UUID,
+        liveOwnerResolver: (_ claimedTabId: UUID, _ surfaceId: UUID) -> UUID?
+    ) -> Set<UInt64> {
         var sequences: Set<UInt64> = []
+        var liveOwnerBySurfaceId: [UUID: UUID] = [:]
+        var unresolvedSurfaceIds: Set<UUID> = []
         for entry in pendingNotificationAddressesSnapshot() {
-            if let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
-                claimedTabId: entry.tabId,
-                surfaceId: entry.surfaceId
-            ), target.tabId == tabId {
+            guard let surfaceId = entry.surfaceId else {
+                if entry.tabId == tabId { sequences.insert(entry.sequence) }
+                continue
+            }
+            let liveOwner: UUID?
+            if let cached = liveOwnerBySurfaceId[surfaceId] {
+                liveOwner = cached
+            } else if unresolvedSurfaceIds.contains(surfaceId) {
+                liveOwner = nil
+            } else if let resolved = liveOwnerResolver(entry.tabId, surfaceId) {
+                liveOwnerBySurfaceId[surfaceId] = resolved
+                liveOwner = resolved
+            } else {
+                unresolvedSurfaceIds.insert(surfaceId)
+                liveOwner = nil
+            }
+            if liveOwner == tabId {
                 sequences.insert(entry.sequence)
             }
         }

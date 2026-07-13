@@ -24,6 +24,12 @@ final class TerminalNotificationPolicyInFlightStore {
 
     func discard(forTabId tabId: UUID, surfaceId: UUID?) {
         requests = requests.filter { _, request in
+            if !request.retargetsToLiveSurfaceOwner {
+                if let surfaceId {
+                    return request.tabId != tabId || request.surfaceId != surfaceId
+                }
+                return request.tabId != tabId
+            }
             if let surfaceId {
                 return request.surfaceId != surfaceId
             }
