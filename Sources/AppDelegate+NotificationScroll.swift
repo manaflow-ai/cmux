@@ -1,8 +1,39 @@
 import Bonsplit
+import CmuxNotifications
 import Foundation
 
 @MainActor
 extension AppDelegate {
+    static func notificationNavSnapshot(_ notification: TerminalNotification) -> NotificationNavSnapshot {
+        NotificationNavSnapshot(
+            id: notification.id,
+            tabId: notification.tabId,
+            surfaceId: notification.surfaceId,
+            panelId: notification.panelId,
+            isRead: notification.isRead,
+            clickAction: notification.clickAction.map(navClickAction),
+            scrollRow: notification.scrollPosition?.row,
+            scrollTotalRows: notification.scrollPosition?.totalRows,
+            scrollReplayGeneration: notification.scrollPosition?.replayGeneration,
+            scrollRowSpaceRevision: notification.scrollPosition?.rowSpaceRevision
+        )
+    }
+
+    func navScrollPosition(
+        row: Int?,
+        totalRows: Int?,
+        replayGeneration: String?,
+        rowSpaceRevision: UInt64?
+    ) -> TerminalNotificationScrollPosition? {
+        guard let row else { return nil }
+        return TerminalNotificationScrollPosition(
+            row: row,
+            totalRows: totalRows,
+            replayGeneration: replayGeneration,
+            rowSpaceRevision: rowSpaceRevision
+        )
+    }
+
     func terminalNotificationScrollPosition(
         tabId: UUID,
         surfaceId: UUID?,
@@ -22,7 +53,6 @@ extension AppDelegate {
         panelId: UUID?,
         workspace: Workspace?
     ) {
-        guard let position else { return }
         guard let workspace = workspace ?? workspaceFor(tabId: tabId) ?? tabManager?.tabs.first(where: { $0.id == tabId }) else {
             return
         }

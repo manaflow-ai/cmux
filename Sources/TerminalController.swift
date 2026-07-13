@@ -5440,7 +5440,7 @@ class TerminalController {
     ) -> String? {
         var actionSucceeded = false
         let exportedPath = GhosttyApp.terminalPasteboard.captureNextStandardClipboardWrite {
-            let ok = terminalPanel.performBindingAction(bindingAction)
+            let ok = terminalPanel.performBindingAction(bindingAction, recordsExplicitInput: false)
             actionSucceeded = ok
             return ok
         }

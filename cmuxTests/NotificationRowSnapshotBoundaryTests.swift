@@ -1,4 +1,6 @@
 import Foundation
+import CmuxTerminal
+import CmuxTerminalCore
 import SwiftUI
 import Testing
 
@@ -267,7 +269,12 @@ struct NotificationRowSnapshotBoundaryTests {
             createdAt: Date(timeIntervalSince1970: 1_700_000_000),
             isRead: false,
             paneFlash: true,
-            scrollPosition: TerminalNotificationScrollPosition(row: 42, totalRows: 100)
+            scrollPosition: TerminalNotificationScrollPosition(
+                row: 42,
+                totalRows: 100,
+                replayGeneration: "replay-1",
+                rowSpaceRevision: 7
+            )
         )
         store.replaceNotificationsForTesting([notification])
 
@@ -275,6 +282,8 @@ struct NotificationRowSnapshotBoundaryTests {
         let panelSnapshot = try #require(snapshot.panels.first { $0.id == panelId })
         #expect(panelSnapshot.notifications?.first?.scrollPosition?.row == 42)
         #expect(panelSnapshot.notifications?.first?.scrollPosition?.totalRows == 100)
+        #expect(panelSnapshot.notifications?.first?.scrollPosition?.replayGeneration == "replay-1")
+        #expect(panelSnapshot.notifications?.first?.scrollPosition?.rowSpaceRevision == 7)
 
         store.replaceNotificationsForTesting([])
         let restored = Workspace()
@@ -283,6 +292,8 @@ struct NotificationRowSnapshotBoundaryTests {
         let restoredNotification = try #require(store.latestNotification(forTabId: restored.id))
         #expect(restoredNotification.scrollPosition?.row == 42)
         #expect(restoredNotification.scrollPosition?.totalRows == 100)
+        #expect(restoredNotification.scrollPosition?.replayGeneration == "replay-1")
+        #expect(restoredNotification.scrollPosition?.rowSpaceRevision == 7)
     }
 
     // MARK: - Fixtures

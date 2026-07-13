@@ -15,6 +15,9 @@ public protocol TerminalSurfacePaneHosting: NSView {
     /// Cancels any queued focus request for this container.
     func cancelFocusRequest()
 
+    /// Records explicit user or automation input so transient navigation can be canceled.
+    func noteExplicitInput()
+
     /// Records whether the pane is visible in the UI (drives occlusion and
     /// renderer reclamation).
     func setVisibleInUI(_ visible: Bool)

@@ -129,7 +129,6 @@ final class TerminalPanel: Panel, ObservableObject {
     var displayIcon: String? {
         "terminal.fill"
     }
-
     func updateShellActivityState(_ state: PanelShellActivityState) {
         if shellActivity.state != state {
             shellActivity.state = state
@@ -755,10 +754,8 @@ final class TerminalPanel: Panel, ObservableObject {
         }
     }
 
-    func performBindingAction(_ action: String) -> Bool {
-        guard !isAgentHibernated else { return false }
-        return surface.performBindingAction(action)
-    }
+    func performBindingAction(_ action: String) -> Bool { performBindingAction(action, recordsExplicitInput: true) }
+    func performBindingAction(_ action: String, recordsExplicitInput: Bool) -> Bool { guard !isAgentHibernated else { return false }; return surface.performBindingAction(action, recordsExplicitInput: recordsExplicitInput) }
 
     @discardableResult
     func clearScreenKeepingScrollback() -> Bool {

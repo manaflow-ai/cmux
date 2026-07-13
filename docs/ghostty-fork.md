@@ -12,17 +12,35 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `e215e78bf`. It combines the previous cmux pin
-`dd726a9a6`, current fork `main` (`8495e581a`), and upstream
+Current cmux pinned fork head: `eb500e9f4`. It extends the prior cmux pin
+`096622763`, current fork `main` (`81a6daa8e`), and upstream
 `ghostty-org/ghostty` `main` through `7e02af879` (2026-07-09), followed by the
 render-grid preserved-page OOM fix, lock-free selection notifications, and
-compressed-storage-preserving full scrollback reads.
+compressed-storage-preserving full scrollback reads. It also exports a
+stream-ordered scrollbar snapshot on working-directory actions for cmux
+notification navigation. An opaque row-space identity combines the surface
+incarnation, active screen key and generation, and a monotonic local revision,
+invalidating saved positions after runtime recreation, primary/alternate screen
+switches, alternate-screen recreation, reflow, reset, erasure, suffix trimming,
+or scrollback eviction. Embedded
+hosts can read geometry and identity atomically from terminal state without
+waiting for renderer publication. The synchronous read uses Ghostty's
+starvation-aware terminal-state handoff under sustained output. Absolute-row
+restores compare the expected identity and scroll under the same terminal lock,
+then return the resulting authoritative scrollbar snapshot.
 Published via
 https://github.com/manaflow-ai/ghostty/pull/96 and
 https://github.com/manaflow-ai/ghostty/pull/99 and
 https://github.com/manaflow-ai/ghostty/pull/104 and
 https://github.com/manaflow-ai/ghostty/pull/105 and
-https://github.com/manaflow-ai/ghostty/pull/106.
+https://github.com/manaflow-ai/ghostty/pull/106 and
+https://github.com/manaflow-ai/ghostty/pull/111.
+The exact pin remains permanently reachable through the versioned framework
+release tag below, independent of the feature branch lifecycle. The fork's
+default branch is unchanged because cmux changes may not be pushed there
+directly.
+Its prebuilt framework is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-eb500e9f45c8b6ffa6043350ec1488a42d195406-crashsubdir-cmux-crash-v1.
 
 ### Upstream TLDR (`d560c645..7e02af879`)
 
@@ -84,9 +102,17 @@ https://github.com/manaflow-ai/ghostty/pull/106.
    wide/grapheme cells, and compressed-page ownership. Upstream conflicts should
    keep this beside the existing embedded read-text APIs and retain
    `PageListFormatter.pagePreservingState` rather than restoring cold pages.
+10. OSC 7 processing copies `PageList.scrollbar()` into the PWD message before
+    parsing later PTY bytes. The embedded PWD action carries that exact snapshot
+    to cmux, which restores from the marker's stream position instead of a later
+    callback-time query or the Swift backing layer that Ghostty replaces with an
+    `IOSurfaceLayer` at runtime.
 
-Verified with Zig 0.15.2: compression, formatter, selection activity, and
-libghostty-vt compression tests,
+Verified with Zig 0.15.2: the stream-ordered PWD action passed the focused Zig
+test and universal GhosttyKit build. Every macOS/iOS archive contains the
+extended PWD action ABI. The
+existing fork was also verified with compression, formatter, selection
+activity, and libghostty-vt compression tests,
 the cmux link-click regression test, the `wasm32-freestanding` libghostty-vt
 build, a clean universal GhosttyKit build, tagged cmux reloads `gcmp` and
 `gsel2`, and live accessibility reads across select-all, endpoint adjustment,
@@ -96,7 +122,8 @@ https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5ae712a89479f16d
 
 ### Previous pin
 
-The previous cmux pin was `1ae98c991`. It was superseded by `e215e78bf` after
+The previous cmux pin was `5ae712a89`, which added bounded VT screen-tail
+export. The earlier pin `1ae98c991` was superseded by `e215e78bf` after
 full scrollback formatting was changed to preserve compressed storage and
 selection notifications moved to a lock-free terminal-wide epoch. The initial
 compression merge for this update was `870ed36f9`; it was superseded by

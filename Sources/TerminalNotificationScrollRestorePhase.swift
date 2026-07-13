@@ -1,0 +1,19 @@
+nonisolated enum TerminalNotificationScrollRestorePhase: Equatable {
+    case idle
+    case sessionScrollbackReplayActive(SessionScrollbackReplayCompletionMarker)
+    case pending(
+        TerminalNotificationScrollPosition,
+        sessionScrollbackReplayCompletionMarker: SessionScrollbackReplayCompletionMarker?
+    )
+
+    var sessionScrollbackReplayCompletionMarker: SessionScrollbackReplayCompletionMarker? {
+        switch self {
+        case .idle:
+            return nil
+        case .sessionScrollbackReplayActive(let marker):
+            return marker
+        case .pending(_, let marker):
+            return marker
+        }
+    }
+}
