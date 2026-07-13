@@ -332,6 +332,31 @@ struct NotificationScrollRestoreLifecycleTests {
         #expect(!panel.hostedView.hasPendingNotificationScrollRestore)
     }
 
+    @Test func internalBindingActionPreservesPendingRestore() {
+        let panel = TerminalPanel(workspaceId: UUID())
+        defer { panel.surface.releaseSurfaceForTesting() }
+        panel.hostedView.notificationScrollRestoreState = .replaying(
+            expectedBoundary: "expected-end",
+            pendingPosition: TerminalNotificationScrollPosition(row: 100, totalRows: 400)
+        )
+
+        _ = panel.performInternalBindingAction("write_screen_file:copy,vt")
+
+        #expect(panel.hostedView.hasPendingNotificationScrollRestore)
+    }
+
+    @Test func renderedFrameDemandIsScopedToTheRestoringSurface() {
+        let restoringSurface = NotificationLifecycleRecordingSurfaceView(frame: .zero)
+        let unrelatedSurface = NotificationLifecycleRecordingSurfaceView(frame: .zero)
+
+        let release = restoringSurface.retainTargetedRenderedFrameNotifications()
+
+        #expect(restoringSurface.targetedRenderedFrameNotificationDemand.isActive)
+        #expect(!unrelatedSurface.targetedRenderedFrameNotificationDemand.isActive)
+        release()
+        #expect(!restoringSurface.targetedRenderedFrameNotificationDemand.isActive)
+    }
+
     @Test func missingRenderedFrameDeadlineReleasesDemandWithoutDiscardingRestore() {
         let boundary = "test-replay-boundary"
         let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)

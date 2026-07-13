@@ -20,12 +20,21 @@ public final class GhosttyMetalLayer: CAMetalLayer {
     nonisolated(unsafe) private var lastDrawableTime: CFTimeInterval = 0
     nonisolated(unsafe) private weak var frameReceiver: (any TerminalRenderedFrameReceiving)?
     nonisolated(unsafe) private var renderDemand: (any RenderDemandGating)?
+    nonisolated(unsafe) private var targetedRenderDemand: (any RenderDemandGating)?
 
     /// Injects the rendered-frame demand gate that decides whether vending a
     /// drawable should notify the receiver.
     public func setRenderDemand(_ renderDemand: (any RenderDemandGating)?) {
         lock.lock()
         self.renderDemand = renderDemand
+        lock.unlock()
+    }
+
+    /// Injects demand scoped to this layer's surface. A drawable notifies its
+    /// receiver when either process-wide or surface-specific demand is active.
+    public func setTargetedRenderDemand(_ renderDemand: (any RenderDemandGating)?) {
+        lock.lock()
+        targetedRenderDemand = renderDemand
         lock.unlock()
     }
 
@@ -62,9 +71,12 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         let generation = frameGeneration
         lastDrawableTime = CACurrentMediaTime()
         let renderDemand = renderDemand
+        let targetedRenderDemand = targetedRenderDemand
         let frameReceiver = frameReceiver
         lock.unlock()
-        guard renderDemand?.isActive == true else { return drawable }
+        guard renderDemand?.isActive == true || targetedRenderDemand?.isActive == true else {
+            return drawable
+        }
         if let frameReceiver {
             // Hop to the main actor exactly like the legacy
             // DispatchQueue.main.async dispatch (the main-actor executor is

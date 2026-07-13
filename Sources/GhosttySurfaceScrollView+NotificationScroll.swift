@@ -247,7 +247,7 @@ extension GhosttySurfaceScrollView {
     private func beginNotificationScrollRestoreFrameWait() {
         cancelNotificationScrollRestoreFrameWait()
         scheduleNotificationScrollRestoreFrameDeadline()
-        releaseNotificationScrollRestoreFrameDemand = GhosttyNSView.retainRenderedFrameNotifications()
+        releaseNotificationScrollRestoreFrameDemand = surfaceView.retainTargetedRenderedFrameNotifications()
         notificationScrollRestoreBoundaryFrameGeneration = surfaceView.currentRenderedFrameSourceGeneration()
         notificationScrollRestoreRenderedFrameObserver = NotificationCenter.default.addObserver(
             forName: .ghosttyDidRenderFrame,
@@ -278,7 +278,7 @@ extension GhosttySurfaceScrollView {
     private func scheduleNotificationScrollRestoreFrameDeadline() {
         notificationScrollRestoreFrameDeadlineTimer?.invalidate()
         // The rendered frame is the authority signal. This deadline only prevents
-        // a hidden or torn-down renderer from retaining process-wide frame demand.
+        // a hidden or torn-down renderer from retaining this surface's frame demand.
         let timer = Timer(timeInterval: 10, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.expireNotificationScrollRestoreFrameDeadline()

@@ -3419,16 +3419,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var _renderedFrameFlushScheduled = false
     private var _pendingRenderedFrameGeneration: UInt64 = 0
     private let _renderedFrameLock = NSLock()
+    let targetedRenderedFrameNotificationDemand = RenderDemandCounter()
     nonisolated let selectionAccessibilitySignal = TerminalSelectionAccessibilitySignal()
     private var selectionAccessibilityNotifier: TerminalSelectionAccessibilityNotifier?
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
     private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
-    static func retainRenderedFrameNotifications() -> () -> Void {
-        // See GhosttyApp.retainTickNotifications() on the idempotent release.
-        let retention = GhosttyApp.renderedFrameNotificationDemand.retain()
-        return { retention.release() }
-    }
     private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
         switch shape {
         case GHOSTTY_MOUSE_SHAPE_DEFAULT:
@@ -3530,7 +3526,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func enqueueRenderedFrameUpdate(generation: UInt64) {
-        guard GhosttyApp.renderedFrameNotificationDemand.isActive else { return }
+        guard hasRenderedFrameNotificationDemand else { return }
         _renderedFrameLock.lock()
         _pendingRenderedFrameGeneration = max(_pendingRenderedFrameGeneration, generation)
         let needsSchedule = !_renderedFrameFlushScheduled
@@ -3552,7 +3548,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _pendingRenderedFrameGeneration = 0
         _renderedFrameLock.unlock()
 
-        guard GhosttyApp.renderedFrameNotificationDemand.isActive else { return }
+        guard hasRenderedFrameNotificationDemand else { return }
         NotificationCenter.default.post(
             name: .ghosttyDidRenderFrame,
             object: self,
@@ -3681,6 +3677,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let metalLayer = GhosttyMetalLayer()
         metalLayer.setFrameReceiver(self)
         metalLayer.setRenderDemand(GhosttyApp.renderedFrameNotificationDemand)
+        metalLayer.setTargetedRenderDemand(targetedRenderedFrameNotificationDemand)
         metalLayer.pixelFormat = .bgra8Unorm
         metalLayer.isOpaque = false
         Task { @MainActor [weak self] in self?.reconcileSurfaceSizeAfterMetalLayerAttachIfNeeded() }
@@ -6446,6 +6443,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseDown(with event: NSEvent) {
+        terminalSurface?.didReceiveExplicitInput()
         #if DEBUG
         let debugPoint = convert(event.locationInWindow, from: nil)
         cmuxDebugLog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
@@ -7144,6 +7142,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
     override func rightMouseDown(with event: NSEvent) {
+        terminalSurface?.didReceiveExplicitInput()
         guard let surface = surface else { return }
         if !ghostty_surface_mouse_captured(surface) {
             requestPointerFocusRecovery()
@@ -7173,6 +7172,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.otherMouseDown(with: event)
             return
         }
+        terminalSurface?.didReceiveExplicitInput()
         requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
         guard let surface = surface else { return }
@@ -9411,7 +9411,7 @@ final class GhosttySurfaceScrollView: NSView {
                 self?.canApplyMountedSearchFieldFocusRequest() ?? false
             },
             onNavigateSearch: { [weak terminalSurface] action in
-                _ = terminalSurface?.performBindingAction(action)
+                _ = terminalSurface?.performExplicitInputBindingAction(action)
             },
             onFieldDidFocus: { [weak self, weak terminalSurface] in
                 self?.searchFocusTarget = .searchField
