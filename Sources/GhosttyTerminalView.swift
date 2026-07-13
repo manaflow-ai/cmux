@@ -2907,10 +2907,14 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_PWD:
-            guard let tabId = surfaceView.tabId,
-                  let surfaceId = surfaceView.terminalSurface?.id else { return true }
             let pwd = action.action.pwd.pwd.flatMap { String(cString: $0) } ?? ""
+            let terminalSurface = surfaceView.terminalSurface
+            if performOnMain({
+                terminalSurface?.hostedView.sessionScrollbackReplayDidReceiveBoundary(pwd) == true
+            }) { return true }
             DispatchQueue.main.async {
+                guard let tabId = surfaceView.tabId,
+                      let surfaceId = terminalSurface?.id else { return }
                 AppDelegate.shared?.tabManagerFor(tabId: tabId)?.updateReportedSurfaceDirectory(
                     tabId: tabId,
                     surfaceId: surfaceId,
@@ -3426,6 +3430,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var _scrollbarFlushScheduled = false
     private let _scrollbarLock = NSLock()
     private var _renderedFrameFlushScheduled = false
+    private var _pendingRenderedFrameGeneration: UInt64 = 0
     private let _renderedFrameLock = NSLock()
     nonisolated let selectionAccessibilitySignal = TerminalSelectionAccessibilitySignal()
     private var selectionAccessibilityNotifier: TerminalSelectionAccessibilityNotifier?
@@ -3527,7 +3532,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    private func flushPendingScrollbarIfAvailable() -> Bool {
+    func flushPendingScrollbarIfAvailable() -> Bool {
         _scrollbarLock.lock()
         let hasPending = _pendingScrollbar != nil
         _scrollbarLock.unlock()
@@ -3537,10 +3542,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
-    func enqueueRenderedFrameUpdate() {
+    func enqueueRenderedFrameUpdate(generation: UInt64) {
         guard GhosttyApp.renderedFrameNotificationDemand.isActive else { return }
 
         _renderedFrameLock.lock()
+        _pendingRenderedFrameGeneration = max(_pendingRenderedFrameGeneration, generation)
         let needsSchedule = !_renderedFrameFlushScheduled
         if needsSchedule {
             _renderedFrameFlushScheduled = true
@@ -3556,13 +3562,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func flushRenderedFrameUpdate() {
         _renderedFrameLock.lock()
         _renderedFrameFlushScheduled = false
+        let generation = _pendingRenderedFrameGeneration
+        _pendingRenderedFrameGeneration = 0
         _renderedFrameLock.unlock()
 
         guard GhosttyApp.renderedFrameNotificationDemand.isActive else { return }
         NotificationCenter.default.post(
             name: .ghosttyDidRenderFrame,
-            object: self
+            object: self,
+            userInfo: [GhosttyNotificationKey.renderedFrameGeneration: generation]
         )
+    }
+
+    func currentRenderedFrameSourceGeneration() -> UInt64 {
+        (layer as? GhosttyMetalLayer)?.currentFrameGeneration() ?? 0
     }
 
     var desiredFocus: Bool = false
@@ -4282,16 +4295,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
 #endif
     }
-
     @discardableResult
     func prepareSurfaceForPaste(reason: String) -> Bool {
+        terminalSurface?.didReceiveExplicitInput()
         guard ensureSurfaceReadyForInput() != nil else {
             requestInputRecoveryAfterSurfaceMiss(reason: reason)
             return false
         }
         return true
     }
-
     func performBindingAction(_ action: String) -> Bool {
         guard let surface = surface else { return false }
         return action.withCString { cString in
@@ -5652,6 +5664,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func keyDown(with event: NSEvent) {
+        terminalSurface?.didReceiveExplicitInput()
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         let phaseTotalStart = ProcessInfo.processInfo.systemUptime
@@ -8183,9 +8196,12 @@ final class GhosttySurfaceScrollView: NSView {
     private var scrollbarTrackingArea: NSTrackingArea?
     private var isLiveScrolling = false
     private var lastSentRow: Int?
-    /// Tracks whether the user has scrolled away from the bottom to review scrollback.
-    /// When true, auto-scroll should be suspended to prevent the "doomscroll" bug
-    /// where the terminal fights the user's scroll position.
+    var notificationScrollRestoreState: NotificationScrollRestoreState = .inactive
+    var notificationScrollRestoreBoundaryFrameGeneration: UInt64?
+    var notificationScrollRestoreRenderedFrameObserver: NSObjectProtocol?
+    var releaseNotificationScrollRestoreFrameDemand: (() -> Void)?
+    var notificationScrollRestoreFrameDeadlineTimer: Timer?
+    /// Tracks scrollback review so auto-scroll does not fight the user's position.
     var userScrolledAwayFromBottom = false
     private var pendingExplicitWheelScroll = false
     var allowExplicitScrollbarSync = false
@@ -8208,7 +8224,6 @@ final class GhosttySurfaceScrollView: NSView {
         case terminal
     }
     private(set) var searchFocusTarget: SearchFocusTarget = .searchField
-
 
 #if DEBUG
     private var lastDropZoneOverlayLogSignature: String?
@@ -8677,7 +8692,6 @@ final class GhosttySurfaceScrollView: NSView {
             }
             self.scheduleAutomaticFirstResponderApply(reason: "surfaceDidBecomeReady")
         })
-
         observers.append(NotificationCenter.default.addObserver(
             forName: .workspaceRemoteConnectionPresentationDidChange,
             object: nil,
@@ -8685,15 +8699,16 @@ final class GhosttySurfaceScrollView: NSView {
         ) { [weak self] notification in
             self?.handleWorkspaceRemoteConnectionPresentationDidChange(notification)
         })
-
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidReceiveWheelScroll,
             object: surfaceView,
             queue: .main
         ) { [weak self] _ in
-            self?.pendingExplicitWheelScroll = true
+            MainActor.assumeIsolated {
+                self?.pendingExplicitWheelScroll = true
+                self?.cancelPendingNotificationScrollRestoreForUserInput()
+            }
         })
-
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttySearchFocus,
             object: nil,
@@ -8763,6 +8778,11 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        if let observer = notificationScrollRestoreRenderedFrameObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        releaseNotificationScrollRestoreFrameDemand?()
+        notificationScrollRestoreFrameDeadlineTimer?.invalidate()
         deferredSearchOverlayMutationWorkItem?.cancel()
         imageTransferIndicatorShowWorkItem?.cancel()
         dropZoneOverlayView.removeFromSuperview()
@@ -11380,7 +11400,6 @@ final class GhosttySurfaceScrollView: NSView {
         }
 
         allowExplicitScrollbarSync = false
-
         if didChangeGeometry {
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
@@ -11389,11 +11408,10 @@ final class GhosttySurfaceScrollView: NSView {
     private func handleScrollChange() {
         synchronizeSurfaceView()
     }
-
     private func handleLiveScroll() {
+        cancelPendingNotificationScrollRestoreForUserInput()
         let cellHeight = surfaceView.cellSize.height
         guard cellHeight > 0 else { return }
-
         let visibleRect = scrollView.contentView.documentVisibleRect
         let documentHeight = documentView.frame.height
         let scrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
@@ -11413,9 +11431,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func handleScrollbarUpdate(_ notification: Notification) {
-        guard let scrollbar = notification.userInfo?[GhosttyNotificationKey.scrollbar] as? GhosttyScrollbar else {
-            return
-        }
+        guard let scrollbar = notification.userInfo?[GhosttyNotificationKey.scrollbar] as? GhosttyScrollbar else { return }
         let wasVisible = scrollView.hasVerticalScroller
         if pendingExplicitWheelScroll {
             userScrolledAwayFromBottom = scrollbar.offset + scrollbar.len < scrollbar.total
@@ -11426,9 +11442,11 @@ final class GhosttySurfaceScrollView: NSView {
         let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
             _ = synchronizeGeometryAndContent()
+            _ = restorePendingNotificationScrollPositionIfReady(isPostReplayGeometryUpdate: true)
             return
         }
         synchronizeScrollView()
+        _ = restorePendingNotificationScrollPositionIfReady(isPostReplayGeometryUpdate: true)
     }
 
     @discardableResult

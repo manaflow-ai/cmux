@@ -1841,6 +1841,7 @@ extension AppSessionSnapshot: SessionSnapshotRepresenting {
 
 enum SessionScrollbackReplayStore {
     static let environmentKey = "CMUX_RESTORE_SCROLLBACK_FILE"
+    static let boundaryPrefix = "/.cmux/session-scrollback-replay/"
     private static let directoryName = "cmux-session-scrollback"
     private static let ansiEscape = "\u{001B}"
     private static let ansiReset = "\u{001B}[0m"
@@ -1860,6 +1861,12 @@ enum SessionScrollbackReplayStore {
     nonisolated static func replayEnvironment(forFileURL replayFileURL: URL?) -> [String: String] {
         guard let replayFileURL else { return [:] }
         return [environmentKey: replayFileURL.path]
+    }
+    nonisolated static func startBoundaryValue(forReplayFilePath path: String) -> String {
+        boundaryPrefix + URL(fileURLWithPath: path).lastPathComponent + "/start"
+    }
+    nonisolated static func endBoundaryValue(forReplayFilePath path: String) -> String {
+        boundaryPrefix + URL(fileURLWithPath: path).lastPathComponent + "/end"
     }
     nonisolated private static func normalizedScrollback(_ scrollback: String?) -> String? {
         guard let scrollback else { return nil }
@@ -1886,7 +1893,6 @@ enum SessionScrollbackReplayStore {
         }
         return output
     }
-
     /// Removes terminal-color OSC sequences (palette entries and the dynamic
     /// foreground/background/cursor/highlight colors plus their resets) from
     /// captured scrollback so the restored history does not reconfigure the live
@@ -1906,10 +1912,8 @@ enum SessionScrollbackReplayStore {
         let backslash: UInt8 = 0x5C
         let zero: UInt8 = 0x30
         let nine: UInt8 = 0x39
-
         let bytes = Array(text.utf8)
         guard bytes.contains(escByte) else { return text }
-
         var output = [UInt8]()
         output.reserveCapacity(bytes.count)
         let count = bytes.count
@@ -1923,7 +1927,6 @@ enum SessionScrollbackReplayStore {
                 index += 1
                 continue
             }
-
             // Parse the OSC numeric command (Ps) following `ESC ]`.
             var cursor = index + 2
             var code = 0
@@ -1934,7 +1937,6 @@ enum SessionScrollbackReplayStore {
                 cursor += 1
                 if code > 100_000 { break } // overflow guard for malformed input
             }
-
             guard sawDigit, isTerminalColorOSCCode(code) else {
                 // Not a terminal-color OSC; emit `ESC` and resume scanning so the
                 // rest of the preserved sequence is copied verbatim.
@@ -1942,7 +1944,6 @@ enum SessionScrollbackReplayStore {
                 index += 1
                 continue
             }
-
             // Consume through the OSC terminator (BEL or `ESC \` / ST). A truncated
             // (unterminated) color OSC at the end of the buffer is dropped as well.
             var end = cursor
@@ -1962,7 +1963,6 @@ enum SessionScrollbackReplayStore {
             }
             index = terminated ? end : count
         }
-
         return String(decoding: output, as: UTF8.self)
     }
 
