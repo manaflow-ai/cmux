@@ -208,14 +208,15 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     private let discoveryError: CmxIrohTrustBrokerClientError?
     private let revokeError: CmxIrohTrustBrokerClientError?
     private let registrationHook: (@Sendable () async -> Bool)?
+    private let subsequentRegistrationHook: (@Sendable () async -> Void)?
     private var subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError]
     private var registrationCount = 0
     private var relayIssueCount = 0
     private var registrationHookResult: Bool?
     private var revokedBindingIDs: [String] = []
     private var registrationCountWaiters: [
-        (minimum: Int, continuation: CheckedContinuation<Void, Never>)
-    ] = []
+        UUID: (minimum: Int, continuation: CheckedContinuation<Void, Never>)
+    ] = [:]
 
     init(
         registrationBinding: CmxIrohBrokerBinding,
@@ -225,6 +226,7 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         discoveryError: CmxIrohTrustBrokerClientError? = nil,
         revokeError: CmxIrohTrustBrokerClientError? = nil,
         registrationHook: (@Sendable () async -> Bool)? = nil,
+        subsequentRegistrationHook: (@Sendable () async -> Void)? = nil,
         subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError] = []
     ) {
         self.registrationBinding = registrationBinding
@@ -233,6 +235,7 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         self.discoveryError = discoveryError
         self.revokeError = revokeError
         self.registrationHook = registrationHook
+        self.subsequentRegistrationHook = subsequentRegistrationHook
         self.subsequentRegistrationErrors = subsequentRegistrationErrors
     }
 
@@ -241,18 +244,20 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         signer _: CmxIrohRegistrationSigner
     ) async throws -> CmxIrohRegistrationResponse {
         registrationCount += 1
-        let ready = registrationCountWaiters.filter {
-            registrationCount >= $0.minimum
+        let readyIDs = registrationCountWaiters.compactMap { id, waiter in
+            registrationCount >= waiter.minimum ? id : nil
         }
-        registrationCountWaiters.removeAll {
-            registrationCount >= $0.minimum
+        for id in readyIDs {
+            registrationCountWaiters.removeValue(forKey: id)?.continuation.resume()
         }
-        for waiter in ready { waiter.continuation.resume() }
         if registrationCount == 1, let registrationError {
             throw registrationError
         }
         if registrationCount > 1, !subsequentRegistrationErrors.isEmpty {
             throw subsequentRegistrationErrors.removeFirst()
+        }
+        if registrationCount > 1, let subsequentRegistrationHook {
+            await subsequentRegistrationHook()
         }
         if let registrationHook {
             registrationHookResult = await registrationHook()
@@ -300,9 +305,43 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
 
     func waitForRegistrationCount(_ minimum: Int) async {
         if registrationCount >= minimum { return }
-        await withCheckedContinuation { continuation in
-            registrationCountWaiters.append((minimum, continuation))
+        let id = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume()
+                } else {
+                    registrationCountWaiters[id] = (minimum, continuation)
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelRegistrationWaiter(id) }
         }
+    }
+
+    func waitForRegistrationCount(_ minimum: Int, timeout: Duration) async -> Bool {
+        if registrationCount >= minimum { return true }
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await self.waitForRegistrationCount(minimum)
+                return !Task.isCancelled
+            }
+            group.addTask {
+                do {
+                    try await ContinuousClock().sleep(for: timeout)
+                } catch {
+                    return false
+                }
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+    }
+
+    private func cancelRegistrationWaiter(_ id: UUID) {
+        registrationCountWaiters.removeValue(forKey: id)?.continuation.resume()
     }
 
     func observedRegistrationHookResult() -> Bool? { registrationHookResult }
@@ -318,20 +357,29 @@ actor HostRuntimeBindingRecorder {
 
 actor HostRuntimeLANRefreshRecorder {
     private var recordedCount = 0
-    private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var waiters: [
+        UUID: (minimum: Int, continuation: CheckedContinuation<Void, Never>)
+    ] = [:]
 
     func record() {
         recordedCount += 1
-        let pending = waiters.values
-        waiters.removeAll(keepingCapacity: false)
-        for waiter in pending { waiter.resume() }
+        let readyIDs = waiters.compactMap { id, waiter in
+            recordedCount >= waiter.minimum ? id : nil
+        }
+        for id in readyIDs {
+            waiters.removeValue(forKey: id)?.continuation.resume()
+        }
     }
 
     func waitForRefresh(timeout: Duration) async -> Bool {
-        if recordedCount > 0 { return true }
+        await waitForCount(1, timeout: timeout)
+    }
+
+    func waitForCount(_ count: Int, timeout: Duration) async -> Bool {
+        if recordedCount >= count { return true }
         return await withTaskGroup(of: Bool.self) { group in
             group.addTask {
-                await self.waitForRefresh()
+                await self.waitForCount(count)
                 return true
             }
             group.addTask {
@@ -349,15 +397,15 @@ actor HostRuntimeLANRefreshRecorder {
 
     func count() -> Int { recordedCount }
 
-    private func waitForRefresh() async {
-        if recordedCount > 0 { return }
+    private func waitForCount(_ count: Int) async {
+        if recordedCount >= count { return }
         let id = UUID()
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 if Task.isCancelled {
                     continuation.resume()
                 } else {
-                    waiters[id] = continuation
+                    waiters[id] = (count, continuation)
                 }
             }
         } onCancel: {
@@ -366,7 +414,28 @@ actor HostRuntimeLANRefreshRecorder {
     }
 
     private func cancelWaiter(_ id: UUID) {
-        waiters.removeValue(forKey: id)?.resume()
+        waiters.removeValue(forKey: id)?.continuation.resume()
+    }
+}
+
+actor HostRuntimeRegistrationGate {
+    private var shouldBlock = true
+    private var opened = false
+    private var waiter: CheckedContinuation<Void, Never>?
+
+    func waitOnce() async {
+        guard shouldBlock else { return }
+        shouldBlock = false
+        guard !opened else { return }
+        await withCheckedContinuation { continuation in
+            waiter = continuation
+        }
+    }
+
+    func open() {
+        opened = true
+        waiter?.resume()
+        waiter = nil
     }
 }
 

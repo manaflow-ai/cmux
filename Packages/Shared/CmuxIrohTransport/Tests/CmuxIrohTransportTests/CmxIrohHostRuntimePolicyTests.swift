@@ -69,6 +69,41 @@ extension CmxIrohHostRuntimeTests {
     }
 
     @Test
+    func networkChangeDuringActiveRefreshRequestsAnotherRegistration() async throws {
+        let fixture = try HostRuntimeFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let gate = HostRuntimeRegistrationGate()
+        let refreshes = HostRuntimeLANRefreshRecorder()
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            subsequentRegistrationHook: { await gate.waitOnce() }
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            handleTransport: { session, _ in await session.close() },
+            handleLANRefresh: { await refreshes.record() }
+        )
+        try await runtime.start()
+
+        await endpoint.emit(.networkChanged)
+        await broker.waitForRegistrationCount(2)
+        await endpoint.emit(.networkChanged)
+        #expect(await refreshes.waitForCount(2, timeout: .seconds(1)))
+        await gate.open()
+
+        let registeredAgain = await broker.waitForRegistrationCount(
+            3,
+            timeout: .seconds(1)
+        )
+        #expect(registeredAgain)
+        await runtime.stop()
+    }
+
+    @Test
     func refreshedVerifiedRendezvousReplacesPublishedLANPolicy() async throws {
         let fixture = try HostRuntimeFixture()
         let refreshedDiscovery = try HostRuntimeFixture.discovery(
