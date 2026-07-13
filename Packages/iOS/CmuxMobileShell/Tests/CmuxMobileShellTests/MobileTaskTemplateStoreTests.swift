@@ -275,6 +275,88 @@ import CmuxMobileShellModel
         #expect(UserDefaultsMobileTaskTemplateStore(defaults: defaults).composerDraft() == currentDraft)
     }
 
+    @Test func staleComposerSuccessCannotOverwriteNextSessionDefaults() {
+        let defaults = Self.defaults()
+        let templateStore = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        let shell = MobileShellComposite(isSignedIn: true, taskTemplateStore: templateStore)
+        let staleGeneration = shell.currentSessionGeneration
+        let accountATemplate = MobileTaskTemplate(
+            name: "Account A",
+            icon: "terminal",
+            command: "agent-a"
+        )
+        let staleSnapshot = MobileTaskSubmissionSnapshot(
+            template: accountATemplate,
+            prompt: "Account A task",
+            macDeviceID: "mac-a",
+            directory: "/Users/account-a/private",
+            didEditDirectory: true,
+            operationID: UUID()
+        )
+
+        shell.signOut()
+        shell.signIn()
+        let accountBTemplate = MobileTaskTemplate(
+            name: "Account B",
+            icon: "terminal",
+            command: "agent-b"
+        )
+        let accountBDraft = MobileTaskComposerDraft(
+            prompt: "Account B task",
+            templateID: accountBTemplate.id,
+            macDeviceID: "mac-b",
+            directory: "/Users/account-b/current",
+            didEditDirectory: true,
+            operationID: UUID()
+        )
+        templateStore.addTemplate(accountBTemplate)
+        templateStore.setLastTemplateID(accountBTemplate.id)
+        templateStore.setLastMacDeviceID("mac-b")
+        templateStore.setLastDirectory("/Users/account-b/current", macDeviceID: "mac-b")
+        templateStore.setComposerDraft(accountBDraft)
+
+        let didComplete = shell.completeTaskComposerSubmission(
+            staleSnapshot,
+            ifSessionGeneration: staleGeneration
+        )
+
+        #expect(!didComplete)
+        let reloaded = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        #expect(reloaded.lastTemplateID() == accountBTemplate.id)
+        #expect(reloaded.lastMacDeviceID() == "mac-b")
+        #expect(reloaded.lastDirectory(macDeviceID: "mac-a") == nil)
+        #expect(reloaded.lastDirectory(macDeviceID: "mac-b") == "/Users/account-b/current")
+        #expect(reloaded.composerDraft() == accountBDraft)
+    }
+
+    @Test func currentComposerSuccessPersistsDefaultsAndClearsDraftTogether() {
+        let defaults = Self.defaults()
+        let templateStore = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        let shell = MobileShellComposite(isSignedIn: true, taskTemplateStore: templateStore)
+        let template = MobileTaskTemplate(name: "Agent", icon: "terminal", command: "agent")
+        let snapshot = MobileTaskSubmissionSnapshot(
+            template: template,
+            prompt: "Current task",
+            macDeviceID: "mac-current",
+            directory: "  ~/current  ",
+            didEditDirectory: true,
+            operationID: UUID()
+        )
+        templateStore.setComposerDraft(snapshot.draft)
+
+        let didComplete = shell.completeTaskComposerSubmission(
+            snapshot,
+            ifSessionGeneration: shell.currentSessionGeneration
+        )
+
+        #expect(didComplete)
+        let reloaded = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        #expect(reloaded.lastTemplateID() == template.id)
+        #expect(reloaded.lastMacDeviceID() == "mac-current")
+        #expect(reloaded.lastDirectory(macDeviceID: "mac-current") == "~/current")
+        #expect(reloaded.composerDraft() == nil)
+    }
+
     @Test func currentSessionClearRemovesComposerDraft() {
         let defaults = Self.defaults()
         let templateStore = UserDefaultsMobileTaskTemplateStore(defaults: defaults)

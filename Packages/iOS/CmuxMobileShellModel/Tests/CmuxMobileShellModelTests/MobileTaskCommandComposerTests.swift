@@ -309,6 +309,32 @@ import Testing
         #expect(bracedResult.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
     }
 
+    @Test func bracedPromptParameterOperationsDoNotReceiveDuplicateArgument() {
+        let commands = [
+            "agent \"${CMUX_TASK_PROMPT:-fallback}\"",
+            "agent \"${CMUX_TASK_PROMPT:?required}\"",
+            "agent \"${CMUX_TASK_PROMPT%pattern}\"",
+            "agent \"${CMUX_TASK_PROMPT#prefix}\"",
+        ]
+
+        for command in commands {
+            let template = MobileTaskTemplate(name: "Custom", icon: "terminal", command: command)
+            let result = composer.compose(template: template, prompt: "ship it")
+            #expect(result.initialCommand == command)
+            #expect(result.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
+        }
+    }
+
+    @Test func longerBracedPromptIdentifierStillReceivesFallbackArgument() {
+        let command = "agent \"${CMUX_TASK_PROMPT_EXTRA:-fallback}\""
+        let template = MobileTaskTemplate(name: "Custom", icon: "terminal", command: command)
+
+        let result = composer.compose(template: template, prompt: "ship it")
+
+        #expect(result.initialCommand == command + " -- \"${CMUX_TASK_PROMPT}\"")
+        #expect(result.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
+    }
+
     @Test func blankPromptStillDefinesExplicitUnbracedEnvironmentReference() {
         let template = MobileTaskTemplate(
             name: "Custom",
