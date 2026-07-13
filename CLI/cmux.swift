@@ -1922,7 +1922,7 @@ final class SocketClient {
         )
         recordOperation(operation)
 
-        let payload = command + "\n"
+        let payload = capabilityWrappedCommand(command) + "\n"
         try writeAll(
             Data(payload.utf8),
             timeoutMessage: "Command timed out",
@@ -2014,7 +2014,7 @@ final class SocketClient {
 
         do {
             try writeAllNonBlocking(
-                Data((command + "\n").utf8),
+                Data((capabilityWrappedCommand(command) + "\n").utf8),
                 deadline: Date().addingTimeInterval(writeTimeout),
                 timeoutMessage: "Command timed out",
                 failureMessage: "Failed to write to socket"
@@ -2736,7 +2736,7 @@ final class SocketClient {
         }
 
         try writeAll(
-            Data((requestLine + "\n").utf8),
+            Data((capabilityWrappedCommand(requestLine) + "\n").utf8),
             timeoutMessage: "Stream request timed out",
             failureMessage: "Failed to write stream request"
         )
@@ -12199,10 +12199,10 @@ struct CMUXCLI {
               !sessionID.isEmpty else {
             throw CLIError(message: "ssh-session-attach requires --session-id <id>")
         }
+        if workspaceOpt?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true { throw CLIError(message: String(localized: "cli.error.sshSessionAttachWorkspaceRequiresValue", defaultValue: "ssh-session-attach: --workspace requires a value")) }
         if paneOpt != nil, splitOpt != nil {
             throw CLIError(message: "ssh-session-attach: --pane cannot be combined with --split")
         }
-
         let workspaceRaw = workspaceOpt ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
         let workspaceID = try normalizeWorkspaceHandle(workspaceRaw, client: client)
         let initialCommand = sshSessionAttachStartupCommand(sessionID: sessionID)
@@ -12220,7 +12220,7 @@ struct CMUXCLI {
            !split.isEmpty {
             params["direction"] = split
             let surfaceID = try normalizeSurfaceHandle(
-                surfaceOpt ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"],
+                surfaceOpt ?? (workspaceOpt == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil),
                 client: client,
                 workspaceHandle: workspaceID
             )
@@ -15272,7 +15272,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, grok, opencode, pi, omp, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
+              codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -15287,6 +15287,7 @@ struct CMUXCLI {
               ~/.config/opencode/plugins/cmux-feed.js
               ~/.pi/agent/extensions/cmux-session.ts
               ~/.omp/agent/extensions/cmux-omp-session.ts
+              ~/.campfire/agent/extensions/cmux-campfire-session.ts
               ~/.config/amp/plugins/cmux-session.ts
               ~/.kiro/agents/cmux.json
               See docs/agent-hooks.md for the full integration matrix.
@@ -20149,6 +20150,7 @@ struct CMUXCLI {
         explicitPassword: String?,
         focusedContext: TmuxCompatFocusedContext?, commandArgs: [String]
     ) {
+        clearInheritedClaudeLaunchEnvironment()
         configureTmuxCompatEnvironment(
             processEnvironment: processEnvironment,
             shimDirectory: shimDirectory,
@@ -20161,7 +20163,6 @@ struct CMUXCLI {
             termOverrideEnvVar: "CMUX_CLAUDE_TEAMS_TERM",
             extraEnvVars: claudeTeamsExtraEnvVars(commandArgs: commandArgs)
         )
-        clearInheritedClaudeSessionEnvironment(); if !claudeTeamsHasDangerousSkipPermissions(commandArgs: commandArgs) { unsetenv("CMUX_CLAUDE_TEAMS_SANDBOXED"); unsetenv("CLAUDE_CODE_SANDBOXED") }  // clear ambient markers inherited from a parent opted-in session so the trust bypass never leaks across invocations (#6447)
         guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
@@ -22503,7 +22504,6 @@ struct CMUXCLI {
     }
 
     // MARK: - cmux omc (Oh My Claude Code)
-
     private func resolveOMCExecutable(searchPath: String?) -> String? {
         resolveExecutableInSearchPath("omc", searchPath: searchPath)
     }
@@ -22542,6 +22542,7 @@ struct CMUXCLI {
             cmuxBinEnvVar: "CMUX_OMC_CMUX_BIN",
             termOverrideEnvVar: "CMUX_OMC_TERM"
         )
+        clearInheritedClaudeLaunchEnvironment()
         // omc wraps Claude Code, so it needs the same NODE_OPTIONS restore module
         guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")
@@ -23066,46 +23067,46 @@ struct CMUXCLI {
                 return
             }
 
-            if !hasDirectionalFlags, let absWidth = parsed.value("-x").flatMap({ Int($0.replacingOccurrences(of: "%", with: "")) }) {
-                // Absolute width: resize-pane -t <pane> -x <columns>
-                // Compute pixel delta from current width to desired width.
-                try tmuxResizePaneToCells(
+            if !hasDirectionalFlags, let absWidth = parsed.value("-x") {
+                try tmuxResizePaneToSize(
                     workspaceId: target.workspaceId,
                     paneId: target.paneId,
-                    targetCells: absWidth,
-                    currentCellsKey: "columns",
-                    cellSizeKey: "cell_width_px",
+                    targetSize: absWidth,
+                    absoluteAxis: "horizontal",
                     client: client
                 )
-            } else if !hasDirectionalFlags, let absHeight = parsed.value("-y").flatMap({ Int($0.replacingOccurrences(of: "%", with: "")) }) {
-                try tmuxResizePaneToCells(
+            } else if !hasDirectionalFlags, let absHeight = parsed.value("-y") {
+                try tmuxResizePaneToSize(
                     workspaceId: target.workspaceId,
                     paneId: target.paneId,
-                    targetCells: absHeight,
-                    currentCellsKey: "rows",
-                    cellSizeKey: "cell_height_px",
+                    targetSize: absHeight,
+                    absoluteAxis: "vertical",
                     client: client
                 )
             } else if hasDirectionalFlags {
-                let direction: String
-                if parsed.hasFlag("-L") {
-                    direction = "left"
-                } else if parsed.hasFlag("-U") {
-                    direction = "up"
-                } else if parsed.hasFlag("-D") {
-                    direction = "down"
-                } else {
-                    direction = "right"
+                let directionFlag = ["-L", "-U", "-D", "-R"]
+                    .first(where: parsed.hasFlag) ?? "-R"
+                let direction: String = switch directionFlag {
+                case "-L": "left"
+                case "-U": "up"
+                case "-D": "down"
+                default: "right"
                 }
-                let rawAmount = (parsed.value("-x") ?? parsed.value("-y") ?? "5")
+                let firstPositional = parsed.positional.first
+                let attachedAmount = firstPositional.flatMap { raw in
+                    raw.hasPrefix(directionFlag) && raw.count > directionFlag.count
+                        ? String(raw.dropFirst(directionFlag.count)) : nil
+                }
+                let rawAmount = (attachedAmount ?? firstPositional ?? parsed.value("-x") ?? parsed.value("-y") ?? "1")
                     .replacingOccurrences(of: "%", with: "")
-                let amount = Int(rawAmount) ?? 5
-                _ = try client.sendV2(method: "pane.resize", params: [
-                    "workspace_id": target.workspaceId,
-                    "pane_id": target.paneId,
-                    "direction": direction,
-                    "amount": max(1, amount)
-                ])
+                let amount = Int(rawAmount) ?? 1
+                try tmuxResizePaneByCells(
+                    workspaceId: target.workspaceId,
+                    paneId: target.paneId,
+                    direction: direction,
+                    amountCells: max(1, amount),
+                    client: client
+                )
             }
 
         case "wait-for":
@@ -23988,7 +23989,7 @@ struct CMUXCLI {
             ) else {
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.session-start.unresolved")
-                print(String(localized: "common.ok", defaultValue: "OK"))
+                printClaudeHookAck()
                 return
             }
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
@@ -24107,7 +24108,7 @@ struct CMUXCLI {
                     pid: claudePid
                 )
             }
-            print("OK")
+            printClaudeHookAck()
 
         case "stop", "idle":
             telemetry.breadcrumb("claude-hook.stop")
@@ -24124,7 +24125,7 @@ struct CMUXCLI {
                 ) else {
                     didSendFeedTelemetry = true
                     telemetry.breadcrumb("claude-hook.stop.unresolved")
-                    print(String(localized: "common.ok", defaultValue: "OK"))
+                    printClaudeHookAck()
                     return
                 }
                 let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
@@ -24151,13 +24152,13 @@ struct CMUXCLI {
                     telemetry: telemetry
                 ) else {
                     telemetry.breadcrumb("claude-hook.stop.stale")
-                    print("OK")
+                    printClaudeHookAck()
                     return
                 }
 
                 guard !suppressVisibleMutations else {
                     telemetry.breadcrumb("claude-hook.stop.nested-suppressed")
-                    print("OK")
+                    printClaudeHookAck()
                     return
                 }
 
@@ -24245,11 +24246,11 @@ struct CMUXCLI {
                     )
                     _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
                 }
-                print("OK")
+                printClaudeHookAck()
             } catch {
                 if shouldIgnoreClaudeHookTeardownError(error) {
                     telemetry.breadcrumb("claude-hook.stop.ignored", data: ["error": String(describing: error)])
-                    print("OK")
+                    printClaudeHookAck()
                     return
                 }
                 throw error
@@ -24267,7 +24268,7 @@ struct CMUXCLI {
             ) else {
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.prompt-submit.unresolved")
-                print(String(localized: "common.ok", defaultValue: "OK"))
+                printClaudeHookAck()
                 return
             }
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
@@ -24302,12 +24303,12 @@ struct CMUXCLI {
                 )
             guard shouldApplyPromptSubmit else {
                 telemetry.breadcrumb("claude-hook.prompt-submit.stale")
-                print("OK")
+                printClaudeHookAck()
                 return
             }
             guard !suppressVisibleMutations else {
                 telemetry.breadcrumb("claude-hook.prompt-submit.nested-suppressed")
-                print("OK")
+                printClaudeHookAck()
                 return
             }
             if let sessionId = parsedInput.sessionId {
@@ -24365,7 +24366,7 @@ struct CMUXCLI {
                 icon: "bolt.fill",
                 color: "#4C8DFF"
             )
-            print("OK")
+            printClaudeHookAck()
 
         case "auto-name":
             telemetry.breadcrumb("claude-hook.auto-name")
@@ -24382,7 +24383,7 @@ struct CMUXCLI {
                     client: client
                 ) else {
                     telemetry.breadcrumb("claude-hook.auto-name.unresolved")
-                    print(String(localized: "common.ok", defaultValue: "OK"))
+                    printClaudeHookAck()
                     return
                 }
                 let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
@@ -24405,7 +24406,7 @@ struct CMUXCLI {
             } catch {
                 telemetry.breadcrumb("claude-hook.auto-name.error")
             }
-            print("OK")
+            printClaudeHookAck()
 
         case "notification", "notify":
             telemetry.breadcrumb("claude-hook.notification")
@@ -24427,7 +24428,7 @@ struct CMUXCLI {
             ) else {
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.notification.unresolved")
-                print(String(localized: "common.ok", defaultValue: "OK"))
+                printClaudeHookAck()
                 return
             }
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
@@ -24453,12 +24454,12 @@ struct CMUXCLI {
                 telemetry: telemetry
             ) else {
                 telemetry.breadcrumb("claude-hook.notification.stale")
-                print("OK")
+                printClaudeHookAck()
                 return
             }
             guard !suppressVisibleMutations else {
                 telemetry.breadcrumb("claude-hook.notification.nested-suppressed")
-                print("OK")
+                printClaudeHookAck()
                 return
             }
             if let mappedSession,
@@ -24563,8 +24564,8 @@ struct CMUXCLI {
                     color: "#4C8DFF", pid: claudePid
                 )
             }
-            let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
-            print(response)
+            _ = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+            printClaudeHookAck()
         case "push-notification": try runClaudePushNotificationHook(client: client, telemetry: telemetry, parsedInput: parsedInput, sessionStore: sessionStore, workspaceArg: workspaceArg, surfaceArg: surfaceArg, hookSurfaceFlagIsExplicit: hookSurfaceFlag != nil, preferCallerTTYRouting: preferCallerTTYRouting, callerTTYBindingProvider: callerTTYBindingProvider, markFeedTelemetryHandled: { didSendFeedTelemetry = true }, sendFeedTelemetry: sendClaudeFeedTelemetry)
         case "session-end":
             telemetry.breadcrumb("claude-hook.session-end")
@@ -24614,7 +24615,7 @@ struct CMUXCLI {
                         client: client
                     )
                 }
-                print("OK")
+                printClaudeHookAck()
                 return
             }
             // Final cleanup when Claude process exits.
@@ -24686,7 +24687,7 @@ struct CMUXCLI {
                     telemetry.breadcrumb("claude-hook.session-end.stale")
                 }
             }
-            print("OK")
+            printClaudeHookAck()
 
         case "cron-create-guard":
             telemetry.breadcrumb("claude-hook.cron-create-guard")
@@ -24709,7 +24710,7 @@ struct CMUXCLI {
             ) else {
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.pre-tool-use.unresolved")
-                print(String(localized: "common.ok", defaultValue: "OK"))
+                printClaudeHookAck()
                 return
             }
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
@@ -24735,12 +24736,12 @@ struct CMUXCLI {
                 telemetry: telemetry
             ) else {
                 telemetry.breadcrumb("claude-hook.pre-tool-use.stale")
-                print("OK")
+                printClaudeHookAck()
                 return
             }
             guard !suppressVisibleMutations else {
                 telemetry.breadcrumb("claude-hook.pre-tool-use.nested-suppressed")
-                print("OK")
+                printClaudeHookAck()
                 return
             }
 
@@ -24838,7 +24839,7 @@ struct CMUXCLI {
                         client: client
                     )
                 }
-                print("OK")
+                printClaudeHookAck()
                 return
             }
 
@@ -24877,7 +24878,7 @@ struct CMUXCLI {
                 color: "#4C8DFF",
                 pid: claudePid
             )
-            print("OK")
+            printClaudeHookAck()
 
         case "help", "--help", "-h":
             telemetry.breadcrumb("claude-hook.help")
@@ -26927,6 +26928,7 @@ struct CMUXCLI {
                 isFallback: false
             )
         }
+        if let campfireSummary = summarizeCampfireObserverNotification(def: def, object: object) { return campfireSummary }
         if let grokSummary = summarizeGrokAssistantCompletionNotification(
             def: def,
             message: normalizedMessage,
@@ -27977,7 +27979,7 @@ struct CMUXCLI {
     }
 
     private func selectedAgentLaunchEnvironment(from env: [String: String], kind: String? = nil) -> [String: String] {
-        var selected = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: env, kind: kind)
+        var selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: env, kind: kind)
         if kind == "hermes-agent" {
             selected = HermesAgentCodexEnvironment.applyingDefaultCodexBaseURL(
                 to: selected,
@@ -28834,18 +28836,10 @@ export default CMUXSessionRestore;
     }
 
     private func installAgentHooks(_ def: AgentHookDef) throws {
-        if def.name == "opencode" {
-            try installOpenCodePluginHooks(def)
-            return
-        }
-        if def.name == "pi" {
-            try installPiExtensionHooks(def)
-            return
-        }
-        if def.name == "omp" {
-            try installOmpExtensionHooks(def)
-            return
-        }
+        if def.name == "opencode" { try installOpenCodePluginHooks(def); return }
+        if def.name == "pi" { try installPiExtensionHooks(def); return }
+        if def.name == "omp" { try installOmpExtensionHooks(def); return }
+        if def.name == "campfire" { try installCampfireExtensionHooks(def); return }
         if def.name == "amp" {
             try installAmpExtensionHooks(def)
             return
@@ -29199,18 +29193,10 @@ export default CMUXSessionRestore;
     }
 
     private func uninstallAgentHooks(_ def: AgentHookDef) throws {
-        if def.name == "opencode" {
-            try uninstallOpenCodePluginHooks(def)
-            return
-        }
-        if def.name == "pi" {
-            try uninstallPiExtensionHooks(def)
-            return
-        }
-        if def.name == "omp" {
-            try uninstallOmpExtensionHooks(def)
-            return
-        }
+        if def.name == "opencode" { try uninstallOpenCodePluginHooks(def); return }
+        if def.name == "pi" { try uninstallPiExtensionHooks(def); return }
+        if def.name == "omp" { try uninstallOmpExtensionHooks(def); return }
+        if def.name == "campfire" { try uninstallCampfireExtensionHooks(def); return }
         if def.name == "amp" {
             try uninstallAmpExtensionHooks(def)
             return

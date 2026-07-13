@@ -116,6 +116,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
     private let containerView = CommandPaletteOverlayContainerView(frame: .zero)
     private let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
     private let chromeComposition = AppWindowChromeComposition()
+    private let interactionMonitor = CommandPaletteInteractionMonitor()
     private var installConstraints: [NSLayoutConstraint] = []
     private weak var installedContainerView: NSView?
     private weak var installedReferenceView: NSView?
@@ -123,8 +124,6 @@ private final class WindowCommandPaletteOverlayController: NSObject {
     private var scheduledFocusWorkItem: DispatchWorkItem?
     private var isPaletteVisible = false
     private var hasMountedPaletteRootView = false
-    private var windowDidBecomeKeyObserver: NSObjectProtocol?
-    private var windowDidResignKeyObserver: NSObjectProtocol?
 
     init(window: NSWindow) {
         self.window = window
@@ -147,7 +146,6 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             hostingView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
         ])
         _ = ensureInstalled()
-        installWindowKeyObservers()
     }
 
     @discardableResult
@@ -423,28 +421,6 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         }
     }
 
-    private func installWindowKeyObservers() {
-        guard let window else { return }
-        windowDidBecomeKeyObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didBecomeKeyNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.updateFocusLockForWindowState()
-            }
-        }
-        windowDidResignKeyObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didResignKeyNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.updateFocusLockForWindowState()
-            }
-        }
-    }
-
     private func updateFocusLockForWindowState() {
         guard let window else {
             stopFocusLockTimer()
@@ -532,10 +508,13 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 
     func update(
         isVisible: Bool,
+        onDismiss: @MainActor @escaping (CommandPaletteInteractionDismissal) -> Void = { _ in },
         makeRootView: @MainActor () -> AnyView = { AnyView(EmptyView()) }
     ) {
         let wasVisible = isPaletteVisible
-        if !isVisible, !wasVisible, !hasMountedPaletteRootView, containerView.isHidden {
+        if !isVisible {
+            guard wasVisible || hasMountedPaletteRootView || !containerView.isHidden else { return }
+            hideOverlay()
             return
         }
 
@@ -555,46 +534,53 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             cmuxDebugLog("palette.overlay.update visible=\(isVisible ? 1 : 0) promote=\(shouldPromote ? 1 : 0) window=nil")
         }
 #endif
-        isPaletteVisible = isVisible
-        if isVisible {
-            hostingView.rootView = makeRootView()
-            hasMountedPaletteRootView = true
-            containerView.capturesMouseEvents = true
-            containerView.isHidden = false
-            containerView.alphaValue = 1
-            if shouldPromote {
-                promoteOverlayAboveSiblingsIfNeeded()
-            }
-            updateFocusLockForWindowState()
-        } else {
-            stopFocusLockTimer()
-            if let window, isPaletteResponder(window.firstResponder) {
-                _ = window.makeFirstResponder(nil)
-            }
-            hostingView.rootView = AnyView(EmptyView())
-            hasMountedPaletteRootView = false
-            containerView.capturesMouseEvents = false
-            containerView.alphaValue = 0
-            containerView.isHidden = true
+        isPaletteVisible = true
+        hostingView.rootView = makeRootView()
+        hasMountedPaletteRootView = true
+        containerView.capturesMouseEvents = true
+        containerView.isHidden = false
+        containerView.alphaValue = 1
+        if shouldPromote {
+            promoteOverlayAboveSiblingsIfNeeded()
         }
+        if let window {
+            interactionMonitor.activate(
+                for: window,
+                shouldDismiss: { [weak self] event in
+                    self?.shouldDismissPalette(for: event) ?? false
+                },
+                onWindowStateChange: { [weak self] in
+                    self?.updateFocusLockForWindowState()
+                },
+                onDismiss: { [weak self] dismissal in
+                    guard let self, self.isPaletteVisible else { return }
+                    self.hideOverlay()
+                    onDismiss(dismissal)
+                }
+            )
+        }
+        updateFocusLockForWindowState()
     }
 
-    func underlyingResponder(atWindowPoint windowPoint: NSPoint) -> NSResponder? {
-        guard let window,
-              let target = chromeComposition
-                .contentOverlayTargetResolver
-                .installationTarget(for: window) else {
-            return nil
-        }
+    private func shouldDismissPalette(for event: CommandPalettePointerEvent) -> Bool {
+        guard window != nil else { return true }
+        return event.shouldDismissPalette(
+            panelContainsPoint: hostingView.commandPalettePanelContains(windowPoint: event.locationInWindow)
+        )
+    }
 
-        let previousCapturesMouseEvents = containerView.capturesMouseEvents
+    private func hideOverlay() {
+        interactionMonitor.deactivate()
+        stopFocusLockTimer()
+        if let window, isPaletteResponder(window.firstResponder) {
+            _ = window.makeFirstResponder(nil)
+        }
+        isPaletteVisible = false
+        hostingView.rootView = AnyView(EmptyView())
+        hasMountedPaletteRootView = false
         containerView.capturesMouseEvents = false
-        defer {
-            containerView.capturesMouseEvents = previousCapturesMouseEvents
-        }
-
-        let pointInContainer = target.container.convert(windowPoint, from: nil)
-        return target.container.hitTest(pointInContainer)
+        containerView.alphaValue = 0
+        containerView.isHidden = true
     }
 }
 
@@ -606,40 +592,6 @@ private func commandPaletteWindowOverlayController(for window: NSWindow) -> Wind
     let controller = WindowCommandPaletteOverlayController(window: window)
     objc_setAssociatedObject(window, &commandPaletteWindowOverlayKey, controller, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     return controller
-}
-
-private func commandPaletteOwningWebView(for responder: NSResponder?) -> WKWebView? {
-    guard let responder else { return nil }
-
-    if let webView = responder as? WKWebView {
-        return webView
-    }
-
-    if let view = responder as? NSView {
-        var current: NSView? = view
-        while let candidate = current {
-            if let webView = candidate as? WKWebView {
-                return webView
-            }
-            current = candidate.superview
-        }
-    }
-
-    if let textView = responder as? NSTextView,
-       let delegateView = textView.delegate as? NSView,
-       let webView = commandPaletteOwningWebView(for: delegateView) {
-        return webView
-    }
-
-    var currentResponder = responder.nextResponder
-    while let next = currentResponder {
-        if let webView = commandPaletteOwningWebView(for: next) {
-            return webView
-        }
-        currentResponder = next.nextResponder
-    }
-
-    return nil
 }
 
 // Lifted to `CmuxFoundation.WorkspaceMountPlan` / `MountedWorkspacePresentation`
@@ -2971,7 +2923,12 @@ struct ContentView: View {
         view = AnyView(view.background(WindowAccessor(dedupeByWindow: false) { window in
             refreshTmuxWorkspacePaneWindowOverlay(in: window)
             let overlayController = commandPaletteWindowOverlayController(for: window)
-            overlayController.update(isVisible: isCommandPalettePresented) { AnyView(commandPaletteOverlay) }
+            overlayController.update(
+                isVisible: isCommandPalettePresented,
+                onDismiss: { dismissal in
+                    dismissCommandPalette(for: dismissal, in: window)
+                }
+            ) { AnyView(commandPaletteOverlay) }
         }))
 
         view = AnyView(view.onChange(of: bgGlassTintHex) { _ in
@@ -3196,7 +3153,12 @@ struct ContentView: View {
         if backdropResult.didChangeGlassRoot {
             refreshTmuxWorkspacePaneWindowOverlay(in: window)
             commandPaletteWindowOverlayController(for: window)
-                .update(isVisible: isCommandPalettePresented) { commandPaletteOverlayView }
+                .update(
+                    isVisible: isCommandPalettePresented,
+                    onDismiss: { dismissal in
+                        dismissCommandPalette(for: dismissal, in: window)
+                    }
+                ) { commandPaletteOverlayView }
             TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
             BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
         }
@@ -3399,13 +3361,6 @@ struct ContentView: View {
             ZStack(alignment: .top) {
                 Color.clear
                     .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onEnded { value in
-                                handleCommandPaletteBackdropClick(atContentPoint: value.location)
-                            }
-                    )
 
                 Color.clear
                     .ignoresSafeArea()
@@ -3429,6 +3384,7 @@ struct ContentView: View {
                     }
                 }
                 .frame(width: targetWidth)
+                .background(CommandPalettePanelHitRegion())
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(Color(nsColor: .windowBackgroundColor).opacity(0.98))
@@ -3822,7 +3778,9 @@ struct ContentView: View {
             }
 
             func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-                if let delta = commandPaletteSelectionDeltaForFieldEditorCommand(commandSelector, event: NSApp.currentEvent) {
+                let event = NSApp.currentEvent
+                if let delta = commandPaletteSelectionDeltaForFieldEditorCommand(commandSelector, event: event),
+                   event.map({ contextAwareCommandPaletteSelectionDelta(for: $0) == delta }) ?? true {
                     parent.onMoveSelection(delta); return true
                 }
 
@@ -3845,13 +3803,7 @@ struct ContentView: View {
             func handleKeyEvent(_ event: NSEvent, editor: NSTextView?) -> Bool {
                 guard !(editor?.hasMarkedText() ?? false) else { return false }
 
-                if let delta = commandPaletteSelectionDeltaForKeyboardNavigation(
-                    flags: event.modifierFlags,
-                    chars: event.characters ?? event.charactersIgnoringModifiers ?? "",
-                    keyCode: event.keyCode,
-                    nextShortcut: KeyboardShortcutSettings.shortcutIfBound(for: .commandPaletteNext),
-                    previousShortcut: KeyboardShortcutSettings.shortcutIfBound(for: .commandPalettePrevious)
-                ) {
+                if let delta = contextAwareCommandPaletteSelectionDelta(for: event) {
                     parent.onMoveSelection(delta)
                     return true
                 }
@@ -5687,34 +5639,6 @@ struct ContentView: View {
         cachedResultHadFallback ?? true
     }
 
-    static func commandPalettePanelHasForkableAgent(
-        workspaceId: UUID,
-        panelId: UUID,
-        supportedPanelKeys: Set<String>,
-        supportedRemoteContextsByPanelKey: [String: Bool] = [:],
-        fallbackSnapshot: SessionRestorableAgentSnapshot?,
-        isRemoteTerminal: Bool = false
-    ) -> Bool {
-        let panelKey = commandPaletteForkableAgentPanelKey(
-            workspaceId: workspaceId,
-            panelId: panelId
-        )
-        if supportedPanelKeys.contains(panelKey) {
-            if let supportedRemoteContext = supportedRemoteContextsByPanelKey[panelKey],
-               supportedRemoteContext != isRemoteTerminal {
-                return false
-            }
-            if let fallbackSnapshot {
-                return commandPaletteSnapshotForkAvailability(
-                    fallbackSnapshot,
-                    isRemoteTerminal: isRemoteTerminal
-                ) != .unsupported
-            }
-            return true
-        }
-        return false
-    }
-
     private func refreshCommandPaletteForkableAgentAvailabilityIfNeeded(scope: CommandPaletteListScope) {
         guard scope == .commands,
               let panelContext = focusedPanelContext,
@@ -5730,7 +5654,18 @@ struct ContentView: View {
         let panelKey = Self.commandPaletteForkableAgentPanelKey(workspaceId: workspaceId, panelId: panelId)
         let panelChanged = commandPaletteForkableAgentActivePanelKey != panelKey
         commandPaletteForkableAgentActivePanelKey = panelKey
-        let fallbackSnapshot = panelContext.workspace.restoredAgentSnapshotsByPanelId[panelId]
+        let allowsAgentContinuation = panelContext.workspace.allowsAgentContinuation(forPanelId: panelId)
+        if !allowsAgentContinuation {
+            cancelCommandPaletteForkableAgentAvailabilityProbe(for: panelKey)
+            commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
+            commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
+            commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
+            commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
+            commandPaletteForkableAgentResultHadFallbackByPanelKey.removeValue(forKey: panelKey)
+        }
+        let fallbackSnapshot = allowsAgentContinuation
+            ? panelContext.workspace.restoredAgentSnapshotForContinuation(panelId: panelId)
+            : nil
 
         if let fallbackSnapshot {
             let fallbackFingerprint = Self.commandPaletteForkSnapshotFingerprint(fallbackSnapshot)
@@ -5889,7 +5824,8 @@ struct ContentView: View {
         commandPaletteForkableAgentAvailabilityTasksByPanelKey[panelKey] = Task {
             let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
             guard !Task.isCancelled else { return }
-            let indexSnapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId)
+            let indexEntry = index.entry(workspaceId: workspaceId, panelId: panelId)
+            let indexSnapshot = indexEntry?.snapshot
             let snapshot = indexSnapshot ?? fallbackSnapshot
             let supportsFork: Bool
             if let snapshot {
@@ -5916,11 +5852,27 @@ struct ContentView: View {
             await MainActor.run {
                 guard commandPaletteForkableAgentProbeIDsByPanelKey[panelKey] == probeID else { return }
                 guard commandPaletteForkableAgentProbeFingerprintsByPanelKey[panelKey] == probeFingerprint else { return }
+                var acceptedIndexSnapshot = indexSnapshot
+                var acceptedSnapshot = snapshot
+                if let currentContext = focusedPanelContext,
+                   currentContext.workspace.id == workspaceId,
+                   currentContext.panelId == panelId {
+                    if let indexEntry {
+                        currentContext.workspace.reconcileCompletedRestoredAgent(
+                            panelId: panelId,
+                            observation: indexEntry
+                        )
+                    }
+                    if !currentContext.workspace.allowsAgentContinuation(forPanelId: panelId) {
+                        acceptedIndexSnapshot = nil
+                        acceptedSnapshot = nil
+                    }
+                }
                 if let fallbackFingerprint,
                    let currentContext = focusedPanelContext,
                    currentContext.workspace.id == workspaceId,
                    currentContext.panelId == panelId,
-                   let currentFallbackSnapshot = currentContext.workspace.restoredAgentSnapshotsByPanelId[panelId],
+                   let currentFallbackSnapshot = currentContext.workspace.restoredAgentSnapshotForContinuation(panelId: panelId),
                    Self.commandPaletteForkSnapshotFingerprint(currentFallbackSnapshot) != fallbackFingerprint {
                     commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
                     commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
@@ -5930,19 +5882,17 @@ struct ContentView: View {
                 let wasSupported = commandPaletteForkableAgentSupportedPanelKeys.contains(panelKey)
                 let hadCachedSnapshot = commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] != nil
                 let shouldRefreshResults: Bool
-                if supportsFork {
+                if supportsFork, let acceptedSnapshot {
                     shouldRefreshResults = !wasSupported
                     commandPaletteForkableAgentSupportedPanelKeys.insert(panelKey)
                     commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteTerminal
-                    if let snapshot {
-                        commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = snapshot
-                        commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = Self.commandPaletteForkCacheFingerprint(
-                            snapshot: snapshot,
-                            fallbackFingerprint: fallbackFingerprint
-                        )
-                        commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] =
-                            indexSnapshot == nil && fallbackSnapshot != nil
-                    }
+                    commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = acceptedSnapshot
+                    commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = Self.commandPaletteForkCacheFingerprint(
+                        snapshot: acceptedSnapshot,
+                        fallbackFingerprint: fallbackFingerprint
+                    )
+                    commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] =
+                        acceptedIndexSnapshot == nil && fallbackSnapshot != nil
                 } else {
                     shouldRefreshResults = wasSupported || hadCachedSnapshot
                     commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
@@ -6203,7 +6153,8 @@ struct ContentView: View {
             )
             snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelIsTerminal)
             snapshot.setBool(CommandPaletteContextKeys.panelHasPane, workspace.paneId(forPanelId: panelId) != nil)
-            let fallbackForkableSnapshot = workspace.restoredAgentSnapshotsByPanelId[panelId]
+            let allowsAgentContinuation = workspace.allowsAgentContinuation(forPanelId: panelId)
+            let fallbackForkableSnapshot = workspace.restoredAgentSnapshotForContinuation(panelId: panelId)
             snapshot.setBool(
                 CommandPaletteContextKeys.panelHasForkableAgent,
                 Self.commandPalettePanelHasForkableAgent(
@@ -6212,7 +6163,8 @@ struct ContentView: View {
                     supportedPanelKeys: commandPaletteForkableAgentSupportedPanelKeys,
                     supportedRemoteContextsByPanelKey: commandPaletteForkableAgentRemoteContextsByPanelKey,
                     fallbackSnapshot: fallbackForkableSnapshot,
-                    isRemoteTerminal: panelIsRemoteTerminal
+                    isRemoteTerminal: panelIsRemoteTerminal,
+                    allowsAgentContinuation: allowsAgentContinuation
                 )
             )
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)
@@ -8734,6 +8686,70 @@ struct ContentView: View {
         syncCommandPaletteDebugStateForObservedWindow()
     }
 
+    private func dismissCommandPalette(
+        for dismissal: CommandPaletteInteractionDismissal,
+        in window: NSWindow
+    ) {
+        if dismissal == .mainMenuBeganTracking {
+            // Menu tracking keeps this window key. Restore the saved panel before
+            // entering the nested menu loop; a selected command can still replace it.
+            dismissCommandPalette(restoreFocus: true)
+            return
+        }
+        guard case .pointer(let event) = dismissal, event.isInObservedWindow else {
+            dismissCommandPalette(restoreFocus: false)
+            return
+        }
+
+        // Other local monitors have no ordering contract. Reconcile a clicked
+        // terminal/browser target directly after hiding the overlay; the returned
+        // mouse-down can still replace this provisional focus during dispatch.
+        let clickedFocusTarget = commandPalettePointerFocusTarget(
+            atWindowPoint: event.locationInWindow,
+            in: window
+        )
+        dismissCommandPalette(
+            restoreFocus: true,
+            preferredFocusTarget: clickedFocusTarget
+        )
+    }
+
+    private func commandPalettePointerFocusTarget(
+        atWindowPoint windowPoint: NSPoint,
+        in window: NSWindow
+    ) -> CommandPaletteRestoreFocusTarget? {
+        if let terminalView = TerminalWindowPortalRegistry.terminalViewAtWindowPoint(windowPoint, in: window),
+           let workspaceId = terminalView.tabId,
+           let panelId = terminalView.terminalSurface?.id,
+           let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) {
+            return CommandPaletteRestoreFocusTarget(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                intent: workspace.panels[panelId]?.captureFocusIntent(in: window) ?? .terminal(.surface)
+            )
+        }
+
+        guard let webView = BrowserWindowPortalRegistry.webViewAtWindowPoint(windowPoint, in: window) else {
+            return nil
+        }
+        let selectedWorkspaceId = tabManager.selectedTabId
+        let orderedWorkspaces = tabManager.tabs.filter { $0.id == selectedWorkspaceId }
+            + tabManager.tabs.filter { $0.id != selectedWorkspaceId }
+        for workspace in orderedWorkspaces {
+            for (panelId, panel) in workspace.panels {
+                guard let browserPanel = panel as? BrowserPanel, browserPanel.webView === webView else {
+                    continue
+                }
+                return CommandPaletteRestoreFocusTarget(
+                    workspaceId: workspace.id,
+                    panelId: panelId,
+                    intent: panel.captureFocusIntent(in: window)
+                )
+            }
+        }
+        return nil
+    }
+
     private func dismissCommandPalette(restoreFocus: Bool = true) {
         dismissCommandPalette(restoreFocus: restoreFocus, preferredFocusTarget: nil)
     }
@@ -8803,138 +8819,6 @@ struct ContentView: View {
 
         guard restoreFocus, let focusTarget else { return }
         requestCommandPaletteFocusRestore(target: focusTarget)
-    }
-
-    private func handleCommandPaletteBackdropClick(atContentPoint contentPoint: CGPoint) {
-        let clickedFocusTarget = commandPaletteBackdropFocusTarget(atContentPoint: contentPoint)
-#if DEBUG
-        if let clickedFocusTarget {
-            cmuxDebugLog(
-                "palette.dismiss.backdrop focusTarget panel=\(clickedFocusTarget.panelId.uuidString.prefix(5)) " +
-                "workspace=\(clickedFocusTarget.workspaceId.uuidString.prefix(5)) intent=\(debugCommandPaletteFocusIntent(clickedFocusTarget.intent))"
-            )
-        } else {
-            cmuxDebugLog("palette.dismiss.backdrop focusTarget=nil")
-        }
-#endif
-        dismissCommandPalette(restoreFocus: true, preferredFocusTarget: clickedFocusTarget)
-    }
-
-    private func commandPaletteBackdropFocusTarget(atContentPoint contentPoint: CGPoint) -> CommandPaletteRestoreFocusTarget? {
-        guard let window = observedWindow,
-              let contentView = window.contentView else {
-            return nil
-        }
-
-        let nsContentPoint = NSPoint(x: contentPoint.x, y: contentPoint.y)
-        let windowPoint = contentView.convert(nsContentPoint, to: nil)
-        return commandPaletteBackdropFocusTarget(atWindowPoint: windowPoint, in: window)
-    }
-
-    private func commandPaletteBackdropFocusTarget(
-        atWindowPoint windowPoint: NSPoint,
-        in window: NSWindow
-    ) -> CommandPaletteRestoreFocusTarget? {
-        let overlayController = commandPaletteWindowOverlayController(for: window)
-        if let responder = overlayController.underlyingResponder(atWindowPoint: windowPoint),
-           let target = commandPaletteBackdropFocusTarget(for: responder) {
-            return target
-        }
-
-        if let webView = BrowserWindowPortalRegistry.webViewAtWindowPoint(windowPoint, in: window),
-           let target = commandPaletteBrowserFocusTarget(for: webView) {
-            return target
-        }
-
-        if let terminalView = TerminalWindowPortalRegistry.terminalViewAtWindowPoint(windowPoint, in: window),
-           let workspaceId = terminalView.tabId,
-           let panelId = terminalView.terminalSurface?.id,
-           tabManager.tabs.contains(where: { $0.id == workspaceId }) {
-            return commandPaletteRestoreFocusTarget(
-                workspaceId: workspaceId,
-                panelId: panelId,
-                fallbackIntent: .terminal(.surface),
-                in: window
-            )
-        }
-
-        return nil
-    }
-
-    private func commandPaletteBackdropFocusTarget(for responder: NSResponder) -> CommandPaletteRestoreFocusTarget? {
-        if let terminalView = cmuxOwningGhosttyView(for: responder),
-           let workspaceId = terminalView.tabId,
-           let panelId = terminalView.terminalSurface?.id,
-           tabManager.tabs.contains(where: { $0.id == workspaceId }) {
-            return commandPaletteRestoreFocusTarget(
-                workspaceId: workspaceId,
-                panelId: panelId,
-                fallbackIntent: .terminal(.surface),
-                in: observedWindow
-            )
-        }
-
-        if let webView = commandPaletteOwningWebView(for: responder),
-           let target = commandPaletteBrowserFocusTarget(for: webView) {
-            return target
-        }
-
-        return nil
-    }
-
-    private func commandPaletteBrowserFocusTarget(for webView: WKWebView) -> CommandPaletteRestoreFocusTarget? {
-        if let selectedWorkspace = tabManager.selectedWorkspace,
-           let target = commandPaletteBrowserFocusTarget(in: selectedWorkspace, for: webView) {
-            return target
-        }
-
-        let selectedWorkspaceId = tabManager.selectedTabId
-        for workspace in tabManager.tabs where workspace.id != selectedWorkspaceId {
-            if let target = commandPaletteBrowserFocusTarget(in: workspace, for: webView) {
-                return target
-            }
-        }
-
-        return nil
-    }
-
-    private func commandPaletteBrowserFocusTarget(
-        in workspace: Workspace,
-        for webView: WKWebView
-    ) -> CommandPaletteRestoreFocusTarget? {
-        for (panelId, panel) in workspace.panels {
-            guard let browserPanel = panel as? BrowserPanel,
-                  browserPanel.webView === webView else {
-                continue
-            }
-
-            return commandPaletteRestoreFocusTarget(
-                workspaceId: workspace.id,
-                panelId: panelId,
-                fallbackIntent: .browser(.webView),
-                in: observedWindow
-            )
-        }
-
-        return nil
-    }
-
-    private func commandPaletteRestoreFocusTarget(
-        workspaceId: UUID,
-        panelId: UUID,
-        fallbackIntent: PanelFocusIntent,
-        in window: NSWindow?
-    ) -> CommandPaletteRestoreFocusTarget {
-        let intent = tabManager.tabs
-            .first(where: { $0.id == workspaceId })?
-            .panels[panelId]?
-            .captureFocusIntent(in: window) ?? fallbackIntent
-
-        return CommandPaletteRestoreFocusTarget(
-            workspaceId: workspaceId,
-            panelId: panelId,
-            intent: intent
-        )
     }
 
     private func requestCommandPaletteFocusRestore(target: CommandPaletteRestoreFocusTarget) {
@@ -9553,6 +9437,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let openPullRequestLinksInCmuxBrowser: Bool
     let openPortLinksInCmuxBrowser: Bool
     let showsNotificationMessage: Bool
+    let notificationMessageLineLimit: Int
     let activeTabIndicatorStyle: WorkspaceIndicatorStyle
     let loadingSpinnerPosition: SidebarIndicatorPosition
     let notificationBadgePosition: SidebarIndicatorPosition
@@ -9584,7 +9469,6 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         openPortLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowser(
             defaults: defaults
         )
-
         hidesAllDetails = settings.value(for: catalog.sidebar.hideAllDetails)
         wrapsWorkspaceTitles = SidebarWorkspaceTitleWrapSettings.wraps(defaults: defaults)
         let detailVisibility = SidebarWorkspaceDetailVisibility(
@@ -9594,7 +9478,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         )
         showsWorkspaceDescription = detailVisibility.showsWorkspaceDescription
         showsNotificationMessage = detailVisibility.showsNotificationMessage
-
+        notificationMessageLineLimit = min(max(settings.value(for: catalog.sidebar.notificationMessageLineLimit), SidebarCatalogSection.notificationMessageLineLimitRange.lowerBound), SidebarCatalogSection.notificationMessageLineLimitRange.upperBound)
         let showsMetadata = Self.bool(defaults: defaults, key: "sidebarShowStatusPills", defaultValue: SidebarWorkspaceDetailDefaults.showCustomMetadata)
         let showsLog = Self.bool(defaults: defaults, key: "sidebarShowLog", defaultValue: SidebarWorkspaceDetailDefaults.showLog)
         let showsProgress = Self.bool(defaults: defaults, key: "sidebarShowProgress", defaultValue: SidebarWorkspaceDetailDefaults.showProgress)
@@ -13646,19 +13530,18 @@ struct TabItemView: View, Equatable {
             localized: "sidebar.pinnedWorkspaceProtected.tooltip",
             defaultValue: "Pinned workspace. Closing requires confirmation."
         )
-        let closeButtonTooltip = workspaceSnapshot.isPinned
-            ? protectedWorkspaceTooltip
-            : KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip)
+        let closeButtonTooltip = workspaceSnapshot.isPinned ? protectedWorkspaceTooltip : KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip)
         let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
         let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
         let latestNotificationSubtitle = latestNotificationText
         let conversationMessageSubtitle = !settings.hidesAllDetails && settings.iMessageModeEnabled
-            ? workspaceSnapshot.latestConversationMessage?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .nilIfEmpty
+            ? workspaceSnapshot.latestConversationMessage?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
             : nil
         let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
+        let subtitleLineLimit = latestNotificationSubtitle == nil ? 2 : settings.notificationMessageLineLimit
+        // Bound notification payloads before shaping so pathological text stays cheap in lazy, Equatable rows.
+        let displayedSubtitle = effectiveSubtitle?.sidebarBoundedDisplayString(maxDisplayedLines: subtitleLineLimit, maxDisplayedCharacters: 4096)
         let detailVisibility = visibleAuxiliaryDetails
         let titleLineLimit = settings.wrapsWorkspaceTitles ? Self.maxWrappedTitleLines : 1
         let displayedTitle = workspaceSnapshot.title.sidebarBoundedDisplayString(
@@ -13763,13 +13646,14 @@ struct TabItemView: View, Equatable {
                 )
             }
 
-            if let subtitle = effectiveSubtitle {
+            if let subtitle = displayedSubtitle {
                 Text(subtitle)
                     .font(magnifiedFont(scaledFontSize(10)))
                     .foregroundColor(activeSecondaryColor(0.8))
-                    .lineLimit(2)
+                    .lineLimit(subtitleLineLimit)
                     .truncationMode(.tail)
                     .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             remoteWorkspaceSection

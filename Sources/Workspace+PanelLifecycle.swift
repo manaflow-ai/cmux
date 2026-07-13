@@ -141,7 +141,6 @@ extension Workspace {
             }
         }
         if refreshPorts { refreshTrackedAgentPorts() }
-        syncTerminalTabAgentIconAssets(forPanelIds: previous.panelId, panelId)
         return didClearOtherStructuredAgentRuntime
     }
 
@@ -184,13 +183,17 @@ extension Workspace {
     }
 
     func clearAllAgentPIDs(refreshPorts: Bool = true) {
-        let hadAgentPIDs = !agentPIDs.isEmpty
         agentPIDs.removeAll()
         agentPIDProcessIdentitiesByKey.removeAll()
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
-        syncTerminalTabAgentIconAssetsForAllTerminalPanels()
-        if hadAgentPIDs, refreshPorts { refreshTrackedAgentPorts() }
+        if refreshPorts {
+            refreshTrackedAgentPorts()
+        } else {
+            agentListeningPorts.removeAll()
+            recomputeListeningPorts()
+            PortScanner.shared.unregisterAgentWorkspace(workspaceId: id)
+        }
     }
 
     private func isRecordedAgentPIDLive(key: String, pid: pid_t) -> Bool {
@@ -283,23 +286,38 @@ extension Workspace {
         if didChange, refreshPorts {
             refreshTrackedAgentPorts()
         }
-        syncTerminalTabAgentIconAssets(forPanelIds: ownedPanelId ?? panelId)
         return didChange
     }
 
-    /// Clears a panel's restored agent snapshot and resume metadata, then refreshes the tab's agent brand mark.
+    /// Clears a panel's restored agent snapshot and resume metadata.
     func clearRestoredAgentSnapshot(panelId: UUID) {
         restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
         restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
-        syncTerminalTabAgentIconAsset(forPanelId: panelId)
     }
 
     func refreshTrackedAgentPorts() {
-        agentListeningPorts.removeAll(keepingCapacity: false)
-        let remainingAgentPIDs = Set(agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
-        PortScanner.shared.refreshAgentPorts(workspaceId: id, agentPIDs: remainingAgentPIDs)
-        recomputeListeningPorts()
+        // Preserve the published snapshot until PortScanner reconciles the new
+        // process tree; eagerly clearing here made every PID refresh flicker.
+        let remainingAgentRoots = Set(agentPIDs.compactMap { key, pid -> AgentPortRootIdentity? in
+            guard pid > 0 else { return nil }
+            return AgentPortRootIdentity(
+                pid: Int(pid),
+                processIdentity: agentPIDProcessIdentitiesByKey[key]
+            )
+        })
+        PortScanner.shared.refreshAgentPorts(workspaceId: id, agentRoots: remainingAgentRoots)
+    }
+
+    func recomputeListeningPorts() {
+        let unique = Set(surfaceListeningPorts.values.flatMap { $0 })
+            .union(agentListeningPorts)
+            .union(remoteDetectedPorts)
+            .union(remoteForwardedPorts)
+        let next = unique.sorted()
+        if listeningPorts != next {
+            listeningPorts = next
+        }
     }
 
     @discardableResult
@@ -333,7 +351,6 @@ extension Workspace {
         for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {
             recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId)
         }
-        syncTerminalTabAgentIconAsset(forPanelId: runtimeState.panelId)
         if didAdoptAgentPID {
             refreshTrackedAgentPorts()
         }
@@ -383,9 +400,13 @@ extension Workspace {
             shouldPreserveRemoteDisconnectOnClose &&
             remoteDisconnectPlaceholderPanelIds.remove(panelId) != nil &&
             panels.count == 1
+        cancelPendingRemoteDisconnectReplacement(surfaceId: panelId)
         if shouldRefreshRemoteDisconnectPlaceholder,
            let remoteConfiguration {
-            rememberPendingRemoteDisconnectReplacement(configuration: remoteConfiguration)
+            rememberPendingRemoteDisconnectReplacement(
+                surfaceId: panelId,
+                configuration: remoteConfiguration
+            )
         }
 
         panels.removeValue(forKey: panelId)
@@ -417,8 +438,7 @@ extension Workspace {
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeValue(forKey: panelId)
 #endif
         discardAgentRuntimeState(closedAgentRuntimeState)
-        discardTerminalTabAgentIconState(forPanelId: panelId)
-        restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+        clearRestoredAgentSnapshot(panelId: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
         terminalInheritanceFontPointsByPanelId.removeValue(forKey: panelId)

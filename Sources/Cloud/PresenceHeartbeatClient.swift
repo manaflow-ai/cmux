@@ -184,9 +184,9 @@ final class PresenceHeartbeatClient {
 
         let bodyDict = Self.heartbeatBody(
             deviceID: MobileHostIdentity.deviceID(),
-            tag: Self.buildTag(),
+            tag: MobileHostIdentity.instanceTag(),
             bundleID: Bundle.main.bundleIdentifier,
-            displayName: MobileHostIdentity.displayName(),
+            displayName: MobileHostIdentity.instanceDisplayName(),
             routes: currentRoutes,
             stopping: stopping
         )
@@ -252,11 +252,4 @@ final class PresenceHeartbeatClient {
         return bodyDict
     }
 
-    /// The build tag for this cmux instance, matching the registry's instance
-    /// key so presence rows line up with `device_app_instances.tag`.
-    private static func buildTag() -> String {
-        let tag = ProcessInfo.processInfo.environment["CMUX_TAG"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return (tag?.isEmpty == false) ? tag! : "default"
-    }
 }
