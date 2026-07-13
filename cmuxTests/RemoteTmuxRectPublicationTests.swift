@@ -97,7 +97,7 @@ import Testing
         #expect(paneRect(in: connection.windowsByID[1]!.layout, id: 2)! == (61, 0, 59, 40))
         #expect(connection.paneHeaderLabels[0] == "0 \"left pane\"")
         #expect(connection.paneHeaderLabels[2] == "1 \"right\"")
-        #expect(connection.windowTitleRowsVisible[1] == false)
+        #expect(connection.windowTitleRowPlacements[1] == nil)
     }
 
     @Test func windowRenameWhileLayoutIsPendingPublishesTheNewName() {
@@ -331,7 +331,7 @@ import Testing
         // The strip labels ride reconcile from the connection's fetch results,
         // as does whether tmux is drawing header rows (labels render only then).
         #expect(mirror.paneHeaderLabels == [0: "0 \"left\"", 2: "1 \"right\""])
-        #expect(mirror.tmuxTitleRowsVisible)
+        #expect(mirror.tmuxTitleRowPlacement == .top)
         // On first attach the active-pane event fires BEFORE this mirror
         // exists, so reconcile must adopt the connection's known active pane
         // — otherwise the dot is missing until the next pane switch.
@@ -414,7 +414,7 @@ import Testing
         reply(connection, lines: ["@1 f92f,80x24,0,0,0 f92f,80x24,0,0,0 [] one"])
         reply(connection, lines: ["%0 0 1 80 23 1 top :#[reverse]0#[default] \"ejc3-mac\""])
         #expect(connection.paneHeaderLabels[0] == "0 \"ejc3-mac\"")
-        #expect(connection.windowTitleRowsVisible[1] == true)
+        #expect(connection.windowTitleRowPlacements[1] == .top)
     }
 
     @Test func headerSubscriptionKeepsLabelsLiveBetweenLayoutEvents() {

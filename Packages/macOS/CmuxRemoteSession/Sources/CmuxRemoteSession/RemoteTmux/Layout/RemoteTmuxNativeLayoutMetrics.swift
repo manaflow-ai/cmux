@@ -13,6 +13,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     /// the claim must reserve it and the ideals must grant it, or every pane
     /// renders one row over and the accounting drifts.
     public var paneTitleRowHeight: CGFloat
+    private let paneTitleRowPaneIDs: Set<Int>?
     /// One point of slack per pane per axis: extents are quantized to whole
     /// points on cumulative rails rounded to NEAREST, so a pane sits within
     /// half a point of its exact span — and half a point below an exact
@@ -25,18 +26,29 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     public static let paneQuantizationSlack: CGFloat = 1
 
     /// Creates the point-space metrics used by the remote-tmux layout planner.
+    ///
+    /// - Parameters:
+    ///   - cellSize: One terminal cell's native point size.
+    ///   - surfacePadding: Native surface chrome outside the rendered grid.
+    ///   - tabBarHeight: Native tab-strip height carried by every pane.
+    ///   - dividerThickness: Native split divider thickness.
+    ///   - paneTitleRowHeight: Height of tmux's configured pane status row.
+    ///   - paneTitleRowPaneIDs: Panes touching the configured status-row edge.
+    ///     Pass `nil` only when the full patched layout will be supplied to each operation.
     public init(
         cellSize: CGSize,
         surfacePadding: CGSize,
         tabBarHeight: CGFloat,
         dividerThickness: CGFloat,
-        paneTitleRowHeight: CGFloat = 0
+        paneTitleRowHeight: CGFloat = 0,
+        paneTitleRowPaneIDs: Set<Int>? = nil
     ) {
         self.cellSize = cellSize
         self.surfacePadding = surfacePadding
         self.tabBarHeight = tabBarHeight
         self.dividerThickness = dividerThickness
         self.paneTitleRowHeight = paneTitleRowHeight
+        self.paneTitleRowPaneIDs = paneTitleRowPaneIDs
     }
 
     public func clientGrid(
@@ -69,7 +81,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         residual(
             of: node,
             panePlacementSlack: Self.paneQuantizationSlack,
-            paneTitleRowHeight: paneTitleRowHeight
+            paneTitleRowPaneIDs: resolvedPaneTitleRowPaneIDs(for: node)
         )
     }
 
@@ -78,24 +90,25 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         residual(
             of: node,
             panePlacementSlack: 0,
-            paneTitleRowHeight: paneTitleRowHeight
+            paneTitleRowPaneIDs: resolvedPaneTitleRowPaneIDs(for: node)
         )
     }
 
     private func clientGridResidual(of node: RemoteTmuxLayoutNode) -> CGSize {
-        residual(of: node, panePlacementSlack: 0, paneTitleRowHeight: 0)
+        residual(of: node, panePlacementSlack: 0, paneTitleRowPaneIDs: [])
     }
 
     private func residual(
         of node: RemoteTmuxLayoutNode,
         panePlacementSlack: CGFloat,
-        paneTitleRowHeight: CGFloat
+        paneTitleRowPaneIDs: Set<Int>
     ) -> CGSize {
         switch node.content {
-        case .pane:
+        case .pane(let paneID):
             return CGSize(
                 width: surfacePadding.width + panePlacementSlack,
-                height: tabBarHeight + surfacePadding.height + paneTitleRowHeight
+                height: tabBarHeight + surfacePadding.height
+                    + (paneTitleRowPaneIDs.contains(paneID) ? paneTitleRowHeight : 0)
                     + panePlacementSlack
             )
         case .horizontal(let children):
@@ -103,7 +116,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
                 residual(
                     of: $0,
                     panePlacementSlack: panePlacementSlack,
-                    paneTitleRowHeight: paneTitleRowHeight
+                    paneTitleRowPaneIDs: paneTitleRowPaneIDs
                 )
             }
             return CGSize(
@@ -119,7 +132,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
                 residual(
                     of: $0,
                     panePlacementSlack: panePlacementSlack,
-                    paneTitleRowHeight: paneTitleRowHeight
+                    paneTitleRowPaneIDs: paneTitleRowPaneIDs
                 )
             }
             return CGSize(
@@ -131,6 +144,27 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
                     )
             )
         }
+    }
+
+    func resolvingPaneTitleRows(in layout: RemoteTmuxLayoutNode) -> Self {
+        guard paneTitleRowPaneIDs == nil, paneTitleRowHeight > 0 else { return self }
+        return Self(
+            cellSize: cellSize,
+            surfacePadding: surfacePadding,
+            tabBarHeight: tabBarHeight,
+            dividerThickness: dividerThickness,
+            paneTitleRowHeight: paneTitleRowHeight,
+            paneTitleRowPaneIDs: resolvedPaneTitleRowPaneIDs(for: layout)
+        )
+    }
+
+    private func resolvedPaneTitleRowPaneIDs(for layout: RemoteTmuxLayoutNode) -> Set<Int> {
+        guard paneTitleRowHeight > 0 else { return [] }
+        if let paneTitleRowPaneIDs { return paneTitleRowPaneIDs }
+        if let placement = RemoteTmuxPaneTitleRowPlacement.inferred(in: layout) {
+            return placement.paneIDs(in: layout)
+        }
+        return Set(layout.paneIDsInOrder)
     }
 
     public func dividerFraction(

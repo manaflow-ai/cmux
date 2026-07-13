@@ -31,9 +31,10 @@ extension RemoteTmuxWindowMirror {
             ),
             tabBarHeight: appearance.tabBarHeight,
             dividerThickness: appearance.dividerThickness,
-            paneTitleRowHeight: tmuxTitleRowsVisible
+            paneTitleRowHeight: tmuxTitleRowPlacement != nil
                 ? CGFloat(geometry.cellHeightPx) / geometry.scale
-                : 0
+                : 0,
+            paneTitleRowPaneIDs: tmuxTitleRowPlacement?.paneIDs(in: renderedLayout) ?? []
         )
     }
 

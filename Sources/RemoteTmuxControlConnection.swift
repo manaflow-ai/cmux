@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 import os
 
@@ -63,10 +64,8 @@ final class RemoteTmuxControlConnection {
     /// the moment tmux would redraw its own border. The mirror copies its
     /// windows' subset on reconcile; the view never reads this directly.
     var paneHeaderLabels: [Int: String] = [:]
-    /// Whether each window currently has a visible tmux pane-title row.
-    /// Both `top` and `bottom` consume one pane grid row; placement only
-    /// determines whether a label can map to cmux's top strip.
-    var windowTitleRowsVisible: [Int: Bool] = [:]
+    /// Configured tmux pane-title placement per window; absence means off.
+    var windowTitleRowPlacements: [Int: RemoteTmuxPaneTitleRowPlacement] = [:]
     /// Layouts awaiting authoritative pane rectangles before publication.
     var pendingLayouts: [Int: RemoteTmuxPendingLayout] = [:]
     /// Window ids in the initial atomic topology publication batch.
@@ -766,7 +765,7 @@ final class RemoteTmuxControlConnection {
             activePaneByWindow[id] = nil
             removePublishedPaneOwnership(windowId: id)
             windowsByID[id] = nil
-            windowTitleRowsVisible[id] = nil
+            windowTitleRowPlacements[id] = nil
             windowOrder.removeAll { $0 == id }
             #if DEBUG
             cmuxDebugLog("remote.window.close @\(id) order=\(windowOrder)")

@@ -262,7 +262,7 @@ import Testing
 
         // Bottom placement changes where tmux draws the row, not whether the
         // pane loses one grid row to that chrome.
-        #expect(connection.windowTitleRowsVisible[1] == true)
+        #expect(connection.windowTitleRowPlacements[1] == .bottom)
     }
 
     @Test func reconcileClaimsOnceThenNeverChangesThePushedSize() {

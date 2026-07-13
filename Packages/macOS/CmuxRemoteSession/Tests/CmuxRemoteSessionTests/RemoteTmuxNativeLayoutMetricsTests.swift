@@ -102,6 +102,8 @@ import Testing
 
         #expect(metrics.residual(of: topTitleLayout).height == 72)
         #expect(metrics.residual(of: bottomTitleLayout).height == 72)
+        #expect(RemoteTmuxPaneTitleRowPlacement.top.paneIDs(in: topTitleLayout) == [1])
+        #expect(RemoteTmuxPaneTitleRowPlacement.bottom.paneIDs(in: bottomTitleLayout) == [2])
         #expect(RemoteTmuxNativeMeasuredSplitTree(
             tree: RemoteTmuxNativeSplitTree(layout: topTitleLayout),
             metrics: metrics

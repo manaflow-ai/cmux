@@ -13,6 +13,16 @@ public indirect enum RemoteTmuxNativeMeasuredSplitTree: Sendable {
     )
 
     public init(tree: RemoteTmuxNativeSplitTree, metrics: RemoteTmuxNativeLayoutMetrics) {
+        self.init(
+            resolvedTree: tree,
+            metrics: metrics.resolvingPaneTitleRows(in: tree.layout)
+        )
+    }
+
+    private init(
+        resolvedTree tree: RemoteTmuxNativeSplitTree,
+        metrics: RemoteTmuxNativeLayoutMetrics
+    ) {
         switch tree {
         case .atomic(let layout):
             self = .atomic(
@@ -21,8 +31,8 @@ public indirect enum RemoteTmuxNativeMeasuredSplitTree: Sendable {
                 minimumResidual: metrics.minimumResidual(of: layout)
             )
         case .split(let layout, let orientation, let first, let second):
-            let measuredFirst = Self(tree: first, metrics: metrics)
-            let measuredSecond = Self(tree: second, metrics: metrics)
+            let measuredFirst = Self(resolvedTree: first, metrics: metrics)
+            let measuredSecond = Self(resolvedTree: second, metrics: metrics)
             self = .split(
                 layout: layout,
                 residual: metrics.joinedResidual(

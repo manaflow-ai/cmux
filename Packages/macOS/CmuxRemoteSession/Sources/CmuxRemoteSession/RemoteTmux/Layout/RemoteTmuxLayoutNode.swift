@@ -106,8 +106,8 @@ public struct RemoteTmuxLayoutNode: Sendable, Equatable, Codable {
     /// A copy of this tree with each pane leaf's cell rect replaced by its
     /// REAL rect (from `list-panes`), where one is known. The layout string
     /// alone is not ground truth: under `pane-border-status` tmux publishes
-    /// the pre-title tree while the displayed panes sit one row lower and
-    /// shorter — placement must follow where the panes actually are. Split
+    /// the pre-title tree while panes touching the configured edge are one
+    /// row shorter (and top-edge panes also sit one row lower). Split
     /// nodes keep their string geometry; the renderer reads only leaf rects
     /// and split-node origins, both of which stay coherent.
     public func patchingLeafRects(

@@ -142,10 +142,8 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     @ObservationIgnored var minNonGridWidthPxByScale: [CGFloat: Int] = [:]
     @ObservationIgnored var minNonGridHeightPxByScale: [CGFloat: Int] = [:]
 
-    /// Whether tmux draws pane-title rows for this window. Both top and bottom
-    /// placement consume one pane grid row, so sizing reserves the row either
-    /// way even though only a top row maps to cmux's header-strip labels.
-    private(set) var tmuxTitleRowsVisible = false
+    /// The edge where tmux draws pane-title rows, or nil when they are off.
+    private(set) var tmuxTitleRowPlacement: RemoteTmuxPaneTitleRowPlacement?
     /// Header-strip labels per pane (the expanded `pane-border-format`,
     /// style tokens stripped), copied from the
     /// connection on every reconcile so the view reads stored state, never
@@ -181,7 +179,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         var container: CGSize?
         var scale: CGFloat?
         var geometry: RemoteTmuxMirrorGeometry?
-        var titleRows: Bool
+        var titleRowPlacement: RemoteTmuxPaneTitleRowPlacement?
         var visible: Bool
     }
 
@@ -312,9 +310,9 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         if layout != newLayout { layout = newLayout }
         let labels = (connection?.paneHeaderLabels ?? [:]).filter { livePaneIds.contains($0.key) }
         if labels != paneHeaderLabels { paneHeaderLabels = labels }
-        let titleRows = connection?.windowTitleRowsVisible[windowId] ?? false
-        if tmuxTitleRowsVisible != titleRows {
-            tmuxTitleRowsVisible = titleRows
+        let titleRowPlacement = connection?.windowTitleRowPlacements[windowId]
+        if tmuxTitleRowPlacement != titleRowPlacement {
+            tmuxTitleRowPlacement = titleRowPlacement
         }
         reconcileBonsplitTree(from: previousRenderedLayout, to: renderedLayout)
         setNeedsSizingPass()

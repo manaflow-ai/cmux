@@ -86,9 +86,10 @@ extension RemoteTmuxControlConnection {
     /// `pane-border-format` — exactly the header text a native tmux client
     /// would draw, custom formats included). The layout string is not ground
     /// truth: under `pane-border-status` tmux publishes the pre-title tree
-    /// while the displayed panes sit one row lower and shorter — placement
-    /// must render where the panes actually are, so a quarantined layout is
-    /// published only by this fetch's reply. The expanded format is LAST (it
+    /// while panes touching the configured edge are shorter (and top-edge
+    /// panes also sit lower). Placement must render where panes actually are,
+    /// so a quarantined layout is published only by this fetch's reply. The
+    /// expanded format is LAST (it
     /// may contain spaces) behind a `:` sentinel (it may expand to EMPTY,
     /// and a trailing empty field must survive line splitting).
     @discardableResult

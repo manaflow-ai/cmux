@@ -132,7 +132,7 @@ extension RemoteTmuxWindowMirror {
             container: containerSizePt,
             scale: containerScale,
             geometry: geometrySnapshot,
-            titleRows: tmuxTitleRowsVisible,
+            titleRowPlacement: tmuxTitleRowPlacement,
             visible: isVisibleForSizing
         )
     }

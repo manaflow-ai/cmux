@@ -188,7 +188,7 @@ extension RemoteTmuxControlConnection {
                     lastSizeRequestWindowId = nil
                 }
                 activePaneByWindow = activePaneByWindow.filter { liveIDs.contains($0.key) }
-                windowTitleRowsVisible = windowTitleRowsVisible.filter { liveIDs.contains($0.key) }
+                windowTitleRowPlacements = windowTitleRowPlacements.filter { liveIDs.contains($0.key) }
                 prunePaneState(keeping: Set(next.values.flatMap { $0.paneIDsInOrder }))
                 #if DEBUG
                 cmuxDebugLog(

@@ -149,7 +149,7 @@ extension RemoteTmuxControlConnection {
         var rects: [Int: (x: Int, y: Int, width: Int, height: Int)] = [:]
         var labels: [Int: String] = [:]
         var activePane: Int?
-        var titleRowsVisible = false
+        var titleRowPlacement: RemoteTmuxPaneTitleRowPlacement?
         for line in lines {
             // "%id left top width height active border-status :format…" —
             // the expanded pane-border-format is last (it may contain
@@ -163,12 +163,7 @@ extension RemoteTmuxControlConnection {
             else { continue }
             rects[paneId] = (x: x, y: y, width: width, height: height)
             if parts[5] == "1" { activePane = paneId }
-            // Both placements consume one pane-grid row. The expanded label
-            // is useful only for top strips, but this flag is sizing chrome,
-            // so bottom rows must remain visible to the layout metrics too.
-            if parts[6] == "top" || parts[6] == "bottom" {
-                titleRowsVisible = true
-            }
+            titleRowPlacement = RemoteTmuxPaneTitleRowPlacement(rawValue: String(parts[6]))
             labels[paneId] = Self.strippingStyleTokens(String(parts[7].dropFirst()))
         }
         // The reply must cover EVERY pane of the tree it will publish:
@@ -197,8 +192,8 @@ extension RemoteTmuxControlConnection {
         for (paneId, label) in labels where paneHeaderLabels[paneId] != label {
             paneHeaderLabels[paneId] = label
         }
-        if windowTitleRowsVisible[windowId] != titleRowsVisible {
-            windowTitleRowsVisible[windowId] = titleRowsVisible
+        if windowTitleRowPlacements[windowId] != titleRowPlacement {
+            windowTitleRowPlacements[windowId] = titleRowPlacement
         }
         // The fetch's #{pane_active} is a fresh server snapshot: adopt it
         // whenever it differs, not only on first sight — an active-pane
