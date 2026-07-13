@@ -1,6 +1,6 @@
 # cmux-tui Programmability Contract
 
-This directory is the source of truth for the cmux-tui control protocol, the generated `cmux-tui` command surface, plugin contracts, and future generated language bindings. The implemented protocol described here is protocol version 6, as defined by `cmux-tui-core/src/server.rs`.
+This directory is the source of truth for the cmux-tui control protocol, the generated `cmux-tui` command surface, plugin contracts, and future generated language bindings. Protocol v6 remains the implemented baseline in `cmux-tui-core/src/server.rs`; the explicitly marked render-state, tree-delta, and event-scoping additions form the protocol-v7 draft.
 
 The spec is intentionally stricter than prose docs. Implemented commands and events describe the current server behavior exactly, including awkward result shapes and no-op cases. Proposed commands, events, transports, and config are marked `proposed` and are not part of the implemented protocol.
 
@@ -15,6 +15,8 @@ The spec version tracks the mux protocol version.
 | Removal, rename, incompatible type change, changed error semantics, or changed ordering guarantee | Major protocol version |
 
 Protocol v6 is the implemented baseline. Proposed additions in this directory target the next minor protocol unless a later spec says otherwise.
+
+Protocol v7 is additive for v6 clients: `attach-surface.mode` defaults to `"bytes"`, and `subscribe.tree_events` defaults to `"coarse"`, so absent v7 selectors retain exact v6 attach and tree-event behavior. A v7 server reports `identify.protocol == 7`; clients must require that value before selecting render mode or using other v7-only fields and commands.
 
 Generated clients must inspect `identify.protocol` before using features newer than the connected server. Bindings may expose proposed APIs behind version checks, but they must not send proposed commands to an older server unless the caller explicitly opts into probing.
 
@@ -32,6 +34,7 @@ The generator must preserve the wire command names, parameter names, result shap
 | --- | --- |
 | `commands.md` | Command contract, CLI mapping for each command, examples, and compatibility notes |
 | `events.md` | Subscribe and attach event payloads, ordering guarantees, and proposed filters |
+| `render.md` | Protocol-v7 authoritative styled-cell attach, deltas, scrollback, sizing guidance, and draft open questions |
 | `transports.md` | Implemented Unix socket and WebSocket transports plus proposed HTTP and SSE transports |
 | `frontends.md` | Canonical connection, synchronization, terminal streaming, and agent/notification guide for frontend authors |
 | `cli.md` | Generated `cmux-tui <verb>` conventions, exit codes, stdin rules, verb table, and examples |
@@ -40,4 +43,4 @@ The generator must preserve the wire command names, parameter names, result shap
 
 ## Implemented Inventory
 
-Protocol v6 implements the socket commands listed in `commands.md` and the event names listed in `events.md`. Events include subscribe events, attach-stream events, and the implemented `empty` and `detached` lifecycle events.
+Protocol v6 implements the baseline socket commands listed in `commands.md` and the baseline event names listed in `events.md`. Protocol-v7 entries are spec-only in this round. Events include subscribe events, attach-stream events, and the implemented `empty` and `detached` lifecycle events.

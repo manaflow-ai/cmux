@@ -1,6 +1,12 @@
 # Transport Contract
 
-The command schema is transport-independent. Protocol v5 introduced the Unix domain socket JSON-lines transport. Protocol v6 also implements an opt-in WebSocket transport with the same command and event payloads. HTTP and SSE remain proposals.
+The command schema is transport-independent. Protocol v5 introduced the Unix domain socket JSON-lines transport. Protocol v6 also implements an opt-in WebSocket transport with the same command and event payloads. Protocol v7 leaves both framing contracts unchanged and adds render-mode negotiation at the command layer. HTTP and SSE remain proposals.
+
+## Protocol Negotiation
+
+Protocol-v7 servers report `protocol:7` from `identify` and `ping`. Clients must inspect `identify.protocol` before using versioned additions. In particular, a client selecting `attach-surface` with `mode:"render"` must require `protocol >= 7`; on protocol 6 it must use the default byte mode or refuse the attachment.
+
+There is no transport-level version preamble. Omitting `attach-surface.mode` selects `"bytes"`, and omitting `subscribe.tree_events` selects `"coarse"`; those defaults preserve the exact protocol-v6 attach and tree-event behavior. Unix socket paths, WebSocket upgrade/authentication, request ids, response envelopes, and message framing do not change in protocol 7.
 
 ## Unix Socket
 
@@ -93,7 +99,9 @@ The equivalent config is:
 
 ### Framing
 
-Each client request is one UTF-8 JSON object in one WebSocket text frame. Each response or event is one complete JSON object in one WebSocket text frame. Do not append a newline. Responses and events may be interleaved after `subscribe` or `attach-surface`, exactly as on the Unix socket. The request/response envelopes, command names, event payloads, protocol version, attach ordering, and base64 encoding are unchanged.
+Each client request is one UTF-8 JSON object in one WebSocket text frame. Each response or event is one complete JSON object in one WebSocket text frame. Do not append a newline. Responses and events may be interleaved after `subscribe` or `attach-surface`, exactly as on the Unix socket. For a selected protocol feature, the request/response envelopes, command names, event payloads, attach ordering, and base64 encoding are identical across Unix and WebSocket transports.
+
+WebSocket `permessage-deflate` may be negotiated as optional transport compression. Compression is hop-by-hop WebSocket behavior, not part of the cmux-tui protocol: clients cannot require it for correctness, payload schemas remain JSON text, and intermediaries may enable or disable it independently.
 
 Binary frames are not protocol messages and cause the connection to close. The server accepts a normal WebSocket upgrade on any request path and does not require a WebSocket subprotocol.
 
