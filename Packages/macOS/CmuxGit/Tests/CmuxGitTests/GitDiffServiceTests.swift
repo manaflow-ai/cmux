@@ -56,7 +56,7 @@ import Testing
         #expect(renamed.deletions == 4)
     }
 
-    @Test func unmergedNameStatusConsumesItsPathWithoutShiftingLaterEntries() throws {
+    @Test func unmergedNameStatusIsExcludedWithoutShiftingLaterEntries() throws {
         let service = GitDiffService()
         let files = service.parseChangedFiles(
             numstatOutput: nil,
@@ -64,9 +64,8 @@ import Testing
             untrackedOutput: nil
         )
 
-        #expect(files.count == 2)
-        let conflict = try #require(files.first { $0.path == "Dockerfile" })
-        #expect(conflict.status == .modified)
+        #expect(files.count == 1)
+        #expect(!files.contains { $0.path == "Dockerfile" })
         let modified = try #require(files.first { $0.path == "Sources/App.swift" })
         #expect(modified.status == .modified)
     }

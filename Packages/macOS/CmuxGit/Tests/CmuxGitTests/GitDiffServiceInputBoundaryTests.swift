@@ -4,6 +4,42 @@ import Testing
 @testable import CmuxGit
 
 @Suite struct GitDiffServiceInputBoundaryTests {
+    @Test func unmergedFileIsExcludedWhileOrdinaryChangesRemainDiffable() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let conflict = repo.appendingPathComponent("Conflict.txt")
+        let visible = repo.appendingPathComponent("Visible.txt")
+        try Data("base\n".utf8).write(to: conflict)
+        try Data("base\n".utf8).write(to: visible)
+        try runTestGit(in: repo, ["add", "--", "Conflict.txt", "Visible.txt"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add files"])
+        try runTestGit(in: repo, ["checkout", "--quiet", "-b", "other"])
+        try Data("other\n".utf8).write(to: conflict)
+        try runTestGit(in: repo, ["commit", "--all", "--quiet", "-m", "other change"])
+        try runTestGit(in: repo, ["checkout", "--quiet", "-"])
+        try Data("current\n".utf8).write(to: conflict)
+        try runTestGit(in: repo, ["commit", "--all", "--quiet", "-m", "current change"])
+        try runTestGit(in: repo, ["merge", "--quiet", "other"], expecting: 1)
+        try Data("changed\n".utf8).write(to: visible)
+
+        let service = GitDiffService(
+            processDeadlineSeconds: 120,
+            operationDeadlineSeconds: 120
+        )
+        let changed = try #require(service.changedFiles(repoRoot: repo.path))
+        #expect(changed.files.map(\.path) == ["Visible.txt"])
+        let summary = try #require(changed.files.first { $0.path == "Visible.txt" })
+        let diff = try #require(service.fileDiff(
+            repoRoot: repo.path,
+            path: summary.path,
+            status: summary.status,
+            additions: summary.additions,
+            deletions: summary.deletions,
+            snapshotToken: summary.snapshotToken
+        ))
+        #expect(diff.unifiedDiff.contains("+changed"))
+    }
+
     @Test func trackedTabPathRemainsVisibleAndDiffable() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
@@ -386,7 +422,7 @@ import Testing
         return root
     }
 
-    private func runTestGit(in root: URL, _ arguments: [String]) throws {
+    private func runTestGit(in root: URL, _ arguments: [String], expecting expectedStatus: Int32 = 0) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = arguments
@@ -395,7 +431,7 @@ import Testing
         process.standardError = FileHandle.nullDevice
         try process.run()
         process.waitUntilExit()
-        try #require(process.terminationStatus == 0)
+        try #require(process.terminationStatus == expectedStatus)
     }
 
 }
