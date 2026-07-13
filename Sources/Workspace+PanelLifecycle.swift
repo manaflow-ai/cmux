@@ -307,6 +307,17 @@ extension Workspace {
         PortScanner.shared.refreshAgentPorts(workspaceId: id, agentRoots: remainingAgentRoots)
     }
 
+    func recomputeListeningPorts() {
+        let unique = Set(surfaceListeningPorts.values.flatMap { $0 })
+            .union(agentListeningPorts)
+            .union(remoteDetectedPorts)
+            .union(remoteForwardedPorts)
+        let next = unique.sorted()
+        if listeningPorts != next {
+            listeningPorts = next
+        }
+    }
+
     @discardableResult
     private func discardAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) -> Bool {
         guard let runtimeState else { return false }
