@@ -231,7 +231,40 @@ final class RemoteTmuxSizingUITests: XCTestCase {
             setMirrorWindowSize(CGSize(width: width, height: 700))
             try assertSettles(selectedWindow: 0, within: 10, context: "after shrink to \(Int(width))")
             try assertRootContentTracksWindow(context: "after shrink to \(Int(width))")
+            try assertClaimsWithinWindowCeiling(context: "after shrink to \(Int(width))")
         }
+    }
+
+    /// The hidden-mirror lifecycle: attach while another workspace holds the
+    /// front, resize the window while the mirror is hidden, then reveal it.
+    /// A mirror born hidden takes its first container reading with no
+    /// visible window to vouch for it, and the resize while hidden
+    /// guarantees whatever it banked at birth is stale by the time it is
+    /// shown. The fuzz wedge lived in this lifecycle: a reading deferred for
+    /// lack of a window was dropped, no later callback came, and the mirror
+    /// rendered a stale-wide tree forever with every claim looking sane.
+    /// The wedge's trigger was a race (the reading landing a beat before
+    /// the probe joined the window), so this deterministic pass pins the
+    /// lifecycle contract rather than that ordering: whatever the first
+    /// reading raced against, the reveal must converge to an exact settle —
+    /// grids, frames, and claims all judged. The launch workspace plays the
+    /// "other tab": `activate: false` mirrors the host behind it, so no
+    /// second workspace needs creating.
+    func testHiddenAttachThenRevealSettlesAfterResizeWhileHidden() throws {
+        try requireTmux()
+        let app = launchApp()
+        defer { app.terminate() }
+        try buildLabSession()
+        let workspaceId = try XCTUnwrap(
+            attachSessionHidden(), "hidden attach reported no mirror workspace"
+        )
+        // Churn while hidden: one real window resize, so any size the hidden
+        // mirror banked at birth is stale by the time it is shown.
+        setMirrorWindowSize(CGSize(width: 1000, height: 700))
+        XCTAssertTrue(selectWorkspace(id: workspaceId), "could not select the mirror workspace")
+        try assertSettles(selectedWindow: 0, within: 25, context: "after reveal")
+        try assertRootContentTracksWindow(context: "after reveal")
+        try assertClaimsWithinWindowCeiling(context: "after reveal")
     }
 
     /// A geometry-only layout change NOT caused by the app — a co-attached

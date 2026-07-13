@@ -123,4 +123,30 @@ extension RemoteTmuxSizingUITests {
         XCTAssertEqual(response?["mirrored"] as? Bool, true, "host not mirrored: \(response ?? [:])")
         mirrorWindowId = response?["window_id"] as? String
     }
+
+    /// Mirrors the lab host WITHOUT activating: the launch workspace keeps
+    /// the front, so the mirror workspace mounts hidden — the birth state
+    /// where the first container reading arrives with no visible window to
+    /// vouch for it. Records the hosting window (for `setMirrorWindowSize`)
+    /// and returns the mirror workspace's id for the later reveal.
+    func attachSessionHidden() -> String? {
+        let response = socketJSON(method: "remote.tmux.window", params: [
+            "host": "e2e-shim-host",
+            "activate": false,
+        ])
+        XCTAssertEqual(response?["ok"] as? Bool, true, "remote.tmux.window failed: \(response ?? [:])")
+        XCTAssertEqual(response?["mirrored"] as? Bool, true, "host not mirrored: \(response ?? [:])")
+        mirrorWindowId = response?["window_id"] as? String
+        return (response?["workspace_ids"] as? [Any])?.compactMap { $0 as? String }.first
+    }
+
+    /// Selects a workspace by id via `workspace.select` — the socket twin of
+    /// clicking it in the sidebar, and the reveal step of the hidden-mirror
+    /// lifecycle (`surface.focus` only switches tabs INSIDE the selected
+    /// workspace, so it cannot bring a hidden mirror to the front).
+    @discardableResult
+    func selectWorkspace(id: String) -> Bool {
+        let response = socketJSON(method: "workspace.select", params: ["workspace_id": id])
+        return response?["ok"] as? Bool == true
+    }
 }

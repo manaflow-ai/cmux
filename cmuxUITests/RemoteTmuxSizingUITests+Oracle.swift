@@ -217,6 +217,90 @@ extension RemoteTmuxSizingUITests {
         }
     }
 
+    /// The claim oracle over `remote.tmux.sizing_settled`: every tmux window
+    /// claim recorded at settle must fit the hosting window. The claim is a
+    /// pure function of window geometry, so a claimed grid above what the
+    /// window's content area divides to at the current cell size means
+    /// content-derived input reached the claim — the wedge's signature (the
+    /// live wedge pushed 318-column claims against a 248-column layout;
+    /// older evidence reached 2614 columns) — even while every grid check
+    /// still passes, because tmux clamps the layout and the mirror renders
+    /// the clamped truth. Two cells of slack absorb rounding and the chrome
+    /// model's separator credit; a runaway claim is off by tens of columns,
+    /// not two.
+    func assertClaimsWithinWindowCeiling(context: String) throws {
+        let settled = socketJSON(method: "remote.tmux.sizing_settled", params: [:])
+        let claims = try XCTUnwrap(
+            settled?["windows"] as? [[String: Any]],
+            "sizing_settled returned nothing \(context): \(settled ?? [:])"
+        )
+        XCTAssertFalse(claims.isEmpty, "no visible mirror in sizing_settled \(context)")
+        // The window-derived bound, per mirrored tmux window: root_frames
+        // covers exactly the visible set sizing_settled judges, and its
+        // content layout rect is the same bound the sizing pass validates
+        // container readings against.
+        let frames = socketJSON(method: "remote.tmux.root_frames", params: [:])
+        var contentByWindow: [Int: (width: Double, height: Double)] = [:]
+        for entry in (frames?["windows"] as? [[String: Any]]) ?? [] {
+            guard let id = entry["window"] as? Int,
+                  let width = entry["content_layout_width"] as? Double,
+                  let height = entry["content_layout_height"] as? Double else { continue }
+            contentByWindow[id] = (width, height)
+        }
+        let cell = try XCTUnwrap(
+            calibratedCellSizePt(),
+            "no calibrated cell size to derive the claim ceiling \(context)"
+        )
+        for entry in claims {
+            guard let windowId = entry["window"] as? Int,
+                  let claimed = entry["claimed"] as? String, claimed != "none" else { continue }
+            let dims = claimed.split(separator: "x").compactMap { Int($0) }
+            guard dims.count == 2 else {
+                XCTFail("unparseable claim \(claimed) for @\(windowId) \(context)")
+                continue
+            }
+            let content = try XCTUnwrap(
+                contentByWindow[windowId],
+                "@\(windowId) claimed \(claimed) with no visible window frame \(context)"
+            )
+            let ceilingCols = Int(content.width / cell.width) + 2
+            let ceilingRows = Int(content.height / cell.height) + 2
+            XCTAssertLessThanOrEqual(
+                dims[0], ceilingCols,
+                "@\(windowId) claimed \(claimed) cols over the window ceiling "
+                    + "(content \(Int(content.width))pt / cell \(cell.width)pt + 2 = \(ceilingCols)) "
+                    + "\(context) — a content-derived width reached the claim"
+            )
+            XCTAssertLessThanOrEqual(
+                dims[1], ceilingRows,
+                "@\(windowId) claimed \(claimed) rows over the window ceiling "
+                    + "(content \(Int(content.height))pt / cell \(cell.height)pt + 2 = \(ceilingRows)) "
+                    + "\(context) — a content-derived height reached the claim"
+            )
+        }
+    }
+
+    /// The cell size in points from the first live calibration sample in
+    /// `pane_grids` (cell px over backing scale) — the divisor the claim's
+    /// own `floor(available / cell)` uses.
+    func calibratedCellSizePt() -> (width: Double, height: Double)? {
+        guard let response = socketJSON(method: "remote.tmux.pane_grids", params: [
+            "host": "e2e-shim-host",
+            "session": sessionName,
+        ]), let windows = response["windows"] as? [[String: Any]] else { return nil }
+        for window in windows {
+            for pane in window["panes"] as? [[String: Any]] ?? [] {
+                guard let calibration = pane["calibration"] as? [String: Any],
+                      let cellPx = calibration["cell_px"] as? [String: Any],
+                      let width = cellPx["w"] as? Double, width > 0,
+                      let height = cellPx["h"] as? Double, height > 0,
+                      let scale = calibration["scale"] as? Double, scale > 0 else { continue }
+                return (width / scale, height / scale)
+            }
+        }
+        return nil
+    }
+
     /// The pushed column count `pane_grids` reports for a tmux window.
     func pushedCols(window: Int) -> Int? {
         guard let response = socketJSON(method: "remote.tmux.pane_grids", params: [
