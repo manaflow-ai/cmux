@@ -18,6 +18,18 @@ public struct MobileTaskCommandComposer: Sendable {
             !inComment && !escaped && quote != .single
         }
 
+        func contributesToCommandToken(_ character: Character) -> Bool {
+            guard !inComment else { return false }
+            guard quote == .unquoted, !escaped else { return true }
+            guard !character.isWhitespace else { return false }
+            switch character {
+            case ";", "|", "&", "(", ")", "<", ">":
+                return false
+            default:
+                return true
+            }
+        }
+
         func startsComment(with character: Character) -> Bool {
             quote == .unquoted && !escaped && character == "#" && atWordBoundary
         }
@@ -94,8 +106,7 @@ public struct MobileTaskCommandComposer: Sendable {
         } else if explicitlyReferencesPrompt {
             initialCommand = command
         } else if !prompt.isEmpty {
-            let trailingWhitespaceCount = command.reversed().prefix(while: \.isWhitespace).count
-            initialCommand = String(command.dropLast(trailingWhitespaceCount)) + " -- \"${CMUX_TASK_PROMPT}\""
+            initialCommand = Self.appendingPromptArgument(to: command)
         } else {
             initialCommand = command
         }
@@ -150,6 +161,38 @@ public struct MobileTaskCommandComposer: Sendable {
             index = command.index(after: index)
         }
         return (output, didReplacePrompt)
+    }
+
+    /// Inserts the fallback prompt argument after the final executable token,
+    /// preserving any trailing shell whitespace and comments byte-for-byte.
+    private static func appendingPromptArgument(to command: String) -> String {
+        var lexicalState = ShellLexicalState()
+        var index = command.startIndex
+        var lastTokenEnd: String.Index?
+
+        while index < command.endIndex {
+            let character = command[index]
+            if lexicalState.inComment {
+                lexicalState.consume(character)
+                index = command.index(after: index)
+                continue
+            }
+            if lexicalState.startsComment(with: character) {
+                lexicalState.beginComment()
+                index = command.index(after: index)
+                continue
+            }
+            if lexicalState.contributesToCommandToken(character) {
+                lastTokenEnd = command.index(after: index)
+            }
+            lexicalState.consume(character)
+            index = command.index(after: index)
+        }
+
+        let insertionIndex = lastTokenEnd ?? command.startIndex
+        return String(command[..<insertionIndex])
+            + " -- \"${CMUX_TASK_PROMPT}\""
+            + String(command[insertionIndex...])
     }
 
     /// The documented environment-variable form is an explicit prompt consumer,
