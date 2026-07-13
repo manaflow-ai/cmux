@@ -156,6 +156,14 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="$(sed -nE 's/^[[:space:]]*CMUX_IOS_APPSTORE_MARKETING_VERSION[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p' ios/Config/Shared.xcconfig | tail -n 1)"
+          VERSION_METADATA_DIR="ios/AppStoreReview/metadata/version/$VERSION"
+          shopt -s nullglob
+          VERSION_METADATA_FILES=("$VERSION_METADATA_DIR"/*.json)
+          shopt -u nullglob
+          if [ "${#VERSION_METADATA_FILES[@]}" -eq 0 ]; then
+            echo "No canonical App Store metadata found in $VERSION_METADATA_DIR" >&2
+            exit 1
+          fi
           VERSION_ID="$(
             asc versions list --app "$ASC_APP_ID" --version "$VERSION" --platform IOS --output json |
               python3 -c 'import json,sys; body=json.load(sys.stdin); data=body.get("data") if isinstance(body,dict) else body; data=data if isinstance(data,list) else ([data] if isinstance(data,dict) else []); print(data[0].get("id", "") if data else "")'
