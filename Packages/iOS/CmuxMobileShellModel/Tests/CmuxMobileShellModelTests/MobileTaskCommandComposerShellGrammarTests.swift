@@ -130,6 +130,46 @@ import Testing
         #expect(result.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
     }
 
+    @Test func heredocInsideQuotedCommandSubstitutionKeepsLiteralPromptBody() {
+        let command = "result=\"$(cat <<'EOF'\n{prompt}\nEOF\n)\""
+        let template = MobileTaskTemplate(name: "Script", icon: "terminal", command: command)
+
+        let result = composer.compose(template: template, prompt: "ship it")
+
+        #expect(result.initialCommand == command)
+        #expect(result.initialEnv.isEmpty)
+    }
+
+    @Test func expandableHeredocInsideQuotedCommandSubstitutionKeepsPromptEnvironment() {
+        let command = "result=\"$(cat <<EOF\n$CMUX_TASK_PROMPT\nEOF\n)\""
+        let template = MobileTaskTemplate(name: "Script", icon: "terminal", command: command)
+
+        let result = composer.compose(template: template, prompt: "ship it")
+
+        #expect(result.initialCommand == command)
+        #expect(result.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
+    }
+
+    @Test func arithmeticLeftShiftDoesNotHideFollowingPromptPlaceholder() {
+        let command = "value=$((1 << 2))\nagent {prompt}"
+        let template = MobileTaskTemplate(name: "Script", icon: "terminal", command: command)
+
+        let result = composer.compose(template: template, prompt: "ship it")
+
+        #expect(result.initialCommand == "value=$((1 << 2))\nagent \"${CMUX_TASK_PROMPT}\"")
+        #expect(result.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
+    }
+
+    @Test func commandSubstitutionUsesItsOwnPromptQuoteContext() {
+        let command = "result=\"$(agent {prompt})\""
+        let template = MobileTaskTemplate(name: "Script", icon: "terminal", command: command)
+
+        let result = composer.compose(template: template, prompt: "ship it")
+
+        #expect(result.initialCommand == "result=\"$(agent \"${CMUX_TASK_PROMPT}\")\"")
+        #expect(result.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
+    }
+
     @Test func compoundCommandsRequireExplicitPromptConsumer() {
         let commands = [
             "claude | tee /tmp/task.log",
