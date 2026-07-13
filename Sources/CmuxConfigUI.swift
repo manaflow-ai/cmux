@@ -1,4 +1,6 @@
 import AppKit
+import Bonsplit
+import CmuxFoundation
 
 struct CmuxConfigUIDefinition: Codable, Sendable, Hashable {
     var newWorkspace: CmuxConfigButtonPlacement?
@@ -14,6 +16,7 @@ struct CmuxConfigButtonPlacement: Codable, Sendable, Hashable {
     var icon: CmuxButtonIcon?
     var tooltip: String?
     var contextMenu: [CmuxConfigContextMenuItem]?
+    var menuSectionOrder: CmuxNewWorkspaceMenuSectionOrder?
 
     private enum CodingKeys: String, CodingKey {
         case action
@@ -21,18 +24,22 @@ struct CmuxConfigButtonPlacement: Codable, Sendable, Hashable {
         case tooltip
         case contextMenu
         case rightClick
+        case menuSectionOrder
+        case sectionOrder
     }
 
     init(
         action: String? = nil,
         icon: CmuxButtonIcon? = nil,
         tooltip: String? = nil,
-        contextMenu: [CmuxConfigContextMenuItem]? = nil
+        contextMenu: [CmuxConfigContextMenuItem]? = nil,
+        menuSectionOrder: CmuxNewWorkspaceMenuSectionOrder? = nil
     ) {
         self.action = action
         self.icon = icon
         self.tooltip = tooltip
         self.contextMenu = contextMenu
+        self.menuSectionOrder = menuSectionOrder
     }
 
     init(from decoder: Decoder) throws {
@@ -42,6 +49,8 @@ struct CmuxConfigButtonPlacement: Codable, Sendable, Hashable {
         tooltip = try Self.trimmedString(forKey: .tooltip, in: container, allowBlankAsNil: true)
         contextMenu = try container.decodeIfPresent([CmuxConfigContextMenuItem].self, forKey: .contextMenu)
             ?? container.decodeIfPresent([CmuxConfigContextMenuItem].self, forKey: .rightClick)
+        menuSectionOrder = try container.decodeIfPresent(CmuxNewWorkspaceMenuSectionOrder.self, forKey: .menuSectionOrder)
+            ?? container.decodeIfPresent(CmuxNewWorkspaceMenuSectionOrder.self, forKey: .sectionOrder)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -50,6 +59,7 @@ struct CmuxConfigButtonPlacement: Codable, Sendable, Hashable {
         try container.encodeIfPresent(icon, forKey: .icon)
         try container.encodeIfPresent(tooltip, forKey: .tooltip)
         try container.encodeIfPresent(contextMenu, forKey: .contextMenu)
+        try container.encodeIfPresent(menuSectionOrder, forKey: .menuSectionOrder)
     }
 
     private static func trimmedString(
@@ -69,6 +79,37 @@ struct CmuxConfigButtonPlacement: Codable, Sendable, Hashable {
             )
         }
         return trimmed
+    }
+}
+
+enum CmuxNewWorkspaceMenuSectionOrder: String, Codable, Sendable, Hashable {
+    case customFirst
+    case cloudFirst
+
+    static let `default`: Self = .cloudFirst
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        switch value {
+        case "customFirst", "workspaceFirst", "newWorkspaceFirst":
+            self = .customFirst
+        case "cloudFirst", "cloudVMFirst":
+            self = .cloudFirst
+        default:
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "menuSectionOrder must be 'customFirst' or 'cloudFirst'"
+                )
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 
@@ -206,6 +247,7 @@ struct CmuxResolvedConfigMenuAction: Identifiable, Sendable, Hashable {
     var id: String
     var title: String
     var icon: CmuxButtonIcon?
+    var iconSourcePath: String?
     var tooltip: String?
     var action: CmuxResolvedConfigAction
 }
@@ -232,13 +274,60 @@ enum CmuxRestartBehavior: String, Codable, Sendable {
 }
 
 extension CmuxButtonIcon {
-    var sfSymbolImage: NSImage? {
-        guard case .symbol(let symbolName) = self else {
-#if DEBUG
-            assertionFailure("cmux config menu icons only support SF Symbols")
-#endif
-            return nil
+    func contextMenuImage(configSourcePath: String?, globalConfigPath: String) -> NSImage? {
+        switch bonsplitIcon(configSourcePath: configSourcePath, globalConfigPath: globalConfigPath) {
+        case .systemImage(let symbolName):
+            return NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+        case .emoji(let value, let scale):
+            return Self.contextMenuEmojiImage(value, scale: scale)
+        case .imageData(let data):
+            guard let image = NSImage(data: data) else { return nil }
+            return Self.normalizedContextMenuImage(image)
         }
-        return NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+    }
+
+    private static let contextMenuIconMaximumDimension: CGFloat = 16
+
+    private static func contextMenuEmojiImage(_ value: String, scale: Double) -> NSImage? {
+        let clampedScale = min(max(scale, 0.25), 4)
+        let font = GlobalFontMagnification.systemFont(ofSize: CGFloat(16.0 * clampedScale))
+        let attributedString = NSAttributedString(string: value, attributes: [.font: font])
+        let measuredSize = attributedString.size()
+        let imageSize = NSSize(
+            width: ceil(max(1, measuredSize.width)),
+            height: ceil(max(1, measuredSize.height))
+        )
+        let image = NSImage(size: imageSize)
+        image.lockFocus()
+        attributedString.draw(at: .zero)
+        image.unlockFocus()
+        image.isTemplate = false
+        return image
+    }
+
+    private static func normalizedContextMenuImage(_ source: NSImage) -> NSImage {
+        let targetSize = contextMenuIconSize(for: source.size)
+        let image = NSImage(size: targetSize)
+        image.lockFocus()
+        NSGraphicsContext.current?.imageInterpolation = .high
+        source.draw(in: NSRect(origin: .zero, size: targetSize))
+        image.unlockFocus()
+        image.isTemplate = false
+        return image
+    }
+
+    static func contextMenuIconSize(for sourceSize: NSSize) -> NSSize {
+        let maximumDimension = contextMenuIconMaximumDimension
+        guard sourceSize.width.isFinite,
+              sourceSize.height.isFinite,
+              sourceSize.width > 0,
+              sourceSize.height > 0 else {
+            return NSSize(width: maximumDimension, height: maximumDimension)
+        }
+        let scale = maximumDimension / max(sourceSize.width, sourceSize.height)
+        return NSSize(
+            width: ceil(sourceSize.width * scale),
+            height: ceil(sourceSize.height * scale)
+        )
     }
 }

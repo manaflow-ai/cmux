@@ -1,10 +1,38 @@
 # Dock
 
-Dock lets you pin terminal controls into the cmux right sidebar. Each Dock control runs a command in its own Ghostty-backed terminal section, so TUIs keep normal keyboard behavior such as arrow keys, `j` / `k`, and `Ctrl-C`.
+Dock is the cmux right sidebar rendered as a full panel container. It uses the **same surface and split system as the main content area** — terminals *and* browsers, tiled with the same split affordances — just docked on the right. Each Dock terminal runs in its own Ghostty-backed surface, so TUIs keep normal keyboard behavior such as arrow keys, `j` / `k`, and `Ctrl-C`. Dock browsers share the same browser stack as main-area browser panes (cookies, profile, devtools, navigation).
 
-Dock controls are useful for project dashboards, git views, logs, queues, local services, test watchers, dev servers, and custom TUIs. Feed can be added as one optional control with `cmux feed tui --opentui`, but Dock is not limited to Feed.
+Dock is useful for project dashboards, git views, logs, queues, local services, test watchers, dev servers, custom TUIs, and reference web pages. Feed can be added as one optional terminal with `cmux feed tui --opentui`, but Dock is not limited to Feed.
 
-Each command starts inside the terminal's non-interactive login shell. That keeps the user's normal PATH and toolchain setup without running prompt code before the TUI starts. When the command exits, Dock drops into an interactive login shell in the same section so the user can inspect, rerun, or exit.
+Every cmux window has its own independent Dock. Opening a new window seeds that window's Dock fresh from your Dock config (exactly like a fresh app launch), multiple windows can show their Docks side by side, and closing a window closes its Dock terminals and browsers with it.
+
+Each terminal command starts inside the terminal's non-interactive login shell. That keeps the user's normal PATH and toolchain setup without running prompt code before the TUI starts. When the command exits, Dock drops into an interactive login shell in the same section so the user can inspect, rerun, or exit.
+
+## In-app panes (no config required)
+
+You do not need to edit JSON to use Dock. The Dock tab bar carries the same split affordances as the main area:
+
+- **New Terminal** / **New Browser** add a surface to the focused Dock pane.
+- **Split Right** / **Split Down** tile the Dock into a Bonsplit tree; each new pane offers New Terminal / New Browser.
+- Tabs can be reordered, moved between Dock panes, and closed like main-area tabs.
+
+The Dock toolbar `+` menu and an empty Dock pane offer the same New Terminal / New Browser actions. The optional `dock.json` config only **seeds** the initial Dock layout.
+
+When a Dock pane has keyboard focus, the standard creation/split shortcuts act on the Dock instead of the main content area: New Browser (Cmd+Shift+L), New Surface (Cmd+T), and Split Right / Split Down (Cmd+D / Cmd+Shift+D) create or split inside the focused Dock pane. When the main area is focused, the same shortcuts behave as usual.
+
+## CLI / socket
+
+Dock panes are scriptable through the same creation commands as the main area, with `--placement dock`:
+
+```sh
+cmux new-pane --placement dock                              # split a terminal into the Dock
+cmux new-pane --type browser --placement dock --url https://example.com
+cmux new-surface --type browser --placement dock --url https://example.com   # add a Dock tab
+```
+
+`--placement` accepts `workspace` (default) or `dock`. The Dock hosts terminal and browser panes only.
+
+Dock-created handles are returned as Dock-scoped response fields: `dock_surface_id` and `dock_pane_id`. The ordinary workspace fields `surface_id` and `pane_id` are `null` for Dock placement, because existing workspace surface and pane RPCs route through the main content split tree.
 
 ## Configuration
 
@@ -34,6 +62,12 @@ Dock is configured with JSON:
       "id": "logs",
       "title": "Logs",
       "command": "tail -f ./logs/development.log"
+    },
+    {
+      "id": "docs",
+      "title": "Docs",
+      "type": "browser",
+      "url": "https://example.com"
     }
   ]
 }
@@ -42,13 +76,15 @@ Dock is configured with JSON:
 Fields:
 
 - `id`: stable unique identifier for the control.
-- `title`: label shown in the Dock header.
-- `command`: command to run in the Dock terminal.
-- `cwd`: optional working directory.
+- `title`: label shown on the Dock tab.
+- `type`: optional, `terminal` (default) or `browser`.
+- `command`: command to run in the Dock terminal. Required for `terminal` controls.
+- `url`: page to open. Required for `browser` controls.
+- `cwd`: optional working directory (terminal controls).
 - `height`: optional requested terminal height in points. Controls without a height share remaining space.
-- `env`: optional non-secret environment variables passed only to that control.
+- `env`: optional non-secret environment variables passed only to that control (terminal controls).
 
-The order of `controls` is the order shown in Dock. Reorder entries in the file to reorder Dock controls. Remove an entry from the file to remove it from Dock.
+Existing terminal-only configs (no `type`) keep loading unchanged. The order of `controls` seeds the initial Dock layout top-to-bottom; once open, you can re-tile, add, and close Dock panes in-app without editing the file.
 
 ## Config Precedence
 

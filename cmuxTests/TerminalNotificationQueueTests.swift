@@ -307,6 +307,58 @@ final class TerminalNotificationQueueTests: XCTestCase {
         XCTAssertEqual(deliveredTitles, ["Second"])
     }
 
+    func testNotifyTargetAsyncCommandDoesNotCoalesceRepeatedEventsForSameSurface() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = appDelegate.tabManager ?? TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        var deliveredTitles: [String] = []
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, notification in
+            deliveredTitles.append(notification.title)
+        }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        guard let focusedPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with a focused panel")
+            return
+        }
+
+        TerminalMutationBus.shared.setDrainsSuspendedForTesting(true)
+        defer { TerminalMutationBus.shared.setDrainsSuspendedForTesting(false) }
+
+        for title in ["First", "Second"] {
+            let response = TerminalController.debugNotifyTargetQueuedResponseForTesting(
+                "\(workspace.id.uuidString) \(focusedPanelId.uuidString) \(title)|Completed|Body"
+            )
+            XCTAssertEqual(response, "OK")
+        }
+
+        TerminalMutationBus.shared.drainForTesting()
+
+        let workspaceNotifications = store.notifications.filter { $0.tabId == workspace.id }
+        XCTAssertEqual(workspaceNotifications.map(\.title), ["Second"])
+        XCTAssertEqual(deliveredTitles, ["First", "Second"])
+    }
+
     func testScopedDiscardDoesNotSplitUnrelatedNotificationCoalescing() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
@@ -457,6 +509,34 @@ final class TerminalNotificationQueueTests: XCTestCase {
         XCTAssertNil(appDelegate.sidebarState)
         XCTAssertNil(appDelegate.sidebarSelectionState)
         XCTAssertNil(appDelegate.fileExplorerState)
+    }
+
+    func testReplacingMainActorMutationKeepsOnlyNewestEntryPerKey() throws {
+        TerminalMutationBus.shared.setDrainsSuspendedForTesting(true)
+        defer { TerminalMutationBus.shared.setDrainsSuspendedForTesting(false) }
+
+        let tabId = UUID()
+        let surfaceA = UUID()
+        let surfaceB = UUID()
+        let keyA = TerminalMutationReplaceKey(tabId: tabId, surfaceId: surfaceA, kind: .shellActivity)
+        let keyB = TerminalMutationReplaceKey(tabId: tabId, surfaceId: surfaceB, kind: .shellActivity)
+        // Same surface as keyA, different kind: must not cross-coalesce.
+        let keyC = TerminalMutationReplaceKey(tabId: tabId, surfaceId: surfaceA, kind: .gitBranch)
+
+        var applied: [String] = []
+        TerminalMutationBus.shared.enqueueReplacingMainActorMutation(replaceKey: keyA) { applied.append("a1") }
+        TerminalMutationBus.shared.enqueueReplacingMainActorMutation(replaceKey: keyB) { applied.append("b1") }
+        TerminalMutationBus.shared.enqueueReplacingMainActorMutation(replaceKey: keyC) { applied.append("c1") }
+        // Non-keyed mutations must never be replaced.
+        TerminalMutationBus.shared.enqueueMainActorMutation { applied.append("plain") }
+        TerminalMutationBus.shared.enqueueReplacingMainActorMutation(replaceKey: keyA) { applied.append("a2") }
+        TerminalMutationBus.shared.enqueueReplacingMainActorMutation(replaceKey: keyA) { applied.append("a3") }
+
+        TerminalMutationBus.shared.drainForTesting()
+
+        // keyA coalesces to its newest closure at its latest enqueue position;
+        // keyB, keyC, and the plain mutation are untouched in enqueue order.
+        XCTAssertEqual(applied, ["b1", "c1", "plain", "a3"])
     }
 
     private func makeSocketPath(_ name: String) -> String {

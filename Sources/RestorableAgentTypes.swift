@@ -1,11 +1,16 @@
+import CMUXAgentLaunch
 import Foundation
 
 enum RestorableAgentKind: Codable, Hashable, Sendable {
     case claude
     case codex
+    case grok
     case pi
+    case amp
     case cursor
     case gemini
+    case kiro
+    case antigravity
     case opencode
     case rovodev
     case hermesAgent
@@ -13,15 +18,20 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
     case codebuddy
     case factory
     case qoder
+    case ollama
     case custom(String)
 
     static let allCases: [RestorableAgentKind] = [
         .claude,
         .codex,
-        // Pi is registry-owned so the built-in Vault registration can be
-        // overridden by project config while direct .pi values still encode.
+        // Pi and Grok are registry-owned so the built-in Vault registrations can be
+        // overridden by project config while direct native values still encode.
+        .amp,
         .cursor,
         .gemini,
+        .kiro,
+        // Antigravity is registry-owned so the built-in Vault registration can be
+        // overridden by project config while direct .antigravity values still encode.
         .opencode,
         .rovodev,
         .hermesAgent,
@@ -29,6 +39,9 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         .codebuddy,
         .factory,
         .qoder,
+        // Ollama is registry-owned like Pi/Grok/Antigravity: leaving it out
+        // keeps the id available to pre-existing custom Vault registrations
+        // while direct native values still encode.
     ]
 
     init?(rawValue: String) {
@@ -36,9 +49,13 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         switch value {
         case "claude": self = .claude
         case "codex": self = .codex
+        case "grok": self = .grok
         case "pi": self = .pi
+        case "amp": self = .amp
         case "cursor": self = .cursor
         case "gemini": self = .gemini
+        case "kiro": self = .kiro
+        case "antigravity": self = .antigravity
         case "opencode": self = .opencode
         case "rovodev": self = .rovodev
         case "hermes-agent": self = .hermesAgent
@@ -46,6 +63,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case "codebuddy": self = .codebuddy
         case "factory": self = .factory
         case "qoder": self = .qoder
+        case "ollama": self = .ollama
         default:
             guard CmuxVaultAgentRegistration.isValidID(value) else { return nil }
             self = .custom(value)
@@ -56,9 +74,13 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         switch self {
         case .claude: return "claude"
         case .codex: return "codex"
+        case .grok: return "grok"
         case .pi: return "pi"
+        case .amp: return "amp"
         case .cursor: return "cursor"
         case .gemini: return "gemini"
+        case .kiro: return "kiro"
+        case .antigravity: return "antigravity"
         case .opencode: return "opencode"
         case .rovodev: return "rovodev"
         case .hermesAgent: return "hermes-agent"
@@ -66,6 +88,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case .codebuddy: return "codebuddy"
         case .factory: return "factory"
         case .qoder: return "qoder"
+        case .ollama: return "ollama"
         case .custom(let id): return id
         }
     }
@@ -75,6 +98,46 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
             return id
         }
         return nil
+    }
+
+    var displayName: String {
+        switch self {
+        case .claude: return "Claude Code"
+        case .codex: return "Codex"
+        case .grok: return "Grok"
+        case .pi: return "Pi"
+        case .amp: return "Amp"
+        case .cursor: return "Cursor"
+        case .gemini: return "Gemini"
+        case .kiro: return "Kiro"
+        case .antigravity: return "Antigravity"
+        case .opencode: return "OpenCode"
+        case .rovodev: return "Rovo Dev"
+        case .hermesAgent: return "Hermes Agent"
+        case .copilot: return "Copilot"
+        case .codebuddy: return "CodeBuddy"
+        case .factory: return "Factory"
+        case .qoder: return "Qoder"
+        case .ollama:
+            return String(localized: "agent.ollama.displayName", defaultValue: "Ollama")
+        case .custom(let id): return id
+        }
+    }
+
+    /// How workspace restore reconstructs this agent after its process is gone.
+    var restoreMode: AgentRestoreMode {
+        switch self {
+        case .ollama: return .relaunchCommand
+        default: return .resumeSession
+        }
+    }
+
+    /// How an agent's session store is keyed, which decides whether `<agent> --resume <id>` is
+    /// sensitive to the directory it is launched from. Derived from the shared
+    /// ``AgentResumeWorkingDirectory/cwdNamespacing(forKind:)`` so the app and the standalone CLI
+    /// apply one classification.
+    var cwdNamespacing: AgentCwdNamespacing {
+        AgentResumeWorkingDirectory().cwdNamespacing(forKind: rawValue)
     }
 
     init(from decoder: Decoder) throws {

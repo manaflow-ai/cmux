@@ -4,6 +4,7 @@ build/
 DerivedData/
 *.xcuserstate
 xcuserdata/
+*.xcworkspace/xcshareddata/
 
 # macOS
 .DS_Store
@@ -12,16 +13,18 @@ xcuserdata/
 .env
 .envrc
 !web/.envrc
+ios/Config/AppStoreConnect.local.plist
 
 # Swift Package Manager
 .swiftpm/
+.ci-source-packages/
 
 # GhosttyKit binary (built from ghostty submodule via scripts/setup.sh)
 GhosttyKit.xcframework
 GhosttyKit.xcframework.bak-*/
 
 # Release artifacts
-GhosttyTabs-*.zip
+cmux-*.zip
 cmux-macos.dmg
 appcast.xml
 
@@ -44,7 +47,25 @@ node_modules/
 # Test outputs
 tests/visual_output/
 tests/visual_report.html
+experiments/*/target/
+
+# Stale pre-rebrand Rust TUI dir (renamed to cmux-tui/; old checkouts may
+# still have an untracked mux/target that must never be committed again)
+/mux/
+
+# Generated docs search index
+web/.pagefind-site/
+web/public/pagefind/
 
 # Local scratch (screenshots, etc.)
 tmp/
 tmp-*/
+.iter-logs/
+.claude/worktrees/
+.claude/scheduled_tasks.lock
+
+# Local dogfood scratch (screenshots, recordings) — never commit
+artifacts/
+
+# tmux verbose debug logs (tmux -v) that land in the cwd
+tmux-*.log

@@ -12,6 +12,7 @@ if (typeof window !== "undefined") {
     person_profiles: "identified_only",
     capture_pageview: false,
     capture_pageleave: true,
+    advanced_disable_feature_flags: true,
   });
 }
 

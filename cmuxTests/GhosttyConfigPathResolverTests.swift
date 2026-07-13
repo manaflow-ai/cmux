@@ -1,5 +1,6 @@
 import XCTest
 import Foundation
+import CmuxFoundation
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -369,7 +370,7 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
             )
 
             XCTAssertEqual(
-                CmuxGhosttyConfigPathResolver.activeOrEditableConfigURL(
+                CmuxGhosttyConfigPathResolver().activeOrEditableConfigURL(
                     currentBundleIdentifier: "com.cmuxterm.app",
                     appSupportDirectory: appSupportDirectory
                 ),
@@ -385,7 +386,7 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
                 .appendingPathComponent("config.ghostty", isDirectory: false)
 
             XCTAssertEqual(
-                CmuxGhosttyConfigPathResolver.activeOrEditableConfigURL(
+                CmuxGhosttyConfigPathResolver().activeOrEditableConfigURL(
                     currentBundleIdentifier: "com.cmuxterm.app.debug.issue-3518",
                     appSupportDirectory: appSupportDirectory
                 ),
@@ -408,6 +409,94 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
                     currentBundleIdentifier: "com.cmuxterm.app.debug",
                     appSupportDirectory: appSupportDirectory
                 ).isEmpty
+            )
+        }
+    }
+
+    func testGhosttySettingsEditorURLsMaterializeCmuxConfigWhenNoConfigExists() throws {
+        try withTemporaryHomeDirectory { homeDirectory in
+            let environment = ConfigSourceEnvironment(
+                homeDirectoryURL: homeDirectory,
+                currentBundleIdentifier: "com.cmuxterm.app.debug.empty"
+            )
+
+            let urls = try environment.materializedGhosttySettingsEditorURLs()
+            let expectedConfigURL = homeDirectory
+                .appendingPathComponent("Library", isDirectory: true)
+                .appendingPathComponent("Application Support", isDirectory: true)
+                .appendingPathComponent("com.cmuxterm.app.debug.empty", isDirectory: true)
+                .appendingPathComponent("config.ghostty", isDirectory: false)
+            let expectedPreviewURL = expectedConfigURL
+                .deletingLastPathComponent()
+                .appendingPathComponent("config.synced-preview", isDirectory: false)
+
+            XCTAssertEqual(urls.map(\.path), [expectedConfigURL.path])
+            XCTAssertTrue(FileManager.default.fileExists(atPath: expectedConfigURL.path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: expectedPreviewURL.path))
+        }
+    }
+
+    func testGhosttySettingsEditorURLsIncludeStandaloneAppSupportAndRecursiveConfigFiles() throws {
+        try withTemporaryHomeDirectory { homeDirectory in
+            let fileManager = FileManager.default
+            let appSupportDirectory = homeDirectory
+                .appendingPathComponent("Library", isDirectory: true)
+                .appendingPathComponent("Application Support", isDirectory: true)
+
+            let bundleIdentifier = "com.cmuxterm.app.debug.includes"
+            let cmuxConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: bundleIdentifier,
+                filename: "config.ghostty",
+                contents: "theme = cmux\nconfig-file = cmux-include.conf\n"
+            )
+            let cmuxIncludeURL = cmuxConfigURL
+                .deletingLastPathComponent()
+                .appendingPathComponent("cmux-include.conf", isDirectory: false)
+            try "font-size = 16\n".write(to: cmuxIncludeURL, atomically: true, encoding: .utf8)
+
+            let ghosttyDirectory = homeDirectory
+                .appendingPathComponent(".config", isDirectory: true)
+                .appendingPathComponent("ghostty", isDirectory: true)
+            let ghosttyIncludeDirectory = ghosttyDirectory.appendingPathComponent("includes", isDirectory: true)
+            try fileManager.createDirectory(at: ghosttyIncludeDirectory, withIntermediateDirectories: true)
+
+            let standaloneConfigURL = ghosttyDirectory.appendingPathComponent("config", isDirectory: false)
+            try """
+            font-size = 14
+            config-file = includes/font.conf # shared font config
+            config-file = ?missing.conf
+            """.write(to: standaloneConfigURL, atomically: true, encoding: .utf8)
+
+            let standaloneIncludeURL = ghosttyIncludeDirectory.appendingPathComponent("font.conf", isDirectory: false)
+            try "font-family = Test\n".write(to: standaloneIncludeURL, atomically: true, encoding: .utf8)
+
+            let ghosttyAppSupportDirectory = appSupportDirectory
+                .appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
+            try fileManager.createDirectory(at: ghosttyAppSupportDirectory, withIntermediateDirectories: true)
+            let ghosttyAppSupportConfigURL = ghosttyAppSupportDirectory
+                .appendingPathComponent("config.ghostty", isDirectory: false)
+            try "background = #101010\n".write(
+                to: ghosttyAppSupportConfigURL,
+                atomically: true,
+                encoding: .utf8
+            )
+
+            let environment = ConfigSourceEnvironment(
+                homeDirectoryURL: homeDirectory,
+                currentBundleIdentifier: bundleIdentifier
+            )
+
+            let urls = try environment.materializedGhosttySettingsEditorURLs()
+            XCTAssertEqual(
+                urls.map(\.path),
+                [
+                    cmuxConfigURL.path,
+                    standaloneConfigURL.path,
+                    ghosttyAppSupportConfigURL.path,
+                    cmuxIncludeURL.path,
+                    standaloneIncludeURL.path,
+                ]
             )
         }
     }

@@ -211,7 +211,7 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
             return
         }
 
-        withCommandPaletteFieldEditor(appDelegate: appDelegate) { window in
+        withCommandPaletteFieldEditor(appDelegate: appDelegate) { window, _ in
             withTemporaryCommandPalettePreviousShortcut {
                 let remappedPrevious = StoredShortcut(key: "u", command: false, shift: false, option: false, control: true)
                 KeyboardShortcutSettings.setShortcut(remappedPrevious, for: .commandPalettePrevious)
@@ -290,7 +290,7 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
             return
         }
 
-        withCommandPaletteFieldEditor(appDelegate: appDelegate) { window in
+        withCommandPaletteFieldEditor(appDelegate: appDelegate) { window, _ in
             withTemporaryCommandPalettePreviousShortcut {
                 KeyboardShortcutSettings.unbindShortcut(for: .commandPalettePrevious)
                 XCTAssertNil(KeyboardShortcutSettings.shortcutIfBound(for: .commandPalettePrevious))
@@ -338,7 +338,7 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
             return
         }
 
-        withCommandPaletteFieldEditor(appDelegate: appDelegate) { window in
+        withCommandPaletteFieldEditor(appDelegate: appDelegate) { window, _ in
             withTemporaryCommandPaletteShortcut(.commandPaletteNext) {
                 KeyboardShortcutSettings.setShortcut(
                     StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "n"),
@@ -377,9 +377,128 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
         }
     }
 
+    func testWindowPerformKeyEquivalentRoutesHorizontalArrowsToCommandPaletteFieldEditor() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        withCommandPaletteFieldEditor(appDelegate: appDelegate) { window, fieldEditor in
+            guard let leftArrowEvent = makeKeyDownEvent(
+                key: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+                modifiers: [],
+                keyCode: 123,
+                windowNumber: window.windowNumber
+            ),
+            let rightArrowEvent = makeKeyDownEvent(
+                key: String(UnicodeScalar(NSRightArrowFunctionKey)!),
+                modifiers: [],
+                keyCode: 124,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct horizontal arrow events")
+                return
+            }
+
+            XCTAssertTrue(window.performKeyEquivalent(with: leftArrowEvent))
+            XCTAssertTrue(window.performKeyEquivalent(with: rightArrowEvent))
+            XCTAssertEqual(fieldEditor.keyDownKeyCodes, [123, 124])
+        }
+    }
+
+    func testWindowPerformKeyEquivalentDoesNotRouteHorizontalArrowsWhenPaletteOverlayIsTransparent() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        withVisibleCommandPaletteOverlay(appDelegate: appDelegate) { window, overlayContainer in
+            let fieldEditor = CommandPaletteShortcutFieldEditor(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+            fieldEditor.isFieldEditor = true
+            overlayContainer.addSubview(fieldEditor)
+            defer { fieldEditor.removeFromSuperview() }
+
+            XCTAssertTrue(window.makeFirstResponder(fieldEditor))
+            XCTAssertTrue(window.firstResponder === fieldEditor)
+
+            overlayContainer.alphaValue = 0
+
+            guard let leftArrowEvent = makeKeyDownEvent(
+                key: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+                modifiers: [],
+                keyCode: 123,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct horizontal arrow event")
+                return
+            }
+
+            XCTAssertFalse(window.performKeyEquivalent(with: leftArrowEvent))
+            XCTAssertEqual(fieldEditor.keyDownKeyCodes, [])
+        }
+    }
+
+    func testWindowPerformKeyEquivalentDoesNotStealHorizontalArrowsFromNonPaletteFieldEditor() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        withVisibleCommandPaletteOverlay(appDelegate: appDelegate) { window, _ in
+            guard let contentView = window.contentView else {
+                XCTFail("Expected test window content view")
+                return
+            }
+
+            let outsideOwnerView = NSView(frame: contentView.bounds)
+            contentView.addSubview(outsideOwnerView)
+            defer { outsideOwnerView.removeFromSuperview() }
+
+            let fieldEditor = CommandPaletteShortcutFieldEditor(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+            fieldEditor.isFieldEditor = true
+            outsideOwnerView.addSubview(fieldEditor)
+            defer { fieldEditor.removeFromSuperview() }
+
+            XCTAssertTrue(window.makeFirstResponder(fieldEditor))
+            XCTAssertTrue(window.firstResponder === fieldEditor)
+            fieldEditor.nextResponder = outsideOwnerView
+
+            guard let leftArrowEvent = makeKeyDownEvent(
+                key: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+                modifiers: [],
+                keyCode: 123,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct horizontal arrow event")
+                return
+            }
+
+            XCTAssertFalse(window.performKeyEquivalent(with: leftArrowEvent))
+            XCTAssertEqual(fieldEditor.keyDownKeyCodes, [])
+        }
+    }
+
     private func withCommandPaletteFieldEditor(
         appDelegate: AppDelegate,
-        _ body: (NSWindow) -> Void
+        _ body: (NSWindow, CommandPaletteShortcutFieldEditor) -> Void
+    ) {
+        withVisibleCommandPaletteOverlay(appDelegate: appDelegate) { window, overlayContainer in
+            let fieldEditor = CommandPaletteShortcutFieldEditor(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+            fieldEditor.isFieldEditor = true
+            overlayContainer.addSubview(fieldEditor)
+            XCTAssertTrue(window.makeFirstResponder(fieldEditor))
+
+            defer {
+                fieldEditor.removeFromSuperview()
+            }
+
+            body(window, fieldEditor)
+        }
+    }
+
+    private func withVisibleCommandPaletteOverlay(
+        appDelegate: AppDelegate,
+        _ body: (NSWindow, NSView) -> Void
     ) {
         let windowId = appDelegate.createMainWindow()
         defer { closeWindow(withId: windowId) }
@@ -396,18 +515,12 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
         overlayContainer.isHidden = false
         contentView.addSubview(overlayContainer)
 
-        let fieldEditor = CommandPaletteShortcutFieldEditor(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
-        fieldEditor.isFieldEditor = true
-        overlayContainer.addSubview(fieldEditor)
-        XCTAssertTrue(window.makeFirstResponder(fieldEditor))
-
-        appDelegate.setCommandPaletteVisible(false, for: window)
         defer {
+            appDelegate.setCommandPaletteVisible(false, for: window)
             overlayContainer.removeFromSuperview()
-            fieldEditor.removeFromSuperview()
         }
 
-        body(window)
+        body(window, overlayContainer)
     }
 
     private func withTemporaryCommandPalettePreviousShortcut(_ body: () -> Void) {
@@ -463,7 +576,13 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
 }
 
 private final class CommandPaletteShortcutFieldEditor: NSTextView {
+    var keyDownKeyCodes: [UInt16] = []
+
     override func hasMarkedText() -> Bool {
         false
+    }
+
+    override func keyDown(with event: NSEvent) {
+        keyDownKeyCodes.append(event.keyCode)
     }
 }
