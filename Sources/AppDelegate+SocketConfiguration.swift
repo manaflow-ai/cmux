@@ -87,10 +87,13 @@ extension AppDelegate {
     }
 
     func restartSocketListenerIfEnabled(source: String) {
+        guard let config = socketListenerConfigurationIfEnabled() else {
+            TerminalController.shared.stop()
+            return
+        }
         guard let manager = tabManager
             ?? preferredRegisteredMainWindowContext()?.tabManager
-            ?? mainWindowContexts.values.first?.tabManager,
-              let config = socketListenerConfigurationIfEnabled() else { return }
+            ?? mainWindowContexts.values.first?.tabManager else { return }
         let restartPath = TerminalController.shared.activeSocketPath(
             preferredPath: config.preferredSocketPath
         )

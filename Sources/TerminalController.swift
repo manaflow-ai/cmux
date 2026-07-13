@@ -402,19 +402,6 @@ class TerminalController {
             }
         }
     }
-    nonisolated func currentSocketPathForRemoteRestore() -> String? {
-        socketServer.currentSocketPathForRemoteRestore()
-    }
-
-    @discardableResult
-    func reserveStartupSocketPath(_ path: String) -> String {
-        socketServer.reserveStartupSocketPath(path)
-    }
-
-    nonisolated func activeSocketPath(preferredPath: String) -> String {
-        socketServer.activeSocketPath(preferredPath: preferredPath)
-    }
-
     nonisolated static func shouldSuppressSocketCommandActivation() -> Bool {
         !currentSocketCommandFocusAllowanceStack().isEmpty
     }
@@ -887,10 +874,6 @@ class TerminalController {
         AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?.tabs.first { $0.id == workspaceId }
     }
 
-    nonisolated func socketListenerHealth(expectedSocketPath: String) -> SocketListenerHealth {
-        socketServer.listenerHealth(expectedSocketPath: expectedSocketPath)
-    }
-
     private func restartSocketListenerIfPathMissing(path: String, generation: UInt64) {
         guard let tabManager else { return }
         let restartMode = socketServer.accessMode
@@ -908,11 +891,6 @@ class TerminalController {
         )
         stop()
         start(tabManager: tabManager, socketPath: path, accessMode: restartMode)
-    }
-
-    func stop() {
-        // Synchronous by contract: termination needs the unlink before exit.
-        socketServer.stop()
     }
 
     private nonisolated func writeSocketResponse(_ response: String, to socket: Int32) -> Bool {
@@ -1522,7 +1500,11 @@ class TerminalController {
                         }
                         return
                     }
-                    handleEventsStreamRequest(trimmed, socket: socket)
+                    handleEventsStreamRequest(
+                        trimmed,
+                        socket: socket,
+                        authorizationGeneration: authorizationGeneration
+                    )
                     shouldCloseSocket = true
                     return
                 }

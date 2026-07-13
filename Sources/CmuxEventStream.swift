@@ -13,9 +13,15 @@ extension TerminalController {
         return method == "events.stream"
     }
 
-    nonisolated func handleEventsStreamRequest(_ line: String, socket: Int32) {
+    nonisolated func handleEventsStreamRequest(
+        _ line: String,
+        socket: Int32,
+        authorizationGeneration: UInt64
+    ) {
+        guard socketServer.isConnectionAuthorizationCurrent(authorizationGeneration) else { return }
         guard let data = line.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            guard socketServer.isConnectionAuthorizationCurrent(authorizationGeneration) else { return }
             _ = writeEventsStreamLine([
                 "type": "error",
                 "ok": false,
@@ -37,13 +43,17 @@ extension TerminalController {
         )
         defer { CmuxEventBus.shared.unsubscribe(snapshot.subscription) }
 
-        guard writeEventsStreamLine(snapshot.ack, socket: socket) else { return }
+        guard socketServer.isConnectionAuthorizationCurrent(authorizationGeneration),
+              writeEventsStreamLine(snapshot.ack, socket: socket) else { return }
         for event in snapshot.replay {
-            guard writeEventsStreamLine(event, socket: socket) else { return }
+            guard socketServer.isConnectionAuthorizationCurrent(authorizationGeneration),
+                  writeEventsStreamLine(event, socket: socket) else { return }
         }
 
-        while true {
-            if let event = snapshot.subscription.next(timeout: CmuxEventBus.defaultHeartbeatIntervalSeconds) {
+        while socketServer.isConnectionAuthorizationCurrent(authorizationGeneration) {
+            let event = snapshot.subscription.next(timeout: CmuxEventBus.defaultHeartbeatIntervalSeconds)
+            guard socketServer.isConnectionAuthorizationCurrent(authorizationGeneration) else { return }
+            if let event {
                 guard writeEventsStreamLine(event, socket: socket) else { return }
             } else if snapshot.subscription.isClosed {
                 if let reason = snapshot.subscription.closeReason {
@@ -58,7 +68,8 @@ extension TerminalController {
                     ], socket: socket)
                 }
                 return
-            } else if includeHeartbeats {
+            } else if includeHeartbeats,
+                      socketServer.isConnectionAuthorizationCurrent(authorizationGeneration) {
                 let heartbeat = CmuxEventBus.shared.heartbeat(subscription: snapshot.subscription)
                 guard writeEventsStreamLine(heartbeat, socket: socket) else { return }
             } else if Self.socketPeerClosed(socket) {

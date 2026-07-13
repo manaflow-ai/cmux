@@ -106,7 +106,126 @@ struct SocketACLReloadRegressionTests {
         }
 
         let response = try readLine(from: sockets.client)
-        #expect(response == "ERROR: Access denied — only processes started inside cmux can connect")
+        #expect(response == TerminalController.socketClientAccessDeniedResponse)
+    }
+
+    @Test func reconcilePathChangeRebindsRunningListener() throws {
+        let controller = TerminalController.shared
+        controller.stop()
+
+        let directory = shortTemporaryDirectory(prefix: "salp")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let firstPath = directory.appendingPathComponent("first.sock").path
+        let secondPath = directory.appendingPathComponent("second.sock").path
+        defer {
+            controller.stop()
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        controller.start(tabManager: TabManager(), socketPath: firstPath, accessMode: .cmuxOnly)
+        #expect(controller.socketServer.currentSocketPath == firstPath)
+
+        controller.reconcileSocketConfiguration(
+            SocketControlServerConfiguration(
+                accessMode: .automation,
+                preferredSocketPath: secondPath
+            ),
+            preferredTabManager: TabManager(),
+            source: "test.path_change"
+        )
+
+        #expect(controller.socketServer.isRunning)
+        #expect(controller.socketServer.currentSocketPath == secondPath)
+        #expect(!FileManager.default.fileExists(atPath: firstPath))
+        #expect(FileManager.default.fileExists(atPath: secondPath))
+    }
+
+    @Test func restartStopsListenerWhenModeIsOffWithoutTabManager() throws {
+        let controller = TerminalController.shared
+        controller.stop()
+
+        let defaults = UserDefaults.standard
+        let originalMode = defaults.object(forKey: SocketControlSettings.appStorageKey)
+        let originalDelegate = AppDelegate.shared
+        let directory = shortTemporaryDirectory(prefix: "salo")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let socketPath = directory.appendingPathComponent("cmux.sock").path
+        let appDelegate = AppDelegate()
+        defer {
+            controller.stop()
+            if let originalMode {
+                defaults.set(originalMode, forKey: SocketControlSettings.appStorageKey)
+            } else {
+                defaults.removeObject(forKey: SocketControlSettings.appStorageKey)
+            }
+            AppDelegate.shared = originalDelegate
+            try? FileManager.default.removeItem(at: directory)
+            _ = appDelegate
+        }
+
+        controller.start(tabManager: TabManager(), socketPath: socketPath, accessMode: .automation)
+        #expect(controller.socketServer.isRunning)
+        defaults.set(SocketControlMode.off.rawValue, forKey: SocketControlSettings.appStorageKey)
+
+        appDelegate.restartSocketListenerIfEnabled(source: "test.off_restart")
+
+        #expect(!controller.socketServer.isRunning)
+        #expect(!FileManager.default.fileExists(atPath: socketPath))
+    }
+
+    @Test func activeEventStreamClosesWhenPolicyGenerationChanges() throws {
+        let controller = TerminalController.shared
+        controller.stop()
+        CmuxEventBus.shared.resetForTesting()
+
+        let directory = shortTemporaryDirectory(prefix: "sals")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let socketPath = directory.appendingPathComponent("cmux.sock").path
+        defer {
+            controller.stop()
+            CmuxEventBus.shared.resetForTesting()
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        controller.start(tabManager: TabManager(), socketPath: socketPath, accessMode: .allowAll)
+        let sockets = try makeSocketPair()
+        defer { close(sockets.client) }
+        try configureReadTimeout(sockets.client)
+        try writeLine(
+            #"{"id":"stream","method":"events.stream","params":{"include_heartbeats":false}}"#,
+            to: sockets.client
+        )
+
+        let yieldResult = controller.socketServer.connectionsContinuation.yield(
+            ControlConnection(
+                socket: sockets.server,
+                peerProcessID: getpid(),
+                authorizationGeneration: controller.socketServer.connectionAuthorizationGeneration
+            )
+        )
+        if case .enqueued = yieldResult {
+            // Ownership transferred to TerminalController's connection consumer.
+        } else {
+            close(sockets.server)
+            Issue.record("Failed to enqueue the synthetic event-stream connection")
+        }
+
+        let acknowledgement = try readLine(from: sockets.client)
+        let acknowledgementData = try #require(acknowledgement.data(using: .utf8))
+        let acknowledgementObject = try #require(
+            JSONSerialization.jsonObject(with: acknowledgementData) as? [String: Any]
+        )
+        #expect(acknowledgementObject["type"] as? String == "ack")
+
+        #expect(controller.socketServer.reconfigure(accessMode: .automation))
+        CmuxEventBus.shared.publish(
+            name: "test.revoked",
+            category: "test",
+            source: "test"
+        )
+
+        var byte: UInt8 = 0
+        #expect(Darwin.read(sockets.client, &byte, 1) == 0)
     }
 
     private func writeConfig(mode: SocketControlMode, to url: URL) throws {
