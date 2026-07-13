@@ -14,8 +14,8 @@ struct RemotePortPollStateTests {
         #expect(state.baselinePorts == nil)
     }
 
-    @Test("Incomplete host-wide delta scans preserve baseline and publication")
-    func incompleteHostWideDeltaScanPreservesState() {
+    @Test("Incomplete host-wide delta scans preserve state and merge positives")
+    func incompleteHostWideDeltaScanMergesPositives() {
         var state = RemotePortPollState()
         state.apply(observedPorts: [3000], mode: .hostWideDelta, completeness: .complete)
         state.apply(observedPorts: [3000, 4200], mode: .hostWideDelta, completeness: .complete)
@@ -26,9 +26,9 @@ struct RemotePortPollStateTests {
             completeness: .incomplete
         )
 
-        #expect(didApply == false)
+        #expect(didApply)
         #expect(state.baselinePorts == [3000])
-        #expect(state.publishedPorts == [4200])
+        #expect(state.publishedPorts == [4200, 5173])
     }
 
     @Test("Complete delta scans establish a baseline and retain one transient miss")

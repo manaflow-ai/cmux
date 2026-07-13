@@ -237,6 +237,35 @@ struct PortScanCoordinationTests {
     }
 }
 
+@MainActor
+@Suite("Port scan publication lifecycle")
+struct PortScanPublicationStateTests {
+    @Test("A newer lifecycle revision rejects a queued stale publication")
+    func staleRevisionIsRejected() {
+        let state = PortScanPublicationState()
+        let workspaceID = UUID()
+        let staleRevision = state.nextAgentRevision(for: workspaceID)
+        let currentRevision = state.nextAgentRevision(for: workspaceID)
+
+        #expect(state.isCurrentAgentRevision(staleRevision, workspaceId: workspaceID) == false)
+        #expect(state.isCurrentAgentRevision(currentRevision, workspaceId: workspaceID))
+    }
+
+    @Test("Finishing a one-shot lifecycle removes only its current revision")
+    func oneShotLifecycleRemovalIsRevisionGated() {
+        let state = PortScanPublicationState()
+        let workspaceID = UUID()
+        let staleRevision = state.nextAgentRevision(for: workspaceID)
+        let currentRevision = state.nextAgentRevision(for: workspaceID)
+
+        state.finishAgentLifecycle(workspaceId: workspaceID, revision: staleRevision)
+        #expect(state.isCurrentAgentRevision(currentRevision, workspaceId: workspaceID))
+
+        state.finishAgentLifecycle(workspaceId: workspaceID, revision: currentRevision)
+        #expect(state.isCurrentAgentRevision(currentRevision, workspaceId: workspaceID) == false)
+    }
+}
+
 @Suite("Process termination gate")
 struct ProcessTerminationGateTests {
     @Test("A prelaunch termination request is deferred until launch")

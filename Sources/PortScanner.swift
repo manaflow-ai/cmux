@@ -45,32 +45,25 @@ final class PortScanner: @unchecked Sendable {
     private var agentPortSnapshot = PortScanSnapshotReconciler<UUID>()
     private var forceAgentResultWorkspaces: Set<UUID> = []
     private var trackedAgentScanningPaused = false
+    private let publicationState = PortScanPublicationState()
 
-    /// Panels that requested a scan since the last coalesce snapshot.
     private var pendingKicks: Set<PanelKey> = []
 
     /// Whether a burst sequence is currently running.
     private var burstActive = false
 
-    /// Coalesce timer (200ms after first kick).
     private var coalesceTimer: DispatchSourceTimer?
 
     /// Periodic timer for agent-owned process trees that aren't attached to a TTY.
     private var agentScanTimer: DispatchSourceTimer?
     private var publicationTask: Task<Void, Never>?
 
-    /// Burst scan offsets in seconds from the start of the burst.
     /// Each scan fires at this absolute offset; the recursive scheduler
     /// converts to relative delays between consecutive scans.
     private static let burstOffsets: [Double] = [0.5, 1.5, 3, 5, 7.5, 10]
     private static let agentRescanInterval: TimeInterval = 2
 
     // MARK: - Public API
-
-    struct PanelKey: Hashable, Sendable {
-        let workspaceId: UUID
-        let panelId: UUID
-    }
 
     init(commandRunner: any CommandRunning = CommandRunner()) {
         self.commandRunner = commandRunner
@@ -106,10 +99,11 @@ final class PortScanner: @unchecked Sendable {
             // If burst is active, the next scan iteration will pick up the new kick.
         }
     }
-
+    @MainActor
     func refreshAgentPorts(workspaceId: UUID, agentPIDs: Set<Int>) {
+        let agentRevision = publicationState.nextAgentRevision(for: workspaceId)
         queue.async { [self] in
-            refreshAgentPortsLocked(workspaceId: workspaceId, agentPIDs: agentPIDs)
+            refreshAgentPortsLocked(workspaceId: workspaceId, agentPIDs: agentPIDs, revision: agentRevision)
         }
     }
 
@@ -124,7 +118,6 @@ final class PortScanner: @unchecked Sendable {
     // MARK: - Coalesce + Burst
 
     private func startCoalesce() {
-        // Already on `queue`.
         coalesceTimer?.cancel()
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + 0.2)
@@ -136,7 +129,6 @@ final class PortScanner: @unchecked Sendable {
     }
 
     private func coalesceTimerFired() {
-        // Already on `queue`.
         coalesceTimer?.cancel()
         coalesceTimer = nil
 
@@ -316,8 +308,8 @@ final class PortScanner: @unchecked Sendable {
         }
     }
 
-    private func refreshAgentPortsLocked(workspaceId: UUID, agentPIDs: Set<Int>) {
-        let agentRevision = nextAgentRevision(for: workspaceId)
+    private func refreshAgentPortsLocked(workspaceId: UUID, agentPIDs: Set<Int>, revision: UInt64) {
+        agentRevisionByWorkspace[workspaceId] = revision
         let normalizedPIDs = Set(agentPIDs.filter { $0 > 0 })
         if normalizedPIDs.isEmpty {
             trackedAgentWorkspaces.remove(workspaceId)
@@ -332,7 +324,7 @@ final class PortScanner: @unchecked Sendable {
         scanAgentPorts(
             workspaceIds: [workspaceId],
             agentPIDsByWorkspace: normalizedPIDs.isEmpty ? [:] : [workspaceId: normalizedPIDs],
-            agentRevisions: [workspaceId: agentRevision]
+            agentRevisions: [workspaceId: revision]
         )
     }
 
@@ -564,26 +556,37 @@ final class PortScanner: @unchecked Sendable {
         guard !validatedResults.isEmpty else { return }
         enqueuePublication { [weak self] in
             guard let self else { return }
-            let appliedResults = validatedResults.filter { result in
+            let currentResults = validatedResults.filter { result in
+                self.publicationState.isCurrentAgentRevision(result.revision, workspaceId: result.workspaceId)
+            }
+            guard !currentResults.isEmpty else { return }
+            let appliedResults = currentResults.filter { result in
                 agentCallback(result.workspaceId, result.ports)
             }
+            for result in currentResults where result.removesLifecycle {
+                self.publicationState.finishAgentLifecycle(
+                    workspaceId: result.workspaceId,
+                    revision: result.revision
+                )
+            }
             let appliedWorkspaceIds = Set(appliedResults.map(\.workspaceId))
-            await self.acknowledgeAgentResults(validatedResults, appliedWorkspaceIds: appliedWorkspaceIds)
+            await self.acknowledgeAgentResults(currentResults, appliedWorkspaceIds: appliedWorkspaceIds)
         }
     }
 
     private func acknowledgeAgentResults(
-        _ results: [(workspaceId: UUID, ports: [Int], revision: UInt64, requestID: UInt64)],
+        _ results: [AgentPortScanPublication],
         appliedWorkspaceIds: Set<UUID>
     ) async {
         guard !results.isEmpty else { return }
         await withCheckedContinuation { continuation in
             queue.async { [self] in
-                for (workspaceId, ports, revision, requestID) in results {
-                    guard agentRevisionByWorkspace[workspaceId, default: 0] == revision else { continue }
+                for result in results {
+                    let workspaceId = result.workspaceId
+                    guard agentRevisionByWorkspace[workspaceId, default: 0] == result.revision else { continue }
                     guard scanCoordination.isLatestAgentResult(
                         workspaceId: workspaceId,
-                        requestID: requestID
+                        requestID: result.requestID
                     ) else { continue }
                     guard appliedWorkspaceIds.contains(workspaceId) else {
                         if !trackedAgentWorkspaces.contains(workspaceId) {
@@ -594,25 +597,26 @@ final class PortScanner: @unchecked Sendable {
                         continue
                     }
                     forceAgentResultWorkspaces.remove(workspaceId)
-                    if ports.isEmpty, !trackedAgentWorkspaces.contains(workspaceId) {
+                    if result.ports.isEmpty, !trackedAgentWorkspaces.contains(workspaceId) {
                         lastAgentPortsByWorkspace.removeValue(forKey: workspaceId)
                         scanCoordination.removeAgentWorkspaces([workspaceId])
                     } else {
-                        lastAgentPortsByWorkspace[workspaceId] = ports
+                        lastAgentPortsByWorkspace[workspaceId] = result.ports
                     }
                 }
                 continuation.resume()
             }
         }
     }
+
     private func validatedAgentResults(
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
         agentRevisions: [UUID: UInt64],
         completeness: PortScanCompleteness,
         requestID: UInt64
-    ) -> [(workspaceId: UUID, ports: [Int], revision: UInt64, requestID: UInt64)] {
-        var results: [(workspaceId: UUID, ports: [Int], revision: UInt64, requestID: UInt64)] = []
+    ) -> [AgentPortScanPublication] {
+        var results: [AgentPortScanPublication] = []
         let revisionMatchedWorkspaceIds = Set(workspaceIds.filter { workspaceId in
             agentRevisionByWorkspace[workspaceId, default: 0] == agentRevisions[workspaceId, default: 0]
         })
@@ -638,11 +642,12 @@ final class PortScanner: @unchecked Sendable {
                 guard previousPorts != ports else { continue }
                 guard previousPorts != nil || !ports.isEmpty else { continue }
             }
-            results.append((
+            results.append(AgentPortScanPublication(
                 workspaceId: workspaceId,
                 ports: ports,
                 revision: expectedRevision,
-                requestID: requestID
+                requestID: requestID,
+                removesLifecycle: !trackedAgentWorkspaces.contains(workspaceId)
             ))
         }
         return results
@@ -652,12 +657,6 @@ final class PortScanner: @unchecked Sendable {
         workspaceIds.reduce(into: [UUID: UInt64]()) { partial, workspaceId in
             partial[workspaceId] = agentRevisionByWorkspace[workspaceId, default: 0]
         }
-    }
-
-    private func nextAgentRevision(for workspaceId: UUID) -> UInt64 {
-        let nextRevision = agentRevisionByWorkspace[workspaceId, default: 0] &+ 1
-        agentRevisionByWorkspace[workspaceId] = nextRevision
-        return nextRevision
     }
 
 }

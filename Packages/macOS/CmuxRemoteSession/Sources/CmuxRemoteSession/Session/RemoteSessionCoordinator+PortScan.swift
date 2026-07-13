@@ -236,7 +236,13 @@ extension RemoteSessionCoordinator {
         let ttyNames = Array(Set(ttyNamesByPanel.values)).sorted()
         guard !ttyNames.isEmpty else { return ([:], .complete) }
 
-        let command = "sh -c \(Self.remotePortScanScript(ttyNames: ttyNames, excluding: excludedRemoteScanPorts()).shellSingleQuoted)"
+        let protectedPorts = Set(remotePortScanSnapshot.snapshot.values.flatMap { $0 })
+        let script = Self.remotePortScanScript(
+            ttyNames: ttyNames,
+            excluding: excludedRemoteScanPorts(),
+            protecting: protectedPorts
+        )
+        let command = "sh -c \(script.shellSingleQuoted)"
         let result = try sshExec(
             arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command],
             timeout: 8

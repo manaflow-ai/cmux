@@ -2,16 +2,22 @@
 // when every scanner stage produced authoritative output.
 extension RemoteSessionCoordinator {
     /// Builds the TTY-scoped remote listening-port scan program.
-    static func remotePortScanScript(ttyNames: [String], excluding ports: Set<Int>) -> String {
+    static func remotePortScanScript(
+        ttyNames: [String],
+        excluding ports: Set<Int>,
+        protecting protectedPorts: Set<Int>
+    ) -> String {
         let ttySet = ttyNames.joined(separator: " ")
         let ttyCSV = ttyNames.joined(separator: ",")
         let excludedPorts = ports.sorted().map(String.init).joined(separator: " ")
+        let protectedPorts = protectedPorts.sorted().map(String.init).joined(separator: " ")
 
         return """
         set -eu
         cmux_tracked_ttys=" \(ttySet) "
         cmux_tty_csv='\(ttyCSV)'
         cmux_excluded_ports=" \(excludedPorts) "
+        cmux_protected_ports=" \(protectedPorts) "
         cmux_scan_complete=0
         cmux_tmpdir="$(mktemp -d 2>/dev/null || mktemp -d -t cmux-ports 2>/dev/null || true)"
         cmux_scan_incomplete=""
@@ -42,14 +48,29 @@ extension RemoteSessionCoordinator {
         cmux_used_ss=0
         if [ -d /proc ] && command -v ss >/dev/null 2>&1; then
           cmux_ss_status=0
-          cmux_ss_output="$(ss -ltnpH 2>/dev/null)" || cmux_ss_status=$?
-          case "$cmux_ss_status:$cmux_ss_output" in
-            0:) cmux_used_ss=1; cmux_scan_complete=1 ;;
-            0:*pid=*)
+          if [ -n "$cmux_tmpdir" ]; then
+            cmux_ss_stderr="$cmux_tmpdir/ss.stderr"
+            cmux_ss_output="$(ss -ltnpH 2>"$cmux_ss_stderr")" || cmux_ss_status=$?
+            [ ! -s "$cmux_ss_stderr" ] || cmux_mark_incomplete
+          else
+            cmux_ss_output="$(ss -ltnpH 2>/dev/null)" || cmux_ss_status=$?
+            cmux_mark_incomplete
+          fi
+          [ "$cmux_ss_status" -eq 0 ] || cmux_mark_incomplete
+          case "$cmux_ss_output" in
+            "")
+              if [ "$cmux_ss_status" -eq 0 ]; then
+                cmux_used_ss=1
+                cmux_scan_complete=1
+              fi
+              ;;
+            *pid=*)
               cmux_used_ss=1
-              cmux_scan_complete=1
+              [ "$cmux_ss_status" -ne 0 ] || cmux_scan_complete=1
               printf '%s\\n' "$cmux_ss_output" | while IFS= read -r cmux_line; do
                 [ -n "$cmux_line" ] || continue
+                cmux_port="$(printf '%s\\n' "$cmux_line" | awk '{print $4}' | sed -E 's/.*:([0-9]+)$/\\1/' | awk '/^[0-9]+$/ { print $1; exit }')"
+                if [ -z "$cmux_port" ]; then cmux_mark_incomplete; continue; fi
                 cmux_pid_tokens="$(printf '%s\\n' "$cmux_line" | awk '
                   {
                     line = $0
@@ -64,12 +85,15 @@ extension RemoteSessionCoordinator {
                     }
                   }
                 ')"
-                [ -n "$cmux_pid_tokens" ] || continue
+                if [ -z "$cmux_pid_tokens" ]; then
+                  case "$cmux_protected_ports" in
+                    *" $cmux_port "*) cmux_mark_incomplete ;;
+                  esac
+                  continue
+                fi
                 case "$cmux_pid_tokens" in
                   *__cmux_invalid_pid__*) cmux_mark_incomplete; continue ;;
                 esac
-                cmux_port="$(printf '%s\\n' "$cmux_line" | awk '{print $4}' | sed -E 's/.*:([0-9]+)$/\\1/' | awk '/^[0-9]+$/ { print $1; exit }')"
-                if [ -z "$cmux_port" ]; then cmux_mark_incomplete; continue; fi
                 for cmux_pid in $cmux_pid_tokens; do
                   cmux_tty_path="$(readlink "/proc/$cmux_pid/fd/0" 2>/dev/null || true)"
                   if [ -z "$cmux_tty_path" ]; then cmux_mark_incomplete; continue; fi

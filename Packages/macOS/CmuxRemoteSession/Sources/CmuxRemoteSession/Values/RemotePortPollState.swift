@@ -28,8 +28,8 @@ struct RemotePortPollState {
             return true
 
         case .hostWideDelta:
-            guard completeness == .complete else { return false }
             guard let baselinePorts else {
+                guard completeness == .complete else { return false }
                 self.baselinePorts = observedPorts
                 publishedPorts = []
                 snapshot.reset()
@@ -39,7 +39,7 @@ struct RemotePortPollState {
                 scannedPorts: [mode: Array(observedPorts.subtracting(baselinePorts))],
                 scannedKeys: [mode],
                 trackedKeys: [mode],
-                completeness: .complete
+                completeness: completeness
             )
             publishedPorts = stableSnapshot[mode] ?? []
             return true
