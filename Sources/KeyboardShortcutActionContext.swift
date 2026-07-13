@@ -102,7 +102,7 @@ extension KeyboardShortcutSettings.Action {
 
         func isAvailable(commandPaletteContext context: CommandPaletteContextSnapshot) -> Bool {
             if self == .commandPaletteVisible {
-                return context.bool(ShortcutContextKnownKey.commandPaletteVisible.rawValue)
+                return true
             }
             return isAvailable(
                 focusedBrowserPanel: context.bool(CommandPaletteContextKeys.panelIsBrowser),
