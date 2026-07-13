@@ -155,5 +155,18 @@ struct AgentLaunchCaptureTrustTests {
                 kind: "antigravity"
             )
         )
+        #expect(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "kimi",
+                arguments: ["/Users/alice/.local/bin/kimi"],
+                kind: "kimi"
+            )
+        )
+        #expect(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
+                processName: "kimi",
+                arguments: ["/Users/alice/.local/bin/kimi"]
+            )
+        )
     }
 }

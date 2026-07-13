@@ -159,6 +159,8 @@ extension CMUXCLIErrorOutputRegressionTests {
                 "runId": "fork-run",
                 "pid": 101,
                 "processStartedAt": processStartedAt,
+                "parentRunId": "parent-run",
+                "parentSessionId": "parent-session",
                 "relationship": "spawned",
                 "restoreAuthority": false,
                 "authorityEvidence": evidence,
@@ -192,6 +194,8 @@ extension CMUXCLIErrorOutputRegressionTests {
             let recoveredRun = try #require(recovered.first)
             #expect(recoveredRun.relationship == .forked)
             #expect(recoveredRun.restoreAuthority)
+            #expect(recoveredRun.parentRunId == "parent-run")
+            #expect(recoveredRun.parentSessionId == "parent-session")
         }
 
         for evidence in ["managed_child", "explicit_spawned_child", "verified_ancestor_child"] {
