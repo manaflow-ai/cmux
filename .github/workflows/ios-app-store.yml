@@ -157,8 +157,13 @@ jobs:
           set -euo pipefail
           VERSION="$(sed -nE 's/^[[:space:]]*CMUX_IOS_APPSTORE_MARKETING_VERSION[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p' ios/Config/Shared.xcconfig | tail -n 1)"
           VERSION_METADATA_DIR="ios/AppStoreReview/metadata/version/$VERSION"
+          VERSION_METADATA_FILES=()
           shopt -s nullglob
-          VERSION_METADATA_FILES=("$VERSION_METADATA_DIR"/*.json)
+          for metadata_file in "$VERSION_METADATA_DIR"/*.json; do
+            if [ "${metadata_file##*/}" != "default.json" ]; then
+              VERSION_METADATA_FILES+=("$metadata_file")
+            fi
+          done
           shopt -u nullglob
           if [ "${#VERSION_METADATA_FILES[@]}" -eq 0 ]; then
             echo "No canonical App Store metadata found in $VERSION_METADATA_DIR" >&2
