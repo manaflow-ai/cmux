@@ -147,16 +147,6 @@ extension Workspace {
         pendingRemoteDisconnectReplacementsBySurfaceId[surfaceId] = replacement
     }
 
-    /// Captures a byte-bounded VT reconstruction of Ghostty's actual history tail.
-    @MainActor
-    static func boundedRemoteDisconnectScrollback(
-        terminalPanel: TerminalPanel,
-        lineLimit: Int,
-        byteLimit: Int
-    ) async -> String? {
-        await terminalPanel.surface.boundedScreenTailVT(maxRows: lineLimit, maxBytes: byteLimit)
-    }
-
     /// Replays persisted fallback only when truncation cannot leave terminal control state open.
     nonisolated static func plainTextRemoteDisconnectFallbackScrollback(_ scrollback: String?) -> String? {
         guard let bounded = SessionPersistencePolicy.truncatedScrollback(scrollback) else { return nil }
