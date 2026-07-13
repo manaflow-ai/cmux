@@ -1,15 +1,16 @@
 import CmuxDiffModel
 
 enum DiffReviewFileLoadState {
+    case empty
     case idle
     case loading(path: String)
     case loaded(path: String, hunks: [DiffHunk], isTruncated: Bool)
     case failed(path: String, message: String)
 
     func visible(for path: String?) -> Self {
-        guard let path else { return .idle }
+        guard let path else { return .empty }
         switch self {
-        case .idle:
+        case .empty, .idle:
             return .loading(path: path)
         case .loading(let loadedPath),
             .loaded(let loadedPath, _, _),

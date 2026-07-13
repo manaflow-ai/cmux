@@ -16,27 +16,31 @@ struct DiffReviewFileView: View {
     var body: some View {
         VStack(spacing: 0) {
             content
-            Divider()
-            bottomBar
+            if session.currentFile != nil {
+                Divider()
+                bottomBar
+            }
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                fileSwitcher
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(action: session.markBookmark) {
-                    Image(systemName: isCurrentHunkBookmarked ? "bookmark.fill" : "bookmark")
+            if session.currentFile != nil {
+                ToolbarItem(placement: .principal) {
+                    fileSwitcher
                 }
-                .frame(minWidth: 44, minHeight: 44)
-                .accessibilityLabel(
-                    L10n.string("mobile.diff.bookmark", defaultValue: "Bookmark this hunk")
-                )
-                .accessibilityValue(
-                    isCurrentHunkBookmarked
-                        ? L10n.string("mobile.diff.bookmarked", defaultValue: "Bookmarked")
-                        : L10n.string("mobile.diff.notBookmarked", defaultValue: "Not bookmarked")
-                )
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: session.markBookmark) {
+                        Image(systemName: isCurrentHunkBookmarked ? "bookmark.fill" : "bookmark")
+                    }
+                    .frame(minWidth: 44, minHeight: 44)
+                    .accessibilityLabel(
+                        L10n.string("mobile.diff.bookmark", defaultValue: "Bookmark this hunk")
+                    )
+                    .accessibilityValue(
+                        isCurrentHunkBookmarked
+                            ? L10n.string("mobile.diff.bookmarked", defaultValue: "Bookmarked")
+                            : L10n.string("mobile.diff.notBookmarked", defaultValue: "Not bookmarked")
+                    )
+                }
             }
         }
         .overlay(alignment: .top) {
@@ -65,6 +69,11 @@ struct DiffReviewFileView: View {
     @ViewBuilder
     private var content: some View {
         switch visibleLoadState {
+        case .empty:
+            ContentUnavailableView(
+                L10n.string("mobile.diff.empty", defaultValue: "No changes"),
+                systemImage: "checkmark.circle"
+            )
         case .idle, .loading:
             ProgressView(
                 L10n.string("mobile.diff.loading", defaultValue: "Loading diff")
@@ -230,6 +239,8 @@ struct DiffReviewFileView: View {
 
     private var hunkCounterText: String {
         switch visibleLoadState {
+        case .empty:
+            return L10n.string("mobile.diff.empty", defaultValue: "No changes")
         case .idle, .loading:
             return L10n.string("mobile.diff.loading", defaultValue: "Loading diff")
         case .failed:
