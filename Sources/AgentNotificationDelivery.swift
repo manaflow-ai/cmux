@@ -5,10 +5,16 @@ enum AgentNotificationDeliveryResult: Sendable, Equatable {
     case gated
     case accepted
     case saturated
+    case cancelled
 }
 
 /// Applies agent notification policy and publishes accepted events through the shared mutation bus.
 struct AgentNotificationDelivery: Sendable {
+    private static let reliableAdmissionQueue = DispatchQueue(
+        label: "com.cmux.agent-notification-reliable-admission",
+        qos: .utility
+    )
+    private static let reliableSubmissionLock = NSLock()
     private let permissionEnabled: Bool
     private let turnMode: AgentTurnCompleteMode
     private let idleEnabled: Bool
@@ -51,5 +57,66 @@ struct AgentNotificationDelivery: Sendable {
             body: body
         )
         return accepted ? .accepted : .saturated
+    }
+
+    /// Internal delivery path. One serial GCD worker owns capacity waiting, so
+    /// actor executors stay free and producers remain ordered behind it.
+    func enqueueReliably(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        title: String,
+        subtitle: String,
+        body: String,
+        category: AgentNotifyCategory?,
+        pending: Bool
+    ) async -> AgentNotificationDeliveryResult {
+        if let category,
+           !agentNotificationShouldDeliver(
+               category: category,
+               pending: pending,
+               permissionEnabled: permissionEnabled,
+               turnMode: turnMode,
+               idleEnabled: idleEnabled
+           ) {
+            return .gated
+        }
+        let bus = TerminalMutationBus.shared
+        let accepted = await withCheckedContinuation { continuation in
+            Self.submitReliableAdmission(
+                bus: bus,
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                title: title,
+                subtitle: subtitle,
+                body: body,
+                continuation: continuation
+            )
+        }
+        return accepted ? .accepted : .cancelled
+    }
+
+    private static func submitReliableAdmission(
+        bus: TerminalMutationBus,
+        workspaceID: UUID,
+        surfaceID: UUID,
+        title: String,
+        subtitle: String,
+        body: String,
+        continuation: CheckedContinuation<Bool, Never>
+    ) {
+        reliableSubmissionLock.lock()
+        let admissionToken = bus.captureNotificationAdmissionToken(
+            tabId: workspaceID,
+            surfaceId: surfaceID
+        )
+        reliableAdmissionQueue.async {
+            continuation.resume(returning: bus.enqueueNotificationReliably(
+                admissionToken: admissionToken,
+                title: title,
+                subtitle: subtitle,
+                body: body
+            ))
+        }
+        reliableSubmissionLock.unlock()
     }
 }

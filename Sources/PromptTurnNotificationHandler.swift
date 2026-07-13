@@ -10,6 +10,7 @@ actor PromptTurnNotificationHandler {
     private var latestSubmissionCountByAgentID: [String: UInt64] = [:]
     private var turnForegroundPIDByAgentID: [String: Int] = [:]
     private var deliveredConfirmationIdentifierByAgentID: [String: UInt64] = [:]
+    private var deliveringConfirmationIdentifierByAgentID: [String: UInt64] = [:]
     private var debounceTasksByAgentID: [String: Task<Void, Never>] = [:]
 
     private var inFlightPID: Int?
@@ -125,9 +126,12 @@ actor PromptTurnNotificationHandler {
         guard deliveredConfirmationIdentifierByAgentID[agentID, default: 0] < confirmation.identifier else {
             return
         }
-        deliveredConfirmationIdentifierByAgentID[agentID] = confirmation.identifier
+        guard deliveringConfirmationIdentifierByAgentID[agentID, default: 0] < confirmation.identifier else {
+            return
+        }
+        deliveringConfirmationIdentifierByAgentID[agentID] = confirmation.identifier
 
-        AgentNotificationDelivery().enqueue(
+        let result = await AgentNotificationDelivery().enqueueReliably(
             workspaceID: recheck.workspaceID,
             surfaceID: surfaceID,
             title: definition.displayName,
@@ -142,6 +146,15 @@ actor PromptTurnNotificationHandler {
             category: .turnComplete,
             pending: false
         )
+        if deliveringConfirmationIdentifierByAgentID[agentID] == confirmation.identifier {
+            deliveringConfirmationIdentifierByAgentID.removeValue(forKey: agentID)
+        }
+        if result != .saturated {
+            deliveredConfirmationIdentifierByAgentID[agentID] = max(
+                deliveredConfirmationIdentifierByAgentID[agentID, default: 0],
+                confirmation.identifier
+            )
+        }
     }
 
     /// Verifies process identity fresh for every delivery. Deliveries happen

@@ -1,33 +1,4 @@
-import CmuxRemoteSession
 import Foundation
-struct QueuedTerminalNotificationKey: Hashable, Sendable {
-    let tabId: UUID
-    let surfaceId: UUID?
-}
-
-struct QueuedTerminalNotification: Sendable {
-    let id: UUID
-    let acceptedAt: Date
-    let key: QueuedTerminalNotificationKey
-    let title: String
-    let subtitle: String
-    let body: String
-}
-
-enum TerminalSocketMutation {
-    case deliverNotification(QueuedTerminalNotification)
-    case clearAllNotifications
-    case clearNotificationsForTab(UUID)
-    case clearNotificationsForSurface(UUID, UUID)
-    case perform(@MainActor () -> Void)
-}
-
-struct TerminalSocketMutationEntry {
-    let sequence: UInt64
-    let mutation: TerminalSocketMutation
-    let notificationGeneration: UInt64?
-    let performReplaceKey: TerminalMutationReplaceKey?
-}
 
 final class TerminalMutationBus: @unchecked Sendable {
     static let shared = TerminalMutationBus()
@@ -42,6 +13,8 @@ final class TerminalMutationBus: @unchecked Sendable {
     private var nextSequence: UInt64 = 0
     private var currentNotificationGeneration: UInt64 = 0
     private var waitingNotificationProducerCount = 0
+    private var reliableAdmissionsById: [UUID: ReliableTerminalNotificationAdmission] = [:]
+    private var reliablyWaitingNotificationProducerCount = 0
     private let maxMutationsPerDrain = 16
 #if DEBUG
     private var drainsSuspendedForTesting = false
@@ -115,18 +88,82 @@ final class TerminalMutationBus: @unchecked Sendable {
         }
     }
 
+    nonisolated func captureNotificationAdmissionToken(tabId: UUID, surfaceId: UUID?) -> TerminalNotificationAdmissionToken {
+        lock.lock()
+        let registered = ReliableTerminalNotificationAdmission(
+            id: UUID(),
+            acceptedAt: Date(),
+            key: QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId),
+            notificationGeneration: currentNotificationGeneration
+        )
+        reliableAdmissionsById[registered.id] = registered
+        lock.unlock()
+        return TerminalNotificationAdmissionToken(id: registered.id)
+    }
+
+    /// Called only from the dedicated serial admission queue. At most one
+    /// worker waits on the condition while later internal producers remain
+    /// suspended behind that worker without occupying cooperative threads.
+    nonisolated func enqueueNotificationReliably(
+        admissionToken: TerminalNotificationAdmissionToken,
+        title: String,
+        subtitle: String,
+        body: String
+    ) -> Bool {
+        lock.lock()
+        reliablyWaitingNotificationProducerCount += 1
+        while pending.count - pendingHead >= Self.maximumPendingMutationCount,
+              reliableAdmissionsById[admissionToken.id] != nil {
+            lock.wait()
+        }
+        reliablyWaitingNotificationProducerCount -= 1
+        guard let admission = reliableAdmissionsById.removeValue(forKey: admissionToken.id) else {
+            lock.unlock()
+            return false
+        }
+        let notification = QueuedTerminalNotification(
+            id: admission.id,
+            acceptedAt: admission.acceptedAt,
+            key: admission.key,
+            title: title,
+            subtitle: subtitle,
+            body: body
+        )
+        let generation = admission.notificationGeneration
+        nextSequence &+= 1
+        let sequence = nextSequence
+        pending.append(TerminalSocketMutationEntry(
+            sequence: sequence,
+            mutation: .deliverNotification(notification),
+            notificationGeneration: generation,
+            performReplaceKey: nil
+        ))
+        let shouldScheduleDrain = !drainScheduled
+        if shouldScheduleDrain { drainScheduled = true }
+        lock.unlock()
+#if DEBUG
+        cmuxDebugLog(
+            "notification.queue.enqueueReliable seq=\(sequence) workspace=\(notification.key.tabId.uuidString.prefix(8)) surface=\(notification.key.surfaceId?.uuidString.prefix(8) ?? "nil") generation=\(generation)"
+        )
+#endif
+        if shouldScheduleDrain { scheduleDrain() }
+        return true
+    }
+
     nonisolated func enqueueClearAllNotifications() {
         enqueueClear(.clearAllNotifications) { _ in true }
     }
     nonisolated func enqueueClearNotifications(forTabId tabId: UUID) {
-        enqueueClear(.clearNotificationsForTab(tabId)) { notification in
-            notification.key.tabId == tabId
+        enqueueClear(.clearNotificationsForTab(tabId)) { key in
+            key.tabId == tabId
         }
     }
 
     nonisolated func enqueueClearNotifications(forTabId tabId: UUID, surfaceId: UUID) {
-        enqueueClear(.clearNotificationsForSurface(tabId, surfaceId)) { notification in
-            notification.key.tabId == tabId && notification.key.surfaceId == surfaceId
+        enqueueClear(
+            .clearNotificationsForSurface(tabId, surfaceId)
+        ) { key in
+            key.tabId == tabId && key.surfaceId == surfaceId
         }
     }
 
@@ -143,15 +180,15 @@ final class TerminalMutationBus: @unchecked Sendable {
     }
 
     nonisolated func discardPendingNotifications(forTabId tabId: UUID, through boundary: UInt64) {
-        discardPendingNotifications { notification, generation in
-            notification.key.tabId == tabId && generation <= boundary
+        discardPendingNotifications { key, generation in
+            key.tabId == tabId && generation <= boundary
         }
     }
 
     nonisolated func discardPendingNotifications(forTabId tabId: UUID, surfaceId: UUID, through boundary: UInt64) {
-        discardPendingNotifications { notification, generation in
-            notification.key.tabId == tabId
-                && notification.key.surfaceId == surfaceId
+        discardPendingNotifications { key, generation in
+            key.tabId == tabId
+                && key.surfaceId == surfaceId
                 && generation <= boundary
         }
     }
@@ -161,14 +198,14 @@ final class TerminalMutationBus: @unchecked Sendable {
     }
 
     nonisolated func discardPendingNotifications(forTabId tabId: UUID) {
-        discardPendingNotifications { notification, _ in
-            notification.key.tabId == tabId
+        discardPendingNotifications { key, _ in
+            key.tabId == tabId
         }
     }
 
     nonisolated func discardPendingNotifications(forTabId tabId: UUID, surfaceId: UUID?) {
-        discardPendingNotifications { notification, _ in
-            notification.key.tabId == tabId && notification.key.surfaceId == surfaceId
+        discardPendingNotifications { key, _ in
+            key.tabId == tabId && key.surfaceId == surfaceId
         }
     }
     nonisolated func transferPendingNotifications(
@@ -182,19 +219,32 @@ final class TerminalMutationBus: @unchecked Sendable {
         pending = Self.remappingPendingEntries(
             pending, fromTabId: fromTabId, toTabId: toTabId, panelIdMap: panelIdMap
         )
+        let reliableIds = reliableAdmissionsById.compactMap { id, admission in
+            admission.key.tabId == fromTabId ? id : nil
+        }
+        for id in reliableIds {
+            guard var admission = reliableAdmissionsById[id] else { continue }
+            admission.key = QueuedTerminalNotificationKey(
+                tabId: toTabId,
+                surfaceId: admission.key.surfaceId.flatMap { panelIdMap[$0] }
+            )
+            reliableAdmissionsById[id] = admission
+        }
+        lock.broadcast()
         lock.unlock()
     }
 
     private func enqueueClear(
         _ mutation: TerminalSocketMutation,
-        dropping shouldDrop: (QueuedTerminalNotification) -> Bool
+        dropping shouldDrop: (QueuedTerminalNotificationKey) -> Bool
     ) {
         let shouldScheduleDrain: Bool
         lock.lock()
+        reliableAdmissionsById = reliableAdmissionsById.filter { !shouldDrop($0.value.key) }
         compactPendingForMutation()
         pending.removeAll { entry in
             if case .deliverNotification(let notification) = entry.mutation {
-                return shouldDrop(notification)
+                return shouldDrop(notification.key)
             }
             return false
         }
@@ -264,16 +314,19 @@ final class TerminalMutationBus: @unchecked Sendable {
 
     private func discardPendingNotifications(
         advanceGeneration: Bool = false,
-        where shouldDiscard: (QueuedTerminalNotification, UInt64) -> Bool
+        where shouldDiscard: (QueuedTerminalNotificationKey, UInt64) -> Bool
     ) {
         lock.lock()
+        reliableAdmissionsById = reliableAdmissionsById.filter {
+            !shouldDiscard($0.value.key, $0.value.notificationGeneration)
+        }
         compactPendingForMutation()
         pending.removeAll { entry in
             guard case .deliverNotification(let notification) = entry.mutation,
                   let generation = entry.notificationGeneration else {
                 return false
             }
-            return shouldDiscard(notification, generation)
+            return shouldDiscard(notification.key, generation)
         }
         if advanceGeneration {
             currentNotificationGeneration &+= 1
@@ -302,6 +355,10 @@ final class TerminalMutationBus: @unchecked Sendable {
             if case .deliverNotification(let value) = entry.mutation { return value }; return nil
         }
         return (waitingNotificationProducerCount, notifications.map(\.title), live.map(\.sequence))
+    }
+    nonisolated func reliablyWaitingNotificationProducerCountForTesting() -> Int {
+        lock.lock(); defer { lock.unlock() }
+        return reliablyWaitingNotificationProducerCount
     }
     nonisolated func notificationIdentityStateForTesting() -> [(UUID, Date, UUID, UUID?, UInt64)] {
         lock.lock(); defer { lock.unlock() }
@@ -446,83 +503,5 @@ final class TerminalMutationBus: @unchecked Sendable {
                 mutation()
             }
         }
-    }
-}
-
-extension TerminalNotificationStore {
-    fileprivate func deliverQueuedNotification(_ notification: QueuedTerminalNotification) {
-        guard shouldDeliverQueuedNotification(notification) else {
-#if DEBUG
-            cmuxDebugLog(
-                "notification.queue.deliver.skip workspace=\(notification.key.tabId.uuidString.prefix(8)) surface=\(notification.key.surfaceId?.uuidString.prefix(8) ?? "nil") reason=targetMissing titleLen=\(notification.title.count) subtitleLen=\(notification.subtitle.count) bodyLen=\(notification.body.count)"
-            )
-#endif
-            return
-        }
-#if DEBUG
-        cmuxDebugLog(
-            "notification.queue.deliver workspace=\(notification.key.tabId.uuidString.prefix(8)) surface=\(notification.key.surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(notification.title.count) subtitleLen=\(notification.subtitle.count) bodyLen=\(notification.body.count)"
-        )
-#endif
-        addNotification(
-            id: notification.id,
-            acceptedAt: notification.acceptedAt,
-            tabId: notification.key.tabId,
-            surfaceId: notification.key.surfaceId,
-            title: notification.title,
-            subtitle: notification.subtitle,
-            body: notification.body
-        )
-    }
-
-    private func shouldDeliverQueuedNotification(_ notification: QueuedTerminalNotification) -> Bool {
-        guard let appDelegate = AppDelegate.shared else { return false }
-        guard let surfaceId = notification.key.surfaceId else {
-            let tabManager = appDelegate.tabManagerFor(tabId: notification.key.tabId) ?? appDelegate.tabManager
-            return tabManager?.tabs.contains(where: { $0.id == notification.key.tabId }) == true
-        }
-
-        guard let target = appDelegate.workspaceContainingPanel(
-            panelId: surfaceId,
-            preferredWorkspaceId: notification.key.tabId
-        ) else {
-            return false
-        }
-        return target.workspace.id == notification.key.tabId
-    }
-
-    static func cachedDeliveryAuthorizationDecision(
-        for state: NotificationAuthorizationState,
-        isAppActive: Bool
-    ) -> Bool? {
-        switch state {
-        case .authorized, .provisional, .ephemeral:
-            return nil
-        case .denied:
-            return false
-        case .notDetermined:
-            return isAppActive ? nil : false
-        case .unknown:
-            return nil
-        }
-    }
-
-    /// Effects for the out-of-band fallback path, where cmux plays feedback
-    /// itself because the OS will not deliver the banner.
-    ///
-    /// A user who explicitly turned cmux notifications off (`.denied`) asked
-    /// for silence, so the direct `NSSound` fallback must not punch through
-    /// the denial (https://github.com/manaflow-ai/cmux/issues/5650). Every
-    /// other state keeps the audible fallback: fresh installs
-    /// (`.notDetermined`) have expressed no preference, and granted states
-    /// only reach the fallback when delivery itself failed.
-    nonisolated static func fallbackEffects(
-        _ effects: TerminalNotificationPolicyEffects,
-        authorizationState: NotificationAuthorizationState
-    ) -> TerminalNotificationPolicyEffects {
-        guard authorizationState == .denied else { return effects }
-        var silenced = effects
-        silenced.sound = false
-        return silenced
     }
 }

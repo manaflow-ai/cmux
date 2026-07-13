@@ -1335,18 +1335,12 @@ final class TerminalNotificationStore: ObservableObject {
         var updated = notifications
         guard let index = updated.firstIndex(where: { $0.id == id }) else { return }
         guard !updated[index].isRead else { return }
-        let supersededKey = SupersededPhoneDismissBuffer.key(
-            tabId: updated[index].tabId,
-            surfaceId: updated[index].surfaceId
-        )
+        let drainedSuperseded = supersededPhoneDismissesForRowAction(updated[index])
         updated[index].isRead = true
         deferredUnreadNavigationIds.removeAll { $0 == id }
         notifications = updated
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
-        emitNotificationsDismissed(
-            ids: [id.uuidString],
-            drainedSuperseded: supersededPhoneDismissBuffer.flush(forKey: supersededKey)
-        )
+        emitNotificationsDismissed(ids: [id.uuidString], drainedSuperseded: drainedSuperseded)
     }
 
     func markUnread(id: UUID) {
@@ -1518,20 +1512,24 @@ final class TerminalNotificationStore: ObservableObject {
         let originalCount = updated.count
         updated.removeAll { $0.id == id }
         guard updated.count != originalCount else { return }
+        let drainedSuperseded = removed.map(supersededPhoneDismissesForRowAction) ?? []
         notifications = updated
         if let removed {
             clearFocusedReadIndicator(forTabId: removed.tabId, surfaceId: removed.surfaceId)
         }
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
-        let supersededDrained = removed.map { removedNotification in
-            supersededPhoneDismissBuffer.flush(
-                forKey: SupersededPhoneDismissBuffer.key(
-                    tabId: removedNotification.tabId,
-                    surfaceId: removedNotification.surfaceId
-                )
+        emitNotificationsDismissed(ids: [id.uuidString], drainedSuperseded: drainedSuperseded)
+    }
+
+    private func supersededPhoneDismissesForRowAction(_ notification: TerminalNotification) -> [String] {
+        let key = TabSurfaceKey(tabId: notification.tabId, surfaceId: notification.surfaceId)
+        guard indexes.latestByTabSurface[key]?.id == notification.id else { return [] }
+        return supersededPhoneDismissBuffer.flush(
+            forKey: SupersededPhoneDismissBuffer.key(
+                tabId: notification.tabId,
+                surfaceId: notification.surfaceId
             )
-        } ?? []
-        emitNotificationsDismissed(ids: [id.uuidString], drainedSuperseded: supersededDrained)
+        )
     }
 
     func applySessionNotificationMerge(_ merged: [TerminalNotification]) {
@@ -2099,6 +2097,20 @@ final class TerminalNotificationStore: ObservableObject {
         clearWorkspaceRestoredUnread()
         focusedReadIndicatorByTabId.removeAll()
     }
+
+    func stashSupersededPhoneDismissIDsForTesting(_ ids: [String], tabId: UUID, surfaceId: UUID?) {
+        supersededPhoneDismissBuffer.stash(
+            ids: ids,
+            forKey: SupersededPhoneDismissBuffer.key(tabId: tabId, surfaceId: surfaceId)
+        )
+    }
+
+    func flushSupersededPhoneDismissIDsForTesting(tabId: UUID, surfaceId: UUID?) -> [String] {
+        supersededPhoneDismissBuffer.flush(
+            forKey: SupersededPhoneDismissBuffer.key(tabId: tabId, surfaceId: surfaceId)
+        )
+    }
+
 #endif
 
     private func refreshDockBadge() {

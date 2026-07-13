@@ -400,6 +400,46 @@ struct NotificationDismissSyncTests {
         ) == ["existing", "old"])
     }
 
+    @Test func rowActionsFlushPhoneReplacementOnlyForNewestNotification() {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let older = TerminalNotification(
+            id: UUID(), tabId: tabId, surfaceId: surfaceId,
+            title: "Older", subtitle: "", body: "", createdAt: .distantPast, isRead: false
+        )
+        let newer = TerminalNotification(
+            id: UUID(), tabId: tabId, surfaceId: surfaceId,
+            title: "Newer", subtitle: "", body: "", createdAt: .distantFuture, isRead: false
+        )
+        defer {
+            _ = store.flushSupersededPhoneDismissIDsForTesting(tabId: tabId, surfaceId: surfaceId)
+            store.replaceNotificationsForTesting(previousNotifications)
+        }
+        store.replaceNotificationsForTesting([newer, older])
+        store.stashSupersededPhoneDismissIDsForTesting(
+            ["pending-newer-banner"], tabId: tabId, surfaceId: surfaceId
+        )
+
+        store.markRead(id: older.id)
+        store.remove(id: older.id)
+
+        #expect(
+            store.flushSupersededPhoneDismissIDsForTesting(tabId: tabId, surfaceId: surfaceId)
+                == ["pending-newer-banner"]
+        )
+
+        store.stashSupersededPhoneDismissIDsForTesting(
+            ["flush-with-newest"], tabId: tabId, surfaceId: surfaceId
+        )
+        store.markRead(id: newer.id)
+
+        #expect(store.flushSupersededPhoneDismissIDsForTesting(tabId: tabId, surfaceId: surfaceId) == [])
+        store.markRead(id: newer.id)
+        #expect(store.flushSupersededPhoneDismissIDsForTesting(tabId: tabId, surfaceId: surfaceId) == [])
+    }
+
     /// The phone badge counts unread notification entries only. Workspace-level
     /// manual unread indicators feed the Mac Dock badge but have no phone banner,
     /// so they must not inflate the phone count.
