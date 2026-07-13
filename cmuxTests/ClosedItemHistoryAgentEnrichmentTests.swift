@@ -301,39 +301,6 @@ struct ClosedItemHistoryAgentEnrichmentTests {
     }
 
     @Test
-    func ordinaryTerminalWithoutAgentEvidenceBypassesCapture() async {
-        let loadCount = OSAllocatedUnfairLock(initialState: 0)
-        let sharedIndex = SharedLiveAgentIndex(
-            indexLoader: {
-                loadCount.withLock { $0 += 1 }
-                return Self.emptyLoadResult
-            },
-            hookStoreDirectoryProvider: { Self.temporaryDirectory.path }
-        )
-        sharedIndex.latestCompletedLoadResult = Self.emptyLoadResult
-        sharedIndex.latestCompletedAt = Date()
-        let store = ClosedItemHistoryStore(capacity: 10)
-        var ordinaryTerminal = Self.panelSnapshot(panelId: UUID())
-        ordinaryTerminal.terminal?.resumeBinding = nil
-
-        let capture = store.pushPreservingAgentMetadata(
-            .panel(ClosedPanelHistoryEntry(
-                workspaceId: UUID(),
-                paneId: UUID(),
-                tabIndex: 0,
-                snapshot: ordinaryTerminal
-            )),
-            coordinatedBy: sharedIndex
-        )
-
-        await capture?.value
-        #expect(capture == nil)
-        #expect(loadCount.withLock { $0 } == 0)
-        #expect(store.canReopen)
-        #expect(store.menuSnapshot().totalItemCount == 1)
-    }
-
-    @Test
     func panelWorkspaceAndWindowEntriesUseTheSameEnrichment() throws {
         let workspaceId = UUID()
         let panelId = UUID()

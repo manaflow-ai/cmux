@@ -194,6 +194,51 @@ extension ClosedItemHistoryAgentEnrichmentTests {
         #expect(store.menuSnapshot().totalItemCount == 1)
     }
 
+    @Test(arguments: [false, true])
+    func agentlessTerminalDoesNotTrustCachedNegative(
+        invalidateCompletedResult: Bool
+    ) async throws {
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let emptyResult = Self.recoveryLoadResult(index: .empty)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                loadCount.withLock { $0 += 1 }
+                return emptyResult
+            },
+            hookStoreDirectoryProvider: {
+                FileManager.default.temporaryDirectory.path
+            }
+        )
+        sharedIndex.applyReloadedResult(
+            emptyResult,
+            validationPanelsByPanelID: [:],
+            generationID: UUID()
+        )
+        sharedIndex.latestCompletedLoadResult = emptyResult
+        sharedIndex.latestCompletedAt = Date()
+        if invalidateCompletedResult {
+            sharedIndex.invalidateCachedResumeIndexes()
+        }
+        let store = ClosedItemHistoryStore(capacity: 10)
+        var ordinaryTerminal = Self.panelSnapshotForRecoveryTest(panelId: UUID())
+        ordinaryTerminal.terminal?.resumeBinding = nil
+
+        let capture = try #require(store.pushPreservingAgentMetadata(
+            .panel(ClosedPanelHistoryEntry(
+                workspaceId: UUID(),
+                paneId: UUID(),
+                tabIndex: 0,
+                snapshot: ordinaryTerminal
+            )),
+            coordinatedBy: sharedIndex
+        ))
+        await capture.value
+
+        #expect(loadCount.withLock { $0 } == 1)
+        #expect(store.canReopen)
+        #expect(store.menuSnapshot().totalItemCount == 1)
+    }
+
     private static func panelSnapshotForRecoveryTest(panelId: UUID) -> SessionPanelSnapshot {
         SessionPanelSnapshot(
             id: panelId,
