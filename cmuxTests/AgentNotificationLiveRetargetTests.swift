@@ -159,22 +159,21 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
         XCTAssertEqual(recorded.map(\.tabId), [fixture.owningWorkspace.id])
     }
 
-    func testResolveDeliveryTargetToleratesOutOfRangePid() throws {
+    func testResolveDeliveryTargetRejectsOutOfRangePid() throws {
         let fixture = try makeFixture()
         defer { fixture.restore() }
 
         // A 64-bit pid beyond pid_t range (any socket caller controls this
-        // value) must not trap; it degrades to the surface probe like any
-        // unresolvable pid.
+        // value) must neither trap nor fall through to a different routing
+        // claim supplied in the same untrusted request.
         let result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: [
             "pid": Int(Int32.max) + 1,
             "surface_id": fixture.panelId.uuidString,
         ])
-        guard case .ok(let payload) = result, let dict = payload as? [String: Any] else {
-            return XCTFail("Expected surface-sourced resolution for an out-of-range pid, got \(result)")
+        guard case .err(let code, _, _) = result else {
+            return XCTFail("Expected invalid_params for an out-of-range pid, got \(result)")
         }
-        XCTAssertEqual(dict["source"] as? String, "surface")
-        XCTAssertEqual(dict["workspace_id"] as? String, fixture.owningWorkspace.id.uuidString)
+        XCTAssertEqual(code, "invalid_params")
     }
 
     func testSurfaceScopedClearDiscardsStaleKeyedPendingNotification() throws {

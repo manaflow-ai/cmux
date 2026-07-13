@@ -150,6 +150,26 @@ struct AgentNotificationMoveRaceTests {
         #expect(resolutionCount == 1)
     }
 
+    @Test("Source-confined synchronous delivery does not follow a moved surface")
+    func sourceConfinedSynchronousDeliveryDoesNotRetarget() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        try movePanel(fixture)
+
+        TerminalController.shared.deliverNotificationSynchronously(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Relay",
+            subtitle: "Completed",
+            body: "Confined to authorized source",
+            retargetsToLiveSurfaceOwner: false
+        )
+
+        let recorded = fixture.store.notifications.filter { $0.title == "Relay" }
+        #expect(recorded.map(\.tabId) == [fixture.source.id])
+        #expect(!recorded.contains { $0.tabId == fixture.destination.id })
+    }
+
     @Test("Moving a pane preserves its pending notification")
     func paneMovePreservesPendingNotification() throws {
         let fixture = try makeFixture()
