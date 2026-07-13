@@ -131,8 +131,8 @@ extension CMUXCLIErrorOutputRegressionTests {
             environment: environment,
             timeout: 5
         )
-        #expect(!scoped.timedOut, Comment(rawValue: scoped.stderr))
-        #expect(scoped.status == 0, Comment(rawValue: scoped.stderr))
+        #expect(!scoped.timedOut, Comment(rawValue: scoped.stdout))
+        #expect(scoped.status == 0, Comment(rawValue: scoped.stdout))
         let scopedOutput = try #require(
             JSONSerialization.jsonObject(with: Data(scoped.stdout.utf8)) as? [String: Any]
         )
@@ -145,8 +145,8 @@ extension CMUXCLIErrorOutputRegressionTests {
             environment: environment,
             timeout: 5
         )
-        #expect(!history.timedOut, Comment(rawValue: history.stderr))
-        #expect(history.status == 0, Comment(rawValue: history.stderr))
+        #expect(!history.timedOut, Comment(rawValue: history.stdout))
+        #expect(history.status == 0, Comment(rawValue: history.stdout))
         let historyOutput = try #require(
             JSONSerialization.jsonObject(with: Data(history.stdout.utf8)) as? [String: Any]
         )

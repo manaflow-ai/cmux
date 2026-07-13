@@ -113,8 +113,8 @@ extension CMUXCLIErrorOutputRegressionTests {
             timeout: 5
         )
 
-        #expect(!result.timedOut, Comment(rawValue: result.stderr))
-        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
         let output = try #require(JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any])
         #expect(output["schema_version"] as? Int == 1)
         let nodes = try #require(output["nodes"] as? [[String: Any]])
@@ -150,8 +150,8 @@ extension CMUXCLIErrorOutputRegressionTests {
             environment: environment,
             timeout: 5
         )
-        #expect(!monitoring.timedOut, Comment(rawValue: monitoring.stderr))
-        #expect(monitoring.status == 0, Comment(rawValue: monitoring.stderr))
+        #expect(!monitoring.timedOut, Comment(rawValue: monitoring.stdout))
+        #expect(monitoring.status == 0, Comment(rawValue: monitoring.stdout))
         let monitoringOutput = try #require(
             JSONSerialization.jsonObject(with: Data(monitoring.stdout.utf8)) as? [String: Any]
         )
@@ -206,7 +206,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
 
         #expect(!result.timedOut)
-        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
         #expect(result.stdout.contains("duplicate-session"))
     }
 
@@ -259,13 +259,12 @@ extension CMUXCLIErrorOutputRegressionTests {
         try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
             .write(to: stateURL, options: .atomic)
 
-        let sessionStore = ClaudeHookSessionStore(
-            processEnv: ["CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path],
-            fileManager: .default,
-            agentName: "claude"
+        let writer = AgentHookSessionStateWriter(
+            homeDirectory: root.path,
+            environment: ["CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path]
         )
-        _ = try sessionStore.consume(sessionId: "root-session", workspaceId: nil, surfaceId: nil)
-        #expect(try sessionStore.consume(sessionId: "root-session", workspaceId: nil, surfaceId: nil) == nil)
+        writer.completeSynchronously(kind: .claude, sessionId: "root-session", now: now + 1)
+        writer.completeSynchronously(kind: .claude, sessionId: "root-session", now: now + 2)
 
         let saved = try #require(
             JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any]
@@ -323,7 +322,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
 
         #expect(!result.timedOut, "The graph reader must stay bounded at the 10,000-record retention limit")
-        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
         let output = try #require(
             JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
         )

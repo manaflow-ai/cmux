@@ -78,12 +78,6 @@ enum AutoNamingThrottleDecision: Equatable, Sendable {
     case skipInsufficientGrowth
 }
 
-/// One user/assistant text message extracted from a transcript.
-struct AutoNamingTranscriptMessage: Codable, Equatable, Sendable {
-    var role: String
-    var text: String
-}
-
 /// Environment policy for the summarizer subprocess: scrub the variables
 /// that would recurse into cmux hooks or the parent agent session while
 /// preserving backend selection (Vertex/Bedrock/Anthropic) so the call works

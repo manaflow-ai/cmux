@@ -10,6 +10,7 @@
 		A9E020000000000000000006 /* agent-session-react in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000006 /* agent-session-react */; };
 		A9E020000000000000000007 /* agent-session-solid in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000007 /* agent-session-solid */; };
 		A78670140000000000000001 /* AgentActivitySnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670140000000000000002 /* AgentActivitySnapshot.swift */; };
+		A78670600000000000000001 /* AgentActivitySnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670140000000000000002 /* AgentActivitySnapshot.swift */; };
 		C7A52E000000000000000002 /* AgentChatEndedTranscriptListabilityCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52E000000000000000001 /* AgentChatEndedTranscriptListabilityCache.swift */; };
 		ACA7C4A70000000000000003 /* AgentChatHookSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000004 /* AgentChatHookSessionStore.swift */; };
 		C7A531000000000000000002 /* AgentChatObservationHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A531000000000000000001 /* AgentChatObservationHandle.swift */; };
@@ -34,6 +35,7 @@
 		ACA7C4A7000000000000000B /* AgentChatTranscriptService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */; };
 		ACA7C4A70000000000000009 /* AgentChatTranscriptTailer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */; };
 		A78670320000000000000001 /* AgentCmuxRuntimeIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670320000000000000002 /* AgentCmuxRuntimeIdentity.swift */; };
+		A78670610000000000000001 /* AgentCmuxRuntimeIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670320000000000000002 /* AgentCmuxRuntimeIdentity.swift */; };
 		A9F200000000000000000001 /* AgentExecutableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000001 /* AgentExecutableResolver.swift */; };
 		A9F200000000000000000002 /* AgentExecutableResolverError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000002 /* AgentExecutableResolverError.swift */; };
 		A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000005 /* AgentExecutableResolverTests.swift */; };
@@ -48,6 +50,7 @@
 		F65760060000000000000001 /* AgentHibernationController+Teardown.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760060000000000000002 /* AgentHibernationController+Teardown.swift */; };
 		F65760150000000000000001 /* AgentHibernationController+UnableToProtectMarker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760150000000000000002 /* AgentHibernationController+UnableToProtectMarker.swift */; };
 		D36A00010000000000000001 /* AgentHibernationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00010000000000000002 /* AgentHibernationController.swift */; };
+		A78670740000000000000001 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
 		D36A00030000000000000001 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
 		D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
 		F65760160000000000000001 /* AgentHibernationPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760160000000000000002 /* AgentHibernationPlanner.swift */; };
@@ -73,14 +76,19 @@
 		A76110010000000000000003 /* AgentHookNotificationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110010000000000000002 /* AgentHookNotificationPolicy.swift */; };
 		A76110020000000000000001 /* AgentHookNotificationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110020000000000000002 /* AgentHookNotificationPolicyTests.swift */; };
 		A78670040000000000000001 /* AgentHookSessionLineage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670040000000000000002 /* AgentHookSessionLineage.swift */; };
+		A78670620000000000000001 /* AgentHookSessionLineage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670040000000000000002 /* AgentHookSessionLineage.swift */; };
 		A78670050000000000000001 /* AgentHookSessionLineageResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670050000000000000002 /* AgentHookSessionLineageResolver.swift */; };
+		A78670630000000000000001 /* AgentHookSessionLineageResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670050000000000000002 /* AgentHookSessionLineageResolver.swift */; };
 		A78670180000000000000003 /* AgentHookSessionStateWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670180000000000000002 /* AgentHookSessionStateWriter.swift */; };
+		A78670520000000000000001 /* AgentHookSessionStoreCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670520000000000000002 /* AgentHookSessionStoreCompletion.swift */; };
 		A78670240000000000000001 /* AgentHookSessionStoreModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670240000000000000002 /* AgentHookSessionStoreModels.swift */; };
+		A78670640000000000000001 /* AgentHookSessionStoreModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670240000000000000002 /* AgentHookSessionStoreModels.swift */; };
 		0A1107110000000000000010 /* AgentNotificationDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000011 /* AgentNotificationDelivery.swift */; };
 		A5D41234A1B2C3D4E5F60718 /* AgentNotificationGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41235A1B2C3D4E5F60718 /* AgentNotificationGate.swift */; };
 		A5D41230A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41231A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift */; };
 		C3744E030000000000000001 /* AgentPIDProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */; };
 		A78670010000000000000001 /* AgentProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670010000000000000002 /* AgentProcessIdentity.swift */; };
+		A78670650000000000000001 /* AgentProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670010000000000000002 /* AgentProcessIdentity.swift */; };
 		0A1107110000000000000012 /* AgentRelaunchCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000013 /* AgentRelaunchCommandBuilder.swift */; };
 		0A1107110000000000000014 /* AgentRestoreMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000015 /* AgentRestoreMode.swift */; };
 		D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */; };
@@ -105,15 +113,19 @@
 		A9E020000000000000000009 /* AgentSessionProcessStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000009 /* AgentSessionProcessStore.swift */; };
 		A9E020000000000000000001 /* AgentSessionProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000001 /* AgentSessionProvider.swift */; };
 		A78670020000000000000001 /* AgentSessionRelationship.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670020000000000000002 /* AgentSessionRelationship.swift */; };
+		A78670660000000000000001 /* AgentSessionRelationship.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670020000000000000002 /* AgentSessionRelationship.swift */; };
 		A9E02000000000000000000F /* AgentSessionRendererKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000F /* AgentSessionRendererKind.swift */; };
 		A9F200000000000000000010 /* AgentSessionRunningSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000010 /* AgentSessionRunningSession.swift */; };
 		A78670030000000000000001 /* AgentSessionRunRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670030000000000000002 /* AgentSessionRunRecord.swift */; };
+		A78670670000000000000001 /* AgentSessionRunRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670030000000000000002 /* AgentSessionRunRecord.swift */; };
 		A78670310000000000000001 /* AgentSessionRuntimeScopingRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670310000000000000002 /* AgentSessionRuntimeScopingRegressionTests.swift */; };
 		A9E030000000000000000002 /* AgentSessionSocketSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E030000000000000000001 /* AgentSessionSocketSurfaceTests.swift */; };
 		A9F200000000000000000011 /* AgentSessionStartedSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000011 /* AgentSessionStartedSession.swift */; };
 		A78670130000000000000001 /* AgentSessionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670130000000000000002 /* AgentSessionState.swift */; };
 		A78670130000000000000003 /* AgentSessionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670130000000000000002 /* AgentSessionState.swift */; };
+		A78670700000000000000001 /* AgentSessionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670130000000000000002 /* AgentSessionState.swift */; };
 		A78670150000000000000001 /* AgentSessionStateProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670150000000000000002 /* AgentSessionStateProjection.swift */; };
+		A78670680000000000000001 /* AgentSessionStateProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670150000000000000002 /* AgentSessionStateProjection.swift */; };
 		A9E02000000000000000000A /* AgentSessionStreamAccumulators.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000A /* AgentSessionStreamAccumulators.swift */; };
 		A9F200000000000000000012 /* AgentSessionWebHostGeometryState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000012 /* AgentSessionWebHostGeometryState.swift */; };
 		A9E02000000000000000000B /* AgentSessionWebHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000B /* AgentSessionWebHostView.swift */; };
@@ -124,14 +136,19 @@
 		A9E02000000000000000000D /* AgentSessionWebTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000D /* AgentSessionWebTheme.swift */; };
 		A9F200000000000000000014 /* AgentSessionWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000014 /* AgentSessionWebView.swift */; };
 		A78670160000000000000001 /* AgentSessionWorkloadReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670160000000000000002 /* AgentSessionWorkloadReconciler.swift */; };
+		A78670690000000000000001 /* AgentSessionWorkloadReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670160000000000000002 /* AgentSessionWorkloadReconciler.swift */; };
 		A78670210000000000000001 /* AgentStopStateAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670210000000000000002 /* AgentStopStateAdapter.swift */; };
+		A786706A0000000000000001 /* AgentStopStateAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670210000000000000002 /* AgentStopStateAdapter.swift */; };
 		A78670200000000000000001 /* AgentSubtreeActivitySnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670200000000000000002 /* AgentSubtreeActivitySnapshot.swift */; };
 		A78670100000000000000001 /* AgentWorkloadKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670100000000000000002 /* AgentWorkloadKind.swift */; };
 		A78670100000000000000003 /* AgentWorkloadKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670100000000000000002 /* AgentWorkloadKind.swift */; };
+		A78670710000000000000001 /* AgentWorkloadKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670100000000000000002 /* AgentWorkloadKind.swift */; };
 		A78670110000000000000001 /* AgentWorkloadPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670110000000000000002 /* AgentWorkloadPhase.swift */; };
 		A78670110000000000000003 /* AgentWorkloadPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670110000000000000002 /* AgentWorkloadPhase.swift */; };
+		A78670720000000000000001 /* AgentWorkloadPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670110000000000000002 /* AgentWorkloadPhase.swift */; };
 		A78670120000000000000001 /* AgentWorkloadRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670120000000000000002 /* AgentWorkloadRecord.swift */; };
 		A78670120000000000000003 /* AgentWorkloadRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670120000000000000002 /* AgentWorkloadRecord.swift */; };
+		A78670730000000000000001 /* AgentWorkloadRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670120000000000000002 /* AgentWorkloadRecord.swift */; };
 		A78670190000000000000001 /* AgentWorkloadSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670190000000000000002 /* AgentWorkloadSnapshot.swift */; };
 		REE0CA0000000000000000F2 /* AIAccountCredentialSources.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000F1 /* AIAccountCredentialSources.swift */; };
 		REE0CA0000000000000000E2 /* AIAccountsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000E1 /* AIAccountsClient.swift */; };
@@ -202,6 +219,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		7C592156DCB3419BB95383E5 /* AutoNamingEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7752D68A758642EFA282C208 /* AutoNamingEngineTests.swift */; };
 		A4ECF22C62724853A72D6BDE /* AutoNamingGrokAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07EC52007B2144C59C047774 /* AutoNamingGrokAdapterTests.swift */; };
 		74AB3F34FE3B4974A3A5D264 /* AutoNamingHookPayloadAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46792DAA478444ED87B17B31 /* AutoNamingHookPayloadAdapterTests.swift */; };
+		A78670500000000000000001 /* AutoNamingTranscriptMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670500000000000000002 /* AutoNamingTranscriptMessage.swift */; };
+		A78670500000000000000003 /* AutoNamingTranscriptMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670500000000000000002 /* AutoNamingTranscriptMessage.swift */; };
 		C0DE35860000000000000001 /* BackgroundWorkspacePrimeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */; };
 		A50012F1 /* Backport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F0 /* Backport.swift */; };
 		B057B0017E57B0017E57B001 /* Bonsplit in Frameworks */ = {isa = PBXBuildFile; productRef = A5001262 /* Bonsplit */; };
@@ -1918,6 +1937,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A78670040000000000000002 /* AgentHookSessionLineage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookSessionLineage.swift; sourceTree = "<group>"; };
 		A78670050000000000000002 /* AgentHookSessionLineageResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookSessionLineageResolver.swift; sourceTree = "<group>"; };
 		A78670180000000000000002 /* AgentHookSessionStateWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookSessionStateWriter.swift; sourceTree = "<group>"; };
+		A78670520000000000000002 /* AgentHookSessionStoreCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookSessionStoreCompletion.swift; sourceTree = "<group>"; };
 		A78670240000000000000002 /* AgentHookSessionStoreModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookSessionStoreModels.swift; sourceTree = "<group>"; };
 		0A1107110000000000000011 /* AgentNotificationDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationDelivery.swift; sourceTree = "<group>"; };
 		A5D41235A1B2C3D4E5F60718 /* AgentNotificationGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationGate.swift; sourceTree = "<group>"; };
@@ -2041,6 +2061,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		7752D68A758642EFA282C208 /* AutoNamingEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingEngineTests.swift; sourceTree = "<group>"; };
 		07EC52007B2144C59C047774 /* AutoNamingGrokAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingGrokAdapterTests.swift; sourceTree = "<group>"; };
 		46792DAA478444ED87B17B31 /* AutoNamingHookPayloadAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingHookPayloadAdapterTests.swift; sourceTree = "<group>"; };
+		A78670500000000000000002 /* AutoNamingTranscriptMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingTranscriptMessage.swift; sourceTree = "<group>"; };
 		C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundWorkspacePrimeCoordinator.swift; sourceTree = "<group>"; };
 		A50012F0 /* Backport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Backport.swift; sourceTree = "<group>"; };
 		74060000000000000000001A /* BonsplitConfiguration+RemoteTmuxEmbedded.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BonsplitConfiguration+RemoteTmuxEmbedded.swift"; sourceTree = "<group>"; };
@@ -4885,6 +4906,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = PBXGroup;
 			children = (
 				B9000001A1B2C3D4E5F60719 /* cmux.swift */,
+				A78670500000000000000002 /* AutoNamingTranscriptMessage.swift */,
+				A78670520000000000000002 /* AgentHookSessionStoreCompletion.swift */,
 				REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */,
 				C77070000000000000000001 /* SSHPTYAttachExitCode.swift */,
 				1E4DB33FA55F1B13C60EFFC8 /* SSHPTYAttachReconnectInputFilter.swift */,
@@ -6959,6 +6982,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A76110010000000000000001 /* AgentHookNotificationPolicy.swift in Sources */,
 				A78670040000000000000001 /* AgentHookSessionLineage.swift in Sources */,
 				A78670050000000000000001 /* AgentHookSessionLineageResolver.swift in Sources */,
+				A78670520000000000000001 /* AgentHookSessionStoreCompletion.swift in Sources */,
 				A78670240000000000000001 /* AgentHookSessionStoreModels.swift in Sources */,
 				A78670010000000000000001 /* AgentProcessIdentity.swift in Sources */,
 				A78670070000000000000001 /* AgentSessionGraphEdge.swift in Sources */,
@@ -6975,6 +6999,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A78670110000000000000001 /* AgentWorkloadPhase.swift in Sources */,
 				A78670120000000000000001 /* AgentWorkloadRecord.swift in Sources */,
 				A78670190000000000000001 /* AgentWorkloadSnapshot.swift in Sources */,
+				A78670500000000000000001 /* AutoNamingTranscriptMessage.swift in Sources */,
 				A78670170000000000000001 /* ClaudeAgentWorkloadAdapter.swift in Sources */,
 				A78670280000000000000001 /* ClaudeChildSessionObserver.swift in Sources */,
 				B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
@@ -7122,6 +7147,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A78670600000000000000001 /* AgentActivitySnapshot.swift in Sources */,
 				CDFE000000000000000000C1 /* AgentChatProseStreamerTests.swift in Sources */,
 				C7A51F000000000000000002 /* AgentChatSessionRegistryClaudeObservationTests.swift in Sources */,
 				C7A51C000000000000000002 /* AgentChatSessionRegistryHookStoreTests.swift in Sources */,
@@ -7129,7 +7155,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7A51E000000000000000002 /* AgentChatSessionRegistryLifecycleTests.swift in Sources */,
 				C7A51D100000000000000002 /* AgentChatSessionRegistryObservationReviewRegressionTests.swift in Sources */,
 				C7A51D000000000000000002 /* AgentChatSessionRegistryObservationTests.swift in Sources */,
+				A78670610000000000000001 /* AgentCmuxRuntimeIdentity.swift in Sources */,
 				A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */,
+				A78670740000000000000001 /* AgentHibernationLifecycleState.swift in Sources */,
 				F65760010000000000000001 /* AgentHibernationPlannerSwiftTests.swift in Sources */,
 				D72260010000000000000001 /* AgentHibernationPortalVisibilityTests.swift in Sources */,
 				F65760240000000000000001 /* AgentHibernationRestoreMonitorTests.swift in Sources */,
@@ -7140,15 +7168,28 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F65760250000000000000001 /* AgentHibernationTranscriptSnapshotRaceTests.swift in Sources */,
 				A76110010000000000000003 /* AgentHookNotificationPolicy.swift in Sources */,
 				A76110020000000000000001 /* AgentHookNotificationPolicyTests.swift in Sources */,
+				A78670620000000000000001 /* AgentHookSessionLineage.swift in Sources */,
+				A78670630000000000000001 /* AgentHookSessionLineageResolver.swift in Sources */,
+				A78670640000000000000001 /* AgentHookSessionStoreModels.swift in Sources */,
 				A5D41230A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift in Sources */,
+				A78670650000000000000001 /* AgentProcessIdentity.swift in Sources */,
 				D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */,
 				D3610B020000000000000001 /* AgentSessionAutoResumeSwiftTests.swift in Sources */,
 					A78670220000000000000001 /* AgentSessionCLIRegressionTests.swift in Sources */,
 				A78670230000000000000001 /* AgentSessionHibernationLifecycleTests.swift in Sources */,
 				A78670300000000000000001 /* AgentSessionLifecycleAuthorityRegressionTests.swift in Sources */,
+				A78670660000000000000001 /* AgentSessionRelationship.swift in Sources */,
+				A78670670000000000000001 /* AgentSessionRunRecord.swift in Sources */,
 				A78670310000000000000001 /* AgentSessionRuntimeScopingRegressionTests.swift in Sources */,
 				A9E030000000000000000002 /* AgentSessionSocketSurfaceTests.swift in Sources */,
+				A78670700000000000000001 /* AgentSessionState.swift in Sources */,
+				A78670680000000000000001 /* AgentSessionStateProjection.swift in Sources */,
 				A9E050000000000000000002 /* AgentSessionWebRendererTests.swift in Sources */,
+				A78670690000000000000001 /* AgentSessionWorkloadReconciler.swift in Sources */,
+				A786706A0000000000000001 /* AgentStopStateAdapter.swift in Sources */,
+				A78670710000000000000001 /* AgentWorkloadKind.swift in Sources */,
+				A78670720000000000000001 /* AgentWorkloadPhase.swift in Sources */,
+				A78670730000000000000001 /* AgentWorkloadRecord.swift in Sources */,
 				725746692D9647948561044D /* AppDelegateBareSpaceShortcutRoutingTests.swift in Sources */,
 				A1B2C3D4E5F600000000CF01 /* AppDelegateDisplayConfigRestoreTests.swift in Sources */,
 				E3309A09 /* AppDelegateEqualizeSplitsShortcutTests.swift in Sources */,
@@ -7171,6 +7212,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				7C592156DCB3419BB95383E5 /* AutoNamingEngineTests.swift in Sources */,
 				A4ECF22C62724853A72D6BDE /* AutoNamingGrokAdapterTests.swift in Sources */,
 				74AB3F34FE3B4974A3A5D264 /* AutoNamingHookPayloadAdapterTests.swift in Sources */,
+				A78670500000000000000003 /* AutoNamingTranscriptMessage.swift in Sources */,
 				D3622000A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift in Sources */,
 				BCBC0A0E0000000000000D01 /* BrowserChromeMetricsTests.swift in Sources */,
 				D7032A030000000000000001 /* BrowserClientCertificateCredentialPickerTests.swift in Sources */,
