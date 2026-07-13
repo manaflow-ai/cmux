@@ -349,6 +349,15 @@ extension TerminalController {
                 let leavesByPaneID = tree.leavesByPaneID
                 let metrics = mirror.nativeLayoutMetrics()
                 let plannedOuterSizes: [Int: CGSize] = {
+                    // Judge against the plan the renderer actually imposed:
+                    // the sizing pass stashes its outer sizes, and re-planning
+                    // here at the raw container would disagree with the
+                    // render path (which plans at the exact-fit render frame)
+                    // by the region's sub-cell remainder — a false unsettled
+                    // verdict whenever that remainder exceeds the tolerance.
+                    if !mirror.lastPlannedOuterSizes.isEmpty {
+                        return mirror.lastPlannedOuterSizes
+                    }
                     guard let metrics else { return [:] }
                     let planner = RemoteTmuxNativeSplitLayoutPlanner(metrics: metrics)
                     let plan = planner.plan(
@@ -356,7 +365,7 @@ extension TerminalController {
                             tree: RemoteTmuxNativeSplitTree(layout: tree),
                             metrics: metrics
                         ),
-                        parentSize: mirror.containerSizePt
+                        parentSize: mirror.renderFrameSize ?? mirror.containerSizePt
                     )
                     return planner.outerSizes(of: plan)
                 }()
