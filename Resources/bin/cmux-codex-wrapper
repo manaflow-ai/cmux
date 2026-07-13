@@ -155,19 +155,6 @@ cmux_computer_use_trusted_path_ancestors() {
     done
 }
 
-cmux_computer_use_workspace_root() {
-    local dir="$1"
-    while [[ -n "$dir" && "$dir" != "/" ]]; do
-        if [[ -e "$dir/.git" ]]; then
-            printf '%s' "$dir"
-            return 0
-        fi
-        dir="${dir%/*}"
-        [[ -n "$dir" ]] || dir="/"
-    done
-    return 1
-}
-
 cmux_computer_use_canonical_executable() {
     local candidate="$1"
     [[ "$candidate" = /* && -x "$candidate" ]] || return 1
@@ -194,108 +181,49 @@ cmux_computer_use_canonical_executable() {
     printf '%s' "$path"
 }
 
-cmux_computer_use_resolve_node() {
-    local node_bin
-    node_bin="$(command -v node 2>/dev/null)" || return 1
-    [[ "$node_bin" = /* && -x "$node_bin" ]] || return 1
-    if [[ -n "${CMUX_CODEX_WRAPPER_SHIM_ROOT:-}" ]]; then
-        case "$node_bin" in
-            "${CMUX_CODEX_WRAPPER_SHIM_ROOT%/}"/*)
-                return 1
-                ;;
-        esac
-    fi
-    if [[ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ]]; then
-        case "$node_bin" in
-            "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT%/}"/*)
-                return 1
-                ;;
-        esac
-    fi
-    case "$node_bin" in
-        */cmux-cli-shims/*)
-            return 1
-            ;;
-    esac
-    local node_real
-    node_real="$(cmux_computer_use_canonical_executable "$node_bin")" || return 1
-    local cwd_real
-    cwd_real="$(pwd -P 2>/dev/null)" || cwd_real=""
-    if [[ -n "$cwd_real" ]]; then
-        case "$node_real" in
-            "$cwd_real"|"$cwd_real"/*)
-                return 1
-                ;;
-        esac
-        local workspace_real
-        workspace_real="$(cmux_computer_use_workspace_root "$cwd_real" || true)"
-        if [[ -n "$workspace_real" ]]; then
-            case "$node_real" in
-                "$workspace_real"|"$workspace_real"/*)
-                    return 1
-                    ;;
-            esac
-        fi
-    fi
-    cmux_computer_use_trusted_path_ancestors "$node_real" || return 1
-    printf '%s' "$node_real"
-}
-
-cmux_computer_use_provider_available() {
-    local self_dir bundled_provider
+cmux_computer_use_resolve_driver() {
+    local self_dir bundled_driver override driver_real
     self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
-    bundled_provider="$self_dir/../libexec/cmux-computer-use-provider"
-    if [[ -x "$bundled_provider" ]]; then
+    bundled_driver="$self_dir/cmux-cua-driver"
+    if [[ -x "$bundled_driver" ]]; then
+        printf '%s' "$bundled_driver"
         return 0
     fi
 
-    local xcrun_bin=/usr/bin/xcrun
-    [[ -x "$xcrun_bin" ]] || return 1
-    "$xcrun_bin" --find swiftc >/dev/null 2>&1
+    override="${CMUX_CUA_DRIVER:-}"
+    [[ -n "$override" ]] || return 1
+    driver_real="$(cmux_computer_use_canonical_executable "$override")" || return 1
+    cmux_computer_use_trusted_path_ancestors "$driver_real" || return 1
+    printf '%s' "$driver_real"
 }
 
 cmux_codex_emit_computer_use_args() {
     [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
-    cmux_computer_use_provider_available || return 1
-    local self_dir bundled_mcp candidate
-    self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
-    bundled_mcp="$self_dir/cmux-computer-use-mcp"
-    if [[ -x "$bundled_mcp" ]]; then
-        printf '%s\0' \
-            "-c" \
-            "mcp_servers.cmux-computer-use.command=\"$(cmux_computer_use_json_escape "$bundled_mcp")\"" \
-            "-c" \
-            "mcp_servers.cmux-computer-use.args=[]" \
-            "-c" \
-            "mcp_servers.cmux-computer-use.env.NODE_OPTIONS=\"\"" \
-            "-c" \
-            "mcp_servers.cmux-computer-use.env.BUN_OPTIONS=\"\"" \
-            "-c" \
-            "mcp_servers.cmux-computer-use.env.CMUX_CU_AUTO_APPROVE=\"\""
-        return 0
-    fi
-
-    local node_binary
-    node_binary="$(cmux_computer_use_resolve_node)" || return 1
-    for candidate in \
-        "$self_dir/../cmux-computer-use-mcp.mjs" \
-        "$self_dir/../computer-use-mcp/cmux-computer-use-mcp.mjs"; do
-        if [[ -f "$candidate" ]]; then
-            printf '%s\0' \
-                "-c" \
-                "mcp_servers.cmux-computer-use.command=\"$(cmux_computer_use_json_escape "$node_binary")\"" \
-                "-c" \
-                "mcp_servers.cmux-computer-use.args=[\"$(cmux_computer_use_json_escape "$candidate")\"]" \
-                "-c" \
-                "mcp_servers.cmux-computer-use.env.NODE_OPTIONS=\"\"" \
-                "-c" \
-                "mcp_servers.cmux-computer-use.env.BUN_OPTIONS=\"\"" \
-                "-c" \
-                "mcp_servers.cmux-computer-use.env.CMUX_CU_AUTO_APPROVE=\"\""
-            return 0
-        fi
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            --strict-mcp-config|--strict-mcp-config=*)
+                return 1
+                ;;
+        esac
     done
-    return 1
+    local driver
+    driver="$(cmux_computer_use_resolve_driver)" || return 1
+    printf '%s\0' \
+        "-c" \
+        "mcp_servers.cmux-computer-use.command=\"$(cmux_computer_use_json_escape "$driver")\"" \
+        "-c" \
+        "mcp_servers.cmux-computer-use.args=[\"--embedded\"]" \
+        "-c" \
+        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_EMBEDDED=\"1\"" \
+        "-c" \
+        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_TELEMETRY_ENABLED=\"false\"" \
+        "-c" \
+        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_UPDATE_CHECK=\"false\"" \
+        "-c" \
+        "mcp_servers.cmux-computer-use.env.NODE_OPTIONS=\"\"" \
+        "-c" \
+        "mcp_servers.cmux-computer-use.env.BUN_OPTIONS=\"\""
 }
 
 # The interactive session, `exec`/`e`, and `resume` entrypoints all START a
@@ -548,13 +476,13 @@ cmux_codex_read_computer_use_args() {
     local arg
     while IFS= read -r -d '' arg; do
         cmux_codex_computer_use_args+=("$arg")
-    done < <(cmux_codex_emit_computer_use_args 2>/dev/null)
+    done < <(cmux_codex_emit_computer_use_args "$@" 2>/dev/null)
     (( ${#cmux_codex_computer_use_args[@]} > 0 )) || return 1
     return 0
 }
 
 if cmux_codex_read_inject_args; then
-    cmux_codex_read_computer_use_args || true
+    cmux_codex_read_computer_use_args "$@" || true
     exec "$REAL_CODEX" "${cmux_codex_computer_use_args[@]}" "${cmux_codex_injected_args[@]}" "$@"
 fi
 

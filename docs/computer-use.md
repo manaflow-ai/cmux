@@ -1,0 +1,46 @@
+# cmux cua computer use
+
+cmux bundles `cua-driver` from the `manaflow-ai/cmux-cua` fork of trycua/cua
+and exposes it as an MCP server named `cmux-computer-use` for compatibility
+with existing cmux-launched agents.
+
+Claude Code, Codex CLI, and other MCP-capable agents launched by cmux receive
+the server automatically at session start. No user MCP configuration is
+required. The bundled command is:
+
+```json
+{
+  "mcpServers": {
+    "cmux-computer-use": {
+      "command": "<cmux>/Contents/Resources/bin/cmux-cua-driver",
+      "args": ["--embedded"],
+      "env": {
+        "CUA_DRIVER_EMBEDDED": "1",
+        "CUA_DRIVER_RS_TELEMETRY_ENABLED": "false",
+        "CUA_DRIVER_RS_UPDATE_CHECK": "false"
+      }
+    }
+  }
+}
+```
+
+Embedded mode is important: `cua-driver` inherits cmux's TCC identity instead
+of prompting as a separate helper. The user grants Accessibility and Screen
+Recording to cmux once, then any cmux-launched agent can perceive the desktop
+through screenshots and accessibility trees and act with click, type, scroll,
+hotkey, drag, app, window, cursor, and diagnostic tools.
+cmux's injection disables the upstream driver's telemetry and self-update
+checks; cmux manages application updates through Sparkle.
+
+Risk gating is handled by the MCP client harness. Claude Code and Codex show
+their normal tool approval UI for actions, and `cua-driver` advertises tool
+annotations such as read-only and destructive. The retired cmux Node MCP
+elicitation layer is intentionally gone: keeping the approval decision in the
+client avoids a second, cmux-specific approval queue and matches the
+Codex/ChatGPT desktop app model more closely.
+
+Set `CMUX_COMPUTER_USE_MCP_DISABLED=1` before launching an agent to disable
+automatic computer-use MCP injection. Development builds may set
+`CMUX_CUA_DRIVER=/absolute/path/to/cua-driver`; cmux only uses that override
+when the bundled driver is absent and the override path is executable with
+trusted ancestors.

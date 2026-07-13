@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Regression test for cmux-codex-wrapper attaching the cmux-owned computer-use MCP
-server to Codex sessions without using Codex app-server/computer-use.
+Regression tests for cmux-codex-wrapper attaching cmux's bundled cua-driver
+MCP server to Codex sessions.
 """
 
 from __future__ import annotations
@@ -40,39 +40,42 @@ def arg_value(args: list[str], prefix: str) -> str | None:
 
 
 def expect_scrubbed_mcp_env(args: list[str], failures: list[str], context: str) -> None:
+    embedded = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_EMBEDDED=")
+    telemetry = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_TELEMETRY_ENABLED=")
+    update_check = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_UPDATE_CHECK=")
     node_options = arg_value(args, "mcp_servers.cmux-computer-use.env.NODE_OPTIONS=")
     bun_options = arg_value(args, "mcp_servers.cmux-computer-use.env.BUN_OPTIONS=")
-    auto_approve = arg_value(args, "mcp_servers.cmux-computer-use.env.CMUX_CU_AUTO_APPROVE=")
+    expect(embedded is not None, f"{context}: missing CUA_DRIVER_EMBEDDED config in {args}", failures)
+    expect(telemetry is not None, f"{context}: missing telemetry opt-out config in {args}", failures)
+    expect(update_check is not None, f"{context}: missing update-check opt-out config in {args}", failures)
     expect(node_options is not None, f"{context}: missing NODE_OPTIONS scrub config in {args}", failures)
     expect(bun_options is not None, f"{context}: missing BUN_OPTIONS scrub config in {args}", failures)
-    expect(auto_approve is not None, f"{context}: missing CMUX_CU_AUTO_APPROVE scrub config in {args}", failures)
+    if embedded is not None:
+        expect(json.loads(embedded) == "1", f"{context}: expected embedded env, got {embedded}", failures)
+    if telemetry is not None:
+        expect(json.loads(telemetry) == "false", f"{context}: expected telemetry disabled, got {telemetry}", failures)
+    if update_check is not None:
+        expect(json.loads(update_check) == "false", f"{context}: expected update check disabled, got {update_check}", failures)
     if node_options is not None:
         expect(json.loads(node_options) == "", f"{context}: expected empty NODE_OPTIONS, got {node_options}", failures)
     if bun_options is not None:
         expect(json.loads(bun_options) == "", f"{context}: expected empty BUN_OPTIONS, got {bun_options}", failures)
-    if auto_approve is not None:
-        expect(
-            json.loads(auto_approve) == "",
-            f"{context}: expected empty CMUX_CU_AUTO_APPROVE, got {auto_approve}",
-            failures,
-        )
 
 
 def run_wrapper(
     argv: list[str],
     *,
-    bundled_mcp: bool = True,
-) -> tuple[int, list[str], str]:
+    bundled_driver: bool = True,
+    override_driver: bool = False,
+    untrusted_override: bool = False,
+    disabled: bool = False,
+) -> tuple[int, list[str], str, Path]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
         wrapper_dir = tmp / "wrapper-bin"
-        libexec_dir = tmp / "libexec"
         real_dir = tmp / "real-bin"
-        computer_use_dir = tmp / "computer-use-mcp"
         wrapper_dir.mkdir(parents=True)
-        libexec_dir.mkdir(parents=True)
         real_dir.mkdir(parents=True)
-        computer_use_dir.mkdir(parents=True)
 
         wrapper = wrapper_dir / "cmux-codex-wrapper"
         shutil.copy2(SOURCE_WRAPPER, wrapper)
@@ -108,18 +111,8 @@ fi
 exit 1
 """,
         )
-        make_executable(
-            libexec_dir / "cmux-computer-use-provider",
-            "#!/usr/bin/env bash\nexit 0\n",
-        )
-        if bundled_mcp:
-            make_executable(
-                wrapper_dir / "cmux-computer-use-mcp",
-                "#!/usr/bin/env bash\nexit 0\n",
-            )
-        (computer_use_dir / "cmux-computer-use-mcp.mjs").write_text(
-            "// test MCP server\n", encoding="utf-8"
-        )
+        if bundled_driver:
+            make_executable(wrapper_dir / "cmux-cua-driver", "#!/usr/bin/env bash\nexit 0\n")
 
         test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         test_socket.bind(str(socket_path))
@@ -132,9 +125,20 @@ exit 1
             env["FAKE_CODEX_ARGS_LOG"] = str(args_log)
             env["NODE_OPTIONS"] = "--require=/tmp/cmux-mcp-preload-should-not-load.js"
             env["BUN_OPTIONS"] = "--preload=/tmp/cmux-mcp-preload-should-not-load.js"
-            env["CMUX_CU_AUTO_APPROVE"] = "1"
             env.pop("CMUX_CODEX_HOOKS_DISABLED", None)
             env.pop("CMUX_COMPUTER_USE_MCP_DISABLED", None)
+            env.pop("CMUX_CUA_DRIVER", None)
+            if override_driver:
+                env["CMUX_CUA_DRIVER"] = "/bin/echo"
+            if untrusted_override:
+                untrusted_dir = tmp / "world-writable"
+                untrusted_dir.mkdir()
+                untrusted_dir.chmod(0o777)
+                untrusted_driver = untrusted_dir / "cua-driver"
+                make_executable(untrusted_driver, "#!/usr/bin/env bash\nexit 0\n")
+                env["CMUX_CUA_DRIVER"] = str(untrusted_driver)
+            if disabled:
+                env["CMUX_COMPUTER_USE_MCP_DISABLED"] = "1"
 
             proc = subprocess.run(
                 [str(wrapper), *argv],
@@ -147,11 +151,19 @@ exit 1
         finally:
             test_socket.close()
 
-        return proc.returncode, read_lines(args_log), proc.stderr
+        return proc.returncode, read_lines(args_log), proc.stderr, tmp
 
 
-def test_codex_gets_cmux_computer_use_mcp(failures: list[str]) -> None:
-    code, args, stderr = run_wrapper(["hello"])
+def command_config(args: list[str]) -> str | None:
+    return arg_value(args, "mcp_servers.cmux-computer-use.command=")
+
+
+def args_config(args: list[str]) -> str | None:
+    return arg_value(args, "mcp_servers.cmux-computer-use.args=")
+
+
+def test_codex_gets_cmux_cua_driver(failures: list[str]) -> None:
+    code, args, stderr, _ = run_wrapper(["hello"])
     expect(code == 0, f"wrapper exited {code}: {stderr}", failures)
     expect("app-server" not in args, f"must not use codex app-server, got {args}", failures)
     expect(
@@ -161,27 +173,17 @@ def test_codex_gets_cmux_computer_use_mcp(failures: list[str]) -> None:
     )
     expect("hello" in args, f"expected user prompt to survive, got {args}", failures)
 
-    command_config = next(
-        (arg for arg in args if arg.startswith("mcp_servers.cmux-computer-use.command=")),
-        None,
-    )
-    args_config = next(
-        (arg for arg in args if arg.startswith("mcp_servers.cmux-computer-use.args=")),
-        None,
-    )
-    expect(command_config is not None, f"missing computer-use command config in {args}", failures)
-    expect(args_config is not None, f"missing computer-use args config in {args}", failures)
-    if command_config is not None:
-        command = json.loads(command_config.split("=", 1)[1])
-        expect(
-            Path(command).name == "cmux-computer-use-mcp",
-            f"expected bundled MCP command, got {command_config}",
-            failures,
-        )
-    if args_config is not None:
-        mcp_args = json.loads(args_config.split("=", 1)[1])
-        expect(mcp_args == [], f"expected no args for bundled MCP command, got {args_config}", failures)
-    expect_scrubbed_mcp_env(args, failures, "bundled MCP")
+    cmd = command_config(args)
+    mcp_args_raw = args_config(args)
+    expect(cmd is not None, f"missing computer-use command config in {args}", failures)
+    expect(mcp_args_raw is not None, f"missing computer-use args config in {args}", failures)
+    if cmd is not None:
+        command = json.loads(cmd)
+        expect(Path(command).name == "cmux-cua-driver", f"expected bundled driver command, got {cmd}", failures)
+    if mcp_args_raw is not None:
+        mcp_args = json.loads(mcp_args_raw)
+        expect(mcp_args == ["--embedded"], f"expected embedded driver args, got {mcp_args_raw}", failures)
+    expect_scrubbed_mcp_env(args, failures, "bundled cua-driver")
 
     computer_use_command_index = args.index("-c") if "-c" in args else -1
     prompt_index = args.index("hello") if "hello" in args else -1
@@ -192,41 +194,59 @@ def test_codex_gets_cmux_computer_use_mcp(failures: list[str]) -> None:
     )
 
 
-def test_codex_source_checkout_falls_back_to_mcp_script(failures: list[str]) -> None:
-    code, args, stderr = run_wrapper(["hello"], bundled_mcp=False)
-    expect(code == 0, f"source fallback wrapper exited {code}: {stderr}", failures)
-    command_config = next(
-        (arg for arg in args if arg.startswith("mcp_servers.cmux-computer-use.command=")),
-        None,
+def test_codex_uses_trusted_cua_driver_override(failures: list[str]) -> None:
+    code, args, stderr, _ = run_wrapper(["hello"], bundled_driver=False, override_driver=True)
+    expect(code == 0, f"override wrapper exited {code}: {stderr}", failures)
+    cmd = command_config(args)
+    expect(cmd is not None, f"override missing command config in {args}", failures)
+    if cmd is not None:
+        command = json.loads(cmd)
+        expect(Path(command).name == "echo", f"expected override driver command, got {cmd}", failures)
+    expect_scrubbed_mcp_env(args, failures, "override cua-driver")
+
+
+def test_codex_rejects_cua_driver_override_under_world_writable_ancestor(failures: list[str]) -> None:
+    code, args, stderr, _ = run_wrapper(
+        ["hello"],
+        bundled_driver=False,
+        untrusted_override=True,
     )
-    args_config = next(
-        (arg for arg in args if arg.startswith("mcp_servers.cmux-computer-use.args=")),
-        None,
-    )
-    expect(command_config is not None, f"source fallback missing command config in {args}", failures)
-    expect(args_config is not None, f"source fallback missing args config in {args}", failures)
-    if command_config is not None:
-        command = json.loads(command_config.split("=", 1)[1])
-        expect(Path(command).name == "node", f"source fallback expected node command, got {command_config}", failures)
-    if args_config is not None:
-        mcp_args = json.loads(args_config.split("=", 1)[1])
-        expect(
-            len(mcp_args) == 1 and mcp_args[0].endswith("/computer-use-mcp/cmux-computer-use-mcp.mjs"),
-            f"source fallback expected MCP server script path, got {args_config}",
-            failures,
-        )
-    expect_scrubbed_mcp_env(args, failures, "source fallback MCP")
+    expect(code == 0, f"untrusted override wrapper exited {code}: {stderr}", failures)
+    expect(command_config(args) is None, f"expected untrusted override rejection, got {args}", failures)
+
+
+def test_codex_skips_when_driver_unavailable(failures: list[str]) -> None:
+    code, args, stderr, _ = run_wrapper(["hello"], bundled_driver=False)
+    expect(code == 0, f"no-driver wrapper exited {code}: {stderr}", failures)
+    expect(command_config(args) is None, f"expected no injection without driver, got {args}", failures)
+
+
+def test_codex_skips_when_disabled(failures: list[str]) -> None:
+    code, args, stderr, _ = run_wrapper(["hello"], disabled=True)
+    expect(code == 0, f"disabled wrapper exited {code}: {stderr}", failures)
+    expect(command_config(args) is None, f"expected no injection with kill switch, got {args}", failures)
+
+
+def test_codex_skips_for_strict_mcp_config(failures: list[str]) -> None:
+    code, args, stderr, _ = run_wrapper(["--strict-mcp-config", "-c", "mcp_servers.user.command=\"x\"", "hello"])
+    expect(code == 0, f"strict wrapper exited {code}: {stderr}", failures)
+    expect(command_config(args) is None, f"expected no cmux injection with strict config, got {args}", failures)
+    expect("mcp_servers.user.command=\"x\"" in args, f"expected user's config to survive, got {args}", failures)
 
 
 def main() -> int:
     failures: list[str] = []
-    test_codex_gets_cmux_computer_use_mcp(failures)
-    test_codex_source_checkout_falls_back_to_mcp_script(failures)
+    test_codex_gets_cmux_cua_driver(failures)
+    test_codex_uses_trusted_cua_driver_override(failures)
+    test_codex_rejects_cua_driver_override_under_world_writable_ancestor(failures)
+    test_codex_skips_when_driver_unavailable(failures)
+    test_codex_skips_when_disabled(failures)
+    test_codex_skips_for_strict_mcp_config(failures)
     if failures:
         for failure in failures:
             print(f"FAIL: {failure}")
         return 1
-    print("PASS: codex wrapper injects cmux computer-use MCP")
+    print("PASS: codex wrapper injects cmux cua-driver MCP")
     return 0
 
 

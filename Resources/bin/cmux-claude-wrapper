@@ -745,10 +745,10 @@ encode_launch_argv() {
     } | base64 | tr -d '\n'
 }
 
-# cmux computer use: attach the bundled cmux-computer-use MCP server so any
-# Claude session cmux launches can drive the local Mac through cmux's
-# AX-tree+screenshot provider. Prints the --mcp-config JSON, or returns
-# nonzero to skip injection so sessions never see always-failing tools.
+# cmux computer use: attach the bundled cua-driver MCP server so any Claude
+# session cmux launches can drive the local Mac through cmux's TCC identity.
+# Prints the --mcp-config JSON, or returns nonzero to skip injection so
+# sessions never see always-failing tools.
 cmux_computer_use_json_escape() {
     local value="$1"
     value="${value//\\/\\\\}"
@@ -799,19 +799,6 @@ cmux_computer_use_trusted_path_ancestors() {
     done
 }
 
-cmux_computer_use_workspace_root() {
-    local dir="$1"
-    while [[ -n "$dir" && "$dir" != "/" ]]; do
-        if [[ -e "$dir/.git" ]]; then
-            printf '%s' "$dir"
-            return 0
-        fi
-        dir="${dir%/*}"
-        [[ -n "$dir" ]] || dir="/"
-    done
-    return 1
-}
-
 cmux_computer_use_canonical_executable() {
     local candidate="$1"
     [[ "$candidate" = /* && -x "$candidate" ]] || return 1
@@ -838,67 +825,23 @@ cmux_computer_use_canonical_executable() {
     printf '%s' "$path"
 }
 
-cmux_computer_use_resolve_node() {
-    local node_bin
-    node_bin="$(command -v node 2>/dev/null)" || return 1
-    [[ "$node_bin" = /* && -x "$node_bin" ]] || return 1
-    if [[ -n "${CMUX_CODEX_WRAPPER_SHIM_ROOT:-}" ]]; then
-        case "$node_bin" in
-            "${CMUX_CODEX_WRAPPER_SHIM_ROOT%/}"/*)
-                return 1
-                ;;
-        esac
-    fi
-    if [[ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ]]; then
-        case "$node_bin" in
-            "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT%/}"/*)
-                return 1
-                ;;
-        esac
-    fi
-    case "$node_bin" in
-        */cmux-cli-shims/*)
-            return 1
-            ;;
-    esac
-    local node_real
-    node_real="$(cmux_computer_use_canonical_executable "$node_bin")" || return 1
-    local cwd_real
-    cwd_real="$(pwd -P 2>/dev/null)" || cwd_real=""
-    if [[ -n "$cwd_real" ]]; then
-        case "$node_real" in
-            "$cwd_real"|"$cwd_real"/*)
-                return 1
-                ;;
-        esac
-        local workspace_real
-        workspace_real="$(cmux_computer_use_workspace_root "$cwd_real" || true)"
-        if [[ -n "$workspace_real" ]]; then
-            case "$node_real" in
-                "$workspace_real"|"$workspace_real"/*)
-                    return 1
-                    ;;
-            esac
-        fi
-    fi
-    cmux_computer_use_trusted_path_ancestors "$node_real" || return 1
-    printf '%s' "$node_real"
-}
-
-cmux_computer_use_swift_provider_available() {
-    local self_dir bundled_provider
+cmux_computer_use_resolve_driver() {
+    local self_dir bundled_driver override driver_real
     self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
-    bundled_provider="$self_dir/../libexec/cmux-computer-use-provider"
-    if [[ -x "$bundled_provider" ]]; then
+    bundled_driver="$self_dir/cmux-cua-driver"
+    if [[ -x "$bundled_driver" ]]; then
+        printf '%s' "$bundled_driver"
         return 0
     fi
 
-    local xcrun_bin=/usr/bin/xcrun
-    [[ -x "$xcrun_bin" ]] || return 1
-    "$xcrun_bin" --find swiftc >/dev/null 2>&1
+    override="${CMUX_CUA_DRIVER:-}"
+    [[ -n "$override" ]] || return 1
+    driver_real="$(cmux_computer_use_canonical_executable "$override")" || return 1
+    cmux_computer_use_trusted_path_ancestors "$driver_real" || return 1
+    printf '%s' "$driver_real"
 }
 
-cmux_computer_use_mcp_config() {
+cmux_computer_use_config() {
     [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
     local arg
     for arg in "$@"; do
@@ -910,29 +853,10 @@ cmux_computer_use_mcp_config() {
                 ;;
         esac
     done
-    cmux_computer_use_swift_provider_available || return 1
-    local self_dir bundled_mcp candidate
-    self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
-    bundled_mcp="$self_dir/cmux-computer-use-mcp"
-    if [[ -x "$bundled_mcp" ]]; then
-        printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":[],"env":{"NODE_OPTIONS":"","BUN_OPTIONS":"","CMUX_CU_AUTO_APPROVE":""}}}}' \
-            "$(cmux_computer_use_json_escape "$bundled_mcp")"
-        return 0
-    fi
-
-    local node_binary
-    node_binary="$(cmux_computer_use_resolve_node)" || return 1
-    for candidate in \
-        "$self_dir/../cmux-computer-use-mcp.mjs" \
-        "$self_dir/../computer-use-mcp/cmux-computer-use-mcp.mjs"; do
-        if [[ -f "$candidate" ]]; then
-            printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":["%s"],"env":{"NODE_OPTIONS":"","BUN_OPTIONS":"","CMUX_CU_AUTO_APPROVE":""}}}}' \
-                "$(cmux_computer_use_json_escape "$node_binary")" \
-                "$(cmux_computer_use_json_escape "$candidate")"
-            return 0
-        fi
-    done
-    return 1
+    local driver
+    driver="$(cmux_computer_use_resolve_driver)" || return 1
+    printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":["--embedded"],"env":{"CUA_DRIVER_EMBEDDED":"1","CUA_DRIVER_RS_TELEMETRY_ENABLED":"false","CUA_DRIVER_RS_UPDATE_CHECK":"false","NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
+        "$(cmux_computer_use_json_escape "$driver")"
 }
 
 claude_interactive_entry_flag() {
@@ -1215,9 +1139,9 @@ fi
 # make a following positional prompt (`claude "fix this"`) parse as another
 # MCP config. Injected after launch-argv capture on purpose: resume re-runs
 # the wrapper, which re-injects against the machinery present then.
-CMUX_COMPUTER_USE_MCP_CONFIG="$(cmux_computer_use_mcp_config "$@")" || CMUX_COMPUTER_USE_MCP_CONFIG=""
-if [[ -n "$CMUX_COMPUTER_USE_MCP_CONFIG" ]]; then
-    set -- "--mcp-config=$CMUX_COMPUTER_USE_MCP_CONFIG" "$@"
+CMUX_COMPUTER_USE_CONFIG="$(cmux_computer_use_config "$@")" || CMUX_COMPUTER_USE_CONFIG=""
+if [[ -n "$CMUX_COMPUTER_USE_CONFIG" ]]; then
+    set -- "--mcp-config=$CMUX_COMPUTER_USE_CONFIG" "$@"
 fi
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then

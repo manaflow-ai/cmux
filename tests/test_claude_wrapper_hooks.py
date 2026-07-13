@@ -182,6 +182,7 @@ exit 0
         env["FAKE_CMUX_PING_OK"] = "1" if socket_state == "live" else "0"
         env["CMUX_BUNDLED_CLI_PATH"] = str(bundled_cli_path)
         env["CLAUDECODE"] = "nested-session-sentinel"
+        env.pop("CMUX_CLAUDE_HOOK_CMUX_BIN", None)
         if hooks_disabled:
             env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
         else:
@@ -900,126 +901,28 @@ def test_passthrough_flags_bypass_hook_injection(failures: list[str]) -> None:
 
 # --- cmux computer use MCP injection ------------------------------------------
 #
-# The wrapper attaches the bundled native computer-use MCP server via
-# --mcp-config when the bundled provider helper is available. Source checkouts
-# without the native server fall back to the server script plus a trusted node
-# binary.
-# Existing tests never inject because the sandboxed wrapper has no sibling
-# server script unless these fixtures create one.
+# The wrapper attaches the bundled cmux-cua-driver MCP server via --mcp-config.
+# Source checkouts without the bundled binary may opt in through CMUX_CUA_DRIVER;
+# there is no Node/Bun MCP fallback.
 
 
 def computer_use_sandbox(
     *,
-    bundled_server: bool = True,
-    script: bool = True,
+    bundled_driver: bool = True,
+    override_driver: bool = False,
     disabled: bool = False,
-    provider: bool = True,
-    workspace_node_first: bool = False,
-    workspace_node_outside_pwd: bool = False,
-    workspace_node_symlink_target_first: bool = False,
-    untrusted_node_ancestor_first: bool = False,
     path_helper_trap: bool = False,
 ):
     def setup(tmp: Path, env: dict) -> None:
         env["BUN_OPTIONS"] = "--preload=/tmp/cmux-mcp-preload-should-not-load.js"
-        env["CMUX_CU_AUTO_APPROVE"] = "1"
-        if bundled_server:
+        env.pop("CMUX_CUA_DRIVER", None)
+        if bundled_driver:
             make_executable(
-                tmp / "wrapper-bin" / "cmux-computer-use-mcp",
+                tmp / "wrapper-bin" / "cmux-cua-driver",
                 "#!/usr/bin/env bash\nexit 0\n",
             )
-        if script:
-            script_dir = tmp / "computer-use-mcp"
-            script_dir.mkdir(parents=True, exist_ok=True)
-            (script_dir / "cmux-computer-use-mcp.mjs").write_text(
-                "// test stub\n", encoding="utf-8"
-            )
-        if provider:
-            libexec_dir = tmp / "libexec"
-            libexec_dir.mkdir(parents=True, exist_ok=True)
-            make_executable(
-                libexec_dir / "cmux-computer-use-provider",
-                "#!/usr/bin/env bash\nexit 0\n",
-            )
-        if workspace_node_first:
-            node_dir = tmp / "workspace-node-bin"
-            node_dir.mkdir(parents=True, exist_ok=True)
-            node_real = shutil.which("node")
-            if node_real:
-                env["FAKE_TRUSTED_NODE"] = node_real
-            make_executable(
-                node_dir / "node",
-                """#!/usr/bin/env bash
-if [[ "${1:-}" == "${FAKE_REAL_NODE_SCRIPT:-}" && -n "${FAKE_TRUSTED_NODE:-}" ]]; then
-  exec "$FAKE_TRUSTED_NODE" "$@"
-fi
-exit 88
-""",
-            )
-            env["PATH"] = f"{node_dir}:{env['PATH']}"
-        if workspace_node_outside_pwd:
-            workspace = tmp / "workspace"
-            node_dir = workspace / "bin"
-            cwd = workspace / "subdir"
-            node_dir.mkdir(parents=True, exist_ok=True)
-            cwd.mkdir(parents=True, exist_ok=True)
-            (workspace / ".git").mkdir(parents=True, exist_ok=True)
-            node_real = shutil.which("node")
-            if node_real:
-                env["FAKE_TRUSTED_NODE"] = node_real
-            make_executable(
-                node_dir / "node",
-                """#!/usr/bin/env bash
-if [[ "${1:-}" == "${FAKE_REAL_NODE_SCRIPT:-}" && -n "${FAKE_TRUSTED_NODE:-}" ]]; then
-  exec "$FAKE_TRUSTED_NODE" "$@"
-fi
-exit 88
-""",
-            )
-            env["FAKE_WRAPPER_CWD"] = str(cwd)
-            env["PATH"] = f"{node_dir}:{env['PATH']}"
-        if workspace_node_symlink_target_first:
-            workspace = tmp / "workspace-symlink-target"
-            target_dir = workspace / "tools"
-            cwd = workspace / "subdir"
-            link_dir = tmp / "trusted-node-link-bin"
-            target_dir.mkdir(parents=True, exist_ok=True)
-            cwd.mkdir(parents=True, exist_ok=True)
-            link_dir.mkdir(parents=True, exist_ok=True)
-            (workspace / ".git").mkdir(parents=True, exist_ok=True)
-            node_real = shutil.which("node")
-            if node_real:
-                env["FAKE_TRUSTED_NODE"] = node_real
-            make_executable(
-                target_dir / "node",
-                """#!/usr/bin/env bash
-if [[ "${1:-}" == "${FAKE_REAL_NODE_SCRIPT:-}" && -n "${FAKE_TRUSTED_NODE:-}" ]]; then
-  exec "$FAKE_TRUSTED_NODE" "$@"
-fi
-exit 88
-""",
-            )
-            (link_dir / "node").symlink_to(target_dir / "node")
-            env["FAKE_WRAPPER_CWD"] = str(cwd)
-            env["PATH"] = f"{link_dir}:{env['PATH']}"
-        if untrusted_node_ancestor_first:
-            parent = tmp / "world-writable-node-parent"
-            node_dir = parent / "bin"
-            node_dir.mkdir(parents=True, exist_ok=True)
-            parent.chmod(0o777)
-            node_real = shutil.which("node")
-            if node_real:
-                env["FAKE_TRUSTED_NODE"] = node_real
-            make_executable(
-                node_dir / "node",
-                """#!/usr/bin/env bash
-if [[ "${1:-}" == "${FAKE_REAL_NODE_SCRIPT:-}" && -n "${FAKE_TRUSTED_NODE:-}" ]]; then
-  exec "$FAKE_TRUSTED_NODE" "$@"
-fi
-exit 88
-""",
-            )
-            env["PATH"] = f"{node_dir}:{env['PATH']}"
+        if override_driver:
+            env["CMUX_CUA_DRIVER"] = "/bin/echo"
         if path_helper_trap:
             helper_dir = tmp / "path-helper-trap"
             helper_dir.mkdir(parents=True, exist_ok=True)
@@ -1052,13 +955,36 @@ def extract_injected_mcp_config(argv: list[str]) -> dict | None:
 def expect_computer_use_env_scrubbed(server: dict, failures: list[str], context: str) -> None:
     env = server.get("env")
     expect(
-        env == {"NODE_OPTIONS": "", "BUN_OPTIONS": "", "CMUX_CU_AUTO_APPROVE": ""},
-        f"{context}: expected runtime preload env scrub, got {server}",
+        env
+        == {
+            "CUA_DRIVER_EMBEDDED": "1",
+            "CUA_DRIVER_RS_TELEMETRY_ENABLED": "false",
+            "CUA_DRIVER_RS_UPDATE_CHECK": "false",
+            "NODE_OPTIONS": "",
+            "BUN_OPTIONS": "",
+        },
+        f"{context}: expected embedded env, network opt-outs, and runtime preload scrub, got {server}",
         failures,
     )
 
 
-def test_live_socket_attaches_computer_use_mcp_when_provider_available(failures: list[str]) -> None:
+def expect_cua_driver_config(config: dict | None, failures: list[str], context: str, expected_name: str) -> None:
+    expect(config is not None, f"{context}: expected --mcp-config=<json>", failures)
+    if config is None:
+        return
+    server = config.get("mcpServers", {}).get("cmux-computer-use", {})
+    command = server.get("command")
+    expect(
+        isinstance(command, str) and Path(command).is_absolute() and Path(command).name == expected_name,
+        f"{context}: expected absolute {expected_name} command, got {config}",
+        failures,
+    )
+    args = server.get("args", [])
+    expect(args == ["--embedded"], f"{context}: expected embedded driver args, got {config}", failures)
+    expect_computer_use_env_scrubbed(server, failures, context)
+
+
+def test_live_socket_attaches_cua_driver_when_available(failures: list[str]) -> None:
     code, real_argv, _, stderr, _, _, _, _, _, launch_argv_b64 = run_wrapper(
         socket_state="live",
         argv=["hello"],
@@ -1072,18 +998,7 @@ def test_live_socket_attaches_computer_use_mcp_when_provider_available(failures:
         failures,
     )
     config = extract_injected_mcp_config(real_argv)
-    expect(config is not None, f"computer use inject: expected --mcp-config=<json> in argv, got {real_argv}", failures)
-    if config is not None:
-        server = config.get("mcpServers", {}).get("cmux-computer-use", {})
-        command = server.get("command")
-        expect(
-            isinstance(command, str) and Path(command).is_absolute() and Path(command).name == "cmux-computer-use-mcp",
-            f"computer use inject: expected absolute bundled MCP command, got {config}",
-            failures,
-        )
-        args = server.get("args", [])
-        expect(args == [], f"computer use inject: expected no args for bundled MCP command, got {config}", failures)
-        expect_computer_use_env_scrubbed(server, failures, "computer use inject")
+    expect_cua_driver_config(config, failures, "computer use inject", "cmux-cua-driver")
     inject_index = injected_mcp_config_index(real_argv)
     expect(
         inject_index is not None and inject_index < real_argv.index("hello"),
@@ -1114,7 +1029,7 @@ def test_computer_use_probe_uses_absolute_system_helpers(failures: list[str]) ->
     )
 
 
-def test_computer_use_mcp_does_not_require_external_runtime_auth(failures: list[str]) -> None:
+def test_computer_use_driver_does_not_require_external_runtime_auth(failures: list[str]) -> None:
     code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="live",
         argv=["hello"],
@@ -1123,97 +1038,21 @@ def test_computer_use_mcp_does_not_require_external_runtime_auth(failures: list[
     )
     expect(code == 0, f"computer use no external auth: wrapper exited {code}: {stderr}", failures)
     config = extract_injected_mcp_config(real_argv)
-    expect(
-        config is not None,
-        f"computer use no external auth: expected injection without external auth/runtime state, got {real_argv}",
-        failures,
-    )
-    if config is not None:
-        server = config.get("mcpServers", {}).get("cmux-computer-use", {})
-        expect_computer_use_env_scrubbed(server, failures, "computer use no external auth")
+    expect_cua_driver_config(config, failures, "computer use no external auth", "cmux-cua-driver")
 
 
-def test_computer_use_source_fallback_scrubs_runtime_preloads(failures: list[str]) -> None:
+def test_computer_use_uses_trusted_cua_driver_override(failures: list[str]) -> None:
     code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="live",
         argv=["hello"],
-        node_options="__CMUX_TEST_PRELOAD__",
-        setup_sandbox=computer_use_sandbox(bundled_server=False),
+        setup_sandbox=computer_use_sandbox(bundled_driver=False, override_driver=True),
     )
-    expect(code == 0, f"computer use source fallback: wrapper exited {code}: {stderr}", failures)
+    expect(code == 0, f"computer use override: wrapper exited {code}: {stderr}", failures)
     config = extract_injected_mcp_config(real_argv)
-    expect(config is not None, f"computer use source fallback: expected MCP config, got {real_argv}", failures)
-    if config is not None:
-        server = config.get("mcpServers", {}).get("cmux-computer-use", {})
-        expect_computer_use_env_scrubbed(server, failures, "computer use source fallback")
+    expect_cua_driver_config(config, failures, "computer use override", "echo")
 
 
-def test_computer_use_mcp_skips_workspace_node(failures: list[str]) -> None:
-    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
-        socket_state="live",
-        argv=["hello"],
-        setup_sandbox=computer_use_sandbox(bundled_server=False, workspace_node_first=True),
-    )
-    expect(code == 0, f"computer use workspace-node: wrapper exited {code}: {stderr}", failures)
-    expect(
-        injected_mcp_config_index(real_argv) is None,
-        f"computer use workspace-node: expected no injection with workspace-local node first on PATH, got {real_argv}",
-        failures,
-    )
-
-
-def test_computer_use_mcp_skips_workspace_root_node(failures: list[str]) -> None:
-    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
-        socket_state="live",
-        argv=["hello"],
-        setup_sandbox=computer_use_sandbox(
-            bundled_server=False,
-            workspace_node_outside_pwd=True,
-        ),
-    )
-    expect(code == 0, f"computer use workspace-root node: wrapper exited {code}: {stderr}", failures)
-    expect(
-        injected_mcp_config_index(real_argv) is None,
-        f"computer use workspace-root node: expected no injection with workspace node outside PWD, got {real_argv}",
-        failures,
-    )
-
-
-def test_computer_use_mcp_skips_workspace_node_symlink_target(failures: list[str]) -> None:
-    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
-        socket_state="live",
-        argv=["hello"],
-        setup_sandbox=computer_use_sandbox(
-            bundled_server=False,
-            workspace_node_symlink_target_first=True,
-        ),
-    )
-    expect(code == 0, f"computer use workspace symlink node: wrapper exited {code}: {stderr}", failures)
-    expect(
-        injected_mcp_config_index(real_argv) is None,
-        f"computer use workspace symlink node: expected no injection with node symlink target in workspace, got {real_argv}",
-        failures,
-    )
-
-
-def test_computer_use_mcp_skips_untrusted_node_ancestor(failures: list[str]) -> None:
-    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
-        socket_state="live",
-        argv=["hello"],
-        setup_sandbox=computer_use_sandbox(
-            bundled_server=False,
-            untrusted_node_ancestor_first=True,
-        ),
-    )
-    expect(code == 0, f"computer use untrusted node ancestor: wrapper exited {code}: {stderr}", failures)
-    expect(
-        injected_mcp_config_index(real_argv) is None,
-        f"computer use untrusted node ancestor: expected no injection with node below a world-writable ancestor, got {real_argv}",
-        failures,
-    )
-
-
-def test_computer_use_mcp_skipped_for_strict_mcp_config(failures: list[str]) -> None:
+def test_computer_use_driver_skipped_for_strict_mcp_config(failures: list[str]) -> None:
     code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="live",
         argv=["--strict-mcp-config", "--mcp-config", "{}", "-p", "hello"],
@@ -1232,7 +1071,7 @@ def test_computer_use_mcp_skipped_for_strict_mcp_config(failures: list[str]) -> 
     )
 
 
-def test_computer_use_mcp_skipped_when_disabled(failures: list[str]) -> None:
+def test_computer_use_driver_skipped_when_disabled(failures: list[str]) -> None:
     code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="live",
         argv=["hello"],
@@ -1246,16 +1085,16 @@ def test_computer_use_mcp_skipped_when_disabled(failures: list[str]) -> None:
     )
 
 
-def test_computer_use_mcp_skipped_when_no_server_available(failures: list[str]) -> None:
+def test_computer_use_driver_skipped_when_no_driver_available(failures: list[str]) -> None:
     code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="live",
         argv=["hello"],
-        setup_sandbox=computer_use_sandbox(bundled_server=False, script=False),
+        setup_sandbox=computer_use_sandbox(bundled_driver=False),
     )
-    expect(code == 0, f"computer use no-server: wrapper exited {code}: {stderr}", failures)
+    expect(code == 0, f"computer use no-driver: wrapper exited {code}: {stderr}", failures)
     expect(
         injected_mcp_config_index(real_argv) is None,
-        f"computer use no-server: expected no injection without native server or source script, got {real_argv}",
+        f"computer use no-driver: expected no injection without bundled driver or override, got {real_argv}",
         failures,
     )
 
@@ -2264,17 +2103,13 @@ def main() -> int:
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
-    test_live_socket_attaches_computer_use_mcp_when_provider_available(failures)
+    test_live_socket_attaches_cua_driver_when_available(failures)
     test_computer_use_probe_uses_absolute_system_helpers(failures)
-    test_computer_use_mcp_does_not_require_external_runtime_auth(failures)
-    test_computer_use_source_fallback_scrubs_runtime_preloads(failures)
-    test_computer_use_mcp_skips_workspace_node(failures)
-    test_computer_use_mcp_skips_workspace_root_node(failures)
-    test_computer_use_mcp_skips_workspace_node_symlink_target(failures)
-    test_computer_use_mcp_skips_untrusted_node_ancestor(failures)
-    test_computer_use_mcp_skipped_for_strict_mcp_config(failures)
-    test_computer_use_mcp_skipped_when_disabled(failures)
-    test_computer_use_mcp_skipped_when_no_server_available(failures)
+    test_computer_use_driver_does_not_require_external_runtime_auth(failures)
+    test_computer_use_uses_trusted_cua_driver_override(failures)
+    test_computer_use_driver_skipped_for_strict_mcp_config(failures)
+    test_computer_use_driver_skipped_when_disabled(failures)
+    test_computer_use_driver_skipped_when_no_driver_available(failures)
     test_agents_subcommand_removes_cmux_terminal_fingerprint(failures)
     test_hooks_disabled_preserves_cmux_terminal_env_for_custom_hooks(failures)
     test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)
