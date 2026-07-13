@@ -7,6 +7,7 @@ final class BlockingCloseProxyTunnel: RemoteProxyTunneling, @unchecked Sendable 
     private let closeRelease = DispatchSemaphore(value: 0)
     private let listReached = DispatchSemaphore(value: 0)
     private let listRelease = DispatchSemaphore(value: 0)
+    private let stopReached = DispatchSemaphore(value: 0)
     private let blocksList: Bool
 
     init(blocksList: Bool = false) {
@@ -29,8 +30,12 @@ final class BlockingCloseProxyTunnel: RemoteProxyTunneling, @unchecked Sendable 
         listRelease.signal()
     }
 
+    func waitForStop(timeout: DispatchTime = .now() + 2) -> DispatchTimeoutResult {
+        stopReached.wait(timeout: timeout)
+    }
+
     func start() throws {}
-    func stop() {}
+    func stop() { stopReached.signal() }
     func stopPreservingPTYLifecycle() -> RemotePTYLifecycleSnapshot { RemotePTYLifecycleSnapshot() }
     func restorePTYLifecycle(_ snapshot: RemotePTYLifecycleSnapshot) {}
 

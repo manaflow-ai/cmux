@@ -112,6 +112,27 @@ struct RemoteDisconnectLifecycleTests {
         #expect(!workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(panel.id))
     }
 
+    @Test func duplicateSessionEndPreservesInFlightDisconnectPreparation() async throws {
+        let workspace = Workspace()
+        workspace.configureRemoteConnection(Self.remoteConfiguration(), autoConnect: false)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        workspace.restoredTerminalScrollbackByPanelId[panel.id] = "remote-output\n"
+        defer { Self.removeTransitionArtifacts(workspace: workspace, panelIds: [panel.id]) }
+
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panel.id, relayPort: 64007)
+        #expect(workspace.transitionRemoteTerminalToDisconnectedPlaceholder(surfaceId: panel.id))
+
+        workspace.markRemoteTerminalSessionEnded(
+            surfaceId: panel.id,
+            relayPort: 64007,
+            allowUntracked: true
+        )
+        await workspace.waitForRemoteDisconnectTransition(surfaceId: panel.id)
+
+        #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
+        #expect(!workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(panel.id))
+    }
+
     @Test func restoredFallbackWithTerminalControlsIsNotReplayed() async throws {
         let workspace = Workspace()
         workspace.configureRemoteConnection(Self.remoteConfiguration(), autoConnect: false)

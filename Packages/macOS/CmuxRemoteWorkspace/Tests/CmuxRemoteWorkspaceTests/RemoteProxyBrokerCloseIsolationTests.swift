@@ -79,6 +79,35 @@ struct RemoteProxyBrokerCloseIsolationTests {
         #expect(claimFinished.wait(timeout: .now() + 2) == .success)
     }
 
+    @Test("the last lease keeps a ready tunnel alive until an in-flight RPC returns")
+    func lastLeaseReleaseWaitsForInFlightRPC() throws {
+        let tunnel = BlockingCloseProxyTunnel(blocksList: true)
+        let broker = RemoteProxyBroker(
+            tunnelProvider: BlockingCloseTunnelProvider(tunnel: tunnel)
+        )
+        let configuration = Self.configuration()
+        let lease = broker.acquire(configuration: configuration, remotePath: "/remote/cmuxd") { _ in }
+        defer { tunnel.releaseList() }
+
+        let listFinished = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = try? broker.listPTY(configuration: configuration)
+            listFinished.signal()
+        }
+        #expect(tunnel.waitForList() == .success)
+
+        lease.release()
+        _ = broker.currentPTYLifecycleByAttachment
+        #expect(tunnel.waitForStop(timeout: .now()) == .timedOut)
+
+        tunnel.releaseList()
+        #expect(listFinished.wait(timeout: .now() + 2) == .success)
+        #expect(tunnel.waitForStop() == .success)
+        #expect(throws: (any Error).self) {
+            try broker.listPTY(configuration: configuration)
+        }
+    }
+
     private static func configuration() -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "user@example.test",
