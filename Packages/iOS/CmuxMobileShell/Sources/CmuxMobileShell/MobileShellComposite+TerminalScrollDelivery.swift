@@ -237,7 +237,7 @@ extension MobileShellComposite {
                     method: "mobile.terminal.scroll",
                     params: params
                 ),
-                timeoutNanoseconds: TerminalScrollSession.interactionRPCDeadlineNanoseconds
+                timeoutNanoseconds: TerminalRPCDeadlinePolicy.interaction.timeoutNanoseconds
             )
             guard remoteClient === client else { return nil }
             let payload = try MobileTerminalScrollResponse.decode(data)
@@ -278,7 +278,7 @@ extension MobileShellComposite {
                         "row": row,
                     ]
                 ),
-                timeoutNanoseconds: TerminalScrollSession.interactionRPCDeadlineNanoseconds
+                timeoutNanoseconds: TerminalRPCDeadlinePolicy.interaction.timeoutNanoseconds
             )
             guard remoteClient === client,
                   let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {

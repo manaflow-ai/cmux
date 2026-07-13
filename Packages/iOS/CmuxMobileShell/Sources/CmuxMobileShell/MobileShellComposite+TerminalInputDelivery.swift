@@ -9,6 +9,9 @@ extension MobileShellComposite {
         interactionEpoch: UInt64
     ) async -> Bool {
         guard let client = remoteClient else { return false }
+        let clientIdentity = ObjectIdentifier(client)
+        terminalInputRequestCountsByClientID[clientIdentity, default: 0] += 1
+        defer { terminalInputRequestDidComplete(client: client) }
         let generation = connectionGeneration
         let workspaceID = MobileWorkspacePreview.ID(rawValue: input.workspaceID)
         let terminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
@@ -49,7 +52,7 @@ extension MobileShellComposite {
         do {
             let responseData = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(method: method, params: params),
-                timeoutNanoseconds: TerminalScrollSession.interactionRPCDeadlineNanoseconds
+                timeoutNanoseconds: TerminalRPCDeadlinePolicy.input.timeoutNanoseconds
             )
             if isCurrentRemoteOperation(client: client, generation: generation) {
                 handleTerminalInputResponse(responseData, surfaceID: surfaceID)
@@ -62,6 +65,20 @@ extension MobileShellComposite {
             applyOperationalError(error)
             return false
         }
+    }
+
+    private func terminalInputRequestDidComplete(client: MobileCoreRPCClient) {
+        let clientID = ObjectIdentifier(client)
+        let remaining = max(0, terminalInputRequestCountsByClientID[clientID, default: 1] - 1)
+        if remaining > 0 {
+            terminalInputRequestCountsByClientID[clientID] = remaining
+            return
+        }
+        terminalInputRequestCountsByClientID.removeValue(forKey: clientID)
+        guard let retiredClient = terminalInputClientsAwaitingDisconnectByID.removeValue(
+            forKey: clientID
+        ) else { return }
+        Task { await retiredClient.disconnect() }
     }
 
     private func appendTerminalInputViewport(

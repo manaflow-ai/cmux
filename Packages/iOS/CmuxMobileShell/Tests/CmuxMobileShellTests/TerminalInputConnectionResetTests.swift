@@ -29,7 +29,8 @@ struct TerminalInputConnectionResetTests {
             return
         }
 
-        store.remoteClient = nil
+        store.bumpConnectionGenerationForTesting()
+        store.replaceRemoteClient(with: nil)
 
         guard case .inputSend = session.phase else {
             Issue.record("Connection reset must preserve the dispatched input")
@@ -65,7 +66,8 @@ struct TerminalInputConnectionResetTests {
             return
         }
 
-        store.remoteClient = nil
+        store.bumpConnectionGenerationForTesting()
+        store.replaceRemoteClient(with: nil)
 
         guard case .inputSend = session.phase else {
             Issue.record("Connection reset must preserve the dispatched input")

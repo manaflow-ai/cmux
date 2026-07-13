@@ -664,6 +664,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
     }
+    var terminalInputRequestCountsByClientID: [ObjectIdentifier: Int] = [:]
+    var terminalInputClientsAwaitingDisconnectByID: [ObjectIdentifier: MobileCoreRPCClient] = [:]
     /// Whether legacy connected-but-clientless shells use local iOS workspace creation.
     public var usesLocalWorkspaceCreationFallback: Bool {
         remoteClient == nil && connectionState == .connected
@@ -5275,14 +5277,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Set `remoteClient` to a new value (possibly nil) and disconnect the
     /// previous one so we don't leak a persistent transport.
-    private func replaceRemoteClient(with newValue: MobileCoreRPCClient?) {
+    func replaceRemoteClient(with newValue: MobileCoreRPCClient?) {
         let previous = remoteClient
         remoteClient = newValue
+        if let newValue {
+            terminalInputClientsAwaitingDisconnectByID.removeValue(
+                forKey: ObjectIdentifier(newValue)
+            )
+        }
         if newValue != nil, previous !== newValue {
             chatEventSourceGeneration = UUID()
         }
         if let previous, previous !== newValue {
-            Task { await previous.disconnect() }
+            let previousID = ObjectIdentifier(previous)
+            if terminalInputRequestCountsByClientID[previousID, default: 0] > 0 {
+                terminalInputClientsAwaitingDisconnectByID[previousID] = previous
+            } else {
+                Task { await previous.disconnect() }
+            }
         }
     }
 
@@ -5308,7 +5320,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func resetTerminalOutputTracking() {
         cancelAllTerminalReplayTasks()
         for session in terminalScrollSessionsBySurfaceID.values {
-            _ = session.invalidateForRecovery()
+            _ = session.invalidateForConnectionReset()
         }
         effectiveViewportSizesBySurfaceID = [:]; reportedTerminalViewportSizesBySurfaceID = [:]
         viewportReportGenerationsBySurfaceID = [:]

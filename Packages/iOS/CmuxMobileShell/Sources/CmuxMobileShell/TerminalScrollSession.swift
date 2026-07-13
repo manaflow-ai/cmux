@@ -10,6 +10,21 @@ enum TerminalInputIntent: Sendable {
 
 typealias TerminalInteractionReceipt = TerminalSurfaceMutationReceipt
 
+enum TerminalRPCDeadlinePolicy {
+    case interaction
+    case input
+
+    var timeoutNanoseconds: UInt64? {
+        switch self {
+        case .interaction:
+            TerminalScrollSession.interactionRPCDeadlineNanoseconds
+        case .input:
+            // `nil` delegates to the client's normal runtime RPC deadline.
+            nil
+        }
+    }
+}
+
 /// One mounted surface's ordered interaction owner. Every scroll, click, and
 /// input enters `intents`; `phase` is the only active transaction state.
 @MainActor
@@ -295,6 +310,17 @@ final class TerminalScrollSession {
         return interactionEpoch
     }
 
+    func invalidateForConnectionReset() -> UInt64 {
+        markBottomSnapNeeded()
+        let nextEpoch = advanceEpoch()
+        invalidate(
+            nextEpoch: nextEpoch,
+            cancelLocalInteraction: false,
+            preserveDispatchedInput: true
+        )
+        return interactionEpoch
+    }
+
     func cancelForUnmount(nextEpoch: UInt64) {
         invalidate(nextEpoch: nextEpoch, cancelLocalInteraction: false)
     }
@@ -367,15 +393,30 @@ final class TerminalScrollSession {
         return interactionEpoch
     }
 
-    private func invalidate(nextEpoch: UInt64, cancelLocalInteraction: Bool) {
+    private func invalidate(
+        nextEpoch: UInt64,
+        cancelLocalInteraction: Bool,
+        preserveDispatchedInput: Bool = false
+    ) {
         let wasDeferring = shouldDeferLiveRenderGrid
-        cancelPhaseTasks()
-        resolveActiveInput(false)
+        let keepsInputSend: Bool
+        if preserveDispatchedInput, case .inputSend = phase {
+            // The old client may still acknowledge a non-idempotent send.
+            keepsInputSend = true
+        } else {
+            keepsInputSend = false
+        }
+        cancelPhaseTasks(preservingInputTask: keepsInputSend)
+        if !keepsInputSend {
+            resolveActiveInput(false)
+        }
         while let intent = intents.removeFirst() {
             if case .input(let input) = intent { input.receipt.resolve(false) }
         }
         queuedInteractionCount = 0
-        phase = .idle
+        if !keepsInputSend {
+            phase = .idle
+        }
         interactionEpoch = nextEpoch
         latestClientRevision = 0
         latestLocallyAppliedRevision = 0
@@ -387,17 +428,21 @@ final class TerminalScrollSession {
         if cancelLocalInteraction { cancelLocal() }
     }
 
-    func cancelPhaseTasks() {
+    func cancelPhaseTasks(preservingInputTask: Bool = false) {
         localTask?.cancel()
         remoteTask?.cancel()
         deadlineTask?.cancel()
         barrierTask?.cancel()
-        inputTask?.cancel()
+        if !preservingInputTask {
+            inputTask?.cancel()
+        }
         localTask = nil
         remoteTask = nil
         deadlineTask = nil
         barrierTask = nil
-        inputTask = nil
+        if !preservingInputTask {
+            inputTask = nil
+        }
     }
 
     private func resolveActiveInput(_ result: Bool) {
