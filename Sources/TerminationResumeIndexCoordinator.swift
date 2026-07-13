@@ -112,27 +112,22 @@ extension AppDelegate {
         }
         terminationPreparationTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let resumeIndexes = await self.confirmedTerminationSessionCapture.capture {
-                await self.terminationResumeIndexCoordinator.loadForNewTerminationAttempt()
-            }
-            guard !Task.isCancelled else { return }
-            if let resumeIndexes {
-                _ = self.saveSessionSnapshot(
-                    includeScrollback: true,
-                    removeWhenEmpty: false,
-                    restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-                    surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
-                )
-            }
-            self.closeAllWebInspectorsBeforeAppTeardown()
-            self.terminationPreparationTask = nil
-            StartupBreadcrumbLog.append(
-                "appDelegate.shouldTerminate.reply",
-                fields: ["shouldQuit": "1", "reason": reason]
+            await self.confirmedTerminationSessionCapture.captureBeforeTeardown(
+                using: {
+                    await self.terminationResumeIndexCoordinator.loadForNewTerminationAttempt()
+                },
+                beginTeardown: {
+                    self.closeAllWebInspectorsBeforeAppTeardown()
+                    self.terminationPreparationTask = nil
+                    StartupBreadcrumbLog.append(
+                        "appDelegate.shouldTerminate.reply",
+                        fields: ["shouldQuit": "1", "reason": reason]
+                    )
+                    if !self.deferTerminateForMarkedRemoteTmuxKills(reason: reason) {
+                        self.replyToTerminateOnce(true)
+                    }
+                }
             )
-            if !self.deferTerminateForMarkedRemoteTmuxKills(reason: reason) {
-                self.replyToTerminateOnce(true)
-            }
         }
     }
 }

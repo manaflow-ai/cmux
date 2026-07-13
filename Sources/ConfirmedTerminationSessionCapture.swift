@@ -18,4 +18,16 @@ final class ConfirmedTerminationSessionCapture {
     func capture(using operation: Capture) async -> ProcessDetectedResumeIndexes? {
         await operation()
     }
+
+    func captureBeforeTeardown(
+        using operation: Capture,
+        beginTeardown: @MainActor () -> Void
+    ) async {
+        _ = await capture(using: operation)
+        guard !Task.isCancelled else { return }
+        // The operation's owner retains the captured authority for the
+        // will-terminate save. Begin teardown immediately so a second full
+        // snapshot cannot consume the remote-cleanup deadline.
+        beginTeardown()
+    }
 }
