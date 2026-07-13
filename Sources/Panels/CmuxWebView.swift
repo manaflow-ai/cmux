@@ -393,7 +393,6 @@ final class CmuxWebView: WKWebView {
 
     private func handleDiffViewerNavigationKey(_ event: NSEvent) -> Bool {
         guard cmuxOwnsKeyEvent(event),
-              DiffCommentsBridge.isTrustedDiffViewerURL(url),
               diffViewerDocumentConfirmed,
               diffViewerFocusStateConfirmed,
               !diffViewerEditableElementFocused else {
@@ -404,9 +403,6 @@ final class CmuxWebView: WKWebView {
             AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: event) ?? true
         }, perform: { [weak self] action in
             guard let self else { return }
-            if action == .diffViewerOpenFileSearch {
-                diffViewerFocusStateConfirmed = false
-            }
             let rawAction = action.rawValue.replacingOccurrences(of: "'", with: "\\'")
             evaluateJavaScript("window.__cmuxPerformDiffViewerNavigationAction?.('\(rawAction)')")
         })

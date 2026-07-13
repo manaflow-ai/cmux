@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 final class DiffViewerSessionTrustRegistry {
     static let shared = DiffViewerSessionTrustRegistry()
 
@@ -10,7 +11,6 @@ final class DiffViewerSessionTrustRegistry {
         let createdAt: Date
     }
 
-    private let lock = NSLock()
     private var liveHTTPSessions: [String: LiveHTTPSession] = [:]
     private let maxSessionAge: TimeInterval = 24 * 60 * 60
 
@@ -20,10 +20,8 @@ final class DiffViewerSessionTrustRegistry {
               let session = Self.liveHTTPSession(from: url, now: now) else {
             return false
         }
-        lock.lock()
         pruneExpiredSessionsLocked(now: now)
         liveHTTPSessions[token] = session
-        lock.unlock()
         return true
     }
 
@@ -36,10 +34,8 @@ final class DiffViewerSessionTrustRegistry {
             return CmuxDiffViewerURLSchemeHandler.shared.hasActiveSession(token: token, now: now)
         }
         guard let candidate = Self.liveHTTPSession(from: url, now: now) else { return false }
-        lock.lock()
         pruneExpiredSessionsLocked(now: now)
         let registered = liveHTTPSessions[token]
-        lock.unlock()
         return registered?.scheme == candidate.scheme &&
             registered?.host == candidate.host &&
             registered?.port == candidate.port
