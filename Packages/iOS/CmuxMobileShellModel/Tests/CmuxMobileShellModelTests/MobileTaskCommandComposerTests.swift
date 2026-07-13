@@ -34,6 +34,26 @@ import Testing
         #expect(result.title == "Investigate logs")
     }
 
+    @Test func whitespaceOnlyCommandCreatesPlainShellForNonblankPrompt() {
+        let template = MobileTaskTemplate(name: "Shell", icon: "terminal", command: " \n\t ")
+
+        let result = composer.compose(template: template, prompt: "Investigate logs")
+
+        #expect(result.initialCommand == nil)
+        #expect(result.initialEnv.isEmpty)
+        #expect(result.title == "Investigate logs")
+    }
+
+    @Test func whitespaceOnlyCommandCreatesPlainShellForBlankPrompt() {
+        let template = MobileTaskTemplate(name: "Shell", icon: "terminal", command: " \n\t ")
+
+        let result = composer.compose(template: template, prompt: " \n ")
+
+        #expect(result.initialCommand == nil)
+        #expect(result.initialEnv.isEmpty)
+        #expect(result.title == nil)
+    }
+
     @Test func appendModeAddsOptionTerminatorAndQuotedPromptArgument() {
         let template = MobileTaskTemplate(name: "Claude", icon: "brain.head.profile", command: "claude")
 
