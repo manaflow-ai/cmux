@@ -2,6 +2,12 @@ import CmuxCore
 import Foundation
 
 extension PortScanner {
+    nonisolated func scheduleAgentWorkspaceUnregistration(workspaceId: UUID) {
+        Task { @MainActor [self] in
+            unregisterAgentWorkspace(workspaceId: workspaceId)
+        }
+    }
+
     func enqueuePanelPublication(_ panelPortsByKey: [PanelKey: [Int]]) {
         guard publicationBuffer.enqueue(panelPortsByKey: panelPortsByKey) else { return }
         schedulePublicationDrain()
