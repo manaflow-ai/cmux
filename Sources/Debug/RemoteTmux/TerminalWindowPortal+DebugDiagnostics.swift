@@ -35,8 +35,9 @@ extension WindowTerminalPortal {
     /// Logs the widest anchor's superview chain so the first view wider than
     /// its window identifies a content-derived ideal on the SwiftUI side.
     func debugLogWidestAnchorChain(hostedViewIDs: Set<ObjectIdentifier>? = nil) {
-        let anchors = entriesByHostedId.compactMap { hostedViewID, entry in
-            guard hostedViewIDs?.contains(hostedViewID) != false else { return nil }
+        let anchors: [NSView] = entriesByHostedId.compactMap { element -> NSView? in
+            let (hostedViewID, entry) = element
+            if let hostedViewIDs, !hostedViewIDs.contains(hostedViewID) { return nil }
             return entry.anchorView
         }
             .filter { $0.window != nil }
