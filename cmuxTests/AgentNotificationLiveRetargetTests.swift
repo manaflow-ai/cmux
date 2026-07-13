@@ -207,6 +207,79 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
         )
     }
 
+    func testWorkspaceWideClearDiscardsStaleKeyedPendingNotification() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+
+        // Queued under a stale claimed workspace, but its surface's CURRENT
+        // owner is the workspace being cleared: a tab-wide clear must drop it
+        // (drain-time delivery would retarget it right back into the cleared
+        // workspace).
+        TerminalMutationBus.shared.enqueueNotification(
+            tabId: fixture.claimedWorkspace.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Stale queued"
+        )
+        fixture.store.clearNotifications(forTabId: fixture.owningWorkspace.id)
+        TerminalMutationBus.shared.drainForTesting()
+
+        XCTAssertTrue(
+            fixture.store.notifications.filter { $0.title == "Claude Code" }.isEmpty,
+            "A tab-wide clear of the live workspace must discard stale-keyed pending entries destined for it"
+        )
+        XCTAssertFalse(
+            fixture.store.hasUnreadNotification(forTabId: fixture.owningWorkspace.id, surfaceId: fixture.panelId)
+        )
+    }
+
+    func testWorkspaceWideClearPreservesNotificationRetargetedAwayFromClearedWorkspace() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+
+        // The enqueue-time workspace is stale and is the one being cleared,
+        // but delivery follows the surface to `owningWorkspace`. Clearing the
+        // old workspace must not discard a notification whose live owner is a
+        // different workspace.
+        TerminalMutationBus.shared.enqueueNotification(
+            tabId: fixture.claimedWorkspace.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Moved away"
+        )
+        fixture.store.clearNotifications(forTabId: fixture.claimedWorkspace.id)
+        TerminalMutationBus.shared.drainForTesting()
+
+        let recorded = fixture.store.notifications.filter { $0.title == "Claude Code" }
+        XCTAssertEqual(recorded.map(\.tabId), [fixture.owningWorkspace.id])
+        XCTAssertEqual(recorded.first?.surfaceId, fixture.panelId)
+    }
+
+    func testAsyncTabWideClearEndsWithNoResurrectedNotification() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+
+        // v1 `clear_notifications --tab` path: the bus is FIFO, so the
+        // stale-keyed entry drains (retargeted into the live workspace)
+        // BEFORE the clear barrier wipes the store — end state must be clean.
+        TerminalMutationBus.shared.enqueueNotification(
+            tabId: fixture.claimedWorkspace.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Stale queued"
+        )
+        TerminalMutationBus.shared.enqueueClearNotifications(forTabId: fixture.owningWorkspace.id)
+        TerminalMutationBus.shared.drainForTesting()
+
+        XCTAssertTrue(
+            fixture.store.notifications.filter { $0.title == "Claude Code" }.isEmpty,
+            "An async tab-wide clear must not leave a resurrected notification behind"
+        )
+    }
+
     func testAsyncSurfaceScopedClearDiscardsStaleKeyedPendingNotification() throws {
         let fixture = try makeFixture()
         defer { fixture.restore() }
