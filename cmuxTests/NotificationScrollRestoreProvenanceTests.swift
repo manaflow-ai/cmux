@@ -205,6 +205,10 @@ extension NotificationScrollRestoreTests {
         surfaceView.cellSize = CGSize(width: 8, height: 16)
         hostedView.frame = CGRect(x: 0, y: 0, width: 800, height: 640)
         hostedView.layoutSubtreeIfNeeded()
+        #expect(surfaceView.bindingActions.isEmpty)
+
+        hostedView.frame = CGRect(x: 0, y: 0, width: 800, height: 704)
+        hostedView.layoutSubtreeIfNeeded()
         #expect(surfaceView.bindingActions == ["scroll_to_row:218"])
     }
 }

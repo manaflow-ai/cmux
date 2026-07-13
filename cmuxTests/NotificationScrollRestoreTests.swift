@@ -456,7 +456,8 @@ struct NotificationScrollRestoreTests {
     func makeHostedView(surfaceView: GhosttyNSView) -> GhosttySurfaceScrollView {
         surfaceView.cellSize = CGSize(width: 8, height: 16)
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
-        hostedView.frame = CGRect(x: 0, y: 0, width: 800, height: 640)
+        let visibleRows = max(1, surfaceView.scrollbar?.len ?? 40)
+        hostedView.frame = CGRect(x: 0, y: 0, width: 800, height: CGFloat(visibleRows) * 16)
         hostedView.layoutSubtreeIfNeeded()
         return hostedView
     }
