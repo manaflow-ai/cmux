@@ -13078,6 +13078,8 @@ private struct SidebarTabItemContextMenuState {
 struct TabItemView: View, Equatable {
     private static let workspaceObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
     private static let legacyVMWebSocketDescription = "VM WebSocket PTY"
+    private static let maxNotificationSubtitleLines = 12
+    private static let maxNotificationSubtitleCharacters = 4096
 
     // Closures, Bindings, and object references are excluded from ==
     // because they're recreated every parent eval but don't affect rendering.
@@ -13547,6 +13549,15 @@ struct TabItemView: View, Equatable {
                 .nilIfEmpty
             : nil
         let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
+        let subtitleLineLimit = latestNotificationSubtitle == nil ? 2 : Self.maxNotificationSubtitleLines
+        // Notification bodies can contain entire agent handoffs. Bound the
+        // string before SwiftUI shapes it, then let the lazy, Equatable row
+        // show substantially more context without making pathological payloads
+        // expensive or allowing one workspace to consume the whole sidebar.
+        let displayedSubtitle = effectiveSubtitle?.sidebarBoundedDisplayString(
+            maxDisplayedLines: subtitleLineLimit,
+            maxDisplayedCharacters: Self.maxNotificationSubtitleCharacters
+        )
         let detailVisibility = visibleAuxiliaryDetails
         let titleLineLimit = settings.wrapsWorkspaceTitles ? Self.maxWrappedTitleLines : 1
         let displayedTitle = workspaceSnapshot.title.sidebarBoundedDisplayString(
@@ -13651,13 +13662,14 @@ struct TabItemView: View, Equatable {
                 )
             }
 
-            if let subtitle = effectiveSubtitle {
+            if let subtitle = displayedSubtitle {
                 Text(subtitle)
                     .font(magnifiedFont(scaledFontSize(10)))
                     .foregroundColor(activeSecondaryColor(0.8))
-                    .lineLimit(2)
+                    .lineLimit(subtitleLineLimit)
                     .truncationMode(.tail)
                     .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             remoteWorkspaceSection
