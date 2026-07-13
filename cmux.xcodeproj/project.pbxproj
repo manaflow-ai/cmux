@@ -487,6 +487,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C1A2B3C4D5E6F70800000001 /* CmuxConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */; };
 		C0DEF0A10000000000000001 /* CmuxConfigUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A10000000000000002 /* CmuxConfigUI.swift */; };
 		A5FB1205 /* CmuxConfigWorkspaceActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1206 /* CmuxConfigWorkspaceActionTests.swift */; };
+		A79840010000000000000003 /* CmuxControlSocket in Frameworks */ = {isa = PBXBuildFile; productRef = C750100000000000000000A2 /* CmuxControlSocket */; };
 		C750100000000000000000A3 /* CmuxControlSocket in Frameworks */ = {isa = PBXBuildFile; productRef = C750100000000000000000A2 /* CmuxControlSocket */; };
 		C79470010000000000000005 /* CmuxControlSocket in Frameworks */ = {isa = PBXBuildFile; productRef = C750100000000000000000A2 /* CmuxControlSocket */; };
 		CC0DE00000000000000000A3 /* CmuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE00000000000000000A2 /* CmuxCore */; };
@@ -1372,6 +1373,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C7B0FACE000000000000001A /* SleepyStatusProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE000000000000001B /* SleepyStatusProvider.swift */; };
 		C7B0FACE0000000000000018 /* SleepyStatusProviding.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE0000000000000019 /* SleepyStatusProviding.swift */; };
 		C7B0FACE0000000000000016 /* SleepyStatusSample.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE0000000000000017 /* SleepyStatusSample.swift */; };
+		A79840010000000000000001 /* SocketACLReloadRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79840010000000000000002 /* SocketACLReloadRegressionTests.swift */; };
 		5830CA11BAC0000000000004 /* SocketCallbackAwaiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5830CA11BAC0000000000003 /* SocketCallbackAwaiter.swift */; };
 		5830CA11BAC0000000000002 /* SocketCallbackAwaiterMainThreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5830CA11BAC0000000000001 /* SocketCallbackAwaiterMainThreadTests.swift */; };
 		A5001226 /* SocketControlMode+Display.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001225 /* SocketControlMode+Display.swift */; };
@@ -3114,6 +3116,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C7B0FACE000000000000001B /* SleepyStatusProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyStatusProvider.swift; sourceTree = "<group>"; };
 		C7B0FACE0000000000000019 /* SleepyStatusProviding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyStatusProviding.swift; sourceTree = "<group>"; };
 		C7B0FACE0000000000000017 /* SleepyStatusSample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyStatusSample.swift; sourceTree = "<group>"; };
+		A79840010000000000000002 /* SocketACLReloadRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketACLReloadRegressionTests.swift; sourceTree = "<group>"; };
 		5830CA11BAC0000000000003 /* SocketCallbackAwaiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCallbackAwaiter.swift; sourceTree = "<group>"; };
 		5830CA11BAC0000000000001 /* SocketCallbackAwaiterMainThreadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCallbackAwaiterMainThreadTests.swift; sourceTree = "<group>"; };
 		A5001225 /* SocketControlMode+Display.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketControlMode+Display.swift"; sourceTree = "<group>"; };
@@ -3570,6 +3573,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7032A060000000000000001 /* CmuxBrowser in Frameworks */,
 				CA52A007CA52A007CA52A007 /* CmuxCanvas in Frameworks */,
 				5E55500000000000000000E4 /* CmuxCommandPalette in Frameworks */,
+				A79840010000000000000003 /* CmuxControlSocket in Frameworks */,
 				CC0DE00000000000000000A4 /* CmuxCore in Frameworks */,
 				5E2701040000000000000004 /* CmuxFoundation in Frameworks */,
 				EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */,
@@ -5265,6 +5269,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C54860030000000000000002 /* CmuxNavigationTargetResolverTests.swift */,
 				C54860040000000000000002 /* CmuxDurableDeepLinkRestoreTests.swift */,
 				491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */,
+				A79840010000000000000002 /* SocketACLReloadRegressionTests.swift */,
 				9C1BEA3D2E6F49709A71C021 /* TerminalControllerTerminalTextTests.swift */,
 				E7E000000000000000000004 /* CmuxEventBusTests.swift */,
 				7837E0027837E0027837E002 /* CmuxSocketEventMapperTests.swift */,
@@ -5504,6 +5509,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			name = cmuxTests;
 			packageProductDependencies = (
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
+				C750100000000000000000A2 /* CmuxControlSocket */,
 				EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */,
 				CA52A005CA52A005CA52A005 /* CmuxCanvas */,
 				5E2701040000000000000001 /* Sentry */,
@@ -7358,6 +7364,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE56010000000000000001 /* SidebarWorkspaceSelectionAnchorPolicyTests.swift in Sources */,
 					A6AC73040000000000000001 /* SidebarWorkspaceSnapshotAgentActivityTests.swift in Sources */,
 					62270F3DCECB4787D789CCE3 /* SidebarWorkspaceSnapshotRefreshPolicyTests.swift in Sources */,
+				A79840010000000000000001 /* SocketACLReloadRegressionTests.swift in Sources */,
 				5830CA11BAC0000000000002 /* SocketCallbackAwaiterMainThreadTests.swift in Sources */,
 						F8000000A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift in Sources */,
 				F6724600A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift in Sources */,
