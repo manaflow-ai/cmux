@@ -83,7 +83,9 @@ extension MobileTerminalRenderGridFrame {
             scrollbackRows: full ? scrollbackRows : 0,
             scrollbackSpans: full ? scrollbackSpans : [],
             scrollForwardRows: full ? scrollForwardRows : 0,
-            scrollForwardSpans: full ? scrollForwardSpans : []
+            scrollForwardSpans: full ? scrollForwardSpans : [],
+            primaryActiveRows: full ? primaryActiveRows : 0,
+            primaryActiveSpans: full ? primaryActiveSpans : []
         )
     }
 }

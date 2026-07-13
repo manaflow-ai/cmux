@@ -144,6 +144,55 @@ final class MobileInteractionSessionEpochXCTests: XCTestCase {
             rejectOlder: true
         ))
     }
+
+    func testOverlappingConnectionsRetireOnlyTheirOwnedSession() {
+        let service = MobileHostService.shared
+        let controller = TerminalController.shared
+        let oldConnection = UUID()
+        let newConnection = UUID()
+        let surfaceID = UUID()
+        defer {
+            service.debugResetMobileLifecycleStateForTesting()
+            controller.debugResetMobileViewportReportsForTesting()
+        }
+
+        service.debugResetMobileLifecycleStateForTesting()
+        controller.debugResetMobileViewportReportsForTesting()
+        controller.debugSetMobileViewportReportForTesting(
+            surfaceID: surfaceID,
+            clientID: "persisted-client",
+            columns: 72,
+            rows: 28
+        )
+        controller.mobileInteractionEpochsBySurfaceID[surfaceID] = [
+            "persisted-client": ["old-session": 9, "new-session": 1]
+        ]
+        service.debugRecordInteractionIdentityForTesting(
+            clientID: "persisted-client",
+            sessionID: "old-session",
+            connectionID: oldConnection
+        )
+        service.debugRecordInteractionIdentityForTesting(
+            clientID: "persisted-client",
+            sessionID: "new-session",
+            connectionID: newConnection
+        )
+
+        service.debugRemoveConnectionForTesting(id: oldConnection)
+
+        XCTAssertEqual(controller.mobileInteractionEpochsBySurfaceID[surfaceID], [
+            "persisted-client": ["new-session": 1]
+        ])
+        XCTAssertEqual(
+            controller.debugMobileViewportReportClientIDsForTesting(surfaceID: surfaceID),
+            ["persisted-client"]
+        )
+
+        service.debugRemoveConnectionForTesting(id: newConnection)
+
+        XCTAssertNil(controller.mobileInteractionEpochsBySurfaceID[surfaceID])
+        XCTAssertNil(controller.debugMobileViewportReportClientIDsForTesting(surfaceID: surfaceID))
+    }
 }
 
 @MainActor
@@ -169,14 +218,28 @@ struct MobileTerminalScrollHandlerTests {
             columns: 72,
             rows: 28
         )
-        controller.mobileInteractionEpochsBySurfaceID[surfaceID] = ["shared-client": 9]
+        controller.mobileInteractionEpochsBySurfaceID[surfaceID] = [
+            "shared-client": ["shared-session": 9]
+        ]
         service.debugRecordClientIDForTesting("shared-client", connectionID: connectionA)
         service.debugRecordClientIDForTesting("shared-client", connectionID: connectionB)
+        service.debugRecordInteractionIdentityForTesting(
+            clientID: "shared-client",
+            sessionID: "shared-session",
+            connectionID: connectionA
+        )
+        service.debugRecordInteractionIdentityForTesting(
+            clientID: "shared-client",
+            sessionID: "shared-session",
+            connectionID: connectionB
+        )
 
         service.debugRemoveConnectionForTesting(id: connectionA)
 
         #expect(controller.debugMobileViewportReportClientIDsForTesting(surfaceID: surfaceID) == ["shared-client"])
-        #expect(controller.mobileInteractionEpochsBySurfaceID[surfaceID] == ["shared-client": 9])
+        #expect(controller.mobileInteractionEpochsBySurfaceID[surfaceID] == [
+            "shared-client": ["shared-session": 9]
+        ])
 
         service.debugRemoveConnectionForTesting(id: connectionB)
 
@@ -193,15 +256,21 @@ struct MobileTerminalScrollHandlerTests {
         #expect(controller.advanceMobileRenderRevision(surfaceID: removedSurfaceID) == 1)
         #expect(controller.advanceMobileRenderRevision(surfaceID: retainedSurfaceID) == 1)
         #expect(controller.advanceMobileRenderRevision(surfaceID: retainedSurfaceID) == 2)
-        controller.mobileInteractionEpochsBySurfaceID[removedSurfaceID] = ["client-a": 4]
-        controller.mobileInteractionEpochsBySurfaceID[retainedSurfaceID] = ["client-b": 7]
+        controller.mobileInteractionEpochsBySurfaceID[removedSurfaceID] = [
+            "client-a": ["session-a": 4]
+        ]
+        controller.mobileInteractionEpochsBySurfaceID[retainedSurfaceID] = [
+            "client-b": ["session-b": 7]
+        ]
 
         controller.cleanupSurfaceState(surfaceIds: [removedSurfaceID])
 
         #expect(controller.mobileRenderRevisionsBySurfaceID[removedSurfaceID] == nil)
         #expect(controller.mobileRenderRevisionsBySurfaceID[retainedSurfaceID] == 2)
         #expect(controller.mobileInteractionEpochsBySurfaceID[removedSurfaceID] == nil)
-        #expect(controller.mobileInteractionEpochsBySurfaceID[retainedSurfaceID] == ["client-b": 7])
+        #expect(controller.mobileInteractionEpochsBySurfaceID[retainedSurfaceID] == [
+            "client-b": ["session-b": 7]
+        ])
     }
 
     @Test func orderedRunPayloadAccepts32AndRejects33BeforeExecution() {

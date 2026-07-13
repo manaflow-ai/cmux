@@ -50,16 +50,17 @@ extension MobileShellComposite {
         )
         do {
             let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
+            var params: [String: Any] = [
+                "workspace_id": remoteWorkspaceID.rawValue,
+                "surface_id": surfaceID,
+                "viewport_columns": columns,
+                "viewport_rows": rows,
+                "viewport_generation": Int(clamping: requestGeneration),
+            ]
+            appendTerminalInteractionIdentity(to: &params)
             let request = try MobileCoreRPCClient.requestData(
                 method: "mobile.terminal.viewport",
-                params: [
-                    "workspace_id": remoteWorkspaceID.rawValue,
-                    "surface_id": surfaceID,
-                    "client_id": clientID,
-                    "viewport_columns": columns,
-                    "viewport_rows": rows,
-                    "viewport_generation": Int(clamping: requestGeneration),
-                ]
+                params: params
             )
             let data = try await client.sendRequest(request)
             guard remoteClient === client else {
@@ -171,20 +172,16 @@ extension MobileShellComposite {
               let workspaceID = workspaceID(forTerminalID: surfaceID) else {
             return
         }
-        let id = clientID
         let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
         let interactionEpoch = currentTerminalInteractionEpoch(surfaceID: surfaceID)
         Task { @MainActor in
             var params: [String: Any] = [
                 "workspace_id": remoteWorkspaceID.rawValue,
                 "surface_id": surfaceID,
-                "client_id": id,
                 "clear": true,
                 "viewport_generation": Int(clamping: clearGeneration),
             ]
-            if let interactionEpoch {
-                params["interaction_epoch"] = Int(clamping: interactionEpoch)
-            }
+            self.appendTerminalInteractionIdentity(to: &params, epoch: interactionEpoch)
             let request = try? MobileCoreRPCClient.requestData(
                 method: "mobile.terminal.viewport",
                 params: params

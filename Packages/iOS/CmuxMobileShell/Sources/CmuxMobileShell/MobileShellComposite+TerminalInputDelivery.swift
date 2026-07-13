@@ -19,9 +19,8 @@ extension MobileShellComposite {
         var params: [String: Any] = [
             "workspace_id": remoteWorkspaceID.rawValue,
             "surface_id": surfaceID,
-            "client_id": clientID,
-            "interaction_epoch": Int(clamping: interactionEpoch),
         ]
+        appendTerminalInteractionIdentity(to: &params, epoch: interactionEpoch)
         let method: String
         switch input {
         case .text(let text, _):

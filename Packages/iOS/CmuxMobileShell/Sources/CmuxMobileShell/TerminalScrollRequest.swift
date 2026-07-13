@@ -9,6 +9,8 @@ struct TerminalScrollRequest: Equatable, Sendable {
 
     /// Keeps gesture memory bounded independently from the smaller per-RPC host budget.
     static let maximumJournalRunCount = 256
+    /// Three 200ms RPC budgets fit inside one 600ms aggregate transaction.
+    static let maximumRPCRequestsPerTransaction = 3
 
     let surfaceID: String
     var interactionEpoch: UInt64
@@ -105,6 +107,27 @@ struct TerminalScrollRequest: Equatable, Sendable {
             startIndex = endIndex
         }
         return requests
+    }
+
+    /// Partitions a bounded request plan without changing request or run order.
+    /// At the journal maximum this produces at most 86 bounded transactions.
+    func plannedRPCRequestChunks(supportsOrderedRuns: Bool) -> [[Self]] {
+        let requests = plannedRPCRequests(supportsOrderedRuns: supportsOrderedRuns)
+        var chunks: [[Self]] = []
+        chunks.reserveCapacity(
+            (requests.count + Self.maximumRPCRequestsPerTransaction - 1)
+                / Self.maximumRPCRequestsPerTransaction
+        )
+        var startIndex = 0
+        while startIndex < requests.count {
+            let endIndex = min(
+                startIndex + Self.maximumRPCRequestsPerTransaction,
+                requests.count
+            )
+            chunks.append(Array(requests[startIndex..<endIndex]))
+            startIndex = endIndex
+        }
+        return chunks
     }
 
     static func canCoalesce(

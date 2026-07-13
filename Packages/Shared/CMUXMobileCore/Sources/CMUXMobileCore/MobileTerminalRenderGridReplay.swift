@@ -173,10 +173,11 @@ public struct MobileTerminalRenderGridReplay: Sendable {
                 terminateLast: false
             )
         } else {
-            // Primary: older history, the viewport, then prefetched newer
-            // history as one continuous flow. The surface host scrolls back up
-            // by `scrollForwardRows` after applying these bytes, restoring the
-            // captured viewport while retaining a bounded cache on both sides.
+            // Primary: older history, the viewport, prefetched newer history,
+            // then the missing active-screen suffix as one continuous flow.
+            // The surface host scrolls back up by both trailing row counts,
+            // restoring the captured viewport while the terminal's active
+            // bottom remains aligned for subsequent PTY bytes.
             let offsetViewportSpans = frame.rowSpans.map { span in
                 MobileTerminalRenderGridFrame.RowSpan(
                     row: span.row + frame.scrollbackRows,
@@ -196,10 +197,22 @@ public struct MobileTerminalRenderGridReplay: Sendable {
                     cellWidth: span.cellWidth
                 )
             }
+            let primaryActiveOffset = scrollForwardOffset + frame.scrollForwardRows
+            let offsetPrimaryActiveSpans = frame.primaryActiveSpans.map { span in
+                MobileTerminalRenderGridFrame.RowSpan(
+                    row: span.row + primaryActiveOffset,
+                    column: span.column,
+                    styleID: span.styleID,
+                    text: span.text,
+                    cellWidth: span.cellWidth
+                )
+            }
             appendFlowLines(
                 &bytes,
-                spans: frame.scrollbackSpans + offsetViewportSpans + offsetScrollForwardSpans,
-                lineCount: frame.scrollbackRows + frame.rows + frame.scrollForwardRows,
+                spans: frame.scrollbackSpans + offsetViewportSpans
+                    + offsetScrollForwardSpans + offsetPrimaryActiveSpans,
+                lineCount: frame.scrollbackRows + frame.rows
+                    + frame.scrollForwardRows + frame.primaryActiveRows,
                 stylesByID: stylesByID,
                 defaultStyle: defaultStyle,
                 terminateLast: false
@@ -437,7 +450,8 @@ public struct MobileTerminalRenderGridReplay: Sendable {
             // hidden cursor. Retain their behavior until both sides carry the
             // explicit location metadata.
             !cursor.visible
-                && frame.activeScreen == .primary && frame.scrollForwardRows > 0
+                && frame.activeScreen == .primary
+                && frame.scrollForwardRows + frame.primaryActiveRows > 0
         }
         let restoredRow = cursor.activeRow ?? (preservesReconstructedActiveRow ? nil : cursor.row)
         let position = if let restoredRow {

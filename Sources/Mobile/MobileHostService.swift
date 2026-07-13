@@ -391,6 +391,11 @@ final class MobileHostService {
     private var appliedPreferredPort: Int?
     private var activeConnections: [UUID: MobileHostConnection] = [:]
     private var clientIDsByConnectionID: [UUID: Set<String>] = [:]
+    private struct MobileInteractionIdentity: Hashable {
+        var clientID: String
+        var sessionID: String
+    }
+    private var interactionIdentitiesByConnectionID: [UUID: Set<MobileInteractionIdentity>] = [:]
     private var lastErrorDescription: String?
     /// Watches for network path changes while the listener is bound, so the
     /// advertised route set (and the team device registry that
@@ -838,6 +843,7 @@ final class MobileHostService {
         }
         activeConnections.removeAll()
         clientIDsByConnectionID.removeAll()
+        interactionIdentitiesByConnectionID.removeAll()
         MobileHostEventSubscriptionTracker.reset()
         MobileHostPublicStatusCache.update(routes: [])
         TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
@@ -1139,9 +1145,10 @@ final class MobileHostService {
                 await MobileHostService.shared.authorizationError(for: request)
             },
             onAuthorizedRequest: { request in
-                if let clientID = Self.clientID(from: request.params) {
-                    await MobileHostService.shared.recordClientID(clientID, for: id)
-                }
+                await MobileHostService.shared.recordRequestOwnership(
+                    params: request.params,
+                    for: id
+                )
             },
             handleRequest: { request in
                 if request.method == "mobile.host.status" {
@@ -1207,7 +1214,27 @@ final class MobileHostService {
                 reason: "mobile.connection.closed"
             )
         }
+        let identities = interactionIdentitiesByConnectionID.removeValue(forKey: id) ?? []
+        let retiredIdentities = identities.subtracting(
+            interactionIdentitiesByConnectionID.values.reduce(into: Set<MobileInteractionIdentity>()) {
+                $0.formUnion($1)
+            }
+        )
+        TerminalController.shared.clearMobileInteractionEpochs(
+            clientSessions: retiredIdentities.map { ($0.clientID, $0.sessionID) }
+        )
         MobileHostRequestActivity.endConnection()
+    }
+
+    private func recordRequestOwnership(params: [String: Any], for connectionID: UUID) {
+        if let clientID = Self.clientID(from: params) {
+            recordClientID(clientID, for: connectionID)
+        }
+        guard let identity = Self.interactionIdentity(from: params) else { return }
+        var identities = interactionIdentitiesByConnectionID[connectionID] ?? []
+        guard identities.contains(identity) || identities.count < 64 else { return }
+        identities.insert(identity)
+        interactionIdentitiesByConnectionID[connectionID] = identities
     }
 
     private func recordClientID(_ clientID: String, for connectionID: UUID) {
@@ -1219,6 +1246,23 @@ final class MobileHostService {
     private nonisolated static func clientID(from params: [String: Any]) -> String? {
         let trimmed = (params["client_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private nonisolated static func interactionIdentity(
+        from params: [String: Any]
+    ) -> MobileInteractionIdentity? {
+        guard let clientID = clientID(from: params) else { return nil }
+        let explicitSession = (params["interaction_session_id"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let sessionID: String
+        if let explicitSession, !explicitSession.isEmpty {
+            guard explicitSession.utf8.count <= 128 else { return nil }
+            sessionID = explicitSession
+        } else {
+            guard params["interaction_epoch"] is NSNumber else { return nil }
+            sessionID = ""
+        }
+        return MobileInteractionIdentity(clientID: clientID, sessionID: sessionID)
     }
 
     func debugAuthorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
@@ -1666,12 +1710,27 @@ extension MobileHostService {
         listenerPort = nil
         activeConnections.removeAll()
         clientIDsByConnectionID.removeAll()
+        interactionIdentitiesByConnectionID.removeAll()
         MobileHostRequestActivity.resetForTesting()
         MobileHostEventSubscriptionTracker.resetForTesting()
     }
 
     func debugRecordClientIDForTesting(_ clientID: String, connectionID: UUID) {
         recordClientID(clientID, for: connectionID)
+    }
+
+    func debugRecordInteractionIdentityForTesting(
+        clientID: String,
+        sessionID: String,
+        connectionID: UUID
+    ) {
+        recordRequestOwnership(
+            params: [
+                "client_id": clientID,
+                "interaction_session_id": sessionID,
+            ],
+            for: connectionID
+        )
     }
 
     func debugRemoveConnectionForTesting(id: UUID) {

@@ -201,7 +201,8 @@ class TerminalController {
     private static let mobileViewportReportTTL: TimeInterval = 5
     private var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]; private var mobileViewportGenerationsBySurfaceID: [UUID: [String: UInt64]] = [:]
     var mobileRenderRevisionsBySurfaceID: [UUID: UInt64] = [:]
-    var mobileInteractionEpochsBySurfaceID: [UUID: [String: UInt64]] = [:]
+    /// Surface -> installed client -> process session -> newest interaction epoch.
+    var mobileInteractionEpochsBySurfaceID: [UUID: [String: [String: UInt64]]] = [:]
     private var mobileViewportReportCleanupTimersBySurfaceID: [UUID: DispatchSourceTimer] = [:]
 #if DEBUG
     private nonisolated static let socketCommandDebugLogEnvironmentKey = "CMUX_DEBUG_SOCKET_COMMAND_LOG"
@@ -14830,12 +14831,22 @@ class TerminalController {
                 _ = clearMobileViewportReport(surfaceID: surfaceID, clientID: clientID, reason: reason)
             }
         }
+    }
+
+    /// Retire only interaction sessions no longer owned by any live mobile
+    /// connection. Viewport ownership remains keyed by installed client ID.
+    func clearMobileInteractionEpochs(
+        clientSessions: [(clientID: String, sessionID: String)]
+    ) {
+        guard !clientSessions.isEmpty else { return }
         for surfaceID in Array(mobileInteractionEpochsBySurfaceID.keys) {
-            var epochs = mobileInteractionEpochsBySurfaceID[surfaceID] ?? [:]
-            for clientID in clientIDs {
-                epochs.removeValue(forKey: clientID)
+            var clients = mobileInteractionEpochsBySurfaceID[surfaceID] ?? [:]
+            for identity in clientSessions {
+                guard var sessions = clients[identity.clientID] else { continue }
+                sessions.removeValue(forKey: identity.sessionID)
+                clients[identity.clientID] = sessions.isEmpty ? nil : sessions
             }
-            mobileInteractionEpochsBySurfaceID[surfaceID] = epochs.isEmpty ? nil : epochs
+            mobileInteractionEpochsBySurfaceID[surfaceID] = clients.isEmpty ? nil : clients
         }
     }
 

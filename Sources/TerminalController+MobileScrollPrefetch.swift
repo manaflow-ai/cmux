@@ -273,10 +273,10 @@ extension TerminalController {
         return .ok(payload)
     }
 
-    /// Records the newest interaction epoch for one client/surface. Input and
-    /// lifecycle requests advance the fence but are never dropped. Scroll is
-    /// rejected when it arrives behind that fence, preventing an old async
-    /// gesture RPC from moving the Mac viewport after newer input or recovery.
+    /// Records the newest interaction epoch for one client/session/surface.
+    /// Input and lifecycle requests advance the fence but are never dropped.
+    /// Scroll is rejected when it arrives behind that fence, preventing an old
+    /// async gesture RPC from moving the Mac viewport after newer input or recovery.
     func recordMobileInteractionEpoch(
         params: [String: Any],
         surfaceID: UUID,
@@ -287,13 +287,23 @@ extension TerminalController {
               rawEpoch >= 0 else {
             return true
         }
+        let sessionID = v2String(params, "interaction_session_id") ?? ""
+        guard sessionID.utf8.count <= 128 else { return false }
         let epoch = UInt64(rawEpoch)
-        let current = mobileInteractionEpochsBySurfaceID[surfaceID]?[clientID] ?? 0
+        var clients = mobileInteractionEpochsBySurfaceID[surfaceID] ?? [:]
+        var sessions = clients[clientID] ?? [:]
+        let current = sessions[sessionID] ?? 0
+        if sessions[sessionID] == nil {
+            let identityCount = clients.values.reduce(0) { $0 + $1.count }
+            guard identityCount < 64 else { return false }
+        }
         if rejectOlder, epoch < current {
             return false
         }
         if epoch > current {
-            mobileInteractionEpochsBySurfaceID[surfaceID, default: [:]][clientID] = epoch
+            sessions[sessionID] = epoch
+            clients[clientID] = sessions
+            mobileInteractionEpochsBySurfaceID[surfaceID] = clients
         }
         return true
     }

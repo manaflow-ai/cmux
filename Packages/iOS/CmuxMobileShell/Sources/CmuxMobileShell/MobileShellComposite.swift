@@ -614,6 +614,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private let multiMacAggregationDefaults: UserDefaults
     let forgottenMacStore: any PairedMacForgottenStoring
     let clientID: String
+    /// Process-local interaction identity. Unlike the installed `clientID`,
+    /// this restarts with a new shell process and survives reconnects within it.
+    let interactionSessionID: String
     /// Delivers the email path of Send Feedback (`/api/feedback`). `nil` when the
     /// web API base URL is unavailable; the email path then fails closed and the
     /// UI surfaces an error rather than silently dropping the report.
@@ -906,6 +909,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deviceRegistry: (any DeviceRegistryRefreshing)? = nil,
         presence: (any PresenceSubscribing)? = nil,
         clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard),
+        interactionSessionID: String = UUID().uuidString,
         identityProvider: (any MobileIdentityProviding)? = nil,
         teamIDProvider: @escaping @Sendable () async -> String? = { nil },
         reachability: any ReachabilityProviding = ReachabilityService(),
@@ -954,6 +958,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // here — by the time it resolves, the value is already persisted, so its
         // `created` flag is always false and is intentionally not read.
         self.clientID = clientIDRepository.resolveClientID().id
+        self.interactionSessionID = interactionSessionID
         self.isSignedIn = isSignedIn
         self.connectionState = connectionState
         self.macConnectionStatus = connectionState == .connected ? .connected : .unavailable
@@ -1031,6 +1036,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalLiveFontTokensBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
+    }
+
+    func appendTerminalInteractionIdentity(
+        to params: inout [String: Any],
+        epoch: UInt64? = nil
+    ) {
+        params["client_id"] = clientID
+        params["interaction_session_id"] = interactionSessionID
+        if let epoch {
+            params["interaction_epoch"] = Int(clamping: epoch)
+        }
     }
 
     isolated deinit {
@@ -6655,15 +6671,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let interactionEpochForRequest = interactionEpoch
             ?? currentTerminalInteractionEpoch(surfaceID: surfaceID)
         let interactionClientID = clientID
+        let interactionSessionIDForRequest = interactionSessionID
         let replayTask = Task { @MainActor [weak self] in
             let replayResult: Result<Data, any Error>
             do {
                 var params: [String: Any] = [
                     "workspace_id": remoteWorkspaceID.rawValue,
                     "surface_id": surfaceID,
+                    "client_id": interactionClientID,
+                    "interaction_session_id": interactionSessionIDForRequest,
                 ]
                 if let interactionEpochForRequest {
-                    params["client_id"] = interactionClientID
                     params["interaction_epoch"] = Int(clamping: interactionEpochForRequest)
                 }
                 if let reportedViewport {

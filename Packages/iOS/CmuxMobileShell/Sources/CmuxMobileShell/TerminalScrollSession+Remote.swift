@@ -88,7 +88,7 @@ extension TerminalScrollSession {
             requiresLocalApply: requiresLocalApply,
             localApplied: !requiresLocalApply
         ))
-        let plannedRequests = request.plannedRPCRequests(
+        let plannedRequestChunks = request.plannedRPCRequestChunks(
             supportsOrderedRuns: supportsOrderedRemoteRuns()
         )
         if requiresLocalApply {
@@ -110,29 +110,43 @@ extension TerminalScrollSession {
         remoteTask = Task { @MainActor [weak self] in
             guard let self else { return }
             var response: TerminalScrollResponse?
-            for plannedRequest in plannedRequests {
-                guard !Task.isCancelled,
-                      let plannedResponse = await self.sendRemote(plannedRequest),
-                      plannedResponse.accepted,
-                      plannedResponse.interactionEpoch == request.interactionEpoch,
-                      plannedResponse.clientRevision == request.clientRevision else {
-                    guard !Task.isCancelled else { return }
-                    self.scrollRemoteDidComplete(id: id, response: nil, succeeded: false)
-                    return
+            for chunk in plannedRequestChunks {
+                self.restartScrollDeadline(id: id, plannedRequestCount: chunk.count)
+                for plannedRequest in chunk {
+                    guard !Task.isCancelled,
+                          let plannedResponse = await self.sendRemote(plannedRequest),
+                          plannedResponse.accepted,
+                          plannedResponse.interactionEpoch == request.interactionEpoch,
+                          plannedResponse.clientRevision == request.clientRevision else {
+                        guard !Task.isCancelled else { return }
+                        self.scrollRemoteDidComplete(id: id, response: nil, succeeded: false)
+                        return
+                    }
+                    response = plannedResponse
                 }
-                response = plannedResponse
             }
             guard !Task.isCancelled else { return }
+            self.cancelScrollDeadline(id: id)
             self.scrollRemoteDidComplete(id: id, response: response, succeeded: true)
         }
+    }
+
+    private func restartScrollDeadline(id: UUID, plannedRequestCount: Int) {
+        deadlineTask?.cancel()
         deadlineTask = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.interactionDeadline(Self.interactionPlanDeadlineDuration(
-                plannedRequestCount: plannedRequests.count
+                plannedRequestCount: plannedRequestCount
             ))
             guard !Task.isCancelled else { return }
             self.scrollDeadlineDidFire(id: id)
         }
+    }
+
+    private func cancelScrollDeadline(id: UUID) {
+        guard case .scroll(let transaction) = phase, transaction.id == id else { return }
+        deadlineTask?.cancel()
+        deadlineTask = nil
     }
 
     private func scrollLocalDidComplete(id: UUID, applied: Bool) {

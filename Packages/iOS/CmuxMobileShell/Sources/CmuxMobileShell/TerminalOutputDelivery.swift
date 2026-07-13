@@ -105,7 +105,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.viewportPolicy = viewportPolicy
         self.scrollReconciliation = scrollReconciliation
         self.scrollbackOffsetFromBottomRows = frame.full && frame.activeScreen == .primary
-            ? frame.scrollForwardRows
+            ? frame.scrollForwardRows + frame.primaryActiveRows
             : nil
     }
 

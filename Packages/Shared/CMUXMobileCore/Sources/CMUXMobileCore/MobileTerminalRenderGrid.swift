@@ -56,6 +56,13 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     /// Styled spans for the newer rows after the viewport, indexed
     /// `0..<scrollForwardRows` from nearest to farthest.
     public var scrollForwardSpans: [RowSpan]
+    /// Missing suffix of the true primary active screen after the bounded
+    /// newer-history window. This is at most one viewport and is appended last
+    /// so subsequent PTY bytes continue from the producer's active bottom.
+    public var primaryActiveRows: Int
+    /// Styled spans for ``primaryActiveRows``, indexed from the first missing
+    /// active-screen row through the producer's active bottom.
+    public var primaryActiveSpans: [RowSpan]
 
     public init(
         format: String = Self.currentFormat,
@@ -77,7 +84,9 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         scrollbackRows: Int = 0,
         scrollbackSpans: [RowSpan] = [],
         scrollForwardRows: Int = 0,
-        scrollForwardSpans: [RowSpan] = []
+        scrollForwardSpans: [RowSpan] = [],
+        primaryActiveRows: Int = 0,
+        primaryActiveSpans: [RowSpan] = []
     ) throws {
         guard format == Self.currentFormat else {
             throw MobileTerminalRenderGridError.invalidFormat(format)
@@ -155,6 +164,29 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
                 )
             }
         }
+        guard (0...rows).contains(primaryActiveRows) else {
+            throw MobileTerminalRenderGridError.invalidRow(primaryActiveRows)
+        }
+        for span in primaryActiveSpans {
+            guard (0..<primaryActiveRows).contains(span.row) else {
+                throw MobileTerminalRenderGridError.invalidRow(span.row)
+            }
+            guard (0..<columns).contains(span.column) else {
+                throw MobileTerminalRenderGridError.invalidColumn(span.column)
+            }
+            guard styleIDs.contains(span.styleID) else {
+                throw MobileTerminalRenderGridError.invalidStyleID(span.styleID)
+            }
+            let width = span.gridCellWidth
+            guard width > 0, span.column + width <= columns else {
+                throw MobileTerminalRenderGridError.invalidSpanWidth(
+                    row: span.row,
+                    column: span.column,
+                    width: width,
+                    columns: columns
+                )
+            }
+        }
         self.format = format
         self.surfaceID = surfaceID
         self.stateSeq = stateSeq
@@ -175,6 +207,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         self.scrollbackSpans = full ? scrollbackSpans : []
         self.scrollForwardRows = full ? resolvedScrollForwardRows : 0
         self.scrollForwardSpans = full ? scrollForwardSpans : []
+        self.primaryActiveRows = full && activeScreen == .primary ? primaryActiveRows : 0
+        self.primaryActiveSpans = full && activeScreen == .primary ? primaryActiveSpans : []
     }
 
     public init(from decoder: Decoder) throws {
@@ -199,6 +233,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let scrollbackSpans = try container.decodeIfPresent([RowSpan].self, forKey: .scrollbackSpans) ?? []
         let scrollForwardRows = try container.decodeIfPresent(Int.self, forKey: .scrollForwardRows) ?? 0
         let scrollForwardSpans = try container.decodeIfPresent([RowSpan].self, forKey: .scrollForwardSpans) ?? []
+        let primaryActiveRows = try container.decodeIfPresent(Int.self, forKey: .primaryActiveRows) ?? 0
+        let primaryActiveSpans = try container.decodeIfPresent([RowSpan].self, forKey: .primaryActiveSpans) ?? []
         try self.init(
             format: format,
             surfaceID: surfaceID,
@@ -219,7 +255,9 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             scrollbackRows: scrollbackRows,
             scrollbackSpans: scrollbackSpans,
             scrollForwardRows: scrollForwardRows,
-            scrollForwardSpans: scrollForwardSpans
+            scrollForwardSpans: scrollForwardSpans,
+            primaryActiveRows: primaryActiveRows,
+            primaryActiveSpans: primaryActiveSpans
         )
     }
 
@@ -369,6 +407,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         case scrollbackSpans = "scrollback_spans"
         case scrollForwardRows = "scrollforward_rows"
         case scrollForwardSpans = "scrollforward_spans"
+        case primaryActiveRows = "primary_active_rows"
+        case primaryActiveSpans = "primary_active_spans"
     }
 
     /// Which terminal screen a full snapshot represents.

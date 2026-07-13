@@ -189,8 +189,13 @@ struct TerminalInteractionLaneTests {
 @MainActor
 final class TerminalInteractionDeadlineSignal {
     private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var pendingFire = false
 
     func wait() async {
+        if pendingFire {
+            pendingFire = false
+            return
+        }
         let id = UUID()
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
@@ -206,6 +211,10 @@ final class TerminalInteractionDeadlineSignal {
     func fire() {
         let pending = waiters.values
         waiters.removeAll()
+        guard !pending.isEmpty else {
+            pendingFire = true
+            return
+        }
         for waiter in pending {
             waiter.resume()
         }

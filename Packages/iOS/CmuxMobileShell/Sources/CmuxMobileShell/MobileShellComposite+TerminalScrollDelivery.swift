@@ -227,12 +227,11 @@ extension MobileShellComposite {
             var params: [String: Any] = [
                 "workspace_id": remoteWorkspaceID.rawValue,
                 "surface_id": request.surfaceID,
-                "client_id": clientID,
-                "interaction_epoch": Int(clamping: request.interactionEpoch),
                 "client_scroll_revision": Int(clamping: request.clientRevision),
                 "col": request.col,
                 "row": request.row,
             ]
+            appendTerminalInteractionIdentity(to: &params, epoch: request.interactionEpoch)
             switch request.wireEncoding {
             case .legacyScalar:
                 params["delta_lines"] = request.lines
@@ -288,17 +287,17 @@ extension MobileShellComposite {
         }
         do {
             let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
+            var params: [String: Any] = [
+                "workspace_id": remoteWorkspaceID.rawValue,
+                "surface_id": surfaceID,
+                "col": col,
+                "row": row,
+            ]
+            appendTerminalInteractionIdentity(to: &params, epoch: interactionEpoch)
             let data = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(
                     method: "mobile.terminal.mouse",
-                    params: [
-                        "workspace_id": remoteWorkspaceID.rawValue,
-                        "surface_id": surfaceID,
-                        "client_id": clientID,
-                        "interaction_epoch": Int(clamping: interactionEpoch),
-                        "col": col,
-                        "row": row,
-                    ]
+                    params: params
                 ),
                 timeoutNanoseconds: TerminalRPCDeadlinePolicy.interaction.timeoutNanoseconds
             )
