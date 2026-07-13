@@ -30,11 +30,7 @@ private enum MobileWorkspaceInvalidation: Hashable {
 /// the `@Published` source of truth instead of trying to catch every caller.
 @MainActor
 final class MobileWorkspaceListObserver {
-    typealias DeadlineCancellation = @MainActor () -> Void
-    typealias DeadlineScheduler = @MainActor (
-        TimeInterval,
-        @escaping @MainActor () -> Void
-    ) -> DeadlineCancellation
+    typealias DeadlineScheduler = LatestWinsBatcher<Bool, Bool>.Scheduler
 
     private weak var tabManager: TabManager?
     /// The app-global notification store, source of each workspace's last-activity

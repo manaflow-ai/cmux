@@ -4,11 +4,7 @@ import SwiftUI
 
 @MainActor
 final class FocusHistoryMenuInvalidator: ObservableObject {
-    typealias DeadlineCancellation = @MainActor () -> Void
-    typealias DeadlineScheduler = @MainActor (
-        TimeInterval,
-        @escaping @MainActor () -> Void
-    ) -> DeadlineCancellation
+    typealias DeadlineScheduler = LatestWinsBatcher<Bool, Bool>.Scheduler
 
     @Published private(set) var revision: UInt64 = 0
 
