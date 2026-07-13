@@ -12,57 +12,6 @@ import LocalAuthentication
 import Security
 #endif
 
-struct CLIError: Error, CustomStringConvertible {
-    let message: String
-    let exitCode: Int32
-    /// Structured v2 protocol error code when the failure came from a v2 error response.
-    let v2Code: String?
-
-    init(message: String, exitCode: Int32 = 1, v2Code: String? = nil) {
-        self.message = message
-        self.exitCode = exitCode
-        self.v2Code = v2Code
-    }
-
-    var description: String { message }
-}
-
-struct WindowInfo {
-    let index: Int
-    let id: String
-    let key: Bool
-    let selectedWorkspaceId: String?
-    let workspaceCount: Int
-}
-
-struct NotificationInfo {
-    let id: String
-    let workspaceId: String
-    let surfaceId: String?
-    let isRead: Bool
-    let title: String
-    let subtitle: String
-    let body: String
-    let createdAt: String?
-    let tabTitle: String?
-}
-
-struct ClaudeHookParsedInput {
-    let rawObject: [String: Any]?
-    let object: [String: Any]?
-    let rawFallback: String?
-    let sessionId: String?
-    let turnId: String?
-    let cwd: String?
-    let transcriptPath: String?
-}
-
-enum AgentHookRuntimeStatus: String, Codable {
-    case running
-    case idle
-    case needsInput
-    case error
-}
 
 #if DEBUG
 private func agentHookDebugLog(
@@ -126,128 +75,31 @@ private func agentHookDebugSocketName(_ socketPath: String?) -> String {
 }
 #endif
 
-struct ClaudeHookSessionRecord: Codable {
-    var sessionId: String
-    var workspaceId: String
-    var surfaceId: String
-    var cwd: String?
-    var transcriptPath: String?
-    var pid: Int?
-    var launchCommand: AgentHookLaunchCommandRecord?
-    var isRestorable: Bool?
-    var agentLifecycle: AgentHibernationLifecycleState?
-    var lastSubtitle: String?
-    var lastBody: String?
-    var lastNotificationStatus: AgentHookNotificationStatus?
-    var lastEmittedNotificationFingerprint: String?
-    var lastEmittedNotificationAt: TimeInterval?
-    var recentEmittedNotificationFingerprints: [String: TimeInterval]?
-    var runtimeStatus: AgentHookRuntimeStatus?
-    var activePromptDepth: Int?
-    var activePromptTurnId: String?
-    var activePromptTurnIds: [String]?
-    var lastPromptTurnId: String?
-    var terminalPromptTurnIds: [String]?
-    var startedAt: TimeInterval
-    var updatedAt: TimeInterval
-    // Auto-naming engine state (all optional so stores written before the
-    // feature decode unchanged). The durable baseline advances only after a
-    // confirmed title apply; the in-flight marker dedupes concurrent Stops.
-    var autoNameLastTitle: String?
-    var autoNameLastLineCount: Int?
-    var autoNameLastNamedAt: TimeInterval?
-    var autoNameInFlightAt: TimeInterval?
-    /// Wall-clock of the last summarization attempt (success OR failure), so a
-    /// persistently failing summarizer (rate-limited, signed out, timing out)
-    /// gets the same minInterval cooldown instead of respawning every turn.
-    var autoNameLastAttemptAt: TimeInterval?
-    var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
-    var autoNameMessageSequence: Int?
-    /// Whether the most recent Stop reported unfinished background work
-    /// (a running `background_tasks` entry or a pending `session_crons`).
-    /// Cached here because the ~60s-later `idle_prompt` Notification payload
-    /// does not carry `background_tasks`, so the idle-reminder gate reads this.
-    /// Optional so stores written before this field decode unchanged.
-    var hadPendingBackgroundWorkAtStop: Bool?
-}
 
-struct ClaudeHookActiveSessionRecord: Codable {
-    var sessionId: String
-    var turnId: String?
-    var allowsNewSessionReplacement: Bool?
-    var updatedAt: TimeInterval
-}
 
-struct AgentHookLaunchCommandRecord: Codable {
-    var launcher: String?
-    var executablePath: String?
-    var arguments: [String]
-    var workingDirectory: String?
-    var environment: [String: String]?
-    var capturedAt: TimeInterval?
-    var source: String?
-}
-
-private struct CodexMonitorLeaseRecord: Codable {
-    var leaseId: String
-    var sessionId: String
-    var turnId: String?
-    var workspaceId: String
-    var surfaceId: String?
-    var createdAt: TimeInterval
-    var retiredAt: TimeInterval?
-}
-
-struct ClaudeHookSessionStoreFile: Codable {
-    var version: Int = 1
-    var sessions: [String: ClaudeHookSessionRecord] = [:]
-    var activeSessionsByWorkspace: [String: ClaudeHookActiveSessionRecord] = [:]
-    // The pane-scoped active boundary. The workspace slot only remembers ONE
-    // active session, so once another pane promotes (e.g. a forked conversation
-    // in a split), it can no longer prove that a late hook from a superseded
-    // session in this pane is stale. Keyed by surface id.
-    // https://github.com/manaflow-ai/cmux/issues/5908
-    var activeSessionsBySurface: [String: ClaudeHookActiveSessionRecord] = [:]
-
-    enum CodingKeys: String, CodingKey {
-        case version
-        case sessions
-        case activeSessionsByWorkspace
-        case activeSessionsBySurface
-    }
-
-    init() {}
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
-        sessions = try container.decodeIfPresent([String: ClaudeHookSessionRecord].self, forKey: .sessions) ?? [:]
-        activeSessionsByWorkspace = try container.decodeIfPresent(
-            [String: ClaudeHookActiveSessionRecord].self,
-            forKey: .activeSessionsByWorkspace
-        ) ?? [:]
-        activeSessionsBySurface = try container.decodeIfPresent(
-            [String: ClaudeHookActiveSessionRecord].self,
-            forKey: .activeSessionsBySurface
-        ) ?? [:]
-    }
-}
 
 final class ClaudeHookSessionStore {
     private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
+    private static let maxSessionRecords = 10_000
+    private static let maxRunsPerSession = 128
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
 
     private let statePath: String
     private let fileManager: FileManager
+    private let processEnv: [String: String]
+    private let agentName: String
+    private let lineageResolver: AgentHookSessionLineageResolver
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
     init(
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        agentName: String = "claude",
+        lineageResolver: AgentHookSessionLineageResolver = AgentHookSessionLineageResolver()
     ) {
         if let overridePath = processEnv["CMUX_CLAUDE_HOOK_STATE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !overridePath.isEmpty {
@@ -261,6 +113,9 @@ final class ClaudeHookSessionStore {
             self.statePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
         }
         self.fileManager = fileManager
+        self.processEnv = processEnv
+        self.agentName = agentName
+        self.lineageResolver = lineageResolver
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
 
@@ -269,6 +124,31 @@ final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else { return nil }
         return try withLockedState { state in
             state.sessions[normalized]
+        }
+    }
+
+    func reconcileSemanticState(
+        sessionId: String,
+        foregroundState: AgentForegroundState? = nil,
+        attentionState: AgentAttentionState? = nil,
+        workloads: [AgentWorkloadRecord]? = nil,
+        now: TimeInterval = Date().timeIntervalSince1970
+    ) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized] else { return }
+            if let foregroundState { record.foregroundState = foregroundState }
+            if let attentionState { record.attentionState = attentionState }
+            if let workloads {
+                record.workloads = AgentSessionWorkloadReconciler().replacingActiveWorkloads(
+                    record.workloads ?? [],
+                    with: workloads,
+                    now: now
+                )
+            }
+            record.updatedAt = max(record.updatedAt, now)
+            state.sessions[normalized] = record
         }
     }
 
@@ -1139,7 +1019,64 @@ final class ClaudeHookSessionStore {
         if let hadPendingBackgroundWorkAtStop {
             record.hadPendingBackgroundWorkAtStop = hadPendingBackgroundWorkAtStop
         }
+        record.completedAt = nil
+        record.sessionState = .active
+        recordSessionRun(&record, pid: pid ?? record.pid, now: now)
         record.updatedAt = now
+    }
+
+    private func recordSessionRun(
+        _ record: inout ClaudeHookSessionRecord,
+        pid: Int?,
+        now: TimeInterval
+    ) {
+        let lineage = lineageResolver.resolve(
+            agentName: agentName,
+            sessionId: record.sessionId,
+            pid: pid,
+            environment: processEnv
+        )
+        var runs = record.runs ?? []
+        if let previousActiveRunId = record.activeRunId,
+           previousActiveRunId != lineage.runId,
+           let previousIndex = runs.firstIndex(where: { $0.runId == previousActiveRunId && $0.endedAt == nil }) {
+            runs[previousIndex].endedAt = now
+            runs[previousIndex].updatedAt = now
+        }
+        if let index = runs.firstIndex(where: { $0.runId == lineage.runId }) {
+            runs[index].pid = lineage.pid ?? runs[index].pid
+            runs[index].processStartedAt = lineage.processStartedAt ?? runs[index].processStartedAt
+            runs[index].parentRunId = lineage.parentRunId ?? runs[index].parentRunId
+            runs[index].parentSessionId = lineage.parentSessionId ?? runs[index].parentSessionId
+            runs[index].relationship = lineage.relationship ?? runs[index].relationship
+            runs[index].restoreAuthority = runs[index].restoreAuthority || lineage.restoreAuthority
+            runs[index].updatedAt = now
+        } else {
+            runs.append(AgentSessionRunRecord(
+                runId: lineage.runId,
+                pid: lineage.pid,
+                processStartedAt: lineage.processStartedAt,
+                parentRunId: lineage.parentRunId,
+                parentSessionId: lineage.parentSessionId,
+                relationship: lineage.relationship,
+                restoreAuthority: lineage.restoreAuthority,
+                startedAt: now,
+                updatedAt: now
+            ))
+        }
+        if runs.count > Self.maxRunsPerSession {
+            let active = runs.filter { $0.endedAt == nil }
+            let ended = runs.filter { $0.endedAt != nil }
+                .sorted { $0.updatedAt > $1.updatedAt }
+            runs = active + Array(ended.prefix(max(0, Self.maxRunsPerSession - active.count)))
+        }
+        record.runs = runs
+        record.activeRunId = lineage.runId
+        record.runId = lineage.runId
+        record.parentRunId = lineage.parentRunId
+        record.restoreAuthority = record.restoreAuthority == true || lineage.restoreAuthority
+        record.parentSessionId = lineage.parentSessionId ?? record.parentSessionId
+        record.relationship = lineage.relationship ?? record.relationship
     }
 
     func clearNotificationEmission(sessionId: String) throws {
@@ -1364,9 +1301,10 @@ final class ClaudeHookSessionStore {
                 guard !hasActiveTurnMismatch(state, record: existing, turnId: turnId) else {
                     return nil
                 }
-                let removed = state.sessions.removeValue(forKey: normalizedSessionId) ?? existing
-                clearActiveSessionIfMatching(&state, removed: removed, turnId: turnId)
-                return removed
+                let completed = completeSessionRecord(existing)
+                state.sessions[normalizedSessionId] = completed
+                clearActiveSessionIfMatching(&state, removed: completed, turnId: turnId)
+                return completed
             }
 
             guard let fallback = fallbackRecord(
@@ -1379,11 +1317,13 @@ final class ClaudeHookSessionStore {
             guard !hasActiveTurnMismatch(state, record: fallback, turnId: turnId) else {
                 return nil
             }
-            state.sessions.removeValue(forKey: fallback.sessionId)
-            clearActiveSessionIfMatching(&state, removed: fallback, turnId: turnId)
-            return fallback
+            let completed = completeSessionRecord(fallback)
+            state.sessions[fallback.sessionId] = completed
+            clearActiveSessionIfMatching(&state, removed: completed, turnId: turnId)
+            return completed
         }
     }
+
 
     private func hasActiveTurnMismatch(
         _ state: ClaudeHookSessionStoreFile,
@@ -1554,6 +1494,17 @@ final class ClaudeHookSessionStore {
         state.activeSessionsBySurface = state.activeSessionsBySurface.filter { surfaceId, active in
             active.updatedAt >= cutoff && normalizeOptional(state.sessions[active.sessionId]?.surfaceId) == surfaceId
         }
+        if state.sessions.count > Self.maxSessionRecords {
+            let activeIds = Set(state.activeSessionsByWorkspace.values.map(\.sessionId))
+                .union(state.activeSessionsBySurface.values.map(\.sessionId))
+            let removable = state.sessions.values
+                .filter { !activeIds.contains($0.sessionId) }
+                .sorted { $0.updatedAt < $1.updatedAt }
+            let removeCount = min(state.sessions.count - Self.maxSessionRecords, removable.count)
+            for record in removable.prefix(removeCount) {
+                state.sessions.removeValue(forKey: record.sessionId)
+            }
+        }
     }
 
     private func normalizeSessionId(_ value: String) -> String {
@@ -1582,19 +1533,6 @@ private let codexTeamsThreadEnvironmentKey = "CMUX_CODEX_TEAMS_THREAD_ID"
 private let codexTeamsParentThreadEnvironmentKey = "CMUX_CODEX_TEAMS_PARENT_THREAD_ID"
 private let codexTeamsDepthEnvironmentKey = "CMUX_CODEX_TEAMS_DEPTH"
 
-enum CLIIDFormat: String {
-    case refs
-    case uuids
-    case both
-
-    static func parse(_ raw: String?) throws -> CLIIDFormat? {
-        guard let raw else { return nil }
-        guard let parsed = CLIIDFormat(rawValue: raw.lowercased()) else {
-            throw CLIError(message: "--id-format must be one of: refs, uuids, both")
-        }
-        return parsed
-    }
-}
 
 private enum TopSortKey: Equatable {
     case cpu
@@ -3220,7 +3158,7 @@ struct CMUXCLI {
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
-        if command == "sessions" || command == "session-debug" { try runSessionsCommand(commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
+        if command == "agents" || command == "sessions" || command == "session-debug" { try runAgentsCommand(commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
         if command == "__sigpipe-probe" { try runSIGPIPEProbe(commandArgs: commandArgs); return }
         if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
         if command == "__sigpipe-inspect" { try runSIGPIPEInspect(commandArgs: commandArgs); return }
@@ -15229,7 +15167,7 @@ struct CMUXCLI {
             If the app is already running, this restores the last saved session into the current app.
             If the app is not running, this launches cmux and lets startup restore reopen the saved session.
             """
-        case "sessions", "session-debug": return sessionsUsage()
+        case "agents", "sessions", "session-debug": return agentsUsage()
         case "feedback":
             return """
             Usage: cmux feedback
@@ -24144,6 +24082,21 @@ struct CMUXCLI {
                 )
                 sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
 
+                if suppressVisibleMutations {
+                    ClaudeChildSessionObserver().recordStop(
+                        input: parsedInput,
+                        store: sessionStore,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        pid: claudePid,
+                        launchCommand: mappedSession?.launchCommand,
+                        environment: ProcessInfo.processInfo.environment
+                    )
+                    telemetry.breadcrumb("claude-hook.stop.nested-suppressed")
+                    print("OK")
+                    return
+                }
+
                 guard shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
                     parsedInput: parsedInput,
@@ -24156,17 +24109,20 @@ struct CMUXCLI {
                     return
                 }
 
-                guard !suppressVisibleMutations else {
-                    telemetry.breadcrumb("claude-hook.stop.nested-suppressed")
-                    print("OK")
-                    return
-                }
-
                 // Whether this turn ended with unfinished background work (a running
                 // background task or a pending cron). Cached on the session record so
                 // the ~60s-later idle_prompt Notification can consult it, and forwarded
                 // to the app so it can suppress the done-ping until work truly drains.
                 let hasPendingBackgroundWork = hasActiveClaudeBackgroundWork(parsedInput)
+                let semanticWorkloads = ClaudeAgentWorkloadAdapter().workloads(
+                    from: parsedInput,
+                    now: Date().timeIntervalSince1970
+                )
+                let stopWasInterrupted = AgentStopStateAdapter().isInterrupted(
+                    provider: "claude",
+                    input: parsedInput,
+                    transcriptPath: parsedInput.transcriptPath ?? mappedSession?.transcriptPath
+                )
 
                 // Update session with transcript summary and send completion notification.
                 let completion = summarizeClaudeHookStop(
@@ -24190,6 +24146,12 @@ struct CMUXCLI {
                         hadPendingBackgroundWorkAtStop: hasPendingBackgroundWork,
                         markActive: true,
                         allowsNewSessionReplacement: true
+                    )
+                    try? sessionStore.reconcileSemanticState(
+                        sessionId: sessionId,
+                        foregroundState: stopWasInterrupted ? .interrupted : .completed,
+                        attentionState: AgentAttentionState.none,
+                        workloads: semanticWorkloads
                     )
                     publishAgentSurfaceResumeBinding(
                         client: client,
@@ -24286,6 +24248,20 @@ struct CMUXCLI {
                 env: ProcessInfo.processInfo.environment
             )
             sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            if suppressVisibleMutations {
+                ClaudeChildSessionObserver().recordPrompt(
+                    input: parsedInput,
+                    store: sessionStore,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    pid: claudePid,
+                    launchCommand: mappedSession?.launchCommand,
+                    environment: ProcessInfo.processInfo.environment
+                )
+                telemetry.breadcrumb("claude-hook.prompt-submit.nested-suppressed")
+                print("OK")
+                return
+            }
             let shouldApplyPromptSubmit =
                 shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
@@ -24303,11 +24279,6 @@ struct CMUXCLI {
                 )
             guard shouldApplyPromptSubmit else {
                 telemetry.breadcrumb("claude-hook.prompt-submit.stale")
-                print("OK")
-                return
-            }
-            guard !suppressVisibleMutations else {
-                telemetry.breadcrumb("claude-hook.prompt-submit.nested-suppressed")
                 print("OK")
                 return
             }
@@ -24338,6 +24309,11 @@ struct CMUXCLI {
                     agentLifecycle: .running,
                     markActive: true,
                     turnId: parsedInput.turnId
+                )
+                try? sessionStore.reconcileSemanticState(
+                    sessionId: sessionId,
+                    foregroundState: .working,
+                    attentionState: AgentAttentionState.none
                 )
                 publishAgentSurfaceResumeBinding(
                     client: client,
@@ -24544,6 +24520,10 @@ struct CMUXCLI {
                     agentLifecycle: .needsInput,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
+                )
+                try? sessionStore.reconcileSemanticState(
+                    sessionId: sessionId,
+                    attentionState: .needsInput
                 )
             }
 
@@ -27366,10 +27346,6 @@ struct CMUXCLI {
             return true
         }
 
-        guard subagentNotificationSuppressionEnabled(env: env) else {
-            return false
-        }
-
         if nestedPromptEvent {
             return true
         }
@@ -27385,25 +27361,13 @@ struct CMUXCLI {
         guard let currentAgentPID, currentAgentPID > 1 else {
             return false
         }
-
-        var candidate = pid_t(currentAgentPID)
-        var agentProcessCount = 0
-        var remainingAncestors = 32
-        while candidate > 1, remainingAncestors > 0 {
-            if nativeProcessDescribesKnownAgent(for: candidate) {
-                agentProcessCount += 1
-                if agentProcessCount >= 2 {
-                    return true
-                }
-            }
-            let next = parentPID(of: candidate)
-            guard next > 1, next != candidate else {
-                break
-            }
-            candidate = next
-            remainingAncestors -= 1
-        }
-        return false
+        let kind = normalizedHookValue(env["CMUX_AGENT_LAUNCH_KIND"]) ?? "agent"
+        return !AgentHookSessionLineageResolver().resolve(
+            agentName: kind,
+            sessionId: "unknown",
+            pid: currentAgentPID,
+            environment: env
+        ).restoreAuthority
     }
 
     private func managedSubagentVisibleMutationSuppressionRequested(env: [String: String]) -> Bool {
@@ -27704,7 +27668,6 @@ struct CMUXCLI {
         launchCommand: AgentHookLaunchCommandRecord?
     ) {
         if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
-            clearAgentSurfaceResumeBinding(client: client, workspaceId: workspaceId, surfaceId: surfaceId, sessionId: sessionId)
             return
         }
         let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, environment: launchCommand?.environment)
@@ -27721,12 +27684,6 @@ struct CMUXCLI {
             workingDirectory: resumeWorkingDirectory,
             environment: resumeEnvironment
         ) else {
-            clearAgentSurfaceResumeBinding(
-                client: client,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                sessionId: sessionId
-            )
             return
         }
         var params: [String: Any] = [
@@ -30236,7 +30193,8 @@ export default CMUXSessionRestore;
             processEnv: env.merging(
                 ["CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(sessionStoreSuffix: def.sessionStoreSuffix, env: env)],
                 uniquingKeysWith: { _, new in new }
-            )
+            ),
+            agentName: def.name
         )
 
         let hookCwd = input.cwd
@@ -30571,6 +30529,14 @@ export default CMUXSessionRestore;
                 print("{}")
                 return
             }
+            if !sessionId.isEmpty,
+               !suppressVisibleMutations || (try? store.lookup(sessionId: sessionId))?.restoreAuthority == false {
+                try? store.reconcileSemanticState(
+                    sessionId: sessionId,
+                    foregroundState: .idle,
+                    attentionState: AgentAttentionState.none
+                )
+            }
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
             if !suppressVisibleMutations {
                 if codexSessionStartWentStaleAfterAccept() {
@@ -30885,6 +30851,14 @@ export default CMUXSessionRestore;
                     return
                 }
             }
+            if !sessionId.isEmpty,
+               !suppressVisibleMutations || (try? store.lookup(sessionId: sessionId))?.restoreAuthority == false {
+                try? store.reconcileSemanticState(
+                    sessionId: sessionId,
+                    foregroundState: .working,
+                    attentionState: AgentAttentionState.none
+                )
+            }
             if codexPromptTurnWentTerminal() {
                 stopStaleCodexPromptSubmit()
                 return
@@ -31062,6 +31036,12 @@ export default CMUXSessionRestore;
             )
             let antigravityHasActiveBackgroundWork = hasActiveAntigravityBackgroundWork()
             let stopNotificationStatus: AgentHookNotificationStatus = (codexFailure == nil && antigravityFailure == nil) ? .idle : .error
+            let stopWasInterrupted = AgentStopStateAdapter().isInterrupted(
+                provider: def.name,
+                input: input,
+                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath
+                    ?? (def.name == "codex" ? findCodexTranscriptPath(sessionId: sessionId, env: env) : nil)
+            )
             let lifecycleAfterStop: AgentHibernationLifecycleState = {
                 if antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle {
                     return .running
@@ -31127,6 +31107,16 @@ export default CMUXSessionRestore;
             ) || staleIdleStopHasNewerRunningSession
             let suppressCompletionNotification = suppressVisibleMutations
                 || codexSubagentSignals.hasSubagentNotificationRelay
+            let genericWorkloads: [AgentWorkloadRecord]? = antigravityHasActiveBackgroundWork
+                ? [AgentWorkloadRecord(
+                    id: "provider-background-work",
+                    kind: .monitor,
+                    phase: .watching,
+                    keepsSessionBusy: true,
+                    startedAt: Date().timeIntervalSince1970,
+                    updatedAt: Date().timeIntervalSince1970
+                )]
+                : []
 
             if !sessionId.isEmpty, !suppressVisibleMutations {
                 try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
@@ -31140,6 +31130,19 @@ export default CMUXSessionRestore;
                                   updateLastNotificationStatus: true,
                                   runtimeStatus: (antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle) ? .running : runtimeStatus(for: stopNotificationStatus),
                                   updateRuntimeStatus: true)
+            }
+            if !sessionId.isEmpty,
+               !suppressVisibleMutations || (try? store.lookup(sessionId: sessionId))?.restoreAuthority == false {
+                try? store.reconcileSemanticState(
+                    sessionId: sessionId,
+                    foregroundState: stopWasInterrupted
+                        ? .interrupted
+                        : (stopNotificationStatus == .error ? .failed : .completed),
+                    attentionState: stopNotificationStatus == .error ? .error : AgentAttentionState.none,
+                    workloads: genericWorkloads
+                )
+            }
+            if !sessionId.isEmpty, !suppressVisibleMutations {
                 publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
@@ -35164,6 +35167,7 @@ export default CMUXSessionRestore;
           shortcuts
           disable-browser | enable-browser | browser-status
           agent-hibernation <on|off>
+          agents [list|tree] [options]
           restore-session
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]

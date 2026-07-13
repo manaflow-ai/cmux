@@ -9,6 +9,12 @@ struct RestorableAgentHookSessionRecord: Codable, Sendable {
     var pid: Int?
     var launchCommand: AgentLaunchCommandSnapshot?
     var isRestorable: Bool?
+    /// False for a session observed beneath another agent on the same surface.
+    /// Child sessions remain visible in history but never become restoration candidates.
+    var restoreAuthority: Bool? = nil
+    var completedAt: TimeInterval? = nil
+    var workloads: [AgentWorkloadRecord]? = nil
+    var sessionState: AgentSessionLifecycleState? = nil
     var agentLifecycle: AgentHibernationLifecycleState?
     var updatedAt: TimeInterval
 }

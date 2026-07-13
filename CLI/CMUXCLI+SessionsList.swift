@@ -1,5 +1,4 @@
 import Foundation
-
 extension CMUXCLI {
     private typealias SessionListAgentSpec = (name: String, displayName: String, sessionStoreSuffix: String, configDirEnvOverride: String?)
     private typealias SessionListEntry = (updatedAt: TimeInterval, payload: [String: Any])
@@ -33,11 +32,14 @@ extension CMUXCLI {
         let (stateDirRaw, rem5) = parseOption(rem4, name: "--state-dir")
         let (codexHomeRaw, rem6) = parseOption(rem5, name: "--codex-home")
         let (limitRaw, rem7) = parseOption(rem6, name: "--limit")
+        let (stateRaw, rem8) = parseOption(rem7, name: "--state")
+        let (activityRaw, rem9) = parseOption(rem8, name: "--activity")
+        let (workKindRaw, rem10) = parseOption(rem9, name: "--work-kind")
 
         var includeAll = false
         var localJSONOutput = jsonOutput
         var remaining: [String] = []
-        for arg in rem7 {
+        for arg in rem10 {
             switch arg {
             case "--all":
                 includeAll = true
@@ -113,7 +115,29 @@ extension CMUXCLI {
         let workspaceFilter = sessionsListNormalizedIDRef(workspaceRaw)?.lowercased()
         let surfaceFilter = sessionsListNormalizedIDRef(surfaceRaw)?.lowercased()
         let cwdFilter = sessionsListNormalized(cwdRaw)?.lowercased()
-        let hasRecordFilter = sessionFilter != nil || workspaceFilter != nil || surfaceFilter != nil || cwdFilter != nil
+        let stateFilter = sessionsListNormalized(stateRaw)?.lowercased()
+        let activityFilter = sessionsListNormalized(activityRaw)?.lowercased()
+        let workKindFilter = sessionsListNormalized(workKindRaw)?.lowercased()
+        if let stateFilter, AgentEffectiveState(rawValue: stateFilter) == nil {
+            throw CLIError(message: String(
+                format: String(localized: "cli.agents.list.error.unknownState", defaultValue: "agents list: unknown state '%@'"),
+                stateFilter
+            ))
+        }
+        if let activityFilter, AgentActivityState(rawValue: activityFilter) == nil {
+            throw CLIError(message: String(
+                format: String(localized: "cli.agents.list.error.unknownActivity", defaultValue: "agents list: unknown activity '%@'"),
+                activityFilter
+            ))
+        }
+        if let workKindFilter, AgentWorkloadKind(rawValue: workKindFilter) == nil {
+            throw CLIError(message: String(
+                format: String(localized: "cli.agents.list.error.unknownWorkKind", defaultValue: "agents list: unknown workload kind '%@'"),
+                workKindFilter
+            ))
+        }
+        let hasRecordFilter = sessionFilter != nil || workspaceFilter != nil || surfaceFilter != nil
+            || cwdFilter != nil || stateFilter != nil || activityFilter != nil || workKindFilter != nil
         var codexIndexes: [String: CodexSessionListIndex] = [:]
         let claudeTranscriptLookup = SessionsListClaudeTranscriptLookupCache(homeDirectory: homeDirectory)
         var entries: [SessionListEntry] = []
@@ -177,6 +201,37 @@ extension CMUXCLI {
                 payload["pid"] = record.pid ?? NSNull()
                 payload["runtime_status"] = record.runtimeStatus?.rawValue ?? NSNull()
                 payload["agent_lifecycle"] = record.agentLifecycle?.rawValue ?? NSNull()
+                let projectedRun = record.runs?.first(where: { $0.runId == record.activeRunId })
+                    ?? record.runs?.max(by: { $0.updatedAt < $1.updatedAt })
+                    ?? AgentSessionRunRecord(
+                        runId: record.runId ?? "session:\(spec.name):\(record.sessionId)",
+                        pid: record.pid,
+                        processStartedAt: nil,
+                        parentRunId: record.parentRunId,
+                        parentSessionId: record.parentSessionId,
+                        relationship: record.relationship,
+                        restoreAuthority: record.restoreAuthority ?? (record.relationship != .spawned),
+                        startedAt: record.startedAt,
+                        updatedAt: record.updatedAt,
+                        endedAt: record.completedAt
+                    )
+                let projection = AgentSessionStateProjection(record: record, run: projectedRun)
+                if let stateFilter, projection.effective.rawValue != stateFilter { continue }
+                if let activityFilter, projection.activity.state.rawValue != activityFilter { continue }
+                if let workKindFilter,
+                   !(record.workloads ?? []).contains(where: {
+                       $0.kind.rawValue == workKindFilter && $0.phase.isActive
+                   }) { continue }
+                payload["process_state"] = projection.process.rawValue
+                payload["session_state"] = projection.session.rawValue
+                payload["foreground_state"] = projection.foreground.rawValue
+                payload["attention_state"] = projection.attention.rawValue
+                payload["effective_state"] = projection.effective.rawValue
+                payload["activity"] = sessionsListEncodableJSONObject(projection.activity)
+                payload["workloads"] = sessionsListEncodableJSONObject(
+                    (record.workloads ?? []).map(AgentWorkloadSnapshot.init)
+                )
+                payload["restore_authority"] = projectedRun.restoreAuthority
                 payload["last_prompt_turn_id"] = record.lastPromptTurnId ?? NSNull()
                 payload["active_prompt_turn_id"] = record.activePromptTurnId ?? NSNull()
                 payload["launch_working_directory"] = record.launchCommand?.workingDirectory ?? NSNull()
@@ -294,38 +349,6 @@ extension CMUXCLI {
                 sortedEntries.count - limitedEntries.count
             ))
         }
-    }
-
-    func sessionsUsage() -> String {
-        String(localized: "cli.sessions.usage", defaultValue: """
-        Usage: cmux sessions list [options]
-               cmux sessions [options]
-
-        Print saved agent session records from ~/.cmuxterm/*-hook-sessions.json.
-        This command does not require a running cmux socket.
-        By default, broad output shows active, restorable, or transcript-backed records.
-        Pass --all to inspect every saved hook record.
-
-        Options:
-          --agent <name>        Filter to one agent, for example codex or claude
-          --session <id>        Filter to one agent session id
-          --workspace <id>      Filter to one saved workspace id
-          --surface <id>        Filter to one saved surface id
-          --cwd <text>          Filter by saved cwd or launch working directory
-          --state-dir <path>    Override hook state directory
-          --codex-home <path>   Override the default Codex home used for transcript checks
-          --limit <n>           Limit text output (default: 100)
-          --all                 Print all matches
-          --json                Print structured JSON
-
-        Codex rows include whether the saved id exists in CODEX_HOME/session_index.jsonl
-        and whether a matching transcript file exists under CODEX_HOME/sessions or
-        CODEX_HOME/archived_sessions.
-
-        Compatibility aliases:
-          cmux sessions debug [options]
-          cmux session-debug [options]
-        """)
     }
 
     private func sessionsListAgentSpecs() -> [SessionListAgentSpec] {

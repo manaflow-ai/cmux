@@ -1,0 +1,77 @@
+import Foundation
+
+extension CMUXCLI {
+    func runAgentsCommand(
+        commandArgs: [String],
+        jsonOutput: Bool,
+        processEnv: [String: String] = ProcessInfo.processInfo.environment,
+        fileManager: FileManager = .default
+    ) throws {
+        let subcommand = commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if subcommand == "tree" {
+            try runAgentsTreeCommand(
+                commandArgs: Array(commandArgs.dropFirst()),
+                jsonOutput: jsonOutput,
+                processEnv: processEnv,
+                fileManager: fileManager
+            )
+            return
+        }
+        try runSessionsCommand(
+            commandArgs: commandArgs,
+            jsonOutput: jsonOutput,
+            processEnv: processEnv,
+            fileManager: fileManager
+        )
+    }
+
+    func agentsUsage() -> String {
+        String(localized: "cli.sessions.usage", defaultValue: """
+        Usage: cmux agents list [options]
+               cmux agents tree [options]
+               cmux agents [options]
+
+        Print saved agent state from ~/.cmuxterm/*-hook-sessions.json.
+        This command does not require a running cmux socket.
+        By default, broad output shows active, restorable, or transcript-backed records.
+        Pass --all to inspect every saved hook record.
+
+        `agents tree` renders process-spawn and conversation-fork relationships.
+        Add --json for a flat, versioned nodes-and-edges graph.
+
+        Options:
+          --agent <name>        Filter to one agent, for example codex or claude
+          --session <id>        Filter to one agent session id
+          --workspace <id>      Filter to one saved workspace id
+          --surface <id>        Filter to one saved surface id
+          --cwd <text>          Filter by saved cwd or launch working directory
+          --state-dir <path>    Override hook state directory
+          --codex-home <path>   Override the default Codex home used for transcript checks
+          --limit <n>           Limit text output (default: 100)
+          --state <state>       Filter by effective state
+          --activity <state>    Filter by busy, idle, or unknown activity
+          --work-kind <kind>    Filter by an active workload kind
+          --all                 Print all matches
+          --json                Print structured JSON
+
+        Tree options:
+          --relation <kind>     Filter edges to spawned, forked, or resumed
+          --depth <n>           Limit rendered tree depth (default: 64)
+
+        Compatibility aliases:
+          cmux sessions [list|tree] [options]
+          cmux sessions debug [options]
+          cmux session-debug [options]
+        """)
+    }
+
+    func sessionsUsage() -> String { agentsUsage() }
+
+    func sessionsListEncodableJSONObject<T: Encodable>(_ value: T) -> Any {
+        guard let data = try? JSONEncoder().encode(value),
+              let object = try? JSONSerialization.jsonObject(with: data) else {
+            return NSNull()
+        }
+        return object
+    }
+}

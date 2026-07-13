@@ -338,7 +338,8 @@ enum AgentResumeCommandBuilder {
             launchCommand: launchCommand,
             workingDirectory: workingDirectory,
             customRegistration: customRegistration,
-            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
+            additionalEnvironment: [:]
         )
     }
 
@@ -369,7 +370,11 @@ enum AgentResumeCommandBuilder {
             launchCommand: launchCommand,
             workingDirectory: workingDirectory,
             customRegistration: customRegistration,
-            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
+            additionalEnvironment: [
+                "CMUX_AGENT_PARENT_SESSION_ID": sessionId,
+                "CMUX_AGENT_RELATIONSHIP": "forked",
+            ]
         )
     }
 
@@ -379,10 +384,14 @@ enum AgentResumeCommandBuilder {
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?,
         customRegistration: CmuxVaultAgentRegistration?,
-        includeWorkingDirectoryPrefix: Bool
+        includeWorkingDirectoryPrefix: Bool,
+        additionalEnvironment: [String: String]
     ) -> String {
         var commandParts: [String] = []
-        let environmentParts = launchEnvironmentParts(kind: kind, environment: launchCommand?.environment)
+        var environmentParts = launchEnvironmentParts(kind: kind, environment: launchCommand?.environment)
+        environmentParts.append(contentsOf: additionalEnvironment.keys.sorted().compactMap { key in
+            additionalEnvironment[key].map { "\(key)=\($0)" }
+        })
         if !environmentParts.isEmpty {
             commandParts.append("env")
             commandParts.append(contentsOf: environmentParts)
@@ -889,6 +898,7 @@ private enum AgentResumeScriptStore {
     }
 }
 
+/// Joins hook history and process observations into restorable surface owners.
 struct RestorableAgentSessionIndex: Sendable {
     static let empty = RestorableAgentSessionIndex(entriesByPanel: [:])
 
@@ -1073,6 +1083,7 @@ struct RestorableAgentSessionIndex: Sendable {
             }
 
             for record in state.sessions.values {
+                guard record.restoreAuthority != false, record.completedAt == nil else { continue }
                 var effectiveRecord = kind == .claude
                     ? resolvedClaudeWorkflowRecord(
                         record,
@@ -1126,7 +1137,9 @@ struct RestorableAgentSessionIndex: Sendable {
                 )
                 let entry = Entry(
                     snapshot: snapshot,
-                    lifecycle: effectiveRecord.agentLifecycle,
+                    lifecycle: effectiveRecord.workloads?.contains(where: {
+                        $0.keepsSessionBusy && $0.phase.isActive
+                    }) == true ? .running : effectiveRecord.agentLifecycle,
                     updatedAt: effectiveRecord.updatedAt,
                     processIDs: liveProcessID.map { [$0] } ?? [],
                     agentProcessIDs: liveProcessID.map { [$0] } ?? [],
