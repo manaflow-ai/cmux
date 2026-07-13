@@ -19,6 +19,7 @@
     "@pierre/trees": "1.0.0-beta.4",
     "@tanstack/react-router": "1.170.11",
     "@vitejs/plugin-react": "^5.1.2",
+    "highlight.js": "11.11.1",
     "prosemirror-commands": "^1.7.1",
     "prosemirror-model": "^1.25.7",
     "prosemirror-state": "^1.4.4",

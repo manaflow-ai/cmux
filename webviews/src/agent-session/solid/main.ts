@@ -117,6 +117,7 @@ function SessionSurface({
   thread.className = "agent-thread";
   root.append(thread);
   const transcriptRows = new Map<string, HTMLDivElement>();
+  const renderedTranscriptEntries = new Map<string, TranscriptEntry>();
   createEffect(() => {
     const entries = state().transcript;
     thread.toggleAttribute("data-empty", entries.length === 0);
@@ -125,6 +126,7 @@ function SessionSurface({
       if (!liveIds.has(id)) {
         row.remove();
         transcriptRows.delete(id);
+        renderedTranscriptEntries.delete(id);
       }
     }
     entries.forEach((entry, index) => {
@@ -133,7 +135,10 @@ function SessionSurface({
         row = transcriptTurnElement(entry);
         transcriptRows.set(entry.id, row);
       }
-      updateTranscriptTurn(row, entry);
+      if (renderedTranscriptEntries.get(entry.id) !== entry) {
+        updateTranscriptTurn(row, entry);
+        renderedTranscriptEntries.set(entry.id, entry);
+      }
       const current = thread.children.item(index);
       if (current !== row) {
         thread.insertBefore(row, current);

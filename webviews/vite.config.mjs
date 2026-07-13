@@ -77,6 +77,12 @@ export default defineConfig({
           ) {
             return "diff-vendor";
           }
+          // Keep chat Markdown highlighting separate from the shared React
+          // vendor chunk so generated vendor assets stay stable across small
+          // agent-session renderer changes.
+          if (id.includes("/highlight.js/")) {
+            return "agent-highlighter-vendor";
+          }
           // Framework code both surfaces share. Pinning it to a stable `vendor`
           // chunk name keeps the shared chunk from being renamed (and rehashed)
           // whenever an unrelated shared module changes.
