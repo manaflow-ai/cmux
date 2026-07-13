@@ -92,6 +92,25 @@ import Testing
         #expect(service.fileDiff(repoRoot: repo.path, path: "Deleted") == nil)
     }
 
+    @Test func exactFileReplacingBaselineDirectoryDiffsWithoutDescendants() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let directory = repo.appendingPathComponent("Replaced")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data("old child\n".utf8).write(to: directory.appendingPathComponent("Child.txt"))
+        try runTestGit(in: repo, ["add", "--", "Replaced/Child.txt"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add directory"])
+        try FileManager.default.removeItem(at: directory)
+        try Data("replacement file\n".utf8).write(to: directory)
+        try runTestGit(in: repo, ["add", "-A", "--", "Replaced"])
+
+        let diff = try #require(GitDiffService().fileDiff(repoRoot: repo.path, path: "Replaced"))
+
+        #expect(diff.unifiedDiff.contains("+replacement file"))
+        #expect(!diff.unifiedDiff.contains("old child"))
+        #expect(!diff.unifiedDiff.contains("Child.txt"))
+    }
+
     @Test func nonUTF8TextDiffUsesReplacementCharacters() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
