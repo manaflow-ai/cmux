@@ -1,4 +1,5 @@
 internal import CMUXMobileCore
+internal import CmuxMobileDiagnostics
 
 extension MobileShellComposite {
     /// Whether the Mac supports workspace group sections and collapse/expand RPCs.
@@ -20,10 +21,14 @@ extension MobileShellComposite {
         macDeviceID: String?
     ) {
         let version = statusMacAppVersion ?? activeTicket?.macAppVersion
-        guard let hint = MobileMacUpdateAdvisor.hint(
+        let hint = MobileMacUpdateAdvisor.hint(
             hostCapabilities: capabilities,
             macAppVersion: version
-        ) else {
+        )
+        MobileDebugLog.anchormux(
+            "macupdate.hint caps=\(capabilities.count) version=\(version ?? "nil") hint=\(hint?.dismissalSignature ?? "nil")"
+        )
+        guard let hint else {
             clearMacUpdateHint()
             return
         }
