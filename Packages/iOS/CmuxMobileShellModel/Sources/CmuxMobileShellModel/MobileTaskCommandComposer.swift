@@ -2,73 +2,6 @@ import Foundation
 
 /// Composes shell-safe task startup parameters from templates and user prompts.
 public struct MobileTaskCommandComposer: Sendable {
-    private enum ShellQuote {
-        case unquoted
-        case single
-        case double
-    }
-
-    private struct ShellLexicalState {
-        private(set) var quote = ShellQuote.unquoted
-        private(set) var escaped = false
-        private(set) var inComment = false
-        private var atWordBoundary = true
-
-        var permitsEnvironmentExpansion: Bool {
-            !inComment && !escaped && quote != .single
-        }
-
-        func startsComment(with character: Character) -> Bool {
-            quote == .unquoted && !escaped && character == "#" && atWordBoundary
-        }
-
-        mutating func beginComment() {
-            inComment = true
-        }
-
-        mutating func markExpansion() {
-            atWordBoundary = false
-        }
-
-        mutating func consume(_ character: Character) {
-            if inComment {
-                if character == "\n" {
-                    inComment = false
-                    atWordBoundary = true
-                }
-                return
-            }
-            if escaped {
-                escaped = false
-                atWordBoundary = false
-                return
-            }
-            switch (quote, character) {
-            case (.unquoted, "\\"), (.double, "\\"):
-                escaped = true
-            case (.unquoted, "'"):
-                quote = .single
-                atWordBoundary = false
-            case (.unquoted, "\""):
-                quote = .double
-                atWordBoundary = false
-            case (.single, "'"):
-                quote = .unquoted
-            case (.double, "\""):
-                quote = .unquoted
-            case (.unquoted, " "), (.unquoted, "\t"), (.unquoted, "\r"), (.unquoted, "\n"):
-                atWordBoundary = true
-            case (.unquoted, ";"), (.unquoted, "|"), (.unquoted, "&"),
-                 (.unquoted, "("), (.unquoted, ")"), (.unquoted, "<"), (.unquoted, ">"):
-                atWordBoundary = true
-            default:
-                if quote == .unquoted {
-                    atWordBoundary = false
-                }
-            }
-        }
-    }
-
     private struct ShellWord {
         var end: String.Index?
         var unquotedText: String? = ""
@@ -162,7 +95,7 @@ public struct MobileTaskCommandComposer: Sendable {
     private static func interpolatingPromptEnvironment(in command: String) -> (command: String, didReplacePrompt: Bool) {
         var output = ""
         var index = command.startIndex
-        var lexicalState = ShellLexicalState()
+        var lexicalState = MobileTaskShellLexicalState()
         var didReplacePrompt = false
         let hereDocumentBodies = MobileTaskHereDocumentParser().bodies(in: command)
         var hereDocumentBodyIndex = 0
@@ -209,9 +142,9 @@ public struct MobileTaskCommandComposer: Sendable {
                 continue
             }
 
-            output.append(character)
-            lexicalState.consume(character)
-            index = command.index(after: index)
+            let nextIndex = lexicalState.advance(in: command, from: index, through: command.endIndex)
+            output.append(contentsOf: command[index..<nextIndex])
+            index = nextIndex
         }
         return (output, didReplacePrompt)
     }
@@ -230,7 +163,7 @@ public struct MobileTaskCommandComposer: Sendable {
     /// Leading assignments and redirection operands are not commands; unquoted
     /// control operators start a new simple command.
     private static func scanShellCommand(_ command: String) -> ShellCommandScan {
-        var lexicalState = ShellLexicalState()
+        var lexicalState = MobileTaskShellLexicalState()
         var word = ShellWord()
         var commandInSegment = false
         var expectsRedirectionOperand = false
@@ -280,6 +213,33 @@ public struct MobileTaskCommandComposer: Sendable {
                 continue
             }
 
+            if lexicalState.startsCommandSubstitution(
+                in: command,
+                at: index,
+                through: command.endIndex
+            ) {
+                word.consume(character, isUnquotedLiteral: false, end: command.index(index, offsetBy: 2))
+                result.containsCommand = true
+                result.supportsImplicitPrompt = false
+                index = lexicalState.advance(in: command, from: index, through: command.endIndex)
+                continue
+            }
+            if lexicalState.startsArithmeticExpansion(
+                in: command,
+                at: index,
+                through: command.endIndex
+            ) {
+                word.consume(character, isUnquotedLiteral: false, end: command.index(index, offsetBy: 3))
+                result.supportsImplicitPrompt = false
+                index = lexicalState.advance(in: command, from: index, through: command.endIndex)
+                continue
+            }
+            if lexicalState.isInArithmeticExpansion {
+                word.consume(character, isUnquotedLiteral: false, end: nextIndex)
+                index = lexicalState.advance(in: command, from: index, through: command.endIndex)
+                continue
+            }
+
             if lexicalState.quote == .unquoted, !lexicalState.escaped {
                 switch character {
                 case " ", "\t", "\r":
@@ -306,8 +266,7 @@ public struct MobileTaskCommandComposer: Sendable {
             } else {
                 word.consume(character, isUnquotedLiteral: false, end: nextIndex)
             }
-            lexicalState.consume(character)
-            index = nextIndex
+            index = lexicalState.advance(in: command, from: index, through: command.endIndex)
         }
         finishWord()
         return result
@@ -319,7 +278,7 @@ public struct MobileTaskCommandComposer: Sendable {
         let unbraced = "$CMUX_TASK_PROMPT"
         let bracedPrefix = "${CMUX_TASK_PROMPT"
         let bracedLengthExpansion = "${#CMUX_TASK_PROMPT}"
-        var lexicalState = ShellLexicalState()
+        var lexicalState = MobileTaskShellLexicalState()
         var index = command.startIndex
         let hereDocumentBodies = MobileTaskHereDocumentParser().bodies(in: command)
         var hereDocumentBodyIndex = 0
@@ -367,8 +326,7 @@ public struct MobileTaskCommandComposer: Sendable {
                     }
                 }
             }
-            lexicalState.consume(character)
-            index = command.index(after: index)
+            index = lexicalState.advance(in: command, from: index, through: command.endIndex)
         }
         return false
     }

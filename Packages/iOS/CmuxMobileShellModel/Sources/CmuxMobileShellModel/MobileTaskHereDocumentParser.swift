@@ -8,75 +8,16 @@ struct MobileTaskHereDocumentParser {
         let permitsEnvironmentExpansion: Bool
     }
 
-    private enum Quote {
-        case unquoted
-        case single
-        case double
-    }
-
     private struct Descriptor {
         let delimiter: String
         let stripsLeadingTabs: Bool
         let permitsEnvironmentExpansion: Bool
     }
 
-    private struct LexicalState {
-        private(set) var quote = Quote.unquoted
-        private(set) var escaped = false
-        private(set) var inComment = false
-        private var atWordBoundary = true
-
-        func startsComment(with character: Character) -> Bool {
-            quote == .unquoted && !escaped && character == "#" && atWordBoundary
-        }
-
-        mutating func beginComment() {
-            inComment = true
-        }
-
-        mutating func consume(_ character: Character) {
-            if inComment {
-                if character == "\n" {
-                    inComment = false
-                    atWordBoundary = true
-                }
-                return
-            }
-            if escaped {
-                escaped = false
-                atWordBoundary = false
-                return
-            }
-            switch (quote, character) {
-            case (.unquoted, "\\"), (.double, "\\"):
-                escaped = true
-            case (.unquoted, "'"):
-                quote = .single
-                atWordBoundary = false
-            case (.unquoted, "\""):
-                quote = .double
-                atWordBoundary = false
-            case (.single, "'"):
-                quote = .unquoted
-            case (.double, "\""):
-                quote = .unquoted
-            case (.unquoted, " "), (.unquoted, "\t"), (.unquoted, "\r"), (.unquoted, "\n"):
-                atWordBoundary = true
-            case (.unquoted, ";"), (.unquoted, "|"), (.unquoted, "&"),
-                 (.unquoted, "("), (.unquoted, ")"), (.unquoted, "<"), (.unquoted, ">"):
-                atWordBoundary = true
-            default:
-                if quote == .unquoted {
-                    atWordBoundary = false
-                }
-            }
-        }
-    }
-
     func bodies(in command: String) -> [Body] {
         var bodies: [Body] = []
         var pending: [Descriptor] = []
-        var lexicalState = LexicalState()
+        var lexicalState = MobileTaskShellLexicalState()
         var readingBodies = false
         var lineStart = command.startIndex
 
@@ -107,9 +48,7 @@ struct MobileTaskHereDocumentParser {
                     lexicalState: &lexicalState,
                     pending: &pending
                 )
-                readingBodies = !pending.isEmpty
-                    && !lexicalState.escaped
-                    && lexicalState.quote == .unquoted
+                readingBodies = !pending.isEmpty && lexicalState.permitsHereDocumentOperator
             }
 
             if newline != nil { lexicalState.consume("\n") }
@@ -121,7 +60,7 @@ struct MobileTaskHereDocumentParser {
     private func scanDescriptors(
         in command: String,
         range: Range<String.Index>,
-        lexicalState: inout LexicalState,
+        lexicalState: inout MobileTaskShellLexicalState,
         pending: inout [Descriptor]
     ) {
         var index = range.lowerBound
@@ -137,23 +76,20 @@ struct MobileTaskHereDocumentParser {
                 index = command.index(after: index)
                 continue
             }
-            guard lexicalState.quote == .unquoted, !lexicalState.escaped, character == "<" else {
-                lexicalState.consume(character)
-                index = command.index(after: index)
+            guard lexicalState.permitsHereDocumentOperator, character == "<" else {
+                index = lexicalState.advance(in: command, from: index, through: range.upperBound)
                 continue
             }
 
             let suffix = command[index..<range.upperBound]
             if suffix.hasPrefix("<<<") {
                 for _ in 0..<3 {
-                    lexicalState.consume(command[index])
-                    index = command.index(after: index)
+                    index = lexicalState.advance(in: command, from: index, through: range.upperBound)
                 }
                 continue
             }
             guard suffix.hasPrefix("<<") else {
-                lexicalState.consume(character)
-                index = command.index(after: index)
+                index = lexicalState.advance(in: command, from: index, through: range.upperBound)
                 continue
             }
 
@@ -171,8 +107,7 @@ struct MobileTaskHereDocumentParser {
                 from: cursor,
                 through: range.upperBound
             ) else {
-                lexicalState.consume(character)
-                index = command.index(after: index)
+                index = lexicalState.advance(in: command, from: index, through: range.upperBound)
                 continue
             }
             pending.append(Descriptor(
@@ -181,8 +116,7 @@ struct MobileTaskHereDocumentParser {
                 permitsEnvironmentExpansion: !parsed.wasQuoted
             ))
             while index < parsed.end {
-                lexicalState.consume(command[index])
-                index = command.index(after: index)
+                index = lexicalState.advance(in: command, from: index, through: parsed.end)
             }
         }
     }
@@ -193,7 +127,7 @@ struct MobileTaskHereDocumentParser {
         through end: String.Index
     ) -> (delimiter: String, wasQuoted: Bool, end: String.Index)? {
         var delimiter = ""
-        var quote = Quote.unquoted
+        var quote = MobileTaskShellLexicalState.Quote.unquoted
         var wasQuoted = false
         var index = start
         while index < end {
