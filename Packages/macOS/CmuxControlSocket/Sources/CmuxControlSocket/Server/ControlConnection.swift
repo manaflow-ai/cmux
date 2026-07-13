@@ -14,12 +14,17 @@ public struct ControlConnection: Sendable {
     /// failed.
     public let peerProcessID: pid_t?
 
+    /// Access-policy generation captured when the server accepted this client.
+    public let authorizationGeneration: UInt64
+
     /// Creates a connection value.
     /// - Parameters:
     ///   - socket: The accepted client socket descriptor.
     ///   - peerProcessID: The peer PID captured at accept time, if available.
-    public init(socket: Int32, peerProcessID: pid_t?) {
+    ///   - authorizationGeneration: Access-policy generation at accept time.
+    public init(socket: Int32, peerProcessID: pid_t?, authorizationGeneration: UInt64) {
         self.socket = socket
         self.peerProcessID = peerProcessID
+        self.authorizationGeneration = authorizationGeneration
     }
 }

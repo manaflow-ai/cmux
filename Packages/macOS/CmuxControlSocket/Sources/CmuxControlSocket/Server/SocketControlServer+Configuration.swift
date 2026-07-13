@@ -11,17 +11,33 @@ extension SocketControlServer {
     /// permissive non-`cmuxOnly` mode.
     ///
     /// - Parameter accessMode: The current resolved access mode.
-    public func reconfigure(accessMode: SocketControlMode) {
+    /// - Returns: Whether the live listener accepted the configuration.
+    @discardableResult
+    public func reconfigure(accessMode: SocketControlMode) -> Bool {
         let previousMode = withListenerState { state in
             let previousMode = state.accessMode
-            state.accessMode = accessMode
+            if accessMode != previousMode {
+                state.accessMode = accessMode
+                state.connectionAuthorizationGeneration &+= 1
+            }
             return previousMode
         }
 
         if accessMode == .off {
             stop()
-        } else if isRunning {
-            applySocketPermissions()
+        } else if isRunning, !applySocketPermissions() {
+            stop()
+            events.breadcrumb(
+                "socket.listener.configuration.failed_closed",
+                socketListenerEventData(
+                    stage: "configuration",
+                    extra: [
+                        "previousMode": previousMode.rawValue,
+                        "mode": accessMode.rawValue,
+                    ]
+                )
+            )
+            return false
         }
 
         events.breadcrumb(
@@ -34,5 +50,6 @@ extension SocketControlServer {
                 ]
             )
         )
+        return true
     }
 }

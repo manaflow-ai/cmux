@@ -73,6 +73,7 @@ public final class SocketControlServer {
         var listenerReadSourceSuspended = false
         var socketPathMonitorSource: (any DispatchSourceFileSystemObject)?
         var accessMode: SocketControlMode = .cmuxOnly
+        var connectionAuthorizationGeneration: UInt64 = 0
     }
 
     /// Sendable snapshot of the listener state, published to the read mirror
@@ -89,6 +90,7 @@ public final class SocketControlServer {
         let listenerStartInProgress: Bool
         let socketPathLockHeld: Bool
         let accessMode: SocketControlMode
+        let connectionAuthorizationGeneration: UInt64
     }
 
     /// The accept path's own state: the consecutive-failure streak (legacy
@@ -204,7 +206,8 @@ public final class SocketControlServer {
             reservedStartupSocketPath: state.reservedStartupSocketPath,
             listenerStartInProgress: state.listenerStartInProgress,
             socketPathLockHeld: state.socketPathLockFD >= 0,
-            accessMode: state.accessMode
+            accessMode: state.accessMode,
+            connectionAuthorizationGeneration: state.connectionAuthorizationGeneration
         )
     }
 
@@ -219,6 +222,17 @@ public final class SocketControlServer {
     /// The access mode of the current (or most recently started) listener.
     public nonisolated var accessMode: SocketControlMode {
         listenerStateSnapshot().accessMode
+    }
+
+    /// Generation attached to newly accepted clients for policy revocation.
+    public nonisolated var connectionAuthorizationGeneration: UInt64 {
+        listenerStateSnapshot().connectionAuthorizationGeneration
+    }
+
+    /// Whether an accepted connection still belongs to the live access policy.
+    public nonisolated func isConnectionAuthorizationCurrent(_ generation: UInt64) -> Bool {
+        let snapshot = listenerStateSnapshot()
+        return snapshot.isRunning && snapshot.connectionAuthorizationGeneration == generation
     }
 
     /// The listener's current socket path, regardless of lifecycle phase.

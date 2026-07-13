@@ -37,10 +37,73 @@ struct SocketControlServerConfigurationTests {
         #expect(!FileManager.default.fileExists(atPath: fixture.socketPath))
     }
 
+    @Test func reconfigureInvalidatesConnectionsAcceptedUnderPreviousMode() async throws {
+        let fixture = try SocketConfigurationFixture()
+        defer { fixture.shutdown() }
+
+        #expect(fixture.server.start(socketPath: fixture.socketPath, accessMode: .allowAll))
+        let client = try UnixSocketFixture.connectClient(to: fixture.socketPath)
+        defer { close(client) }
+        let connection = try #require(await nextConnection(from: fixture.server.connections))
+        defer { close(connection.socket) }
+        let originalIdentity = try #require(fixture.server.transport.pathIdentity(at: fixture.socketPath))
+        #expect(fixture.server.isConnectionAuthorizationCurrent(connection.authorizationGeneration))
+
+        #expect(fixture.server.reconfigure(accessMode: .automation))
+
+        #expect(!fixture.server.isConnectionAuthorizationCurrent(connection.authorizationGeneration))
+        #expect(fixture.server.transport.pathIdentity(at: fixture.socketPath) == originalIdentity)
+    }
+
+    @Test func offOnCycleDoesNotReauthorizeOldConnections() async throws {
+        let fixture = try SocketConfigurationFixture()
+        defer { fixture.shutdown() }
+
+        #expect(fixture.server.start(socketPath: fixture.socketPath, accessMode: .automation))
+        let client = try UnixSocketFixture.connectClient(to: fixture.socketPath)
+        defer { close(client) }
+        let connection = try #require(await nextConnection(from: fixture.server.connections))
+        defer { close(connection.socket) }
+
+        #expect(fixture.server.reconfigure(accessMode: .off))
+        #expect(fixture.server.start(socketPath: fixture.socketPath, accessMode: .automation))
+
+        #expect(!fixture.server.isConnectionAuthorizationCurrent(connection.authorizationGeneration))
+    }
+
+    @Test func permissionFailureStopsListener() throws {
+        let fixture = try SocketConfigurationFixture()
+        defer { fixture.shutdown() }
+
+        #expect(fixture.server.start(socketPath: fixture.socketPath, accessMode: .allowAll))
+        #expect(unlink(fixture.socketPath) == 0)
+
+        #expect(!fixture.server.reconfigure(accessMode: .automation))
+        #expect(!fixture.server.isRunning)
+    }
+
     private func socketPermissions(at path: String) throws -> UInt16 {
         let attributes = try FileManager.default.attributesOfItem(atPath: path)
         let raw = try #require(attributes[.posixPermissions] as? NSNumber)
         return raw.uint16Value
+    }
+
+    private func nextConnection(
+        from stream: AsyncStream<ControlConnection>
+    ) async -> ControlConnection? {
+        await withTaskGroup(of: ControlConnection?.self) { group in
+            group.addTask {
+                var iterator = stream.makeAsyncIterator()
+                return await iterator.next()
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(2))
+                return nil
+            }
+            let connection = await group.next() ?? nil
+            group.cancelAll()
+            return connection
+        }
     }
 }
 

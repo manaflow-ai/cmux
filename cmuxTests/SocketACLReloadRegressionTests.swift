@@ -92,7 +92,11 @@ struct SocketACLReloadRegressionTests {
         try writeLine("ping", to: sockets.client)
 
         let yieldResult = controller.socketServer.connectionsContinuation.yield(
-            ControlConnection(socket: sockets.server, peerProcessID: 1)
+            ControlConnection(
+                socket: sockets.server,
+                peerProcessID: 1,
+                authorizationGeneration: controller.socketServer.connectionAuthorizationGeneration
+            )
         )
         if case .enqueued = yieldResult {
             // Ownership transferred to TerminalController's connection consumer.

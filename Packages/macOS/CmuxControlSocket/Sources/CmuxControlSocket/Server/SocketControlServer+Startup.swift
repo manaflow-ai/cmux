@@ -96,7 +96,10 @@ extension SocketControlServer {
         preserveAcceptFailureStreak: Bool = false
     ) -> Bool {
         let existing = withListenerState { state in
-            state.accessMode = accessMode
+            if state.accessMode != accessMode {
+                state.accessMode = accessMode
+                state.connectionAuthorizationGeneration &+= 1
+            }
             return (
                 isRunning: state.isRunning,
                 socketPath: state.socketPath,
@@ -114,7 +117,10 @@ extension SocketControlServer {
         }
 
         if existing.isRunning && SocketControlSettings.pathsMatch(existing.socketPath, socketPath) {
-            applySocketPermissions()
+            guard applySocketPermissions() else {
+                stop()
+                return false
+            }
             return true
         }
 
@@ -263,7 +269,10 @@ extension SocketControlServer {
             return false
         }
 
-        applySocketPermissions()
+        guard applySocketPermissions() else {
+            close(newServerSocket)
+            return false
+        }
 
         if let errnoCode = transport.configureNonBlocking(newServerSocket) {
             print("SocketControlServer: Failed to configure socket")
@@ -337,7 +346,8 @@ extension SocketControlServer {
     }
 
     /// Applies the access mode's file permissions to the current socket path.
-    func applySocketPermissions() {
+    @discardableResult
+    func applySocketPermissions() -> Bool {
         let (currentSocketPath, mode) = withListenerState { ($0.socketPath, $0.accessMode) }
         let permissions = mode_t(mode.socketFilePermissions)
         if chmod(currentSocketPath, permissions) != 0 {
@@ -353,7 +363,9 @@ extension SocketControlServer {
                     extra: ["permissions": String(permissions, radix: 8)]
                 )
             )
+            return false
         }
+        return true
     }
 
 }

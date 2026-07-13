@@ -380,7 +380,11 @@ class TerminalController {
                     close(connection.socket)
                     continue
                 }
-                await controller.spawnClientHandler(socket: connection.socket, peerPid: connection.peerProcessID)
+                await controller.spawnClientHandler(
+                    socket: connection.socket,
+                    peerPid: connection.peerProcessID,
+                    authorizationGeneration: connection.authorizationGeneration
+                )
             }
         }
         serverEventTarget.controller = self
@@ -1432,7 +1436,11 @@ class TerminalController {
         }
     }
 
-    private nonisolated func spawnClientHandler(socket clientSocket: Int32, peerPid: pid_t?) async {
+    private nonisolated func spawnClientHandler(
+        socket clientSocket: Int32,
+        peerPid: pid_t?,
+        authorizationGeneration: UInt64
+    ) async {
         let initialReadLimits = socketClientInitialReadLimits(peerProcessID: peerPid)
         let claimedPreauthorizationSlot = if initialReadLimits != nil {
             await socketClientPreauthorizationLimiter.claim()
@@ -1451,6 +1459,7 @@ class TerminalController {
             self.handleClient(
                 clientSocket,
                 peerPid: peerPid,
+                authorizationGeneration: authorizationGeneration,
                 initialReadLimits: initialReadLimits,
                 holdsPreauthorizationSlot: claimedPreauthorizationSlot
             )
@@ -1460,6 +1469,7 @@ class TerminalController {
     private nonisolated func handleClient(
         _ socket: Int32,
         peerPid: pid_t? = nil,
+        authorizationGeneration: UInt64,
         initialReadLimits: ControlClientLineReadLimits? = nil,
         holdsPreauthorizationSlot initialSlotHeld: Bool = false
     ) {
@@ -1476,9 +1486,15 @@ class TerminalController {
         var authenticated = false
         let lineReader = ControlClientLineReader(socket: socket, initialLimits: initialReadLimits)
 
-        while let line = lineReader.nextLine(shouldContinueReading: { socketServer.isRunning }) {
+        while let line = lineReader.nextLine(shouldContinueReading: {
+            socketServer.isConnectionAuthorizationCurrent(authorizationGeneration)
+        }) {
             let receivedCommand = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !receivedCommand.isEmpty else { continue }
+            guard socketServer.isConnectionAuthorizationCurrent(authorizationGeneration) else {
+                _ = writeSocketResponse(Self.socketClientAccessDeniedResponse, to: socket)
+                return
+            }
             guard let trimmed = authorizedSocketCommand(
                 receivedCommand,
                 peerProcessID: pid,

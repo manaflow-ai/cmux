@@ -48,20 +48,14 @@ extension TerminalController {
         peerProcessID: pid_t?,
         peerHasSameUID: Bool
     ) -> String? {
-        switch socketServer.accessMode {
-        case .off:
-            return nil
-        case .cmuxOnly:
-            return SocketClientAuthorization().authorizedCommand(
-                command,
-                peerProcessID: peerProcessID,
-                peerHasSameUID: peerHasSameUID,
-                capabilityAuthority: socketClientCapabilityAuthority,
-                isDescendant: { isDescendant($0) }
-            )
-        case .automation, .password, .allowAll:
-            return SocketClientCapabilityCommand(command)?.command ?? command
-        }
+        SocketClientAuthorization().authorizedCommand(
+            command,
+            accessMode: socketServer.accessMode,
+            peerProcessID: peerProcessID,
+            peerHasSameUID: peerHasSameUID,
+            capabilityAuthority: socketClientCapabilityAuthority,
+            isDescendant: { isDescendant($0) }
+        )
     }
 }
 
