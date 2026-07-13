@@ -18,6 +18,7 @@ final class BrowserPageMetadataEventCoalescer {
     private var includesURL = false
     private var includesTitle = false
     private var scheduledCommit: Task<Void, Never>?
+    private var generation: UInt = 0
     private let didSchedule: @MainActor () -> Void
 
     init(
@@ -41,12 +42,14 @@ final class BrowserPageMetadataEventCoalescer {
     }
 
     func flush() {
+        generation &+= 1
         scheduledCommit?.cancel()
         scheduledCommit = nil
         commitPending()
     }
 
     func discardPending() {
+        generation &+= 1
         scheduledCommit?.cancel()
         scheduledCommit = nil
         clearPending()
@@ -57,11 +60,13 @@ final class BrowserPageMetadataEventCoalescer {
     }
 
     private func scheduleCommit() {
+        guard scheduledCommit == nil else { return }
+        let scheduledGeneration = generation
         didSchedule()
-        scheduledCommit?.cancel()
         scheduledCommit = Task { @MainActor [weak self] in
             await Task.yield()
             guard !Task.isCancelled else { return }
+            guard self?.generation == scheduledGeneration else { return }
             self?.commitPending()
         }
     }

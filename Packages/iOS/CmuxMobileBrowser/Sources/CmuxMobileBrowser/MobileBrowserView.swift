@@ -316,6 +316,9 @@ public struct MobileBrowserView: UIViewRepresentable {
             with error: any Error,
             wasProvisional: Bool
         ) {
+            // A title/URL KVO event from the interrupted provisional page must
+            // not land after failure recovery restores the committed identity.
+            pageMetadataCoalescer.discardPending()
             // A cancelled load reports `NSURLErrorCancelled`. This is not a
             // failure to surface; it happens on a user stop AND when a new
             // navigation replaces an in-flight one. Mirror the web view's real

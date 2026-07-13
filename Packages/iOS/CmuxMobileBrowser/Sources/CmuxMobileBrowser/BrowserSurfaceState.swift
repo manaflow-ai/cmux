@@ -279,13 +279,23 @@ public final class BrowserSurfaceState: Identifiable {
         lastFailureWasProvisional = false
     }
 
-    /// Record the URL from WebKit's explicit navigation-commit callback.
+    /// Record and durably persist the URL from WebKit's explicit navigation-
+    /// commit callback. This boundary survives a missing finish callback while
+    /// provisional KVO changes remain excluded from the committed identity.
     ///
     /// - Parameter url: The committed WebKit URL, or `nil` when WebKit did not
     ///   expose one for the commit.
     func navigationDidCommit(url: URL?) {
         securityIndicatorURL = url
         committedSecurityIndicatorURL = url
+        guard let url else { return }
+        currentURL = url
+        if !isAddressEditing {
+            addressText = url.absoluteString
+        }
+        // `didFinish` may never arrive after a process death or an interrupted
+        // response. The explicit WebKit commit is the durable page boundary.
+        persistDurableState?(true)
     }
 
     /// Commit a URL change that WebKit reports without a full navigation
