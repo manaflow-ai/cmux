@@ -23,6 +23,8 @@ APPSTORE_APP_ID = f"{TEAM_ID}.{APPSTORE_BUNDLE_ID}"
 BETA_BUNDLE_ID = "dev.cmux.app.beta"
 BETA_APP_ID = f"{TEAM_ID}.{BETA_BUNDLE_ID}"
 ASC_APP_ID = "6783338052"
+ASC_VERSION_ID = "version-1.0.0"
+ASC_BUILD_ID = "build-1.0.0"
 IDENTITY = f"Apple Distribution: Manaflow, Inc. ({TEAM_ID})"
 APPSTORE_MARKETING_VERSION = "1.0.0"
 BETA_MARKETING_VERSION = "1.0.4"
@@ -419,6 +421,10 @@ if args[:2] == ["apps", "view"]:
             }
         }
     }))
+    sys.exit(0)
+
+if args[:2] == ["versions", "list"]:
+    print(json.dumps({"data": [{"id": "version-1.0.0"}]}))
     sys.exit(0)
 
 sys.exit(0)
@@ -916,6 +922,74 @@ def test_validate_appstore_release_requires_numeric_app_id(tmp: Path, fakebin: P
     _check("must be numeric" in bad_result.stderr, "validation helper explains that --app must be numeric")
 
 
+def test_validate_appstore_release_prepares_content_rights_and_build(
+    tmp: Path, fakebin: Path
+) -> None:
+    env = _base_env(tmp, fakebin)
+    env["ASC_APP_ID"] = ASC_APP_ID
+    result = _run(
+        [
+            "bash",
+            str(ROOT / "ios" / "scripts" / "validate-app-store-release.sh"),
+            "--build-id",
+            ASC_BUILD_ID,
+            "--prepare-submission",
+        ],
+        env=env,
+        tmp=tmp,
+        log_failure=False,
+    )
+    _check(result.returncode == 0, "App Store validation helper prepares submission state")
+
+    asc_log = tmp / "asc.jsonl"
+    asc_calls = [
+        json.loads(line)
+        for line in asc_log.read_text(encoding="utf-8").splitlines()
+    ] if asc_log.exists() else []
+    content_rights_call = next(
+        (call for call in asc_calls if call[:2] == ["apps", "update"]),
+        None,
+    )
+    attach_build_call = next(
+        (call for call in asc_calls if call[:2] == ["versions", "attach-build"]),
+        None,
+    )
+    validate_call = next(
+        (call for call in asc_calls if call and call[0] == "validate"),
+        None,
+    )
+    _check(
+        content_rights_call == [
+            "apps",
+            "update",
+            "--id",
+            ASC_APP_ID,
+            "--content-rights",
+            "DOES_NOT_USE_THIRD_PARTY_CONTENT",
+        ],
+        "submission preparation declares that cmux does not use third-party content",
+    )
+    _check(
+        attach_build_call == [
+            "versions",
+            "attach-build",
+            "--version-id",
+            ASC_VERSION_ID,
+            "--build",
+            ASC_BUILD_ID,
+        ],
+        "submission preparation attaches the selected build to version 1.0.0",
+    )
+    if content_rights_call and attach_build_call and validate_call:
+        _check(
+            asc_calls.index(content_rights_call) < asc_calls.index(validate_call)
+            and asc_calls.index(attach_build_call) < asc_calls.index(validate_call),
+            "submission state is prepared before canonical readiness validation",
+        )
+    else:
+        _check(False, "submission state is prepared before canonical readiness validation")
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as temp_dir:
         tmp = Path(temp_dir)
@@ -930,6 +1004,9 @@ def main() -> None:
         test_profile_installer_accepts_production_profile_by_default(tmp / "profile-test", fakebin)
         test_profile_installer_ignores_stale_primary_secret(tmp / "profile-stale-test", fakebin)
         test_validate_appstore_release_requires_numeric_app_id(tmp / "validate-test", fakebin)
+        test_validate_appstore_release_prepares_content_rights_and_build(
+            tmp / "prepare-submission-test", fakebin
+        )
 
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s)")
