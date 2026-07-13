@@ -6,15 +6,32 @@ public import Foundation
 /// result cannot settle against template, Mac, prompt, or directory edits that
 /// were not part of the sent request.
 public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
+    /// Identifier of the task template selected when submission began.
     public let templateID: MobileTaskTemplate.ID
+    /// Identifier of the Mac targeted by the captured submission.
     public let macDeviceID: String
+    /// Unmodified prompt text captured from the composer.
     public let prompt: String
+    /// Unmodified working-directory text captured from the composer.
     public let directory: String
+    /// Working directory with surrounding whitespace removed for validation.
     public let trimmedDirectory: String
+    /// Whether the user edited the template's suggested working directory.
     public let didEditDirectory: Bool
+    /// Stable idempotency key used for every attempt to submit this snapshot.
     public let operationID: UUID
+    /// Command and environment derived from the captured template and prompt.
     public let composition: MobileTaskComposition
 
+    /// Captures immutable inputs and derives the command for one submission.
+    ///
+    /// - Parameters:
+    ///   - template: Task template selected when submission begins.
+    ///   - prompt: Prompt text to compose into the template command.
+    ///   - macDeviceID: Identifier of the Mac that should create the task.
+    ///   - directory: Working-directory text shown in the composer.
+    ///   - didEditDirectory: Whether the user changed the suggested directory.
+    ///   - operationID: Stable idempotency key for submission retries.
     public init(
         template: MobileTaskTemplate,
         prompt: String,
