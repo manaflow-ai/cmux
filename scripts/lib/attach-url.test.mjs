@@ -136,7 +136,14 @@ test("preserves the redacted canonical dev URL for Iroh tickets", () => {
   const payload = sampleIrohPayloadWithCanonicalDevURL();
   const { attachURL } = buildAttachURL(payload, { routeKind: "iroh" });
   assert.equal(attachURL, payload.attach_url);
-  assert.doesNotMatch(attachURL, /must-not-be-reencoded|private\.example/);
+  const decoded = decodePayload(attachURL);
+  assert.deepEqual(decoded, {
+    v: 1,
+    d: "mac-device-id",
+    r: [{ k: "iroh", e: { i: "0123456789abcdef" } }],
+  });
+  assert.equal(decoded.authToken, undefined);
+  assert.equal(decoded.r[0].e.pathHints, undefined);
 });
 
 test("does not reuse canonical attach_url after local route filtering", () => {

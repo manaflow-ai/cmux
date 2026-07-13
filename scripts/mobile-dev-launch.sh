@@ -20,7 +20,7 @@
 #
 #   --attach   also pair to the running Mac. Uses CMUX_DOGFOOD_ATTACH_URL when it
 #              is already set (as dev-setup.sh passes it), else mints a fresh
-#              tag-scoped ticket directly against THIS tag's Mac debug socket
+#              Iroh-only tag-scoped ticket directly against THIS tag's Mac debug socket
 #              (never an untagged QR-server ticket, which could pair the wrong
 #              Mac). Needs the tagged Mac app running with the pairing host
 #              enabled (see --ensure-mac).
@@ -83,6 +83,10 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/lib/dev-secrets.sh"
 # shellcheck source=scripts/lib/mobile-attach.sh
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
+if [[ "$ATTACH" -eq 1 ]]; then
+  cmux_attach_validate_route_kind_for_target \
+    "$TARGET" "${CMUX_ATTACH_ROUTE_KIND:-iroh}" || exit $?
+fi
 # Fail closed on tags that have no alphanumerics: their slug would collapse onto
 # the shared fallback identity and target an unrelated app/socket.
 if ! cmux_attach_tag_has_alnum "$TAG"; then
@@ -117,7 +121,9 @@ if [[ "$ATTACH" -eq 1 ]]; then
     if [[ "$ENSURE_MAC" -eq 1 ]]; then
       cmux_attach_ensure_mac "$TAG" "$REPO_ROOT" || true
     fi
-    # Always mint tag-scoped from THIS tag's socket. Never consult the
+    # Always mint an Iroh-only ticket scoped to THIS tag's socket. The
+    # route-filtered RPC is also the readiness signal: a bound localhost
+    # listener cannot win while Iroh is still registering. Never consult the
     # tag-agnostic QR server: its /ticket.json has no tag parameter and is served
     # from whatever tag the QR server last set, so it could hand back a different
     # Mac's ticket and silently pair the phone to the wrong app.
@@ -127,7 +133,7 @@ if [[ "$ATTACH" -eq 1 ]]; then
   fi
   if [[ -z "$ATTACH_URL" ]]; then
     if [[ "$ENSURE_MAC" -eq 1 ]]; then
-      echo "warning: could not mint an attach ticket (the tagged Mac app's pairing listener may still be binding, or the macOS Local Network prompt is unanswered — click Allow, then re-run); launching signed-in only" >&2
+      echo "warning: could not mint an Iroh attach ticket (the tagged Mac app may still be registering its Iroh route); launching signed-in only" >&2
     else
       echo "warning: --attach requested but no attach ticket could be minted (is the tagged Mac app for '$TAG' running with the pairing host enabled? try --ensure-mac); launching signed-in only" >&2
     fi

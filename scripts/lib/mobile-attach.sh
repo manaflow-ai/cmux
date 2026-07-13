@@ -34,6 +34,17 @@ cmux_attach_tag_has_alnum() {
   [[ -n "$(cmux_attach__slug_raw "$1")" ]]
 }
 
+# Reject the one route that can never be valid on a physical phone. Simulator
+# loopback remains available only through an explicit CMUX_ATTACH_ROUTE_KIND
+# override; the default on both targets is Iroh.
+cmux_attach_validate_route_kind_for_target() {
+  local target="$1" route_kind="$2"
+  if [[ "$target" == "device" && "$route_kind" == "debug_loopback" ]]; then
+    echo "error: CMUX_ATTACH_ROUTE_KIND=debug_loopback is simulator-only" >&2
+    return 2
+  fi
+}
+
 # bundle id segment: lowercase, non-alnum -> '.', trimmed/collapsed.
 cmux_attach__bundle_seg() {
   local cleaned
@@ -101,7 +112,10 @@ cmux_attach_ensure_mac() {
 
   if [[ -S "$sock" ]]; then
     # Quick probe (2 attempts ~1s): if pairing already mints, done.
-    if [[ -n "$repo_root" ]] && [[ -n "$(cmux_attach_mint_url "$tag" 60 "$repo_root" 2)" ]]; then
+    # This is only a listener-readiness probe. Keep it unfiltered so a healthy
+    # listener is not relaunched merely because the broker-backed Iroh route is
+    # still registering. The final dev attach mint below is Iroh-filtered.
+    if [[ -n "$repo_root" ]] && [[ -n "$(cmux_attach_mint_url "$tag" 60 "$repo_root" 2 "")" ]]; then
       return 0
     fi
     # A tagged app is running but its pairing listener is not ready (launched
@@ -139,30 +153,57 @@ cmux_attach_ensure_mac() {
 
 # Mint a short-TTL Mac-scoped attach URL against the tagged socket. Echoes the
 # URL on stdout (bearer credential; do not log). Args: <tag> <ttl_seconds>
-# <repo_root>. Polls the mint RPC (the real readiness signal) until routes are
-# bound, bounded so a never-binding listener fails instead of hanging.
+# <repo_root> [<max_attempts>] [<route_kind>]. The public default is Iroh so a
+# ready debug-loopback listener cannot win the startup race and hand a physical
+# iPhone a localhost ticket. Passing an explicit empty fifth argument performs
+# an unfiltered listener probe; CMUX_ATTACH_ROUTE_KIND is an opt-in dev override.
+# Polls the route-filtered mint RPC as the atomic readiness signal, bounded so a
+# never-registering Iroh route fails instead of hanging.
 cmux_attach_mint_url() {
-  local tag="$1" ttl="$2" repo_root="$3" max="${4:-20}" sock slug payload url _i
+  local tag="$1" ttl="$2" repo_root="$3" max route_kind sock slug params payload url _i
+  max="${4:-${CMUX_ATTACH_MINT_ATTEMPTS:-60}}"
+  if [[ "$#" -ge 5 ]]; then
+    route_kind="$5"
+  else
+    route_kind="${CMUX_ATTACH_ROUTE_KIND:-iroh}"
+  fi
+  case "$route_kind" in
+    ""|iroh|tailscale|websocket|debug_loopback) ;;
+    *)
+      echo "error: unsupported CMUX_ATTACH_ROUTE_KIND '$route_kind'" >&2
+      return 2
+      ;;
+  esac
+  if ! [[ "$max" =~ ^[1-9][0-9]*$ ]]; then
+    echo "error: attach mint attempts must be a positive integer (got '$max')" >&2
+    return 2
+  fi
   sock="$(cmux_attach_socket_path "$tag")"
   # cmux-debug-cli.sh rejects CMUX_TAG outside [A-Za-z0-9._-] and re-sanitizes it
   # to the same slug used for the socket. Pass the slug so tags needing
   # sanitization (e.g. "Fix Foo" -> "fix-foo") are not rejected before minting.
   slug="$(cmux_attach__slug "$tag")"
+  params="{\"ttl_seconds\":${ttl},\"scope\":\"mac\"}"
+  if [[ -n "$route_kind" ]]; then
+    params="{\"ttl_seconds\":${ttl},\"scope\":\"mac\",\"route_kind\":\"${route_kind}\"}"
+  fi
   for _i in $(seq 1 "$max"); do
     if [[ ! -S "$sock" ]]; then
       sleep 0.5
       continue
     fi
     payload="$(CMUX_TAG="$slug" "$repo_root/scripts/cmux-debug-cli.sh" rpc mobile.attach_ticket.create \
-      "{\"ttl_seconds\":${ttl},\"scope\":\"mac\"}" 2>/dev/null || true)"
+      "$params" 2>/dev/null || true)"
     if [[ -n "$payload" ]]; then
-      url="$(REPO_ROOT="$repo_root" PAYLOAD="$payload" node --input-type=module <<'NODE' 2>/dev/null || true
+      url="$(REPO_ROOT="$repo_root" PAYLOAD="$payload" ROUTE_KIND="$route_kind" node --input-type=module <<'NODE' 2>/dev/null || true
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 const { buildAttachURL } = await import(
   pathToFileURL(path.join(process.env.REPO_ROOT, "scripts", "lib", "attach-url.mjs")).href
 );
-const { attachURL } = buildAttachURL(JSON.parse(process.env.PAYLOAD));
+const { attachURL } = buildAttachURL(JSON.parse(process.env.PAYLOAD), {
+  routeKind: process.env.ROUTE_KIND || "",
+});
 process.stdout.write(attachURL);
 NODE
 )"

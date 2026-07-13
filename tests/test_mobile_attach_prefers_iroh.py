@@ -18,6 +18,32 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class MobileAttachPrefersIrohTests(unittest.TestCase):
+    def test_debug_loopback_override_is_simulator_only(self) -> None:
+        helper = ROOT / "scripts" / "lib" / "mobile-attach.sh"
+        simulator = subprocess.run(
+            [
+                "bash",
+                "-c",
+                f"source {subprocess.list2cmdline([str(helper)])}; "
+                "cmux_attach_validate_route_kind_for_target simulator debug_loopback",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        device = subprocess.run(
+            [
+                "bash",
+                "-c",
+                f"source {subprocess.list2cmdline([str(helper)])}; "
+                "cmux_attach_validate_route_kind_for_target device debug_loopback",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(simulator.returncode, 0, simulator.stderr)
+        self.assertNotEqual(device.returncode, 0)
+        self.assertIn("simulator-only", device.stderr)
+
     def test_mint_waits_for_iroh_instead_of_accepting_ready_loopback(self) -> None:
         tag = f"iroh-route-test-{os.getpid()}"
         socket_path = Path(f"/tmp/cmux-debug-{tag}.sock")
