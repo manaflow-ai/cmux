@@ -400,7 +400,7 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
 
         // Mid-move race: the destination already owns the surface and a hook
         // enqueues a valid notification under the destination key BEFORE
-        // rebind runs. Rebind's source-scoped discard must not drop it.
+        // rebind runs. Rebind processing must not drop it.
         TerminalMutationBus.shared.enqueueNotification(
             tabId: fixture.owningWorkspace.id,
             surfaceId: fixture.panelId,
@@ -419,7 +419,7 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
         XCTAssertEqual(
             recorded.map(\.body),
             ["Destination queued"],
-            "Rebind must discard only source-keyed pending entries, not a newer destination-keyed one"
+            "Rebind must preserve a newer destination-keyed pending entry"
         )
         XCTAssertEqual(recorded.map(\.tabId), [fixture.owningWorkspace.id])
     }
@@ -436,9 +436,10 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
             tty,
             "A corroborating env surface keeps the tty answer"
         )
-        XCTAssertNil(
+        XCTAssertEqual(
             agentDeliveryTargetCombining(ttyTarget: tty, envTarget: otherEnv),
-            "Disagreeing signals must refuse to resolve"
+            tty,
+            "Leaked spawn-time environment must not veto the unique live controlling-TTY match"
         )
         XCTAssertNil(
             agentDeliveryTargetCombining(ttyTarget: nil, envTarget: otherEnv),
