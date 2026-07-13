@@ -16,6 +16,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
     /// `CMUX_UITEST_TASK_COMPOSER_FAILURE=1` to exercise failure recovery.
     public init() {
         self.store = CMUXMobileShellStore(
+            isSignedIn: true,
             taskTemplateStore: TaskComposerAccessibilityTemplateStore()
         )
         self.returnsSubmissionFailure = ProcessInfo.processInfo.environment[
