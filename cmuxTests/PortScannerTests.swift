@@ -108,8 +108,8 @@ struct PortScannerProcessCaptureTests {
     @Test("Panel lsof completeness is scoped to PIDs on that panel's TTY")
     func panelLsofCompletenessIsTTYScoped() {
         let workspaceID = UUID()
-        let healthyPanel = PanelKey(workspaceId: workspaceID, panelId: UUID())
-        let failedPanel = PanelKey(workspaceId: workspaceID, panelId: UUID())
+        let healthyPanel = PortScanner.PanelKey(workspaceId: workspaceID, panelId: UUID())
+        let failedPanel = PortScanner.PanelKey(workspaceId: workspaceID, panelId: UUID())
         let lsofScan = PortLsofScanResult(
             values: [100: [4200]],
             globallyComplete: true,
@@ -129,7 +129,7 @@ struct PortScannerProcessCaptureTests {
 
     @Test("A panel with no PIDs needs only an authoritative process scan")
     func noPIDPanelCompletenessUsesProcessScan() {
-        let panel = PanelKey(workspaceId: UUID(), panelId: UUID())
+        let panel = PortScanner.PanelKey(workspaceId: UUID(), panelId: UUID())
 
         let complete = PortScanner.panelCompletenessByKey(
             panelTTYs: [panel: "ttys001"],
