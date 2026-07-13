@@ -87,18 +87,32 @@ struct PortalDividerHits {
     var alignedIntersectionRegions: (vertical: [PortalSplitDividerRegion], horizontal: [PortalSplitDividerRegion])? {
         guard let anchor = intersection else { return nil }
         let tolerance = PortalSplitDividerRegion.alignedIntersectionTolerance
-        let vertical = verticalCandidates.map(\.region).filter { candidate in
+        let verticalMatches = verticalCandidates.map(\.region).filter { candidate in
             !candidate.isInHostedContent &&
-                (candidate === anchor.vertical || candidate.splitView !== anchor.vertical.splitView) &&
+                candidate !== anchor.vertical &&
+                candidate.splitView !== anchor.vertical.splitView &&
+                PortalSplitDividerRegion.areOnOppositeSides(
+                    candidate,
+                    anchor.vertical,
+                    across: anchor.horizontal
+                ) &&
                 PortalSplitDividerRegion.formVisibleCorner(candidate, anchor.horizontal) &&
                 abs(candidate.rectInWindow.midX - anchor.vertical.rectInWindow.midX) <= tolerance
         }
-        let horizontal = horizontalCandidates.map(\.region).filter { candidate in
+        let horizontalMatches = horizontalCandidates.map(\.region).filter { candidate in
             !candidate.isInHostedContent &&
-                (candidate === anchor.horizontal || candidate.splitView !== anchor.horizontal.splitView) &&
+                candidate !== anchor.horizontal &&
+                candidate.splitView !== anchor.horizontal.splitView &&
+                PortalSplitDividerRegion.areOnOppositeSides(
+                    candidate,
+                    anchor.horizontal,
+                    across: anchor.vertical
+                ) &&
                 PortalSplitDividerRegion.formVisibleCorner(anchor.vertical, candidate) &&
                 abs(candidate.rectInWindow.midY - anchor.horizontal.rectInWindow.midY) <= tolerance
         }
+        let vertical = [anchor.vertical] + Array(verticalMatches.prefix(1))
+        let horizontal = [anchor.horizontal] + Array(horizontalMatches.prefix(1))
         return (
             PortalSplitDividerRegion.uniqueRegions(vertical),
             PortalSplitDividerRegion.uniqueRegions(horizontal)
@@ -367,6 +381,22 @@ final class PortalSplitDividerRegion {
             x <= horizontal.rectInWindow.maxX + xSlack &&
             y >= vertical.rectInWindow.minY - ySlack &&
             y <= vertical.rectInWindow.maxY + ySlack
+    }
+
+    /// Aligned expansion may add one matching divider from the pane across
+    /// the orthogonal split. A nearby divider deeper in the same quadrant is
+    /// a separate junction and must not join the drag.
+    static func areOnOppositeSides(
+        _ first: PortalSplitDividerRegion,
+        _ second: PortalSplitDividerRegion,
+        across perpendicular: PortalSplitDividerRegion
+    ) -> Bool {
+        if perpendicular.isVertical {
+            let line = perpendicular.rectInWindow.midX
+            return (first.rectInWindow.midX - line) * (second.rectInWindow.midX - line) < 0
+        }
+        let line = perpendicular.rectInWindow.midY
+        return (first.rectInWindow.midY - line) * (second.rectInWindow.midY - line) < 0
     }
 
     fileprivate static func uniqueRegions(_ regions: [PortalSplitDividerRegion]) -> [PortalSplitDividerRegion] {

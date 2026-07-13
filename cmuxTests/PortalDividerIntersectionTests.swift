@@ -334,6 +334,44 @@ import Testing
         #expect(hits.alignedIntersectionRegions?.vertical.first === anchor)
     }
 
+    @Test func alignedExpansionExcludesNearbyDividerInSameQuadrant() {
+        let window = NSWindow(
+            contentRect: Self.contentBounds,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let outer = NSSplitView(frame: Self.contentBounds)
+        outer.isVertical = true
+        let left = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 600))
+        let right = NSView(frame: NSRect(x: 401, y: 0, width: 399, height: 600))
+        outer.addArrangedSubview(left)
+        outer.addArrangedSubview(right)
+        let leftRows = NSSplitView(frame: left.bounds)
+        leftRows.isVertical = false
+        let nestedLeftRows = NSSplitView(frame: left.bounds)
+        nestedLeftRows.isVertical = false
+        left.addSubview(leftRows)
+        left.addSubview(nestedLeftRows)
+        window.contentView?.addSubview(outer)
+
+        let column = region(outer, rect: NSRect(x: 400, y: 0, width: 1, height: 600), isVertical: true)
+        let anchor = region(leftRows, rect: NSRect(x: 0, y: 300, width: 400, height: 1), isVertical: false)
+        let sameQuadrant = region(
+            nestedLeftRows,
+            rect: NSRect(x: 0, y: 308, width: 400, height: 1),
+            isVertical: false
+        )
+        let hits = PortalSplitDividerRegion.dividerHits(
+            at: NSPoint(x: 400, y: 304),
+            in: [column, anchor, sameQuadrant],
+            checkLiveness: false
+        )
+
+        #expect(hits.alignedIntersectionRegions?.horizontal.count == 1)
+        #expect(hits.alignedIntersectionRegions?.horizontal.first === anchor)
+    }
+
     @Test func hostedContentRegionsDoNotPair() {
         let (outer, inner) = makeNestedSplits()
         let horizontal = region(outer, rect: horizontalDividerRect, isVertical: false)
