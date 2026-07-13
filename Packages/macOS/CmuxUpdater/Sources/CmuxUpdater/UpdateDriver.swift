@@ -211,10 +211,34 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
                 }
             },
             dismiss: { [weak self] in
-                self?.abandonHostRelaunchPreparationIfNeeded()
-                self?.model.setState(.idle)
+                self?.dismissInstallingUpdate()
             }
         )))
+    }
+
+    func showAutomaticInstallOnQuit(immediateInstallHandler: @escaping () -> Void) {
+        model.clearDetectedUpdate()
+        setState(.installing(.init(
+            isAutoUpdate: true,
+            retryTerminatingApplication: { [weak self] in
+                Task { @MainActor in
+                    guard let self else {
+                        immediateInstallHandler()
+                        return
+                    }
+                    guard await self.prepareHostForRelaunch() else { return }
+                    immediateInstallHandler()
+                }
+            },
+            dismiss: { [weak self] in
+                self?.dismissInstallingUpdate()
+            }
+        )))
+    }
+
+    private func dismissInstallingUpdate() {
+        abandonHostRelaunchPreparationIfNeeded()
+        model.setState(.idle)
     }
 
     func showUpdateInstalledAndRelaunched(_ relaunched: Bool, acknowledgement: @escaping () -> Void) {
