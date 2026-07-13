@@ -1,29 +1,7 @@
 import CMUXMobileCore
 import Foundation
 
-enum TerminalInputIntent: Sendable {
-    case text(String, workspaceID: String)
-    case paste(String, submitKey: String, workspaceID: String)
-    case image(Data, format: String, workspaceID: String)
-    case fence
-}
-
 typealias TerminalInteractionReceipt = TerminalSurfaceMutationReceipt
-
-enum TerminalRPCDeadlinePolicy {
-    case interaction
-    case input
-
-    var timeoutNanoseconds: UInt64? {
-        switch self {
-        case .interaction:
-            TerminalScrollSession.interactionRPCDeadlineNanoseconds
-        case .input:
-            // `nil` delegates to the client's normal runtime RPC deadline.
-            nil
-        }
-    }
-}
 
 /// One mounted surface's ordered interaction owner. Every scroll, click, and
 /// input enters `intents`; `phase` is the only active transaction state.
@@ -47,6 +25,7 @@ final class TerminalScrollSession {
         _ interactionEpoch: UInt64,
         _ input: TerminalInputIntent
     ) async -> Bool
+    typealias InputBufferDidReject = @MainActor @Sendable (_ pendingByteCount: Int) -> Void
     typealias SupportsOrderedRemoteRuns = @MainActor @Sendable () -> Bool
     typealias InteractionDeadline = @MainActor @Sendable (_ budget: Duration) async -> Void
     typealias PrepareIntent = @MainActor @Sendable () -> Void
@@ -59,6 +38,7 @@ final class TerminalScrollSession {
     typealias ReconciliationDidComplete = @MainActor @Sendable () -> Void
     typealias RequestReplay = @MainActor @Sendable (_ interactionEpoch: UInt64) -> Void
     typealias AdvanceEpoch = @MainActor @Sendable () -> UInt64
+    typealias AdvanceInputEpoch = @MainActor @Sendable (_ submissionCount: Int) -> UInt64
 
     struct ScrollIntent {
         var runs: [MobileTerminalScrollRun]
@@ -78,14 +58,6 @@ final class TerminalScrollSession {
             submissionCount += 1
             return true
         }
-    }
-
-    struct InputTransaction {
-        let id: UUID
-        let input: TerminalInputIntent
-        let receipt: TerminalInteractionReceipt
-        let snapGeneration: UInt64
-        var epoch: UInt64?
     }
 
     struct ScrollTransaction {
@@ -138,6 +110,7 @@ final class TerminalScrollSession {
     }
 
     nonisolated static let maximumQueuedInteractionCount = 64
+    nonisolated static let maximumQueuedInputByteCount = 64 * 1_024
     nonisolated static let interactionDeadlineMilliseconds: UInt64 = 200
     nonisolated static let maximumInteractionPlanDeadlineIntervals: UInt64 = 3
     nonisolated static let interactionDeadlineDuration = Duration.milliseconds(
@@ -165,6 +138,7 @@ final class TerminalScrollSession {
     let sendRemote: SendRemote
     let sendClick: SendClick
     let sendInput: SendInput
+    let inputBufferDidReject: InputBufferDidReject
     let supportsOrderedRemoteRuns: SupportsOrderedRemoteRuns
     let interactionDeadline: InteractionDeadline
     let prepareIntent: PrepareIntent
@@ -174,6 +148,7 @@ final class TerminalScrollSession {
     let reconciliationDidComplete: ReconciliationDidComplete
     let requestReplay: RequestReplay
     let advanceEpoch: AdvanceEpoch
+    let advanceInputEpoch: AdvanceInputEpoch
 
     var interactionEpoch: UInt64
     var latestClientRevision: UInt64 = 0
@@ -182,6 +157,7 @@ final class TerminalScrollSession {
     var phase: Phase = .idle
     var intents = BoundedFIFO<Intent>(capacity: maximumQueuedInteractionCount)
     var queuedInteractionCount = 0
+    var queuedInputByteCount = 0
     var localTask: Task<Void, Never>?
     var remoteTask: Task<Void, Never>?
     var deadlineTask: Task<Void, Never>?
@@ -213,6 +189,7 @@ final class TerminalScrollSession {
         sendRemote: @escaping SendRemote,
         sendClick: @escaping SendClick = { _, _, _, _ in false },
         sendInput: @escaping SendInput = { _, _, _ in false },
+        inputBufferDidReject: @escaping InputBufferDidReject = { _ in },
         supportsOrderedRemoteRuns: @escaping SupportsOrderedRemoteRuns = { false },
         interactionDeadline: @escaping InteractionDeadline = { budget in
             try? await ContinuousClock().sleep(for: budget)
@@ -223,7 +200,8 @@ final class TerminalScrollSession {
         completeGridlessAuthoritative: @escaping CompleteGridlessAuthoritative,
         reconciliationDidComplete: @escaping ReconciliationDidComplete,
         requestReplay: @escaping RequestReplay,
-        advanceEpoch: @escaping AdvanceEpoch
+        advanceEpoch: @escaping AdvanceEpoch,
+        advanceInputEpoch: AdvanceInputEpoch? = nil
     ) {
         self.token = token
         self.surfaceID = surfaceID
@@ -235,6 +213,7 @@ final class TerminalScrollSession {
         self.sendRemote = sendRemote
         self.sendClick = sendClick
         self.sendInput = sendInput
+        self.inputBufferDidReject = inputBufferDidReject
         self.supportsOrderedRemoteRuns = supportsOrderedRemoteRuns
         self.interactionDeadline = interactionDeadline
         self.prepareIntent = prepareIntent
@@ -244,6 +223,13 @@ final class TerminalScrollSession {
         self.reconciliationDidComplete = reconciliationDidComplete
         self.requestReplay = requestReplay
         self.advanceEpoch = advanceEpoch
+        self.advanceInputEpoch = advanceInputEpoch ?? { submissionCount in
+            var epoch: UInt64 = 0
+            for _ in 0..<submissionCount {
+                epoch = advanceEpoch()
+            }
+            return epoch
+        }
     }
 
     func submit(lines: Double, col: Int, row: Int) {
@@ -276,34 +262,24 @@ final class TerminalScrollSession {
                 recoverFromLaneFailure()
                 return
             }
-        } else if !reserveQueuedInteraction() || !intents.append(.scroll(ScrollIntent(
-            runs: [run],
-            submissionCount: 1,
-            localReceipts: localReceipt.map { [$0] } ?? [],
-            inheritedPrefetchWindow: nil
-        ))) {
-            recoverFromLaneFailure()
-            return
+        } else {
+            guard reserveQueuedInteraction() else { return }
+            guard intents.append(.scroll(ScrollIntent(
+                runs: [run],
+                submissionCount: 1,
+                localReceipts: localReceipt.map { [$0] } ?? [],
+                inheritedPrefetchWindow: nil
+            ))) else {
+                queuedInteractionCount -= 1
+                recoverFromLaneFailure()
+                return
+            }
         }
         startNextIntentIfIdle()
     }
 
     func submitClick(col: Int, row: Int) {
         enqueue(.click(col: max(0, col), row: max(0, row)))
-    }
-
-    func submitInput(_ input: TerminalInputIntent) -> TerminalInteractionReceipt {
-        cancelLocal()
-        let receipt = TerminalInteractionReceipt()
-        let transaction = InputTransaction(
-            id: UUID(),
-            input: input,
-            receipt: receipt,
-            snapGeneration: bottomSnapGeneration,
-            epoch: nil
-        )
-        guard enqueue(.input(transaction), rejectedInputReceipt: receipt) else { return receipt }
-        return receipt
     }
 
     func interactionDidBegin() {}
@@ -317,7 +293,11 @@ final class TerminalScrollSession {
     func invalidateForRecovery() -> UInt64 {
         markBottomSnapNeeded()
         let nextEpoch = advanceEpoch()
-        invalidate(nextEpoch: nextEpoch, cancelLocalInteraction: false)
+        invalidate(
+            nextEpoch: nextEpoch,
+            cancelLocalInteraction: false,
+            preserveDispatchedInput: true
+        )
         return interactionEpoch
     }
 
@@ -333,19 +313,31 @@ final class TerminalScrollSession {
     }
 
     func cancelForUnmount(nextEpoch: UInt64) {
-        invalidate(nextEpoch: nextEpoch, cancelLocalInteraction: false)
+        invalidate(
+            nextEpoch: nextEpoch,
+            cancelLocalInteraction: false,
+            preserveDispatchedInput: true
+        )
     }
 
     func recoverFromLaneFailure() {
         markBottomSnapNeeded()
         let nextEpoch = advanceEpoch()
-        invalidate(nextEpoch: nextEpoch, cancelLocalInteraction: false)
+        invalidate(
+            nextEpoch: nextEpoch,
+            cancelLocalInteraction: false,
+            preserveDispatchedInput: true
+        )
         requestReplay(nextEpoch)
     }
 
     private func reserveQueuedInteraction() -> Bool {
         guard queuedInteractionCount < Self.maximumQueuedInteractionCount else {
-            recoverFromLaneFailure()
+            if queuedInputByteCount > 0 {
+                inputBufferDidReject(queuedInputByteCount)
+            } else {
+                recoverFromLaneFailure()
+            }
             return false
         }
         queuedInteractionCount += 1
@@ -353,17 +345,10 @@ final class TerminalScrollSession {
     }
 
     @discardableResult
-    private func enqueue(
-        _ intent: Intent,
-        rejectedInputReceipt: TerminalInteractionReceipt? = nil
-    ) -> Bool {
-        guard reserveQueuedInteraction() else {
-            rejectedInputReceipt?.resolve(false)
-            return false
-        }
+    private func enqueue(_ intent: Intent) -> Bool {
+        guard reserveQueuedInteraction() else { return false }
         guard intents.append(intent) else {
             queuedInteractionCount -= 1
-            rejectedInputReceipt?.resolve(false)
             recoverFromLaneFailure()
             return false
         }
@@ -374,6 +359,9 @@ final class TerminalScrollSession {
     func removeNextIntent() -> Intent? {
         guard let next = intents.removeFirst() else { return nil }
         queuedInteractionCount = max(0, queuedInteractionCount - next.cost)
+        if case .input(let input) = next {
+            queuedInputByteCount = max(0, queuedInputByteCount - input.bufferedByteCount)
+        }
         return next
     }
 
@@ -425,6 +413,7 @@ final class TerminalScrollSession {
             if case .input(let input) = intent { input.receipt.resolve(false) }
         }
         queuedInteractionCount = 0
+        queuedInputByteCount = 0
         if !keepsInputSend {
             phase = .idle
         }

@@ -70,6 +70,11 @@ extension MobileShellComposite {
                     interactionEpoch: epoch
                 ) ?? false
             },
+            inputBufferDidReject: { [weak self] pendingByteCount in
+                self?.handleTerminalInputBufferSaturation(
+                    pendingByteCount: pendingByteCount
+                )
+            },
             supportsOrderedRemoteRuns: { [weak self] in
                 self?.supportedHostCapabilities.contains(MobileTerminalScrollRun.orderedRunsCapability) == true
             },
@@ -105,6 +110,12 @@ extension MobileShellComposite {
             },
             advanceEpoch: { [weak self] in
                 self?.advanceTerminalInteractionEpoch(surfaceID: surfaceID) ?? 0
+            },
+            advanceInputEpoch: { [weak self] submissionCount in
+                self?.advanceTerminalInteractionEpoch(
+                    surfaceID: surfaceID,
+                    by: submissionCount
+                ) ?? 0
             }
         )
         terminalScrollSessionsBySurfaceID[surfaceID] = session
@@ -189,8 +200,19 @@ extension MobileShellComposite {
     }
 
     func advanceTerminalInteractionEpoch(surfaceID: String) -> UInt64 {
+        advanceTerminalInteractionEpoch(surfaceID: surfaceID, by: 1)
+    }
+
+    func advanceTerminalInteractionEpoch(surfaceID: String, by count: Int) -> UInt64 {
+        guard count > 0 else {
+            return terminalInteractionEpochsBySurfaceID[surfaceID] ?? 0
+        }
         var next = (terminalInteractionEpochsBySurfaceID[surfaceID] ?? 0) &+ 1
         if next == 0 { next = 1 }
+        for _ in 1..<count {
+            next &+= 1
+            if next == 0 { next = 1 }
+        }
         terminalInteractionEpochsBySurfaceID[surfaceID] = next
         return next
     }

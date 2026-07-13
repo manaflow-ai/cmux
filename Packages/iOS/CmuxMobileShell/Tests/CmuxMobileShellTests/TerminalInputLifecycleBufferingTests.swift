@@ -65,6 +65,8 @@ struct TerminalInputLifecycleBufferingTests {
             session.submitInput(.text("x", workspaceID: "workspace-1"))
         }
         #expect(harness.replayEpochs.isEmpty)
+        #expect(session.queuedInteractionCount == 1)
+        #expect(session.queuedInputByteCount == 100)
         guard harness.replayEpochs.isEmpty else {
             session.cancelForUnmount(nextEpoch: 2)
             for pending in harness.pendingInputs {
@@ -88,6 +90,43 @@ struct TerminalInputLifecycleBufferingTests {
             .text("head"),
             .text(String(repeating: "x", count: 100)),
         ])
+        #expect(harness.recordedEpochs == [2, 102])
+    }
+
+    @Test("production remount preserves the old session input result")
+    func productionRemountPreservesDispatchedInput() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstPasteImage(true)
+        let store = try await makeRoutingConnectedStore(router: router)
+        let send = Task { @MainActor in
+            await store.submitTerminalInputIntent(
+                .image(
+                    Data(repeating: 0x5A, count: 1_000_000),
+                    format: "png",
+                    workspaceID: RoutingHostRouter.workspaceID
+                ),
+                surfaceID: RoutingHostRouter.terminalA
+            )
+        }
+        await router.awaitFirstPasteImageReached()
+        let oldSession = try #require(
+            store.terminalScrollSessionsBySurfaceID[RoutingHostRouter.terminalA]
+        )
+
+        _ = store.mountTerminalScrollSession(
+            surfaceID: RoutingHostRouter.terminalA,
+            cancelLocal: {}
+        )
+        #expect(store.terminalScrollSessionsBySurfaceID[RoutingHostRouter.terminalA] !== oldSession)
+        await router.releaseFirstPasteImage()
+
+        #expect(await send.value)
+        #expect(await router.recordedPasteImages().count == 1)
+        #expect(try await pollUntil { oldSession.inputTask == nil })
+        guard case .idle = oldSession.phase else {
+            Issue.record("Old remounted session did not clean up after its input result")
+            return
+        }
     }
 
     @Test("text coalescing stops at scroll click paste and image boundaries")
@@ -158,6 +197,7 @@ struct TerminalInputLifecycleBufferingTests {
         #expect(await rejected.value == false)
         #expect(harness.replayEpochs.isEmpty)
         #expect(session.queuedInteractionCount == TerminalScrollSession.maximumQueuedInteractionCount)
+        #expect(session.queuedInputByteCount <= TerminalScrollSession.maximumQueuedInputByteCount)
 
         session.cancelForUnmount(nextEpoch: 2)
         harness.pendingInputs[0].continuation.resume(returning: false)
@@ -191,6 +231,7 @@ struct TerminalInputLifecycleBufferingTests {
 
         #expect(store.connectionError != nil)
         #expect(store.connectionState == .disconnected)
+        #expect(session.queuedInputByteCount <= TerminalScrollSession.maximumQueuedInputByteCount)
         await router.releaseFirstPasteImage()
         #expect(await send.value)
         #expect(await router.recordedPasteImages().count == 1)
@@ -268,6 +309,7 @@ private final class InputBufferingHarness {
 
     var pendingInputs: [PendingInput] = []
     var recordedInputs: [RecordedInput] = []
+    var recordedEpochs: [UInt64] = []
     var events: [Event] = []
     var replayEpochs: [UInt64] = []
     var epoch: UInt64 = 1
@@ -294,10 +336,11 @@ private final class InputBufferingHarness {
                 self?.events.append(.click(col: col, row: row))
                 return true
             },
-            sendInput: { [weak self] _, _, input in
+            sendInput: { [weak self] _, epoch, input in
                 guard let self else { return false }
                 let recorded = RecordedInput(input)
                 recordedInputs.append(recorded)
+                recordedEpochs.append(epoch)
                 events.append(.input(recorded))
                 return await withCheckedContinuation { continuation in
                     pendingInputs.append(PendingInput(input: recorded, continuation: continuation))

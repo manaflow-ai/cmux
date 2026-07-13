@@ -126,25 +126,24 @@ struct TerminalInteractionLaneTests {
         #expect(await inputReceipt.value)
     }
 
-    @Test("unified intent overflow recovers and resolves queued input")
-    func unifiedIntentOverflowRecovers() async {
+    @Test("non-coalescible intent overflow rejects input without draining the lane")
+    func nonCoalescibleIntentOverflowRejectsInput() async {
         let harness = InteractionLaneHarness()
         let session = harness.makeSession()
 
         session.submitClick(col: 0, row: 0)
-        var receipts: [TerminalInteractionReceipt] = []
         for index in 0..<TerminalScrollSession.maximumQueuedInteractionCount {
-            receipts.append(session.submitInput(.text("\(index)", workspaceID: "workspace-1")))
+            session.submitClick(col: index + 1, row: index + 1)
         }
         #expect(harness.replayEpochs.isEmpty)
 
         let rejected = session.submitInput(.text("overflow", workspaceID: "workspace-1"))
 
-        #expect(harness.replayEpochs == [2])
+        #expect(harness.replayEpochs.isEmpty)
         #expect(await rejected.value == false)
-        for receipt in receipts {
-            #expect(await receipt.value == false)
-        }
+        #expect(session.queuedInteractionCount == TerminalScrollSession.maximumQueuedInteractionCount)
+        session.cancelForUnmount(nextEpoch: 2)
+        harness.barrierReceipts.first?.resolve(false)
     }
 
     @Test("unmount cancels queued input without sending it")
@@ -157,6 +156,7 @@ struct TerminalInteractionLaneTests {
 
         session.cancelForUnmount(nextEpoch: 2)
 
+        harness.barrierReceipts.first?.resolve(false)
         #expect(await inputReceipt.value == false)
         #expect(harness.events.isEmpty)
     }
