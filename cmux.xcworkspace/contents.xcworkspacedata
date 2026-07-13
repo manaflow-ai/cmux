@@ -136,6 +136,9 @@
          location = "group:CmuxNotifications">
       </FileRef>
       <FileRef
+         location = "group:CmuxOrchestration">
+      </FileRef>
+      <FileRef
          location = "group:CmuxPanes">
       </FileRef>
       <FileRef
