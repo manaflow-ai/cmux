@@ -140,6 +140,10 @@ final class SidebarInteractionLifecycleTests {
 
         static func mount(workspaceCount: Int) async throws -> Harness {
             _ = NSApplication.shared
+            #expect(
+                NSApp.setActivationPolicy(.regular),
+                "The #8004 harness must run as a foreground-capable AppKit host."
+            )
 
             let defaultsSuiteName = "SidebarInteractionLifecycleTests.\(UUID().uuidString)"
             let defaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
@@ -216,10 +220,13 @@ final class SidebarInteractionLifecycleTests {
             )
             placeholder.rootView = harness.rootView()
             window.contentView = placeholder
+            NSRunningApplication.current.activate(options: [.activateAllWindows])
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
             window.orderFrontRegardless()
             await drainMainRunLoop(for: window, iterations: 30)
+            window.makeKey()
+            await drainMainRunLoop(for: window, iterations: 4)
 
             #expect(window.isVisible, "The #8004 harness must use a visible NSWindow.")
             #expect(window.isKeyWindow, "The #8004 harness must use a key NSWindow.")
