@@ -268,8 +268,11 @@ def main() -> int:
         )
         clear_commands = server.commands[clear_start:]
 
-        if not has_command(clear_commands, f"clear_notifications --tab={workspace_id}"):
-            print("FAIL: expected clear SessionStart to clear stale notifications")
+        if not has_command(
+            clear_commands,
+            f"clear_notifications --tab={workspace_id} --panel={surface_id}",
+        ):
+            print("FAIL: expected clear SessionStart to clear only the current panel")
             print(f"clear_commands={clear_commands!r}")
             return 1
         if not has_command_with(
