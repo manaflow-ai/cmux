@@ -121,6 +121,41 @@ final class AgentNotificationReliableDeliveryTests: XCTestCase {
         XCTAssertLessThanOrEqual(identity.1, transferTime)
     }
 
+    func testUnmappedSurfaceSurvivesReliableAdmissionSessionTransfer() async {
+        let bus = TerminalMutationBus.shared
+        let oldTabId = UUID()
+        let newTabId = UUID()
+        let unmappedSurfaceId = UUID()
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer { reset(bus) }
+        for index in 0..<TerminalMutationBus.maximumPendingMutationCount {
+            XCTAssertTrue(bus.enqueueNotification(
+                tabId: oldTabId, surfaceId: unmappedSurfaceId, title: "Seed \(index)", subtitle: "", body: ""
+            ))
+        }
+        let preTransfer = Task { @MainActor in
+            await AgentNotificationDelivery().enqueueReliably(
+                workspaceID: oldTabId, surfaceID: unmappedSurfaceId, title: "Must retain unmapped surface",
+                subtitle: "", body: "", category: nil, pending: false
+            )
+        }
+        await waitForReliableAdmissionBlock(bus)
+
+        bus.transferPendingNotifications(fromTabId: oldTabId, toTabId: newTabId, panelIdMap: [:])
+        bus.drainForBackpressure()
+
+        let result = await preTransfer.value
+        XCTAssertEqual(result, .accepted)
+        let titles = bus.notificationQueueStateForTesting().1
+        guard let index = titles.firstIndex(of: "Must retain unmapped surface") else {
+            return XCTFail("Transferred reliable notification was not admitted")
+        }
+        let identity = bus.notificationIdentityStateForTesting()[index]
+        XCTAssertEqual(identity.2, newTabId)
+        XCTAssertEqual(identity.3, unmappedSurfaceId)
+    }
+
     private func waitForReliableAdmissionBlock(_ bus: TerminalMutationBus) async {
         for _ in 0..<10_000 {
             if bus.reliablyWaitingNotificationProducerCountForTesting() == 1 { return }

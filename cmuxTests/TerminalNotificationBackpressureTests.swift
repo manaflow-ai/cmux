@@ -166,6 +166,43 @@ final class TerminalNotificationBackpressureTests: XCTestCase {
 
 @MainActor
 final class TerminalNotificationSessionReplacementTests: XCTestCase {
+    func testReplacementRetainsUnmappedFocusedAndQueuedSurfaceIdentity() throws {
+        let store = TerminalNotificationStore.shared
+        let bus = TerminalMutationBus.shared
+        let oldTabId = UUID()
+        let newTabId = UUID()
+        let unmappedSurfaceId = UUID()
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        store.replaceNotificationsForTesting([])
+        defer {
+            store.replaceNotificationsForTesting([])
+            bus.discardPendingNotifications()
+            bus.drainForTesting()
+            bus.setDrainsSuspendedForTesting(false)
+        }
+
+        store.setFocusedReadIndicator(forTabId: oldTabId, surfaceId: unmappedSurfaceId)
+        XCTAssertTrue(bus.enqueueNotification(
+            tabId: oldTabId,
+            surfaceId: unmappedSurfaceId,
+            title: "Accepted before replacement",
+            subtitle: "",
+            body: ""
+        ))
+
+        store.transferSessionNotifications(
+            fromTabId: oldTabId,
+            toTabId: newTabId,
+            panelIdMap: [:]
+        )
+
+        let queued = try XCTUnwrap(bus.notificationIdentityStateForTesting().first)
+        XCTAssertEqual(queued.2, newTabId)
+        XCTAssertEqual(queued.3, unmappedSurfaceId)
+        XCTAssertEqual(store.focusedReadIndicatorSurfaceId(forTabId: newTabId), unmappedSurfaceId)
+    }
+
     func testReplacementTransfersLiveAndRestoredNotificationsToRebuiltTargets() {
         let store = TerminalNotificationStore.shared
         let bus = TerminalMutationBus.shared
