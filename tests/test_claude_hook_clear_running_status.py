@@ -109,7 +109,21 @@ class HookSocketServer:
 
         method = request.get("method")
         result: dict[str, object] = {}
-        if method == "surface.list":
+        if method == "agent.resolve_delivery_target":
+            params = request.get("params")
+            if isinstance(params, dict) and "pid" in params:
+                result = {
+                    "source": "pid",
+                    "workspace_id": self.workspace_id,
+                    "surface_id": self.surface_id,
+                }
+            else:
+                result = {
+                    "source": "surface",
+                    "workspace_id": self.workspace_id,
+                    "surface_id": self.surface_id,
+                }
+        elif method == "surface.list":
             result = {
                 "surfaces": [
                     {

@@ -305,6 +305,52 @@ struct AgentNotificationMoveRaceTests {
         #expect(!recorded.contains { $0.tabId == fixture.destination.id })
     }
 
+    @Test("Session persistence preserves source-confined notification provenance")
+    func sessionPersistencePreservesSourceConfinement() throws {
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: UUID(),
+            retargetsToLiveSurfaceOwner: false,
+            title: "Relay persisted",
+            subtitle: "Completed",
+            body: "Must remain source-confined",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isRead: false
+        )
+
+        let data = try JSONEncoder().encode(SessionNotificationSnapshot(notification: notification))
+        let decoded = try JSONDecoder().decode(SessionNotificationSnapshot.self, from: data)
+        let restored = decoded.terminalNotification(
+            tabId: notification.tabId,
+            surfaceId: notification.surfaceId,
+            panelId: notification.panelId
+        )
+
+        #expect(!restored.retargetsToLiveSurfaceOwner)
+    }
+
+    @Test("Legacy session notifications retain trusted local move behavior")
+    func legacySessionNotificationDefaultsToLiveRetargeting() throws {
+        let legacySnapshot = SessionNotificationSnapshot(
+            id: UUID(),
+            title: "Legacy local",
+            subtitle: "Completed",
+            body: "Follows its pane",
+            createdAt: 1_700_000_000,
+            isRead: false
+        )
+        let data = try JSONEncoder().encode(legacySnapshot)
+        let decoded = try JSONDecoder().decode(SessionNotificationSnapshot.self, from: data)
+        let restored = decoded.terminalNotification(
+            tabId: UUID(),
+            surfaceId: UUID(),
+            panelId: nil
+        )
+
+        #expect(restored.retargetsToLiveSurfaceOwner)
+    }
+
     @Test("A destination clear preserves source-confined in-flight relay delivery")
     func destinationClearPreservesInFlightRelayDelivery() async throws {
         let completionURL = FileManager.default.temporaryDirectory.appendingPathComponent(

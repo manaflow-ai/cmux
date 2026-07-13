@@ -8,6 +8,7 @@ extension AppDelegate {
         tabId: UUID,
         surfaceId: UUID?,
         panelId: UUID? = nil,
+        retargetsToLiveSurfaceOwner: Bool = true,
         notificationId: UUID?,
         scrollPosition: TerminalNotificationScrollPosition? = nil
     ) -> Bool {
@@ -15,7 +16,8 @@ extension AppDelegate {
         // notification was recorded, navigate to the workspace that owns the
         // surface NOW, not the one stamped at delivery (issues #7939/#2792).
         var tabId = tabId
-        if let liveSurfaceId = panelId ?? surfaceId,
+        if retargetsToLiveSurfaceOwner,
+           let liveSurfaceId = panelId ?? surfaceId,
            let owner = workspaceContainingPanel(panelId: liveSurfaceId, preferredWorkspaceId: tabId),
            owner.workspace.id != tabId {
             tabId = owner.workspace.id

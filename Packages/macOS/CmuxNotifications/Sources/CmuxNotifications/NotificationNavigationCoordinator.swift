@@ -208,6 +208,7 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             tabId: notification.tabId,
             surfaceId: notification.surfaceId,
             panelId: notification.panelId,
+            retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
             notificationId: notification.id,
             scrollRow: notification.scrollRow,
             scrollTotalRows: notification.scrollTotalRows
@@ -258,6 +259,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     ///   - surfaceId: Surface id to focus when the notification is surface-scoped.
     ///   - panelId: App-target terminal panel id used only to restore scroll
     ///     context when it differs from, or is more precise than, `surfaceId`.
+    ///   - retargetsToLiveSurfaceOwner: Whether the app-side route may follow a
+    ///     moved surface into its current owning workspace.
     ///   - notificationId: Notification id to mark read after focus succeeds.
     ///   - scrollRow: Bottom-relative terminal scrollback row captured when the
     ///     notification was recorded.
@@ -269,6 +272,7 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         tabId: UUID,
         surfaceId: UUID?,
         panelId: UUID?,
+        retargetsToLiveSurfaceOwner: Bool = true,
         notificationId: UUID?,
         scrollRow: Int?,
         scrollTotalRows: Int?
@@ -277,6 +281,7 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             tabId: tabId,
             surfaceId: surfaceId,
             panelId: panelId,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             notificationId: notificationId,
             scrollRow: scrollRow,
             scrollTotalRows: scrollTotalRows
