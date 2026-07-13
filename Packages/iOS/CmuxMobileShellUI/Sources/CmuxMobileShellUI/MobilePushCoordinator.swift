@@ -261,6 +261,10 @@ public final class MobilePushCoordinator {
             return
         }
         guard let store else { return }
+        guard pending.retargetsToLiveSurfaceOwner || pending.workspaceId != nil else {
+            pendingDeeplink = nil
+            return
+        }
 
         // Resolve the workspace to navigate to: the explicit target, or for a
         // surface-only tap the workspace that owns the terminal. Unresolvable
@@ -292,7 +296,7 @@ public final class MobilePushCoordinator {
             // resolve if the terminal arrives, bounded by the same expiry.
             store.navigateToWorkspaceForDeeplink(workspaceTarget)
             pendingDeeplink = PendingDeeplink(
-                workspaceId: nil,
+                workspaceId: pending.retargetsToLiveSurfaceOwner ? nil : pending.workspaceId,
                 surfaceId: surfaceId,
                 macDeviceId: pending.macDeviceId,
                 retargetsToLiveSurfaceOwner: pending.retargetsToLiveSurfaceOwner,

@@ -195,6 +195,7 @@ final class PhonePushClient {
                 body: "",
                 workspaceId: nil,
                 surfaceId: nil,
+                retargetsToLiveSurfaceOwner: false,
                 macDeviceId: nil,
                 notificationId: nil,
                 notificationIds: chunk,
@@ -236,6 +237,7 @@ final class PhonePushClient {
             bodyDict["body"] = payload.hideContent ? "New terminal activity" : payload.body
             if let workspaceId = payload.workspaceId { bodyDict["workspaceId"] = workspaceId }
             if let surfaceId = payload.surfaceId { bodyDict["surfaceId"] = surfaceId }
+            bodyDict["retargetsToLiveSurfaceOwner"] = payload.retargetsToLiveSurfaceOwner
             if let macDeviceId = payload.macDeviceId { bodyDict["macDeviceId"] = macDeviceId }
             // Opaque UUID, not content: safe to send even when hideContent is on.
             if let notificationId = payload.notificationId { bodyDict["notificationId"] = notificationId }

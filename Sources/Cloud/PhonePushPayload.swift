@@ -7,6 +7,8 @@ struct PhonePushPayload: Sendable {
     let body: String
     let workspaceId: String?
     let surfaceId: String?
+    /// Whether iOS may resolve `surfaceId` outside the explicit workspace.
+    let retargetsToLiveSurfaceOwner: Bool
     /// Stable Mac device id for routing notification taps in multi-Mac aggregates.
     let macDeviceId: String?
     /// Stable notification id (the Mac store ``TerminalNotification/id``).
@@ -35,7 +37,8 @@ extension PhonePushPayload {
             subtitle: notification.subtitle,
             body: notification.body,
             workspaceId: notification.tabId.uuidString,
-            surfaceId: notification.retargetsToLiveSurfaceOwner ? notification.surfaceId?.uuidString : nil,
+            surfaceId: notification.surfaceId?.uuidString,
+            retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
             macDeviceId: macDeviceId,
             notificationId: notification.id.uuidString,
             notificationIds: [],

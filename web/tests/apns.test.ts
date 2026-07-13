@@ -28,13 +28,19 @@ describe("apns payload", () => {
       body: "Agent finished",
       workspaceId: "ws-1",
       surfaceId: "sf-2",
+      retargetsToLiveSurfaceOwner: false,
       macDeviceId: "mac-3",
-    }) as { aps: Record<string, unknown>; cmux: Record<string, string> };
+    }) as { aps: Record<string, unknown>; cmux: Record<string, string | boolean> };
 
     expect(payload.aps.alert).toEqual({ title: "claude", subtitle: "issue-118", body: "Agent finished" });
     expect(payload.aps["interruption-level"]).toBe("time-sensitive");
     expect(payload.aps.sound).toBe("default");
-    expect(payload.cmux).toEqual({ workspaceId: "ws-1", surfaceId: "sf-2", macDeviceId: "mac-3" });
+    expect(payload.cmux).toEqual({
+      workspaceId: "ws-1",
+      surfaceId: "sf-2",
+      retargetsToLiveSurfaceOwner: false,
+      macDeviceId: "mac-3",
+    });
   });
 
   test("omits cmux block when no ids", () => {

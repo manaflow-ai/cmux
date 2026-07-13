@@ -124,8 +124,10 @@ import Testing
 
         #expect(confinedPayload.workspaceId == workspaceId.uuidString)
         #expect(confinedPayload.surfaceId == surfaceId.uuidString)
+        #expect(!confinedPayload.retargetsToLiveSurfaceOwner)
         #expect(trustedPayload.workspaceId == workspaceId.uuidString)
         #expect(trustedPayload.surfaceId == surfaceId.uuidString)
+        #expect(trustedPayload.retargetsToLiveSurfaceOwner)
     }
 
     // MARK: - Heuristic details

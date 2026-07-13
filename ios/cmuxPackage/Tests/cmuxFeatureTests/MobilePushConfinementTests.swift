@@ -1,4 +1,5 @@
 import CmuxMobileRPC
+@testable import CmuxMobileShell
 @testable import CmuxMobileShellUI
 import CmuxMobileShellModel
 import Testing
