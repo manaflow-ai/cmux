@@ -158,6 +158,31 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    /// Regression: the standalone preview must not inherit editable task state
+    /// from the app's production UserDefaults store.
+    @MainActor
+    func testTaskComposerPreviewIgnoresProductionTemplateDefaults() throws {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_US",
+            "-cmux.mobile.taskTemplates.seeded.v3", "YES",
+            "-cmux.mobile.taskTemplates.v3", "invalid-production-template-data",
+        ]
+        app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = "0"
+        app.launchEnvironment["CMUX_UITEST_TASK_COMPOSER_PREVIEW"] = "1"
+        app.launch()
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
+        for name in ["Claude", "Codex", "OpenCode", "Shell"] {
+            XCTAssertTrue(
+                app.buttons[name].waitForExistence(timeout: 2),
+                "The deterministic preview must ignore production defaults and expose \(name)"
+            )
+        }
+    }
+
     /// Regression: fast pinch-zoom must not hang the main thread (the
     /// scene-update watchdog `0x8BADF00D` was killing the app because
     /// libghostty surface calls block on the main thread) and must not

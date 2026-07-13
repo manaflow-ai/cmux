@@ -103,6 +103,75 @@ import Testing
         #expect(await currentRouter.recordedWorkspaceCreateCount() == 1)
     }
 
+    @Test func taskComposerDoesNotArmCreateBoundaryBeforeTargetCapabilityCheck() async throws {
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["": [Self.pairedMac(macDeviceID: "secondary-old")]],
+            blockedTeams: []
+        )
+        let store = try await makeRoutingConnectedStore(
+            router: RoutingHostRouter(),
+            pairedMacStore: pairedStore
+        )
+        let targetRouter = RoutingHostRouter()
+        try installSecondaryClient(
+            on: store,
+            macDeviceID: "secondary-old",
+            router: targetRouter,
+            supportedHostCapabilities: []
+        )
+        var boundaryCallCount = 0
+
+        let result = await store.submitTaskComposer(
+            macDeviceID: "secondary-old",
+            spec: MobileWorkspaceCreateSpec(title: "Unsupported", operationID: UUID()),
+            willStartCreate: { boundaryCallCount += 1 }
+        )
+
+        guard case .failure(.unsupported) = result else {
+            return #expect(Bool(false), "old Mac should fail before the create boundary")
+        }
+        #expect(boundaryCallCount == 0)
+        #expect(await targetRouter.recordedWorkspaceCreateCount() == 0)
+    }
+
+    @Test func taskComposerArmsCreateBoundaryAfterTargetMacPromotion() async throws {
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["": [Self.pairedMac(macDeviceID: "secondary-current")]],
+            blockedTeams: []
+        )
+        let store = try await makeRoutingConnectedStore(
+            router: RoutingHostRouter(),
+            pairedMacStore: pairedStore
+        )
+        let targetRouter = RoutingHostRouter()
+        try installSecondaryClient(
+            on: store,
+            macDeviceID: "secondary-current",
+            router: targetRouter,
+            supportedHostCapabilities: ["workspace.task_create.v1"]
+        )
+        var boundarySnapshots: [(macDeviceID: String?, workspaceIDs: Set<String>)] = []
+
+        let result = await store.submitTaskComposer(
+            macDeviceID: "secondary-current",
+            spec: MobileWorkspaceCreateSpec(title: "Current", operationID: UUID()),
+            willStartCreate: {
+                boundarySnapshots.append((
+                    macDeviceID: store.foregroundMacDeviceID,
+                    workspaceIDs: Set(store.workspaces.map { $0.rpcWorkspaceID.rawValue })
+                ))
+            }
+        )
+
+        guard case .success = result else {
+            return #expect(Bool(false), "current Mac should create after promotion")
+        }
+        #expect(boundarySnapshots.count == 1)
+        #expect(boundarySnapshots.first?.macDeviceID == "secondary-current")
+        #expect(boundarySnapshots.first?.workspaceIDs.contains(RoutingHostRouter.workspaceID) == true)
+        #expect(await targetRouter.recordedWorkspaceCreateCount() == 1)
+    }
+
     @Test func pinnedContextRejectsAmbientReplacementClientAndGeneration() async throws {
         let targetRouter = RoutingHostRouter()
         let ambientRouter = RoutingHostRouter()
