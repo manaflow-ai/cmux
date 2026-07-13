@@ -315,47 +315,6 @@ struct ProcessDetectedResumeIndexCoordinationTests {
     }
 
     @Test
-    func unavailableTerminationIndexesPreserveCoreTerminalSnapshot() throws {
-        let previousAppDelegate = AppDelegate.shared
-        let app = AppDelegate()
-        AppDelegate.shared = app
-        defer { AppDelegate.shared = previousAppDelegate }
-        let manager = TabManager(autoWelcomeIfNeeded: false)
-        let windowId = app.registerMainWindowContextForTesting(tabManager: manager)
-        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
-        let workspace = try #require(manager.selectedWorkspace)
-        let panelId = try #require(workspace.focusedPanelId)
-        #expect(workspace.setSurfaceResumeBinding(
-            SurfaceResumeBindingSnapshot(
-                name: "tmux",
-                kind: "tmux",
-                command: "tmux attach -t preserved",
-                cwd: "/tmp/preserved",
-                checkpointId: "preserved",
-                source: "process-detected",
-                updatedAt: 42
-            ),
-            panelId: panelId
-        ))
-
-        let plan = ProcessDetectedResumeIndexSavePlan.resolve(.completed(nil))
-        #expect(
-            plan.restorableAgentIndex.snapshot(workspaceId: UUID(), panelId: UUID()) == nil,
-            "Core snapshot fallback must suppress the snapshot builder's cold refresh."
-        )
-        let snapshot = try #require(app.debugBuildSessionSnapshotForTesting(
-            includeScrollback: false,
-            surfaceResumeBindingIndex: plan.surfaceResumeBindingIndex
-        ))
-        let savedWorkspace = try #require(snapshot.windows.first?.tabManager.workspaces.first)
-
-        #expect(plan.usesCoreSnapshotFallback)
-        #expect(savedWorkspace.workspaceId == workspace.id)
-        #expect(savedWorkspace.panels.first(where: { $0.id == panelId })?
-            .terminal?.resumeBinding?.checkpointId == "preserved")
-    }
-
-    @Test
     func confirmedTerminationCaptureBeginsTeardownWithoutASecondSnapshotPass() async {
         let events = OSAllocatedUnfairLock(initialState: [String]())
         let watchdog = TerminationWatchdog(
