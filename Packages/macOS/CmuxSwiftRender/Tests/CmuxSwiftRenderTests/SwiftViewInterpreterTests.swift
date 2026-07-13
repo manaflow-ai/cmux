@@ -332,6 +332,17 @@ import Testing
         #expect(node?.children.last?.modifiers.first(where: { $0.name == "foregroundColor" })?.firstValue == "#FF3B30")
     }
 
+    @Test func valueFunctionOptionalBindingRejectsNilLiteral() {
+        let node = interp.evaluate("""
+        func label() -> String {
+            if let value = nil { return "unexpected: \\(value)" }
+            return "ok"
+        }
+        VStack { Text(label()) }
+        """)
+        #expect(node?.children.first?.text == "ok")
+    }
+
     @Test func userViewFunctionHelper() {
         let node = interp.evaluate("""
         func row(title) -> some View {
