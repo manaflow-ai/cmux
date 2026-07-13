@@ -67,7 +67,7 @@ describe("app pricing page", () => {
     await expect(
       AppPricingPage({ searchParams: Promise.resolve({}) }),
     ).rejects.toMatchObject({
-      digest: expect.stringContaining(";/pricing;"),
+      digest: "NEXT_REDIRECT;replace;/pricing;307;",
     });
   });
 
