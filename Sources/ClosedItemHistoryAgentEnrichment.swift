@@ -4,7 +4,7 @@ extension ClosedItemHistoryStore {
     @discardableResult
     func pushPreservingAgentMetadata(
         _ entry: ClosedItemHistoryEntry
-    ) -> Task<Void, Never>? {
+    ) -> Task<Bool, Never>? {
         pushPreservingAgentMetadata(entry, coordinatedBy: .shared)
     }
 
@@ -14,7 +14,7 @@ extension ClosedItemHistoryStore {
     func pushPreservingAgentMetadata(
         _ entry: ClosedItemHistoryEntry,
         coordinatedBy sharedIndex: SharedLiveAgentIndex
-    ) -> Task<Void, Never>? {
+    ) -> Task<Bool, Never>? {
         let record = ClosedItemHistoryRecord(entry: entry)
         guard entry.requiresAgentMetadataEnrichment else {
             push(record)
@@ -23,41 +23,47 @@ extension ClosedItemHistoryStore {
         pushPendingEnrichment(record)
         let refreshTask = sharedIndex.indexRefreshTaskForDestructiveClose()
         return Task { @MainActor [weak self] in
-            guard let self else { return }
-            let index = await refreshTask.value
-            let capturedEntry = index.map {
-                record.entry.enrichingAgentMetadata(from: $0)
-            } ?? record.entry
+            guard let self,
+                  let index = await refreshTask.value else {
+                return false
+            }
+            let capturedEntry = record.entry.enrichingAgentMetadata(from: index)
             self.resolvePendingEnrichment(recordID: record.id) { currentEntry in
                 currentEntry.mergingCapturedAgentMetadata(from: capturedEntry)
             }
+            return true
         }
     }
 }
 
 @MainActor
 final class AgentMetadataCloseDeferrer {
-    private var tasksByID: [UUID: Task<Void, Never>] = [:]
+    private typealias DeferredClose = (
+        task: Task<Void, Never>,
+        close: @MainActor () -> Void
+    )
+
+    private var deferredClosesByID: [UUID: DeferredClose] = [:]
 
     @discardableResult
     func deferClose(
         id: UUID,
-        until captureTask: Task<Void, Never>,
+        until captureTask: Task<Bool, Never>,
         close: @escaping @MainActor () -> Void
     ) -> Task<Void, Never> {
-        tasksByID[id]?.cancel()
+        deferredClosesByID[id]?.task.cancel()
         let task = Task { @MainActor [weak self] in
-            await captureTask.value
-            guard !Task.isCancelled else { return }
+            let isReadyToClose = await captureTask.value
+            guard isReadyToClose, !Task.isCancelled else { return }
             close()
-            self?.tasksByID.removeValue(forKey: id)
+            self?.deferredClosesByID.removeValue(forKey: id)
         }
-        tasksByID[id] = task
+        deferredClosesByID[id] = (task: task, close: close)
         return task
     }
 
     func isDeferringClose(id: UUID) -> Bool {
-        tasksByID[id] != nil
+        deferredClosesByID[id] != nil
     }
 }
 

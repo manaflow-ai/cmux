@@ -337,7 +337,7 @@ extension Workspace {
     @discardableResult
     func deferPanelCloseUntilAgentMetadataCaptured(
         panelId: UUID,
-        captureTask: Task<Void, Never>?
+        captureTask: Task<Bool, Never>?
     ) -> Task<Void, Never>? {
         guard let captureTask,
               let panel = panels[panelId] as? TerminalPanel else {
@@ -353,7 +353,7 @@ extension Workspace {
     }
 
     func deferAllPanelClosesUntilAgentMetadataCaptured(
-        _ captureTask: Task<Void, Never>?
+        _ captureTask: Task<Bool, Never>?
     ) {
         guard let captureTask else { return }
         for panelId in panels.keys {

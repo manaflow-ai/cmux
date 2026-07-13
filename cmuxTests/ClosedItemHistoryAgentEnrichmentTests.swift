@@ -123,7 +123,7 @@ struct ClosedItemHistoryAgentEnrichmentTests {
         #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: loadStarted))
         #expect(!store.canReopen)
         releaseLoad.signal()
-        await capture.value
+        _ = await capture.value
 
         let recordId = try #require(store.menuSnapshot().items.first?.id)
         let record = try #require(store.removeRecord(id: recordId)?.record)
@@ -194,8 +194,8 @@ struct ClosedItemHistoryAgentEnrichmentTests {
         let secondGate = AsyncGate()
         let closeCount = OSAllocatedUnfairLock(initialState: 0)
         let deferrer = AgentMetadataCloseDeferrer()
-        let firstCapture = Task { await firstGate.wait() }
-        let secondCapture = Task { await secondGate.wait() }
+        let firstCapture = Task { await firstGate.wait(); return true }
+        let secondCapture = Task { await secondGate.wait(); return true }
         let firstClose = deferrer.deferClose(id: panelId, until: firstCapture) {
             closeCount.withLock { $0 += 1 }
         }
@@ -217,7 +217,7 @@ struct ClosedItemHistoryAgentEnrichmentTests {
         let panelId = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.terminalPanel(for: panelId))
         let captureGate = AsyncGate()
-        let captureTask = Task { await captureGate.wait() }
+        let captureTask = Task { await captureGate.wait(); return true }
         defer { panel.close() }
         panel.hostedView.setVisibleInUI(true)
 
@@ -287,11 +287,11 @@ struct ClosedItemHistoryAgentEnrichmentTests {
             snapshot: enrichedPanel
         ))
 
-        let browserCapture: Task<Void, Never>? = store.pushPreservingAgentMetadata(
+        let browserCapture: Task<Bool, Never>? = store.pushPreservingAgentMetadata(
             browserEntry,
             coordinatedBy: sharedIndex
         )
-        let enrichedCapture: Task<Void, Never>? = store.pushPreservingAgentMetadata(
+        let enrichedCapture: Task<Bool, Never>? = store.pushPreservingAgentMetadata(
             enrichedEntry,
             coordinatedBy: sharedIndex
         )
@@ -304,8 +304,8 @@ struct ClosedItemHistoryAgentEnrichmentTests {
         #expect(loadCount.withLock { $0 } == 0)
 
         releaseLoad.signal()
-        await browserCapture?.value
-        await enrichedCapture?.value
+        _ = await browserCapture?.value
+        _ = await enrichedCapture?.value
     }
 
     @Test
@@ -332,7 +332,7 @@ struct ClosedItemHistoryAgentEnrichmentTests {
             coordinatedBy: sharedIndex
         )
 
-        await capture?.value
+        _ = await capture?.value
         #expect(capture == nil)
         #expect(loadCount.withLock { $0 } == 0)
         #expect(store.canReopen)
