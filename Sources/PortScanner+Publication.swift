@@ -27,13 +27,9 @@ extension PortScanner {
             }
 
             guard let agentCallback = onAgentPortsUpdated else { continue }
-            let lifecycleResults = batch.agentPublicationsByWorkspace.values.filter { result in
-                publicationState.isCurrentAgentRevision(result.revision, workspaceId: result.workspaceId)
-            }
-            let latestResults = await filterLatestAgentPublications(lifecycleResults)
-            let currentResults = latestResults.filter { result in
-                publicationState.isCurrentAgentRevision(result.revision, workspaceId: result.workspaceId)
-            }
+            let currentResults = publicationState.acceptCurrentAgentPublications(
+                batch.agentPublicationsByWorkspace.values
+            )
             guard !currentResults.isEmpty else { continue }
             let appliedResults = currentResults.filter { result in
                 agentCallback(result.workspaceId, result.ports)
@@ -57,18 +53,4 @@ extension PortScanner {
         }
     }
 
-    private func filterLatestAgentPublications(
-        _ publications: [AgentPortScanPublication]
-    ) async -> [AgentPortScanPublication] {
-        await withCheckedContinuation { continuation in
-            queue.async { [self] in
-                continuation.resume(returning: publications.filter { publication in
-                    scanCoordination.isLatestAgentResult(
-                        workspaceId: publication.workspaceId,
-                        requestID: publication.requestID
-                    )
-                })
-            }
-        }
-    }
 }

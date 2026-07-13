@@ -1,3 +1,4 @@
+import CmuxCore
 import CmuxFoundation
 import Foundation
 import Testing
@@ -249,6 +250,25 @@ struct PortScanPublicationStateTests {
 
         #expect(state.isCurrentAgentRevision(staleRevision, workspaceId: workspaceID) == false)
         #expect(state.isCurrentAgentRevision(currentRevision, workspaceId: workspaceID))
+
+        let currentPublication = AgentPortScanPublication(
+            workspaceId: workspaceID,
+            ports: [4200],
+            revision: currentRevision,
+            requestID: 2,
+            removesLifecycle: false
+        )
+        let staleRequest = AgentPortScanPublication(
+            workspaceId: workspaceID,
+            ports: [4000],
+            revision: currentRevision,
+            requestID: 1,
+            removesLifecycle: false
+        )
+        let acceptedCurrent = state.acceptCurrentAgentPublications([currentPublication])
+        let rejectedStale = state.acceptCurrentAgentPublications([staleRequest])
+        #expect(acceptedCurrent.map(\.requestID) == [2])
+        #expect(rejectedStale.isEmpty)
     }
 
     @Test("Finishing a one-shot lifecycle removes only its current revision")
@@ -268,6 +288,32 @@ struct PortScanPublicationStateTests {
         #expect(restartedRevision > currentRevision)
         #expect(state.isCurrentAgentRevision(currentRevision, workspaceId: workspaceID) == false)
         #expect(state.isCurrentAgentRevision(restartedRevision, workspaceId: workspaceID))
+    }
+}
+
+@Suite("Agent port snapshot replacement")
+struct AgentPortSnapshotReplacementStateTests {
+    @Test("Root transitions replace on complete or after bounded incomplete scans")
+    func replacementIsCompletenessBounded() {
+        var state = AgentPortSnapshotReplacementState(incompleteRetentionLimit: 2)
+        let workspaceID = UUID()
+        state.begin(workspaceId: workspaceID)
+
+        let first = state.workspacesToReplace(from: [workspaceID], completeness: .incomplete)
+        let second = state.workspacesToReplace(from: [workspaceID], completeness: .incomplete)
+        let third = state.workspacesToReplace(from: [workspaceID], completeness: .incomplete)
+        #expect(first.isEmpty)
+        #expect(second.isEmpty)
+        #expect(third == [workspaceID])
+
+        state.begin(workspaceId: workspaceID)
+        let complete = state.workspacesToReplace(from: [workspaceID], completeness: .complete)
+        #expect(complete == [workspaceID])
+
+        state.begin(workspaceId: workspaceID)
+        state.cancel(workspaceId: workspaceID)
+        let cancelled = state.workspacesToReplace(from: [workspaceID], completeness: .complete)
+        #expect(cancelled.isEmpty)
     }
 }
 

@@ -79,6 +79,7 @@
 		B79500040000000000000001 /* AgentPortScanPIDInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500040000000000000002 /* AgentPortScanPIDInput.swift */; };
 		B79500050000000000000001 /* AgentPortScanPublication.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500050000000000000002 /* AgentPortScanPublication.swift */; };
 		B79500020000000000000001 /* AgentPortScanRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500020000000000000002 /* AgentPortScanRequest.swift */; };
+		B79500140000000000000001 /* AgentPortSnapshotReplacementState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500140000000000000002 /* AgentPortSnapshotReplacementState.swift */; };
 		B79500110000000000000001 /* AgentPortTrackingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500110000000000000002 /* AgentPortTrackingState.swift */; };
 		0A1107110000000000000012 /* AgentRelaunchCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000013 /* AgentRelaunchCommandBuilder.swift */; };
 		0A1107110000000000000014 /* AgentRestoreMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000015 /* AgentRestoreMode.swift */; };
@@ -1892,6 +1893,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B79500040000000000000002 /* AgentPortScanPIDInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPortScanPIDInput.swift; sourceTree = "<group>"; };
 		B79500050000000000000002 /* AgentPortScanPublication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPortScanPublication.swift; sourceTree = "<group>"; };
 		B79500020000000000000002 /* AgentPortScanRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPortScanRequest.swift; sourceTree = "<group>"; };
+		B79500140000000000000002 /* AgentPortSnapshotReplacementState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPortSnapshotReplacementState.swift; sourceTree = "<group>"; };
 		B79500110000000000000002 /* AgentPortTrackingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPortTrackingState.swift; sourceTree = "<group>"; };
 		0A1107110000000000000013 /* AgentRelaunchCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRelaunchCommandBuilder.swift; sourceTree = "<group>"; };
 		0A1107110000000000000015 /* AgentRestoreMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRestoreMode.swift; sourceTree = "<group>"; };
@@ -4282,6 +4284,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B79500050000000000000002 /* AgentPortScanPublication.swift */,
 				B79500040000000000000002 /* AgentPortScanPIDInput.swift */,
 				B79500020000000000000002 /* AgentPortScanRequest.swift */,
+				B79500140000000000000002 /* AgentPortSnapshotReplacementState.swift */,
 				B79500110000000000000002 /* AgentPortTrackingState.swift */,
 				B79500060000000000000002 /* PortScanPublicationState.swift */,
 				B79500100000000000000002 /* PortScanPublicationBatch.swift */,
@@ -5834,6 +5837,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B79500040000000000000001 /* AgentPortScanPIDInput.swift in Sources */,
 				B79500050000000000000001 /* AgentPortScanPublication.swift in Sources */,
 				B79500020000000000000001 /* AgentPortScanRequest.swift in Sources */,
+				B79500140000000000000001 /* AgentPortSnapshotReplacementState.swift in Sources */,
 				B79500110000000000000001 /* AgentPortTrackingState.swift in Sources */,
 				0A1107110000000000000012 /* AgentRelaunchCommandBuilder.swift in Sources */,
 				0A1107110000000000000014 /* AgentRestoreMode.swift in Sources */,

@@ -30,21 +30,18 @@ final class PortScanner: @unchecked Sendable {
 
     let queue = DispatchQueue(label: "com.cmux.port-scanner", qos: .utility)
 
-    /// TTY name per (workspace, panel).
     private var ttyNames: [PanelKey: String] = [:]
 
-    /// Monotonic revision per workspace for tracked agent PID changes.
     private var agentRevisionByWorkspace: [UUID: UInt64] = [:]
     private var agentTrackingState = AgentPortTrackingState()
-    var scanCoordination = PortScanCoordination()
+    private var scanCoordination = PortScanCoordination()
 
-    /// Workspaces with active agent PID tracking that need background rescans.
     private var trackedAgentWorkspaces: Set<UUID> = []
     private var agentPublicationHistory = AgentPortPublicationHistory()
     /// Stable publication state shared by every best-effort local scan path.
     private var panelPortSnapshot = PortScanSnapshotReconciler<PanelKey>()
     private var agentPortSnapshot = PortScanSnapshotReconciler<UUID>()
-    private var pendingAgentSnapshotReplacementWorkspaces: Set<UUID> = []
+    private var agentSnapshotReplacementState = AgentPortSnapshotReplacementState()
     private var forceAgentResultWorkspaces: Set<UUID> = []
     private var trackedAgentScanningPaused = false
     let publicationState = PortScanPublicationState()
@@ -74,9 +71,16 @@ final class PortScanner: @unchecked Sendable {
     func registerTTY(workspaceId: UUID, panelId: UUID, ttyName: String) {
         queue.async { [self] in
             let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
-            guard ttyNames[key] != ttyName else { return }
+            let previousTTY = ttyNames[key]
+            guard previousTTY != ttyName else { return }
             panelPortSnapshot.remove(keys: [key])
             ttyNames[key] = ttyName
+            if previousTTY != nil, onPortsUpdated != nil {
+                let publication = ttyNames.keys.reduce(into: [PanelKey: [Int]]()) { result, panelKey in
+                    result[panelKey] = panelPortSnapshot.snapshot[panelKey] ?? []
+                }
+                enqueuePanelPublication(publication)
+            }
         }
     }
 
@@ -320,11 +324,11 @@ final class PortScanner: @unchecked Sendable {
         let normalizedPIDs = Set(normalizedRoots.map(\.pid))
         if agentTrackingState.replaceRoots(normalizedRoots, workspaceId: workspaceId),
            !normalizedRoots.isEmpty {
-            pendingAgentSnapshotReplacementWorkspaces.insert(workspaceId)
+            agentSnapshotReplacementState.begin(workspaceId: workspaceId)
         }
         if normalizedPIDs.isEmpty {
             trackedAgentWorkspaces.remove(workspaceId)
-            pendingAgentSnapshotReplacementWorkspaces.remove(workspaceId)
+            agentSnapshotReplacementState.cancel(workspaceId: workspaceId)
             agentPortSnapshot.remove(keys: [workspaceId])
             scanCoordination.removeAgentWorkspaces([workspaceId])
         } else {
@@ -619,13 +623,11 @@ final class PortScanner: @unchecked Sendable {
         let scannedPorts = agentPortsByWorkspace
             .filter { validWorkspaceIds.contains($0.key) }
             .mapValues { Array($0) }
-        if completeness == .complete {
-            let replacementWorkspaces = validWorkspaceIds.intersection(
-                pendingAgentSnapshotReplacementWorkspaces
-            )
-            agentPortSnapshot.remove(keys: replacementWorkspaces)
-            pendingAgentSnapshotReplacementWorkspaces.subtract(replacementWorkspaces)
-        }
+        let replacementWorkspaces = agentSnapshotReplacementState.workspacesToReplace(
+            from: validWorkspaceIds,
+            completeness: completeness
+        )
+        agentPortSnapshot.remove(keys: replacementWorkspaces)
         let stableSnapshot = agentPortSnapshot.reconcile(
             scannedPorts: scannedPorts,
             scannedKeys: validWorkspaceIds,
