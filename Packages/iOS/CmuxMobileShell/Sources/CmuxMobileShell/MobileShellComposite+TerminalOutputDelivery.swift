@@ -77,6 +77,11 @@ extension MobileShellComposite {
         // dropped-frame replay is pending) must not paint an older cursor
         // frame or establish a baseline from pre-input content.
         guard !shouldDropRenderGridBehindPendingInput(renderGrid, source: source) else { return }
+        // Theme metadata belongs to the accepted authoritative frame, even when
+        // hybrid delivery treats the primary-screen grid as advisory or a
+        // replay barrier delays its terminal output. Recording it here keeps
+        // chrome updates independent from the selected output transport.
+        recordTerminalTheme(renderGrid)
         let hasDeliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID] != nil
         let previousScreen = terminalActiveScreenBySurfaceID[renderGrid.surfaceID]
         // The alternate baseline flag is maintained by DELIVERED frames only,

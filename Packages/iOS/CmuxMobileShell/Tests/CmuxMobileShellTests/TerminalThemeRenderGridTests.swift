@@ -43,3 +43,28 @@ import Testing
     store.selectedTerminalID = secondID
     #expect(store.activeTerminalTheme == dark)
 }
+
+@MainActor
+@Test func hybridPrimaryAdvisoryFrameStillUpdatesTerminalTheme() throws {
+    let surfaceID = "terminal-hybrid-theme"
+    let store = MobileShellComposite.preview()
+    store.selectedTerminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
+    store.terminalOutputTransport = .hybrid
+    let outputStream = store.terminalOutputStream(surfaceID: surfaceID)
+    var light = TerminalTheme.monokai
+    light.background = "#f4f0df"
+    light.foreground = "#17212b"
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 1,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        terminalTheme: light
+    )
+
+    store.deliverAuthoritativeTerminalRenderGrid(frame, source: "event")
+
+    #expect(store.activeTerminalTheme == light)
+    _ = outputStream
+}

@@ -299,11 +299,11 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// The fill behind the input accessory bar, kept so a live theme change can
     /// recolor it from the new theme's background.
     private weak var accessoryBarBackgroundView: UIView?
-
     func refreshThemeColors() {
         accessoryBarBackgroundView?.backgroundColor = themeBarColor
         dismissButton?.tintColor = themeChromeColor.withAlphaComponent(0.78)
         accessoryArrowNub?.applyTheme(background: themeBarColor, foreground: themeChromeColor)
+        if accessoryStackView != nil { populateAccessoryActions() }
         refreshAccessoryButtonStyles()
     }
 
@@ -934,10 +934,10 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         var config = UIButton.Configuration.plain()
         config.image = UIImage(systemName: "chevron.down.square")
         config.preferredSymbolConfigurationForImage = Self.accessoryButtonSymbolConfig
-        config.baseForegroundColor = UIColor(white: 0.7, alpha: 1)
+        config.baseForegroundColor = themeChromeColor.withAlphaComponent(0.72)
         config.contentInsets = Self.accessoryButtonContentInsets
         button.configuration = config
-        button.tintColor = UIColor(white: 0.7, alpha: 1)
+        button.tintColor = themeChromeColor.withAlphaComponent(0.72)
         button.heightAnchor.constraint(equalToConstant: Self.accessoryButtonHeight).isActive = true
         button.widthAnchor.constraint(equalToConstant: Self.accessoryButtonMinWidth).isActive = true
         return button
@@ -961,10 +961,10 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         var config = UIButton.Configuration.plain()
         config.image = UIImage(systemName: "slider.horizontal.3")
         config.preferredSymbolConfigurationForImage = Self.accessoryButtonSymbolConfig
-        config.baseForegroundColor = UIColor(white: 0.7, alpha: 1)
+        config.baseForegroundColor = themeChromeColor.withAlphaComponent(0.72)
         config.contentInsets = Self.accessoryButtonContentInsets
         button.configuration = config
-        button.tintColor = UIColor(white: 0.7, alpha: 1)
+        button.tintColor = themeChromeColor.withAlphaComponent(0.72)
         button.heightAnchor.constraint(equalToConstant: Self.accessoryButtonHeight).isActive = true
         button.widthAnchor.constraint(equalToConstant: Self.accessoryButtonMinWidth).isActive = true
         return button
