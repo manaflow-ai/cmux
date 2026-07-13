@@ -1,0 +1,156 @@
+# Control Socket Protocol
+
+As of protocol v6, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe` and `attach-surface` also push event lines on the same connection.
+
+For shell use, prefer `cmux-tui <verb>`; it wraps the same socket commands and preserves JSON output with `--json`.
+
+Default socket path:
+
+```text
+$TMPDIR/cmux-tui-<uid>/<session>.sock
+```
+
+`identify` reports the protocol version:
+
+```json
+{"id":1,"cmd":"identify"}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":6,"session":"main","pid":12345}}
+```
+
+Responses have this shape:
+
+```json
+{"id":1,"ok":true,"data":{}}
+{"id":2,"ok":false,"error":"unknown surface 99"}
+```
+
+Bad JSON returns `ok:false` with no request id.
+
+## Command Contract
+
+The full API contract is intended to live in `cmux-tui/spec/`, but that directory is not present in this checkout. Until it lands, `cmux-tui-core/src/server.rs` is the command source of truth.
+
+The server command set in this branch is:
+
+```text
+identify
+list-workspaces
+send
+read-screen
+vt-state
+new-tab
+new-browser-tab
+new-workspace
+new-screen
+split
+set-ratio
+move-tab
+move-workspace
+set-default-colors
+close-surface
+close-pane
+close-screen
+close-workspace
+rename-pane
+rename-surface
+rename-screen
+rename-workspace
+resize-surface
+focus-pane
+select-tab
+select-screen
+select-workspace
+browser-mouse
+browser-wheel
+browser-key
+browser-insert-text
+browser-navigate
+browser-back
+browser-forward
+browser-reload
+browser-activate
+subscribe
+attach-surface
+scroll-surface
+```
+
+`move-tab` moves a surface to a target pane and insertion index. It supports same-pane reorder and cross-pane moves.
+
+```json
+{"id":10,"cmd":"move-tab","surface":4,"pane":2,"index":0}
+```
+
+`move-workspace` moves a workspace to an insertion index.
+
+```json
+{"id":11,"cmd":"move-workspace","workspace":3,"index":0}
+```
+
+## Events
+
+`subscribe` starts event streaming:
+
+```json
+{"id":20,"cmd":"subscribe"}
+```
+
+Response data is `{}`. Future event lines may interleave with responses.
+
+Subscribed event lines are:
+
+```json
+{"event":"surface-output","surface":4}
+{"event":"surface-resized","surface":4,"cols":120,"rows":40}
+{"event":"surface-exited","surface":4}
+{"event":"title-changed","surface":4}
+{"event":"bell","surface":4}
+{"event":"tree-changed"}
+{"event":"empty"}
+```
+
+`surface-resized` reports the final clamped cell size and is emitted only when the surface size actually changes.
+
+Browser input, navigation, activation, and browser reconfigure work from `resize-surface` enqueue per-surface CDP work and return `ok:true` after acceptance. Completion or failure is observed later via browser state and status events. Two consecutive CDP call timeouts mark only that browser surface failed with `browser is not responding`.
+
+## Attach Surface
+
+`attach-surface` streams a PTY or browser surface.
+
+```json
+{"id":30,"cmd":"attach-surface","surface":4}
+```
+
+The server first sends:
+
+```json
+{"event":"vt-state","surface":4,"cols":120,"rows":40,"data":"<base64-vt-replay>"}
+```
+
+Then it sends ordered stream frames:
+
+```json
+{"event":"output","surface":4,"data":"<base64-pty-bytes>"}
+{"event":"resized","surface":4,"cols":132,"rows":43,"data":"<base64-vt-replay>"}
+```
+
+The `resized` attach frame carries the new cell size and a fresh VT replay captured at that size. It is delivered in the same attach stream as output frames, so a client can reset its local terminal, apply the replay, and continue consuming later output in order.
+
+For browser surfaces, the server first sends `browser-state` with URL, title, size, status, stalled-frame state, and the latest PNG frame if one exists. Later updates send `browser-state` and `frame` events. Frame payloads are base64 PNG data and slow clients skip older frames rather than buffering unboundedly.
+
+When the stream ends, it sends:
+
+```json
+{"event":"detached","surface":4}
+```
+
+## Client Compatibility
+
+The remote TUI requires protocol v6. It refuses servers reporting any other protocol version because attach streams need resize markers carrying replay data.
+
+Attach clients mirror PTY surfaces locally. On first render, a client can resize the server surface before requesting `attach-surface`, so the initial VT replay is captured at the visible geometry.
+
+When several attach clients render the same surface at different sizes, sizing follows latest local interaction. A client reasserts its visible sizes after key input, mouse input, paste, focus gained, or terminal resize. Mux-driven redraws update local mirrors from `surface-resized` without reasserting an idle client's viewport.
+
+## Browser Limitations
+
+Browser surfaces appear in `list-workspaces` as `kind: "browser"` with `browser_source: "external"` or `"launched"` once live, plus additive `browser_status`, `browser_error`, and `browser_frames_stalled` fields. PTY and VT commands against browser surfaces return errors.

@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Foundation
+import CmuxTerminal
 
 enum FileDropResolvedBehavior: Equatable {
     case text
@@ -125,6 +126,50 @@ enum FileDropTextDropController {
             window: window
         )
         return true
+    }
+
+    @discardableResult
+    static func performTerminalFileDrop(
+        workspace: Workspace,
+        panelId: UUID,
+        hostedView: GhosttySurfaceScrollView,
+        urls: [URL],
+        window: NSWindow?
+    ) -> Bool {
+        performPanelTextDrop(
+            workspace: workspace,
+            panelId: panelId,
+            focusIntent: .terminal(.surface),
+            window: window,
+            insert: {
+                hostedView.handleDroppedURLs(urls)
+            }
+        )
+    }
+
+    @discardableResult
+    static func performTerminalFileDrop(
+        terminal: GhosttyNSView,
+        urls: [URL]
+    ) -> Bool {
+        guard let workspaceId = terminal.tabId,
+              let terminalSurfaceId = terminal.terminalSurface?.id,
+              let workspace = AppDelegate.shared?.workspaceFor(tabId: workspaceId),
+              let panelId = panelIdForTerminalDropFocus(
+                terminalSurfaceId: terminalSurfaceId,
+                workspace: workspace
+              ) else {
+            return terminal.handleDroppedFileURLs(urls)
+        }
+        return performPanelTextDrop(
+            workspace: workspace,
+            panelId: panelId,
+            focusIntent: .terminal(.surface),
+            window: terminal.window,
+            insert: {
+                terminal.handleDroppedFileURLs(urls)
+            }
+        )
     }
 
     static func focusPanelAfterSuccessfulTextDrop(
@@ -284,8 +329,8 @@ enum DragOverlayRoutingPolicy {
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?
     ) -> Bool {
+        guard WindowInputRoutingContext.allowsFileDropOverlayHitTesting(eventType: eventType) else { return false }
         guard shouldCaptureFileDropDestination(pasteboardTypes: pasteboardTypes) else { return false }
-        guard isDragMouseEvent(eventType) else { return false }
         return true
     }
 
@@ -311,35 +356,41 @@ enum DragOverlayRoutingPolicy {
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?
     ) -> Bool {
-        guard isPortalDragEvent(eventType) else { return false }
-        return hasBonsplitTabTransfer(pasteboardTypes)
-            || hasFilePreviewTransfer(pasteboardTypes)
-            || hasSidebarTabReorder(pasteboardTypes)
+        let routingContext = WindowInputRoutingContext(eventType: eventType)
+        guard routingContext.allowsBrowserPortalDragRouting else { return false }
+        let hasTabTransfer = hasBonsplitTabTransfer(pasteboardTypes)
+        let hasSidebarReorder = hasSidebarTabReorder(pasteboardTypes)
+        switch routingContext.eventKind {
+        case .pointerDrag:
+            return hasTabTransfer
+                || hasFilePreviewTransfer(pasteboardTypes)
+                || hasSidebarReorder
+        case .pointerHover:
+            return hasTabTransfer || hasSidebarReorder
+        case .noEvent, .keyboard, .pointerDown, .pointerUp, .scroll, .appKitRouting, .other:
+            return false
+        }
     }
 
     static func shouldPassThroughTerminalPortalHitTesting(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        eventType: NSEvent.EventType?
+        eventType: NSEvent.EventType?,
+        hasActiveDropDrag: Bool = false
     ) -> Bool {
-        guard isPortalDragEvent(eventType) else { return false }
-        return shouldPassThroughPortalHitTesting(
-            pasteboardTypes: pasteboardTypes,
-            eventType: eventType
-        ) || hasFileURL(pasteboardTypes)
-    }
-
-    private static func isDragMouseEvent(_ eventType: NSEvent.EventType?) -> Bool {
-        eventType == .leftMouseDragged
-            || eventType == .rightMouseDragged
-            || eventType == .otherMouseDragged
-    }
-
-    private static func isPortalDragEvent(_ eventType: NSEvent.EventType?) -> Bool {
-        guard let eventType else { return false }
-        switch eventType {
-        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
-            return true
-        default:
+        let routingContext = WindowInputRoutingContext(eventType: eventType)
+        guard routingContext.allowsTerminalPortalDragRouting else { return false }
+        switch routingContext.eventKind {
+        case .pointerDrag:
+            return shouldPassThroughPortalHitTesting(
+                pasteboardTypes: pasteboardTypes,
+                eventType: eventType
+            ) || hasFileURL(pasteboardTypes)
+        case .pointerUp:
+            guard hasActiveDropDrag else { return false }
+            return hasBonsplitTabTransfer(pasteboardTypes)
+                || hasFilePreviewTransfer(pasteboardTypes)
+                || hasSidebarTabReorder(pasteboardTypes)
+        case .noEvent, .keyboard, .pointerDown, .pointerHover, .scroll, .appKitRouting, .other:
             return false
         }
     }

@@ -1,4 +1,6 @@
 import AppKit
+import CmuxFoundation
+import CmuxWorkspaces
 import SwiftUI
 
 struct ConfigSettingsView: View {
@@ -63,7 +65,7 @@ struct ConfigSettingsView: View {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(currentSnapshot.displayPaths, id: \.self) { path in
                     Text(verbatim: path)
-                        .font(.system(size: 12, weight: .regular, design: .monospaced))
+                        .cmuxFont(size: 12, weight: .regular, design: .monospaced)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
@@ -97,7 +99,7 @@ struct ConfigSettingsView: View {
             HStack(spacing: 8) {
                 if !statusMessage.isEmpty {
                     Text(statusMessage)
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .foregroundColor(statusIsError ? .red : .secondary)
                 }
 
@@ -179,7 +181,10 @@ struct ConfigSettingsView: View {
         window.minSize = NSSize(width: 700, height: 500)
         window.tabbingMode = .disallowed
         window.animationBehavior = .utilityWindow
-        window.level = .floating
+        // The Config editor is a top-level peer window, not a floating
+        // inspector: clicking the main window must be able to raise it above
+        // the editor (https://github.com/manaflow-ai/cmux/issues/5081).
+        window.adoptCmuxPeerWindowLevel()
         window.collectionBehavior.insert(.fullScreenAuxiliary)
     }
 
@@ -202,7 +207,11 @@ struct ConfigSettingsView: View {
 
     private func reloadFromDisk() {
         refreshSnapshots(preserveCmuxDraft: false)
-        GhosttyApp.shared.reloadConfiguration(source: "settings.configWindow.reload")
+        if let appDelegate = AppDelegate.shared {
+            appDelegate.reloadConfiguration(source: "settings.configWindow.reload")
+        } else {
+            GhosttyApp.shared.reloadConfiguration(source: "settings.configWindow.reload")
+        }
         statusMessage = String(
             localized: "settings.config.status.reloaded",
             defaultValue: "Reloaded configuration from disk."
@@ -217,7 +226,11 @@ struct ConfigSettingsView: View {
             try environment.writeCmuxConfigContents(cmuxDraft)
             cmuxLastLoadedContents = cmuxDraft
             refreshSnapshots(preserveCmuxDraft: true)
-            GhosttyApp.shared.reloadConfiguration(source: "settings.configWindow.save")
+            if let appDelegate = AppDelegate.shared {
+                appDelegate.reloadConfiguration(source: "settings.configWindow.save")
+            } else {
+                GhosttyApp.shared.reloadConfiguration(source: "settings.configWindow.save")
+            }
             statusMessage = String(
                 localized: "settings.config.status.saved",
                 defaultValue: "Saved to cmux config and reloaded."
@@ -235,7 +248,7 @@ struct ConfigSettingsView: View {
 
     private func openCurrentSourceInEditor() {
         guard let url = materializedCmuxConfigURL() else { return }
-        PreferredEditorSettings.open(url)
+        PreferredEditorService(defaults: .standard).open(url)
     }
 
     private func revealCurrentSourceInFinder() {
@@ -271,7 +284,7 @@ private struct ConfigSettingsBanner: View {
             Image(systemName: "info.circle")
                 .foregroundStyle(.secondary)
             Text(text)
-                .font(.footnote)
+                .cmuxFont(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -306,7 +319,6 @@ private struct ConfigSettingsTextView: NSViewRepresentable {
         textView.isEditable = isEditable
         textView.isSelectable = true
         textView.string = text
-        textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         textView.textColor = .textColor
         textView.backgroundColor = .textBackgroundColor
         textView.insertionPointColor = .textColor
@@ -322,6 +334,7 @@ private struct ConfigSettingsTextView: NSViewRepresentable {
             height: CGFloat.greatestFiniteMagnitude
         )
         textView.delegate = context.coordinator
+        context.coordinator.installGlobalFontObserver(for: textView)
 
         scrollView.documentView = textView
         return scrollView
@@ -339,13 +352,27 @@ private struct ConfigSettingsTextView: NSViewRepresentable {
         textView.backgroundColor = .textBackgroundColor
         textView.textColor = .textColor
         textView.insertionPointColor = .textColor
+        context.coordinator.applyGlobalFont(to: textView)
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var text: Binding<String>
+        var globalFontObserver: GlobalFontMagnificationChangeObserver?
 
         init(text: Binding<String>) {
             self.text = text
+        }
+
+        func installGlobalFontObserver(for textView: NSTextView) {
+            applyGlobalFont(to: textView)
+            globalFontObserver = GlobalFontMagnificationChangeObserver { [weak self, weak textView] in
+                guard let self, let textView else { return }
+                self.applyGlobalFont(to: textView)
+            }
+        }
+
+        func applyGlobalFont(to textView: NSTextView) {
+            textView.font = GlobalFontMagnification.monospacedSystemFont(ofSize: 12, weight: .regular)
         }
 
         func textDidChange(_ notification: Notification) {

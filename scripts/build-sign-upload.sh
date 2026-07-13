@@ -49,6 +49,7 @@ TAG="$1"
 SIGN_HASH="A050CC7E193C8221BDBA204E731B046CDCCC1B30"
 ENTITLEMENTS="cmux.entitlements"
 APP_PATH="build/Build/Products/Release/cmux.app"
+GHOSTTYKIT_CRASH_REPORT_SUBDIR="cmux/crash"
 
 # --- Pre-flight ---
 source ~/.secrets/cmuxterm.env
@@ -58,15 +59,14 @@ for tool in zig xcodebuild create-dmg xcrun codesign ditto gh; do
 done
 echo "Pre-flight checks passed"
 
-# --- Build GhosttyKit (if needed) ---
-if [ ! -d "GhosttyKit.xcframework" ]; then
-  echo "Building GhosttyKit..."
-  cd ghostty && zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast && cd ..
-  rm -rf GhosttyKit.xcframework
-  cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
-else
-  echo "GhosttyKit.xcframework exists, skipping build"
-fi
+# --- Build GhosttyKit ---
+echo "Building GhosttyKit..."
+rm -rf GhosttyKit.xcframework ghostty/macos/GhosttyKit.xcframework
+(
+  cd ghostty
+  zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
+)
+cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
 
 # --- Build app (Release, unsigned) ---
 echo "Building app..."
@@ -90,17 +90,13 @@ APP_PLIST="$APP_PATH/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml" "$APP_PLIST"
 echo "Sparkle keys injected"
 
+# cmux is a non-sandboxed app. Sparkle's sandbox-only XPC services make the
+# installer handoff wait for an agent connection that never arrives.
+./scripts/remove-sparkle-sandbox-xpc-services.sh "$APP_PATH"
+
 # --- Codesign ---
 echo "Codesigning..."
-CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
-if [ -f "$CLI_PATH" ]; then
-  /usr/bin/codesign --force --options runtime --timestamp --sign "$SIGN_HASH" --entitlements "$ENTITLEMENTS" "$CLI_PATH"
-fi
-if [ -f "$HELPER_PATH" ]; then
-  /usr/bin/codesign --force --options runtime --timestamp --sign "$SIGN_HASH" --entitlements "$ENTITLEMENTS" "$HELPER_PATH"
-fi
-/usr/bin/codesign --force --options runtime --timestamp --sign "$SIGN_HASH" --entitlements "$ENTITLEMENTS" --deep "$APP_PATH"
-/usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+./scripts/sign-cmux-bundle.sh "$APP_PATH" "$ENTITLEMENTS" "$SIGN_HASH"
 echo "Codesign verified"
 
 # --- Notarize app ---

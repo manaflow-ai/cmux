@@ -1,4 +1,7 @@
 import AppKit
+import CmuxCommandPalette
+import CmuxSidebar
+import CmuxSwiftRender
 
 extension ContentView {
     static func commandPaletteShortcutAction(forCommandID commandId: String) -> KeyboardShortcutSettings.Action? {
@@ -9,12 +12,16 @@ extension ContentView {
         switch commandId {
         case "palette.newWorkspace":
             return .newTab
+        case "palette.newBrowserWorkspace":
+            return .newBrowserWorkspace
         case "palette.newWindow":
             return .newWindow
         case "palette.openFolder":
             return .openFolder
         case "palette.reopenPreviousSession":
             return .reopenPreviousSession
+        case "palette.reopenClosedBrowserTab":
+            return .reopenClosedBrowserPanel
         case "palette.newTerminalTab":
             return .newSurface
         case "palette.newBrowserTab":
@@ -27,6 +34,10 @@ extension ContentView {
             return .showNotifications
         case "palette.jumpUnread":
             return .jumpToUnread
+        case "palette.toggleUnread":
+            return .toggleUnread
+        case "palette.markOldestUnreadAndJumpNext":
+            return .markOldestUnreadAndJumpNext
         case "palette.renameTab":
             return .renameTab
         case "palette.renameWorkspace":
@@ -67,6 +78,14 @@ extension ContentView {
             return .hideFind
         case "palette.terminalUseSelectionForFind":
             return .useSelectionForFind
+        case "palette.terminalFocusTextBoxInput":
+            return .focusTextBoxInput
+        case "palette.terminalAttachTextBoxFile":
+            return .attachTextBoxFile
+        case "palette.terminalSendCtrlF":
+            return .sendCtrlFToTerminal
+        case "palette.terminalClearScreenKeepScrollback":
+            return .clearScreenKeepScrollback
         case "palette.toggleSplitZoom":
             return .toggleSplitZoom
         case "palette.equalizeSplits":
@@ -84,11 +103,27 @@ extension ContentView {
         }
 
         return RightSidebarMode.availableModes().map { mode in
-            CommandPaletteCommandContribution(
+            let title = mode.shortcutAction?.label ?? mode.label
+            return CommandPaletteCommandContribution(
                 commandId: Self.commandPaletteRightSidebarModeCommandID(mode),
-                title: constant(mode.shortcutAction.label),
+                title: constant(title),
                 subtitle: constant(String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")),
                 keywords: ["right", "sidebar", "show", "switch", "focus", mode.rawValue]
+            )
+        }
+    }
+
+    static func commandPaletteRightSidebarToolPaneCommandContributions() -> [CommandPaletteCommandContribution] {
+        func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
+            { _ in value }
+        }
+
+        return commandPaletteRightSidebarToolPaneCommandDescriptors().map { descriptor in
+            CommandPaletteCommandContribution(
+                commandId: descriptor.commandId,
+                title: constant(descriptor.title),
+                subtitle: constant(String(localized: "command.openRightSidebarToolAsPane.subtitle", defaultValue: "Pane")),
+                keywords: ["open", "pane", "tool", "right", "sidebar", descriptor.mode.rawValue, descriptor.mode.label.lowercased()]
             )
         }
     }
@@ -105,6 +140,44 @@ extension ContentView {
             return "palette.showRightSidebarFeed"
         case .dock:
             return "palette.showRightSidebarDock"
+        case .customSidebar:
+            return "palette.showRightSidebarCustomSidebar"
+        }
+    }
+
+    static func commandPaletteRightSidebarToolPaneCommandDescriptors() -> [(mode: RightSidebarMode, commandId: String, title: String)] {
+        RightSidebarMode.paneModes.compactMap { mode in
+            guard let commandId = commandPaletteRightSidebarToolPaneCommandID(mode),
+                  let title = commandPaletteRightSidebarToolPaneTitle(mode) else {
+                return nil
+            }
+            return (mode: mode, commandId: commandId, title: title)
+        }
+    }
+
+    private static func commandPaletteRightSidebarToolPaneCommandID(_ mode: RightSidebarMode) -> String? {
+        switch mode {
+        case .files:
+            return "palette.openFilesPane"
+        case .find:
+            return "palette.openFindPane"
+        case .sessions:
+            return "palette.openVaultPane"
+        case .feed, .dock, .customSidebar:
+            return nil
+        }
+    }
+
+    private static func commandPaletteRightSidebarToolPaneTitle(_ mode: RightSidebarMode) -> String? {
+        switch mode {
+        case .files:
+            return String(localized: "command.openFilesPane.title", defaultValue: "Open Files as Pane")
+        case .find:
+            return String(localized: "command.openFindPane.title", defaultValue: "Open Find as Pane")
+        case .sessions:
+            return String(localized: "command.openVaultPane.title", defaultValue: "Open Vault as Pane")
+        case .feed, .dock, .customSidebar:
+            return nil
         }
     }
 
@@ -125,11 +198,58 @@ extension ContentView {
         }
     }
 
+    func handleCommandPaletteRightSidebarToolPane(_ mode: RightSidebarMode) {
+        openRightSidebarToolPane(mode)
+    }
+
+    func openCustomSidebarPane(_ name: String) {
+        guard let workspace = tabManager.selectedWorkspace else {
+            NSSound.beep()
+            return
+        }
+
+        sidebarSelectionState.selection = .tabs
+        workspace.clearSplitZoom()
+        if let focusedPanelId = workspace.focusedPanelId,
+           workspace.openOrFocusCustomSidebarSplit(from: focusedPanelId, name: name) != nil {
+            return
+        }
+        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first,
+              workspace.openOrFocusCustomSidebarSurface(inPane: paneId, name: name, focus: true) != nil else {
+            NSSound.beep()
+            return
+        }
+    }
+
     private static func commandPaletteRightSidebarModeShortcutAction(
         forCommandID commandID: String
     ) -> KeyboardShortcutSettings.Action? {
-        RightSidebarMode.availableModes().first { mode in
+        guard let mode = RightSidebarMode.availableModes().first(where: { mode in
             Self.commandPaletteRightSidebarModeCommandID(mode) == commandID
-        }?.shortcutAction
+        }) else {
+            return nil
+        }
+        return mode.shortcutAction
     }
+
+    func rightSidebarCustomSidebarDataContext(now: Date) -> [String: SwiftValue] {
+        let selectedId = tabManager.selectedTabId
+        let workspaces = tabManager.tabs.enumerated().map { index, workspace in
+            workspace.customSidebarWorkspaceSnapshot(
+                index: index,
+                selectedId: selectedId,
+                unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id)
+            )
+        }
+        let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
+        let snapshot = CustomSidebarContextSnapshot(
+            workspaces: workspaces,
+            selectedWorkspaceId: selectedId,
+            selectedWorkspaceTitle: selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? "",
+            totalUnreadCount: sidebarUnread.totalUnreadCount,
+            now: now
+        )
+        return CustomSidebarDataContextBuilder().dataContext(for: snapshot)
+    }
+
 }

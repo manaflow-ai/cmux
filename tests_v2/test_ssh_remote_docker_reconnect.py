@@ -103,6 +103,7 @@ def _curl_via_socks(proxy_port: int, target_url: str) -> str:
 
 def _find_free_loopback_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
 
