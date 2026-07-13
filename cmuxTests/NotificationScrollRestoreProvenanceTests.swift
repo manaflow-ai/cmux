@@ -139,4 +139,17 @@ extension NotificationScrollRestoreTests {
         #expect(surfaceView.bindingActions == ["scroll_to_row:18"])
         #expect(surfaceView.scrollbar?.total == 200)
     }
+
+    @Test func authoritativeRestoreGeometryMarksViewportAwayFromBottom() {
+        let surfaceView = ActionProbeView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 100, offset: 56, visible: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+
+        #expect(hostedView.performNotificationScrollRestore(
+            .absoluteRow(218),
+            scrollbar: scrollbar(total: 400, offset: 218, visible: 44)
+        ))
+        #expect(hostedView.userScrolledAwayFromBottom)
+        #expect(surfaceView.bindingActions == ["scroll_to_row:218"])
+    }
 }
