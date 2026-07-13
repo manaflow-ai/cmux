@@ -160,6 +160,7 @@ struct SocketACLReloadRegressionTests {
             try? FileManager.default.removeItem(at: directory)
         }
 
+        _ = controller.socketServer.updateConfiguredPreferredSocketPath(preferredPath)
         #expect(!controller.socketServer.updateConfiguredPreferredSocketPath(preferredPath))
         controller.start(tabManager: TabManager(), socketPath: fallbackPath, accessMode: .cmuxOnly)
         let originalIdentity = try #require(
