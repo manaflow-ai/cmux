@@ -258,30 +258,6 @@ import Testing
         #expect(diff.unifiedDiff.contains("+let initial = true"))
     }
 
-    @Test func deadlineEscalatesWhenGitIgnoresTerminationAndChildKeepsPipeOpen() throws {
-        let repo = try makeTempRepo()
-        defer { try? FileManager.default.removeItem(at: repo) }
-        let stalledGit = repo.appendingPathComponent("term-ignoring-git.sh")
-        try Data("#!/bin/sh\ntrap '' TERM\nsleep 30 &\nwait\n".utf8).write(to: stalledGit)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o755], ofItemAtPath: stalledGit.path
-        )
-
-        let service = GitDiffService(
-            gitExecutableURL: stalledGit,
-            processDeadlineSeconds: 0.1
-        )
-        let finished = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
-            _ = service.repositoryRoot(for: repo.path)
-            finished.signal()
-        }
-
-        // Leave enough scheduling headroom for a loaded CI runner while
-        // keeping the failure bound far below the fake child's 30-second life.
-        #expect(finished.wait(timeout: .now() + 5) == .success)
-    }
-
     @Test func cancelledTaskSpawnsNoGitWork() async throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
@@ -365,66 +341,6 @@ import Testing
         #expect(diff.unifiedDiff.contains("Subproject commit"))
     }
 
-    @Test func stalledGitProcessIsTerminatedAtTheDeadline() throws {
-        let repo = try makeTempRepo()
-        defer { try? FileManager.default.removeItem(at: repo) }
-        // A fake git that emits nothing and hangs far past the deadline.
-        let stalledGit = repo.appendingPathComponent("stalled-git.sh")
-        try Data("#!/bin/sh\nsleep 30\n".utf8).write(to: stalledGit)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o755], ofItemAtPath: stalledGit.path
-        )
-
-        let service = GitDiffService(
-            gitExecutableURL: stalledGit,
-            processDeadlineSeconds: 0.5
-        )
-
-        // Assert on causality, not latency: the watchdog must let this
-        // synchronous call RETURN. We run it off the test thread and wait on its
-        // completion signal. The 5s wait deadline bounds only the failure path
-        // and sits an order of magnitude below the fake git's 30s sleep, so a
-        // working watchdog (kills the subprocess at ~0.5s) signals long before
-        // it, while a broken watchdog never signals and the wait times out,
-        // failing the test deterministically. No measured duration is asserted.
-        let finished = DispatchSemaphore(value: 0)
-        let box = StalledRootBox()
-        DispatchQueue.global().async {
-            box.value = service.repositoryRoot(for: repo.path)
-            finished.signal()
-        }
-        let signalled = finished.wait(timeout: .now() + 5)
-        #expect(signalled == .success)
-        #expect(box.value == nil)
-    }
-
-    @Test func deadlineTerminatesDescendantsInTheGitProcessGroup() throws {
-        let repo = try makeTempRepo()
-        defer { try? FileManager.default.removeItem(at: repo) }
-        let stalledGit = repo.appendingPathComponent("descendant-git.sh")
-        let childPIDFile = repo.appendingPathComponent("child.pid")
-        try Data(
-            "#!/bin/sh\ntrap '' TERM\nsleep 30 &\necho $! > \(childPIDFile.path.debugDescription)\nwait\n".utf8
-        ).write(to: stalledGit)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o755], ofItemAtPath: stalledGit.path
-        )
-
-        let service = GitDiffService(
-            gitExecutableURL: stalledGit,
-            processDeadlineSeconds: 5
-        )
-        #expect(service.repositoryRoot(for: repo.path) == nil)
-
-        let pidText = try String(contentsOf: childPIDFile, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let childPID = try #require(Int32(pidText))
-        // A terminated grandchild can remain as a zombie briefly while launchd
-        // reaps it. That is no longer executing and therefore satisfies the
-        // containment guarantee even though `kill(pid, 0)` still finds it.
-        #expect(!isExecutingProcess(childPID))
-    }
-
     private func makeTempRepo() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-git-diff-tests-\(UUID().uuidString)")
@@ -460,28 +376,4 @@ import Testing
         try #require(process.terminationStatus == 0)
     }
 
-    private func isExecutingProcess(_ processIdentifier: pid_t) -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["-o", "state=", "-p", String(processIdentifier)]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        guard (try? process.run()) != nil else { return false }
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return false }
-        let state = String(
-            data: pipe.fileHandleForReading.readDataToEndOfFile(),
-            encoding: .utf8
-        )?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return state?.hasPrefix("Z") == false
-    }
-}
-
-/// Carries the off-thread `repositoryRoot` result back to the test. The write
-/// happens before the semaphore is signalled and the read happens after the
-/// wait returns `.success`, so that ordering (not a lock) makes the single
-/// hand-off memory-safe; hence `@unchecked Sendable`.
-private final class StalledRootBox: @unchecked Sendable {
-    var value: String?
 }

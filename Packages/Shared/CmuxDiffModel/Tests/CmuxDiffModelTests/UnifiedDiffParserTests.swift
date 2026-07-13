@@ -154,6 +154,28 @@ import Testing
         #expect(result.hunks.count == 1)
     }
 
+    @Test func rejectsNegativeHunkRanges() {
+        for header in [
+            "@@ --1,1 +1,1 @@",
+            "@@ -1,-1 +1,1 @@",
+            "@@ -1,1 +-1,1 @@",
+            "@@ -1,1 +1,-1 @@",
+        ] {
+            #expect(parser.parse(header).hunks.isEmpty)
+        }
+    }
+
+    @Test func rejectsHunkRangesThatCannotSupportBoundedLineArithmetic() {
+        for header in [
+            "@@ -\(Int.max),1 +1,1 @@",
+            "@@ -1,1 +\(Int.max),1 @@",
+            "@@ -2,\(Int.max) +1,1 @@",
+            "@@ -1,1 +2,\(Int.max) @@",
+        ] {
+            #expect(parser.parse(header).hunks.isEmpty)
+        }
+    }
+
     @Test func capsRowsPerHunkAndMarksResultTruncated() {
         let additions = (0..<2_100).map { "+line-\($0)" }.joined(separator: "\n")
         let result = parser.parse("@@ -0,0 +1,2100 @@\n\(additions)")
