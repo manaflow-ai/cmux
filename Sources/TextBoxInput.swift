@@ -2440,6 +2440,7 @@ struct TextBoxInputContainer: View {
     let allowsCommandTemplateSubmit: Bool
     let onFocusTextBox: () -> Void
     let onToggleFocus: () -> Void
+    let onSelectSubmitAction: (String) -> Void
     let onRecordLaunchCommand: (String) -> Void
     let onClearLaunchCommand: () -> Void
     let onEscape: () -> Void

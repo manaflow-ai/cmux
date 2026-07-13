@@ -37,4 +37,22 @@ extension TerminalTextBoxInputSettings {
         }
         return configured
     }
+
+    static func rememberedSubmitActionIDValue(defaults: UserDefaults = .standard) -> String? {
+        guard let remembered = defaults.string(forKey: lastSelectedSubmitActionKey),
+              !remembered.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              submitActions(defaults: defaults).contains(where: { $0.id == remembered }) else {
+            return nil
+        }
+        return remembered
+    }
+
+    static func rememberSubmitActionID(_ id: String, defaults: UserDefaults = .standard) -> Bool {
+        guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              submitActions(defaults: defaults).contains(where: { $0.id == id }) else {
+            return false
+        }
+        defaults.set(id, forKey: lastSelectedSubmitActionKey)
+        return true
+    }
 }
