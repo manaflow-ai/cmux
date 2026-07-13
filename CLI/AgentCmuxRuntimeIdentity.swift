@@ -21,6 +21,32 @@ struct AgentCmuxRuntimeIdentity: Codable, Sendable, Equatable {
         self.bundleIdentifier = bundleIdentifier
     }
 
+    /// The connected app owns runtime identity. Hook providers may sanitize
+    /// inherited environment variables, and a surviving process can retain a
+    /// stale value across an app restart, so socket evidence wins whenever the
+    /// server advertises it. Older servers fall back to the terminal environment.
+    static func resolve(
+        environment: [String: String],
+        socketCapabilities: [String: Any]
+    ) -> AgentCmuxRuntimeIdentity? {
+        if let id = normalized(socketCapabilities["runtime_id"] as? String) {
+            return AgentCmuxRuntimeIdentity(
+                id: id,
+                socketPath: normalized(socketCapabilities["socket_path"] as? String),
+                bundleIdentifier: normalized(socketCapabilities["bundle_identifier"] as? String)
+            )
+        }
+        return AgentCmuxRuntimeIdentity(environment: environment)
+    }
+
+    func applying(to environment: [String: String]) -> [String: String] {
+        var result = environment
+        result["CMUX_RUNTIME_ID"] = id
+        if let socketPath { result["CMUX_SOCKET_PATH"] = socketPath }
+        if let bundleIdentifier { result["CMUX_BUNDLE_ID"] = bundleIdentifier }
+        return result
+    }
+
     private static func normalized(_ value: String?) -> String? {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !value.isEmpty else { return nil }

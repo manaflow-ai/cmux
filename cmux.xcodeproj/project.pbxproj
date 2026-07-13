@@ -466,6 +466,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B9000063A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000062A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift */; };
 		6D9C51AB30A64B1ABC819146 /* CMUXCLI+AgentHookPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5257257034CA4729B1211170 /* CMUXCLI+AgentHookPayload.swift */; };
 		C6711A050000000000000001 /* CMUXCLI+AgentHookRestoreEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6711B050000000000000001 /* CMUXCLI+AgentHookRestoreEvidence.swift */; };
+		A79700070000000000000001 /* CMUXCLI+AgentHookRuntimeIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79700070000000000000002 /* CMUXCLI+AgentHookRuntimeIdentity.swift */; };
 		A79700010000000000000001 /* CMUXCLI+AgentNotificationOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79700010000000000000002 /* CMUXCLI+AgentNotificationOwnership.swift */; };
 		A78670250000000000000001 /* CMUXCLI+Agents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670250000000000000002 /* CMUXCLI+Agents.swift */; };
 		B9000068A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000069A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift */; };
@@ -2300,6 +2301,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B9000062A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentHookDefinitions.swift"; sourceTree = "<group>"; };
 		5257257034CA4729B1211170 /* CMUXCLI+AgentHookPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentHookPayload.swift"; sourceTree = "<group>"; };
 		C6711B050000000000000001 /* CMUXCLI+AgentHookRestoreEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentHookRestoreEvidence.swift"; sourceTree = "<group>"; };
+		A79700070000000000000002 /* CMUXCLI+AgentHookRuntimeIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentHookRuntimeIdentity.swift"; sourceTree = "<group>"; };
 		A79700010000000000000002 /* CMUXCLI+AgentNotificationOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentNotificationOwnership.swift"; sourceTree = "<group>"; };
 		A78670250000000000000002 /* CMUXCLI+Agents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Agents.swift"; sourceTree = "<group>"; };
 		A78670090000000000000002 /* CMUXCLI+AgentsTree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentsTree.swift"; sourceTree = "<group>"; };
@@ -4954,6 +4956,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				5257257034CA4729B1211170 /* CMUXCLI+AgentHookPayload.swift */,
 				4CF59318F1D5B2195AC77C28 /* CMUXCLI+ClaudePushNotificationHook.swift */,
 				A79700010000000000000002 /* CMUXCLI+AgentNotificationOwnership.swift */,
+				A79700070000000000000002 /* CMUXCLI+AgentHookRuntimeIdentity.swift */,
 				C6711B050000000000000001 /* CMUXCLI+AgentHookRestoreEvidence.swift */,
 				A78670010000000000000002 /* AgentProcessIdentity.swift */,
 				A79700040000000000000002 /* AgentSessionAuthorityEvidence.swift */,
@@ -7027,6 +7030,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B9000063A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift in Sources */,
 				6D9C51AB30A64B1ABC819146 /* CMUXCLI+AgentHookPayload.swift in Sources */,
 				C6711A050000000000000001 /* CMUXCLI+AgentHookRestoreEvidence.swift in Sources */,
+				A79700070000000000000001 /* CMUXCLI+AgentHookRuntimeIdentity.swift in Sources */,
 				A79700010000000000000001 /* CMUXCLI+AgentNotificationOwnership.swift in Sources */,
 				A78670250000000000000001 /* CMUXCLI+Agents.swift in Sources */,
 				A78670090000000000000001 /* CMUXCLI+AgentsTree.swift in Sources */,

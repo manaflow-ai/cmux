@@ -23873,7 +23873,10 @@ struct CMUXCLI {
         let callerTTYBindingProvider: (() -> CallerTerminalBinding?)? = preferCallerTTYRouting ? callerTTYBinding : nil
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
-        let sessionStore = ClaudeHookSessionStore()
+        let sessionStore = ClaudeHookSessionStore(processEnv: agentHookStoreEnvironment(
+            environment: ProcessInfo.processInfo.environment,
+            client: client
+        ))
         telemetry.breadcrumb(
             "claude-hook.input",
             data: [
@@ -30166,7 +30169,7 @@ export default CMUXSessionRestore;
         let input = parseClaudeHookInput(rawInput: rawInput)
 
         let store = ClaudeHookSessionStore(
-            processEnv: env.merging(
+            processEnv: agentHookStoreEnvironment(environment: env, client: client).merging(
                 ["CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(sessionStoreSuffix: def.sessionStoreSuffix, env: env)],
                 uniquingKeysWith: { _, new in new }
             ),

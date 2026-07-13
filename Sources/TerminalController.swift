@@ -2578,6 +2578,8 @@ class TerminalController {
             "protocol": "cmux-socket",
             "version": 2,
             "socket_path": socketServer.currentSocketPath,
+            "runtime_id": TerminalSurface.managedCmuxRuntimeId,
+            "bundle_identifier": Bundle.main.bundleIdentifier ?? "",
             "access_mode": socketServer.accessMode.rawValue,
             "methods": methods.sorted()
         ]
