@@ -25,4 +25,19 @@ import Testing
         #expect(reloads == 1)
         #expect(attempts == 2)
     }
+
+    @Test func retryIdentifiesTheAttemptThatMustUseReloadedFileMetadata() async throws {
+        let retry = DiffReviewRepositoryRetry { true }
+
+        let value: String = try await retry.run { attempt in
+            switch attempt {
+            case .initial:
+                throw MobileShellConnectionError.rpcError("stale_repository", "stale")
+            case .reloaded:
+                return "fresh metadata"
+            }
+        }
+
+        #expect(value == "fresh metadata")
+    }
 }

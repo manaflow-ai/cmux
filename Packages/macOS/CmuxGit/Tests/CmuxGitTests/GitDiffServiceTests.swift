@@ -42,6 +42,21 @@ import Testing
         #expect(renamed.deletions == 4)
     }
 
+    @Test func unmergedNameStatusConsumesItsPathWithoutShiftingLaterEntries() throws {
+        let service = GitDiffService()
+        let files = service.parseChangedFiles(
+            numstatOutput: nil,
+            nameStatusOutput: "UU\0Dockerfile\0M\0Sources/App.swift\0",
+            untrackedOutput: nil
+        )
+
+        #expect(files.count == 2)
+        let conflict = try #require(files.first { $0.path == "Dockerfile" })
+        #expect(conflict.status == .modified)
+        let modified = try #require(files.first { $0.path == "Sources/App.swift" })
+        #expect(modified.status == .modified)
+    }
+
     @Test func addsUntrackedFilesWithoutCounts() {
         let service = GitDiffService()
         let files = service.parseChangedFiles(
