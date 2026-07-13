@@ -26,7 +26,9 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     private static let lastTemplateIDKey = "cmux.mobile.taskComposer.lastTemplateID"
     private static let lastMacDeviceIDKey = "cmux.mobile.taskComposer.lastMacDeviceID"
     private static let lastDirectoryPrefix = "cmux.mobile.taskComposer.lastDirectory."
+    private static let recentDirectoriesPrefix = "cmux.mobile.taskComposer.recentDirectories.v1."
     private static let composerDraftKey = "cmux.mobile.taskComposer.draft.v1"
+    private static let recentDirectoryLimit = 20
 
     /// Creates a task template store backed by `defaults`.
     /// - Parameter defaults: The `UserDefaults` instance to persist into.
@@ -96,6 +98,38 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
         setOptional(directory, forKey: Self.lastDirectoryPrefix + macDeviceID)
     }
 
+    /// Returns successful directories for one Mac, newest first.
+    public func recentDirectories(macDeviceID: String) -> [MobileTaskRecentDirectory] {
+        guard let data = defaults.data(forKey: Self.recentDirectoriesPrefix + macDeviceID),
+              let directories = try? decoder.decode([MobileTaskRecentDirectory].self, from: data) else {
+            return []
+        }
+        return directories
+    }
+
+    /// Records one successful directory with exact UTF-8 identity and bounded storage.
+    public func recordRecentDirectory(_ directory: String, macDeviceID: String, at date: Date) {
+        guard !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let identity = MobileTaskDirectoryPathID(path: directory)
+        var directories = recentDirectories(macDeviceID: macDeviceID)
+        let previousUseCount = directories.first { MobileTaskDirectoryPathID(path: $0.path) == identity }?.useCount ?? 0
+        let nextUseCount = previousUseCount == Int.max ? Int.max : previousUseCount + 1
+        directories.removeAll { MobileTaskDirectoryPathID(path: $0.path) == identity }
+        directories.insert(
+            MobileTaskRecentDirectory(
+                path: directory,
+                lastUsedAt: date,
+                useCount: nextUseCount
+            ),
+            at: 0
+        )
+        if directories.count > Self.recentDirectoryLimit {
+            directories.removeLast(directories.count - Self.recentDirectoryLimit)
+        }
+        guard let data = try? encoder.encode(directories) else { return }
+        defaults.set(data, forKey: Self.recentDirectoriesPrefix + macDeviceID)
+    }
+
     /// Returns the unsent task-composer draft, if one was saved.
     public func composerDraft() -> MobileTaskComposerDraft? {
         guard let data = defaults.data(forKey: Self.composerDraftKey) else { return nil }
@@ -125,6 +159,9 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
             defaults.removeObject(forKey: key)
         }
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(Self.lastDirectoryPrefix) {
+            defaults.removeObject(forKey: key)
+        }
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(Self.recentDirectoriesPrefix) {
             defaults.removeObject(forKey: key)
         }
     }

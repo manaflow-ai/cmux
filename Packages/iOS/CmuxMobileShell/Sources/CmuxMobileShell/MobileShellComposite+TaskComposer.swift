@@ -66,6 +66,13 @@ extension MobileShellComposite {
             snapshot.trimmedDirectory.isEmpty ? nil : snapshot.trimmedDirectory,
             macDeviceID: snapshot.macDeviceID
         )
+        if !snapshot.trimmedDirectory.isEmpty {
+            taskTemplateStore.recordRecentDirectory(
+                snapshot.trimmedDirectory,
+                macDeviceID: snapshot.macDeviceID,
+                at: Date()
+            )
+        }
         taskTemplateStore.setComposerDraft(nil)
         return true
     }

@@ -101,6 +101,13 @@ import CmuxMobileShellModel
         store.recordRecentDirectory(decomposed, macDeviceID: "mac-a", at: base.addingTimeInterval(1))
         store.recordRecentDirectory(composed, macDeviceID: "mac-a", at: base.addingTimeInterval(2))
         store.recordRecentDirectory("~/other", macDeviceID: "mac-b", at: base)
+
+        let byteExact = store.recentDirectories(macDeviceID: "mac-a")
+        #expect(byteExact.count == 2)
+        #expect(byteExact[0].path == composed)
+        #expect(byteExact[0].useCount == 2)
+        #expect(Array(byteExact[1].path.utf8) == Array(decomposed.utf8))
+
         for index in 0..<24 {
             store.recordRecentDirectory("~/project-\(index)", macDeviceID: "mac-a", at: base.addingTimeInterval(Double(index + 3)))
         }
@@ -110,7 +117,6 @@ import CmuxMobileShellModel
         #expect(macA.count == 20)
         #expect(macA.first?.path == "~/project-23")
         #expect(reloaded.recentDirectories(macDeviceID: "mac-b").map(\.path) == ["~/other"])
-        #expect(macA.allSatisfy { Array($0.path.utf8) != Array(decomposed.utf8) })
     }
 
     @Test func composerDraftRoundTripsAcrossStoreInstancesAndClears() {

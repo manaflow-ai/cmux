@@ -65,11 +65,13 @@ extension TaskComposerSheet {
     }
 
     /// The directory the composer pre-fills: the template default, then the
-    /// last successful directory for the selected Mac, then home.
+    /// last successful directory for the selected Mac, an open directory on
+    /// that Mac, then home.
     static func suggestedDirectory(
         template: MobileTaskTemplate?,
         macDeviceID: String,
-        templateStore: (any MobileTaskTemplateStoring)?
+        templateStore: (any MobileTaskTemplateStoring)?,
+        openDirectory: String? = nil
     ) -> String {
         if let defaultDirectory = template?.defaultDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
            !defaultDirectory.isEmpty {
@@ -79,7 +81,45 @@ extension TaskComposerSheet {
            !lastDirectory.isEmpty {
             return lastDirectory
         }
+        if let openDirectory = openDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !openDirectory.isEmpty {
+            return openDirectory
+        }
         return "~"
+    }
+
+    static func preferredOpenDirectory(
+        workspaces: [MobileWorkspacePreview],
+        selectedWorkspaceID: MobileWorkspacePreview.ID?,
+        macDeviceID: String,
+        connectedMacDeviceID: String?
+    ) -> String? {
+        let includeUnscoped = macDeviceID == connectedMacDeviceID
+        let matching = workspaces.filter {
+            $0.macDeviceID == macDeviceID || ($0.macDeviceID == nil && includeUnscoped)
+        }
+        let ordered = matching.sorted { lhs, rhs in
+            if (lhs.id == selectedWorkspaceID) != (rhs.id == selectedWorkspaceID) {
+                return lhs.id == selectedWorkspaceID
+            }
+            return (lhs.lastActivityAt ?? .distantPast) > (rhs.lastActivityAt ?? .distantPast)
+        }
+        for workspace in ordered {
+            if let focused = workspace.terminals.first(where: \.isFocused)?.currentDirectory,
+               !focused.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return focused
+            }
+            if let current = workspace.currentDirectory,
+               !current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return current
+            }
+            if let terminal = workspace.terminals.compactMap(\.currentDirectory).first(where: {
+                !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }) {
+                return terminal
+            }
+        }
+        return nil
     }
 }
 #endif

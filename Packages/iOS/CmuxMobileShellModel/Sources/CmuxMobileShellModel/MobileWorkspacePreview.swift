@@ -50,6 +50,8 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     public var windowID: String?
     /// The workspace's user-facing display name.
     public var name: String
+    /// The workspace's last reported current directory on its owning Mac.
+    public var currentDirectory: String?
     /// Whether the workspace is pinned on the Mac. Pinned workspaces sort to the
     /// top of the mobile list.
     public var isPinned: Bool
@@ -119,6 +121,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         macDisplayName: String? = nil,
         windowID: String? = nil,
         name: String,
+        currentDirectory: String? = nil,
         isPinned: Bool = false,
         groupID: MobileWorkspaceGroupPreview.ID? = nil,
         previewText: String? = nil,
@@ -133,6 +136,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         self.macDisplayName = macDisplayName
         self.windowID = windowID
         self.name = name
+        self.currentDirectory = currentDirectory
         self.isPinned = isPinned
         self.groupID = groupID
         self.previewText = previewText

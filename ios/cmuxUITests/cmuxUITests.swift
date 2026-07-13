@@ -224,7 +224,9 @@ final class cmuxUITests: XCTestCase {
         ])
         defer { app.terminate() }
 
-        XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
+        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        tap(prompt, in: app)
         let keyboard = app.keyboards.firstMatch
         XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
         let create = app.buttons["MobileTaskComposerCreateButton"]

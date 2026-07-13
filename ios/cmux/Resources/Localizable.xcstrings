@@ -7233,6 +7233,210 @@
         }
       }
     },
+    "mobile.taskComposer.directoryPicker.empty.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try a folder name from another workspace or a recent task."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のワークスペースまたは最近のタスクのフォルダ名を入力してください。"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.directoryPicker.empty.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Matching Folders"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致するフォルダがありません"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.directoryPicker.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens a searchable list of folders from this Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacのフォルダを検索できるリストを開きます。"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.directoryPicker.search": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search folders"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダを検索"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.directoryPicker.source.activeTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focused terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス中のターミナル"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.directoryPicker.source.activeWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のワークスペース"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.directoryPicker.source.home": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home folder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームフォルダ"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.directoryPicker.source.last": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last used"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前回使用"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.directoryPicker.source.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open on this Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacで開いています"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.directoryPicker.source.recent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recent task"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近のタスク"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.directoryPicker.source.template": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Template default"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テンプレートのデフォルト"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.directoryPicker.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose Folder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダを選択"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.failure.authorization": {
       "extractionState": "manual",
       "localizations": {

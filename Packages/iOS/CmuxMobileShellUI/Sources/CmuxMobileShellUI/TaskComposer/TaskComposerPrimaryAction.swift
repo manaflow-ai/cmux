@@ -48,6 +48,7 @@ struct TaskComposerPrimaryAction: View {
             .padding(.vertical, 10)
         }
         .background(.bar)
+        .accessibilityIdentifier("MobileTaskComposerPrimaryAction")
     }
 }
 #endif
