@@ -1,4 +1,5 @@
 import Foundation
+import CmuxTerminal
 
 extension GhosttyApp {
     func handleCurrentDirectoryAction(_ directory: String, surfaceView: GhosttyNSView) {
