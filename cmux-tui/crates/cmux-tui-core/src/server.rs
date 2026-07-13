@@ -1290,12 +1290,19 @@ fn color_hex(color: Option<Rgb>) -> Option<String> {
 }
 
 fn terminal_colors_json(colors: TerminalColors) -> Value {
+    let cursor_style = colors.cursor_style.map(|style| match style {
+        ghostty_vt::CursorShape::Bar => "bar",
+        ghostty_vt::CursorShape::Underline => "underline",
+        ghostty_vt::CursorShape::Block | ghostty_vt::CursorShape::BlockHollow => "block",
+    });
     json!({
         "fg": color_hex(colors.fg),
         "bg": color_hex(colors.bg),
         "cursor": color_hex(colors.cursor),
         "selection_bg": color_hex(colors.selection_bg),
         "selection_fg": color_hex(colors.selection_fg),
+        "cursor_style": cursor_style,
+        "cursor_blink": colors.cursor_blink,
     })
 }
 
@@ -1816,6 +1823,8 @@ fn handle_command(
                     Some(value) => Some(parse_hex_color(&value)?),
                     None => current.bg,
                 },
+                cursor_style: current.cursor_style,
+                cursor_blink: current.cursor_blink,
             };
             mux.set_default_colors(colors);
             Ok(json!({}))

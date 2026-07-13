@@ -387,17 +387,19 @@ object{
     bg:ColorHex|null,
     cursor:ColorHex|null,
     selection_bg:ColorHex|null,
-    selection_fg:ColorHex|null
+    selection_fg:ColorHex|null,
+    cursor_style:"block"|"underline"|"bar"|null,
+    cursor_blink:boolean|null
   }
 }
 ```
 
-Meaning: Initial VT replay for an attached PTY surface. Replaying `data` into a fresh Ghostty VT terminal with the supplied cell size reproduces current state. `colors` is captured with the replay and reports the surface's effective foreground, background, and cursor colors, including active OSC 10/11/12 overrides. A field is `null` when the server cannot determine it; the current server does not track selection colors, so `selection_bg` and `selection_fg` are `null`.
+Meaning: Initial VT replay for an attached PTY surface. Replaying `data` into a fresh Ghostty VT terminal with the supplied cell size reproduces current state. `colors` is captured with the replay and reports the surface's effective foreground, background, and cursor colors, including active OSC 10/11/12 overrides. The additive protocol-v6 `cursor_style` and `cursor_blink` fields report the surface's current DECSCUSR-derived cursor state when available, then fall back to the session's Ghostty `cursor-style` and `cursor-style-blink` defaults. A field is `null` when the server cannot determine it; the current server does not track selection colors, so `selection_bg` and `selection_fg` are `null`. Ghostty's VT replay formatter does not emit DECSCUSR, so attach clients must apply the cursor metadata instead of inferring shape or blink from `data`.
 
 Example:
 
 ```json
-{"event":"vt-state","surface":1,"cols":80,"rows":24,"data":"G1s/bA==","colors":{"fg":"#d8d9da","bg":"#131415","cursor":null,"selection_bg":null,"selection_fg":null}}
+{"event":"vt-state","surface":1,"cols":80,"rows":24,"data":"G1s/bA==","colors":{"fg":"#d8d9da","bg":"#131415","cursor":null,"selection_bg":null,"selection_fg":null,"cursor_style":"bar","cursor_blink":false}}
 ```
 
 ### output
@@ -461,16 +463,18 @@ object{
   bg:ColorHex|null,
   cursor:ColorHex|null,
   selection_bg:ColorHex|null,
-  selection_fg:ColorHex|null
+  selection_fg:ColorHex|null,
+  cursor_style:"block"|"underline"|"bar"|null,
+  cursor_blink:boolean|null
 }
 ```
 
-Meaning: The session defaults changed through `set-default-colors`. Each live PTY attach stream receives the effective colors for its surface after applying the merged defaults. Active per-surface OSC 10/11/12 overrides remain authoritative. The attach stream already identifies the surface, so this event has no `surface` field. The current server emits `null` for both selection fields because it cannot query the terminal's OSC 17/19 selection-color state.
+Meaning: The session defaults changed through `set-default-colors`. Each live PTY attach stream receives the effective colors and cursor state for its surface after applying the merged defaults. Active per-surface OSC 10/11/12 and DECSCUSR overrides remain authoritative. `cursor_style` and `cursor_blink` use the same surface-state, Ghostty-config, then `null` precedence as `vt-state.colors`; their values may be unchanged by the color update. The attach stream already identifies the surface, so this event has no `surface` field. The current server emits `null` for both selection fields because it cannot query the terminal's OSC 17/19 selection-color state.
 
 Example:
 
 ```json
-{"event":"colors-changed","fg":"#d8d9da","bg":"#131415","cursor":null,"selection_bg":null,"selection_fg":null}
+{"event":"colors-changed","fg":"#d8d9da","bg":"#131415","cursor":null,"selection_bg":null,"selection_fg":null,"cursor_style":"bar","cursor_blink":false}
 ```
 
 ### detached

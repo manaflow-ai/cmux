@@ -35,7 +35,7 @@ pub use surface::{
     BrowserStatus, DefaultColors, Surface, SurfaceKind, SurfaceOptions, TerminalColors,
 };
 
-pub use ghostty_vt::Rgb;
+pub use ghostty_vt::{CursorShape, Rgb};
 
 pub type SurfaceId = u64;
 pub type PaneId = u64;

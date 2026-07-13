@@ -3,6 +3,7 @@ use std::ptr;
 
 use ghostty_vt_sys as sys;
 
+use crate::render::CursorShape;
 use crate::{Result, check};
 
 /// RGB color triple.
@@ -71,6 +72,129 @@ pub struct Terminal {
     // Heap-pinned so the userdata pointer stays valid for the terminal's
     // lifetime.
     callbacks: Box<Callbacks>,
+    cursor_override: CursorOverrideTracker,
+}
+
+#[derive(Default)]
+struct CursorOverrideTracker {
+    state: CursorTrackState,
+    active: bool,
+}
+
+#[derive(Default)]
+enum CursorTrackState {
+    #[default]
+    Ground,
+    Escape,
+    EscapeIntermediate,
+    Csi(CursorCsi),
+    String {
+        bell_terminated: bool,
+    },
+    StringEscape {
+        bell_terminated: bool,
+    },
+}
+
+#[derive(Default)]
+struct CursorCsi {
+    value: u16,
+    digits: bool,
+    space: bool,
+    invalid: bool,
+}
+
+impl CursorOverrideTracker {
+    fn write(&mut self, data: &[u8]) {
+        for &byte in data {
+            let state = std::mem::take(&mut self.state);
+            self.state = match state {
+                CursorTrackState::Ground => self.ground(byte),
+                CursorTrackState::Escape => self.escape(byte),
+                CursorTrackState::EscapeIntermediate => match byte {
+                    0x1b => CursorTrackState::Escape,
+                    0x20..=0x2f => CursorTrackState::EscapeIntermediate,
+                    _ => CursorTrackState::Ground,
+                },
+                CursorTrackState::Csi(mut csi) => self.csi(byte, &mut csi),
+                CursorTrackState::String { bell_terminated } => match byte {
+                    0x07 if bell_terminated => CursorTrackState::Ground,
+                    0x9c => CursorTrackState::Ground,
+                    0x1b => CursorTrackState::StringEscape { bell_terminated },
+                    _ => CursorTrackState::String { bell_terminated },
+                },
+                CursorTrackState::StringEscape { bell_terminated } => match byte {
+                    b'\\' | 0x9c => CursorTrackState::Ground,
+                    0x1b => CursorTrackState::StringEscape { bell_terminated },
+                    0x07 if bell_terminated => CursorTrackState::Ground,
+                    _ => CursorTrackState::String { bell_terminated },
+                },
+            };
+        }
+    }
+
+    fn ground(&mut self, byte: u8) -> CursorTrackState {
+        // Ghostty's stream UTF-8-decodes in ground state, so 0x80..=0xff here
+        // are text (UTF-8 lead/continuation bytes), never C1 controls — an
+        // emoji like U+1F44D contains 0x9f and must not open a control
+        // string. C1 openers are only honored inside escape-initiated states,
+        // mirroring ghostty's ground handling.
+        match byte {
+            0x1b => CursorTrackState::Escape,
+            _ => CursorTrackState::Ground,
+        }
+    }
+
+    fn escape(&mut self, byte: u8) -> CursorTrackState {
+        match byte {
+            b'[' => CursorTrackState::Csi(CursorCsi::default()),
+            b']' => CursorTrackState::String { bell_terminated: true },
+            b'P' | b'X' | b'^' | b'_' => CursorTrackState::String { bell_terminated: false },
+            b'c' => {
+                self.active = false;
+                CursorTrackState::Ground
+            }
+            0x1b => CursorTrackState::Escape,
+            0x20..=0x2f => CursorTrackState::EscapeIntermediate,
+            _ => CursorTrackState::Ground,
+        }
+    }
+
+    fn csi(&mut self, byte: u8, csi: &mut CursorCsi) -> CursorTrackState {
+        match byte {
+            b'0'..=b'9' if !csi.space => {
+                csi.digits = true;
+                csi.value = csi.value.saturating_mul(10).saturating_add((byte - b'0') as u16);
+                CursorTrackState::Csi(std::mem::take(csi))
+            }
+            0x30..=0x3f => {
+                csi.invalid = true;
+                CursorTrackState::Csi(std::mem::take(csi))
+            }
+            b' ' if !csi.space => {
+                csi.space = true;
+                CursorTrackState::Csi(std::mem::take(csi))
+            }
+            0x20..=0x2f => {
+                csi.invalid = true;
+                CursorTrackState::Csi(std::mem::take(csi))
+            }
+            b'q' => {
+                if csi.space && !csi.invalid {
+                    match (csi.digits, csi.value) {
+                        (false, _) | (true, 0) => self.active = false,
+                        (true, 1..=6) => self.active = true,
+                        _ => {}
+                    }
+                }
+                CursorTrackState::Ground
+            }
+            0x40..=0x7e => CursorTrackState::Ground,
+            0x18 | 0x1a => CursorTrackState::Ground,
+            0x1b => CursorTrackState::Escape,
+            _ => CursorTrackState::Csi(std::mem::take(csi)),
+        }
+    }
 }
 
 // The handle is not thread-safe, but it is movable and we only expose
@@ -114,7 +238,11 @@ impl Terminal {
             sys::GhosttyTerminalOptions { cols: cols.max(1), rows: rows.max(1), max_scrollback };
         check(unsafe { sys::ghostty_terminal_new(ptr::null(), &mut raw, opts) })?;
 
-        let mut term = Terminal { raw, callbacks: Box::new(callbacks) };
+        let mut term = Terminal {
+            raw,
+            callbacks: Box::new(callbacks),
+            cursor_override: CursorOverrideTracker::default(),
+        };
         let userdata = &mut *term.callbacks as *mut Callbacks as *mut c_void;
         unsafe {
             sys::ghostty_terminal_set(raw, sys::GHOSTTY_TERMINAL_OPT_USERDATA, userdata);
@@ -146,7 +274,14 @@ impl Terminal {
         if data.is_empty() {
             return;
         }
+        self.cursor_override.write(data);
         unsafe { sys::ghostty_terminal_vt_write(self.raw, data.as_ptr(), data.len()) }
+    }
+
+    /// Whether the current cursor style/blink came from an active DECSCUSR
+    /// override rather than the embedder defaults.
+    pub fn cursor_overridden(&self) -> bool {
+        self.cursor_override.active
     }
 
     /// Set host-provided default foreground/background colors.
@@ -168,6 +303,34 @@ impl Terminal {
                     self.raw,
                     sys::GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND,
                     &color as *const sys::GhosttyColorRgb as *const c_void,
+                );
+            }
+        }
+    }
+
+    /// Set the cursor defaults used until an application overrides them with
+    /// DECSCUSR. `None` leaves that default unchanged.
+    pub fn set_default_cursor(&mut self, style: Option<CursorShape>, blink: Option<bool>) {
+        unsafe {
+            if let Some(style) = style {
+                let style = match style {
+                    CursorShape::Bar => sys::GHOSTTY_TERMINAL_CURSOR_STYLE_BAR,
+                    CursorShape::Underline => sys::GHOSTTY_TERMINAL_CURSOR_STYLE_UNDERLINE,
+                    CursorShape::Block | CursorShape::BlockHollow => {
+                        sys::GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK
+                    }
+                };
+                sys::ghostty_terminal_set(
+                    self.raw,
+                    sys::GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_STYLE,
+                    &style as *const sys::GhosttyTerminalCursorStyle as *const c_void,
+                );
+            }
+            if let Some(blink) = blink {
+                sys::ghostty_terminal_set(
+                    self.raw,
+                    sys::GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_BLINK,
+                    &blink as *const bool as *const c_void,
                 );
             }
         }

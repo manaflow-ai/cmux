@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use cmux_tui_core::platform::transport;
-use cmux_tui_core::{AttachFrame, DefaultColors, Mux, MuxEvent, Rgb, SurfaceOptions};
+use cmux_tui_core::{AttachFrame, CursorShape, DefaultColors, Mux, MuxEvent, Rgb, SurfaceOptions};
 use ghostty_vt::RenderState;
 
 fn wait_for<T>(mut f: impl FnMut() -> Option<T>, timeout: Duration) -> Option<T> {
@@ -413,7 +413,7 @@ fn control_socket_set_default_colors_merges_fields() {
     assert_eq!(v["ok"], true, "set-default-colors failed: {line}");
     assert_eq!(
         mux.default_colors(),
-        DefaultColors { fg: Some(Rgb { r: 1, g: 2, b: 3 }), bg: None }
+        DefaultColors { fg: Some(Rgb { r: 1, g: 2, b: 3 }), bg: None, ..Default::default() }
     );
 
     line.clear();
@@ -426,6 +426,7 @@ fn control_socket_set_default_colors_merges_fields() {
         DefaultColors {
             fg: Some(Rgb { r: 1, g: 2, b: 3 }),
             bg: Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }),
+            ..Default::default()
         }
     );
 
@@ -444,6 +445,8 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
     mux.set_default_colors(DefaultColors {
         fg: Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }),
         bg: Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }),
+        cursor_style: Some(CursorShape::Bar),
+        cursor_blink: Some(false),
     });
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
     surface.try_with_terminal(|term| term.vt_write(b"\x1b]12;rgb:20/40/60\x07")).unwrap();
@@ -465,6 +468,8 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
             "cursor": "#204060",
             "selection_bg": null,
             "selection_fg": null,
+            "cursor_style": "bar",
+            "cursor_blink": false,
         })
     );
 
@@ -477,9 +482,64 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
 }
 
 #[test]
+fn control_socket_attach_vt_state_cursor_is_null_without_config_or_decscusr() {
+    let mux = Mux::new(unique_session("test-attach-cursor-null"), shell_opts("cat"));
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+
+    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    let stream = connect(&sock_path);
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+
+    writeln!(writer, r#"{{"id":1,"cmd":"attach-surface","surface":{}}}"#, surface.id).unwrap();
+    let vt_state = read_json_line(&mut reader).expect("vt-state event");
+    assert_eq!(vt_state["colors"]["cursor_style"], serde_json::Value::Null);
+    assert_eq!(vt_state["colors"]["cursor_blink"], serde_json::Value::Null);
+
+    let response = read_json_line(&mut reader).expect("attach response");
+    assert_eq!(response["ok"], true, "attach failed: {response}");
+
+    mux.close_surface(surface.id);
+    cmux_tui_core::server::cleanup(&sock_path);
+}
+
+#[test]
+fn control_socket_attach_vt_state_prefers_surface_decscusr_cursor() {
+    let mux = Mux::new(unique_session("test-attach-cursor-override"), shell_opts("cat"));
+    mux.set_default_colors(DefaultColors {
+        cursor_style: Some(CursorShape::Bar),
+        cursor_blink: Some(false),
+        ..Default::default()
+    });
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    surface.try_with_terminal(|term| term.vt_write(b"\x1b[3 q")).unwrap();
+
+    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    let stream = connect(&sock_path);
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+
+    writeln!(writer, r#"{{"id":1,"cmd":"attach-surface","surface":{}}}"#, surface.id).unwrap();
+    let vt_state = read_json_line(&mut reader).expect("vt-state event");
+    assert_eq!(vt_state["colors"]["cursor_style"], "underline");
+    assert_eq!(vt_state["colors"]["cursor_blink"], true);
+
+    let response = read_json_line(&mut reader).expect("attach response");
+    assert_eq!(response["ok"], true, "attach failed: {response}");
+
+    mux.close_surface(surface.id);
+    cmux_tui_core::server::cleanup(&sock_path);
+}
+
+#[test]
 fn control_socket_attach_stream_receives_merged_colors_changed() {
     let mux = Mux::new(unique_session("test-colors-changed"), shell_opts("cat"));
-    mux.set_default_colors(DefaultColors { fg: Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }), bg: None });
+    mux.set_default_colors(DefaultColors {
+        fg: Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }),
+        bg: None,
+        cursor_style: Some(CursorShape::Bar),
+        cursor_blink: Some(false),
+    });
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
 
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
@@ -525,6 +585,8 @@ fn control_socket_attach_stream_receives_merged_colors_changed() {
             "cursor": null,
             "selection_bg": null,
             "selection_fg": null,
+            "cursor_style": "bar",
+            "cursor_blink": false,
         })
     );
 
@@ -617,6 +679,8 @@ fn default_colors_apply_to_existing_and_future_surfaces() {
     let colors = DefaultColors {
         fg: Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }),
         bg: Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }),
+        cursor_style: Some(CursorShape::Underline),
+        cursor_blink: Some(true),
     };
     mux.set_default_colors(colors);
 
@@ -626,6 +690,7 @@ fn default_colors_apply_to_existing_and_future_surfaces() {
         first_state.default_colors(),
         (Rgb { r: 0x13, g: 0x14, b: 0x15 }, Rgb { r: 0x01, g: 0x02, b: 0x03 })
     );
+    assert_eq!(first_state.cursor_visual().unwrap(), (CursorShape::Underline, true));
 
     let second = mux.new_tab(None, None, None).unwrap();
     let mut second_state = RenderState::new().unwrap();
@@ -634,6 +699,7 @@ fn default_colors_apply_to_existing_and_future_surfaces() {
         second_state.default_colors(),
         (Rgb { r: 0x13, g: 0x14, b: 0x15 }, Rgb { r: 0x01, g: 0x02, b: 0x03 })
     );
+    assert_eq!(second_state.cursor_visual().unwrap(), (CursorShape::Underline, true));
 
     mux.close_surface(first.id);
     mux.close_surface(second.id);
