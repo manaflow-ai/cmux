@@ -230,16 +230,16 @@ public struct ExpressionEvaluator: Sendable {
     }
 
     /// Equality is the one context where a missing object field has a value:
-    /// it represents an absent optional and therefore compares equal to `nil`.
-    /// Other evaluation failures remain `nil` so typos and unsupported syntax
-    /// do not silently masquerade as an absent value.
+    /// data contexts omit absent optionals, so that lookup compares equal to
+    /// `nil`. Other evaluation failures stay unresolved instead of becoming
+    /// absent values.
     private func evalEqualityOperand(_ expr: ExprSyntax, _ env: EvalEnvironment) -> SwiftValue? {
-        if let value = eval(expr, env) { return value }
-        guard let member = expr.as(MemberAccessExprSyntax.self),
-              let baseExpression = member.base,
-              case let .object(fields)? = eval(baseExpression, env),
-              fields[member.declName.baseName.text] == nil else { return nil }
-        return .null
+        if let member = expr.as(MemberAccessExprSyntax.self),
+           let baseExpression = member.base,
+           case let .object(fields)? = eval(baseExpression, env) {
+            return fields[member.declName.baseName.text] ?? .null
+        }
+        return eval(expr, env)
     }
 
     private func numericPair(_ lhs: SwiftValue, _ rhs: SwiftValue) -> (Double?, Double?, Bool) {
