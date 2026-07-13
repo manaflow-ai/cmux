@@ -65,6 +65,27 @@ struct AppDelegateOversizedFrameRestoreTests {
     }
 
     @Test
+    func fullPhysicalDisplayHeightIsPreserved() {
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            stableID: "uuid:BUILTIN",
+            frame: CGRect(x: 0, y: 0, width: 1_512, height: 982),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_512, height: 944)
+        )
+        let saved = CGRect(x: 0, y: 0, width: 1_200, height: 982)
+
+        let restored = AppDelegate.preservingOrClampingExactFrame(
+            saved,
+            targetDisplay: display,
+            availableDisplays: [display],
+            minWidth: 400,
+            minHeight: 300
+        )
+
+        #expect(restored == saved)
+    }
+
+    @Test
     func runtimeCapKeepsAnIntersectingLeftEdgeFrameReachable() {
         let display = CGRect(x: 0, y: 0, width: 1_512, height: 982)
         let runaway = CGRect(x: -12_000, y: 120, width: 12_400, height: 700)
