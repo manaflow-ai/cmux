@@ -190,6 +190,8 @@ extension Workspace {
         if refreshPorts {
             refreshTrackedAgentPorts()
         } else {
+            agentListeningPorts.removeAll()
+            recomputeListeningPorts()
             PortScanner.shared.unregisterAgentWorkspace(workspaceId: id)
         }
     }
