@@ -63,10 +63,9 @@ final class RemoteTmuxControlConnection {
     /// the moment tmux would redraw its own border. The mirror copies its
     /// windows' subset on reconcile; the view never reads this directly.
     var paneHeaderLabels: [Int: String] = [:]
-    /// Whether each window currently has `pane-border-status top` — i.e.
-    /// tmux itself is drawing header rows, which is the ONLY time the strips
-    /// show label text (a stock tmux displays no titles anywhere; cmux adds
-    /// only the active-pane dot on top of that).
+    /// Whether each window currently has a visible tmux pane-title row.
+    /// Both `top` and `bottom` consume one pane grid row; placement only
+    /// determines whether a label can map to cmux's top strip.
     var windowTitleRowsVisible: [Int: Bool] = [:]
     /// Layouts awaiting authoritative pane rectangles before publication.
     var pendingLayouts: [Int: RemoteTmuxPendingLayout] = [:]

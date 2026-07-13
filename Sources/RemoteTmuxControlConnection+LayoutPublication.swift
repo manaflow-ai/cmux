@@ -163,11 +163,12 @@ extension RemoteTmuxControlConnection {
             else { continue }
             rects[paneId] = (x: x, y: y, width: width, height: height)
             if parts[5] == "1" { activePane = paneId }
-            // Labels render only where tmux itself draws headers: `top` rows
-            // are the strips above each pane. (`bottom` rows keep faithful
-            // GEOMETRY via the rects, but carry no label — the strip-segment
-            // match keys on pane TOP edges.)
-            if parts[6] == "top" { titleRowsVisible = true }
+            // Both placements consume one pane-grid row. The expanded label
+            // is useful only for top strips, but this flag is sizing chrome,
+            // so bottom rows must remain visible to the layout metrics too.
+            if parts[6] == "top" || parts[6] == "bottom" {
+                titleRowsVisible = true
+            }
             labels[paneId] = Self.strippingStyleTokens(String(parts[7].dropFirst()))
         }
         // The reply must cover EVERY pane of the tree it will publish:

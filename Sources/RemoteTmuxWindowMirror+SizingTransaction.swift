@@ -26,14 +26,10 @@ extension RemoteTmuxWindowMirror {
         // its attach-time size so the initial claim can keep tmux off its
         // 80×24 default.
         guard isVisibleForSizing || containerSizePt == nil else { return }
-        // A first measurement is only worth recording if it is usable: a
-        // hidden mount can report 0x0 or 1x1 first, and recording that
-        // would consume the one unvalidated slot the initial claim needs —
-        // blocking every later measurement while the window sits unclaimed.
-        if containerSizePt == nil, !isVisibleForSizing,
-           pointSize.width <= 1 || pointSize.height <= 1 {
-            return
-        }
+        // Portal mount and teardown can report 0x0 or 1x1. Such a sample is
+        // never sizing truth, including after a useful detached measurement:
+        // accepting it would overwrite the pending reattach size.
+        guard pointSize.width > 1, pointSize.height > 1 else { return }
         // A mirror's container cannot exceed the content area of the window
         // hosting it — that is a physical invariant, not a heuristic.
         // SwiftUI can hand this callback a content-derived size when some

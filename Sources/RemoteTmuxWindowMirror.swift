@@ -142,10 +142,9 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     @ObservationIgnored var minNonGridWidthPxByScale: [CGFloat: Int] = [:]
     @ObservationIgnored var minNonGridHeightPxByScale: [CGFloat: Int] = [:]
 
-    /// Whether tmux itself is drawing header rows for this window
-    /// (`pane-border-status top`). The strips show label text ONLY then —
-    /// a stock tmux displays no titles anywhere, and faithful means matching
-    /// that; the active-pane dot is cmux's one addition in both modes.
+    /// Whether tmux draws pane-title rows for this window. Both top and bottom
+    /// placement consume one pane grid row, so sizing reserves the row either
+    /// way even though only a top row maps to cmux's header-strip labels.
     private(set) var tmuxTitleRowsVisible = false
     /// Header-strip labels per pane (the expanded `pane-border-format`,
     /// style tokens stripped), copied from the

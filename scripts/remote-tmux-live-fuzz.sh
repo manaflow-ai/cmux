@@ -470,13 +470,13 @@ do_op() {
       app_resize ;;
     4) # zoom toggle: the visible tree collapses to one pane and back
       random_pane "$w"; t resize-pane -Z -t "$RP" 2>/dev/null ;;
-    5) # pane title rows on/off: every pane shifts a row and chrome changes
-      rand 2
-      if [ "$R" = 0 ]; then
-        t set-option -t $SESSION pane-border-status top 2>/dev/null
-      else
-        t set-option -t $SESSION pane-border-status off 2>/dev/null
-      fi ;;
+    5) # pane title rows top/bottom/off: either placement consumes a grid row
+      rand 3
+      case "$R" in
+        0) t set-option -t $SESSION pane-border-status top 2>/dev/null ;;
+        1) t set-option -t $SESSION pane-border-status bottom 2>/dev/null ;;
+        *) t set-option -t $SESSION pane-border-status off 2>/dev/null ;;
+      esac ;;
     6) # window churn: create a window or kill one (keep at least one)
       local wins; wins=$(t list-windows -t $SESSION | wc -l | tr -d ' ')
       rand 2
