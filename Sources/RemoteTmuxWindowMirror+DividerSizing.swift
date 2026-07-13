@@ -87,17 +87,10 @@ extension RemoteTmuxWindowMirror {
             parentExtent: parentExtent,
             dividerPosition: position
         )
-        // Descend with the imposed extent itself when one is active: the
-        // divider fraction is mirrored back from the same value, so the two
-        // agree to floating-point noise, but the extent is the exact point
-        // count the plan chose — no reason to round-trip it through a ratio.
-        let firstExtent = split.imposedFirstExtent
-            .map { min(max(0, CGFloat($0)), max(0, parentExtent - metrics.dividerThickness)) }
-            ?? childExtents.first
         let sizes = metrics.childSizes(
             parentSize: parentSize,
             orientation: orientation,
-            firstExtent: firstExtent
+            firstExtent: childExtents.first
         )
         let firstSize = sizes.first
         let secondSize = sizes.second
