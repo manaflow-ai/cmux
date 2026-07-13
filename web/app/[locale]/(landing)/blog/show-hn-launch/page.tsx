@@ -1,7 +1,8 @@
 import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
+import { blogPostSeoCopy } from "@/i18n/audited-seo";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "@/i18n/navigation";
 import { Tweet } from "react-tweet";
@@ -10,11 +11,12 @@ import starHistory from "./star-history.png";
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "blog.showHnLaunch" });
+  const post = await getTranslations({ locale, namespace: "blog.posts.showHnLaunch" });
+  const siteMeta = await getTranslations({ locale, namespace: "meta" });
   const alternates = buildAlternates(locale, "/blog/show-hn-launch");
-  const title = t("metaTitle");
-  const description = seoDescription(locale, t("metaDescription"));
+  const { title, description } = blogPostSeoCopy(locale, "showHnLaunch", t, post, siteMeta);
   return {
-    title,
+    title: { absolute: title },
     description,
     openGraph: {
       ...openGraphDefaults(locale, "article"),
@@ -34,7 +36,7 @@ export default function ShowHNLaunchPage() {
 
   return (
     <>
-      <BlogSchema postKey="showHnLaunch" path="/blog/show-hn-launch" datePublished="2026-02-21T00:00:00Z" />
+      <BlogSchema postKey="showHnLaunch" seoKey="showHnLaunch" path="/blog/show-hn-launch" datePublished="2026-02-21T00:00:00Z" />
       <div className="mb-8">
         <Link
           href="/blog"
