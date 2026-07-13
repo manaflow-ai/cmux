@@ -5380,7 +5380,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Invalidate the in-flight attempt outside ``beginPairingAttempt(method:)``
     /// (cancel, sign-out, live-connection teardown), dropping its instrumentation
     /// so a stale attempt can never emit `ios_pairing_*` via a later auth eviction.
-    private func invalidatePairingAttempt() {
+    func invalidatePairingAttempt() {
         pairingAttemptID = UUID()
         pairingAttemptStartedAt = nil
         pairingAttemptMethod = nil

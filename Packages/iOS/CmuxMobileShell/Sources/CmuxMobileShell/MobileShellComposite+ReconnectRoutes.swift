@@ -15,6 +15,7 @@ extension MobileShellComposite {
             resetConnectionLifecycle()
         }
         connectionLifecycleReconnectPendingAfterRetirement = false
+        invalidatePairingAttempt()
         clearPairingError()
     }
 
@@ -191,7 +192,13 @@ extension MobileShellComposite {
                     self.scheduleSecondaryAggregation()
                 }
                 if self.terminalEventListenerTask == nil {
-                    self.finishConnectionLifecycleEpisode(id: episode.id, succeeded: false)
+                    if self.runtime?.supportsServerPushEvents ?? true {
+                        self.finishConnectionLifecycleEpisode(id: episode.id, succeeded: false)
+                    } else {
+                        // Replay-only runtimes intentionally have no listener.
+                        // Scheduling the replay is their complete repair path.
+                        self.markMacConnectionHealthy()
+                    }
                 }
             case .reconnect:
                 let outcome = await self.performStoredMacReconnect(
