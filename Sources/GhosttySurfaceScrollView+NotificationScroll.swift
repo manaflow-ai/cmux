@@ -167,7 +167,7 @@ extension GhosttySurfaceScrollView {
         sessionScrollbackReplayCompletionScrollbar = scrollbarAtMarker
         sessionScrollbackReplayCompletionRowSpaceRevision = scrollbarRevisionAtMarker
         updateScrollbackRowSpaceRevision(scrollbarRevisionAtMarker)
-        guard refreshAuthoritativeScrollbar(scrollbarAtMarker) else {
+        guard publishScrollbarSynchronously(scrollbarAtMarker) else {
             sessionScrollbackReplayCompletionScrollbar = nil
             sessionScrollbackReplayCompletionRowSpaceRevision = nil
             cancelPendingNotificationScrollRestore()
@@ -209,7 +209,7 @@ extension GhosttySurfaceScrollView {
         sessionScrollbackReplayCompletionDeadlineTimer = nil
     }
 
-    private func refreshAuthoritativeScrollbar(_ snapshot: GhosttyScrollbar?) -> Bool {
+    private func publishScrollbarSynchronously(_ snapshot: GhosttyScrollbar?) -> Bool {
         guard let snapshot else { return false }
         surfaceView.enqueueScrollbarUpdate(snapshot)
         return surfaceView.flushPendingScrollbarIfAvailable()
@@ -235,7 +235,16 @@ extension GhosttySurfaceScrollView {
             let currentTotalRows = Int(clamping: scrollbar.total)
             let currentVisibleRows = min(currentTotalRows, Int(clamping: scrollbar.len))
             let currentLastTopRow = currentTotalRows - currentVisibleRows
-            didRestore = surfaceView.performBindingAction("scroll_to_row:\(targetTopRow)", recordsExplicitInput: false)
+            let actionRestored = surfaceView.performBindingAction(
+                "scroll_to_row:\(targetTopRow)",
+                recordsExplicitInput: false
+            )
+            let targetScrollbar = GhosttyScrollbar(c: ghostty_action_scrollbar_s(
+                total: scrollbar.total,
+                offset: UInt64(clamping: targetTopRow),
+                len: scrollbar.len
+            ))
+            didRestore = actionRestored && publishScrollbarSynchronously(targetScrollbar)
             if didRestore {
                 userScrolledAwayFromBottom = targetTopRow < currentLastTopRow
             }
@@ -314,6 +323,11 @@ extension GhosttySurfaceScrollView {
               let currentRevision = currentScrollbackRowSpaceRevision else { return false }
         if let replayGeneration = sessionScrollbackReplayGeneration,
            position.replayGeneration != replayGeneration {
+            // The replay artifact does not yet persist the source row-space
+            // identity. A revision-aware position therefore cannot be safely
+            // translated across generations; only legacy positions may use the
+            // suffix-rebasing fallback below.
+            guard position.rowSpaceRevision == nil else { return true }
             guard let markerRevision = sessionScrollbackReplayCompletionRowSpaceRevision else {
                 return false
             }
