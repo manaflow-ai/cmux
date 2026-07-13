@@ -175,12 +175,12 @@ enum TerminalNotificationClickAction: Codable, Hashable, Sendable {
 
 @MainActor
 final class TerminalNotificationStore: ObservableObject {
-    private struct TabSurfaceKey: Hashable {
+    struct TabSurfaceKey: Hashable {
         let tabId: UUID
         let surfaceId: UUID?
     }
 
-    private struct NotificationIndexes {
+    struct NotificationIndexes {
         var ids = Set<UUID>()
         var unreadCount = 0
         var unreadCountByTabId: [UUID: Int] = [:]
@@ -282,6 +282,7 @@ final class TerminalNotificationStore: ObservableObject {
     /// the reconcile sweep still classifies the ids correctly because they are
     /// tombstoned at supersede time.
     private var supersededPhoneDismissBuffer = SupersededPhoneDismissBuffer()
+    private var externalBannerOwnership = ExternalNotificationBannerOwnership()
 
     /// Classify which of the phone's delivered banner ids have been handled on
     /// this Mac: still in the store and read, or recently removed (tombstoned).
@@ -1171,7 +1172,13 @@ final class TerminalNotificationStore: ObservableObject {
             incoming: notification,
             latestExisting: latestExisting
         )
-        let supersededExternalIds = externalBannerTransition.supersededId.map { [$0] } ?? []
+        let bannerOwner = externalBannerOwnership.owner(
+            tabId: notification.tabId,
+            surfaceId: notification.surfaceId
+        )
+        let supersededExternalIds = externalBannerTransition.suppressIncoming
+            ? []
+            : bannerOwner.map { [$0.id.uuidString] } ?? []
         let suppressExternalDelivery = shouldSuppressExternalDelivery || externalBannerTransition.suppressIncoming
         updated.insert(notification, at: insertionIndex)
         setWorkspaceManualUnread(false, forTabId: notification.tabId)
@@ -1188,6 +1195,10 @@ final class TerminalNotificationStore: ObservableObject {
             shouldSuppressExternalDelivery: suppressExternalDelivery,
             effects: effects
         )
+        if !externalBannerTransition.suppressIncoming {
+            externalBannerOwnership.clear(tabId: notification.tabId, surfaceId: notification.surfaceId)
+            if !suppressExternalDelivery, effects.desktop { externalBannerOwnership.setOwner(notification) }
+        }
         deliverNotificationSideEffects(
             notification,
             shouldSuppressExternalDelivery: suppressExternalDelivery,
@@ -1339,6 +1350,7 @@ final class TerminalNotificationStore: ObservableObject {
         updated[index].isRead = true
         deferredUnreadNavigationIds.removeAll { $0 == id }
         notifications = updated
+        externalBannerOwnership.clear(id: id)
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
         emitNotificationsDismissed(ids: [id.uuidString], drainedSuperseded: drainedSuperseded)
     }
@@ -1380,6 +1392,7 @@ final class TerminalNotificationStore: ObservableObject {
         setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
         setWorkspaceRestoredUnread(false, forTabId: tabId)
         if !idsToClear.isEmpty {
+            externalBannerOwnership.clear(tabId: tabId)
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             emitNotificationsDismissed(
                 ids: idsToClear,
@@ -1419,6 +1432,7 @@ final class TerminalNotificationStore: ObservableObject {
             setWorkspaceRestoredUnread(false, forTabId: tabId)
         }
         if !idsToClear.isEmpty {
+            externalBannerOwnership.clear(ids: idsToClear)
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
             emitNotificationsDismissed(ids: idsToClear, drainedSuperseded: supersededDrained)
@@ -1497,6 +1511,7 @@ final class TerminalNotificationStore: ObservableObject {
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()
         if !idsToClear.isEmpty {
+            externalBannerOwnership.clearAll()
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
             emitNotificationsDismissed(
@@ -1514,6 +1529,7 @@ final class TerminalNotificationStore: ObservableObject {
         guard updated.count != originalCount else { return }
         let drainedSuperseded = removed.map(supersededPhoneDismissesForRowAction) ?? []
         notifications = updated
+        externalBannerOwnership.clear(id: id)
         if let removed {
             clearFocusedReadIndicator(forTabId: removed.tabId, surfaceId: removed.surfaceId)
         }
@@ -1522,14 +1538,17 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private func supersededPhoneDismissesForRowAction(_ notification: TerminalNotification) -> [String] {
-        let key = TabSurfaceKey(tabId: notification.tabId, surfaceId: notification.surfaceId)
-        guard indexes.latestByTabSurface[key]?.id == notification.id else { return [] }
+        guard externalBannerOwnership.owner(
+            tabId: notification.tabId,
+            surfaceId: notification.surfaceId
+        )?.id == notification.id else { return [] }
         let phoneKey = SupersededPhoneDismissBuffer.key(tabId: notification.tabId, surfaceId: notification.surfaceId)
         return supersededPhoneDismissBuffer.flush(forKey: phoneKey)
     }
 
     func applySessionNotificationMerge(_ merged: [TerminalNotification]) {
         guard merged != notifications else { return }
+        externalBannerOwnership.reconcile(previous: notifications, merged: merged)
         notifications = merged
     }
 
@@ -1545,6 +1564,7 @@ final class TerminalNotificationStore: ObservableObject {
             focused[toTabId] = panelIdMap[oldSurfaceId]
         }
         if focused != focusedReadIndicatorByTabId { focusedReadIndicatorByTabId = focused }
+        externalBannerOwnership.transfer(fromTabId: fromTabId, toTabId: toTabId, panelIdMap: panelIdMap)
         supersededPhoneDismissBuffer.transfer(fromTabId: fromTabId, toTabId: toTabId, panelIdMap: panelIdMap)
     }
 
@@ -1560,6 +1580,7 @@ final class TerminalNotificationStore: ObservableObject {
         let tabIdsToClearPanelUnread = panelDerivedUnreadWorkspaceIds.union(notifications.map(\.tabId))
         let ids = notifications.map { $0.id.uuidString }
         replaceNotificationsForClear([])
+        externalBannerOwnership.clearAll()
         clearWorkspaceManualUnread()
         clearAllWorkspacePanelUnread(forTabIds: tabIdsToClearPanelUnread)
         clearPanelDerivedWorkspaceUnread()
@@ -1607,6 +1628,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
         clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
         if !idsToClear.isEmpty {
+            externalBannerOwnership.clear(ids: idsToClear)
             CmuxEventBus.shared.publishNotificationCleared(ids: idsToClear, workspaceId: tabId, surfaceId: surfaceId)
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
@@ -1640,6 +1662,7 @@ final class TerminalNotificationStore: ObservableObject {
             )
         }
         if didMoveNotification {
+            externalBannerOwnership.rebind(surfaceId: surfaceId, fromTabId: sourceTabId, toTabId: destinationTabId)
             notifications = updated
         }
 
@@ -1674,6 +1697,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
         clearFocusedReadIndicator(forTabId: tabId)
         if !idsToClear.isEmpty {
+            externalBannerOwnership.clear(tabId: tabId)
             CmuxEventBus.shared.publishNotificationCleared(ids: idsToClear, workspaceId: tabId, surfaceId: nil)
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
@@ -1972,35 +1996,6 @@ final class TerminalNotificationStore: ObservableObject {
         return shouldDeferAutomaticAuthorizationRequest(status: status, isAppActive: isAppActive)
     }
 
-    private static func buildIndexes(for notifications: [TerminalNotification]) -> NotificationIndexes {
-        var indexes = NotificationIndexes()
-        for notification in notifications {
-            indexes.ids.insert(notification.id)
-            if indexes.latestByTabId[notification.tabId] == nil {
-                indexes.latestByTabId[notification.tabId] = notification
-            }
-            let tabSurfaceKey = TabSurfaceKey(tabId: notification.tabId, surfaceId: notification.surfaceId)
-            if indexes.latestByTabSurface[tabSurfaceKey] == nil {
-                indexes.latestByTabSurface[tabSurfaceKey] = notification
-            }
-            guard !notification.isRead else { continue }
-            indexes.unreadCount += 1
-            indexes.unreadCountByTabId[notification.tabId, default: 0] += 1
-            indexes.unreadByTabSurface.insert(
-                TabSurfaceKey(tabId: notification.tabId, surfaceId: notification.surfaceId)
-            )
-            if let panelId = notification.panelId, panelId != notification.surfaceId {
-                indexes.unreadByTabSurface.insert(
-                    TabSurfaceKey(tabId: notification.tabId, surfaceId: panelId)
-                )
-            }
-            if indexes.latestUnreadByTabId[notification.tabId] == nil {
-                indexes.latestUnreadByTabId[notification.tabId] = notification
-            }
-        }
-        return indexes
-    }
-
     nonisolated static func notificationSortPrecedes(_ lhs: TerminalNotification, _ rhs: TerminalNotification) -> Bool {
         if lhs.createdAt != rhs.createdAt {
             return lhs.createdAt > rhs.createdAt
@@ -2088,6 +2083,7 @@ final class TerminalNotificationStore: ObservableObject {
         TerminalMutationBus.shared.discardPendingNotifications()
         deferredUnreadNavigationIds.removeAll()
         self.notifications = notifications
+        externalBannerOwnership.resetAssumingOwners(from: notifications)
         clearWorkspaceManualUnread()
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()
@@ -2105,6 +2101,10 @@ final class TerminalNotificationStore: ObservableObject {
         supersededPhoneDismissBuffer.flush(
             forKey: SupersededPhoneDismissBuffer.key(tabId: tabId, surfaceId: surfaceId)
         )
+    }
+
+    func externalBannerOwnerIDForTesting(tabId: UUID, surfaceId: UUID?) -> UUID? {
+        externalBannerOwnership.owner(tabId: tabId, surfaceId: surfaceId)?.id
     }
 
 #endif

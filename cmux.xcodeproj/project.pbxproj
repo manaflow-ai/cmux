@@ -678,6 +678,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */; };
 		E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */; };
 		E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */; };
+		EE5000090000000000000009 /* ExternalNotificationBannerOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE5000100000000000000010 /* ExternalNotificationBannerOwnership.swift */; };
 		C0DEA7710000000000000007 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA7710000000000000008 /* FeatureFlags.swift */; };
 		FEED0A00000000000000F007 /* feed-tui in Resources */ = {isa = PBXBuildFile; fileRef = FEED0A00000000000000F006 /* feed-tui */; };
 		FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */; };
@@ -962,6 +963,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D7769000000000000000000B /* NotificationPopoverHoverTrackingRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7769000000000000000000C /* NotificationPopoverHoverTrackingRepresentable.swift */; };
 		D7769000000000000000000D /* NotificationPopoverHoverTrackingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7769000000000000000000E /* NotificationPopoverHoverTrackingView.swift */; };
 		D77690000000000000000003 /* NotificationPopoverRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77690000000000000000004 /* NotificationPopoverRow.swift */; };
+		EE5000070000000000000007 /* NotificationRestoreBannerOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE5000080000000000000008 /* NotificationRestoreBannerOwnershipTests.swift */; };
 		C7A507000000000000005794 /* NotificationRowSnapshotBoundaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A507000000000000005795 /* NotificationRowSnapshotBoundaryTests.swift */; };
 		B7F00002 /* NotificationSoundSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F00001 /* NotificationSoundSettings.swift */; };
 		4E5F60720000000000000001 /* NotificationSoundSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5F60720000000000000002 /* NotificationSoundSettingsTests.swift */; };
@@ -1520,6 +1522,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5A5A50BA1B2C3D4E5F60718 /* TerminalNotificationQueueTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A5A50CA1B2C3D4E5F60718 /* TerminalNotificationQueueTypes.swift */; };
 		A5001098 /* TerminalNotificationScrollPosition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001099 /* TerminalNotificationScrollPosition.swift */; };
 		A5E380700000000000000001 /* TerminalNotificationSocketActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E380700000000000000002 /* TerminalNotificationSocketActionTests.swift */; };
+		EE5000110000000000000011 /* TerminalNotificationStore+Indexes.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE5000120000000000000012 /* TerminalNotificationStore+Indexes.swift */; };
 		7490C0107490C0107490C010 /* TerminalNotificationStore+MemoryPressure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0107490D0107490D010 /* TerminalNotificationStore+MemoryPressure.swift */; };
 		596100000000000000000007 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596100000000000000000006 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift */; };
 		A5A5A509A1B2C3D4E5F60718 /* TerminalNotificationStore+QueuedDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A5A50AA1B2C3D4E5F60718 /* TerminalNotificationStore+QueuedDelivery.swift */; };
@@ -2436,6 +2439,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionSidebarWorkspaceRowView.swift; sourceTree = "<group>"; };
 		E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreePrototype.swift; sourceTree = "<group>"; };
 		E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreeSpawnArgsTests.swift; sourceTree = "<group>"; };
+		EE5000100000000000000010 /* ExternalNotificationBannerOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalNotificationBannerOwnership.swift; sourceTree = "<group>"; };
 		C0DEA7710000000000000008 /* FeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlags.swift; sourceTree = "<group>"; };
 		FEED0A00000000000000F006 /* feed-tui */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "feed-tui"; sourceTree = "<group>"; };
 		FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedButtonStyleDebugWindowController.swift; sourceTree = "<group>"; };
@@ -2716,6 +2720,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D7769000000000000000000C /* NotificationPopoverHoverTrackingRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationPopoverHoverTrackingRepresentable.swift; sourceTree = "<group>"; };
 		D7769000000000000000000E /* NotificationPopoverHoverTrackingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationPopoverHoverTrackingView.swift; sourceTree = "<group>"; };
 		D77690000000000000000004 /* NotificationPopoverRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationPopoverRow.swift; sourceTree = "<group>"; };
+		EE5000080000000000000008 /* NotificationRestoreBannerOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRestoreBannerOwnershipTests.swift; sourceTree = "<group>"; };
 		C7A507000000000000005795 /* NotificationRowSnapshotBoundaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRowSnapshotBoundaryTests.swift; sourceTree = "<group>"; };
 		B7F00001 /* NotificationSoundSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundSettings.swift; sourceTree = "<group>"; };
 		4E5F60720000000000000002 /* NotificationSoundSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundSettingsTests.swift; sourceTree = "<group>"; };
@@ -3259,6 +3264,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5A5A50CA1B2C3D4E5F60718 /* TerminalNotificationQueueTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationQueueTypes.swift; sourceTree = "<group>"; };
 		A5001099 /* TerminalNotificationScrollPosition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationScrollPosition.swift; sourceTree = "<group>"; };
 		A5E380700000000000000002 /* TerminalNotificationSocketActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationSocketActionTests.swift; sourceTree = "<group>"; };
+		EE5000120000000000000012 /* TerminalNotificationStore+Indexes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+Indexes.swift"; sourceTree = "<group>"; };
 		7490D0107490D0107490D010 /* TerminalNotificationStore+MemoryPressure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+MemoryPressure.swift"; sourceTree = "<group>"; };
 		596100000000000000000006 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+NativeNotificationDeliveryTesting.swift"; sourceTree = "<group>"; };
 		A5A5A50AA1B2C3D4E5F60718 /* TerminalNotificationStore+QueuedDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+QueuedDelivery.swift"; sourceTree = "<group>"; };
@@ -4368,8 +4374,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5F10000000000000000000E /* TerminalNotificationStore+WorkspaceNotifications.swift */,
 				A5001099 /* TerminalNotificationScrollPosition.swift */,
 				7490D0107490D0107490D010 /* TerminalNotificationStore+MemoryPressure.swift */,
+				EE5000120000000000000012 /* TerminalNotificationStore+Indexes.swift */,
 				596100000000000000000004 /* NativeNotificationDeliveryHooks.swift */,
 				D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */,
+				EE5000100000000000000010 /* ExternalNotificationBannerOwnership.swift */,
 				A5001097 /* TerminalNotificationPolicy.swift */,
 				F1A0C0DE0000000000000001 /* FindTextFieldSupport.swift */,
 				A5A5A502A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift */,
@@ -5265,6 +5273,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7A507000000000000004530 /* TaskManagerViewSnapshotBoundaryTests.swift */,
 				C7A507000000000000005795 /* NotificationRowSnapshotBoundaryTests.swift */,
 				EE5000020000000000000002 /* NotificationChronologyTests.swift */,
+				EE5000080000000000000008 /* NotificationRestoreBannerOwnershipTests.swift */,
 				EE5000040000000000000004 /* TerminalNotificationBackpressureTests.swift */,
 				EE5000060000000000000006 /* AgentNotificationReliableDeliveryTests.swift */,
 				C7A509000000000000000001 /* CmuxTopSnapshotScopeTests.swift */,
@@ -6131,6 +6140,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					5732A0135732A0135732A013 /* EnvironmentValues+SidebarLazyContractProbe.swift in Sources */,
 				E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */,
 				E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */,
+				EE5000090000000000000009 /* ExternalNotificationBannerOwnership.swift in Sources */,
 				C0DEA7710000000000000007 /* FeatureFlags.swift in Sources */,
 				FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */,
 				FEED0000000000000000F002 /* FeedCoordinator.swift in Sources */,
@@ -6689,6 +6699,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5A5A501A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift in Sources */,
 				A5A5A50BA1B2C3D4E5F60718 /* TerminalNotificationQueueTypes.swift in Sources */,
 				A5001098 /* TerminalNotificationScrollPosition.swift in Sources */,
+				EE5000110000000000000011 /* TerminalNotificationStore+Indexes.swift in Sources */,
 				7490C0107490C0107490C010 /* TerminalNotificationStore+MemoryPressure.swift in Sources */,
 				A5A5A509A1B2C3D4E5F60718 /* TerminalNotificationStore+QueuedDelivery.swift in Sources */,
 				A5F10000000000000000000D /* TerminalNotificationStore+WorkspaceNotifications.swift in Sources */,
@@ -7264,6 +7275,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */,
 				EE5000010000000000000001 /* NotificationChronologyTests.swift in Sources */,
 				D7AB00000000000000B021 /* NotificationDismissSyncTests.swift in Sources */,
+				EE5000070000000000000007 /* NotificationRestoreBannerOwnershipTests.swift in Sources */,
 				C7A507000000000000005794 /* NotificationRowSnapshotBoundaryTests.swift in Sources */,
 				4E5F60720000000000000001 /* NotificationSoundSettingsTests.swift in Sources */,
 				645645000000000000000002 /* NumberedShortcutSwapTests.swift in Sources */,

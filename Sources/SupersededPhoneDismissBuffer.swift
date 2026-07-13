@@ -54,7 +54,7 @@ struct SupersededPhoneDismissBuffer {
         let prefix = fromTabId.uuidString + ":"
         for sourceKey in idsByKey.keys.filter({ $0.hasPrefix(prefix) }).sorted() {
             let surfaceText = String(sourceKey.dropFirst(prefix.count))
-            let surfaceId = UUID(uuidString: surfaceText).flatMap { panelIdMap[$0] }
+            let surfaceId = UUID(uuidString: surfaceText).map { panelIdMap[$0] ?? $0 }
             stash(
                 ids: idsByKey.removeValue(forKey: sourceKey) ?? [],
                 forKey: Self.key(tabId: toTabId, surfaceId: surfaceId)
