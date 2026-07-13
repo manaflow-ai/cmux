@@ -278,6 +278,22 @@ import Testing
         }
     }
 
+    @Test func commentOnlyTemplatesWithPromptOpenPlainShell() {
+        let commands = [
+            "# setup note",
+            " \t# setup note\n",
+            "# first note\n  # second note  ",
+        ]
+
+        for command in commands {
+            let template = MobileTaskTemplate(name: "Notes", icon: "terminal", command: command)
+            let result = composer.compose(template: template, prompt: "ship it")
+            #expect(result.initialCommand == nil)
+            #expect(result.initialEnv.isEmpty)
+            #expect(result.title == "ship it")
+        }
+    }
+
     @Test func appendModeLeavesCommandUnchangedForEmptyPrompt() {
         let template = MobileTaskTemplate(name: "Codex", icon: "sparkles", command: "codex")
 
