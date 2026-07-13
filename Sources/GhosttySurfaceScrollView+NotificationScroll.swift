@@ -4,19 +4,6 @@ import Foundation
 import GhosttyKit
 
 @MainActor
-extension GhosttyNSView {
-    func authoritativeScrollbarSnapshot() -> GhosttyScrollbar? {
-        guard let terminalSurface,
-              let surface = terminalSurface.liveSurfaceForGhosttyAccess(
-                reason: "notificationScrollRestore.authoritativeSnapshot"
-              ) else { return nil }
-        var snapshot = ghostty_action_scrollbar_s()
-        guard ghostty_surface_scrollbar(surface, &snapshot) else { return nil }
-        return GhosttyScrollbar(c: snapshot)
-    }
-}
-
-@MainActor
 extension GhosttySurfaceScrollView {
     var notificationScrollPosition: TerminalNotificationScrollPosition? {
         guard let scrollbar = surfaceView.scrollbar else { return nil }
@@ -119,20 +106,10 @@ extension GhosttySurfaceScrollView {
 
     @discardableResult
     func completeSessionScrollbackReplay(
-        ifMatches reportedDirectory: String
-    ) -> Bool {
-        completeSessionScrollbackReplay(
-            ifMatches: reportedDirectory,
-            authoritativeScrollbarSnapshot: { self.surfaceView.authoritativeScrollbarSnapshot() }
-        )
-    }
-
-    @discardableResult
-    func completeSessionScrollbackReplay(
         ifMatches reportedDirectory: String,
-        authoritativeScrollbarSnapshot: () -> GhosttyScrollbar?
+        scrollbarAtMarker: GhosttyScrollbar?
     ) -> Bool {
-        guard hasSessionScrollbackReplayCompletionMarker(matching: reportedDirectory) else {
+        if !hasSessionScrollbackReplayCompletionMarker(matching: reportedDirectory) {
             guard SessionScrollbackReplayCompletionMarker.isReservedReportedDirectory(reportedDirectory) else { return false }
             switch notificationScrollRestorePhase {
             case .idle, .pending(_, sessionScrollbackReplayCompletionMarker: nil):
@@ -156,7 +133,7 @@ extension GhosttySurfaceScrollView {
             )
         }
 
-        guard refreshAuthoritativeScrollbar(authoritativeScrollbarSnapshot()) else {
+        guard refreshAuthoritativeScrollbar(scrollbarAtMarker) else {
             cancelPendingNotificationScrollRestore()
             return true
         }
@@ -181,7 +158,10 @@ extension GhosttySurfaceScrollView {
         // The OSC 7 marker is the synchronization signal. This deadline only
         // prevents a missing or disabled shell integration from waiting forever.
         let timer = Timer(timeInterval: 10, repeats: false) { [weak self] _ in
-            self?.expireSessionScrollbackReplayCompletionDeadline()
+            // This timer is registered only on RunLoop.main below.
+            MainActor.assumeIsolated {
+                self?.expireSessionScrollbackReplayCompletionDeadline()
+            }
         }
         sessionScrollbackReplayCompletionDeadlineTimer = timer
         RunLoop.main.add(timer, forMode: .common)

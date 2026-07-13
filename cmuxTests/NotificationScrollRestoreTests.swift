@@ -141,7 +141,8 @@ struct NotificationScrollRestoreTests {
         #expect(hostedView.sessionScrollbackReplayCompletionDeadlineTimer != nil)
         #expect(surfaceView.bindingActions.isEmpty)
         #expect(!hostedView.completeSessionScrollbackReplay(
-            ifMatches: "unrelated directory"
+            ifMatches: "unrelated directory",
+            scrollbarAtMarker: surfaceView.scrollbar
         ))
         #expect(surfaceView.bindingActions.isEmpty)
         let finalScrollbar = scrollbar(total: 200, offset: 156, visible: 44)
@@ -281,10 +282,12 @@ struct NotificationScrollRestoreTests {
         panel.adoptOwnedSessionScrollbackReplayArtifact(fileURL)
         #expect(panel.hostedView.notificationScrollRestorePhase == .sessionScrollbackReplayActive(marker))
         #expect(!panel.hostedView.completeSessionScrollbackReplay(
-            ifMatches: "/tmp"
+            ifMatches: "/tmp",
+            scrollbarAtMarker: panel.hostedView.surfaceView.scrollbar
         ))
         #expect(panel.hostedView.completeSessionScrollbackReplay(
-            ifMatches: marker.reportedDirectory
+            ifMatches: marker.reportedDirectory,
+            scrollbarAtMarker: GhosttyScrollbar(c: ghostty_action_scrollbar_s())
         ))
         #expect(panel.hostedView.notificationScrollRestorePhase == .idle)
         #expect(SessionScrollbackReplayCompletionMarker.isReservedReportedDirectory(marker.reportedDirectory))
@@ -459,7 +462,7 @@ struct NotificationScrollRestoreTests {
     ) -> Bool {
         hostedView.completeSessionScrollbackReplay(
             ifMatches: marker.reportedDirectory,
-            authoritativeScrollbarSnapshot: { scrollbar }
+            scrollbarAtMarker: scrollbar
         )
     }
 

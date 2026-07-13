@@ -2908,7 +2908,14 @@ class GhosttyApp {
             return true
         case GHOSTTY_ACTION_PWD:
             let pwd = action.action.pwd.pwd.flatMap { String(cString: $0) } ?? ""
-            if SessionScrollbackReplayCompletionMarker.isReservedReportedDirectory(pwd), performOnMain({ completeSessionScrollbackReplayIfNeeded(surfaceView: surfaceView, reportedDirectory: pwd) }) { return true }
+            let scrollbarAtMarker = GhosttyScrollbar(c: action.action.pwd.scrollbar)
+            if SessionScrollbackReplayCompletionMarker.isReservedReportedDirectory(pwd), performOnMain({
+                completeSessionScrollbackReplayIfNeeded(
+                    surfaceView: surfaceView,
+                    reportedDirectory: pwd,
+                    scrollbarAtMarker: scrollbarAtMarker
+                )
+            }) { return true }
             guard let tabId = surfaceView.tabId, let surfaceId = surfaceView.terminalSurface?.id else { return true }
             DispatchQueue.main.async {
                 AppDelegate.shared?.tabManagerFor(tabId: tabId)?.updateReportedSurfaceDirectory(
