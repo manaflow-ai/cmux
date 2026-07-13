@@ -1365,10 +1365,7 @@ final class MobileHostService {
         authorization: MobileAttachTicketAuthorization,
         request: MobileHostRPCRequest
     ) -> MobileHostRPCError? {
-        let workspaceSelection = stringParamSelection(
-            request.params,
-            keys: ["workspace_id"]
-        )
+        let workspaceSelection = stringParamSelection(request.params, keys: ["workspace_id"])
         let terminalSelection = stringParamSelection(
             request.params,
             keys: ["surface_id", "terminal_id", "tab_id"]
@@ -1379,10 +1376,13 @@ final class MobileHostService {
         if containsIgnoredAliasParameters(request.params) {
             return scopedTicketError
         }
-
         switch request.method {
         case "mobile.workspace.list", "workspace.list":
             return nil
+        case "mobile.workspace.layout":
+            return ticketWorkspaceAuthorizationError(
+                authorization: authorization, workspaceSelection: workspaceSelection.value
+            )
         case "workspace.create":
             guard request.params["group_id"] == nil || request.params["group_id"] is NSNull else {
                 return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)

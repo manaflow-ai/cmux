@@ -13920,8 +13920,6 @@ class TerminalController {
         // `ControlCallResult`): doing so would force a
         // `MobileHostRPCRequest → ControlRequest → ControlCallResult →
         // MobileHostRPCResult` type round-trip with no behavior change. The v2
-        // control socket shares the same bodies through `handleMobileHost`, so the
-        // wire bytes stay identical across both entrypoints without a bridge here.
         let result: V2CallResult
         switch request.method {
         case "mobile.host.status":
@@ -13930,6 +13928,8 @@ class TerminalController {
             result = await v2MobileAttachTicketCreate(params: request.params)
         case "mobile.workspace.list", "workspace.list":
             result = v2MobileWorkspaceList(params: request.params)
+        case "mobile.workspace.layout":
+            result = v2MobileWorkspaceLayout(params: request.params)
         case "workspace.create":
             result = v2MobileWorkspaceCreate(params: request.params)
         case "mobile.terminal.create", "terminal.create":

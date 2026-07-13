@@ -2096,9 +2096,9 @@ final class Workspace: Identifiable, ObservableObject {
     /// sites were written against. Single seam; delete when the subscribers
     /// move to @Observable observation.
     let panelsPublisher = CurrentValueSubject<[UUID: any Panel], Never>([:])
-    /// Legacy Combine bridge for the remaining `$paneLayoutVersion`
-    /// subscribers; same contract as `panelsPublisher`.
+    /// Legacy Combine bridge for `$paneLayoutVersion`; same contract as `panelsPublisher`.
     let paneLayoutVersionPublisher = CurrentValueSubject<Int, Never>(0)
+    var mobileLayoutChangeObservers: [UUID: AsyncStream<Void>.Continuation] = [:] // Debounced DTO invalidations.
 
     /// Mapping from bonsplit TabID to our Panel instances
     var panels: [UUID: any Panel] {
@@ -3942,6 +3942,7 @@ final class Workspace: Identifiable, ObservableObject {
             return
         }
         bonsplitController.updateTab(tabId, showsNotificationBadge: shouldShowUnread)
+        recordMobileWorkspaceLayoutChange()
     }
 
     private func syncUnreadBadgeStateForAllPanels() {
@@ -11336,6 +11337,7 @@ extension Workspace: PaneTreeHosting {
             invalidateSidebarObservation: false
         )
         panelsPublisher.send(newValue)
+        recordMobileWorkspaceLayoutChange()
     }
 
     /// Legacy `@Published paneLayoutVersion` willSet; same contract.
@@ -12214,6 +12216,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
+        recordMobileWorkspaceLayoutChange()
         // Mirror bookkeeping restores selection from its transaction snapshot.
         guard !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
         applyTabSelection(tabId: tab.id, inPane: pane)
@@ -12295,9 +12298,9 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didFocusPane pane: PaneID) {
+        recordMobileWorkspaceLayoutChange()
         // Mirror bookkeeping restores pane focus without re-running activation.
         guard !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
-        // When a pane is focused, focus its selected tab's panel
         guard let tab = controller.selectedTab(inPane: pane) else { return }
 #if DEBUG
         AppDelegate.shared?.focusLog.append(
@@ -12827,18 +12830,15 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
+        recordMobileWorkspaceLayoutChange()
         tmuxLayoutSnapshot = snapshot
         NotificationCenter.default.post(
             name: .workspacePaneGeometryDidChange,
             object: self,
             userInfo: [GhosttyNotificationKey.tabId: id]
         )
-        // Every order/membership mutation (same-pane reorder, cross-pane move,
-        // split, close) routes through here. A pure reorder mutates only
-        // bonsplit's internal state, which is not `@Published`, so observers
-        // would miss it. Bump `paneLayoutVersion` only when the ordered panel-id
-        // sequence actually changed, so divider drags and selection-only events
-        // (also routed here) do not fire `objectWillChange` app-wide.
+        // Bump `paneLayoutVersion` only when ordered panel ids change; divider drags
+        // and selection-only events should not fire `objectWillChange` app-wide.
         surfaceList.registerGeometryChange()
         scheduleTerminalGeometryReconcile()
         if !isDetachingCloseTransaction {
