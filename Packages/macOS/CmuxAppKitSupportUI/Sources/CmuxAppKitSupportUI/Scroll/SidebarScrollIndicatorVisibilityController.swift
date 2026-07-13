@@ -5,12 +5,15 @@ import QuartzCore
 /// scroller preference and layout lifecycle.
 @MainActor
 final class SidebarScrollIndicatorVisibilityController {
+    static var associationKey: UInt8 = 0
+
     private static let fadeDelay: Duration = .seconds(1)
     private static let fadeDuration: TimeInterval = 0.35
 
     private weak var scrollView: NSScrollView?
     let indicatorView: SidebarScrollIndicatorView
     private let notificationCenter: NotificationCenter
+    private let sleep: @Sendable (Duration) async throws -> Void
     private var fadeTask: Task<Void, Never>?
     private var fadeGeneration = 0
     private var lastContentOrigin: CGPoint
@@ -18,9 +21,16 @@ final class SidebarScrollIndicatorVisibilityController {
     // controller's observer tokens is safe from the nonisolated destructor.
     private nonisolated(unsafe) var observerTokens: [any NSObjectProtocol] = []
 
-    init(scrollView: NSScrollView, notificationCenter: NotificationCenter = .default) {
+    init(
+        scrollView: NSScrollView,
+        notificationCenter: NotificationCenter = .default,
+        sleep: @escaping @Sendable (Duration) async throws -> Void = { duration in
+            try await ContinuousClock().sleep(for: duration)
+        }
+    ) {
         self.scrollView = scrollView
         self.notificationCenter = notificationCenter
+        self.sleep = sleep
         self.indicatorView = SidebarScrollIndicatorView(scrollView: scrollView)
         self.lastContentOrigin = scrollView.contentView.bounds.origin
 
@@ -105,9 +115,10 @@ final class SidebarScrollIndicatorVisibilityController {
     private func scheduleIndicatorFade() {
         guard !indicatorView.isHidden else { return }
         fadeTask?.cancel()
-        fadeTask = Task { @MainActor [weak self] in
+        let sleep = sleep
+        fadeTask = Task { @MainActor [weak self, sleep] in
             do {
-                try await Task.sleep(for: Self.fadeDelay)
+                try await sleep(Self.fadeDelay)
             } catch {
                 return
             }
@@ -130,84 +141,5 @@ final class SidebarScrollIndicatorVisibilityController {
                 self.indicatorView.isHidden = true
             }
         }
-    }
-}
-
-@MainActor
-final class SidebarScrollIndicatorView: NSView {
-    private static let minimumKnobHeight: CGFloat = 24
-
-    private weak var scrollView: NSScrollView?
-    private let knobLayer = CALayer()
-
-    init(scrollView: NSScrollView) {
-        self.scrollView = scrollView
-        super.init(frame: .zero)
-        wantsLayer = true
-        layer?.addSublayer(knobLayer)
-        knobLayer.cornerRadius = 3
-        alphaValue = 0
-        isHidden = true
-        updateKnobColor()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) not implemented")
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    override func layout() {
-        super.layout()
-        updateGeometry()
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        updateKnobColor()
-    }
-
-    @discardableResult
-    func updateGeometry() -> Bool {
-        guard let scrollView,
-              let documentView = scrollView.documentView else { return false }
-
-        let viewportHeight = scrollView.contentView.bounds.height
-        let documentHeight = documentView.bounds.height
-        let trackHeight = bounds.height
-        let maximumOffset = documentHeight - viewportHeight
-        guard viewportHeight > 0, trackHeight > 0, maximumOffset > 1 else { return false }
-
-        let knobHeight = min(
-            trackHeight,
-            max(Self.minimumKnobHeight, trackHeight * viewportHeight / documentHeight)
-        )
-        let rawOffset = scrollView.contentView.bounds.minY
-        let progress = min(max(rawOffset / maximumOffset, 0), 1)
-        let visualProgress = documentView.isFlipped ? progress : 1 - progress
-        let knobY = (1 - visualProgress) * (trackHeight - knobHeight)
-        knobLayer.frame = CGRect(x: 0, y: knobY, width: bounds.width, height: knobHeight)
-        return true
-    }
-
-    private func updateKnobColor() {
-        knobLayer.backgroundColor = NSColor.secondaryLabelColor.withAlphaComponent(0.7).cgColor
-    }
-}
-
-@MainActor
-enum SidebarScrollIndicatorVisibilityControllers {
-    private static let controllers = NSMapTable<NSScrollView, SidebarScrollIndicatorVisibilityController>
-        .weakToStrongObjects()
-
-    static func attach(to scrollView: NSScrollView) {
-        if let controller = controllers.object(forKey: scrollView) {
-            controller.synchronizeIndicator()
-            return
-        }
-        controllers.setObject(
-            SidebarScrollIndicatorVisibilityController(scrollView: scrollView),
-            forKey: scrollView
-        )
     }
 }
