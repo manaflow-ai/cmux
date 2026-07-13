@@ -1,0 +1,183 @@
+import CMUXMobileCore
+import Foundation
+import Testing
+
+@testable import CmuxMobileShell
+
+@MainActor
+@Suite("Terminal scroll reconciliation supersession")
+struct TerminalScrollReconciliationSupersessionTests {
+    @Test("newer scroll explicitly supersedes queued reconciliation before starting")
+    func newerScrollSupersedesQueuedReconciliation() async throws {
+        let harness = ScrollReconciliationSupersessionHarness()
+        let session = harness.makeSession()
+
+        session.submit(lines: -4, col: 1, row: 2)
+        try await requireEventually { harness.remoteScrolls.count == 1 }
+        harness.completeCurrentDelivery()
+        try await requireEventually { session.latestLocallyAppliedRevision == 1 }
+
+        harness.enqueueClaimedRawBlocker()
+        let firstRemote = harness.remoteScrolls[0]
+        firstRemote.continuation.resume(returning: harness.response(for: firstRemote.request))
+        try await requireEventually {
+            if case .scroll(let transaction) = session.phase {
+                return transaction.awaitingAuthoritative && harness.queue.pendingCount == 1
+            }
+            return false
+        }
+
+        session.submit(lines: -7, col: 3, row: 4)
+        #expect(harness.queue.pendingCount == 2)
+        #expect(harness.remoteScrolls.count == 1)
+
+        let next = try #require(harness.completeCurrentDelivery())
+        guard case .localScroll(let runs) = next.mutation else {
+            Issue.record("Expected the newer optimistic scroll after the blocker")
+            return
+        }
+        #expect(runs.map(\.lines) == [-7])
+        harness.completeCurrentDelivery()
+
+        try await requireEventually { harness.remoteScrolls.count == 2 }
+        #expect(harness.superseded == [TerminalScrollReconciliation(
+            interactionEpoch: firstRemote.request.interactionEpoch,
+            clientRevision: firstRemote.request.clientRevision
+        )])
+        #expect(harness.replayEpochs.isEmpty)
+        #expect(harness.remoteScrolls.map(\.request.lines) == [-4, -7])
+
+        session.cancelForUnmount(nextEpoch: 2)
+        harness.remoteScrolls[1].continuation.resume(returning: nil)
+    }
+
+    private func requireEventually(_ condition: @MainActor () async -> Bool) async throws {
+        try #require(await pollUntil(condition))
+    }
+}
+
+@MainActor
+private final class ScrollReconciliationSupersessionHarness {
+    struct PendingRemote {
+        let request: TerminalScrollRequest
+        let continuation: CheckedContinuation<TerminalScrollResponse?, Never>
+    }
+
+    var queue = TerminalOutputDeliveryQueue()
+    var remoteScrolls: [PendingRemote] = []
+    var superseded: [TerminalScrollReconciliation] = []
+    var replayEpochs: [UInt64] = []
+    weak var session: TerminalScrollSession?
+    private let deadline = TerminalInteractionDeadlineSignal()
+    private var epoch: UInt64 = 1
+
+    func makeSession() -> TerminalScrollSession {
+        let session = TerminalScrollSession(
+            surfaceID: "surface-1",
+            interactionEpoch: epoch,
+            enqueueLocal: { [weak self] runs in
+                guard let self else {
+                    let receipt = TerminalSurfaceMutationReceipt()
+                    receipt.resolve(false)
+                    return receipt
+                }
+                let receipt = TerminalSurfaceMutationReceipt()
+                _ = self.queue.enqueueOptimisticScroll(TerminalOutputDelivery(
+                    localScroll: runs,
+                    receipt: receipt
+                ))
+                self.acknowledgeSupersededReconciliations()
+                return receipt
+            },
+            enqueueBarrier: { [self] in self.resolvedReceipt(true) },
+            enqueueScrollToBottom: { [self] in self.resolvedReceipt(true) },
+            cancelLocal: {},
+            sendRemote: { [weak self] request in
+                await withCheckedContinuation { continuation in
+                    self?.remoteScrolls.append(PendingRemote(
+                        request: request,
+                        continuation: continuation
+                    ))
+                }
+            },
+            interactionDeadline: { [deadline] in await deadline.wait() },
+            prepareIntent: {},
+            deliverAuthoritative: { [weak self] frame, interactionEpoch, clientRevision in
+                guard let self else { return false }
+                _ = queue.enqueue(TerminalOutputDelivery(
+                    renderGrid: frame,
+                    replaceable: true,
+                    scrollReconciliation: TerminalScrollReconciliation(
+                        interactionEpoch: interactionEpoch,
+                        clientRevision: clientRevision
+                    )
+                ))
+                acknowledgeSupersededReconciliations()
+                return true
+            },
+            completeGridlessAuthoritative: { _ in true },
+            reconciliationDidComplete: {},
+            requestReplay: { [weak self] epoch in self?.replayEpochs.append(epoch) },
+            advanceEpoch: { [weak self] in
+                guard let self else { return 0 }
+                epoch += 1
+                return epoch
+            }
+        )
+        self.session = session
+        return session
+    }
+
+    func enqueueClaimedRawBlocker() {
+        let blocker = queue.enqueue(TerminalOutputDelivery(
+            bytes: Data("blocker".utf8),
+            replaceable: false
+        ))!
+        let claimed = queue.claimInFlight(deliveryID: blocker.deliveryID)
+        #expect(claimed)
+    }
+
+    @discardableResult
+    func completeCurrentDelivery() -> TerminalOutputDelivery? {
+        let completed = queue.currentInFlight
+        let next = queue.completeInFlight()
+        if let reconciliation = completed?.scrollReconciliation {
+            session?.authoritativeDidApply(
+                interactionEpoch: reconciliation.interactionEpoch,
+                clientRevision: reconciliation.clientRevision
+            )
+        }
+        acknowledgeSupersededReconciliations()
+        return next
+    }
+
+    func response(for request: TerminalScrollRequest) -> TerminalScrollResponse {
+        TerminalScrollResponse(
+            accepted: true,
+            interactionEpoch: request.interactionEpoch,
+            clientRevision: request.clientRevision,
+            renderRevision: request.clientRevision,
+            renderGrid: try! MobileTerminalRenderGridFrame.fromPlainRows(
+                surfaceID: request.surfaceID,
+                stateSeq: request.clientRevision,
+                renderRevision: request.clientRevision,
+                columns: 20,
+                rows: 2,
+                text: "authoritative\nviewport"
+            )
+        )
+    }
+
+    private func acknowledgeSupersededReconciliations() {
+        for reconciliation in queue.takeSupersededScrollReconciliations() {
+            superseded.append(reconciliation)
+            session?.authoritativeReconciliationWasSuperseded(reconciliation)
+        }
+    }
+
+    private func resolvedReceipt(_ applied: Bool) -> TerminalSurfaceMutationReceipt {
+        let receipt = TerminalSurfaceMutationReceipt()
+        receipt.resolve(applied)
+        return receipt
+    }
+}
