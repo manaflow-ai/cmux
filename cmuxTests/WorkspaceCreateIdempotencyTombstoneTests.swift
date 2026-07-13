@@ -117,13 +117,19 @@ import Testing
             idempotencyCache: sourceCache
         )
         let snapshot = sourceManager.sessionSnapshot(includeScrollback: false)
+        let restoredCache = Self.cache(defaults: defaults)
+        #expect(restoredCache.completionProvenance(for: operationID) == .restored)
         let restoredManager = TabManager()
-        restoredManager.restoreSessionSnapshot(snapshot)
+        restoredManager.restoreSessionSnapshot(
+            snapshot,
+            workspaceCreateIdempotencyCache: restoredCache
+        )
         let restoredWorkspace = try #require(
             restoredManager.tabs.first { $0.taskCreateOperationID == operationID }
         )
+        #expect(restoredCache.completionProvenance(for: operationID) == .currentProcess)
+        restoredManager.closeWorkspace(restoredWorkspace)
         let baselineIDs = Set(restoredManager.tabs.map(\.id))
-        let restoredCache = Self.cache(defaults: defaults)
 
         let retry = await TerminalController.shared.v2MobileWorkspaceCreate(
             params: [
@@ -134,7 +140,7 @@ import Testing
             idempotencyCache: restoredCache
         )
 
-        #expect(try Self.decode(retry).createdWorkspaceID == restoredWorkspace.id.uuidString)
+        #expect(try Self.decode(retry).createdWorkspaceID == nil)
         #expect(Set(restoredManager.tabs.map(\.id)) == baselineIDs)
         #expect(Self.containsInitialCommand("must-not-launch-after-restore", in: restoredManager) == false)
         #expect(restoredCache.completionProvenance(for: operationID) == .currentProcess)
