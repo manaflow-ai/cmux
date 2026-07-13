@@ -456,7 +456,7 @@ final class CmuxWebView: WKWebView {
             controller,
             &Self.diffViewerEditableFocusHandlerInstalledKey
         ) == nil else { return }
-        controller.addScriptMessageHandler(
+        controller.add(
             DiffViewerEditableFocusMessageHandler.shared,
             contentWorld: DiffViewerEditableFocusMessageHandler.contentWorld,
             name: DiffViewerEditableFocusMessageHandler.name
