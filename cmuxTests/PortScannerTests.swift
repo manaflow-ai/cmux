@@ -277,20 +277,54 @@ struct AgentPortTrackingStateTests {
     func rootPIDChangesDelimitSnapshots() {
         var state = AgentPortTrackingState()
         let workspaceID = UUID()
+        let first = AgentPortRootIdentity(
+            pid: 100,
+            processIdentity: AgentPIDProcessIdentity(pid: 100, startSeconds: 1, startMicroseconds: 0)
+        )
+        let recycledPID = AgentPortRootIdentity(
+            pid: 100,
+            processIdentity: AgentPIDProcessIdentity(pid: 100, startSeconds: 2, startMicroseconds: 0)
+        )
 
-        let initial = state.replaceRootPIDs([100], workspaceId: workspaceID)
-        let repeated = state.replaceRootPIDs([100], workspaceId: workspaceID)
-        let expanded = state.replaceRootPIDs([100, 200], workspaceId: workspaceID)
-        let stopped = state.replaceRootPIDs([], workspaceId: workspaceID)
-        let repeatedStop = state.replaceRootPIDs([], workspaceId: workspaceID)
-        let restarted = state.replaceRootPIDs([300], workspaceId: workspaceID)
+        let initial = state.replaceRoots([first], workspaceId: workspaceID)
+        let repeated = state.replaceRoots([first], workspaceId: workspaceID)
+        let recycled = state.replaceRoots([recycledPID], workspaceId: workspaceID)
+        let stopped = state.replaceRoots([], workspaceId: workspaceID)
+        let repeatedStop = state.replaceRoots([], workspaceId: workspaceID)
+        let restarted = state.replaceRoots([first], workspaceId: workspaceID)
 
         #expect(initial)
         #expect(repeated == false)
-        #expect(expanded)
+        #expect(recycled)
         #expect(stopped)
         #expect(repeatedStop == false)
         #expect(restarted)
+    }
+}
+
+@Suite("Agent port publication history")
+struct AgentPortPublicationHistoryTests {
+    @Test("Pending desired values keep the newest request publishable")
+    func pendingValuesAreNotDeduplicatedAgainstAcknowledgedState() {
+        var history = AgentPortPublicationHistory()
+        let workspaceID = UUID()
+
+        let initial = history.shouldPublish(workspaceId: workspaceID, ports: [4200], forced: false)
+        let samePending = history.shouldPublish(workspaceId: workspaceID, ports: [4200], forced: false)
+        history.acknowledge(workspaceId: workspaceID, ports: [4200])
+        let sameAcknowledged = history.shouldPublish(
+            workspaceId: workspaceID,
+            ports: [4200],
+            forced: false
+        )
+        let changed = history.shouldPublish(workspaceId: workspaceID, ports: [5173], forced: false)
+        let restored = history.shouldPublish(workspaceId: workspaceID, ports: [4200], forced: false)
+
+        #expect(initial)
+        #expect(samePending)
+        #expect(sameAcknowledged == false)
+        #expect(changed)
+        #expect(restored)
     }
 }
 

@@ -2,15 +2,15 @@ import Foundation
 
 /// Queue-confined agent root identity used to delimit retained port snapshots.
 struct AgentPortTrackingState {
-    private var rootPIDsByWorkspace: [UUID: Set<Int>] = [:]
+    private var rootsByWorkspace: [UUID: Set<AgentPortRootIdentity>] = [:]
 
-    mutating func replaceRootPIDs(_ rootPIDs: Set<Int>, workspaceId: UUID) -> Bool {
-        let previous = rootPIDsByWorkspace[workspaceId]
-        let next = rootPIDs.isEmpty ? nil : rootPIDs
+    mutating func replaceRoots(_ roots: Set<AgentPortRootIdentity>, workspaceId: UUID) -> Bool {
+        let previous = rootsByWorkspace[workspaceId]
+        let next = roots.isEmpty ? nil : roots
         if let next {
-            rootPIDsByWorkspace[workspaceId] = next
+            rootsByWorkspace[workspaceId] = next
         } else {
-            rootPIDsByWorkspace.removeValue(forKey: workspaceId)
+            rootsByWorkspace.removeValue(forKey: workspaceId)
         }
         return previous != next
     }

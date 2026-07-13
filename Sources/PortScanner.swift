@@ -36,14 +36,15 @@ final class PortScanner: @unchecked Sendable {
     /// Monotonic revision per workspace for tracked agent PID changes.
     private var agentRevisionByWorkspace: [UUID: UInt64] = [:]
     private var agentTrackingState = AgentPortTrackingState()
-    private var scanCoordination = PortScanCoordination()
+    var scanCoordination = PortScanCoordination()
 
     /// Workspaces with active agent PID tracking that need background rescans.
     private var trackedAgentWorkspaces: Set<UUID> = []
-    private var lastAgentPortsByWorkspace: [UUID: [Int]] = [:]
+    private var agentPublicationHistory = AgentPortPublicationHistory()
     /// Stable publication state shared by every best-effort local scan path.
     private var panelPortSnapshot = PortScanSnapshotReconciler<PanelKey>()
     private var agentPortSnapshot = PortScanSnapshotReconciler<UUID>()
+    private var pendingAgentSnapshotReplacementWorkspaces: Set<UUID> = []
     private var forceAgentResultWorkspaces: Set<UUID> = []
     private var trackedAgentScanningPaused = false
     let publicationState = PortScanPublicationState()
@@ -101,10 +102,10 @@ final class PortScanner: @unchecked Sendable {
         }
     }
     @MainActor
-    func refreshAgentPorts(workspaceId: UUID, agentPIDs: Set<Int>) {
+    func refreshAgentPorts(workspaceId: UUID, agentRoots: Set<AgentPortRootIdentity>) {
         let agentRevision = publicationState.nextAgentRevision(for: workspaceId)
         queue.async { [self] in
-            refreshAgentPortsLocked(workspaceId: workspaceId, agentPIDs: agentPIDs, revision: agentRevision)
+            refreshAgentPortsLocked(workspaceId: workspaceId, agentRoots: agentRoots, revision: agentRevision)
         }
     }
 
@@ -309,14 +310,22 @@ final class PortScanner: @unchecked Sendable {
         }
     }
 
-    private func refreshAgentPortsLocked(workspaceId: UUID, agentPIDs: Set<Int>, revision: UInt64) {
+    private func refreshAgentPortsLocked(
+        workspaceId: UUID,
+        agentRoots: Set<AgentPortRootIdentity>,
+        revision: UInt64
+    ) {
         agentRevisionByWorkspace[workspaceId] = revision
-        let normalizedPIDs = Set(agentPIDs.filter { $0 > 0 })
-        if agentTrackingState.replaceRootPIDs(normalizedPIDs, workspaceId: workspaceId) {
-            agentPortSnapshot.remove(keys: [workspaceId])
+        let normalizedRoots = Set(agentRoots.filter { $0.pid > 0 })
+        let normalizedPIDs = Set(normalizedRoots.map(\.pid))
+        if agentTrackingState.replaceRoots(normalizedRoots, workspaceId: workspaceId),
+           !normalizedRoots.isEmpty {
+            pendingAgentSnapshotReplacementWorkspaces.insert(workspaceId)
         }
         if normalizedPIDs.isEmpty {
             trackedAgentWorkspaces.remove(workspaceId)
+            pendingAgentSnapshotReplacementWorkspaces.remove(workspaceId)
+            agentPortSnapshot.remove(keys: [workspaceId])
             scanCoordination.removeAgentWorkspaces([workspaceId])
         } else {
             trackedAgentWorkspaces.insert(workspaceId)
@@ -567,19 +576,23 @@ final class PortScanner: @unchecked Sendable {
                         requestID: result.requestID
                     ) else { continue }
                     guard appliedWorkspaceIds.contains(workspaceId) else {
+                        agentPublicationHistory.reject(workspaceId: workspaceId)
                         if !trackedAgentWorkspaces.contains(workspaceId) {
                             forceAgentResultWorkspaces.remove(workspaceId)
-                            lastAgentPortsByWorkspace.removeValue(forKey: workspaceId)
+                            agentPublicationHistory.remove(workspaceId: workspaceId)
                             scanCoordination.removeAgentWorkspaces([workspaceId])
                         }
                         continue
                     }
                     forceAgentResultWorkspaces.remove(workspaceId)
                     if result.ports.isEmpty, !trackedAgentWorkspaces.contains(workspaceId) {
-                        lastAgentPortsByWorkspace.removeValue(forKey: workspaceId)
+                        agentPublicationHistory.remove(workspaceId: workspaceId)
                         scanCoordination.removeAgentWorkspaces([workspaceId])
                     } else {
-                        lastAgentPortsByWorkspace[workspaceId] = result.ports
+                        agentPublicationHistory.acknowledge(
+                            workspaceId: workspaceId,
+                            ports: result.ports
+                        )
                     }
                 }
                 continuation.resume()
@@ -606,6 +619,13 @@ final class PortScanner: @unchecked Sendable {
         let scannedPorts = agentPortsByWorkspace
             .filter { validWorkspaceIds.contains($0.key) }
             .mapValues { Array($0) }
+        if completeness == .complete {
+            let replacementWorkspaces = validWorkspaceIds.intersection(
+                pendingAgentSnapshotReplacementWorkspaces
+            )
+            agentPortSnapshot.remove(keys: replacementWorkspaces)
+            pendingAgentSnapshotReplacementWorkspaces.subtract(replacementWorkspaces)
+        }
         let stableSnapshot = agentPortSnapshot.reconcile(
             scannedPorts: scannedPorts,
             scannedKeys: validWorkspaceIds,
@@ -615,11 +635,12 @@ final class PortScanner: @unchecked Sendable {
         for workspaceId in validWorkspaceIds {
             let expectedRevision = agentRevisions[workspaceId, default: 0]
             let ports = stableSnapshot[workspaceId] ?? []
-            let previousPorts = lastAgentPortsByWorkspace[workspaceId]
-            if !forceAgentResultWorkspaces.contains(workspaceId) {
-                guard previousPorts != ports else { continue }
-                guard previousPorts != nil || !ports.isEmpty else { continue }
-            }
+            let shouldPublish = agentPublicationHistory.shouldPublish(
+                workspaceId: workspaceId,
+                ports: ports,
+                forced: forceAgentResultWorkspaces.contains(workspaceId)
+            )
+            guard shouldPublish else { continue }
             results.append(AgentPortScanPublication(
                 workspaceId: workspaceId,
                 ports: ports,
