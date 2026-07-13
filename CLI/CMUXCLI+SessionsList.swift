@@ -167,6 +167,15 @@ extension CMUXCLI {
             stores.append(storePayload)
 
             for rawRecord in store.sessions.values {
+                let rawRunRuntime = rawRecord.runs?
+                    .first(where: { $0.runId == rawRecord.activeRunId })?
+                    .cmuxRuntime
+                    ?? rawRecord.runs?.max(by: { $0.updatedAt < $1.updatedAt })?.cmuxRuntime
+                guard hasRecordFilter || queryScope.includes(
+                    recordRuntime: rawRecord.cmuxRuntime,
+                    runRuntime: rawRunRuntime,
+                    legacyVisible: true
+                ) else { continue }
                 let record = spec.name == "claude"
                     ? sessionsListResolvedClaudeWorkflowRecord(rawRecord, lookup: claudeTranscriptLookup)
                     : rawRecord
