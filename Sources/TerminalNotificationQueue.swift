@@ -226,7 +226,7 @@ final class TerminalMutationBus: @unchecked Sendable {
             guard var admission = reliableAdmissionsById[id] else { continue }
             admission.key = QueuedTerminalNotificationKey(
                 tabId: toTabId,
-                surfaceId: admission.key.surfaceId.flatMap { panelIdMap[$0] }
+                surfaceId: admission.key.surfaceId.map { panelIdMap[$0] ?? $0 }
             )
             reliableAdmissionsById[id] = admission
         }

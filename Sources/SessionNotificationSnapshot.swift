@@ -142,9 +142,9 @@ extension TerminalNotificationStore {
                 let current = merged[index]
                 let restoredLocation = canonicalById[current.id]
                 let surfaceId = restoredLocation.map(\.surfaceId)
-                    ?? current.surfaceId.flatMap { panelIdMap[$0] }
+                    ?? current.surfaceId.map { panelIdMap[$0] ?? $0 }
                 let panelId = restoredLocation.map(\.panelId)
-                    ?? current.panelId.flatMap { panelIdMap[$0] }
+                    ?? current.panelId.map { panelIdMap[$0] ?? $0 }
                 merged[index] = current.replacingLocation(
                     tabId: tabId,
                     surfaceId: surfaceId,
@@ -246,7 +246,7 @@ private extension TerminalSocketMutation {
     ) -> TerminalSocketMutation {
         switch self {
         case .deliverNotification(let notification) where notification.key.tabId == fromTabId:
-            let surfaceId = notification.key.surfaceId.flatMap { panelIdMap[$0] }
+            let surfaceId = notification.key.surfaceId.map { panelIdMap[$0] ?? $0 }
             return .deliverNotification(QueuedTerminalNotification(
                 id: notification.id,
                 acceptedAt: notification.acceptedAt,

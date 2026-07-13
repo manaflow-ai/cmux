@@ -1561,7 +1561,7 @@ final class TerminalNotificationStore: ObservableObject {
         if restored != restoredUnreadWorkspaceIds { restoredUnreadWorkspaceIds = restored }
         var focused = focusedReadIndicatorByTabId
         if let oldSurfaceId = focused.removeValue(forKey: fromTabId), focused[toTabId] == nil {
-            focused[toTabId] = panelIdMap[oldSurfaceId]
+            focused[toTabId] = panelIdMap[oldSurfaceId] ?? oldSurfaceId
         }
         if focused != focusedReadIndicatorByTabId { focusedReadIndicatorByTabId = focused }
         externalBannerOwnership.transfer(fromTabId: fromTabId, toTabId: toTabId, panelIdMap: panelIdMap)
