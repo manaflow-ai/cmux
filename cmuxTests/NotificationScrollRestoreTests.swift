@@ -85,10 +85,12 @@ struct NotificationScrollRestoreTests {
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
         let marker = completionMarker(named: "replay-wait")
         hostedView.beginSessionScrollbackReplay(completionMarker: marker)
+        #expect(hostedView.sessionScrollbackReplayCompletionDeadlineTimer == nil)
 
         #expect(hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 138, totalRows: 400)
         ))
+        #expect(hostedView.sessionScrollbackReplayCompletionDeadlineTimer != nil)
         #expect(surfaceView.bindingActions.isEmpty)
         postScrollbar(total: 300, offset: 256, visible: 44, to: surfaceView)
         #expect(surfaceView.bindingActions == ["scroll_to_row:218"])
@@ -105,16 +107,15 @@ struct NotificationScrollRestoreTests {
             TerminalNotificationScrollPosition(row: 138, totalRows: 400)
         ))
         #expect(surfaceView.bindingActions.isEmpty)
-        let authoritativeScrollbar = scrollbar(total: 200, offset: 156, visible: 44)
         #expect(!hostedView.completeSessionScrollbackReplay(
-            ifMatches: "unrelated directory",
-            authoritativeScrollbar: authoritativeScrollbar
+            ifMatches: "unrelated directory"
         ))
         #expect(surfaceView.bindingActions.isEmpty)
         #expect(hostedView.completeSessionScrollbackReplay(
-            ifMatches: marker.reportedDirectory,
-            authoritativeScrollbar: authoritativeScrollbar
+            ifMatches: marker.reportedDirectory
         ))
+        #expect(surfaceView.bindingActions.isEmpty)
+        postScrollbar(total: 200, offset: 156, visible: 44, to: surfaceView)
         #expect(surfaceView.bindingActions == ["scroll_to_row:156"])
     }
 
@@ -148,14 +149,11 @@ struct NotificationScrollRestoreTests {
 
         panel.adoptOwnedSessionScrollbackReplayArtifact(fileURL)
         #expect(panel.hostedView.notificationScrollRestorePhase == .sessionScrollbackReplayActive(marker))
-        let authoritativeScrollbar = scrollbar(total: 44, offset: 0, visible: 44)
         #expect(!panel.hostedView.completeSessionScrollbackReplay(
-            ifMatches: "/tmp",
-            authoritativeScrollbar: authoritativeScrollbar
+            ifMatches: "/tmp"
         ))
         #expect(panel.hostedView.completeSessionScrollbackReplay(
-            ifMatches: marker.reportedDirectory,
-            authoritativeScrollbar: authoritativeScrollbar
+            ifMatches: marker.reportedDirectory
         ))
         #expect(panel.hostedView.notificationScrollRestorePhase == .idle)
         #expect(SessionScrollbackReplayCompletionMarker.isReservedReportedDirectory(marker.reportedDirectory))

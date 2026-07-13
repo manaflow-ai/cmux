@@ -1,19 +1,12 @@
-import CmuxTerminalCore
-
 @MainActor
 extension GhosttyApp {
     func completeSessionScrollbackReplayIfNeeded(
         surfaceView: GhosttyNSView,
         reportedDirectory: String
     ) -> Bool {
-        guard let terminalSurface = surfaceView.terminalSurface,
-              terminalSurface.hostedView.hasSessionScrollbackReplayCompletionMarker(
-                matching: reportedDirectory
-              ),
-              let surface = terminalSurface.surface else { return false }
+        guard let terminalSurface = surfaceView.terminalSurface else { return false }
         return terminalSurface.hostedView.completeSessionScrollbackReplay(
-            ifMatches: reportedDirectory,
-            authoritativeScrollbar: GhosttyScrollbar(c: ghostty_surface_scrollbar(surface))
+            ifMatches: reportedDirectory
         )
     }
 }

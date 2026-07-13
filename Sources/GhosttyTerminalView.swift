@@ -2908,7 +2908,7 @@ class GhosttyApp {
             return true
         case GHOSTTY_ACTION_PWD:
             let pwd = action.action.pwd.pwd.flatMap { String(cString: $0) } ?? ""
-            if performOnMain({ completeSessionScrollbackReplayIfNeeded(surfaceView: surfaceView, reportedDirectory: pwd) }) { return true }
+            if SessionScrollbackReplayCompletionMarker.isReservedReportedDirectory(pwd), performOnMain({ completeSessionScrollbackReplayIfNeeded(surfaceView: surfaceView, reportedDirectory: pwd) }) { return true }
             guard let tabId = surfaceView.tabId, let surfaceId = surfaceView.terminalSurface?.id else { return true }
             DispatchQueue.main.async {
                 AppDelegate.shared?.tabManagerFor(tabId: tabId)?.updateReportedSurfaceDirectory(
@@ -8190,7 +8190,7 @@ final class GhosttySurfaceScrollView: NSView {
     var userScrolledAwayFromBottom = false
     private var pendingExplicitWheelScroll = false
     var allowExplicitScrollbarSync = false
-    var notificationScrollRestorePhase: TerminalNotificationScrollRestorePhase = .idle; var sessionScrollbackReplayCompletionDeadlineTimer: Timer?
+    var notificationScrollRestorePhase: TerminalNotificationScrollRestorePhase = .idle; var sessionScrollbackReplayCompletionDeadlineTimer: Timer?; var isWaitingForSessionScrollbackReplayRendererUpdate = false
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
@@ -11430,7 +11430,7 @@ final class GhosttySurfaceScrollView: NSView {
         } else {
             synchronizeScrollView()
         }
-        _ = retryPendingNotificationScrollRestore()
+        _ = retryPendingNotificationScrollRestore(rendererDidPublishScrollbar: true)
     }
 
     @discardableResult

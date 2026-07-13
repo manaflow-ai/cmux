@@ -12,10 +12,8 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `ede7214c6`. It adds an embedded API for reading
-the authoritative terminal scrollbar under the renderer-state lock. The prior
-pin `5ae712a89` combines `e215e78bf`, the previous cmux pin `dd726a9a6`, current
-fork `main` (`8495e581a`), and upstream
+Current cmux pinned fork head: `e215e78bf`. It combines the previous cmux pin
+`dd726a9a6`, current fork `main` (`8495e581a`), and upstream
 `ghostty-org/ghostty` `main` through `7e02af879` (2026-07-09), followed by the
 render-grid preserved-page OOM fix, lock-free selection notifications, and
 compressed-storage-preserving full scrollback reads.
@@ -86,12 +84,6 @@ https://github.com/manaflow-ai/ghostty/pull/106.
    wide/grapheme cells, and compressed-page ownership. Upstream conflicts should
    keep this beside the existing embedded read-text APIs and retain
    `PageListFormatter.pagePreservingState` rather than restoring cold pages.
-10. `ghostty_surface_scrollbar` returns an O(1) terminal-state snapshot under
-    `renderer_state.mutex`, without waiting for the renderer's later scrollbar
-    publication. cmux uses it after its in-band session-replay marker so a
-    notification restore cannot clamp against a partial renderer snapshot.
-    Upstream conflicts should keep this beside the embedded surface size/read
-    APIs and preserve the lock used by `Surface.pwd`.
 
 Verified with Zig 0.15.2: compression, formatter, selection activity, and
 libghostty-vt compression tests,
