@@ -129,8 +129,6 @@ extension Workspace {
             customColor: customColor,
             isPinned: isPinned,
             groupId: groupId,
-            kanbanColumnId: kanbanColumnId,
-            kanbanOrder: kanbanOrder,
             isManuallyUnread: isWorkspaceManuallyUnread,
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
             notifications: workspaceNotificationSnapshots.isEmpty ? nil : workspaceNotificationSnapshots,
@@ -145,7 +143,9 @@ extension Workspace {
             progress: progressSnapshot,
             gitBranch: gitBranchSnapshot,
             remote: remoteConfiguration?.sessionSnapshot(),
-            environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment
+            environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment,
+            kanbanColumnId: kanbanColumnId,
+            kanbanOrder: kanbanOrder
         )
     }
 
