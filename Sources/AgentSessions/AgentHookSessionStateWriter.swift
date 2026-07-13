@@ -188,7 +188,7 @@ struct AgentHookSessionStateWriter: Sendable {
               let encoded = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]) else {
             return
         }
-        try? encoded.write(to: stateURL, options: .atomic)
+        replacePrivateStateFile(with: encoded, at: stateURL)
     }
 
     private func setLifecycle(
@@ -228,7 +228,28 @@ struct AgentHookSessionStateWriter: Sendable {
         guard let encoded = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]) else {
             return
         }
-        try? encoded.write(to: stateURL, options: .atomic)
+        replacePrivateStateFile(with: encoded, at: stateURL)
+    }
+
+    private func replacePrivateStateFile(with data: Data, at stateURL: URL) {
+        let fileManager = FileManager.default
+        let temporaryURL = stateURL.deletingLastPathComponent()
+            .appendingPathComponent(".\(stateURL.lastPathComponent).\(UUID().uuidString).tmp")
+        defer { try? fileManager.removeItem(at: temporaryURL) }
+        guard fileManager.createFile(
+            atPath: temporaryURL.path,
+            contents: data,
+            attributes: [.posixPermissions: NSNumber(value: Int16(0o600))]
+        ) else { return }
+        let renameResult = temporaryURL.path.withCString { source in
+            stateURL.path.withCString { destination in
+                Darwin.rename(source, destination)
+            }
+        }
+        guard renameResult == 0 else { return }
+        // Keep the invariant even on filesystems that do not preserve the
+        // temporary file's mode across replacement.
+        _ = chmod(stateURL.path, S_IRUSR | S_IWUSR)
     }
 
     private func completeRuns(_ value: Any?, now: TimeInterval) -> [[String: Any]] {

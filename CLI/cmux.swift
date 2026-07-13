@@ -27646,7 +27646,16 @@ struct CMUXCLI {
         cwd: String?,
         launchCommand: AgentHookLaunchCommandRecord?
     ) {
-        if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
+        guard agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) else {
+            // A visible top-level hook now owns this surface, but its launch is
+            // not safely resumable. Remove any binding left by the previous
+            // session so snapshots cannot restore the wrong conversation.
+            clearAgentSurfaceResumeBinding(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: nil
+            )
             return
         }
         let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, environment: launchCommand?.environment)
@@ -27663,6 +27672,12 @@ struct CMUXCLI {
             workingDirectory: resumeWorkingDirectory,
             environment: resumeEnvironment
         ) else {
+            clearAgentSurfaceResumeBinding(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: nil
+            )
             return
         }
         var params: [String: Any] = [

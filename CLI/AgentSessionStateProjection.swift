@@ -100,13 +100,13 @@ struct AgentSessionStateProjection: Sendable, Equatable {
         attention: AgentAttentionState,
         activity: AgentActivitySnapshot
     ) -> AgentEffectiveState {
-        if process == .exited { return .ended }
         switch session {
         case .ended: return .ended
         case .hibernated: return .hibernated
         case .restoring: return .restoring
         case .active: break
         }
+        if process == .exited { return .ended }
         if attention == .needsInput { return .needsInput }
         if attention == .error || foreground == .failed { return .error }
         if activity.counts.foreground > 0
