@@ -201,16 +201,7 @@ extension MobileShellComposite {
         if episode.kind == .reconnect,
            hasRetiredReconnect,
            !usesCachedReconnect {
-            let hasCachedReconnectCandidate = pairedMacsForIdentityMatching.contains {
-                !Self.reconnectHostPortRoutes(
-                    $0.routes,
-                    supportedKinds: runtime?.supportedRouteKinds ?? [],
-                    preferNonLoopback: Self.prefersNonLoopbackRoutes
-                ).isEmpty
-            }
-            if !episode.triggers.contains(.manualRetry) || !hasCachedReconnectCandidate {
-                connectionLifecycleReconnectPendingAfterRetirement = true
-            }
+            connectionLifecycleReconnectPendingAfterRetirement = true
             finishConnectionLifecycleEpisode(id: episode.id, succeeded: false)
             return
         }
