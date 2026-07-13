@@ -3,17 +3,11 @@ import Foundation
 extension TerminalController {
     /// Bounded durable tombstones and live workspace IDs for idempotent creates.
     final class WorkspaceCreateIdempotencyCache {
-        enum CompletionProvenance: Equatable {
-            case restored
-            case currentProcess
-        }
-
         private let capacity: Int
         private let defaults: UserDefaults
         private let persistenceKey: String
         private var workspaceIDs: [UUID: UUID] = [:]
         private var completedOperationIDs: Set<UUID> = []
-        private var completionProvenanceByOperationID: [UUID: CompletionProvenance] = [:]
         private var insertionOrder: [UUID] = []
 
         init(
@@ -29,9 +23,6 @@ extension TerminalController {
             let retained = persisted.compactMap(UUID.init(uuidString:)).suffix(capacity)
             insertionOrder = Array(retained)
             completedOperationIDs = Set(retained)
-            completionProvenanceByOperationID = Dictionary(
-                uniqueKeysWithValues: retained.map { ($0, .restored) }
-            )
         }
 
         func workspaceID(for operationID: UUID) -> UUID? {
@@ -42,19 +33,13 @@ extension TerminalController {
             completedOperationIDs.contains(operationID)
         }
 
-        func completionProvenance(for operationID: UUID) -> CompletionProvenance? {
-            completionProvenanceByOperationID[operationID]
-        }
-
         func record(operationID: UUID, workspaceID: UUID) {
             workspaceIDs[operationID] = workspaceID
-            completionProvenanceByOperationID[operationID] = .currentProcess
             guard completedOperationIDs.insert(operationID).inserted else { return }
             if insertionOrder.count == capacity {
                 let evictedID = insertionOrder.removeFirst()
                 workspaceIDs.removeValue(forKey: evictedID)
                 completedOperationIDs.remove(evictedID)
-                completionProvenanceByOperationID.removeValue(forKey: evictedID)
             }
             insertionOrder.append(operationID)
             defaults.set(insertionOrder.map(\.uuidString), forKey: persistenceKey)

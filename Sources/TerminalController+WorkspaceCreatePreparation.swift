@@ -91,9 +91,10 @@ extension TerminalController {
             )
             return .live(resolution)
         }
-        return idempotencyCache.completionProvenance(for: operationID) == .currentProcess
-            ? .completed
-            : nil
+        // Durable acceptance is authoritative even if a crash happened before
+        // the workspace reached the session snapshot. Losing the workspace is
+        // preferable to executing arbitrary startup work more than once.
+        return idempotencyCache.containsCompletedOperation(operationID) ? .completed : nil
     }
 
     static func resolveTaskCreateWorkspace(
