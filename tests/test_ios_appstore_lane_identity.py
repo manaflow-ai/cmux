@@ -292,7 +292,7 @@ if "archive" in args:
     bundle_id = setting("PRODUCT_BUNDLE_IDENTIFIER=")
     build_number = setting("CURRENT_PROJECT_VERSION=") or "1"
     marketing_version = setting("MARKETING_VERSION=") or {BETA_MARKETING_VERSION!r}
-    crash_reporting_enabled = setting("CMUX_CRASH_REPORTING_ENABLED=") != "NO"
+    crash_reporting_enabled = setting("CMUX_CRASH_REPORTING_ENABLED=") or "YES"
     app = archive / "Products" / "Applications" / "cmux.app"
     write_plist(
         archive / "Info.plist",
@@ -798,7 +798,7 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
         "final signed IPA keeps the App Store marketing version",
     )
     _check(
-        info.get("CMUXCrashReportingEnabled") is False,
+        info.get("CMUXCrashReportingEnabled") == "NO",
         "final signed IPA disables crash reporting",
     )
 
