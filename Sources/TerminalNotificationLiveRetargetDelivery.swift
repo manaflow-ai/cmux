@@ -71,7 +71,8 @@ extension TerminalNotificationStore {
         surfaceId: UUID?,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        notificationGeneration: UInt64
     ) {
         guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
             claimedTabId: claimedTabId,
@@ -95,7 +96,8 @@ extension TerminalNotificationStore {
             title: title,
             subtitle: subtitle,
             body: body,
-            retargetsToLiveSurfaceOwner: true
+            retargetsToLiveSurfaceOwner: true,
+            notificationGeneration: notificationGeneration
         )
     }
 

@@ -835,7 +835,7 @@ final class TerminalNotificationStore: ObservableObject {
         retargetsToLiveSurfaceOwner: Bool = true,
         cooldownKey: String? = nil,
         cooldownInterval: TimeInterval? = nil,
-        clickAction: TerminalNotificationClickAction? = nil
+        clickAction: TerminalNotificationClickAction? = nil, notificationGeneration: UInt64? = nil
     ) {
 #if DEBUG
         cmuxDebugLog(
@@ -886,7 +886,7 @@ final class TerminalNotificationStore: ObservableObject {
             )
             return
         }
-        let policyRequestId = inFlightPolicyRequests.register(policyContext.request)
+        let policyRequestId = inFlightPolicyRequests.register(policyContext.request, generation: notificationGeneration ?? TerminalMutationBus.shared.notificationGenerationSnapshot())
         Task { @MainActor [weak self] in
             guard let self else { return }
             let authorizedHooks = await NotificationPolicyHookAuthorizer.authorize(
@@ -1570,8 +1570,8 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private func replaceNotificationsForClear(_ next: [TerminalNotification]) { suppressNotificationDiffPublishing = true; notifications = next; suppressNotificationDiffPublishing = false }
-    func clearAll(discardQueuedNotifications: Bool = true) {
-        inFlightPolicyRequests.discardAll()
+    func clearAll(discardQueuedNotifications: Bool = true, throughNotificationGeneration: UInt64? = nil) {
+        inFlightPolicyRequests.discardAll(through: throughNotificationGeneration)
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications() }
         guard !notifications.isEmpty ||
             !focusedReadIndicatorByTabId.isEmpty ||
@@ -1595,11 +1595,11 @@ final class TerminalNotificationStore: ObservableObject {
     func clearNotifications(
         forTabId tabId: UUID,
         surfaceId: UUID?,
-        discardQueuedNotifications: Bool = true
+        discardQueuedNotifications: Bool = true, throughNotificationGeneration: UInt64? = nil
     ) {
         let liveTabId = surfaceId.flatMap { AppDelegate.shared?.agentNotificationDeliveryTarget(claimedTabId: tabId, surfaceId: $0)?.tabId } ?? tabId
         let tabIds = Set([tabId, liveTabId])
-        tabIds.forEach { inFlightPolicyRequests.discard(forTabId: $0, surfaceId: surfaceId) }
+        tabIds.forEach { inFlightPolicyRequests.discard(forTabId: $0, surfaceId: surfaceId, through: throughNotificationGeneration) }
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotificationsForClear(tabId: liveTabId, surfaceId: surfaceId) }
         let hadFocusedReadIndicator = tabIds.contains { focusedReadIndicatorByTabId[$0].map { $0 == surfaceId } ?? false }
         let hadRestoredWorkspaceUnread = surfaceId == nil && restoredUnreadWorkspaceIds.contains(tabId)
@@ -1670,8 +1670,8 @@ final class TerminalNotificationStore: ObservableObject {
             }
         }
     }
-    func clearNotifications(forTabId tabId: UUID, discardQueuedNotifications: Bool = true) {
-        inFlightPolicyRequests.discard(forTabId: tabId, surfaceId: nil)
+    func clearNotifications(forTabId tabId: UUID, discardQueuedNotifications: Bool = true, throughNotificationGeneration: UInt64? = nil) {
+        inFlightPolicyRequests.discard(forTabId: tabId, surfaceId: nil, through: throughNotificationGeneration)
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotificationsForClear(tabId: tabId, surfaceId: nil) }
         let hadFocusedReadIndicator = focusedReadIndicatorByTabId[tabId] != nil
         var updated: [TerminalNotification] = []

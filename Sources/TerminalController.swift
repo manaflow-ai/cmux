@@ -12369,7 +12369,7 @@ class TerminalController {
                     TerminalNotificationStore.shared.clearNotifications(
                         forTabId: tab.id,
                         surfaceId: panelId,
-                        discardQueuedNotifications: false
+                        discardQueuedNotifications: false, throughNotificationGeneration: clearBoundary
                     )
                 } else {
                     TerminalMutationBus.shared.discardPendingNotifications(
@@ -12378,7 +12378,7 @@ class TerminalController {
                     )
                     TerminalNotificationStore.shared.clearNotifications(
                         forTabId: tab.id,
-                        discardQueuedNotifications: false
+                        discardQueuedNotifications: false, throughNotificationGeneration: clearBoundary
                     )
                 }
             }
