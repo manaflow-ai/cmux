@@ -351,7 +351,7 @@ final class MobileHostIrohRuntime {
             deviceID: deviceID,
             appInstanceID: appInstanceID,
             tag: tag,
-            displayName: MobileHostIdentity.displayName(),
+            displayName: MobileHostIdentity.instanceDisplayName(),
             identity: identity,
             pairingEnabled: true,
             capabilities: Self.capabilities,
