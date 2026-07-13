@@ -267,6 +267,7 @@ import Testing
     @Test func forgettingReconnectTargetRemovesMismatchedTicketWrite() async throws {
         let router = LivenessHostRouter()
         await router.setAttachTicketMacDeviceID("mac-b")
+        await router.setHostIdentity(deviceID: "mac-a", instanceTag: "default")
         let box = TransportBox()
         let clock = TestClock()
         let route = try CmxAttachRoute(
@@ -294,8 +295,12 @@ import Testing
             await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
         }
         await pairedMacStore.waitUntilUpsertStarted(macDeviceID: "mac-b")
+        #expect(store.connectionLifecycle.activeEpisode?.kind == .reconnect)
+        #expect(store.storedMacReconnectTargetDeviceID == "mac-a")
+        let generationBeforeForget = store.storedMacReconnectGeneration
 
         await store.forgetStoredMac(macDeviceID: "mac-a")
+        #expect(store.storedMacReconnectGeneration > generationBeforeForget)
         await pairedMacStore.releaseUpsert(macDeviceID: "mac-b")
 
         #expect(await reconnect.value == false)
@@ -309,12 +314,18 @@ import Testing
     @Test func mismatchedTicketRollbackPreservesPreviouslySavedDestination() async throws {
         let router = LivenessHostRouter()
         await router.setAttachTicketMacDeviceID("mac-b")
+        await router.setHostIdentity(deviceID: "mac-a", instanceTag: "default")
         let box = TransportBox()
         let clock = TestClock()
         let route = try CmxAttachRoute(
             id: "debug_loopback",
             kind: .debugLoopback,
             endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        let savedDestinationRoute = try CmxAttachRoute(
+            id: "saved_tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.71.210.41", port: 50_922)
         )
         let pairedMacStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
@@ -323,7 +334,7 @@ import Testing
                     storedReconnectMac(
                         id: "mac-b",
                         displayName: "Saved B",
-                        route: route,
+                        route: savedDestinationRoute,
                         isActive: false
                     ),
                 ],
@@ -344,8 +355,12 @@ import Testing
             await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
         }
         await pairedMacStore.waitUntilUpsertStarted(macDeviceID: "mac-b")
+        #expect(store.connectionLifecycle.activeEpisode?.kind == .reconnect)
+        #expect(store.storedMacReconnectTargetDeviceID == "mac-a")
+        let generationBeforeForget = store.storedMacReconnectGeneration
 
         await store.forgetStoredMac(macDeviceID: "mac-a")
+        #expect(store.storedMacReconnectGeneration > generationBeforeForget)
         await pairedMacStore.releaseUpsert(macDeviceID: "mac-b")
 
         #expect(await reconnect.value == false)

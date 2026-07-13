@@ -397,7 +397,7 @@ import Testing
 /// frames), so silence alone must not tear the subscription down. The
 /// watchdog may verify the silence with a bounded idempotent re-subscribe
 /// probe, but when the host answers it must stay quiet: no listener restart
-/// (observable as a second `mobile.host.status` capability resolve) and no
+/// (observable as an additional `mobile.host.status` capability resolve) and no
 /// full-grid replay. Without this, the phone tore down and full-grid
 /// re-replayed every ~10.5s forever on any idle terminal.
 @MainActor
@@ -419,15 +419,16 @@ import Testing
         router: router,
         "the cold replay response must settle before testing healthy idle liveness"
     )
+    let hostStatusCountBeforeLiveness = await router.count(of: "mobile.host.status")
 
     // Idle past the silence threshold: no events at all, host healthy.
     clock.advance(by: 10)
     store.debugRunRenderGridLivenessCheckForTesting()
 
     // A teardown would restart the listener, which re-resolves capabilities
-    // (mobile.host.status request number 2) and re-replays the mounted sink.
+    // and re-replays the mounted sink.
     let restarted = try await pollUntil(attempts: 60) {
-        await router.count(of: "mobile.host.status") >= 2
+        await router.count(of: "mobile.host.status") > hostStatusCountBeforeLiveness
     }
     #expect(
         restarted == false,
@@ -438,7 +439,7 @@ import Testing
     // evaluation stays quiet too.
     store.debugRunRenderGridLivenessCheckForTesting()
     let restartedAfterRecheck = try await pollUntil(attempts: 30) {
-        await router.count(of: "mobile.host.status") >= 2
+        await router.count(of: "mobile.host.status") > hostStatusCountBeforeLiveness
     }
     #expect(restartedAfterRecheck == false)
     let replayCount = await router.count(of: "mobile.terminal.replay")
@@ -465,7 +466,7 @@ import Testing
 /// deltas emitted while the registration was absent were never delivered, so
 /// delta continuity is broken even though the channel is healthy again. The
 /// phone-side listener stream is intact, so the repair must not restart the
-/// listener (no second capability resolve).
+/// listener (no additional capability resolve).
 @MainActor
 @Test func probeRepairingLostSubscriptionReplaysMountedSurfaces() async throws {
     let clock = TestClock()
@@ -485,6 +486,7 @@ import Testing
         router: router,
         "the cold replay response must settle before testing repaired subscription replay"
     )
+    let hostStatusCountBeforeRepair = await router.count(of: "mobile.host.status")
 
     // The host loses the registration while the RPC channel stays healthy.
     await router.dropSubscription()
@@ -499,7 +501,10 @@ import Testing
         "a probe that reinstalls a lost registration must request a catch-up replay for mounted surfaces; deltas emitted during the gap were never delivered"
     )
     let hostStatusCount = await router.count(of: "mobile.host.status")
-    #expect(hostStatusCount == 1, "the repair must not restart the listener; the phone-side stream is intact")
+    #expect(
+        hostStatusCount == hostStatusCountBeforeRepair,
+        "the repair must not restart the listener; the phone-side stream is intact"
+    )
     // workspace.updated events were missed during the gap too: the repair must
     // re-fetch the authoritative workspace list.
     let workspaceRefetched = try await pollUntil {
@@ -539,6 +544,7 @@ import Testing
 
     let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
     #expect(sawSubscribe, "listener must establish the push subscription")
+    let hostStatusCountBeforeFailure = await router.count(of: "mobile.host.status")
 
     // The host stops answering the next mobile.events.subscribe (the
     // watchdog's re-assert probe), modeling a dead push path while the
@@ -547,10 +553,10 @@ import Testing
     clock.advance(by: 10)
     store.debugRunRenderGridLivenessCheckForTesting()
 
-    // Recovery restarts the listener, which re-resolves capabilities: a
-    // second mobile.host.status request is the teardown-and-restart proof.
+    // Recovery restarts the listener, which re-resolves capabilities. A new
+    // mobile.host.status request is the teardown-and-restart proof.
     let restarted = try await pollUntil(attempts: 600) {
-        await router.count(of: "mobile.host.status") >= 2
+        await router.count(of: "mobile.host.status") > hostStatusCountBeforeFailure
     }
     #expect(
         restarted,

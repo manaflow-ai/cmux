@@ -11,6 +11,13 @@ import Testing
 
 struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
     @MainActor
+    @Test func relaunchOnlyPlaceholderCannotBecomeResumeSessionIdentity() {
+        #expect(!AgentChatTranscriptService.isValidResumeSessionID(""))
+        #expect(!AgentChatTranscriptService.isValidResumeSessionID("  \n"))
+        #expect(AgentChatTranscriptService.isValidResumeSessionID("upstream-session-id"))
+    }
+
+    @MainActor
     @Test func endedSessionListabilityRetriesTransientMissingTranscriptAfterRetryWindow() throws {
         let home = try temporaryHomeDirectory()
         var now = Date(timeIntervalSince1970: 260)

@@ -64,8 +64,14 @@ import Testing
         }
         await forgottenStore.waitUntilLoadStarted()
 
-        await store.clearForgottenMacDeviceID("mac-a", scopeKey: "scope-a")
+        let clear = Task { @MainActor in
+            await store.clearForgottenMacDeviceID("mac-a", scopeKey: "scope-a")
+        }
+        #expect(try await pollUntil {
+            store.forgottenMacIntentDeviceIDsByScope["scope-a"]?.contains("mac-a") != true
+        })
         await forgottenStore.releaseLoads()
+        await clear.value
         await remember.value
 
         #expect(await store.storedForgottenMacDeviceIDs(scopeKey: "scope-a").isEmpty)
@@ -114,7 +120,7 @@ import Testing
 
         ownsPersistence = false
         await pairedMacStore.releaseUpsert(macDeviceID: "mac-b")
-        try await persist.value
+        _ = try await persist.value
 
         let visible = try await pairedMacStore.loadAll(
             stackUserID: "user-1",

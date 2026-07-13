@@ -8,6 +8,7 @@ extension MobileShellComposite {
         host: String,
         port: Int,
         pairedMacDeviceID: String,
+        instanceTag: String? = nil,
         persistsPairedMac: Bool = true,
         ifStillCurrent: (() -> Bool)? = nil
     ) async {
@@ -16,6 +17,9 @@ extension MobileShellComposite {
             host: host,
             port: port,
             pairedMacDeviceID: pairedMacDeviceID,
+            instanceTagExpectation: MobileMacInstanceTagAuthority.expectation(
+                storedInstanceTag: instanceTag
+            ),
             recordsPairingAttempt: false,
             clearsForgottenMac: false,
             persistsPairedMac: persistsPairedMac,
@@ -64,6 +68,7 @@ extension MobileShellComposite {
                     host: route.host,
                     port: route.port,
                     pairedMacDeviceID: mac.macDeviceID,
+                    instanceTag: mac.instanceTag,
                     persistsPairedMac: false,
                     ifStillCurrent: { [weak self] in
                         self?.storedMacReconnectGeneration == generation

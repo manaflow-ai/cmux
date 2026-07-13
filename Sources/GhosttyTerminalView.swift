@@ -398,7 +398,7 @@ class GhosttyApp {
         engine: GhosttyApp.shared,
         viewProvider: TerminalSurfaceViewFactory(),
         spawnPolicy: TerminalSurfaceSpawnPolicyBridge(),
-        byteTee: TerminalMobileByteTeeBridge(),
+        byteTee: TerminalOutputByteTeeBridge(),
         rendererRealization: RendererRealizationController.shared,
         hibernationRecorder: TerminalAgentHibernationRecorder(),
         runtimeTeardown: GhosttyApp.terminalSurfaceRuntimeTeardown,

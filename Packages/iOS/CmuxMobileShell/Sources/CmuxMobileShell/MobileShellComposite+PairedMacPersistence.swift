@@ -1,126 +1,80 @@
 import CMUXMobileCore
 import CmuxMobilePairedMac
 import Foundation
-import OSLog
+import os
 
-private let mobileShellLog = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
-    category: "mobile-shell"
+private let pairedMacPersistenceLog = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "MobilePairedMacPersistence"
 )
+
+enum PairedMacInstanceTagUpdate {
+    case preserve
+    /// A no-tag fresh attach may persist while the row is still unclaimed, but
+    /// cannot mutate routes owned by an authenticated tagged instance.
+    case preserveOnlyIfUnclaimed
+    case replace(String?)
+}
 
 @MainActor
 extension MobileShellComposite {
-    /// Enqueues one paired-Mac store mutation on the serialized write chain.
-    ///
-    /// All `markActive` writes execute strictly in submission order, with
-    /// `ifStillCurrent` re-evaluated after every earlier write has landed.
+    /// Persist a connection only with authority proven by authenticated status.
+    /// Returns false when a no-tag fresh attach finds an existing tagged owner.
     @discardableResult
-    private func enqueueSerializedPairedMacWrite(
-        ifStillCurrent: (() -> Bool)?,
-        _ operation: @escaping @MainActor () async -> Void
-    ) -> Task<Void, Never> {
-        let previous = pairedMacWriteChain
-        let task = Task { @MainActor in
-            await previous?.value
-            if let ifStillCurrent, !ifStillCurrent() { return }
-            await operation()
-        }
-        pairedMacWriteChain = task
-        return task
-    }
-
-    /// Runs one paired-Mac store mutation on the serialized write chain.
-    func performSerializedPairedMacWrite(
-        ifStillCurrent: (() -> Bool)?,
-        _ operation: @escaping @MainActor () async -> Void
-    ) async {
-        let task = enqueueSerializedPairedMacWrite(
-            ifStillCurrent: ifStillCurrent,
-            operation
-        )
-        await task.value
-    }
-
-    @discardableResult
-    func enqueueActivePairedMacWrite(
-        macDeviceID: String,
-        scope: MobileShellScopeSnapshot?,
-        reloadAfterWrite: Bool
-    ) -> Task<Void, Never>? {
-        guard let pairedMacStore else { return nil }
-        return enqueueSerializedPairedMacWrite(ifStillCurrent: nil) { [weak self, pairedMacStore] in
-            guard let self else { return }
-            if let scope {
-                guard await self.isScopeCurrent(scope) else { return }
-            }
-            guard self.connectionState == .connected,
-                  self.remoteClient != nil,
-                  self.foregroundMacDeviceID == macDeviceID else { return }
-            do {
-                try await pairedMacStore.setActive(
-                    macDeviceID: macDeviceID,
-                    stackUserID: scope?.userID,
-                    teamID: scope?.teamID
-                )
-                guard self.connectionState == .connected,
-                      self.remoteClient != nil,
-                      self.foregroundMacDeviceID == macDeviceID else { return }
-                if reloadAfterWrite {
-                    await self.loadPairedMacs()
-                }
-            } catch {
-                mobileShellLog.error("paired mac store setActive failed mac=\(macDeviceID, privacy: .private) error=\(String(describing: error), privacy: .public)")
-            }
-        }
-    }
-
-    /// Persists `ticket` as the active paired Mac on the serialized write chain.
     func persistPairedMacFromTicket(
         _ ticket: CmxAttachTicket,
+        instanceTagUpdate: PairedMacInstanceTagUpdate = .preserve,
+        displayNameOverride: String? = nil,
         clearsForgottenMac: Bool = true,
         reconnectSourceMacDeviceID: String? = nil,
         ifStillCurrent: (() -> Bool)? = nil
-    ) async {
-        guard let pairedMacStore else { return }
-        guard !ticket.macDeviceID.isEmpty else { return }
-        guard ticket.macDeviceID != "manual-ticket-request",
-              !ticket.macDeviceID.hasPrefix("manual-") else { return }
+    ) async -> Bool {
+        guard let pairedMacStore,
+              !ticket.macDeviceID.isEmpty,
+              ticket.macDeviceID != "manual-ticket-request",
+              !ticket.macDeviceID.hasPrefix("manual-") else { return true }
         let stackUserID = identityProvider?.currentUserID
         let scope = await currentScopeSnapshot(userID: stackUserID)
-        let ticketDisplayName = ticket.macDisplayName
+        let ticketDisplayName = displayNameOverride ?? ticket.macDisplayName
+        var accepted = true
         await performSerializedPairedMacWrite(ifStillCurrent: ifStillCurrent) { [weak self] in
             guard let self else { return }
             guard ifStillCurrent?() ?? true else { return }
-            if let scope {
-                guard await self.isScopeCurrent(scope) else { return }
+            if let scope, await !self.isScopeCurrent(scope) { return }
+            let scopedMacs = (try? await pairedMacStore.loadAll(
+                stackUserID: stackUserID, teamID: scope?.teamID
+            )) ?? []
+            let matchingMacs = scopedMacs.filter { $0.macDeviceID == ticket.macDeviceID }
+            let existing = matchingMacs.first {
+                $0.stackUserID == stackUserID && $0.teamID == scope?.teamID
             }
-            var displayName = ticketDisplayName
-            var storedRoutes: [CmxAttachRoute] = []
-            let previousPersistedMac: MobilePairedMac?
+            let displayFallbackMac = existing
+                ?? matchingMacs.first { $0.stackUserID == stackUserID }
+                ?? matchingMacs.first
+            let storedTag = existing?.instanceTag
+            var displayName = ticketDisplayName ?? displayFallbackMac?.displayName
             if displayName == nil {
                 let knownMacs = (try? await pairedMacStore.loadAll(
-                    stackUserID: nil,
-                    teamID: scope?.teamID
+                    stackUserID: nil, teamID: scope?.teamID
                 )) ?? []
-                let matches = knownMacs.filter { $0.macDeviceID == ticket.macDeviceID }
-                previousPersistedMac = matches.first {
-                    $0.stackUserID == stackUserID && $0.teamID == scope?.teamID
-                }
-                let displayFallbackMac = previousPersistedMac
-                    ?? matches.first { $0.stackUserID == stackUserID }
-                    ?? matches.first
-                displayName = displayFallbackMac?.displayName
-                storedRoutes = displayFallbackMac?.routes ?? []
-            } else {
-                let scopedMacs = (try? await pairedMacStore.loadAll(
-                    stackUserID: stackUserID,
-                    teamID: scope?.teamID
-                )) ?? []
-                previousPersistedMac = scopedMacs.first {
+                displayName = knownMacs.first {
                     $0.macDeviceID == ticket.macDeviceID
-                }
-                storedRoutes = previousPersistedMac?.routes ?? []
+                }?.displayName
             }
+            let instanceTag: String?
+            let authorityIsUnchanged: Bool
+            switch instanceTagUpdate {
+            case .preserve:
+                instanceTag = storedTag
+                authorityIsUnchanged = true
+            case .preserveOnlyIfUnclaimed:
+                instanceTag = nil
+                authorityIsUnchanged = true
+            case .replace(let reportedTag):
+                instanceTag = reportedTag
+                authorityIsUnchanged = reportedTag == storedTag
+            }
+            let storedRoutes = displayFallbackMac?.routes ?? []
             let previousActiveMac = try? await pairedMacStore.activeMac(
                 stackUserID: stackUserID,
                 teamID: scope?.teamID
@@ -133,49 +87,64 @@ extension MobileShellComposite {
                 )
                 return
             }
-            if let scope {
-                guard await self.isScopeCurrent(scope) else { return }
-            }
-            let routesToPersist = ticket.routes.count == 1 && !storedRoutes.isEmpty
-                ? Self.mergedReconnectRoutes(ticketRoutes: ticket.routes, storedRoutes: storedRoutes)
+            if let scope, await !self.isScopeCurrent(scope) { return }
+            let routes = authorityIsUnchanged
+                && ticket.routes.count == 1 && !storedRoutes.isEmpty
+                ? Self.mergedReconnectRoutes(
+                    ticketRoutes: ticket.routes, storedRoutes: storedRoutes
+                )
                 : ticket.routes
             do {
-                try await pairedMacStore.upsert(
-                    macDeviceID: ticket.macDeviceID,
-                    displayName: displayName,
-                    routes: routesToPersist,
-                    markActive: true,
-                    stackUserID: stackUserID,
-                    teamID: scope?.teamID,
-                    now: Date()
-                )
+                if case .preserveOnlyIfUnclaimed = instanceTagUpdate {
+                    accepted = try await pairedMacStore.upsertRoutesIfAuthorized(
+                        macDeviceID: ticket.macDeviceID,
+                        displayName: displayName,
+                        routes: routes,
+                        condition: .unclaimed,
+                        markActive: true,
+                        stackUserID: stackUserID,
+                        teamID: scope?.teamID,
+                        now: Date()
+                    )
+                    guard accepted else { return }
+                } else {
+                    try await pairedMacStore.upsert(
+                        macDeviceID: ticket.macDeviceID,
+                        displayName: displayName,
+                        routes: routes,
+                        instanceTag: instanceTag,
+                        markActive: true,
+                        stackUserID: stackUserID,
+                        teamID: scope?.teamID,
+                        now: Date()
+                    )
+                }
                 guard ifStillCurrent?() ?? true else {
                     await self.rollbackStaleReconnectPersistenceIfNeeded(
                         persistedMacDeviceID: ticket.macDeviceID,
                         reconnectSourceMacDeviceID: reconnectSourceMacDeviceID,
-                        previousPersistedMac: previousPersistedMac,
+                        previousPersistedMac: existing,
                         previousActiveMac: previousActiveMac,
                         scope: scope,
                         store: pairedMacStore
                     )
                     return
                 }
-                if let scope {
-                    guard await self.isScopeCurrent(scope) else { return }
-                }
+                if let scope, await !self.isScopeCurrent(scope) { return }
                 if clearsForgottenMac {
                     await self.clearForgottenMacDeviceID(ticket.macDeviceID, scope: scope)
                     guard ifStillCurrent?() ?? true else { return }
                 }
                 self.hasKnownPairedMac = true
             } catch {
-                mobileShellLog.error("paired mac store upsert failed: \(String(describing: error), privacy: .public)")
+                pairedMacPersistenceLog.error(
+                    "paired mac upsert failed: \(String(describing: error), privacy: .public)"
+                )
             }
         }
+        return accepted
     }
 
-    /// Rolls back a cancellation-insensitive upsert when Forget revoked the
-    /// stored route that produced a ticket for a different real Mac identity.
     func rollbackStaleReconnectPersistenceIfNeeded(
         persistedMacDeviceID: String,
         reconnectSourceMacDeviceID: String?,
@@ -204,6 +173,7 @@ extension MobileShellComposite {
                     macDeviceID: previousPersistedMac.macDeviceID,
                     displayName: previousPersistedMac.displayName,
                     routes: previousPersistedMac.routes,
+                    instanceTag: previousPersistedMac.instanceTag,
                     markActive: previousPersistedMac.isActive,
                     stackUserID: previousPersistedMac.stackUserID,
                     teamID: previousPersistedMac.teamID,
@@ -226,11 +196,12 @@ extension MobileShellComposite {
                 )
             }
         } catch {
-            mobileShellLog.error("stale reconnect persistence rollback failed mac=\(persistedMacDeviceID, privacy: .private) error=\(String(describing: error), privacy: .public)")
+            pairedMacPersistenceLog.error(
+                "stale reconnect persistence rollback failed mac=\(persistedMacDeviceID, privacy: .private) error=\(String(describing: error), privacy: .public)"
+            )
         }
     }
 
-    /// Removes a stale reconnect write after Forget records the same scoped tombstone.
     func removePersistedMacIfForgotten(
         _ macDeviceID: String,
         scope: MobileShellScopeSnapshot?,
@@ -245,7 +216,9 @@ extension MobileShellComposite {
                 teamID: scope.teamID
             )
         } catch {
-            mobileShellLog.error("stale paired mac cleanup failed mac=\(macDeviceID, privacy: .private) error=\(String(describing: error), privacy: .public)")
+            pairedMacPersistenceLog.error(
+                "stale paired mac cleanup failed mac=\(macDeviceID, privacy: .private) error=\(String(describing: error), privacy: .public)"
+            )
         }
     }
 }
