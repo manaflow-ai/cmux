@@ -492,8 +492,7 @@ final class CmuxWebView: WKWebView {
     }
 
     private func handleDiffViewerNavigationKey(_ event: NSEvent) -> Bool {
-        guard let token = DiffCommentsBridge.diffViewerToken(from: url),
-              CmuxDiffViewerURLSchemeHandler.shared.hasActiveSession(token: token),
+        guard DiffCommentsBridge.diffViewerToken(from: url) != nil,
               !diffViewerEditableElementFocused else {
             diffViewerNavigationKeyRouter.reset()
             return false
