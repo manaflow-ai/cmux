@@ -58,8 +58,18 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     /// trimmed effective working directory.
     public func isRequestEquivalent(to other: MobileTaskSubmissionSnapshot) -> Bool {
         macDeviceID == other.macDeviceID
-            && composition == other.composition
+            && normalizedInitialCommand == other.normalizedInitialCommand
+            && composition.initialEnv == other.composition.initialEnv
+            && composition.title == other.composition.title
             && trimmedDirectory == other.trimmedDirectory
+    }
+
+    private var normalizedInitialCommand: String? {
+        guard let command = composition.initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !command.isEmpty else {
+            return nil
+        }
+        return command
     }
 
     /// Draft restored after interruption or a failed submission.
