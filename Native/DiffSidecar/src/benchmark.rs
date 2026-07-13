@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -14,6 +15,14 @@ pub struct BenchmarkReport {
     pub sequential_read_mib_per_second: f64,
 }
 
+struct TemporaryBenchmarkDirectory(PathBuf);
+
+impl Drop for TemporaryBenchmarkDirectory {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 /// Measures manifest decoding and sequential patch reads.
 ///
 /// # Errors
@@ -25,6 +34,7 @@ pub fn run(sample_bytes: usize, iterations: usize) -> Result<BenchmarkReport, St
     }
     let root = std::env::temp_dir().join(format!("cmux-diff-benchmark-{}", std::process::id()));
     std::fs::create_dir_all(&root).map_err(|error| error.to_string())?;
+    let _temporary_directory = TemporaryBenchmarkDirectory(root.clone());
     let patch_path = root.join("sample.patch");
     let chunk = b"diff --git a/src/file.rs b/src/file.rs\n@@ -1 +1 @@\n-old\n+new\n";
     let mut patch = Vec::with_capacity(sample_bytes);
@@ -68,7 +78,6 @@ pub fn run(sample_bytes: usize, iterations: usize) -> Result<BenchmarkReport, St
         u32::try_from(sample_bytes).map_err(|_| "benchmark sample exceeds 4 GiB".to_owned())?,
     );
     let mib_per_second = (sample_bytes_f64 / (1024.0 * 1024.0)) / seconds;
-    let _ = std::fs::remove_dir_all(root);
     Ok(BenchmarkReport {
         sample_bytes,
         iterations,
@@ -94,6 +103,11 @@ mod tests {
     #[test]
     fn zero_iterations_return_an_error() {
         assert!(super::run(1024, 0).is_err());
+    }
+
+    #[test]
+    fn small_sample_runs_successfully() {
+        assert!(super::run(1024, 1).is_ok());
     }
 
     #[test]

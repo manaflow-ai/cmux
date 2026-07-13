@@ -54,7 +54,10 @@ async fn run() -> Result<(), String> {
             })
             .await
         }
-        Some("handshake") => server::write_handshake_to_stdout().await,
+        Some("handshake") => {
+            reject_remaining_arguments(&mut args)?;
+            server::write_handshake_to_stdout().await
+        }
         Some("benchmark") => {
             let sample_bytes = args
                 .next()
@@ -68,6 +71,7 @@ async fn run() -> Result<(), String> {
                 .transpose()
                 .map_err(|error| error.to_string())?
                 .unwrap_or(20);
+            reject_remaining_arguments(&mut args)?;
             let report = benchmark::run(sample_bytes, iterations)?;
             println!(
                 "{}",
@@ -78,6 +82,13 @@ async fn run() -> Result<(), String> {
         }
         _ => Err("usage: cmux-diff-sidecar <serve|rpc|handshake|benchmark>".to_owned()),
     }
+}
+
+fn reject_remaining_arguments(args: &mut impl Iterator<Item = String>) -> Result<(), String> {
+    if let Some(argument) = args.next() {
+        return Err(format!("unexpected argument: {argument}"));
+    }
+    Ok(())
 }
 
 fn enforce_benchmark_budget(report: &benchmark::BenchmarkReport) -> Result<(), String> {

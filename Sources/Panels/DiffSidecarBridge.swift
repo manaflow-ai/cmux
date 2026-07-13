@@ -64,7 +64,7 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
         didReceive message: WKScriptMessage,
         replyHandler: @escaping (Any?, String?) -> Void
     ) {
-        guard DiffCommentsBridge.isTrustedDiffViewerFrame(message.frameInfo),
+        guard Self.isTrustedSidecarFrame(message.frameInfo),
               JSONSerialization.isValidJSONObject(message.body),
               let request = try? JSONSerialization.data(withJSONObject: message.body),
               request.count <= Self.maximumRequestBytes else {
@@ -93,6 +93,20 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
         }
     }
 
+    static func isTrustedSidecarFrame(_ frameInfo: WKFrameInfo) -> Bool {
+        frameInfo.isMainFrame && isTrustedSidecarURL(frameInfo.request.url)
+    }
+
+    static func isTrustedSidecarURL(_ url: URL?) -> Bool {
+        guard let url else { return false }
+        return CmuxDiffViewerURLSchemeHandler.shared.allowsNavigation(to: url)
+    }
+
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     nonisolated private static func runSidecar(request: Data) async throws -> Data {
         let resources = Bundle.main.bundleURL
             .appendingPathComponent("Contents/Resources/bin", isDirectory: true)

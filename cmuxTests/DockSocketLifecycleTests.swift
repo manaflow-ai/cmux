@@ -746,9 +746,8 @@ struct DockSocketLifecycleTests {
         let store = workspace.dockSplit
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
-
-        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panelId)
-
+        let runtimeSurface = try #require((store.panels[panelId] as? TerminalPanel)?.surface)
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panelId, runtimeSurface: runtimeSurface)
         #expect(!store.containsPanel(panelId))
         #expect(manager.tabs.contains(where: { $0.id == workspace.id }))
     }

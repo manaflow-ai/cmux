@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import {
   fallbackContentLocales,
+  englishFallbackContentLocales,
   featureWorkflowContentLocales,
   remoteTmuxDocsLocales,
 } from "../i18n/locale-availability";
@@ -35,10 +36,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/blog/show-hn-launch", lastModified: "2026-02-21", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/introducing-cmux", lastModified: "2026-02-12", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/zen-of-cmux", lastModified: "2026-02-27", changeFrequency: "monthly" as const, priority: 0.7 },
-    { path: "/blog/cmux-claude-teams", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
-    { path: "/blog/cmux-omo", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
-    { path: "/blog/cmux-ssh", lastModified: "2026-07-03", changeFrequency: "monthly" as const, priority: 0.7 },
-    { path: "/blog/gpl", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
+    { path: "/blog/cmux-claude-teams", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7, locales: englishFallbackContentLocales },
+    { path: "/blog/cmux-omo", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7, locales: englishFallbackContentLocales },
+    { path: "/blog/cmux-ssh", lastModified: "2026-07-03", changeFrequency: "monthly" as const, priority: 0.7, locales: fallbackContentLocales },
+    { path: "/blog/gpl", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7, locales: englishFallbackContentLocales },
     { path: "/blog/cmd-shift-u", lastModified: "2026-03-04", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/getting-started", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.9 },
     { path: "/docs/concepts", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.8 },
@@ -88,14 +89,14 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/agents/aider", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents/amp", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents/cursor-cli", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
-    { path: "/privacy-policy", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
+    { path: "/privacy-policy", lastModified: "2026-07-10", changeFrequency: "yearly" as const, priority: 0.3 },
     { path: "/terms-of-service", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
     { path: "/eula", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
   ];
 
   // Legal pages and the Base docs page are English-only, so they only get one entry.
   // The SEO landing pages are localized, so they go through the per-locale loop.
-  const englishOnly = new Set(["/docs/base", "/privacy-policy", "/terms-of-service", "/eula"]);
+  const englishOnly = new Set(["/docs/base", "/terms-of-service", "/eula"]);
 
   const entries: MetadataRoute.Sitemap = [];
 
