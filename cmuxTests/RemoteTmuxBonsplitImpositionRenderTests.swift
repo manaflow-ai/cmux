@@ -80,6 +80,51 @@ import Testing
 
     private enum TestError: Error { case notASplit }
 
+    /// The stale-bank fixture both wedge tests share: a two-pane mirror
+    /// whose container was banked while the hosting window was 800pt wide,
+    /// with the plan already computed at that stale width — far wider than
+    /// the 400-500pt windows the tests then host it in. Returns the
+    /// connection too: the mirror only holds it weakly.
+    private func makeWideBankedMirror(
+        hostingSource: @escaping () -> CGSize?
+    ) throws -> (mirror: RemoteTmuxWindowMirror, connection: RemoteTmuxControlConnection) {
+        let layout = node(.horizontal([
+            node(.pane(1), w: 61, h: 35, x: 0, y: 0),
+            node(.pane(2), w: 61, h: 35, x: 62, y: 0),
+        ]), w: 123, h: 35, x: 0, y: 0)
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"), sessionName: "work"
+        )
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0,
+            panelId: UUID(),
+            connection: connection,
+            layout: layout,
+            geometrySource: {
+                RemoteTmuxMirrorGeometry(
+                    cellWidthPx: 16, cellHeightPx: 34,
+                    surfacePadWidthPx: 8, surfacePadHeightPx: 0,
+                    scale: 2
+                )
+            },
+            hostingContentSizeSource: hostingSource,
+            makePanel: { _ in nil }
+        )
+        mirror.isVisibleForSizing = true
+        // The stale bank: taken while the hosting window was 800pt wide,
+        // never re-read before the window shrank.
+        mirror.containerSizePt = CGSize(width: 800, height: 620)
+        mirror.containerScale = 2
+        mirror.reconcile(layout: layout)
+        mirror.performSizingPassNow()
+        let planned = try #require(mirror.renderFrameSize)
+        #expect(
+            planned.width >= 700,
+            "the stale plan must be far wider than the hosting window for this test to bite"
+        )
+        return (mirror, connection)
+    }
+
     /// Impose the extent, then pump the runloop until the first pane's real
     /// frame converges (the imposed apply defers a runloop turn and has a
     /// bounded AppKit retry). Returns the settled first/second widths.
@@ -174,51 +219,13 @@ import Testing
     /// region, the bank heals to it on the next pass, and every frame in the
     /// chain returns to the window's width.
     @Test func staleWideBankHealsThroughTheFullPaneChain() async throws {
-        func node(
-            _ content: RemoteTmuxLayoutContent, w: Int, h: Int, x: Int, y: Int
-        ) -> RemoteTmuxLayoutNode {
-            RemoteTmuxLayoutNode(width: w, height: h, x: x, y: y, content: content)
-        }
-        let layout = node(.horizontal([
-            node(.pane(1), w: 61, h: 35, x: 0, y: 0),
-            node(.pane(2), w: 61, h: 35, x: 62, y: 0),
-        ]), w: 123, h: 35, x: 0, y: 0)
-        let connection = RemoteTmuxControlConnection(
-            host: RemoteTmuxHost(destination: "user@host"), sessionName: "work"
-        )
         // Seed an injected bound for the pre-mount pass (the transaction only
         // completes against a visible hosting context), then hand the mirror
         // to the real window: a source answering nil falls through to the
         // live probe, so the mounted window's bound takes over.
         final class SeedBound { var value: CGSize? = CGSize(width: 800, height: 620) }
         let seed = SeedBound()
-        let mirror = RemoteTmuxWindowMirror(
-            windowId: 0,
-            panelId: UUID(),
-            connection: connection,
-            layout: layout,
-            geometrySource: {
-                RemoteTmuxMirrorGeometry(
-                    cellWidthPx: 16, cellHeightPx: 34,
-                    surfacePadWidthPx: 8, surfacePadHeightPx: 0,
-                    scale: 2
-                )
-            },
-            hostingContentSizeSource: { seed.value },
-            makePanel: { _ in nil }
-        )
-        mirror.isVisibleForSizing = true
-        // The stale bank: taken while the hosting window was 800pt wide,
-        // never re-read before the window shrank to 500pt.
-        mirror.containerSizePt = CGSize(width: 800, height: 620)
-        mirror.containerScale = 2
-        mirror.reconcile(layout: layout)
-        mirror.performSizingPassNow()
-        let planned = try #require(mirror.renderFrameSize)
-        #expect(
-            planned.width >= 700,
-            "the stale plan must be far wider than the 500pt window for this test to bite"
-        )
+        let (mirror, connection) = try makeWideBankedMirror(hostingSource: { seed.value })
         seed.value = nil
 
         let appearance = PanelAppearance(
@@ -293,6 +300,7 @@ import Testing
             banked.width <= window.frame.width + 1,
             "the stale bank never healed: container still \(banked.width)pt inside a \(window.frame.width)pt window — the mirror is reading its own imposed width back"
         )
+        withExtendedLifetime(connection) {}
     }
 
     /// The imposed render frame must never become the mirror view's reported
@@ -308,42 +316,8 @@ import Testing
     /// display-pinned window a step per layout pass, 2559pt and climbing),
     /// and the mirror then read its own imposed width back as its container.
     @Test func staleImposedRenderFrameDoesNotInflateTheMirrorViewsReportedSize() throws {
-        func node(
-            _ content: RemoteTmuxLayoutContent, w: Int, h: Int, x: Int, y: Int
-        ) -> RemoteTmuxLayoutNode {
-            RemoteTmuxLayoutNode(width: w, height: h, x: x, y: y, content: content)
-        }
-        let layout = node(.horizontal([
-            node(.pane(1), w: 61, h: 35, x: 0, y: 0),
-            node(.pane(2), w: 61, h: 35, x: 62, y: 0),
-        ]), w: 123, h: 35, x: 0, y: 0)
-        let connection = RemoteTmuxControlConnection(
-            host: RemoteTmuxHost(destination: "user@host"), sessionName: "work"
-        )
-        let mirror = RemoteTmuxWindowMirror(
-            windowId: 0,
-            panelId: UUID(),
-            connection: connection,
-            layout: layout,
-            geometrySource: {
-                RemoteTmuxMirrorGeometry(
-                    cellWidthPx: 16, cellHeightPx: 34,
-                    surfacePadWidthPx: 8, surfacePadHeightPx: 0,
-                    scale: 2
-                )
-            },
-            hostingContentSizeSource: { CGSize(width: 800, height: 620) },
-            makePanel: { _ in nil }
-        )
-        mirror.isVisibleForSizing = true
-        mirror.containerSizePt = CGSize(width: 800, height: 620)
-        mirror.containerScale = 2
-        mirror.reconcile(layout: layout)
-        mirror.performSizingPassNow()
-        let planned = try #require(mirror.renderFrameSize)
-        #expect(
-            planned.width >= 700,
-            "the plan must be far wider than the 400pt window for this test to bite"
+        let (mirror, connection) = try makeWideBankedMirror(
+            hostingSource: { CGSize(width: 800, height: 620) }
         )
 
         final class MeasuredWidth { var value: CGFloat = 0 }
@@ -391,6 +365,7 @@ import Testing
             measured.value <= 401,
             "the mirror view reported \(measured.value)pt to its ancestors inside a 400pt window — the imposed render frame leaked into the reported size"
         )
+        withExtendedLifetime(connection) {}
     }
 
     /// Render ownership against the real renderer: a container change under a
@@ -504,4 +479,10 @@ import Testing
         try #require(window.contentView).addSubview(old)
         #expect(mirror.hostProbeView === old)
     }
+}
+
+private func node(
+    _ content: RemoteTmuxLayoutContent, w: Int, h: Int, x: Int, y: Int
+) -> RemoteTmuxLayoutNode {
+    RemoteTmuxLayoutNode(width: w, height: h, x: x, y: y, content: content)
 }

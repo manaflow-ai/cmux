@@ -256,7 +256,7 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         defer { app.terminate() }
         try buildLabSession()
         let workspaceId = try XCTUnwrap(
-            attachSessionHidden(), "hidden attach reported no mirror workspace"
+            attachSession(activate: false), "hidden attach reported no mirror workspace"
         )
         // Churn while hidden: one real window resize, so any size the hidden
         // mirror banked at birth is stale by the time it is shown.
@@ -286,7 +286,7 @@ final class RemoteTmuxSizingUITests: XCTestCase {
 
     // MARK: lab state
 
-    /// The cmux window UUID hosting the mirror (from `remote.tmux.window`).
+    /// The cmux window UUID hosting the mirror (from `remote.tmux.mirror`).
     var mirrorWindowId: String?
 
     /// The last tmux invocation failure (spawn error or nonzero exit +

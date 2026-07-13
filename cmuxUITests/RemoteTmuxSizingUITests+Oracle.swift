@@ -86,21 +86,28 @@ extension RemoteTmuxSizingUITests {
         return nil
     }
 
+    /// One shared fetch of `remote.tmux.pane_grids` for the lab host,
+    /// unwrapped to its per-window entries. Returns nil when the verb is
+    /// unavailable or the host is not mirrored — every consumer treats
+    /// that identically (retry or report), so the unwrap lives here once.
+    func paneGridsWindows() -> [[String: Any]]? {
+        guard let response = socketJSON(method: "remote.tmux.pane_grids", params: [
+            "host": "e2e-shim-host",
+            "session": sessionName,
+        ]),
+        response["mirrored"] as? Bool == true,
+        let windows = response["windows"] as? [[String: Any]] else { return nil }
+        return windows
+    }
+
     /// The app-side oracle over `remote.tmux.pane_grids`: full
     /// assigned==rendered for the SELECTED window; a claimed, applied size
     /// (base == pushed) for every other mirrored window (hidden tabs don't
     /// re-render to match until selected — that is the visibility contract,
     /// not drift).
     func paneGridsFailure(selectedWindow: Int) -> String? {
-        guard let response = socketJSON(method: "remote.tmux.pane_grids", params: [
-            "host": "e2e-shim-host",
-            "session": sessionName,
-        ]) else {
-            return "pane_grids unavailable: no response"
-        }
-        guard response["mirrored"] as? Bool == true,
-              let windows = response["windows"] as? [[String: Any]] else {
-            return "pane_grids unavailable: \(response)"
+        guard let windows = paneGridsWindows() else {
+            return "pane_grids unavailable or host not mirrored"
         }
         // The selected window must be REPRESENTED, with panes — otherwise a
         // regression that stops mirrors from being created (empty `windows`)
@@ -201,14 +208,23 @@ extension RemoteTmuxSizingUITests {
         )
         XCTAssertFalse(windows.isEmpty, "no visible mirror in root_frames \(context)")
         for entry in windows {
-            let windowWidth = entry["window_width"] as? Double ?? -1
-            let contentWidth = entry["content_view_width"] as? Double ?? -1
+            // Fail CLOSED on a malformed payload: defaulting both widths to
+            // -1 let "missing vs missing" pass the comparison and vouch for
+            // frames that were never reported.
+            guard let windowWidth = entry["window_width"] as? Double,
+                  let contentWidth = entry["content_view_width"] as? Double else {
+                XCTFail("root_frames entry missing width fields \(context): \(entry)")
+                continue
+            }
             XCTAssertLessThanOrEqual(
                 contentWidth, windowWidth + 1,
                 "content view wider than its window \(context): \(entry)"
             )
             for ancestor in entry["ancestors"] as? [[String: Any]] ?? [] {
-                let width = ancestor["width"] as? Double ?? -1
+                guard let width = ancestor["width"] as? Double else {
+                    XCTFail("root_frames ancestor missing width \(context): \(ancestor)")
+                    continue
+                }
                 XCTAssertLessThanOrEqual(
                     width, windowWidth + 1,
                     "\(ancestor["class"] ?? "?") is \(Int(width))pt wide in a \(Int(windowWidth))pt window \(context) — an ancestor adopted a content-derived width"
@@ -284,10 +300,7 @@ extension RemoteTmuxSizingUITests {
     /// `pane_grids` (cell px over backing scale) — the divisor the claim's
     /// own `floor(available / cell)` uses.
     func calibratedCellSizePt() -> (width: Double, height: Double)? {
-        guard let response = socketJSON(method: "remote.tmux.pane_grids", params: [
-            "host": "e2e-shim-host",
-            "session": sessionName,
-        ]), let windows = response["windows"] as? [[String: Any]] else { return nil }
+        guard let windows = paneGridsWindows() else { return nil }
         for window in windows {
             for pane in window["panes"] as? [[String: Any]] ?? [] {
                 guard let calibration = pane["calibration"] as? [String: Any],
@@ -303,10 +316,7 @@ extension RemoteTmuxSizingUITests {
 
     /// The pushed column count `pane_grids` reports for a tmux window.
     func pushedCols(window: Int) -> Int? {
-        guard let response = socketJSON(method: "remote.tmux.pane_grids", params: [
-            "host": "e2e-shim-host",
-            "session": sessionName,
-        ]), let windows = response["windows"] as? [[String: Any]] else { return nil }
+        guard let windows = paneGridsWindows() else { return nil }
         for entry in windows where (entry["window_id"] as? String) == "@\(window)" {
             return (entry["pushed"] as? [String: Any])?["cols"] as? Int
         }

@@ -86,16 +86,12 @@ private struct SplitMix64 {
             // beyond the claim), and the killer case — the tight container
             // whose claim consumes it exactly, leaving no spare to hide
             // rounding in.
-            let overhead = metrics.residual(of: structure)
             let minimum = Self.minimumCells(shape, minLeaf: 2)
             let cols = max(minimum.cols, RemoteTmuxMirrorGeometry.minCols)
                 + 4 + Self.draw(100, using: &rng)
             let rows = max(minimum.rows, RemoteTmuxMirrorGeometry.minRows)
                 + 4 + Self.draw(50, using: &rng)
-            let paddedSize = CGSize(
-                width: CGFloat(cols) * metrics.cellSize.width + overhead.width,
-                height: CGFloat(rows) * metrics.cellSize.height + overhead.height
-            )
+            let paddedSize = metrics.exactFitSize(columns: cols, rows: rows, layout: structure)
             let tightSize = try #require(Self.tightContainer(
                 startingAt: paddedSize,
                 layout: structure,
@@ -493,10 +489,8 @@ private struct SplitMix64 {
             // Window X: sized to exactly fit the geometry's total cell span
             // plus chrome. This is the resting window — the size the claim
             // would have asked tmux for, handed straight back.
-            let overhead = metrics.residual(of: tree)
-            let window = CGSize(
-                width: CGFloat(tree.width) * metrics.cellSize.width + overhead.width,
-                height: CGFloat(tree.height) * metrics.cellSize.height + overhead.height
+            let window = metrics.exactFitSize(
+                columns: tree.width, rows: tree.height, layout: tree
             )
 
             // The claim this window produces must be exactly the geometry's
@@ -577,10 +571,8 @@ private struct SplitMix64 {
             width: 61, height: 34, x: 0, y: 0, content: .horizontal([left, stack])
         )
 
-        let residual = metrics.residual(of: tree)
-        let exactFit = CGSize(
-            width: CGFloat(tree.width) * metrics.cellSize.width + residual.width,
-            height: CGFloat(tree.height) * metrics.cellSize.height + residual.height
+        let exactFit = metrics.exactFitSize(
+            columns: tree.width, rows: tree.height, layout: tree
         )
         // A region with just under one cell of leftover on each axis — the
         // worst case the claim's floor can produce. The claim boundary sits
@@ -681,16 +673,12 @@ private struct SplitMix64 {
                 using: &rng
             )
             let structure = Self.placeholderNode(shape)
-            let overhead = metrics.residual(of: structure)
             let minimum = Self.minimumCells(shape, minLeaf: 2)
             let cols = max(minimum.cols, RemoteTmuxMirrorGeometry.minCols) + Self.draw(120, using: &rng)
             let rows = max(minimum.rows, RemoteTmuxMirrorGeometry.minRows) + Self.draw(60, using: &rng)
 
             // Window sized to fit exactly this cell span plus chrome.
-            let window = CGSize(
-                width: CGFloat(cols) * metrics.cellSize.width + overhead.width,
-                height: CGFloat(rows) * metrics.cellSize.height + overhead.height
-            )
+            let window = metrics.exactFitSize(columns: cols, rows: rows, layout: structure)
             let claim = try #require(metrics.clientGrid(layout: structure, contentSize: window))
             // Skip only the rare trial where float rounding makes the
             // constructed window claim one cell fewer than intended (then the
@@ -778,12 +766,10 @@ private struct SplitMix64 {
                 horizontal ? .horizontal : .vertical, [.pane(1), .pane(2)]
             )
             let structure = Self.placeholderNode(shape)
-            let overhead = metrics.residual(of: structure)
             let totalCols = max(RemoteTmuxMirrorGeometry.minCols, 24) + Self.draw(120, using: &rng)
             let totalRows = max(RemoteTmuxMirrorGeometry.minRows, 8) + Self.draw(50, using: &rng)
-            let window = CGSize(
-                width: CGFloat(totalCols) * metrics.cellSize.width + overhead.width,
-                height: CGFloat(totalRows) * metrics.cellSize.height + overhead.height
+            let window = metrics.exactFitSize(
+                columns: totalCols, rows: totalRows, layout: structure
             )
             guard let claim = metrics.clientGrid(layout: structure, contentSize: window),
                   claim.columns == totalCols, claim.rows == totalRows else { continue }
@@ -1068,13 +1054,11 @@ private struct SplitMix64 {
         tabBar: CGFloat,
         scale: CGFloat,
         padPx: (w: Int, h: Int),
-        cellPx: (w: Int, h: Int),
-        titleRow: CGFloat = 0
+        cellPx: (w: Int, h: Int)
     ) -> (cols: Int, rows: Int) {
         let grid = RemoteTmuxNativeLayoutMetrics.renderedCells(
             outer: outer,
             tabBarHeight: tabBar,
-            paneTitleRowHeight: titleRow,
             scale: scale,
             surfacePadPx: (width: padPx.w, height: padPx.h),
             cellPx: (width: cellPx.w, height: cellPx.h)

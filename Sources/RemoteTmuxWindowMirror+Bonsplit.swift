@@ -126,14 +126,20 @@ extension RemoteTmuxWindowMirror {
                 parentSize: renderFrameSize ?? containerSizePt
             )
             #if DEBUG
-            lastPlannedOuterSizes = planner.outerSizes(of: plan)
-            let planSummary = lastPlannedOuterSizes
-                .sorted { $0.key < $1.key }
-                .map { "%\($0.key)=\(Int($0.value.width))x\(Int($0.value.height))" }
-                .joined(separator: " ")
-            cmuxDebugLog(
-                "remote.divider.plan @\(windowId) parent=\(Int((renderFrameSize ?? containerSizePt ?? .zero).width))x\(Int((renderFrameSize ?? containerSizePt ?? .zero).height)) titleRow=\(Int(metrics.paneTitleRowHeight)) outers[\(planSummary)]"
-            )
+            // Log only a CHANGED plan: settled passes re-impose the same
+            // outers every trigger, and repeating the line buries the
+            // transitions the log exists to show.
+            let plannedOuterSizes = planner.outerSizes(of: plan)
+            if plannedOuterSizes != lastPlannedOuterSizes {
+                let planSummary = plannedOuterSizes
+                    .sorted { $0.key < $1.key }
+                    .map { "%\($0.key)=\(Int($0.value.width))x\(Int($0.value.height))" }
+                    .joined(separator: " ")
+                cmuxDebugLog(
+                    "remote.divider.plan @\(windowId) parent=\(Int((renderFrameSize ?? containerSizePt ?? .zero).width))x\(Int((renderFrameSize ?? containerSizePt ?? .zero).height)) titleRow=\(Int(metrics.paneTitleRowHeight)) outers[\(planSummary)]"
+                )
+            }
+            lastPlannedOuterSizes = plannedOuterSizes
             #endif
             applyDividerPositions(
                 plan: plan, treeNode: treeNode, retryImposedExtents: retryImposedExtents
@@ -514,15 +520,13 @@ extension RemoteTmuxWindowMirror: BonsplitDelegate {
     }
 
     func splitTabBarDividerDragDidEnd(_ controller: BonsplitController) {
-        // Consume the deferral before the remote-apply guard: a drag that
-        // ends while a remote layout is being applied must not strand the
-        // pass held for it — reschedule the pass instead of running the
-        // divider sync, and clear the flag so it cannot double-fire on a
-        // later drag end.
-        let deferredPass = sizingPassDeferredForDrag
-        sizingPassDeferredForDrag = false
+        // A drag ending while a remote layout is being applied cannot run
+        // the divider sync mid-apply; schedule a pass instead. Drag end
+        // always re-arms the pass: any pass that fired mid-drag was held
+        // (performSizingPassNow returns while the session is live), and a
+        // pass with unchanged inputs is a coalesced no-op.
         guard !isApplyingRemoteLayout else {
-            if deferredPass { setNeedsSizingPass() }
+            setNeedsSizingPass()
             return
         }
         // Bonsplit's final drag geometry notification lands just before this
@@ -531,14 +535,14 @@ extension RemoteTmuxWindowMirror: BonsplitDelegate {
         let sent = syncChangedDividerPositions() || dividerResizeSentSinceDragBegan
         dividerResizeSentSinceDragBegan = false
         #if DEBUG
-        cmuxDebugLog("remote.divider.dragEnd @\(windowId) sent=\(sent ? 1 : 0) deferredPass=\(deferredPass ? 1 : 0)")
+        cmuxDebugLog("remote.divider.dragEnd @\(windowId) sent=\(sent ? 1 : 0)")
         #endif
         if sent {
             // The resize-pane is out; tmux's layout reply is the settled
             // truth and re-imposes when it lands. Imposing the pre-drag tree
-            // now would snap the divider back for a beat. A pass deferred
+            // now would snap the divider back for a beat. A pass held
             // mid-drag still runs — its inputs changed independently.
-            if deferredPass { setNeedsSizingPass() }
+            setNeedsSizingPass()
         } else {
             // Nothing to ask tmux (the drag rounded to the same cells), but
             // the drag cleared the split's imposition, so identical inputs no

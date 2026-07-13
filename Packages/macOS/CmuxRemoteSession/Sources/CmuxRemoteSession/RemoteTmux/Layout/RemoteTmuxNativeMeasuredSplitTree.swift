@@ -37,14 +37,14 @@ public indirect enum RemoteTmuxNativeMeasuredSplitTree: Sendable {
             // subtrees — separator columns/rows, title rows, a window-edge
             // title row — read off the assignment so this binary fold agrees
             // with the n-ary residual fold node for node.
-            let parentSpan = layout.assignedSpan(along: orientation)
-            let childSpanSum = measuredFirst.layout.assignedSpan(along: orientation)
-                + measuredSecond.layout.assignedSpan(along: orientation)
-            let spansUsable = parentSpan > 0
-                && measuredFirst.layout.assignedSpan(along: orientation) > 0
-                && measuredSecond.layout.assignedSpan(along: orientation) > 0
-                && parentSpan >= childSpanSum
-            let gapCells = spansUsable ? parentSpan - childSpanSum : 1
+            let gapCells = RemoteTmuxNativeLayoutMetrics.assignedGapCells(
+                parentSpan: layout.assignedSpan(along: orientation),
+                childSpans: [
+                    measuredFirst.layout.assignedSpan(along: orientation),
+                    measuredSecond.layout.assignedSpan(along: orientation),
+                ],
+                fallback: 1
+            )
             self = .split(
                 layout: layout,
                 residual: metrics.joinedResidual(
@@ -105,10 +105,17 @@ public indirect enum RemoteTmuxNativeMeasuredSplitTree: Sendable {
             guard splitOrientation == orientation else {
                 return max(firstMinimum, secondMinimum)
             }
-            let gap = layout.assignedSpan(along: orientation)
-                - first.layout.assignedSpan(along: orientation)
-                - second.layout.assignedSpan(along: orientation)
-            return firstMinimum + secondMinimum + max(0, gap)
+            let parentSpan = layout.assignedSpan(along: orientation)
+            let childSpans = [
+                first.layout.assignedSpan(along: orientation),
+                second.layout.assignedSpan(along: orientation),
+            ]
+            let gap = RemoteTmuxNativeLayoutMetrics.assignedGapCells(
+                parentSpan: parentSpan,
+                childSpans: childSpans,
+                fallback: max(0, parentSpan - childSpans.reduce(0, +))
+            )
+            return firstMinimum + secondMinimum + gap
         }
     }
 

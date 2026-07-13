@@ -545,8 +545,8 @@ import Testing
     /// Mid-drag the user owns divider geometry: a sizing pass firing while a
     /// drag session is live must hold — not claim, not impose — and the
     /// session end (the deterministic mouseUp signal, delivered through the
-    /// controller delegate) must consume the deferral and re-arm the pass.
-    @Test func sizingPassDefersMidDragAndSessionEndConsumesTheDeferral() {
+    /// controller delegate) must re-arm the pass.
+    @Test func sizingPassDefersMidDragAndSessionEndReschedules() {
         let (mirror, connection) = readyMirror(layout: reflow123)
         mirror.isVisibleForSizing = true
         mirror.performSizingPassNow()
@@ -556,34 +556,35 @@ import Testing
         #expect(mirror.bonsplitController.isDividerDragActive)
         mirror.setNeedsSizingPassIgnoringInputs() // views no longer hold the plan
         mirror.performSizingPassNow()
-        #expect(mirror.sizingPassDeferredForDrag, "a pass firing mid-drag must hold")
+        #expect(!mirror.sizingPassScheduled, "a held pass must not re-arm itself mid-drag")
+        #expect(
+            mirror.lastCompletedSizingInputs == nil,
+            "a pass firing mid-drag must hold, not complete"
+        )
 
         mirror.bonsplitController.noteDividerDragSession(false)
         #expect(!mirror.bonsplitController.isDividerDragActive)
-        #expect(!mirror.sizingPassDeferredForDrag, "session end must consume the deferral")
+        #expect(mirror.sizingPassScheduled, "session end must reschedule the held pass")
     }
 
-    /// A drag ending while a remote layout apply is in flight must not
-    /// strand the pass deferred for the drag: the guard that skips the
-    /// divider sync used to return before consuming the deferral, so the
-    /// flag sat stale (a later drag end would double-fire it) and the held
-    /// pass was never rescheduled. The deferral is consumed first now, and
-    /// converted to a scheduled pass instead of running the sync mid-apply.
-    @Test func dragEndDuringRemoteApplyConsumesTheDeferralWithoutSyncing() {
+    /// A drag ending while a remote layout apply is in flight cannot run the
+    /// divider sync mid-apply, but it must still schedule a sizing pass so a
+    /// pass held mid-drag reruns once the apply completes.
+    @Test func dragEndDuringRemoteApplySchedulesAPass() {
         let (mirror, _) = readyMirror(layout: reflow123)
         mirror.isVisibleForSizing = true
         mirror.performSizingPassNow()
         mirror.bonsplitController.noteDividerDragSession(true)
         mirror.setNeedsSizingPassIgnoringInputs()
         mirror.performSizingPassNow()
-        #expect(mirror.sizingPassDeferredForDrag, "a pass firing mid-drag must hold")
+        #expect(!mirror.sizingPassScheduled, "a held pass must not re-arm itself mid-drag")
 
         mirror.isApplyingRemoteLayout = true
         mirror.splitTabBarDividerDragDidEnd(mirror.bonsplitController)
         mirror.isApplyingRemoteLayout = false
         #expect(
-            !mirror.sizingPassDeferredForDrag,
-            "the deferral must be consumed even when the sync is skipped mid-apply"
+            mirror.sizingPassScheduled,
+            "drag end during a remote apply must schedule the pass held for the drag"
         )
         mirror.bonsplitController.noteDividerDragSession(false)
     }

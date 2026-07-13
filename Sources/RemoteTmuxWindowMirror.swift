@@ -136,9 +136,6 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// portal-hosted panels churn, and its superview chain is the real
     /// ancestor stack that produced the SwiftUI proposal.
     @ObservationIgnored weak var hostProbeView: NSView?
-    /// Set when a sizing pass arrived while a divider drag session was live
-    /// and was held back; the drag-end callback consumes it.
-    @ObservationIgnored var sizingPassDeferredForDrag = false
     /// Set when the divider sync sends a resize-pane between a drag session's
     /// begin and end. Bonsplit delivers the final drag geometry notification
     /// just BEFORE drag-end (the delegate contract: settled geometry is
@@ -217,6 +214,9 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// The per-pane outer sizes the last imposition granted — the plan side
     /// of the chrome-parity probe in ``handleSizingSample``.
     @ObservationIgnored var lastPlannedOuterSizes: [Int: CGSize] = [:]
+    /// One ancestor-chain dump per window: `dumpProposalAncestors` fires per
+    /// dropped container reading, and one chain names the leaking subtree.
+    @ObservationIgnored var dumpedAncestorChains = false
     #endif
 
     init(

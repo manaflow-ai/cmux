@@ -52,21 +52,21 @@ extension RemoteTmuxWindowMirror {
             // the live fuzz measured the resulting plans running ~30-40pt
             // wide at rest. Drop it and keep the last good reading; only a
             // first-ever reading clamps, so the initial claim still exists.
-            if containerSizePt != nil,
-               pointSize.width > bound.width + 0.5 || pointSize.height > bound.height + 0.5 {
+            let oversized = pointSize.width > bound.width + 0.5
+                || pointSize.height > bound.height + 0.5
+            #if DEBUG
+            if oversized {
+                dumpProposalAncestors(proposedWidth: pointSize.width, boundWidth: bound.width)
+            }
+            #endif
+            if containerSizePt != nil, oversized {
                 #if DEBUG
                 cmuxDebugLog(
                     "mirror.container.note @\(windowId) proposed=\(Int(pointSize.width))x\(Int(pointSize.height)) bound=\(Int(bound.width))x\(Int(bound.height)) -> drop"
                 )
-                dumpProposalAncestors(proposedWidth: pointSize.width, boundWidth: bound.width)
                 #endif
                 return
             }
-            #if DEBUG
-            if pointSize.width > bound.width + 0.5 {
-                dumpProposalAncestors(proposedWidth: pointSize.width, boundWidth: bound.width)
-            }
-            #endif
             pointSize.width = min(pointSize.width, bound.width)
             pointSize.height = min(pointSize.height, bound.height)
         } else if containerSizePt == nil {
@@ -202,13 +202,10 @@ extension RemoteTmuxWindowMirror {
         // would move the divider out from under the pointer and mark the
         // dragged split as imposed again, so its resize-pane at drag end
         // would be skipped (see the render-ownership section of the design
-        // doc). The drag-end delegate callback runs the held pass — and this
-        // return sits BEFORE the intent reset below, so a held recovery pass
-        // keeps its `.constraintRecovery` intent for drag end.
-        if bonsplitController.isDividerDragActive {
-            sizingPassDeferredForDrag = true
-            return
-        }
+        // doc). The drag-end delegate callback always schedules a fresh pass
+        // — and this return sits BEFORE the intent reset below, so a held
+        // recovery pass keeps its `.constraintRecovery` intent for drag end.
+        if bonsplitController.isDividerDragActive { return }
         let intent = pendingSizingPassIntent
         let hostingContext = visibleHostingContext()
         let visibleHostingBound = hostingContext?.contentSize
@@ -299,10 +296,10 @@ extension RemoteTmuxWindowMirror {
             if renderFrameSize != nil { renderFrameSize = nil }
             return
         }
-        let residual = metrics.residual(of: renderedLayout)
-        let exact = CGSize(
-            width: CGFloat(renderedLayout.width) * metrics.cellSize.width + residual.width,
-            height: CGFloat(renderedLayout.height) * metrics.cellSize.height + residual.height
+        let exact = metrics.exactFitSize(
+            columns: renderedLayout.width,
+            rows: renderedLayout.height,
+            layout: renderedLayout
         )
         let clamped = CGSize(
             width: min(exact.width, container.width),
@@ -322,32 +319,48 @@ extension RemoteTmuxWindowMirror {
     }
 
     #if DEBUG
+    /// The mirror's real ancestor chain, host probe to window, one entry per
+    /// view — the walk shared by the growth-spiral tripwire log below and
+    /// the `remote.tmux.root_frames` verb, so the two report the same chain.
+    func hostProbeAncestorChain(
+        maxDepth: Int = 16
+    ) -> [(className: String, width: CGFloat, height: CGFloat)] {
+        var chain: [(className: String, width: CGFloat, height: CGFloat)] = []
+        var current: NSView? = hostProbeView
+        while let view = current, chain.count < maxDepth {
+            chain.append((
+                className: NSStringFromClass(type(of: view)),
+                width: view.frame.width,
+                height: view.frame.height
+            ))
+            current = view.superview
+        }
+        return chain
+    }
+
     /// At container-suspect time, walk from the host probe to the window
     /// logging each ancestor's class and width, then name the inflated
     /// SUBTREE: at each ancestor wider than the bound, list its direct
     /// children — the child that carries the width at the level where the
     /// parent is still sane is the leak. Scroll documents are exempt
-    /// (clipped).
+    /// (clipped). Once per window: this fires per dropped reading, and one
+    /// chain identifies the leak — a drop storm repeating it drowns the log.
     func dumpProposalAncestors(proposedWidth: CGFloat, boundWidth: CGFloat?) {
+        guard !dumpedAncestorChains else { return }
+        dumpedAncestorChains = true
         guard let probe = hostProbeView else {
             cmuxDebugLog("mirror.container.ancestors @\(windowId) NO-PROBE proposed=\(Int(proposedWidth))")
             return
         }
-        var chain: [String] = []
-        var current: NSView? = probe
-        var depth = 0
-        while let view = current, depth < 14 {
-            let name = String(NSStringFromClass(type(of: view)).prefix(48))
-            chain.append("\(name)=\(Int(view.frame.width))")
-            current = view.superview
-            depth += 1
+        let chain = hostProbeAncestorChain(maxDepth: 14).map {
+            "\(String($0.className.prefix(48)))=\(Int($0.width))"
         }
         cmuxDebugLog(
             "mirror.container.ancestors @\(windowId) proposed=\(Int(proposedWidth)) bound=\(boundWidth.map { String(Int($0)) } ?? "nil") \(chain.joined(separator: " < "))"
         )
         guard let bound = boundWidth else { return }
-        current = probe.superview
-        depth = 0
+        var current: NSView? = probe.superview
+        var depth = 0
         while let view = current, depth < 14 {
             if view.frame.width > bound + 0.5, !(view.superview is NSClipView) {
                 let kids = view.subviews.prefix(8).map {
@@ -393,7 +406,6 @@ extension RemoteTmuxWindowMirror {
                 let expected = RemoteTmuxNativeLayoutMetrics.renderedCells(
                     outer: planned,
                     tabBarHeight: metrics.tabBarHeight,
-                    paneTitleRowHeight: 0,
                     scale: geometry.scale,
                     surfacePadPx: (width: geometry.surfacePadWidthPx, height: geometry.surfacePadHeightPx),
                     cellPx: (width: geometry.cellWidthPx, height: geometry.cellHeightPx)

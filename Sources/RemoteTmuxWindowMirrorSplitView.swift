@@ -121,6 +121,11 @@ struct RemoteTmuxWindowMirrorSplitView: View {
 /// geometry diagnostics.
 final class MirrorHostProbeView: NSView {
     weak var mirror: RemoteTmuxWindowMirror?
+
+    /// The probe backs the whole mirror region, including the sub-cell
+    /// margin outside the split tree; it must never swallow a click there.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard window != nil else {

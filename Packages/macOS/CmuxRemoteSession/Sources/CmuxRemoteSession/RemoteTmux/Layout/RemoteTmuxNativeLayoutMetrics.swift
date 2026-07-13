@@ -36,14 +36,13 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     public static func renderedCells(
         outer: CGSize,
         tabBarHeight: CGFloat,
-        paneTitleRowHeight: CGFloat,
         scale: CGFloat,
         surfacePadPx: (width: Int, height: Int),
         cellPx: (width: Int, height: Int)
     ) -> (columns: Int, rows: Int) {
         let widthPx = Int((outer.width * scale).rounded(.down))
         let surfaceHeightPx = Int(
-            ((outer.height - tabBarHeight - paneTitleRowHeight) * scale).rounded(.down)
+            ((outer.height - tabBarHeight) * scale).rounded(.down)
         )
         return (
             columns: (widthPx - surfacePadPx.width) / cellPx.width,
@@ -75,6 +74,22 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         self.dividerThickness = dividerThickness
         self.paneTitleRowHeight = paneTitleRowHeight
         self.paneTitleRowPaneIDs = paneTitleRowPaneIDs
+    }
+
+    /// The point size at which a tree renders a `columns`×`rows` grid with
+    /// zero leftover: the grid at this cell size plus `layout`'s residual
+    /// chrome. The render frame and the exact-fit tests both size regions
+    /// with this, so neither can drift from ``residual(of:)``.
+    public func exactFitSize(
+        columns: Int,
+        rows: Int,
+        layout: RemoteTmuxLayoutNode
+    ) -> CGSize {
+        let residual = residual(of: layout)
+        return CGSize(
+            width: CGFloat(columns) * cellSize.width + residual.width,
+            height: CGFloat(rows) * cellSize.height + residual.height
+        )
     }
 
     public func clientGrid(
@@ -491,14 +506,34 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         axis: RemoteTmuxSplitOrientation
     ) -> CGFloat {
         let boundaries = max(0, children.count - 1)
-        let parentSpan = axis == .horizontal ? parent.width : parent.height
-        let childSpanSum = children.reduce(0) {
-            $0 + (axis == .horizontal ? $1.width : $1.height)
-        }
-        let spansUsable = parentSpan > 0 && childSpanSum > 0 && parentSpan >= childSpanSum
-            && children.allSatisfy { (axis == .horizontal ? $0.width : $0.height) > 0 }
-        let gapCells = spansUsable ? parentSpan - childSpanSum : boundaries
+        let gapCells = Self.assignedGapCells(
+            parentSpan: axis == .horizontal ? parent.width : parent.height,
+            childSpans: children.map { axis == .horizontal ? $0.width : $0.height },
+            fallback: boundaries
+        )
         let cell = axis == .horizontal ? cellSize.width : cellSize.height
         return CGFloat(boundaries) * dividerThickness - CGFloat(gapCells) * cell
+    }
+
+    /// The coordinate cells a split's assignment holds OUTSIDE its children
+    /// along the split axis — parent span minus child spans: separator
+    /// columns/rows, or the title rows that replace them, plus a window-edge
+    /// title row inside the parent's span. Degenerate spans (structure-only
+    /// placeholders, or a parent briefly narrower than its children
+    /// mid-reconcile) make the subtraction meaningless, so each call site
+    /// supplies its own fallback for that case: the n-ary residual fold reads
+    /// one cell per boundary, the binary fold reads one cell, and the
+    /// minimum-span walk keeps the clamped raw gap.
+    static func assignedGapCells(
+        parentSpan: Int,
+        childSpans: [Int],
+        fallback: @autoclosure () -> Int
+    ) -> Int {
+        let childSpanSum = childSpans.reduce(0, +)
+        let spansUsable = parentSpan > 0
+            && !childSpans.isEmpty
+            && childSpans.allSatisfy { $0 > 0 }
+            && parentSpan >= childSpanSum
+        return spansUsable ? parentSpan - childSpanSum : fallback()
     }
 }

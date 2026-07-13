@@ -109,32 +109,21 @@ extension RemoteTmuxSizingUITests {
         return false
     }
 
-    /// Mirrors the lab host in a dedicated, activated cmux window — the
-    /// `cmux ssh-tmux` entry point. Activation matters: it mounts the mirror
-    /// views, and only mounted views have geometry to feed the client-size
-    /// push (`remote.tmux.mirror` alone creates unselected workspaces whose
-    /// windows never claim a size).
-    func attachSession() {
-        let response = socketJSON(method: "remote.tmux.window", params: [
+    /// Mirrors the lab host via `remote.tmux.mirror` and records the hosting
+    /// window (for `setMirrorWindowSize`). Activation matters: it mounts the
+    /// mirror views, and only mounted views have geometry to feed the
+    /// client-size push. `activate: false` keeps the launch workspace in
+    /// front instead, so the mirror workspace mounts hidden — the birth
+    /// state where the first container reading arrives with no visible
+    /// window to vouch for it. Returns the mirror workspace's id for a
+    /// later reveal via `selectWorkspace`.
+    @discardableResult
+    func attachSession(activate: Bool = true) -> String? {
+        let response = socketJSON(method: "remote.tmux.mirror", params: [
             "host": "e2e-shim-host",
-            "activate": true,
+            "activate": activate,
         ])
-        XCTAssertEqual(response?["ok"] as? Bool, true, "remote.tmux.window failed: \(response ?? [:])")
-        XCTAssertEqual(response?["mirrored"] as? Bool, true, "host not mirrored: \(response ?? [:])")
-        mirrorWindowId = response?["window_id"] as? String
-    }
-
-    /// Mirrors the lab host WITHOUT activating: the launch workspace keeps
-    /// the front, so the mirror workspace mounts hidden — the birth state
-    /// where the first container reading arrives with no visible window to
-    /// vouch for it. Records the hosting window (for `setMirrorWindowSize`)
-    /// and returns the mirror workspace's id for the later reveal.
-    func attachSessionHidden() -> String? {
-        let response = socketJSON(method: "remote.tmux.window", params: [
-            "host": "e2e-shim-host",
-            "activate": false,
-        ])
-        XCTAssertEqual(response?["ok"] as? Bool, true, "remote.tmux.window failed: \(response ?? [:])")
+        XCTAssertEqual(response?["ok"] as? Bool, true, "remote.tmux.mirror failed: \(response ?? [:])")
         XCTAssertEqual(response?["mirrored"] as? Bool, true, "host not mirrored: \(response ?? [:])")
         mirrorWindowId = response?["window_id"] as? String
         return (response?["workspace_ids"] as? [Any])?.compactMap { $0 as? String }.first

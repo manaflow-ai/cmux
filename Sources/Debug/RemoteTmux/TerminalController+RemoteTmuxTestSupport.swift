@@ -14,19 +14,6 @@ import Darwin
 import Foundation
 
 extension TerminalController {
-    /// `remote.tmux.window` (DEBUG only) — attach a host's tmux sessions as
-    /// mirror workspaces and report the hosting window, activating by
-    /// default. A thin alias of `remote.tmux.mirror`: the sizing UI suite
-    /// attaches its lab host through this (activation mounts the mirror
-    /// views, and only mounted views have geometry to feed the client-size
-    /// push), while the user-facing entry point is `cmux ssh-tmux` with its
-    /// foreground auth handoff — so the raw verb stays test tooling.
-    nonisolated func v2RemoteTmuxWindow(id: Any?, params: [String: Any]) -> String {
-        var forwarded = params
-        if forwarded["activate"] == nil { forwarded["activate"] = true }
-        return v2RemoteTmuxMirror(id: id, params: forwarded)
-    }
-
     /// `remote.tmux.test_exec` (DEBUG only) — runs a tmux argv with a given
     /// `TMUX_TMPDIR` inside the APP process and returns its exit/stdout/stderr.
     ///
@@ -288,17 +275,12 @@ extension TerminalController {
                         guard mirror.isEffectivelyVisibleForSizing,
                               let probe = mirror.hostProbeView,
                               let window = probe.window else { continue }
-                        var chain: [[String: Any]] = []
-                        var current: NSView? = probe
-                        var depth = 0
-                        while let view = current, depth < 16 {
-                            chain.append([
-                                "class": String(NSStringFromClass(type(of: view)).suffix(40)),
-                                "width": Double(view.frame.width),
-                                "height": Double(view.frame.height),
-                            ])
-                            current = view.superview
-                            depth += 1
+                        let chain: [[String: Any]] = mirror.hostProbeAncestorChain().map {
+                            [
+                                "class": String($0.className.suffix(40)),
+                                "width": Double($0.width),
+                                "height": Double($0.height),
+                            ]
                         }
                         out.append([
                             "window": windowId,
