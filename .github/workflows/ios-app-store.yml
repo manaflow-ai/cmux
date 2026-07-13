@@ -16,8 +16,8 @@ on:
         required: false
         default: false
         type: boolean
-      replace_initial_draft:
-        description: Replace the app's sole PREPARE_FOR_SUBMISSION version when creating the configured initial version
+      retarget_initial_draft:
+        description: Change the app's sole PREPARE_FOR_SUBMISSION version to the configured initial version
         required: false
         default: false
         type: boolean
@@ -43,7 +43,7 @@ jobs:
       INPUT_BUILD_NUMBER: ${{ github.event.inputs.build_number }}
       INPUT_COPY_METADATA_FROM: ${{ github.event.inputs.copy_metadata_from }}
       INPUT_SUBMIT_FOR_REVIEW: ${{ github.event.inputs.submit_for_review }}
-      INPUT_REPLACE_INITIAL_DRAFT: ${{ github.event.inputs.replace_initial_draft }}
+      INPUT_RETARGET_INITIAL_DRAFT: ${{ github.event.inputs.retarget_initial_draft }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -161,7 +161,7 @@ jobs:
               python3 -c 'import json,sys; body=json.load(sys.stdin); data=body.get("data") if isinstance(body,dict) else body; data=data if isinstance(data,list) else ([data] if isinstance(data,dict) else []); print(data[0].get("id", "") if data else "")'
           )"
           if [ -z "$VERSION_ID" ]; then
-            if [ "${INPUT_REPLACE_INITIAL_DRAFT:-false}" = "true" ]; then
+            if [ "${INPUT_RETARGET_INITIAL_DRAFT:-false}" = "true" ]; then
               ALL_VERSIONS_JSON="$(asc versions list --app "$ASC_APP_ID" --platform IOS --paginate --output json)"
               INITIAL_DRAFT="$(ALL_VERSIONS_JSON="$ALL_VERSIONS_JSON" python3 <<'PY'
           import json
@@ -172,30 +172,35 @@ jobs:
           data = body.get("data") if isinstance(body, dict) else body
           items = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
           if len(items) != 1:
-              raise SystemExit(f"replace_initial_draft requires exactly one existing iOS version; found {len(items)}")
+              raise SystemExit(f"retarget_initial_draft requires exactly one existing iOS version; found {len(items)}")
           item = items[0]
           attrs = item.get("attributes", item)
           state = attrs.get("appStoreState") or attrs.get("state")
           version = attrs.get("versionString") or attrs.get("version") or "unknown"
           if state != "PREPARE_FOR_SUBMISSION":
-              raise SystemExit(f"refusing to replace iOS version {version} in state {state or 'unknown'}")
+              raise SystemExit(f"refusing to retarget iOS version {version} in state {state or 'unknown'}")
           print(f"{item.get('id', '')}\t{version}")
           PY
               )"
               IFS=$'\t' read -r INITIAL_DRAFT_ID INITIAL_DRAFT_VERSION <<< "$INITIAL_DRAFT"
               if [ -z "$INITIAL_DRAFT_ID" ]; then
-                echo "replace_initial_draft did not resolve a version id" >&2
+                echo "retarget_initial_draft did not resolve a version id" >&2
                 exit 1
               fi
-              echo "Replacing initial App Store draft $INITIAL_DRAFT_VERSION with $VERSION"
-              asc versions delete --version-id "$INITIAL_DRAFT_ID" --confirm
+              echo "Changing initial App Store draft $INITIAL_DRAFT_VERSION to $VERSION"
+              asc versions update \
+                --version-id "$INITIAL_DRAFT_ID" \
+                --version "$VERSION" \
+                --copyright "2026 Manaflow, Inc." \
+                --release-type MANUAL
+            else
+              asc versions create \
+                --app "$ASC_APP_ID" \
+                --version "$VERSION" \
+                --platform IOS \
+                --copyright "2026 Manaflow, Inc." \
+                --release-type MANUAL
             fi
-            asc versions create \
-              --app "$ASC_APP_ID" \
-              --version "$VERSION" \
-              --platform IOS \
-              --copyright "2026 Manaflow, Inc." \
-              --release-type MANUAL
           else
             asc versions update \
               --version-id "$VERSION_ID" \
