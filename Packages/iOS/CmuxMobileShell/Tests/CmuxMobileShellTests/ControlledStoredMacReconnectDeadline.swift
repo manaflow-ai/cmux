@@ -1,33 +1,43 @@
 import Foundation
 
 actor ControlledStoredMacReconnectDeadline {
-    private var isArmed = false
-    private var armWaiters: [CheckedContinuation<Void, Never>] = []
-    private var deadlineWaiter: CheckedContinuation<Void, Never>?
+    private var armCount = 0
+    private var armWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var deadlineWaiters: [CheckedContinuation<Void, Never>] = []
 
     func wait() async {
-        isArmed = true
-        let waiters = armWaiters
-        armWaiters.removeAll()
-        for waiter in waiters {
-            waiter.resume()
-        }
+        armCount += 1
+        resumeSatisfiedArmWaiters()
         await withCheckedContinuation { continuation in
-            deadlineWaiter = continuation
+            deadlineWaiters.append(continuation)
         }
     }
 
     func waitUntilArmed() async {
-        if isArmed { return }
+        await waitUntilArmCount(1)
+    }
+
+    func waitUntilArmCount(_ expectedCount: Int) async {
+        if armCount >= expectedCount { return }
         await withCheckedContinuation { continuation in
-            armWaiters.append(continuation)
+            armWaiters.append((expectedCount, continuation))
         }
     }
 
+    func currentArmCount() -> Int { armCount }
+
     func expire() async {
-        deadlineWaiter?.resume()
-        deadlineWaiter = nil
+        guard !deadlineWaiters.isEmpty else { return }
+        deadlineWaiters.removeFirst().resume()
         await Task.yield()
         await Task.yield()
+    }
+
+    private func resumeSatisfiedArmWaiters() {
+        let satisfied = armWaiters.filter { $0.count <= armCount }
+        armWaiters.removeAll { $0.count <= armCount }
+        for waiter in satisfied {
+            waiter.continuation.resume()
+        }
     }
 }
