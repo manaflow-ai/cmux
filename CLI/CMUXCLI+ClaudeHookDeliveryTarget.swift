@@ -90,6 +90,17 @@ extension CMUXCLI {
                 break
             }
         }
+        if !routing.allowsPidProbe, rehomeAllowed {
+            let invocationSurfaceId = nonEmptyClaudeHookIdentifier(routing.surfaceArg)
+            let recordedSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId)
+            guard let invocationSurfaceId,
+                  recordedSurfaceId == nil || recordedSurfaceId == invocationSurfaceId else { return nil }
+            return rehomedClaudeHookDeliveryTarget(
+                surfaceId: invocationSurfaceId,
+                claimedWorkspaceId: mappedSession?.workspaceId ?? routing.workspaceArg,
+                client: client
+            )
+        }
         guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
             preferred: mappedSession?.workspaceId,
             fallback: routing.workspaceArg,

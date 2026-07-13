@@ -30,13 +30,14 @@ struct AgentDeliveryTargetCandidate: Equatable {
 }
 
 /// Combines the two pid signals. The controlling-tty match is the live kernel
-/// fact and is required; inherited `CMUX_SURFACE_ID` is leakable spawn-time
-/// evidence, so it can corroborate but never veto a unique tty match.
+/// fact and is required; inherited `CMUX_SURFACE_ID` and the reported surface
+/// TTY mapping can each be stale, so disagreement fails closed.
 nonisolated func agentDeliveryTargetCombining(
     ttyTarget: AgentDeliveryTargetCandidate?,
     envTarget: AgentDeliveryTargetCandidate?
 ) -> AgentDeliveryTargetCandidate? {
     guard let ttyTarget else { return nil }
+    if let envTarget, envTarget.surfaceId != ttyTarget.surfaceId { return nil }
     return ttyTarget
 }
 
@@ -74,8 +75,8 @@ extension AppDelegate {
     /// process's controlling tty matched against every surface's pty device
     /// (unique-match only), corroborated — never replaced — by the process's
     /// own `CMUX_SURFACE_ID` environment re-homed through
-    /// `workspaceContainingPanel`. The environment can corroborate but never
-    /// veto the unique kernel tty match; an env-only answer still refuses.
+    /// `workspaceContainingPanel`. Disagreement fails closed, and an env-only
+    /// answer still refuses.
     func liveAgentDeliveryTarget(forAgentPID pid: pid_t) -> AgentDeliveryTargetCandidate? {
         guard let identity = agentLiveProcessIdentity(pid: pid) else { return nil }
 

@@ -24629,28 +24629,29 @@ struct CMUXCLI {
                     workspaceId = consumedSession.workspaceId
                     cleanupSurfaceId = consumedSession.surfaceId
                 }
-                // Clear the resume binding on the LIVE pane, and on the
-                // record's surface when it differs (misfiled binding); the
-                // checkpoint guards make the extra clear a safe no-op.
-                clearAgentSurfaceResumeBinding(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: cleanupSurfaceId,
-                    sessionId: consumedSession.sessionId
-                )
-                if cleanupSurfaceId != consumedSession.surfaceId {
+                // App-visible cleanup requires a resolved target; nil means a
+                // present live-identity resolver explicitly failed closed.
+                if liveEndTarget != nil {
                     clearAgentSurfaceResumeBinding(
                         client: client,
-                        workspaceId: consumedSession.workspaceId,
-                        surfaceId: consumedSession.surfaceId,
+                        workspaceId: workspaceId,
+                        surfaceId: cleanupSurfaceId,
                         sessionId: consumedSession.sessionId
                     )
+                    if cleanupSurfaceId != consumedSession.surfaceId {
+                        clearAgentSurfaceResumeBinding(
+                            client: client,
+                            workspaceId: consumedSession.workspaceId,
+                            surfaceId: consumedSession.surfaceId,
+                            sessionId: consumedSession.sessionId
+                        )
+                    }
+                    sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: cleanupSurfaceId)
                 }
-                sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: cleanupSurfaceId)
                 // Staleness is judged on the pane being CLEANED: gating on a
                 // polluted record surface (#7391) could false-skip cleanup of
                 // the real pane, stranding its ring/status after exit.
-                let shouldClearVisibleState = shouldApplyClaudeHookVisibleMutation(
+                let shouldClearVisibleState = liveEndTarget != nil && shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
                     sessionId: consumedSession.sessionId,
                     turnId: parsedInput.turnId,
