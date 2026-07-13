@@ -56,9 +56,30 @@ try {
     lock_timeout: 5_000,
     statement_timeout: 300_000,
     query_timeout: 310_000,
+    application_name: "cmux-cloud-vm-migration-diagnostic",
   });
 
   try {
+    const activity = await pool.query(`
+      select
+        pid,
+        application_name,
+        state,
+        wait_event_type,
+        wait_event,
+        floor(extract(epoch from now() - coalesce(xact_start, query_start)))::integer as age_seconds,
+        pg_blocking_pids(pid) as blocking_pids,
+        query like 'CREATE SCHEMA IF NOT EXISTS "drizzle"%' as is_drizzle_schema
+      from pg_stat_activity
+      where datname = current_database()
+        and pid <> pg_backend_pid()
+        and (
+          cardinality(pg_blocking_pids(pid)) > 0
+          or query like 'CREATE SCHEMA IF NOT EXISTS "drizzle"%'
+        )
+      order by pid
+    `);
+    console.log(`migration lock diagnostic: ${JSON.stringify(activity.rows)}`);
     const db = drizzle({ client: pool });
     await migrate(db, { migrationsFolder });
   } finally {
