@@ -417,7 +417,7 @@ extension MobileShellComposite {
             return .requestTimedOut(hostDisplayName: hostDisplayName)
         case .attachTicketExpired, .authorizationFailed, .accountMismatch, .insecureManualRoute:
             return .authorizationFailed(hostDisplayName: hostDisplayName)
-        case let .rpcError(code, message):
+        case let .rpcError(code, _):
             let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             if let normalizedCode,
                ["unauthorized", "forbidden", "invalid_token", "token_expired", "expired_token", "auth_required", "account_mismatch"].contains(normalizedCode) {
@@ -429,8 +429,7 @@ extension MobileShellComposite {
             if normalizedCode == "request_timeout" {
                 return .requestTimedOut(hostDisplayName: hostDisplayName)
             }
-            if normalizedCode == "invalid_params",
-               message == "working_directory must be an absolute existing directory" {
+            if normalizedCode == "invalid_working_directory" {
                 return .invalidWorkingDirectory(hostDisplayName: hostDisplayName)
             }
             return .rejected(hostDisplayName: hostDisplayName)

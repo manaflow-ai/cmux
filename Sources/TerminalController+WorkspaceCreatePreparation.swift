@@ -91,7 +91,9 @@ extension TerminalController {
             )
             return .live(resolution)
         }
-        return idempotencyCache.containsCompletedOperation(operationID) ? .completed : nil
+        return idempotencyCache.completionProvenance(for: operationID) == .currentProcess
+            ? .completed
+            : nil
     }
 
     static func resolveTaskCreateWorkspace(

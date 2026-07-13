@@ -17,20 +17,20 @@ struct TaskComposerSheet: View {
     @Bindable var store: CMUXMobileShellStore
     @FocusState private var focusedField: Field?
 
-    @State private var prompt = ""
+    @State var prompt = ""
     @State private var templates: [MobileTaskTemplate]
-    @State private var selectedTemplateID: MobileTaskTemplate.ID?
-    @State private var selectedMacDeviceID: String
-    @State private var directory: String
-    @State private var didEditDirectory = false
+    @State var selectedTemplateID: MobileTaskTemplate.ID?
+    @State var selectedMacDeviceID: String
+    @State var directory: String
+    @State var didEditDirectory = false
     @State private var isSubmitting = false
     @State private var submitTask: Task<Void, Never>?
     @State private var failureText: String?
     @State private var isEditorPresented = false
     @State private var shouldPersistDraftOnDisappear = true
-    @State private var submissionIdentity: MobileTaskSubmissionIdentity
+    @State var submissionIdentity: MobileTaskSubmissionIdentity
+    @State private var activeSubmissionSnapshot: MobileTaskSubmissionSnapshot?
 
-    private let composer = MobileTaskCommandComposer()
     private let sessionGeneration: Int
     private let submitTaskComposer: @MainActor (
         _ macDeviceID: String,
@@ -108,6 +108,7 @@ struct TaskComposerSheet: View {
                     )
                     .lineLimit(3...8)
                     .focused($focusedField, equals: .prompt)
+                    .disabled(isSubmitting)
                     .accessibilityIdentifier("MobileTaskComposerPrompt")
                 }
 
@@ -122,6 +123,7 @@ struct TaskComposerSheet: View {
                         )
                     }
                 }
+                .disabled(isSubmitting)
 
                 Section(L10n.string("mobile.taskComposer.machine", defaultValue: "Machine")) {
                     machineMenu
@@ -134,6 +136,7 @@ struct TaskComposerSheet: View {
                         )
                     }
                 }
+                .disabled(isSubmitting)
 
                 Section(L10n.string("mobile.taskComposer.directory", defaultValue: "Directory")) {
                     TextField("~", text: directoryBinding)
@@ -143,6 +146,7 @@ struct TaskComposerSheet: View {
                         .submitLabel(.done)
                         .onSubmit { focusedField = nil }
                         .focused($focusedField, equals: .directory)
+                        .disabled(isSubmitting)
                         .accessibilityLabel(L10n.string("mobile.taskComposer.directory", defaultValue: "Directory"))
                         .accessibilityIdentifier("MobileTaskComposerDirectory")
                 }
@@ -235,7 +239,7 @@ struct TaskComposerSheet: View {
         .interactiveDismissDisabled(isSubmitting)
     }
 
-    private var selectedTemplate: MobileTaskTemplate? {
+    var selectedTemplate: MobileTaskTemplate? {
         selectedTemplateID.flatMap { id in templates.first { $0.id == id } }
     }
 
@@ -256,6 +260,7 @@ struct TaskComposerSheet: View {
         Binding(
             get: { directory },
             set: { newValue in
+                guard !isSubmitting else { return }
                 directory = newValue
                 submissionIdentity.rotate()
                 didEditDirectory = true
@@ -268,6 +273,7 @@ struct TaskComposerSheet: View {
         Binding(
             get: { prompt },
             set: { newValue in
+                guard !isSubmitting else { return }
                 prompt = newValue
                 submissionIdentity.rotate()
                 failureText = nil
@@ -304,6 +310,7 @@ struct TaskComposerSheet: View {
             Menu {
                 ForEach(machines) { mac in
                     Button {
+                        guard !isSubmitting else { return }
                         selectedMacDeviceID = mac.macDeviceID
                         submissionIdentity.rotate()
                         failureText = nil
@@ -336,6 +343,7 @@ struct TaskComposerSheet: View {
     private func templateChip(_ template: MobileTaskTemplate) -> some View {
         let isSelected = template.id == selectedTemplateID
         return Button {
+            guard !isSubmitting else { return }
             selectedTemplateID = template.id
             submissionIdentity.rotate()
             failureText = nil
@@ -354,45 +362,46 @@ struct TaskComposerSheet: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    @ViewBuilder
-    private func machineIcon(_ mac: MobilePairedMac) -> some View {
-        switch MacAvatarIcon.resolve(custom: mac.customIcon, defaultSymbol: "desktopcomputer") {
-        case .symbol(let name):
-            Image(systemName: name)
-                .accessibilityHidden(true)
-        case .emoji(let emoji):
-            Text(emoji)
-                .accessibilityHidden(true)
-        }
-    }
-
     private func submit() async {
         guard !isSubmitting, let selectedTemplate else { return }
-        isSubmitting = true
-        failureText = nil
-        let composition = composer.compose(template: selectedTemplate, prompt: prompt)
-        let trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        let spec = MobileWorkspaceCreateSpec(
-            title: composition.title,
-            workingDirectory: trimmedDirectory.isEmpty ? nil : trimmedDirectory,
-            initialCommand: composition.initialCommand,
-            initialEnv: composition.initialEnv.isEmpty ? nil : composition.initialEnv,
+        let snapshot = MobileTaskSubmissionSnapshot(
+            template: selectedTemplate,
+            prompt: prompt,
+            macDeviceID: selectedMacDeviceID,
+            directory: directory,
+            didEditDirectory: didEditDirectory,
             operationID: submissionIdentity.id
         )
-        let result = await submitTaskComposer(selectedMacDeviceID, spec)
+        isSubmitting = true
+        activeSubmissionSnapshot = snapshot
+        failureText = nil
+        let spec = MobileWorkspaceCreateSpec(
+            title: snapshot.composition.title,
+            workingDirectory: snapshot.trimmedDirectory.isEmpty ? nil : snapshot.trimmedDirectory,
+            initialCommand: snapshot.composition.initialCommand,
+            initialEnv: snapshot.composition.initialEnv.isEmpty ? nil : snapshot.composition.initialEnv,
+            operationID: snapshot.operationID
+        )
+        let result = await submitTaskComposer(snapshot.macDeviceID, spec)
         isSubmitting = false
+        activeSubmissionSnapshot = nil
         // The user dismissed the sheet mid-flight: drop the result instead of
         // persisting last-used defaults or re-dismissing a gone sheet.
         guard !Task.isCancelled else { return }
         switch result {
         case .success:
-            store.taskTemplateStore?.setLastTemplateID(selectedTemplate.id)
-            store.taskTemplateStore?.setLastMacDeviceID(selectedMacDeviceID)
-            store.taskTemplateStore?.setLastDirectory(trimmedDirectory.isEmpty ? nil : trimmedDirectory, macDeviceID: selectedMacDeviceID)
+            store.taskTemplateStore?.setLastTemplateID(snapshot.templateID)
+            store.taskTemplateStore?.setLastMacDeviceID(snapshot.macDeviceID)
+            store.taskTemplateStore?.setLastDirectory(
+                snapshot.trimmedDirectory.isEmpty ? nil : snapshot.trimmedDirectory,
+                macDeviceID: snapshot.macDeviceID
+            )
             shouldPersistDraftOnDisappear = false
             store.taskTemplateStore?.setComposerDraft(nil)
             dismiss()
         case .failure(let failure):
+            restoreSubmittedDraft(snapshot)
+            _ = store.persistTaskComposerDraft(snapshot.draft, ifSessionGeneration: sessionGeneration)
             let message = Self.failureMessage(failure)
             failureText = message
             announceFailure(message)
@@ -400,22 +409,26 @@ struct TaskComposerSheet: View {
     }
 
     private func addTemplate(_ template: MobileTaskTemplate) {
+        guard !isSubmitting else { return }
         store.taskTemplateStore?.addTemplate(template)
         selectedTemplateID = template.id
         syncSuggestedDirectory()
     }
 
     private func updateTemplate(_ template: MobileTaskTemplate) {
+        guard !isSubmitting else { return }
         store.taskTemplateStore?.updateTemplate(template)
     }
 
     private func deleteTemplates(_ offsets: IndexSet) {
+        guard !isSubmitting else { return }
         for index in offsets {
             store.taskTemplateStore?.deleteTemplate(id: templates[index].id)
         }
     }
 
     private func refreshTemplates() {
+        guard !isSubmitting else { return }
         submissionIdentity.rotate()
         templates = store.taskTemplateStore?.listTemplates() ?? []
         failureText = nil
@@ -427,6 +440,7 @@ struct TaskComposerSheet: View {
     }
 
     private func validateMacSelection() {
+        guard !isSubmitting else { return }
         guard selectedMachine == nil else { return }
         selectedMacDeviceID = machines.first?.macDeviceID ?? ""
         submissionIdentity.rotate()
@@ -436,6 +450,13 @@ struct TaskComposerSheet: View {
 
     private func persistDraft() {
         guard shouldPersistDraftOnDisappear else { return }
+        if let activeSubmissionSnapshot {
+            store.persistTaskComposerDraft(
+                activeSubmissionSnapshot.draft,
+                ifSessionGeneration: sessionGeneration
+            )
+            return
+        }
         store.persistTaskComposerDraft(
             MobileTaskComposerDraft(
                 prompt: prompt,
@@ -454,59 +475,5 @@ struct TaskComposerSheet: View {
         AccessibilityNotification.Announcement(message).post()
     }
 
-    private func validationText(_ text: String) -> some View {
-        Text(text)
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-    }
-
-    /// Recompute the suggested directory unless the user hand-edited it.
-    private func syncSuggestedDirectory() {
-        guard !didEditDirectory else { return }
-        directory = Self.suggestedDirectory(
-            template: selectedTemplate,
-            macDeviceID: selectedMacDeviceID,
-            templateStore: store.taskTemplateStore
-        )
-    }
-
-    static func failureMessage(_ failure: MobileWorkspaceMutationFailure) -> String {
-        switch failure {
-        case .notConnected:
-            return L10n.string("mobile.taskComposer.failure.notConnected", defaultValue: "That Mac is not connected.")
-        case .requestTimedOut:
-            return L10n.string("mobile.taskComposer.failure.timedOut", defaultValue: "The Mac did not respond in time.")
-        case .authorizationFailed:
-            return L10n.string("mobile.taskComposer.failure.authorization", defaultValue: "That Mac did not authorize the request.")
-        case .busy:
-            return L10n.string("mobile.taskComposer.failure.busy", defaultValue: "Another workspace action is still finishing.")
-        case .rejected:
-            return L10n.string("mobile.taskComposer.failure.rejected", defaultValue: "The Mac rejected the task.")
-        case .invalidWorkingDirectory:
-            return L10n.string("mobile.taskComposer.failure.invalidWorkingDirectory", defaultValue: "Choose an existing folder on that Mac.")
-        case .unsupported:
-            return L10n.string("mobile.taskComposer.failure.unsupported", defaultValue: "That Mac does not support this action.")
-        }
-    }
-
-    /// The directory the composer pre-fills: the template default, then the
-    /// last successful directory for the selected Mac, then home. Static: it
-    /// runs in `init` before `self` exists, and the package conventions lint
-    /// forbids free functions in iOS package sources.
-    private static func suggestedDirectory(
-        template: MobileTaskTemplate?,
-        macDeviceID: String,
-        templateStore: (any MobileTaskTemplateStoring)?
-    ) -> String {
-        if let defaultDirectory = template?.defaultDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !defaultDirectory.isEmpty {
-            return defaultDirectory
-        }
-        if let lastDirectory = templateStore?.lastDirectory(macDeviceID: macDeviceID)?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !lastDirectory.isEmpty {
-            return lastDirectory
-        }
-        return "~"
-    }
 }
 #endif

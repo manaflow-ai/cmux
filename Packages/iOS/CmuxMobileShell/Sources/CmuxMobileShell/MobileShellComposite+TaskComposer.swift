@@ -53,8 +53,7 @@ extension MobileShellComposite {
         }
         return await createWorkspaceRequest(
             spec: spec,
-            pinnedContext: pinnedContext,
-            runsTaskComposerPreDispatchHook: true
+            pinnedContext: pinnedContext
         )
     }
 

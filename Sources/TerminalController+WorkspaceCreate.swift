@@ -12,50 +12,6 @@ extension TerminalController {
         let candidate: TaskCreateWorkspaceCandidate
     }
 
-    final class WorkspaceCreateIdempotencyCache {
-        private let capacity: Int
-        private let defaults: UserDefaults
-        private let persistenceKey: String
-        private var workspaceIDs: [UUID: UUID] = [:]
-        private var completedOperationIDs: Set<UUID> = []
-        private var insertionOrder: [UUID] = []
-
-        init(
-            capacity: Int,
-            defaults: UserDefaults = .standard,
-            persistenceKey: String = "cmux.workspaceCreate.completedOperationIDs.v1"
-        ) {
-            precondition(capacity > 0)
-            self.capacity = capacity
-            self.defaults = defaults
-            self.persistenceKey = persistenceKey
-            let persisted = defaults.stringArray(forKey: persistenceKey) ?? []
-            let retained = persisted.compactMap(UUID.init(uuidString:)).suffix(capacity)
-            insertionOrder = Array(retained)
-            completedOperationIDs = Set(retained)
-        }
-
-        func workspaceID(for operationID: UUID) -> UUID? {
-            workspaceIDs[operationID]
-        }
-
-        func containsCompletedOperation(_ operationID: UUID) -> Bool {
-            completedOperationIDs.contains(operationID)
-        }
-
-        func record(operationID: UUID, workspaceID: UUID) {
-            workspaceIDs[operationID] = workspaceID
-            guard completedOperationIDs.insert(operationID).inserted else { return }
-            if insertionOrder.count == capacity {
-                let evictedID = insertionOrder.removeFirst()
-                workspaceIDs.removeValue(forKey: evictedID)
-                completedOperationIDs.remove(evictedID)
-            }
-            insertionOrder.append(operationID)
-            defaults.set(insertionOrder.map(\.uuidString), forKey: persistenceKey)
-        }
-    }
-
     nonisolated static func v2ExpandedWorkingDirectory(_ raw: String?) -> String? {
         guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
@@ -98,45 +54,23 @@ extension TerminalController {
         case let .ready(ready):
             preparation = ready
         }
-        guard !v2HasNonNullParam(params, "working_directory") else {
-            return .err(
-                code: "invalid_params",
-                message: "working_directory is only supported by mobile workspace.create",
-                data: ["field": "working_directory"]
-            )
-        }
+        let workingDirectory = Self.v2ExpandedWorkingDirectory(
+            v2RawString(params, "working_directory")
+        )
         return v2PerformWorkspaceCreate(
             params: params,
             preparation: preparation,
-            workingDirectoryValidation: .notProvided
+            workingDirectory: workingDirectory
         )
     }
 
     private func v2PerformWorkspaceCreate(
         params: [String: Any],
         preparation: WorkspaceCreatePreparation,
-        workingDirectoryValidation: WorkspaceCreateWorkingDirectoryValidation
+        workingDirectory: String?
     ) -> V2CallResult {
         let tabManager = preparation.tabManager
         let operationID = preparation.operationID
-
-        let workingDirectory: String?
-        switch workingDirectoryValidation {
-        case .notProvided:
-            workingDirectory = nil
-        case let .valid(path):
-            workingDirectory = path
-        case .invalid:
-            return Self.v2InvalidWorkingDirectoryResult
-        case .timedOut:
-            return .err(
-                code: "request_timeout",
-                message: "working_directory validation timed out",
-                data: ["field": "working_directory"]
-            )
-        case .cancelled:
-            return .err(code: "cancelled", message: "Workspace creation was cancelled", data: nil)
-        }
 
         let requestedInitialCommand = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let initialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
@@ -425,6 +359,23 @@ extension TerminalController {
         guard !Task.isCancelled, validation != .cancelled else {
             return .err(code: "cancelled", message: "Workspace creation was cancelled", data: nil)
         }
+        let workingDirectory: String?
+        switch validation {
+        case .notProvided:
+            workingDirectory = nil
+        case let .valid(path):
+            workingDirectory = path
+        case .invalid:
+            return Self.v2InvalidWorkingDirectoryResult
+        case .timedOut:
+            return .err(
+                code: "request_timeout",
+                message: "working_directory validation timed out",
+                data: ["field": "working_directory"]
+            )
+        case .cancelled:
+            return .err(code: "cancelled", message: "Workspace creation was cancelled", data: nil)
+        }
         if let operationID = preparation.operationID {
             switch taskCreateOperationResolution(
                 operationID: operationID,
@@ -446,7 +397,7 @@ extension TerminalController {
         let createResult = v2PerformWorkspaceCreate(
             params: createParams,
             preparation: preparation,
-            workingDirectoryValidation: validation
+            workingDirectory: workingDirectory
         )
         switch createResult {
         case let .ok(payload):
