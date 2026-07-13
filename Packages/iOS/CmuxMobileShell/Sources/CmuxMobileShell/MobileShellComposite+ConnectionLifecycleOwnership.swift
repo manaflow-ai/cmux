@@ -147,7 +147,10 @@ extension MobileShellComposite {
                     restartEventStream: true
                 )
                 self.connectionLifecycleStreamRepairListenerID = self.terminalEventListenerID
-                if self.multiMacAggregationEnabled {
+                let refreshesSecondaries = episode.triggers.contains(.networkPathChanged)
+                    || episode.triggers.contains(.presenceRoutesChanged)
+                    || episode.triggers.contains(.manualRetry)
+                if self.multiMacAggregationEnabled, refreshesSecondaries {
                     self.scheduleSecondaryAggregation()
                 }
                 if self.terminalEventListenerTask == nil {
@@ -166,10 +169,17 @@ extension MobileShellComposite {
                     )
                 guard !Task.isCancelled,
                       self.connectionLifecycle.ownsEpisode(episode.id) else { return }
+                let cachedSnapshotWasUnavailable = usesCachedReconnect && outcome == .unavailable
+                if cachedSnapshotWasUnavailable {
+                    self.connectionLifecycleReconnectPendingAfterRetirement = true
+                }
                 self.finishConnectionLifecycleEpisode(
                     id: episode.id,
-                    succeeded: outcome != .failed
+                    succeeded: outcome != .failed && !cachedSnapshotWasUnavailable
                 )
+                if cachedSnapshotWasUnavailable {
+                    self.replayReconnectPendingAfterRetirementIfPossible()
+                }
             }
             if self.connectionLifecycle.ownsEpisode(episode.id), episode.kind == .streamRepair {
                 self.connectionLifecycleTask = nil

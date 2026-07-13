@@ -93,9 +93,14 @@ import Testing
         await pairedMacStore.release(teamID: nil)
         _ = await reconnect.value
         let replayedStoreRead = try await pollUntil(attempts: 50) {
-            await pairedMacStore.currentLoadStartCount(teamID: nil) > 1
+            await pairedMacStore.currentLoadStartCount(teamID: nil) == 2
         }
-        #expect(!replayedStoreRead)
+        #expect(replayedStoreRead)
+        await pairedMacStore.release(teamID: nil)
+        let startedDuplicateReplay = try await pollUntil(attempts: 50) {
+            await pairedMacStore.currentLoadStartCount(teamID: nil) > 2
+        }
+        #expect(!startedDuplicateReplay)
         #expect(try await pollUntil {
             store.connectionResourceSnapshotForTesting().retiredLifecycleTaskCount == 0
                 && store.connectionLifecycle.activeEpisode == nil

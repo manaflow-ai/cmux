@@ -164,13 +164,18 @@ import Testing
     @Test func eventStreamLossDoesNotRefreshStoredSecondaryMacs() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
-        let route = try loopbackRoute(id: "foreground", port: 51_002)
+        let secondaryRoute = try loopbackRoute(id: "secondary", port: 51_003)
+        let factory = RouteRecordingTransportFactory(
+            router: router,
+            box: TransportBox(),
+            failingPorts: [51_003]
+        )
         let runtime = LivenessTestRuntime(
-            transportFactory: LivenessTransportFactory(router: router, box: TransportBox()),
+            transportFactory: factory,
             now: { clock.now }
         )
         let pairedMacStore = DelayedTeamPairedMacStore(
-            recordsByTeam: ["": [storedMac(id: "mac-b", route: route)]],
+            recordsByTeam: ["": [storedMac(id: "mac-b", route: secondaryRoute)]],
             blockedTeams: []
         )
         let defaults = UserDefaults(suiteName: "stream-repair-scope-\(UUID().uuidString)")!
@@ -196,11 +201,12 @@ import Testing
         )
 
         store.requestConnectionLifecycleRecovery(.eventStreamLost)
+        #expect(store.connectionLifecycle.activeEpisode?.triggers == [.eventStreamLost])
 
-        let refreshedSecondaries = try await pollUntil(attempts: 50) {
-            await pairedMacStore.currentLoadAllCount() > 0
+        let dialedSecondary = try await pollUntil(attempts: 50) {
+            factory.attemptedPorts().contains(51_003)
         }
-        #expect(!refreshedSecondaries)
+        #expect(!dialedSecondary)
         store.signOut()
     }
 
