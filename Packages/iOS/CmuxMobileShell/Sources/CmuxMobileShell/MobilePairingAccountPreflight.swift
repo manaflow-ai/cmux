@@ -5,7 +5,7 @@ import Foundation
 ///
 /// Decides, before any route is dialed, whether the ticket's owner identity can
 /// belong to the signed-in user. The value stores the live phone-side identity
-/// and the scanned URL's declared scheme; tests can construct it directly
+/// and the scanned URL's declared scheme so tests can construct it directly
 /// without standing up the full ``MobileShellComposite`` store.
 struct MobilePairingAccountPreflight: Sendable {
     /// The scanned/pasted URL scheme, which declares the Mac's channel.
@@ -29,12 +29,8 @@ struct MobilePairingAccountPreflight: Sendable {
     ///
     /// A user-id mismatch is explained as
     /// ``MobilePairingFailureCategory/authEnvironmentMismatch(macChannelIsRelease:)``
-    /// only when the two auth channels are declared to differ. The emitting Mac
-    /// stamps its channel into the pairing URL's scheme (release Macs emit
-    /// ``CmxPairingURLScheme/release``, dev Macs
-    /// ``CmxPairingURLScheme/development``; #6038), so `scannedScheme` is an
-    /// explicit Mac-side signal. Same-channel and unknown-scheme mismatches
-    /// keep ``MobilePairingFailureCategory/authFailed``.
+    /// only when the two auth channels are declared to differ. Matching ids
+    /// always proceed, regardless of URL scheme.
     func failure(for ticket: CmxAttachTicket) -> MobilePairingFailureCategory? {
         if let expectedUserID = normalizedNonEmpty(ticket.macUserID) {
             guard let actualUserID = normalizedNonEmpty(actualUserID) else {

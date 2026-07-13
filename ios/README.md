@@ -27,18 +27,16 @@ swift test --package-path ios/cmuxPackage
 
 ## Pairing a sideloaded dev build with a real (beta/stable) Mac
 
-A plain dev (DEBUG) build signs in to cmux's development Stack project. Stack
-user ids are per-project, so a dev build's user id can never match the
-production account binding (`ub`) a release Mac stamps into its pairing QR —
-pairing fails instantly, even with the same email on the same tailnet
-(https://github.com/manaflow-ai/cmux/issues/7145). To dogfood a device build
-against your real Mac, build with production auth:
+Dev reloads now bake production auth by default so a sideloaded build can sign
+in with the same account as a beta/stable/nightly Mac and scan its QR from the
+in-app scanner. Stack user ids are per-project, so a build using development
+auth is still for the local tagged-Mac dogfood flow only.
 
 ```bash
-ios/scripts/reload.sh --tag my-tag --device-only --prod-auth
+ios/scripts/reload.sh --tag my-tag --device-only
 ```
 
-What `--prod-auth` does:
+What the default production-auth reload does:
 
 - Bakes `CMUXAuthEnvironment=production` into the app's Info.plist (via the
   `CMUX_IOS_AUTH_ENV` build setting), so the build signs in against the
@@ -62,10 +60,16 @@ routes release QR links (`cmux-ios://…`) to the beta/App Store app because
 pairing URL schemes are channel-specific; the in-app scanner accepts both
 schemes.
 
-Without the flag, the same override is available by bundling a
-`LocalConfig.plist` with an `AuthEnvironment` string of `production` (see
-`MobileAuthComposition`); a `LocalConfig.plist` entry wins over the baked
-Info.plist value.
+For the local auto-sign-in/auto-pair dogfood flow against a tagged Mac dev app,
+use `scripts/dev-setup.sh`, which builds the iOS app with `--dev-auth`. The same
+development override is available directly:
+
+```bash
+ios/scripts/reload.sh --tag my-tag --device-only --dev-auth
+```
+
+A `LocalConfig.plist` with an `AuthEnvironment` string still wins over the baked
+Info.plist value (see `MobileAuthComposition`) for unusual local setups.
 
 ## TestFlight beta (cloud lane)
 

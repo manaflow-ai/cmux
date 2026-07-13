@@ -14,15 +14,12 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
     func pathChanges() -> AsyncStream<Void> { AsyncStream { $0.finish() } }
 }
 
-/// Regression coverage for https://github.com/manaflow-ai/cmux/issues/7145:
-/// a sideloaded DEBUG (dev-channel) build signs in to the development Stack
-/// project, so its user id can never match the production account binding
-/// (`ub`) a release Mac stamps into its pairing QR — every prod QR fails the
-/// preflight before any route is dialed, even for the same email. The
-/// supported fix is running a dev build against production auth through the
-/// `AuthEnvironment` override (a `LocalConfig.plist` entry, or the Info.plist
-/// value `ios/scripts/reload.sh --prod-auth` bakes). These tests pin that
-/// override to the resolved auth configuration.
+/// Regression coverage for iOS auth-channel selection: a build that needs to
+/// pair with beta/stable/nightly Macs must sign in to the production Stack
+/// project, while the local tagged-Mac dogfood flow can still opt into the
+/// development Stack project. The `AuthEnvironment` override (a
+/// `LocalConfig.plist` entry, or the Info.plist value `ios/scripts/reload.sh`
+/// bakes) pins that behavior to the resolved auth configuration.
 @MainActor
 @Suite struct MobileAuthEnvironmentOverrideTests {
     /// The production Stack project id (`CmuxAuthRuntime.AuthConfig`).
@@ -60,9 +57,9 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         let bundle = try fixtureBundle(localConfig: ["AuthEnvironment": "production"])
         let composition = try makeComposition(bundle: bundle)
 
-        // A dev build overridden to production auth must resolve the
-        // production Stack project and the production web API/callback, or its
-        // signed-in user id can never match a release Mac's QR account binding.
+        // A dev build overridden to production auth must resolve the production
+        // Stack project and production web API/callback so the Mac host can
+        // verify its bearer token against the same project.
         #expect(composition.config.stack.projectId == Self.productionProjectID)
         #expect(composition.config.apiBaseURL == "https://cmux.com")
         #expect(composition.config.magicLinkCallbackURL == "https://cmux.com/auth/callback")
@@ -80,9 +77,8 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
     }
 
     @Test func productionOverrideExposesProductionAuthEnvironment() throws {
-        // The identity provider labels its user ids with this channel; a
-        // --prod-auth build must report production so a pairing user-id
-        // mismatch is NOT explained away as a dev-channel artifact.
+        // A production-auth dev build must report production so presence,
+        // backup, and sign-in policy follow the same channel as real Macs.
         let bundle = try fixtureBundle(localConfig: ["AuthEnvironment": "production"])
         let composition = try makeComposition(bundle: bundle)
 
@@ -133,7 +129,7 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
     // MARK: - Override sourcing (LocalConfig.plist vs the Info.plist bake)
 
     @Test func bakedInfoPlistValueFillsInWhenLocalConfigHasNoEntry() {
-        // The reload.sh --prod-auth path: no LocalConfig.plist, the channel
+        // The reload.sh production-auth path: no LocalConfig.plist, the channel
         // rides in the Info.plist CMUXAuthEnvironment value.
         let overrides = MobileAuthComposition.authOverrides(
             localConfig: [:],
@@ -154,7 +150,7 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
     }
 
     @Test func blankBakedValueContributesNothing() {
-        // A normal (non --prod-auth) build expands $(CMUX_IOS_AUTH_ENV) to ""
+        // A build with no scripted auth override expands $(CMUX_IOS_AUTH_ENV) to ""
         // in Info.plist; that empty string must not shadow the build default.
         let overrides = MobileAuthComposition.authOverrides(
             localConfig: [:],
@@ -167,7 +163,7 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
 
     @Test func productionAuthDisablesTheFortyTwoShortcut() {
         // The 42 shortcut signs in with fixed development-project
-        // credentials; a --prod-auth build must not expose that
+        // credentials; a production-auth dev build must not expose that
         // known-credential path against the production Stack project.
         #expect(MobileAuthComposition.includesDevAuth(
             policy: MobileAuthBuildPolicy(includesFortyTwoShortcut: true),
@@ -211,7 +207,7 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         // Autoreview regression: no stored project key exists on the first
         // launch of the build that introduced it, but a signed-in dev
         // install's session can only belong to the build-default project —
-        // so the first --prod-auth launch must still clear, or the stale
+        // so the first production-auth launch must still clear, or the stale
         // dev-project identity primes under production auth and the pairing
         // preflight reads the wrong user id.
         let defaults = try freshDefaults()
@@ -254,7 +250,7 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
     }
 
     @Test func projectFlipWithLocalAuthStateRequestsClearBothWays() throws {
-        // dev -> prod (a --prod-auth rebuild over a signed-in dev install) and
+        // dev -> prod (a production-auth rebuild over a signed-in dev install) and
         // prod -> dev must both clear: tokens/user ids are per-Stack-project,
         // so restoring the other project's session can only fail validation
         // and flash the wrong cached user.
@@ -318,7 +314,7 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
     // MARK: - Presence follows the auth channel
 
     @Test func presenceDefaultFollowsAuthChannelNotBuildConfig() throws {
-        // A --prod-auth dev build (Debug config, production channel) must
+        // A production-auth dev build (Debug config, production channel) must
         // subscribe to the production worker its real Macs heartbeat to; the
         // worker URLs live only in PresenceClient so build scripts cannot
         // bake a stale copy.
@@ -348,7 +344,7 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
     }
 
     @Test func explicitPresenceOverrideStillBeatsChannelDefault() throws {
-        // Per-developer isolated workers keep working with --prod-auth.
+        // Per-developer isolated workers keep working with production-auth dev builds.
         #expect(PresenceClient.resolvedServiceBaseURL(
             environment: [PresenceClient.serviceURLEnvKey: "https://cmux-presence-dev-alice.acct.workers.dev"],
             defaults: try freshDefaults(),
