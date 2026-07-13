@@ -2619,6 +2619,13 @@ struct TerminalStreamTests {
 
     let initialReplayRequests = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
     try #require(initialReplayRequests.count >= 1)
+    // Anchor on the cold replay's DELIVERY, not just its request: submitting
+    // input while the first replay's response is still in flight races the
+    // input-triggered resync against the in-flight replay's barrier state,
+    // and one interleaving legitimately skips the second replay (the flaky
+    // iPad failure in https://github.com/manaflow-ai/cmux/issues/7820). The
+    // scenario under test is a phone SETTLED at stale content learning from
+    // an input ack that the mac is ahead.
     try #require(await collector.waitForLine(oldGridText))
 
     await store.submitTerminalRawInput(Data("x".utf8), surfaceID: "live-terminal")

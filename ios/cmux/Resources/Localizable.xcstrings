@@ -8294,6 +8294,23 @@
         }
       }
     },
+    "terminal.shortcut.name.ollama": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama"
+          }
+        }
+      }
+    },
     "terminal.shortcut.name.pageDown": {
       "extractionState": "manual",
       "localizations": {
