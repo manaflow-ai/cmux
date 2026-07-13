@@ -68,22 +68,8 @@ extension RemoteSessionCoordinator {
 
     private func cancelTransportDependentWorkLocked() {
         bootstrapRemoteTTYResolved = false
-        cancelBootstrapRemoteTTYRetryLocked()
         bootstrapRemoteTTYFetchInFlight = false
-        bootstrapRemoteTTYRetryCount = 0
-        remotePortScanGeneration &+= 1
-        remotePortScanBurstTask?.cancel()
-        remotePortScanBurstTask = nil
-        remotePortScanBurstActive = false
-        remotePortScanActiveReason = nil
-        remotePortScanPendingReason = nil
-        cancelRemotePortScanCoalesceLocked()
-        remoteScannedPortsByPanel.removeAll()
-        stopRemotePortPollingLocked()
-        polledRemotePorts = []
-        remotePortPollBaselinePorts = nil
-        keepPolledRemotePortsUntilTTYScan = false
-        publishPortsSnapshotLocked()
+        suspendRemotePortScanningLocked()
     }
 
     func releaseProxyLeaseLocked() {

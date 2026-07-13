@@ -182,7 +182,23 @@ struct RemoteReconnectPolicyTests {
             coordinator.remotePortScanBurstActive = true
             coordinator.remotePortScanActiveReason = .command
             coordinator.remotePortScanPendingReason = .refresh
-            coordinator.remoteScannedPortsByPanel[panelID] = [22]
+            coordinator.remotePortScanSnapshot.reconcile(
+                scannedPorts: [panelID: [22]],
+                scannedKeys: [panelID],
+                trackedKeys: [panelID],
+                completeness: .complete
+            )
+            coordinator.remotePortPollState.apply(
+                observedPorts: [3_000],
+                mode: .hostWideDelta,
+                completeness: .complete
+            )
+            coordinator.remotePortPollState.apply(
+                observedPorts: [3_000, 8_080],
+                mode: .hostWideDelta,
+                completeness: .complete
+            )
+            coordinator.bootstrapRemoteTTYResolved = true
             coordinator.bootstrapRemoteTTYRetryCount = 4
             coordinator.bootstrapRemoteTTYFetchInFlight = true
         }
@@ -192,22 +208,28 @@ struct RemoteReconnectPolicyTests {
 
         let state = coordinator.queue.sync {
             (
-                coordinator.remotePortScanGeneration,
-                coordinator.remotePortScanBurstActive,
-                coordinator.remotePortScanActiveReason,
-                coordinator.remotePortScanPendingReason,
-                coordinator.remoteScannedPortsByPanel,
-                coordinator.bootstrapRemoteTTYRetryCount,
-                coordinator.bootstrapRemoteTTYFetchInFlight
+                scanGeneration: coordinator.remotePortScanGeneration,
+                scanBurstActive: coordinator.remotePortScanBurstActive,
+                scanActiveReason: coordinator.remotePortScanActiveReason,
+                scanPendingReason: coordinator.remotePortScanPendingReason,
+                scannedPorts: coordinator.remotePortScanSnapshot.snapshot,
+                polledPorts: coordinator.remotePortPollState.publishedPorts,
+                pollBaseline: coordinator.remotePortPollState.baselinePorts,
+                bootstrapTTYResolved: coordinator.bootstrapRemoteTTYResolved,
+                bootstrapTTYRetryCount: coordinator.bootstrapRemoteTTYRetryCount,
+                bootstrapTTYFetchInFlight: coordinator.bootstrapRemoteTTYFetchInFlight
             )
         }
-        #expect(state.0 == 8)
-        #expect(!state.1)
-        #expect(state.2 == nil)
-        #expect(state.3 == nil)
-        #expect(state.4.isEmpty)
-        #expect(state.5 == 0)
-        #expect(!state.6)
+        #expect(state.scanGeneration == 8)
+        #expect(!state.scanBurstActive)
+        #expect(state.scanActiveReason == nil)
+        #expect(state.scanPendingReason == nil)
+        #expect(state.scannedPorts.isEmpty)
+        #expect(state.polledPorts.isEmpty)
+        #expect(state.pollBaseline == nil)
+        #expect(!state.bootstrapTTYResolved)
+        #expect(state.bootstrapTTYRetryCount == 0)
+        #expect(!state.bootstrapTTYFetchInFlight)
     }
 
     @Test("Wake leaves a healthy proxy-less Cloud fallback connected")
