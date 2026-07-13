@@ -4404,6 +4404,23 @@
         }
       }
     },
+    "mobile.settings.privacy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privacy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライバシー"
+          }
+        }
+      }
+    },
     "mobile.settings.privacyPolicy": {
       "extractionState": "manual",
       "localizations": {
@@ -4638,6 +4655,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "このアプリに表示する Stack チームのコンピュータとデバイスを切り替えます。"
+          }
+        }
+      }
+    },
+    "mobile.settings.telemetry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share Analytics and Crash Reports"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分析とクラッシュレポートを共有"
+          }
+        }
+      }
+    },
+    "mobile.settings.telemetryAnalyticsOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share Anonymous Analytics"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匿名の分析情報を共有"
+          }
+        }
+      }
+    },
+    "mobile.settings.telemetryAnalyticsOnlyFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, cmux does not send iPhone or iPad product analytics."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフの場合、cmux は iPhone または iPad の製品分析を送信しません。"
+          }
+        }
+      }
+    },
+    "mobile.settings.telemetryFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, cmux does not send iPhone or iPad product analytics or crash reports."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフの場合、cmux は iPhone または iPad の製品分析やクラッシュレポートを送信しません。"
           }
         }
       }
