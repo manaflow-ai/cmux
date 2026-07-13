@@ -63,7 +63,7 @@ import Testing
         #expect(result.initialEnv == ["CMUX_TASK_PROMPT": "fix 'quote'"])
     }
 
-    @Test func appendModeTrimsTrailingNewlineBeforePromptArgument() {
+    @Test func appendModePreservesTrailingNewlineAfterPromptArgument() {
         let template = MobileTaskTemplate(
             name: "Script",
             icon: "terminal",
@@ -72,16 +72,16 @@ import Testing
 
         let result = composer.compose(template: template, prompt: "ship it")
 
-        #expect(result.initialCommand == "printf ready\nagent -- \"${CMUX_TASK_PROMPT}\"")
+        #expect(result.initialCommand == "printf ready\nagent -- \"${CMUX_TASK_PROMPT}\"\n")
         #expect(result.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
     }
 
-    @Test func appendModeTrimsTrailingSpacesBeforePromptArgument() {
+    @Test func appendModePreservesTrailingSpacesAfterPromptArgument() {
         let template = MobileTaskTemplate(name: "Agent", icon: "terminal", command: "agent   ")
 
         let result = composer.compose(template: template, prompt: "ship it")
 
-        #expect(result.initialCommand == "agent -- \"${CMUX_TASK_PROMPT}\"")
+        #expect(result.initialCommand == "agent -- \"${CMUX_TASK_PROMPT}\"   ")
         #expect(result.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
     }
 
