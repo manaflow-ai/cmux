@@ -203,6 +203,37 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         try assertSettles(selectedWindow: 0, within: 15, context: "with pane-border-status top")
     }
 
+    /// The growth-spiral trigger, deterministically: shrink the window while
+    /// a wide imposed plan is live, so the imposed render frame momentarily
+    /// exceeds the region — the state the wedge needed (the fuzz hit it by
+    /// resizing under churn). After each shrink the suite requires BOTH
+    /// oracles: the grid oracle (sizing settles to exact renders — this leg
+    /// also covers re-imposition after a container change) and the frame
+    /// oracle (the window's root content and the mirror's whole ancestor
+    /// chain hold the window's width). The live wedge kept every claim sane
+    /// while the content view marched a step wider per layout pass, so only
+    /// the frame oracle can fail on that class.
+    func testShrinkUnderImposedPlanSettlesWithRootContentAtWindowWidth() throws {
+        try requireTmux()
+        let app = launchApp()
+        defer { app.terminate() }
+        try buildLabSession()
+        attachSession()
+        setMirrorWindowSize(CGSize(width: 1080, height: 700))
+        try assertSettles(selectedWindow: 0, within: 15, context: "at 1080 before shrink")
+        try assertRootContentTracksWindow(context: "at 1080 before shrink")
+
+        // Two shrinks: each leaves the banked container and the imposed
+        // render frame stale-wide for at least one pass. Widths stay above
+        // the workspace minimum content width so the exact-apply assertion
+        // in setMirrorWindowSize holds (see the sweep scenarios).
+        for width in [1048.0, 1000.0] {
+            setMirrorWindowSize(CGSize(width: width, height: 700))
+            try assertSettles(selectedWindow: 0, within: 10, context: "after shrink to \(Int(width))")
+            try assertRootContentTracksWindow(context: "after shrink to \(Int(width))")
+        }
+    }
+
     /// A geometry-only layout change NOT caused by the app — a co-attached
     /// client's `resize-pane` — must heal (bounded correction), not stick
     /// mismatched and not oscillate.

@@ -1391,6 +1391,7 @@ class TerminalController {
         case "remote.tmux.window": return v2RemoteTmuxWindow(id: request.id, params: request.params)
         case "remote.tmux.test_exec": return v2RemoteTmuxTestExec(id: request.id, params: request.params)
         case "remote.tmux.test_set_frame": return v2RemoteTmuxTestSetFrame(id: request.id, params: request.params)
+        case "remote.tmux.root_frames": return v2RemoteTmuxRootFrames(id: request.id)
 #endif
         case "sidebar.custom.validate":
             return v2Result(id: request.id, v2CustomSidebarValidate(params: request.params))

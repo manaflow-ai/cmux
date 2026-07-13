@@ -269,6 +269,55 @@ extension TerminalController {
         }
     }
 
+    /// `remote.tmux.root_frames` (DEBUG only) — the window-versus-content
+    /// truth the growth-spiral tripwire logs (`mirror.container.ancestors`),
+    /// as data: for every visible mirror, the hosting window's frame and
+    /// content-view sizes plus the widths of the mirror's real ancestor
+    /// chain, probe to root. The sizing UI suite asserts the chain holds the
+    /// window's width after settling. The live spiral kept every CLAIM sane
+    /// (the oversized-reading guard dropped the inflated readings) while the
+    /// content view marched a step wider per layout pass — a class no grid
+    /// oracle can see, only the frames.
+    nonisolated func v2RemoteTmuxRootFrames(id: Any?) -> String {
+        v2VmCall(id: id, timeoutSeconds: 15) {
+            let report: [[String: Any]] = await MainActor.run {
+                var out: [[String: Any]] = []
+                for workspace in self.tabManager?.tabs ?? [] {
+                    guard let session = workspace.remoteTmuxSessionMirror else { continue }
+                    for (windowId, mirror) in session.windowMirrorByWindowId {
+                        guard mirror.isEffectivelyVisibleForSizing,
+                              let probe = mirror.hostProbeView,
+                              let window = probe.window else { continue }
+                        var chain: [[String: Any]] = []
+                        var current: NSView? = probe
+                        var depth = 0
+                        while let view = current, depth < 16 {
+                            chain.append([
+                                "class": String(NSStringFromClass(type(of: view)).suffix(40)),
+                                "width": Double(view.frame.width),
+                                "height": Double(view.frame.height),
+                            ])
+                            current = view.superview
+                            depth += 1
+                        }
+                        out.append([
+                            "window": windowId,
+                            "window_width": Double(window.frame.width),
+                            "window_height": Double(window.frame.height),
+                            "content_layout_width": Double(window.contentLayoutRect.width),
+                            "content_layout_height": Double(window.contentLayoutRect.height),
+                            "content_view_width": Double(window.contentView?.frame.width ?? -1),
+                            "content_view_height": Double(window.contentView?.frame.height ?? -1),
+                            "ancestors": chain,
+                        ])
+                    }
+                }
+                return out
+            }
+            return ["windows": report]
+        }
+    }
+
     /// `remote.tmux.sizing_settled` (DEBUG only) — answers "has every
     /// mirrored window finished settling, and does every pane render exactly
     /// its assigned span?" in one call. Harnesses poll this instead of

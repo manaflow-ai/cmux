@@ -186,6 +186,37 @@ extension RemoteTmuxSizingUITests {
                        "window height did not apply: \(response ?? [:])")
     }
 
+    /// The frame oracle over `remote.tmux.root_frames`: the mirror's whole
+    /// real ancestor chain — probe to the window's content view — must hold
+    /// the window's width. The live growth spiral kept every tmux-side claim
+    /// sane (the oversized-reading guard dropped the inflated readings) while
+    /// the content view marched a step wider per layout pass past the
+    /// display-pinned window; the grid oracle above cannot see that class,
+    /// only the frames can.
+    func assertRootContentTracksWindow(context: String) throws {
+        let response = socketJSON(method: "remote.tmux.root_frames", params: [:])
+        let windows = try XCTUnwrap(
+            response?["windows"] as? [[String: Any]],
+            "root_frames returned nothing \(context): \(response ?? [:])"
+        )
+        XCTAssertFalse(windows.isEmpty, "no visible mirror in root_frames \(context)")
+        for entry in windows {
+            let windowWidth = entry["window_width"] as? Double ?? -1
+            let contentWidth = entry["content_view_width"] as? Double ?? -1
+            XCTAssertLessThanOrEqual(
+                contentWidth, windowWidth + 1,
+                "content view wider than its window \(context): \(entry)"
+            )
+            for ancestor in entry["ancestors"] as? [[String: Any]] ?? [] {
+                let width = ancestor["width"] as? Double ?? -1
+                XCTAssertLessThanOrEqual(
+                    width, windowWidth + 1,
+                    "\(ancestor["class"] ?? "?") is \(Int(width))pt wide in a \(Int(windowWidth))pt window \(context) — an ancestor adopted a content-derived width"
+                )
+            }
+        }
+    }
+
     /// The pushed column count `pane_grids` reports for a tmux window.
     func pushedCols(window: Int) -> Int? {
         guard let response = socketJSON(method: "remote.tmux.pane_grids", params: [
