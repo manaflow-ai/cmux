@@ -853,35 +853,34 @@ class TerminalController {
 
         // Wire batched port scanner results back to workspace state.
         PortScanner.shared.onPortsUpdated = { [weak self] workspaceId, panelId, ports in
-            guard let self, let tabManager = self.tabManager else { return }
-            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
-            let validSurfaceIds = Set(workspace.panels.keys)
-            guard validSurfaceIds.contains(panelId) else { return }
-            workspace.surfaceListeningPorts[panelId] = ports.isEmpty ? nil : ports
-            workspace.recomputeListeningPorts()
+            self?.applyPanelPortPublication(workspaceId: workspaceId, panelId: panelId, ports: ports)
         }
         PortScanner.shared.onAgentPortsUpdated = { [weak self] workspaceId, ports in
-            guard let self, let tabManager = self.tabManager else { return false }
-            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return false }
-            if workspace.agentListeningPorts != ports {
-                workspace.agentListeningPorts = ports
-                workspace.recomputeListeningPorts()
-            }
-            return true
-        }
-        PortScanner.shared.agentPIDsProvider = { [weak self] workspaceIds in
-            guard let self, let tabManager = self.tabManager else { return [:] }
-            var pidsByWorkspace: [UUID: Set<Int>] = [:]
-            for workspaceId in workspaceIds {
-                guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { continue }
-                let pids = Set(workspace.agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
-                if !pids.isEmpty {
-                    pidsByWorkspace[workspaceId] = pids
-                }
-            }
-            return pidsByWorkspace
+            self?.applyAgentPortPublication(workspaceId: workspaceId, ports: ports) ?? false
         }
         PortScanner.shared.setTrackedAgentScanningPaused(!NSApplication.shared.isActive)
+    }
+
+    func applyPanelPortPublication(workspaceId: UUID, panelId: UUID, ports: [Int]) {
+        guard let workspace = portPublicationWorkspace(workspaceId: workspaceId),
+              workspace.panels[panelId] != nil else { return }
+        let nextPorts: [Int]? = ports.isEmpty ? nil : ports
+        guard workspace.surfaceListeningPorts[panelId] != nextPorts else { return }
+        workspace.surfaceListeningPorts[panelId] = nextPorts
+        workspace.recomputeListeningPorts()
+    }
+
+    func applyAgentPortPublication(workspaceId: UUID, ports: [Int]) -> Bool {
+        guard let workspace = portPublicationWorkspace(workspaceId: workspaceId) else { return false }
+        if workspace.agentListeningPorts != ports {
+            workspace.agentListeningPorts = ports
+            workspace.recomputeListeningPorts()
+        }
+        return true
+    }
+
+    private func portPublicationWorkspace(workspaceId: UUID) -> Workspace? {
+        AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?.tabs.first { $0.id == workspaceId }
     }
 
     nonisolated func socketListenerHealth(expectedSocketPath: String) -> SocketListenerHealth {
