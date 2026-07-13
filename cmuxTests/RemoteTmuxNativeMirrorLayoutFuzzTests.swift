@@ -861,6 +861,92 @@ private struct SplitMix64 {
         }
         #expect(executed >= 100, "only \(executed)/160 drags executed — generator or claim collapsed")
     }
+
+    /// The chrome fold exists in two forms that must agree on every node:
+    /// the n-ary ``RemoteTmuxNativeLayoutMetrics/residual(of:)`` feeds the
+    /// claim and the render frame, and the binary ``joinedResidual`` fold
+    /// builds the measured tree's residuals, which feed the plan's ideals
+    /// and the drag-end cell conversion. If the two disagree, the plan's
+    /// ideals are measured against a container the claim sized with the
+    /// other rule, and the difference lands on whichever pane the rail
+    /// allocation starves. Both folds credit the ACTUAL coordinate gap
+    /// cells read off the assignment, so they must agree for any coordinate
+    /// convention — separator columns, title-row gaps, or packed spans.
+    @Test(arguments: seeds)
+    func binaryResidualFoldAgreesWithTheNaryFold(seed: UInt64) throws {
+        var rng = SplitMix64(seed: seed)
+        for trial in 0..<60 {
+            for titled in [false, true] {
+                let scale: CGFloat = Self.draw(2, using: &rng) == 0 ? 1 : 2
+                let cellWidthPx = 7 + Self.draw(18, using: &rng)
+                let cellHeightPx = 14 + Self.draw(30, using: &rng)
+                let metrics = RemoteTmuxNativeLayoutMetrics(
+                    cellSize: CGSize(
+                        width: CGFloat(cellWidthPx) / scale,
+                        height: CGFloat(cellHeightPx) / scale
+                    ),
+                    surfacePadding: CGSize(
+                        width: CGFloat(Self.draw(10, using: &rng)) / scale,
+                        height: CGFloat(Self.draw(5, using: &rng)) / scale
+                    ),
+                    tabBarHeight: CGFloat(24 + Self.draw(8, using: &rng)),
+                    dividerThickness: CGFloat(1 + Self.draw(2, using: &rng)),
+                    paneTitleRowHeight: titled ? CGFloat(cellHeightPx) / scale : 0
+                )
+                var nextPaneId = 1
+                let shape = Self.randomShape(
+                    paneCount: 2 + Self.draw(7, using: &rng),
+                    nextPaneId: &nextPaneId,
+                    depth: 0,
+                    previousAxis: nil,
+                    using: &rng
+                )
+                let minimum = Self.minimumCells(shape, minLeaf: 2, titledRows: titled)
+                let layout = Self.assign(
+                    shape,
+                    cols: minimum.cols + Self.draw(60, using: &rng),
+                    rows: minimum.rows + Self.draw(40, using: &rng),
+                    x: 0,
+                    y: 0,
+                    titledRows: titled,
+                    using: &rng
+                )
+                let context = "seed=0x\(String(seed, radix: 16)) trial=\(trial)"
+                    + " titled=\(titled ? 1 : 0) shape=\(Self.describe(layout))"
+                    + " cellPx=\(cellWidthPx)x\(cellHeightPx)"
+                    + " divider=\(metrics.dividerThickness) tabBar=\(metrics.tabBarHeight)"
+                Self.expectResidualFoldsAgree(
+                    RemoteTmuxNativeMeasuredSplitTree(
+                        tree: RemoteTmuxNativeSplitTree(layout: layout),
+                        metrics: metrics
+                    ),
+                    metrics: metrics,
+                    context: context
+                )
+            }
+        }
+    }
+
+    /// Recursive half of ``binaryResidualFoldAgreesWithTheNaryFold``: every
+    /// measured node's stored residual must equal the n-ary fold of its own
+    /// layout, to floating-point noise.
+    private static func expectResidualFoldsAgree(
+        _ tree: RemoteTmuxNativeMeasuredSplitTree,
+        metrics: RemoteTmuxNativeLayoutMetrics,
+        context: String
+    ) {
+        let nary = metrics.residual(of: tree.layout)
+        #expect(
+            abs(tree.residual.width - nary.width) < 0.001
+                && abs(tree.residual.height - nary.height) < 0.001,
+            "measured residual \(tree.residual) != n-ary fold \(nary) at \(Self.describe(tree.layout)): \(context)"
+        )
+        if case .split(_, _, _, _, let first, let second) = tree {
+            expectResidualFoldsAgree(first, metrics: metrics, context: context)
+            expectResidualFoldsAgree(second, metrics: metrics, context: context)
+        }
+    }
+
     // MARK: - Random generation
 
     private enum Axis {
@@ -1010,12 +1096,17 @@ private struct SplitMix64 {
 
     /// Minimum cols/rows a shape needs so every leaf keeps at least
     /// `minLeaf` cells per axis, with one separator cell between siblings.
-    private static func minimumCells(_ shape: Shape, minLeaf: Int) -> (cols: Int, rows: Int) {
+    /// With `titledRows` on, stacked panes have NO separator row in the SPAN
+    /// — the packed convention; the residual reads gaps off the assignment,
+    /// so packed and gapped conventions both fold coherently.
+    private static func minimumCells(
+        _ shape: Shape, minLeaf: Int, titledRows: Bool = false
+    ) -> (cols: Int, rows: Int) {
         switch shape {
         case .pane:
             return (cols: minLeaf, rows: minLeaf)
         case .split(let axis, let children):
-            let mins = children.map { minimumCells($0, minLeaf: minLeaf) }
+            let mins = children.map { minimumCells($0, minLeaf: minLeaf, titledRows: titledRows) }
             let separators = children.count - 1
             if axis == .horizontal {
                 return (
@@ -1025,7 +1116,7 @@ private struct SplitMix64 {
             }
             return (
                 cols: mins.map(\.cols).max() ?? minLeaf,
-                rows: mins.reduce(0) { $0 + $1.rows } + separators
+                rows: mins.reduce(0) { $0 + $1.rows } + (titledRows ? 0 : separators)
             )
         }
     }
@@ -1039,6 +1130,7 @@ private struct SplitMix64 {
         rows: Int,
         x: Int,
         y: Int,
+        titledRows: Bool = false,
         using rng: inout SplitMix64
     ) -> RemoteTmuxLayoutNode {
         switch shape {
@@ -1047,8 +1139,9 @@ private struct SplitMix64 {
                 width: cols, height: rows, x: x, y: y, content: .pane(paneId)
             )
         case .split(let axis, let children):
-            let mins = children.map { minimumCells($0, minLeaf: 2) }
-            let separators = children.count - 1
+            let mins = children.map { minimumCells($0, minLeaf: 2, titledRows: titledRows) }
+            let separatorCells = axis == .vertical && titledRows ? 0 : 1
+            let separators = (children.count - 1) * separatorCells
             let span = axis == .horizontal ? cols : rows
             let minTotal = mins.reduce(0) { $0 + (axis == .horizontal ? $1.cols : $1.rows) }
             var spare = span - separators - minTotal
@@ -1070,12 +1163,13 @@ private struct SplitMix64 {
                     rows: childRows,
                     x: cursorX,
                     y: cursorY,
+                    titledRows: titledRows,
                     using: &rng
                 ))
                 if axis == .horizontal {
                     cursorX += spans[index] + 1
                 } else {
-                    cursorY += spans[index] + 1
+                    cursorY += spans[index] + separatorCells
                 }
             }
             return RemoteTmuxLayoutNode(

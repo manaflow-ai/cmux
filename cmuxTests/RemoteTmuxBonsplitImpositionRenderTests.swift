@@ -454,4 +454,54 @@ import Testing
             )
         }
     }
+
+    /// A tab re-show races two host probes: SwiftUI mounts the NEW probe
+    /// (which registers the mirror's window handle) before AppKit finishes
+    /// tearing the OLD one out of its window, so the dying probe's final
+    /// viewDidMoveToWindow fires with window == nil AFTER the replacement
+    /// registered. It used to claim unconditionally, shadowing the live
+    /// handle with a windowless view until the next SwiftUI update — and the
+    /// sizing pass, probing for a window, went blind exactly when the
+    /// re-shown tab needed it. A windowless probe must never claim, and only
+    /// the registered probe may clear the slot.
+    @Test func dyingProbeCannotShadowTheReplacementsWindowHandle() throws {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "probe-\(UUID().uuidString)@host"),
+            sessionName: "work"
+        )
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0,
+            panelId: UUID(),
+            connection: connection,
+            layout: RemoteTmuxLayoutNode(width: 80, height: 24, x: 0, y: 0, content: .pane(1)),
+            makePanel: { _ in nil }
+        )
+        let old = MirrorHostProbeView()
+        old.mirror = mirror
+        mirror.hostProbeView = old
+        let replacement = MirrorHostProbeView()
+        replacement.mirror = mirror
+        mirror.hostProbeView = replacement
+
+        // The dying probe reports "left the window" after the replacement
+        // already holds the slot: it must not steal it back.
+        old.viewDidMoveToWindow()
+        #expect(
+            mirror.hostProbeView === replacement,
+            "a windowless probe must not shadow the registered one"
+        )
+
+        // The registered probe losing its window clears the slot outright.
+        replacement.viewDidMoveToWindow()
+        #expect(mirror.hostProbeView == nil)
+
+        // Gaining a window claims it (AppKit fires the hook on add).
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        defer { window.orderOut(nil) }
+        try #require(window.contentView).addSubview(old)
+        #expect(mirror.hostProbeView === old)
+    }
 }
