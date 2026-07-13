@@ -333,6 +333,20 @@ struct NotificationRowSnapshotBoundaryTests {
         ) == nil)
     }
 
+    @Test func notificationScrollTargetClampsWhenHistoryIsTrimmed() {
+        let surfaceView = GhosttyNSView(frame: .zero)
+        surfaceView.scrollbar = GhosttyScrollbar(
+            c: ghostty_action_scrollbar_s(total: 200, offset: 156, len: 44)
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+
+        let target = hostedView.notificationScrollRestoreTarget(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+        )
+
+        #expect(target == .absoluteRow(156))
+    }
+
     // MARK: - Fixtures
 
     private static func makeNotification(
