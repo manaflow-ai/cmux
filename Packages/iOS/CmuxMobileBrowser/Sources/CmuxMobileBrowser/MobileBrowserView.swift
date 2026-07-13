@@ -84,7 +84,7 @@ public struct MobileBrowserView: UIViewRepresentable {
     @MainActor
     public final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         private let state: BrowserSurfaceState
-        private let pageMetadataCoalescer: BrowserPageMetadataEventCoalescer
+        let pageMetadataCoalescer: BrowserPageMetadataEventCoalescer
         private weak var webView: WKWebView?
         private var observations: [NSKeyValueObservation] = []
 

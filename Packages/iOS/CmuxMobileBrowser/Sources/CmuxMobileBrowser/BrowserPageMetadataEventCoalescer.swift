@@ -18,8 +18,13 @@ final class BrowserPageMetadataEventCoalescer {
     private var includesURL = false
     private var includesTitle = false
     private var scheduledCommit: Task<Void, Never>?
+    private let didSchedule: @MainActor () -> Void
 
-    init(commit: @escaping @MainActor (BrowserPageMetadataUpdate) -> Void) {
+    init(
+        didSchedule: @escaping @MainActor () -> Void = {},
+        commit: @escaping @MainActor (BrowserPageMetadataUpdate) -> Void
+    ) {
+        self.didSchedule = didSchedule
         self.commit = commit
     }
 
@@ -52,6 +57,7 @@ final class BrowserPageMetadataEventCoalescer {
     }
 
     private func scheduleCommit() {
+        didSchedule()
         scheduledCommit?.cancel()
         scheduledCommit = Task { @MainActor [weak self] in
             await Task.yield()

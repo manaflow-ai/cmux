@@ -119,6 +119,35 @@ import Testing
         #expect(state.securityIndicatorURL == committedURL)
     }
 
+    @Test func committedNavigationImmediatelyUpdatesDurableIdentity() {
+        let oldURL = URL(string: "https://example.com/old")!
+        let committedURL = URL(string: "https://example.com/committed")!
+        let state = makeState(initialURL: oldURL)
+        var immediateWrites: [Bool] = []
+        state.installPersistence { immediateWrites.append($0) }
+
+        state.navigationDidStart()
+        state.addressText = "https://example.com/provisional"
+        #expect(state.currentURL == oldURL)
+        state.navigationDidCommit(url: committedURL)
+
+        #expect(state.currentURL == committedURL)
+        #expect(state.addressText == committedURL.absoluteString)
+        #expect(immediateWrites == [true])
+    }
+
+    @Test func failureAfterCommitRetainsCommittedIdentity() {
+        let committedURL = URL(string: "https://example.com/committed")!
+        let state = makeState(initialURL: URL(string: "https://example.com/old")!)
+
+        state.navigationDidStart()
+        state.navigationDidCommit(url: committedURL)
+        state.navigationDidFail(message: "connection interrupted", url: committedURL)
+
+        #expect(state.currentURL == committedURL)
+        #expect(state.addressText == committedURL.absoluteString)
+    }
+
     @Test func navigationFailureSurfacesMessageAndStopsLoading() {
         let state = makeState()
         state.navigationDidStart()

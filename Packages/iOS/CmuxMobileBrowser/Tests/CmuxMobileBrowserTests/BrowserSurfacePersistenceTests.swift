@@ -60,6 +60,27 @@ import Testing
         #expect(restoredB.canGoForward == false)
     }
 
+    @Test func coldRestoreUsesCommittedURLBeforeNavigationFinishes() async throws {
+        let suiteName = "BrowserSurfaceStoreTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let scope = BrowserPersistenceScope(userID: "user-a", teamID: "team-a")
+        let store = BrowserSurfaceStore(defaultURL: nil, persistenceDefaults: defaults)
+        store.setPersistenceScope(scope)
+        let browser = store.openBrowser(for: "ws-a")
+        browser.navigationDidFinish(url: URL(string: "https://example.com/old")!)
+        browser.navigationDidStart()
+        browser.navigationDidCommit(url: URL(string: "https://example.com/committed")!)
+        await store.flushPersistence()
+
+        let restored = BrowserSurfaceStore(defaultURL: nil, persistenceDefaults: defaults)
+        restored.setPersistenceScope(scope)
+
+        #expect(restored.browser(for: "ws-a")?.currentURL?.absoluteString ==
+            "https://example.com/committed")
+    }
+
     @Test func corruptPersistenceFailsClosedWithoutInventingBrowserIdentity() throws {
         let suiteName = "BrowserSurfaceStoreTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
