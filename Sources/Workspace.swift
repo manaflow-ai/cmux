@@ -129,6 +129,8 @@ extension Workspace {
             customColor: customColor,
             isPinned: isPinned,
             groupId: groupId,
+            kanbanColumnId: kanbanColumnId,
+            kanbanOrder: kanbanOrder,
             isManuallyUnread: isWorkspaceManuallyUnread,
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
             notifications: workspaceNotificationSnapshots.isEmpty ? nil : workspaceNotificationSnapshots,
@@ -231,6 +233,8 @@ extension Workspace {
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
         groupId = snapshot.groupId
+        kanbanColumnId = snapshot.kanbanColumnId
+        kanbanOrder = snapshot.kanbanOrder ?? 0
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
         // processes (e.g. claude_code "Running"). Don't restore them across app
@@ -1972,6 +1976,13 @@ final class Workspace: Identifiable, ObservableObject {
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
+    /// Kanban board column this workspace's card is assigned to. `nil` renders
+    /// in the first (TODO) column by default. The column definitions
+    /// themselves live in `CmuxSettings.SettingCatalog.kanban`, not here.
+    @Published var kanbanColumnId: String? = nil
+    /// Fractional index for cheap reordering within a kanban column, without
+    /// renumbering every other card on a move.
+    @Published var kanbanOrder: Double = 0
     /// User-defined environment variables applied to every shell spawned in this
     /// workspace: the initial terminal, every later pane/surface/split, and every
     /// surface recreated on session restore. Managed `CMUX_*` and terminal-identity
