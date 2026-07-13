@@ -1786,6 +1786,8 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["CODEBUDDY_CONFIG_DIR": "/tmp/codebuddy"]
             case .qoder:
                 resolvedEnvironment = ["QODER_CONFIG_DIR": "/tmp/qoder"]
+            case .kimi:
+                resolvedEnvironment = ["KIMI_CODE_HOME": "/tmp/kimi"]
             }
         }
         let resolvedExecutablePath = executablePath ?? arguments.first ?? "/usr/local/bin/\(kind.rawValue)"

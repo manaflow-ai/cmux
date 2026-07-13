@@ -22,7 +22,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             timeout: 5
         )
         #expect(!result.timedOut)
-        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
         #expect(result.stdout.contains("kimi"))
         #expect(result.stdout.contains("~/.kimi-code/config.toml"))
     }
