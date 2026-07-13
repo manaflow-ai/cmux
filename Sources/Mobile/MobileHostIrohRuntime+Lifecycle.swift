@@ -4,6 +4,108 @@ import CmuxIrohTransport
 import Foundation
 
 extension MobileHostIrohRuntime {
+    /// Fences lifecycle work before auth begins its first asynchronous token read.
+    func beginSignOutPreparation() {
+        guard signOutPreparationTask == nil else { return }
+        signOutIntentActive = true
+        signOutPreparationRevision &+= 1
+        let task = scheduleReconcile(eraseAccountState: true)
+        signOutPreparationTask = task
+    }
+
+    func prepareSignOut() async {
+        beginSignOutPreparation()
+        await signOutPreparationTask?.value
+    }
+
+    /// Uses auth's captured tokens to revoke the exact preparation made before clear.
+    func revokeAfterSignOut(
+        accessToken: String?,
+        refreshToken: String?
+    ) async {
+        observedAccountID = nil
+        if let signOutPreparationTask {
+            guard await cancellationAwareWait(for: signOutPreparationTask) else {
+                return
+            }
+        } else if preparedSignOut == nil {
+            beginSignOutPreparation()
+            if let signOutPreparationTask {
+                guard await cancellationAwareWait(for: signOutPreparationTask) else {
+                    return
+                }
+            }
+        }
+        defer {
+            signOutIntentActive = false
+            signOutPreparationTask = nil
+        }
+
+        guard var preparation = preparedSignOut else { return }
+        if preparation.pendingRevocation == nil {
+            preparedSignOut = nil
+            return
+        }
+        preparation = await retryPersistingQuarantinedPreparation(preparation)
+
+        guard let accessToken,
+              !accessToken.isEmpty,
+              let refreshToken,
+              !refreshToken.isEmpty else { return }
+        do {
+            let broker = try CmxIrohTrustBrokerClient(
+                baseURL: AuthEnvironment.vmAPIBaseURL,
+                tokenSource: CmxIrohBrokerTokenSource(
+                    accessToken: { accessToken },
+                    refreshToken: { refreshToken }
+                ),
+                relayTokenEndpoint: Self.relayDeployment.tokenEndpoint
+            )
+            try await preparation.revoke(
+                using: broker,
+                pendingRevocations: pendingRevocations
+            )
+            if !preparation.wasPersisted {
+                await wipePersistedAccountState(
+                    after: CmxIrohHostSignOutPreparation(
+                        pendingRevocation: preparation.pendingRevocation,
+                        wasPersisted: true
+                    )
+                )
+            }
+            if preparedSignOut?.pendingRevocation == preparation.pendingRevocation {
+                preparedSignOut = nil
+            }
+        } catch {
+            mobileHostIrohLog.error(
+                "Iroh binding revoke failed: \(String(describing: error), privacy: .private)"
+            )
+        }
+    }
+
+    private func cancellationAwareWait(
+        for operation: Task<Void, Never>
+    ) async -> Bool {
+        let stream = AsyncStream<Void> { continuation in
+            let waiter = Task { @MainActor in
+                await operation.value
+                guard !Task.isCancelled else {
+                    continuation.finish()
+                    return
+                }
+                continuation.yield()
+                continuation.finish()
+            }
+            continuation.onTermination = { @Sendable _ in
+                waiter.cancel()
+            }
+        }
+        for await _ in stream {
+            return true
+        }
+        return false
+    }
+
     func configure(auth: AuthCoordinator) {
         self.auth = auth
         authObservationTask?.cancel()
