@@ -160,6 +160,8 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// Injected source of render constants; `nil` measures live surfaces.
     /// Unit tests inject fixed constants here (no live surfaces exist there).
     @ObservationIgnored let geometrySource: (() -> RemoteTmuxMirrorGeometry?)?
+    /// Injected hosting-window bound; `nil` resolves it from live pane views.
+    @ObservationIgnored let hostingContentSizeSource: (() -> CGSize?)?
 
     /// Everything a sizing pass depends on, snapshotted for the fixed-point
     /// check. When a completed pass's inputs equal the current inputs, the
@@ -195,6 +197,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         appearance: BonsplitConfiguration.Appearance = .init(),
         workspaceBonsplitController: BonsplitController? = nil,
         geometrySource: (() -> RemoteTmuxMirrorGeometry?)? = nil,
+        hostingContentSizeSource: (() -> CGSize?)? = nil,
         controlPaneID: @escaping (Int) -> PaneID? = { _ in nil },
         onControlSurfaceChanged: ((Int, UUID?) -> Void)? = nil,
         adoptedPanes: [AdoptedPane] = [],
@@ -206,6 +209,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         self.workspaceBonsplitController = workspaceBonsplitController
         self.makePanel = makePanel
         self.geometrySource = geometrySource
+        self.hostingContentSizeSource = hostingContentSizeSource
         self.controlPaneID = controlPaneID
         self.onControlSurfaceChanged = onControlSurfaceChanged
         self.layout = layout

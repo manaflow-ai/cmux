@@ -56,7 +56,10 @@ import Testing
     /// parameter — dependency injection, not a debug seam.
     private func makeMirror(
         layout: RemoteTmuxLayoutNode,
-        geometry: RemoteTmuxMirrorGeometry? = nil
+        geometry: RemoteTmuxMirrorGeometry? = nil,
+        hostingContentSizeSource: (() -> CGSize?)? = {
+            CGSize(width: 10_000, height: 10_000)
+        }
     ) -> (RemoteTmuxWindowMirror, RemoteTmuxControlConnection) {
         let connection = RemoteTmuxControlConnection(
             host: RemoteTmuxHost(destination: "user@host"), sessionName: "work"
@@ -67,6 +70,7 @@ import Testing
             connection: connection,
             layout: layout,
             geometrySource: geometry.map { g in { g } },
+            hostingContentSizeSource: hostingContentSizeSource,
             makePanel: { _ in nil }
         )
         return (mirror, connection)
@@ -194,6 +198,37 @@ import Testing
         let second = pushed(connection)
         #expect(first?.cols == second?.cols)
         #expect(first?.rows == second?.rows)
+    }
+
+    @Test func detachedMeasurementWaitsForAVisibleHostThenAdoptsItsBound() {
+        let initialBound = CGSize(width: 640, height: 500)
+        var hostingBound: CGSize? = initialBound
+        let (mirror, connection) = makeMirror(
+            layout: reflow123,
+            geometry: calibratedGeometry,
+            hostingContentSizeSource: { hostingBound }
+        )
+        mirror.isVisibleForSizing = true
+        mirror.noteContainerSize(pointSize: initialBound, scale: 2)
+        mirror.performSizingPassNow()
+        let attachedClaim = pushed(connection)
+        #expect(mirror.containerSizePt == hostingBound)
+        #expect(attachedClaim != nil)
+
+        // A detached portal can briefly report full-display geometry. Retain
+        // the later resize without letting it poison the validated claim.
+        hostingBound = nil
+        mirror.noteContainerSize(pointSize: CGSize(width: 1_000, height: 700), scale: 2)
+        mirror.performSizingPassNow()
+        #expect(pushed(connection)?.cols == attachedClaim?.cols)
+
+        // The next attached pass adopts that pending measurement, bounded by
+        // the real host, even if attachment emits no new geometry callback.
+        hostingBound = CGSize(width: 1_000, height: 700)
+        mirror.performSizingPassNow()
+        #expect(mirror.containerSizePt == hostingBound)
+        #expect((pushed(connection)?.cols ?? 0) > (attachedClaim?.cols ?? 0))
+        #expect((pushed(connection)?.rows ?? 0) > (attachedClaim?.rows ?? 0))
     }
 
     @Test func reconcileClaimsOnceThenNeverChangesThePushedSize() {

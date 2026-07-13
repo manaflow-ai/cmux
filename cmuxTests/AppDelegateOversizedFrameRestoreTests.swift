@@ -63,4 +63,51 @@ struct AppDelegateOversizedFrameRestoreTests {
         ))
         #expect(restored == spanning)
     }
+
+    @Test
+    func runtimeCapKeepsAnIntersectingLeftEdgeFrameReachable() {
+        let display = CGRect(x: 0, y: 0, width: 1_512, height: 982)
+        let runaway = CGRect(x: -12_000, y: 120, width: 12_400, height: 700)
+
+        let capped = CmuxMainWindow.frameByCappingOversizedDimensions(
+            runaway,
+            displayFrames: [display]
+        )
+
+        #expect(capped.width == display.width)
+        #expect(CmuxMainWindow.isTitlebarReachable(frame: capped, visibleFrame: display))
+    }
+
+    @Test
+    func runtimeCapKeepsAnIntersectingBottomEdgeFrameReachable() {
+        let display = CGRect(x: 0, y: 0, width: 1_512, height: 982)
+        let runaway = CGRect(x: 100, y: -9_000, width: 900, height: 9_500)
+
+        let capped = CmuxMainWindow.frameByCappingOversizedDimensions(
+            runaway,
+            displayFrames: [display]
+        )
+
+        #expect(capped.height == display.height)
+        #expect(CmuxMainWindow.isTitlebarReachable(frame: capped, visibleFrame: display))
+    }
+
+    @Test
+    func runtimeCapPreservesLegitimatePartialAndSpanningFrames() {
+        let displays = [
+            CGRect(x: 0, y: 0, width: 1_512, height: 982),
+            CGRect(x: 1_512, y: 0, width: 1_920, height: 1_080),
+        ]
+        let partial = CGRect(x: -300, y: 120, width: 900, height: 700)
+        let spanning = CGRect(x: 1_000, y: 100, width: 2_000, height: 700)
+
+        #expect(CmuxMainWindow.frameByCappingOversizedDimensions(
+            partial,
+            displayFrames: displays
+        ) == partial)
+        #expect(CmuxMainWindow.frameByCappingOversizedDimensions(
+            spanning,
+            displayFrames: displays
+        ) == spanning)
+    }
 }

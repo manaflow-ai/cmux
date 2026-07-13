@@ -46,22 +46,12 @@ extension RemoteTmuxWindowMirror {
         // parked or not-yet-windowed mirror has no tighter truth than the
         // largest display, so fall back to that.
         var pointSize = pointSize
-        let windowContent = panelsByPaneId.values.first?.hostedView.window
-            .flatMap { $0.isVisible ? $0.contentLayoutRect.size : nil }
-        if let bound = windowContent, bound.width > 1, bound.height > 1 {
+        if let bound = visibleHostingContentSize() {
             pointSize.width = min(pointSize.width, bound.width)
             pointSize.height = min(pointSize.height, bound.height)
         } else if containerSizePt != nil {
-            // No visible hosting window to bound this reading against. During
-            // fresh connect the first geometry callback can arrive while the
-            // window is still ordering in, carrying a stale full-display
-            // width; banking it claims the display ceiling and tmux — sized
-            // to the real window — never matches, wedging until something
-            // else nudges a re-measure. Once a size is on record, defer to
-            // the next callback that has a visible window rather than record
-            // an unvalidated one. (The first-ever measurement still falls
-            // through below, clamped to the display, so an attach that never
-            // has a window yet is not starved of its initial claim.)
+            // Once a size is on record, defer to the next callback that has
+            // a visible host instead of recording an unvalidated reading.
             return
         } else {
             let widths = NSScreen.screens.map(\.visibleFrame.width)
@@ -85,6 +75,23 @@ extension RemoteTmuxWindowMirror {
         containerSizePt = pointSize
         containerScale = scale
         setNeedsSizingPass()
+    }
+
+    /// Finds a trustworthy bound from any pane whose portal is attached to a
+    /// visible window. Dictionary order cannot decide which pane is mounted.
+    private func visibleHostingContentSize() -> CGSize? {
+        if let size = hostingContentSizeSource?(), size.width > 1, size.height > 1 {
+            return size
+        }
+        if hostingContentSizeSource != nil { return nil }
+        for panel in panelsByPaneId.values {
+            let view = panel.hostedView
+            guard view.isVisibleInUI, !view.isHidden, view.superview != nil,
+                  let window = view.window, window.isVisible else { continue }
+            let size = window.contentLayoutRect.size
+            if size.width > 1, size.height > 1 { return size }
+        }
+        return nil
     }
 
     /// Ingests one sizing sample into the min-tracked pad constants.
@@ -152,22 +159,12 @@ extension RemoteTmuxWindowMirror {
     func performSizingPassNow() {
         sizingPassScheduled = false
         guard !isTornDown else { return }
-        // Re-clamp the stored container against the live hosting window
-        // before reading inputs. A first measurement taken before the
-        // window was visible (fresh connect) banks a display-width fallback
-        // that no later geometry callback corrects if the container's point
-        // size never changes again; re-validating here lets the very next
-        // pass shrink it to the real window and re-claim, with no reliance
-        // on another callback firing.
-        if let window = panelsByPaneId.values.first?.hostedView.window,
-           window.isVisible, var size = containerSizePt {
-            let bound = window.contentLayoutRect.size
-            if bound.width > 1, bound.height > 1,
-               size.width > bound.width + 0.5 || size.height > bound.height + 0.5 {
-                size.width = min(size.width, bound.width)
-                size.height = min(size.height, bound.height)
-                containerSizePt = size
-            }
+        // Re-clamp a prior value as soon as any pane is visibly hosted.
+        if let bound = visibleHostingContentSize(), var size = containerSizePt,
+           size.width > bound.width + 0.5 || size.height > bound.height + 0.5 {
+            size.width = min(size.width, bound.width)
+            size.height = min(size.height, bound.height)
+            containerSizePt = size
         }
         let inputs = currentSizingInputs()
         if inputs == lastCompletedSizingInputs { return }

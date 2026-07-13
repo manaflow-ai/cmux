@@ -83,16 +83,30 @@ final class CmuxMainWindow: NSWindow {
     /// (observed live: the window at 29,000 points wide, growing every
     /// pass). The user sizes this window; layout does not.
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
-        var frame = frameRect
-        let displayUnion = NSScreen.screens.map(\.frame).reduce(NSRect.null) { $0.union($1) }
-        if !styleMask.contains(.fullScreen),
-           !displayUnion.isNull, displayUnion.width > 1, displayUnion.height > 1 {
-            // Preserve normal partially off-screen and display-spanning placement;
-            // only cap impossible runaway dimensions from content feedback.
-            frame.size.width = min(frame.size.width, displayUnion.width)
-            frame.size.height = min(frame.size.height, displayUnion.height)
-        }
+        let frame = styleMask.contains(.fullScreen)
+            ? frameRect
+            : Self.frameByCappingOversizedDimensions(
+                frameRect,
+                displayFrames: NSScreen.screens.map(\.frame)
+            )
         super.setFrame(frame, display: flag)
+    }
+
+    /// Caps runaway content-derived dimensions to the display union. Frames
+    /// that already fit are returned byte-for-byte so ordinary partial
+    /// off-screen and multi-display placement remains user-owned.
+    nonisolated static func frameByCappingOversizedDimensions(
+        _ proposedFrame: NSRect,
+        displayFrames: [NSRect]
+    ) -> NSRect {
+        let displays = displayFrames.filter { $0.width > 1 && $0.height > 1 }
+        let displayUnion = displays.reduce(NSRect.null) { $0.union($1) }
+        guard !displayUnion.isNull else { return proposedFrame }
+
+        var capped = proposedFrame
+        capped.size.width = min(capped.width, displayUnion.width)
+        capped.size.height = min(capped.height, displayUnion.height)
+        return capped.size == proposedFrame.size ? proposedFrame : capped
     }
 
     static var minimumContentSize: NSSize {
