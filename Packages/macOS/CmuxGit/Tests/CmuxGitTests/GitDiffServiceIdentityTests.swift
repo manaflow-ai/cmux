@@ -4,26 +4,27 @@ import Testing
 @testable import CmuxGit
 
 @Suite struct GitDiffServiceIdentityTests {
-    @Test func undecodableUntrackedPathFailsClosed() throws {
+    @Test func undecodableGitPathFailsClosed() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
-        let blobOutput = try runTestGit(
-            in: repo,
-            ["hash-object", "-w", "--stdin"],
-            standardInput: Data("content\n".utf8)
-        )
-        let blob = try #require(String(data: blobOutput, encoding: .utf8))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        var indexRecord = Data("100644 \(blob)\tnon-".utf8)
-        indexRecord.append(0xff)
-        indexRecord.append(0)
-        _ = try runTestGit(
-            in: repo,
-            ["update-index", "-z", "--index-info"],
-            standardInput: indexRecord
+        let emittingGit = repo.appendingPathComponent("invalid-path-git.sh")
+        try Data(
+            """
+            #!/bin/sh
+            case "$3:$5" in
+              rev-parse:*) printf 'HEAD\\n' ;;
+              diff:--numstat) printf '1\\t0\\tnon-\\377\\0' ;;
+              diff:--name-status) printf 'A\\0non-\\377\\0' ;;
+              ls-files:*) exit 0 ;;
+              *) exit 2 ;;
+            esac
+            """.utf8
+        ).write(to: emittingGit)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: emittingGit.path
         )
 
-        let service = GitDiffService()
+        let service = GitDiffService(gitExecutableURL: emittingGit)
 
         // Unsupported Git path bytes must not become an authoritative empty
         // repository state, which would render as "No changes" on iOS.
@@ -42,7 +43,13 @@ import Testing
         let service = GitDiffService()
         let changed = try #require(service.changedFiles(repoRoot: repo.path))
         let replacement = try #require(changed.files.first { $0.path == "A.txt" })
-        let diff = try #require(service.fileDiff(repoRoot: repo.path, path: replacement.path))
+        let diff = try #require(
+            service.fileDiff(
+                repoRoot: repo.path,
+                path: replacement.path,
+                status: replacement.status
+            )
+        )
 
         #expect(replacement.status == .untracked)
         #expect(diff.unifiedDiff.contains("+replacement"))
@@ -83,28 +90,15 @@ import Testing
         return root
     }
 
-    @discardableResult
-    private func runTestGit(
-        in root: URL,
-        _ arguments: [String],
-        standardInput: Data? = nil
-    ) throws -> Data {
+    private func runTestGit(in root: URL, _ arguments: [String]) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = arguments
         process.currentDirectoryURL = root
-        let output = Pipe()
-        process.standardOutput = output
+        process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        let input = standardInput.map { _ in Pipe() }
-        process.standardInput = input
         try process.run()
-        if let standardInput, let input {
-            input.fileHandleForWriting.write(standardInput)
-            try input.fileHandleForWriting.close()
-        }
         process.waitUntilExit()
         try #require(process.terminationStatus == 0)
-        return output.fileHandleForReading.readDataToEndOfFile()
     }
 }

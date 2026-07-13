@@ -42,12 +42,14 @@ extension MobileShellComposite {
     ///   - workspaceID: The workspace to review.
     ///   - path: Repository-relative path.
     ///   - oldPath: Previous repository-relative path for a rename.
+    ///   - status: Status from the selected changed-file row.
     ///   - repoRoot: Repository root returned by the matching status request.
     /// - Returns: One-file diff payload from the paired Mac.
     public func fetchFileDiff(
         workspaceID: MobileWorkspacePreview.ID,
         path: String,
         oldPath: String?,
+        status: String,
         repoRoot: String
     ) async throws -> MobileWorkspaceDiffFileResponse {
         var params = workspaceDiffParams(workspaceID: workspaceID)
@@ -55,6 +57,7 @@ extension MobileShellComposite {
         if let oldPath {
             params["old_path"] = oldPath
         }
+        params["status"] = status
         params["repo_root"] = repoRoot
         let data = try await sendWorkspaceDiffRequest(
             method: "mobile.workspace.diff_file",

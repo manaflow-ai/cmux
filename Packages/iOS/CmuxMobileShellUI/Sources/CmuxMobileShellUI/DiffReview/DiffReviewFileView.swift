@@ -5,7 +5,7 @@ import SwiftUI
 
 struct DiffReviewFileView: View {
     @Bindable var session: DiffReviewSession
-    let fetchFile: (String, String?) async throws -> MobileWorkspaceDiffFileResponse
+    let fetchFile: (String, String?, String) async throws -> MobileWorkspaceDiffFileResponse
     private let parser = DiffReviewParser()
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -257,6 +257,7 @@ struct DiffReviewFileView: View {
         DiffReviewFileLoadRequest(
             path: session.currentFile?.path,
             oldPath: session.currentFile?.oldPath,
+            status: session.currentFile?.status,
             attempt: loadAttempt
         )
     }
@@ -317,7 +318,7 @@ struct DiffReviewFileView: View {
     }
 
     private func loadCurrentFile(request: DiffReviewFileLoadRequest) async {
-        guard let path = request.path else {
+        guard let path = request.path, let status = request.status else {
             activeRequest = nil
             loadState = .idle
             return
@@ -325,7 +326,7 @@ struct DiffReviewFileView: View {
         activeRequest = request
         loadState = .loading(path: path)
         do {
-            let response = try await fetchFile(path, request.oldPath)
+            let response = try await fetchFile(path, request.oldPath, status)
             guard activeRequest == request, !Task.isCancelled else { return }
             guard response.path == path else {
                 throw MobileShellConnectionError.invalidResponse

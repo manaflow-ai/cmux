@@ -69,6 +69,16 @@ extension TerminalController {
         } else {
             oldPath = nil
         }
+        let status: GitDiffStatus?
+        if v2HasNonNullParam(params, "status") {
+            guard let rawStatus = params["status"] as? String,
+                  let parsedStatus = GitDiffStatus(rawValue: rawStatus) else {
+                return .err(code: "invalid_params", message: "Missing or invalid status", data: nil)
+            }
+            status = parsedStatus
+        } else {
+            status = nil
+        }
         switch mobileWorkspaceDiffSnapshot(params: params) {
         case .failure(let error):
             return error
@@ -77,6 +87,7 @@ extension TerminalController {
                 directory: snapshot.directory,
                 path: rawPath,
                 oldPath: oldPath,
+                status: status,
                 expectedRepoRoot: expectedRepoRoot
             )
             return Self.v2MobileWorkspaceDiffResult(result)
@@ -120,6 +131,7 @@ extension TerminalController {
         directory: String,
         path: String,
         oldPath: String?,
+        status: GitDiffStatus?,
         expectedRepoRoot: String
     ) async -> MobileWorkspaceDiffFileResult {
         await detachedCancellable {
@@ -127,6 +139,7 @@ extension TerminalController {
                 directory: directory,
                 path: path,
                 oldPath: oldPath,
+                status: status,
                 expectedRepoRoot: expectedRepoRoot
             )
         }
@@ -191,6 +204,7 @@ extension TerminalController {
         directory: String,
         path: String,
         oldPath: String?,
+        status: GitDiffStatus?,
         expectedRepoRoot: String
     ) -> MobileWorkspaceDiffFileResult {
         let service = GitDiffService()
@@ -216,6 +230,7 @@ extension TerminalController {
             repoRoot: repoRoot,
             path: path,
             oldPath: oldPath,
+            status: status,
             maxOutputBytes: mobileWorkspaceDiffReadCap
         ) {
         case .success(let value):

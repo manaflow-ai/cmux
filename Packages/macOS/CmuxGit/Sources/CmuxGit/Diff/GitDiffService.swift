@@ -2,7 +2,7 @@ public import Foundation
 
 /// Runs git commands needed by the mobile diff-review flow.
 public struct GitDiffService: Sendable {
-    private let processRunner: GitProcessRunner
+    let processRunner: GitProcessRunner
 
     /// Creates a git diff service.
     ///
@@ -125,14 +125,18 @@ public struct GitDiffService: Sendable {
         guard let numstatData = completeRecordData(numstat),
               let nameStatusData = completeRecordData(nameStatus),
               let untrackedData = completeRecordData(untracked) else { return .failed }
-        let files = parseChangedFiles(
+        let parsed = parseChangedFiles(
             numstatData: numstatData,
             nameStatusData: nameStatusData,
             untrackedData: untrackedData
         )
+        // Git paths are byte identities, while the mobile protocol uses Swift
+        // strings. Failing the snapshot is safer than silently dropping an
+        // undecodable entry and claiming the visible list is complete.
+        guard !parsed.hasUndecodablePath else { return .failed }
         return .success(
             GitChangedFiles(
-                files: files,
+                files: parsed.files,
                 truncated: numstat.capped || nameStatus.capped || untracked.capped
             )
         )
@@ -153,6 +157,8 @@ public struct GitDiffService: Sendable {
     ///   - repoRoot: Repository root.
     ///   - path: Repository-relative path.
     ///   - oldPath: Previous repository-relative path for a rename.
+    ///   - status: Status from the selected changed-file row. This disambiguates
+    ///     a deletion from an untracked replacement at the same path.
     ///   - maxOutputBytes: Upper bound on diff bytes read from git. When the
     ///     output reaches this bound the git process is terminated and the
     ///     bounded prefix (trimmed to a UTF-8 boundary) is returned, so a huge
@@ -164,12 +170,14 @@ public struct GitDiffService: Sendable {
         repoRoot: String,
         path: String,
         oldPath: String? = nil,
+        status: GitDiffStatus? = nil,
         maxOutputBytes: Int = 4 * 1024 * 1024
     ) -> GitFileDiff? {
         guard case .success(let diff) = fileDiffResult(
             repoRoot: repoRoot,
             path: path,
             oldPath: oldPath,
+            status: status,
             maxOutputBytes: maxOutputBytes
         ) else { return nil }
         return diff
@@ -181,6 +189,7 @@ public struct GitDiffService: Sendable {
         repoRoot: String,
         path: String,
         oldPath: String? = nil,
+        status: GitDiffStatus? = nil,
         maxOutputBytes: Int = 4 * 1024 * 1024
     ) -> GitDiffQueryResult<GitFileDiff> {
         guard maxOutputBytes > 0 else { return .notFound }
@@ -255,7 +264,12 @@ public struct GitDiffService: Sendable {
                 return .timedOut
             }
         }
-        if untracked, !requestedBaselineEntry.isFile {
+        let shouldDiffAsUntracked = status == .untracked
+            || (status == nil && untracked && !requestedBaselineEntry.isFile)
+        if status == .untracked, !untracked {
+            return .notFound
+        }
+        if shouldDiffAsUntracked {
             // An untracked destination cannot be the second half of a tracked
             // rename. Fail closed instead of silently ignoring `oldPath` and
             // returning an unrelated new-file diff.
@@ -410,70 +424,6 @@ public struct GitDiffService: Sendable {
         return .success(.missing)
     }
 
-    /// `git diff HEAD` fails before the first commit. In that state Git's
-    /// hash-format-aware empty tree is the correct baseline for index and
-    /// working-tree changes, including files already staged in the index.
-    private func diffBaselineResult(in repoRoot: String) -> GitDiffQueryResult<String> {
-        let head = runGit(in: repoRoot, arguments: ["rev-parse", "--verify", "--quiet", "HEAD"])
-        switch head.failure {
-        case nil:
-            guard head.successOutput != nil else { return .failed }
-            return .success("HEAD")
-        case .unsuccessfulExit:
-            break
-        case .timedOut:
-            return .timedOut
-        case .cancelled, .launchFailed:
-            return .failed
-        }
-        let emptyTree = runGit(in: repoRoot, arguments: ["hash-object", "-t", "tree", "/dev/null"])
-        if let failure: GitDiffQueryResult<String> = queryFailure(from: emptyTree) {
-            return failure
-        }
-        guard let output = emptyTree.successOutput,
-              let baseline = Self.removingGitLineTerminator(output),
-              !baseline.isEmpty else { return .failed }
-        return .success(baseline)
-    }
-
-    /// Git terminates one scalar result with a line ending. Remove only that
-    /// protocol terminator, preserving valid spaces and newlines in paths.
-    private static func removingGitLineTerminator(_ output: String) -> String? {
-        if output.hasSuffix("\r\n") {
-            return String(output.dropLast(2))
-        }
-        if output.hasSuffix("\n") || output.hasSuffix("\r") {
-            return String(output.dropLast())
-        }
-        return output
-    }
-
-    private func queryFailure<Value: Sendable>(
-        from result: GitProcessResult
-    ) -> GitDiffQueryResult<Value>? {
-        switch result.failure {
-        case .timedOut:
-            return .timedOut
-        case .cancelled, .launchFailed, .unsuccessfulExit:
-            return .failed
-        case nil:
-            return nil
-        }
-    }
-
-    private func runGit(
-        in directory: String,
-        arguments: [String],
-        acceptedTerminationStatuses: Set<Int32> = [0],
-        maxOutputBytes: Int? = nil
-    ) -> GitProcessResult {
-        processRunner.run(
-            in: directory,
-            arguments: arguments,
-            acceptedTerminationStatuses: acceptedTerminationStatuses,
-            maxOutputBytes: maxOutputBytes
-        )
-    }
 }
 
 private enum BaselineEntryKind: Equatable {

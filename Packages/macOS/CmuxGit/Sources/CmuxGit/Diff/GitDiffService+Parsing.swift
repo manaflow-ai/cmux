@@ -10,21 +10,31 @@ extension GitDiffService {
             numstatData: numstatOutput.map { Data($0.utf8) },
             nameStatusData: nameStatusOutput.map { Data($0.utf8) },
             untrackedData: untrackedOutput.map { Data($0.utf8) }
-        )
+        ).files
     }
 
     func parseChangedFiles(
         numstatData: Data?,
         nameStatusData: Data?,
         untrackedData: Data?
-    ) -> [GitDiffSummary] {
+    ) -> GitDiffParseResult {
+        let numstatTokens = Self.strictUTF8Tokens(numstatData)
+        let nameStatusTokens = Self.strictUTF8Tokens(nameStatusData)
+        let untrackedTokens = Self.strictUTF8Tokens(untrackedData)
         var partials: [String: GitDiffSummaryPartial] = [:]
-        parseNumstatTokens(Self.strictUTF8Tokens(numstatData), into: &partials)
-        parseNameStatusTokens(Self.strictUTF8Tokens(nameStatusData), into: &partials)
-        parseUntrackedTokens(Self.strictUTF8Tokens(untrackedData), into: &partials)
-        return partials.values
-            .map(\.summary)
-            .sorted { lhs, rhs in lhs.path.localizedStandardCompare(rhs.path) == .orderedAscending }
+        parseNumstatTokens(numstatTokens, into: &partials)
+        parseNameStatusTokens(nameStatusTokens, into: &partials)
+        parseUntrackedTokens(untrackedTokens, into: &partials)
+        return GitDiffParseResult(
+            files: partials.values
+                .map(\.summary)
+                .sorted { lhs, rhs in
+                    lhs.path.localizedStandardCompare(rhs.path) == .orderedAscending
+                },
+            hasUndecodablePath: numstatTokens.contains(nil)
+                || nameStatusTokens.contains(nil)
+                || untrackedTokens.contains(nil)
+        )
     }
 
     /// Git paths are byte identities. Decode each NUL-delimited field strictly
@@ -70,6 +80,11 @@ extension GitDiffService {
             partials[path] = GitDiffSummaryPartial(path: path, status: .untracked)
         }
     }
+}
+
+struct GitDiffParseResult {
+    let files: [GitDiffSummary]
+    let hasUndecodablePath: Bool
 }
 
 private struct GitDiffSummaryPartial {

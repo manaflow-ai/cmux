@@ -89,18 +89,28 @@ struct GitProcessRunner: Sendable {
                 return GitProcessResult(
                     rawOutput: read.data,
                     output: Self.decodeUTF8Lossy(read.data, maxOutputBytes: maxOutputBytes),
-                    capped: true
+                    capped: true,
+                    terminationStatus: process.terminationStatus
                 )
             }
             if watchdog.didFire {
-                return GitProcessResult(output: nil, failure: .timedOut)
+                return GitProcessResult(
+                    output: nil,
+                    failure: .timedOut,
+                    terminationStatus: process.terminationStatus
+                )
             }
             guard acceptedTerminationStatuses.contains(process.terminationStatus) else {
-                return GitProcessResult(output: nil, failure: .unsuccessfulExit)
+                return GitProcessResult(
+                    output: nil,
+                    failure: .unsuccessfulExit,
+                    terminationStatus: process.terminationStatus
+                )
             }
             return GitProcessResult(
                 rawOutput: read.data,
-                output: Self.decodeUTF8Lossy(read.data, maxOutputBytes: nil)
+                output: Self.decodeUTF8Lossy(read.data, maxOutputBytes: nil),
+                terminationStatus: process.terminationStatus
             )
         } catch {
             return GitProcessResult(output: nil, failure: .launchFailed)
@@ -200,17 +210,21 @@ struct GitProcessResult {
     /// Whether the output was cut off at the caller's byte bound.
     let capped: Bool
     let failure: GitProcessFailure?
+    /// Exit status when a Git subprocess launched and terminated.
+    let terminationStatus: Int32?
 
     init(
         rawOutput: Data? = nil,
         output: String?,
         capped: Bool = false,
-        failure: GitProcessFailure? = nil
+        failure: GitProcessFailure? = nil,
+        terminationStatus: Int32? = nil
     ) {
         self.rawOutput = rawOutput
         self.output = output
         self.capped = capped
         self.failure = failure
+        self.terminationStatus = terminationStatus
     }
 
     var timedOut: Bool { failure == .timedOut }
