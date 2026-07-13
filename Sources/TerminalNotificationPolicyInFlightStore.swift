@@ -22,6 +22,9 @@ final class TerminalNotificationPolicyInFlightStore {
         requests.removeAll()
     }
 
+    /// Discards requests by their delivery identity: source-confined requests
+    /// keep their original workspace key, while trusted local requests follow
+    /// their surface's live owner.
     func discard(forTabId tabId: UUID, surfaceId: UUID?) {
         requests = requests.filter { _, request in
             if !request.retargetsToLiveSurfaceOwner {
@@ -37,7 +40,7 @@ final class TerminalNotificationPolicyInFlightStore {
                 claimedTabId: request.tabId,
                 surfaceId: request.surfaceId
             )?.tabId ?? request.tabId
-            return request.tabId != tabId && liveTabId != tabId
+            return liveTabId != tabId
         }
     }
 }

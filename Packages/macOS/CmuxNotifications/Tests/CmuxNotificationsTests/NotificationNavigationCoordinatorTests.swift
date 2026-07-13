@@ -438,11 +438,13 @@ struct NotificationNavigationCoordinatorTests {
         let opened = coordinator.openNotification(
             id: notificationId,
             fallbackTabId: fallbackTabId,
-            fallbackSurfaceId: fallbackSurfaceId
+            fallbackSurfaceId: fallbackSurfaceId,
+            fallbackRetargetsToLiveSurfaceOwner: false
         )
 
         #expect(opened)
         #expect(openRouting.log == ["routed(tab=\(short(fallbackTabId)),surf=\(short(fallbackSurfaceId)),notif=\(short(notificationId)),row=nil,total=nil)"])
+        #expect(openRouting.routedRetargetingValues == [false])
     }
 
     // MARK: - Focus signal (the #if DEBUG recorder hook)

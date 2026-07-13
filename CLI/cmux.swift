@@ -24089,7 +24089,7 @@ struct CMUXCLI {
                 )
             }
             if isClearSessionStart, !suppressVisibleMutations {
-                _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+                _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
@@ -24333,7 +24333,7 @@ struct CMUXCLI {
                     launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand
                 )
             }
-            _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+            _ = try sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
             setAgentLifecycle(
                 client: client,
                 key: Self.claudeCodeStatusKey,
@@ -24673,13 +24673,12 @@ struct CMUXCLI {
                         workspaceId: consumedSession.workspaceId,
                         surfaceId: consumedSession.surfaceId
                     )
-                    // A re-homed cleanup scopes the clear to the pane: wiping
-                    // the whole DESTINATION workspace would erase sibling
-                    // panes' notifications. Non-moved keeps workspace-wide.
-                    let cleanupTargetChanged = workspaceId != consumedSession.workspaceId
-                        || cleanupSurfaceId != consumedSession.surfaceId
-                    let clearScope = cleanupTargetChanged ? socketPanelOption(cleanupSurfaceId) : ""
-                    _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(clearScope)", client: client)
+                    // Lifecycle cleanup is always pane-scoped: a workspace can
+                    // host multiple agents whose notifications are independent.
+                    _ = try? sendV1Command(
+                        "clear_notifications --tab=\(workspaceId)\(socketPanelOption(cleanupSurfaceId))",
+                        client: client
+                    )
                 } else {
                     telemetry.breadcrumb("claude-hook.session-end.stale")
                 }
@@ -24853,7 +24852,7 @@ struct CMUXCLI {
                     agentLifecycle: .running
                 )
             }
-            _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+            _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
             setAgentLifecycle(
                 client: client,
                 key: Self.claudeCodeStatusKey,

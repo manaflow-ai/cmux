@@ -704,7 +704,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )?.id
             }
         )
-
     /// OS notification delivery/response coordination, extracted into
     /// `CmuxNotifications`. The app target injects the concrete
     /// `UNUserNotificationCenter`, terminal identifiers from
@@ -719,7 +718,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         applicationActivation: notificationDeliverySeams,
         terminalIdentifiers: TerminalNotificationDeliveryIdentifiers(
             categoryIdentifier: TerminalNotificationStore.categoryIdentifier,
-            showActionIdentifier: TerminalNotificationStore.actionShowIdentifier
+            showActionIdentifier: TerminalNotificationStore.actionShowIdentifier,
+            retargetsToLiveSurfaceOwnerUserInfoKey: TerminalNotificationStore.retargetsToLiveSurfaceOwnerUserInfoKey
         ),
         actionTitles: notificationDeliveryActionTitles
     )
