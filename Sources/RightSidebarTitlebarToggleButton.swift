@@ -4,12 +4,13 @@ import SwiftUI
 struct RightSidebarTitlebarToggleButton: View {
     let config: TitlebarControlsStyleConfig
     let isVisible: Bool
+    let foregroundColor: Color
     let action: () -> Void
 
     var body: some View {
         TitlebarControlButton(
             config: config,
-            foregroundColor: Color(nsColor: titlebarControlForegroundNSColor(opacity: 1)),
+            foregroundColor: foregroundColor,
             accessibilityIdentifier: "titlebarControl.toggleRightSidebar",
             accessibilityLabel: String(
                 localized: "shortcut.toggleRightSidebar.label",

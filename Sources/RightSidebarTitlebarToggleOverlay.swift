@@ -14,6 +14,7 @@ struct RightSidebarTitlebarToggleOverlay: View {
             RightSidebarTitlebarToggleButton(
                 config: config,
                 isVisible: isVisible,
+                foregroundColor: .primary,
                 action: action
             )
             .environment(\.colorScheme, colorScheme)

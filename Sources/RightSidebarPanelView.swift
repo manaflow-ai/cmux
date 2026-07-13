@@ -238,10 +238,10 @@ struct RightSidebarPanelView: View {
                         }
                     }
                 }
-                Spacer(minLength: 0)
                 if fileExplorerState.mode.canOpenAsPane {
                     openAsPaneButton(mode: fileExplorerState.mode)
                 }
+                Spacer(minLength: 0)
                 trailingTitlebarControlReservation
             }
         }

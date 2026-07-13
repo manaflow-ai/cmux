@@ -180,7 +180,11 @@ final class BonsplitTabDragUITests: XCTestCase {
     }
 
     func testRightSidebarTitlebarToggleStaysAvailableAcrossVisibilityChanges() {
-        let (app, dataPath) = launchConfiguredApp(showRightSidebar: true, alwaysShowShortcutHints: true)
+        let (app, dataPath) = launchConfiguredApp(
+            presentationMode: .standard,
+            showRightSidebar: true,
+            alwaysShowShortcutHints: true
+        )
 
         XCTAssertTrue(
             ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
@@ -207,6 +211,15 @@ final class BonsplitTabDragUITests: XCTestCase {
             "Expected the trailing titlebar toggle to be hittable. button=\(titlebarToggle.debugDescription)"
         )
         XCTAssertTrue(titlebarToggle.isSelected, "Expected the toggle to reflect the visible sidebar state.")
+        let mobileConnectButton = app.buttons["TitlebarMobileConnectButton"]
+        XCTAssertTrue(
+            mobileConnectButton.waitForExistence(timeout: 5.0),
+            "Expected the default-enabled Mobile Connect control in the standard titlebar."
+        )
+        let proBadgeButton = app.buttons["ProBadgeButton"]
+        let leftmostTrailingControl = proBadgeButton.waitForExistence(timeout: 1.0)
+            ? proBadgeButton
+            : mobileConnectButton
         let openAsPaneButton = app.buttons["RightSidebar.openAsPaneButton"]
         XCTAssertTrue(openAsPaneButton.waitForExistence(timeout: 5.0), "Expected open-as-pane button inside the right sidebar chrome.")
         XCTAssertTrue(
@@ -215,8 +228,13 @@ final class BonsplitTabDragUITests: XCTestCase {
         )
         XCTAssertLessThan(
             openAsPaneButton.frame.maxX,
+            leftmostTrailingControl.frame.minX,
+            "Expected the sidebar header action to remain left of the native trailing controls."
+        )
+        XCTAssertLessThan(
+            mobileConnectButton.frame.maxX,
             titlebarToggle.frame.minX,
-            "Expected the sidebar header action to remain left of the titlebar toggle."
+            "Expected the right sidebar toggle to remain the far-right titlebar control."
         )
 
         titlebarToggle.click()

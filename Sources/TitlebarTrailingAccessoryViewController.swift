@@ -32,6 +32,17 @@ private struct TitlebarTrailingControls: View {
     let onToggleRightSidebar: () -> Void
     @AppStorage(TitlebarControlsStyle.storageKey)
     private var styleRawValue = TitlebarControlsStyle.defaultRawValue
+    @AppStorage(SidebarMatchTerminalBackgroundSettings.userDefaultsKey)
+    private var sidebarMatchesTerminalBackground = false
+    @AppStorage(AppearanceSettings.appearanceModeKey)
+    private var appearanceMode = AppearanceSettings.defaultMode.rawValue
+
+    private var rightSidebarToggleForegroundColor: Color {
+        if fileExplorerState.isVisible && !sidebarMatchesTerminalBackground {
+            return .primary
+        }
+        return Color(nsColor: titlebarControlForegroundNSColor(opacity: 1))
+    }
 
     var body: some View {
         HStack(spacing: 4) {
@@ -40,9 +51,11 @@ private struct TitlebarTrailingControls: View {
             RightSidebarTitlebarToggleButton(
                 config: TitlebarControlsStyle.stored(rawValue: styleRawValue).config,
                 isVisible: fileExplorerState.isVisible,
+                foregroundColor: rightSidebarToggleForegroundColor,
                 action: onToggleRightSidebar
             )
         }
         .padding(.trailing, 8)
+        .cmuxAppearanceColorScheme(appearanceMode)
     }
 }
