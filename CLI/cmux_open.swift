@@ -592,33 +592,7 @@ extension CMUXCLI {
         }
     }
 
-    private enum DiffViewerShortcutAction: String, CaseIterable {
-        case scrollDown = "diffViewerScrollDown"
-        case scrollUp = "diffViewerScrollUp"
-        case scrollToBottom = "diffViewerScrollToBottom"
-        case scrollToTop = "diffViewerScrollToTop"
-        case openFileSearch = "diffViewerOpenFileSearch"
-
-        var defaultShortcut: DiffViewerShortcut {
-            switch self {
-            case .scrollDown:
-                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "j"))
-            case .scrollUp:
-                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "k"))
-            case .scrollToBottom:
-                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "g", shift: true))
-            case .scrollToTop:
-                return DiffViewerShortcut(
-                    first: DiffViewerShortcutStroke(key: "g"),
-                    second: DiffViewerShortcutStroke(key: "g")
-                )
-            case .openFileSearch:
-                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "/"))
-            }
-        }
-    }
-
-    private struct DiffViewerShortcutStroke: Equatable {
+    struct DiffViewerShortcutStroke: Equatable {
         var key: String
         var command: Bool
         var shift: Bool
@@ -644,7 +618,7 @@ extension CMUXCLI {
         }
     }
 
-    private struct DiffViewerShortcut: Equatable {
+    struct DiffViewerShortcut: Equatable {
         var first: DiffViewerShortcutStroke?
         var second: DiffViewerShortcutStroke?
 
@@ -1037,8 +1011,8 @@ extension CMUXCLI {
             "transparent_background": true,
             "bypass_remote_proxy": true
         ]
+        params["diff_viewer_token"] = viewer.url.scheme == DiffViewerURLMapper.scheme ? (viewer.url.host ?? "") : (viewer.url.path.split(separator: "/").first.map(String.init) ?? "")
         if viewer.url.scheme == DiffViewerURLMapper.scheme {
-            params["diff_viewer_token"] = viewer.url.host ?? ""
             params["diff_viewer_files"] = viewer.allowedFiles.map(\.jsonObject)
         }
         if let windowHandle { params["window_id"] = windowHandle }
