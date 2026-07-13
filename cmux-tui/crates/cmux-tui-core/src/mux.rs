@@ -46,6 +46,21 @@ pub enum MuxEvent {
     TreeChanged,
     /// A screen's pane geometry changed. Clients should re-fetch layout.
     LayoutChanged(ScreenId),
+    /// A control connection attached its first surface.
+    ClientAttached {
+        client: u64,
+        transport: String,
+        name: Option<String>,
+        kind: Option<String>,
+    },
+    /// A control connection updated its display metadata.
+    ClientChanged {
+        client: u64,
+        name: Option<String>,
+        kind: Option<String>,
+    },
+    /// A control connection ended.
+    ClientDetached(u64),
     /// Every workspace is gone.
     Empty,
 }
@@ -231,6 +246,7 @@ pub struct Mux {
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<HashMap<SurfaceId, AgentRecord>>,
     surface_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
+    pub(crate) control_clients: crate::server::ClientRegistry,
     #[cfg(test)]
     test_surface_runtime: bool,
     pub session: String,
@@ -267,6 +283,7 @@ impl Mux {
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_records: Mutex::new(HashMap::new()),
             surface_notifications: Mutex::new(HashMap::new()),
+            control_clients: crate::server::ClientRegistry::new(),
             #[cfg(test)]
             test_surface_runtime,
             session,

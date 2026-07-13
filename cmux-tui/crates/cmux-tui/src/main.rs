@@ -88,7 +88,8 @@ MOUSE
   screen entries to switch screens (+ for a new screen).
 
 CLI VERBS
-  identify, ping, reload-config, set-window-title, clear-window-title,
+  identify, ping, set-client-info, list-clients, detach-client,
+  reload-config, set-window-title, clear-window-title,
   list-workspaces, export-layout, apply-layout, send,
   read-screen, vt-state, new-tab, new-browser-tab, new-workspace,
   new-screen, split, set-ratio, pane-neighbor, focus-direction,

@@ -71,6 +71,41 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_eq!(ping.get("ok").and_then(|v| v.as_bool()), Some(true));
     assert_eq!(ping.get("protocol").and_then(|v| v.as_u64()), Some(6));
 
+    let client_info =
+        cli(&server, &["set-client-info", "--name", "one-shot", "--kind", "cli-test"]);
+    assert_success(&client_info);
+
+    let target = transport::connect(&server.socket).unwrap();
+    let mut target_writer = target.try_clone_box().unwrap();
+    let mut target_reader = BufReader::new(target);
+    writeln!(
+        target_writer,
+        r#"{{"id":1,"cmd":"set-client-info","name":"cli-detach-target","kind":"test"}}"#
+    )
+    .unwrap();
+    let mut target_response = String::new();
+    target_reader.read_line(&mut target_response).unwrap();
+    assert_eq!(serde_json::from_str::<serde_json::Value>(&target_response).unwrap()["ok"], true);
+
+    let clients = cli(&server, &["--json", "list-clients"]);
+    assert_success(&clients);
+    let clients_json: serde_json::Value = serde_json::from_slice(&clients.stdout).unwrap();
+    let target_id = clients_json
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|client| client["name"] == "cli-detach-target")
+        .unwrap()["client"]
+        .as_u64()
+        .unwrap();
+    let clients_human = cli(&server, &["list-clients"]);
+    assert_success(&clients_human);
+    assert!(String::from_utf8_lossy(&clients_human.stdout).contains("connected="));
+    let detached = cli(&server, &["detach-client", "--client", &target_id.to_string()]);
+    assert_success(&detached);
+    target_response.clear();
+    assert_eq!(target_reader.read_line(&mut target_response).unwrap(), 0);
+
     let title = cli(&server, &["set-window-title", "--title", "hello"]);
     assert_success(&title);
     assert!(title.stdout.is_empty(), "set-window-title should be quiet on success");

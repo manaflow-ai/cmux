@@ -53,6 +53,9 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | --- | --- | --- | --- | --- |
 | `identify` | implemented | none | global flags | one metadata line |
 | `ping` | implemented | none | global flags | one liveness line |
+| `set-client-info` | implemented | none | `--name <name>`, `--kind <kind>` | none |
+| `list-clients` | implemented | none | global flags | client lines |
+| `detach-client` | implemented | `--client <id>` | global flags | none |
 | `reload-config` | implemented | none | global flags | none |
 | `set-window-title` | implemented | `--title <title>` | global flags | none |
 | `clear-window-title` | implemented | none | global flags | none |

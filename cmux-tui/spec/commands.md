@@ -163,6 +163,132 @@ Example:
 {"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","protocol":6}}
 ```
 
+### set-client-info
+
+| Field | Value |
+| --- | --- |
+| name | `set-client-info` |
+| status | implemented |
+| since | protocol 6 additive extension |
+
+Labels the requesting control connection. Repeated calls are idempotent. An omitted field preserves its current value; supplied `name` and `kind` values are clamped to 64 Unicode characters by the server.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `name` | `string` | default unchanged | Control characters are replaced with spaces; first 64 characters are retained |
+| `kind` | `string` | default unchanged | Control characters are replaced with spaces; first 64 characters are retained |
+
+Result: `object{}`.
+
+Errors: `bad request: ...` for wrong JSON types.
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `set-client-info` |
+| Flags | `[--name <name>] [--kind <kind>]` |
+| Plain stdout | no output |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":3,"cmd":"set-client-info","name":"lawrences-iphone","kind":"web"}
+{"id":3,"ok":true,"data":{}}
+```
+
+### list-clients
+
+| Field | Value |
+| --- | --- |
+| name | `list-clients` |
+| status | implemented |
+| since | protocol 6 additive extension |
+
+Returns all current Unix and WebSocket control connections in ascending client-id order. `self` identifies the requesting connection. `connected_seconds` is elapsed monotonic whole seconds. `attached` contains unique surface ids, and each corresponding `sizes` entry has null dimensions until that connection requests `resize-surface` for the attached surface.
+
+Params: none.
+
+Result:
+
+```text
+array<object{
+  client:uint64,
+  transport:"unix"|"ws",
+  name:string|null,
+  kind:string|null,
+  connected_seconds:uint64,
+  attached:array<Id>,
+  sizes:array<object{surface:Id,cols:uint16|null,rows:uint16|null}>,
+  self:boolean
+}>
+```
+
+Errors: `bad request: ...`.
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `list-clients` |
+| Flags | none |
+| Plain stdout | one line per client: `<client> <transport> <name-or-> <kind-or-> connected=<n>s attached=<ids-or-> sizes=<sizes-or-> self=<bool>` |
+| JSON stdout | exact result array |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":4,"cmd":"list-clients"}
+{"id":4,"ok":true,"data":[{"client":1,"transport":"unix","name":"host","kind":"tui","connected_seconds":12,"attached":[7],"sizes":[{"surface":7,"cols":120,"rows":36}],"self":true}]}
+```
+
+### detach-client
+
+| Field | Value |
+| --- | --- |
+| name | `detach-client` |
+| status | implemented |
+| since | protocol 6 additive extension |
+
+Ends a control connection. Every attached surface receives its normal `detached` event when the target transport is still writable, then the socket closes. Detaching the requesting client is allowed; the server writes that command's success response before its `detached` events and transport close.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `client` | `uint64` | required | Current client id from `list-clients` |
+
+Result: `object{}`.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `unknown client <id>` | Client id is not currently connected |
+| `bad request: ...` | Missing `client` or wrong JSON type |
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `detach-client` |
+| Flags | `--client <id>` |
+| Plain stdout | no output |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":5,"cmd":"detach-client","client":2}
+{"id":5,"ok":true,"data":{}}
+```
+
 ### reload-config
 
 | Field | Value |

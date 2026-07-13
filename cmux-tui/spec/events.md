@@ -6,7 +6,7 @@ Implemented event lines can appear on two stream types:
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-exited`, `title-changed`, `bell`, `notification`, `config-reload-requested`, `window-title-requested`, `empty` |
+| Subscribe stream | `subscribe` command | `tree-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-exited`, `title-changed`, `bell`, `notification`, `config-reload-requested`, `window-title-requested`, `client-attached`, `client-changed`, `client-detached`, `empty` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached` |
 | Attach stream v6 | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `scroll-changed`, `detached` |
 
@@ -29,6 +29,72 @@ Protocol v6 attach streams are ordered as `vt-state -> (resized | output | color
 When a surface exits, the mux removes it from the tree itself. Subscribe streams normally receive `tree-changed` and possibly `empty` before `surface-exited` for that surface. By the time `surface-exited` is observed, frontends should consider the surface reaped from authoritative tree state.
 
 ## Implemented Subscribe Events
+
+### client-attached
+
+| Field | Value |
+| --- | --- |
+| event | `client-attached` |
+| status | implemented |
+| since | protocol 6 additive extension |
+
+Payload:
+
+```text
+object{event:"client-attached",client:uint64,transport:"unix"|"ws",name:string|null,kind:string|null}
+```
+
+Meaning: A control connection attached its first surface. A connection that never calls `attach-surface` does not emit this event, and later surfaces on the same connection do not emit it again. Use `list-clients` for the attached surface set and sizes.
+
+Example:
+
+```json
+{"event":"client-attached","client":2,"transport":"ws","name":"lawrences-iphone","kind":"web"}
+```
+
+### client-changed
+
+| Field | Value |
+| --- | --- |
+| event | `client-changed` |
+| status | implemented |
+| since | protocol 6 additive extension |
+
+Payload:
+
+```text
+object{event:"client-changed",client:uint64,name:string|null,kind:string|null}
+```
+
+Meaning: The connection called `set-client-info`. The event is emitted for every successful call, including an idempotent call.
+
+Example:
+
+```json
+{"event":"client-changed","client":2,"name":"lawrences-iphone","kind":"web"}
+```
+
+### client-detached
+
+| Field | Value |
+| --- | --- |
+| event | `client-detached` |
+| status | implemented |
+| since | protocol 6 additive extension |
+
+Payload:
+
+```text
+object{event:"client-detached",client:uint64}
+```
+
+Meaning: A control connection disconnected naturally or was ended by `detach-client`. This is emitted even if the connection never attached a surface.
+
+Example:
+
+```json
+{"event":"client-detached","client":2}
+```
 
 ### tree-changed
 

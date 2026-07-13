@@ -18,7 +18,7 @@
 //! {"id":1,"ok":true,"data":{"app":"cmux-tui","session":"main",...}}
 //! ```
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -65,6 +65,16 @@ struct Request {
 enum Command {
     Identify,
     Ping,
+    SetClientInfo {
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        kind: Option<String>,
+    },
+    ListClients,
+    DetachClient {
+        client: u64,
+    },
     ReloadConfig,
     SetWindowTitle {
         title: String,
@@ -417,9 +427,17 @@ struct Response {
 }
 
 const STREAM_DISCONNECT_POLL: Duration = Duration::from_millis(100);
+const CLIENT_DETACH_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 
 trait MessageSink: Send + Sync {
     fn send(&self, value: &Value) -> std::io::Result<()>;
+    /// Best-effort send that must never block behind another writer. Sinks
+    /// whose `send` can park on a stream mutex skip on contention; queue-based
+    /// sinks may delegate to `send`.
+    fn try_send(&self, value: &Value) -> std::io::Result<()> {
+        self.send(value)
+    }
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()>;
     fn close(&self);
 }
 
@@ -442,8 +460,19 @@ impl MessageWriter {
         self.sink.send(value)
     }
 
+    fn try_send(&self, value: &Value) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        self.sink.try_send(value)
+    }
+
     fn is_open(&self) -> bool {
         self.open.load(Ordering::Acquire)
+    }
+
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.sink.set_write_timeout(timeout)
     }
 
     fn close(&self) {
@@ -453,30 +482,229 @@ impl MessageWriter {
     }
 }
 
-struct LineSink(Arc<Mutex<Box<dyn transport::Stream>>>);
+struct LineSink {
+    writer: Arc<Mutex<Box<dyn transport::Stream>>>,
+    control: Box<dyn transport::Stream>,
+}
+
+impl LineSink {
+    fn new(stream: Box<dyn transport::Stream>) -> std::io::Result<Self> {
+        let control = stream.try_clone_box()?;
+        Ok(Self { writer: Arc::new(Mutex::new(stream)), control })
+    }
+}
 
 impl MessageSink for LineSink {
     fn send(&self, value: &Value) -> std::io::Result<()> {
         let mut bytes = serde_json::to_vec(value)?;
         bytes.push(b'\n');
-        let mut stream = self.0.lock().unwrap();
+        let mut stream = self.writer.lock().unwrap();
         stream.write_all(&bytes)
     }
 
-    fn close(&self) {}
+    fn try_send(&self, value: &Value) -> std::io::Result<()> {
+        // A wedged attach-out thread can hold the writer mutex inside one
+        // blocked write_all forever (SO_SNDTIMEO armed later cannot wake an
+        // already-sleeping write). Never wait on it: skip the courtesy event
+        // and let close() shut the socket down via the lock-free handle.
+        let mut bytes = serde_json::to_vec(value)?;
+        bytes.push(b'\n');
+        let Ok(mut stream) = self.writer.try_lock() else {
+            return Err(std::io::Error::new(std::io::ErrorKind::WouldBlock, "writer busy"));
+        };
+        stream.write_all(&bytes)
+    }
+
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.control.set_write_timeout(timeout)
+    }
+
+    fn close(&self) {
+        let _ = self.control.shutdown(Shutdown::Both);
+    }
 }
 
-struct WebSocketSink(Sender<String>);
+struct WebSocketSink {
+    outbound: Sender<String>,
+    control: TcpStream,
+}
 
 impl MessageSink for WebSocketSink {
     fn send(&self, value: &Value) -> std::io::Result<()> {
         let text = serde_json::to_string(value)?;
-        self.0.send(text).map_err(|_| {
+        self.outbound.send(text).map_err(|_| {
             std::io::Error::new(std::io::ErrorKind::BrokenPipe, "WebSocket connection closed")
         })
     }
 
-    fn close(&self) {}
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.control.set_write_timeout(timeout)
+    }
+
+    fn close(&self) {
+        // Wake the connection's read loop without disabling the final outbound drain.
+        // A detach write already has CLIENT_DETACH_WRITE_TIMEOUT armed, so a wedged
+        // WebSocket send still releases without requiring access to its writer.
+        let _ = self.control.shutdown(Shutdown::Read);
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ClientTransport {
+    Unix,
+    WebSocket,
+}
+
+impl ClientTransport {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Unix => "unix",
+            Self::WebSocket => "ws",
+        }
+    }
+}
+
+#[derive(Default)]
+struct AttachedSurface {
+    streams: usize,
+    size: Option<(u16, u16)>,
+}
+
+struct ClientRecord {
+    transport: ClientTransport,
+    connected_at: Instant,
+    name: Option<String>,
+    kind: Option<String>,
+    attached: BTreeMap<SurfaceId, AttachedSurface>,
+    announced_attached: bool,
+    writer: MessageWriter,
+}
+
+pub(crate) struct ClientRegistry {
+    next_id: AtomicU64,
+    clients: Mutex<BTreeMap<u64, ClientRecord>>,
+}
+
+impl ClientRegistry {
+    pub(crate) fn new() -> Self {
+        Self { next_id: AtomicU64::new(1), clients: Mutex::new(BTreeMap::new()) }
+    }
+
+    fn register(&self, transport: ClientTransport, writer: MessageWriter) -> u64 {
+        let client = self.next_id.fetch_add(1, Ordering::Relaxed);
+        self.clients.lock().unwrap().insert(
+            client,
+            ClientRecord {
+                transport,
+                connected_at: Instant::now(),
+                name: None,
+                kind: None,
+                attached: BTreeMap::new(),
+                announced_attached: false,
+                writer,
+            },
+        );
+        client
+    }
+
+    fn set_info(
+        &self,
+        client: u64,
+        name: Option<String>,
+        kind: Option<String>,
+    ) -> anyhow::Result<(Option<String>, Option<String>)> {
+        let mut clients = self.clients.lock().unwrap();
+        let record =
+            clients.get_mut(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        if let Some(name) = name {
+            record.name = Some(clamp_client_label(name));
+        }
+        if let Some(kind) = kind {
+            record.kind = Some(clamp_client_label(kind));
+        }
+        Ok((record.name.clone(), record.kind.clone()))
+    }
+
+    fn list_json(&self, requesting_client: u64) -> Value {
+        let clients = self.clients.lock().unwrap();
+        json!(
+            clients
+                .iter()
+                .map(|(client, record)| {
+                    json!({
+                        "client": client,
+                        "transport": record.transport.as_str(),
+                        "name": record.name,
+                        "kind": record.kind,
+                        "connected_seconds": record.connected_at.elapsed().as_secs(),
+                        "attached": record.attached.keys().copied().collect::<Vec<_>>(),
+                        "sizes": record.attached.iter().map(|(surface, attached)| {
+                            match attached.size {
+                                Some((cols, rows)) => json!({
+                                    "surface": surface,
+                                    "cols": cols,
+                                    "rows": rows,
+                                }),
+                                None => json!({
+                                    "surface": surface,
+                                    "cols": null,
+                                    "rows": null,
+                                }),
+                            }
+                        }).collect::<Vec<_>>(),
+                        "self": *client == requesting_client,
+                    })
+                })
+                .collect::<Vec<_>>()
+        )
+    }
+
+    fn attach_surface(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+    ) -> anyhow::Result<Option<(String, Option<String>, Option<String>)>> {
+        let mut clients = self.clients.lock().unwrap();
+        let record =
+            clients.get_mut(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        record.attached.entry(surface).or_default().streams += 1;
+        if record.announced_attached {
+            return Ok(None);
+        }
+        record.announced_attached = true;
+        Ok(Some((record.transport.as_str().to_string(), record.name.clone(), record.kind.clone())))
+    }
+
+    fn detach_surface(&self, client: u64, surface: SurfaceId) {
+        let mut clients = self.clients.lock().unwrap();
+        let Some(record) = clients.get_mut(&client) else { return };
+        let Some(attached) = record.attached.get_mut(&surface) else { return };
+        attached.streams = attached.streams.saturating_sub(1);
+        if attached.streams == 0 {
+            record.attached.remove(&surface);
+        }
+    }
+
+    fn record_size(&self, client: u64, surface: SurfaceId, cols: u16, rows: u16) {
+        let mut clients = self.clients.lock().unwrap();
+        if let Some(attached) =
+            clients.get_mut(&client).and_then(|record| record.attached.get_mut(&surface))
+        {
+            attached.size = Some((cols, rows));
+        }
+    }
+
+    fn remove(&self, client: u64) -> Option<ClientRecord> {
+        self.clients.lock().unwrap().remove(&client)
+    }
+
+    fn contains(&self, client: u64) -> bool {
+        self.clients.lock().unwrap().contains_key(&client)
+    }
+}
+
+fn clamp_client_label(value: String) -> String {
+    sanitize_window_title(&value).chars().take(64).collect()
 }
 
 /// Bind the socket and serve connections on background threads.
@@ -607,18 +835,20 @@ fn sanitize_window_title(title: &str) -> String {
 
 fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
     let Ok(write_half) = stream.try_clone_box() else { return };
-    let writer = MessageWriter::new(LineSink(Arc::new(Mutex::new(write_half))));
+    let Ok(sink) = LineSink::new(write_half) else { return };
+    let writer = MessageWriter::new(sink);
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
     let reader = BufReader::new(stream);
     for line in reader.lines() {
         let Ok(line) = line else { break };
         if line.trim().is_empty() {
             continue;
         }
-        if !handle_message(&mux, &line, &writer) {
+        if !handle_message(&mux, client, &line, &writer) {
             break;
         }
     }
-    writer.close();
+    disconnect_client(&mux, client, false);
 }
 
 fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&str>) {
@@ -638,10 +868,12 @@ fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&
         }
     }
     let _ = websocket.get_mut().set_read_timeout(Some(STREAM_DISCONNECT_POLL));
+    let Ok(control) = websocket.get_ref().try_clone() else { return };
     let (outbound_tx, outbound_rx) = channel();
-    let writer = MessageWriter::new(WebSocketSink(outbound_tx));
+    let writer = MessageWriter::new(WebSocketSink { outbound: outbound_tx, control });
+    let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
 
-    'connection: while writer.is_open() {
+    'connection: loop {
         loop {
             match outbound_rx.try_recv() {
                 Ok(text) => {
@@ -654,10 +886,22 @@ fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&
             }
         }
 
+        if !writer.is_open() {
+            while let Ok(text) = outbound_rx.try_recv() {
+                if websocket.send(Message::Text(text.into())).is_err() {
+                    break;
+                }
+            }
+            break;
+        }
+
         match websocket.read() {
             Ok(Message::Text(text)) => {
-                if !handle_message(&mux, &text, &writer) {
-                    break;
+                if !handle_message(&mux, client, &text, &writer) {
+                    if writer.is_open() {
+                        break;
+                    }
+                    continue;
                 }
             }
             Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => {
@@ -670,18 +914,38 @@ fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&
                     error.kind(),
                     std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
                 ) => {}
+            Err(_) if !writer.is_open() => continue,
             Err(_) => break,
         }
     }
-    writer.close();
+    disconnect_client(&mux, client, false);
     let _ = websocket.close(None);
 }
 
-fn handle_message(mux: &Arc<Mux>, message: &str, writer: &MessageWriter) -> bool {
+fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
+    let Some(record) = mux.control_clients.remove(client) else { return false };
+    if send_detached {
+        let _ = record.writer.set_write_timeout(Some(CLIENT_DETACH_WRITE_TIMEOUT));
+        for surface in record.attached.keys() {
+            // Best effort per the spec's "where deliverable": a busy or wedged
+            // writer skips the courtesy event rather than blocking the
+            // requester; close() below wakes any stuck write either way.
+            let _ = record.writer.try_send(&json!({"event": "detached", "surface": surface}));
+        }
+    }
+    record.writer.close();
+    mux.emit(MuxEvent::ClientDetached(client));
+    true
+}
+
+fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWriter) -> bool {
+    let mut detach_self = false;
     let response = match serde_json::from_str::<Request>(message) {
         Ok(req) => {
             let id = req.id.clone();
-            match handle_command(mux, req.cmd, writer) {
+            detach_self =
+                matches!(&req.cmd, Command::DetachClient { client: target } if *target == client);
+            match handle_command(mux, client, req.cmd, writer) {
                 Ok(data) => Response { id, ok: true, data: Some(data), error: None },
                 Err(e) => Response { id, ok: false, data: None, error: Some(e.to_string()) },
             }
@@ -690,7 +954,13 @@ fn handle_message(mux: &Arc<Mux>, message: &str, writer: &MessageWriter) -> bool
             Response { id: None, ok: false, data: None, error: Some(format!("bad request: {e}")) }
         }
     };
-    serde_json::to_value(&response).is_ok_and(|value| writer.send(&value).is_ok())
+    let response_ok = response.ok;
+    let sent = serde_json::to_value(&response).is_ok_and(|value| writer.send(&value).is_ok());
+    if detach_self && response_ok && sent {
+        disconnect_client(mux, client, true);
+        return false;
+    }
+    sent
 }
 
 fn auth_token(message: &str) -> Option<String> {
@@ -1107,7 +1377,19 @@ fn spawn_attach_notification_stream(
         .map(|_| ())
 }
 
-fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &MessageWriter) -> anyhow::Result<Value> {
+fn mark_client_attached(mux: &Mux, client: u64, surface: SurfaceId) -> anyhow::Result<()> {
+    if let Some((transport, name, kind)) = mux.control_clients.attach_surface(client, surface)? {
+        mux.emit(MuxEvent::ClientAttached { client, transport, name, kind });
+    }
+    Ok(())
+}
+
+fn handle_command(
+    mux: &Arc<Mux>,
+    client: u64,
+    cmd: Command,
+    writer: &MessageWriter,
+) -> anyhow::Result<Value> {
     match cmd {
         Command::Identify => Ok(json!({
             "app": "cmux-tui",
@@ -1121,6 +1403,22 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &MessageWriter) -> anyho
             "version": env!("CARGO_PKG_VERSION"),
             "protocol": PROTOCOL_VERSION,
         })),
+        Command::SetClientInfo { name, kind } => {
+            let (name, kind) = mux.control_clients.set_info(client, name, kind)?;
+            mux.emit(MuxEvent::ClientChanged { client, name, kind });
+            Ok(json!({}))
+        }
+        Command::ListClients => Ok(mux.control_clients.list_json(client)),
+        Command::DetachClient { client: target } => {
+            if target == client {
+                if !mux.control_clients.contains(target) {
+                    anyhow::bail!("unknown client {target}");
+                }
+            } else if !disconnect_client(mux, target, true) {
+                anyhow::bail!("unknown client {target}");
+            }
+            Ok(json!({}))
+        }
         Command::ReloadConfig => {
             mux.emit(MuxEvent::ConfigReloadRequested);
             Ok(json!({
@@ -1572,6 +1870,7 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &MessageWriter) -> anyho
         }
         Command::ResizeSurface { surface, cols, rows } => {
             mux.resize_surface(surface, cols, rows)?;
+            mux.control_clients.record_size(client, surface, cols.max(1), rows.max(1));
             Ok(json!({}))
         }
         Command::FocusPane { pane } => {
@@ -1654,6 +1953,22 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &MessageWriter) -> anyho
                         MuxEvent::LayoutChanged(screen) => {
                             json!({"event": "layout-changed", "screen": screen})
                         }
+                        MuxEvent::ClientAttached { client, transport, name, kind } => json!({
+                            "event": "client-attached",
+                            "client": client,
+                            "transport": transport,
+                            "name": name,
+                            "kind": kind,
+                        }),
+                        MuxEvent::ClientChanged { client, name, kind } => json!({
+                            "event": "client-changed",
+                            "client": client,
+                            "name": name,
+                            "kind": kind,
+                        }),
+                        MuxEvent::ClientDetached(client) => {
+                            json!({"event": "client-detached", "client": client})
+                        }
                         MuxEvent::Empty => json!({"event": "empty"}),
                     };
                     if writer.send(&value).is_err() {
@@ -1665,11 +1980,13 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &MessageWriter) -> anyho
         }
         Command::AttachSurface { surface: surface_id } => {
             let surface = get_surface(mux, surface_id)?;
-            spawn_attach_notification_stream(mux.clone(), surface_id, writer.clone())?;
             if surface.kind() == SurfaceKind::Browser {
                 let (state, frames) = surface.attach_frames()?;
+                mark_client_attached(mux, client, surface_id)?;
+                spawn_attach_notification_stream(mux.clone(), surface_id, writer.clone())?;
                 writer.send(&browser_state_json(surface_id, &state, true))?;
                 let writer = writer.clone();
+                let mux = mux.clone();
                 std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
                     while writer.is_open() {
                         match frames.notify.recv_timeout(STREAM_DISCONNECT_POLL) {
@@ -1698,10 +2015,13 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &MessageWriter) -> anyho
                         }
                     }
                     let _ = writer.send(&json!({"event": "detached", "surface": surface_id}));
+                    mux.control_clients.detach_surface(client, surface_id);
                 })?;
                 return Ok(json!({}));
             }
             let attach = surface.attach_stream()?;
+            mark_client_attached(mux, client, surface_id)?;
+            spawn_attach_notification_stream(mux.clone(), surface_id, writer.clone())?;
             writer.send(&json!({
                 "event": "vt-state",
                 "surface": surface_id,
@@ -1711,6 +2031,7 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &MessageWriter) -> anyho
                 "colors": terminal_colors_json(attach.colors),
             }))?;
             let writer = writer.clone();
+            let mux = mux.clone();
             std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
                 while writer.is_open() {
                     let frame = match attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
@@ -1743,6 +2064,7 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &MessageWriter) -> anyho
                 }
                 // Surface gone (or reader stopped): signal end of stream.
                 let _ = writer.send(&json!({"event": "detached", "surface": surface_id}));
+                mux.control_clients.detach_surface(client, surface_id);
             })?;
             Ok(json!({}))
         }
@@ -1788,6 +2110,14 @@ mod tests {
         fn set_read_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
             Ok(())
         }
+
+        fn set_write_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
+            Ok(())
+        }
+
+        fn shutdown(&self, _how: Shutdown) -> std::io::Result<()> {
+            Ok(())
+        }
     }
 
     fn test_mux() -> Arc<Mux> {
@@ -1795,25 +2125,82 @@ mod tests {
     }
 
     fn test_writer() -> MessageWriter {
-        MessageWriter::new(LineSink(Arc::new(Mutex::new(
-            Box::new(NullStream) as Box<dyn transport::Stream>
-        ))))
+        MessageWriter::new(
+            LineSink::new(Box::new(NullStream) as Box<dyn transport::Stream>).unwrap(),
+        )
     }
 
     #[test]
     fn ping_returns_version_and_protocol() {
         let mux = test_mux();
-        let data = handle_command(&mux, Command::Ping, &test_writer()).unwrap();
+        let data = handle_command(&mux, 0, Command::Ping, &test_writer()).unwrap();
         assert_eq!(data["ok"].as_bool(), Some(true));
         assert_eq!(data["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(data["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
     }
 
     #[test]
+    fn client_info_is_sanitized_recallable_and_clamped_to_64_characters() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let events = mux.subscribe();
+
+        handle_command(
+            &mux,
+            client,
+            Command::SetClientInfo {
+                name: Some("\u{1b}]0;evil\u{07}name".to_string()),
+                kind: Some("web".to_string()),
+            },
+            &writer,
+        )
+        .unwrap();
+        let data = handle_command(&mux, client, Command::ListClients, &writer).unwrap();
+        assert_eq!(data[0]["name"], " ]0;evil name");
+
+        handle_command(
+            &mux,
+            client,
+            Command::SetClientInfo { name: Some("n".repeat(80)), kind: None },
+            &writer,
+        )
+        .unwrap();
+        handle_command(
+            &mux,
+            client,
+            Command::SetClientInfo { name: None, kind: Some("tui".to_string()) },
+            &writer,
+        )
+        .unwrap();
+
+        let data = handle_command(&mux, client, Command::ListClients, &writer).unwrap();
+        let listed = &data[0];
+        assert_eq!(listed["name"].as_str().unwrap().chars().count(), 64);
+        assert_eq!(listed["kind"], "tui");
+        assert_eq!(listed["self"], true);
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::ClientChanged { client: id, kind: Some(kind), .. })
+                if id == client && kind == "web"
+        ));
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::ClientChanged { client: id, kind: Some(kind), .. })
+                if id == client && kind == "web"
+        ));
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::ClientChanged { client: id, kind: Some(kind), .. })
+                if id == client && kind == "tui"
+        ));
+    }
+
+    #[test]
     fn reload_config_returns_path_and_emits_request() {
         let mux = test_mux();
         let events = mux.subscribe();
-        let data = handle_command(&mux, Command::ReloadConfig, &test_writer()).unwrap();
+        let data = handle_command(&mux, 0, Command::ReloadConfig, &test_writer()).unwrap();
         assert_eq!(data["reloaded"].as_bool(), Some(true));
         assert!(data.get("path").is_some());
         assert!(matches!(
@@ -1829,6 +2216,7 @@ mod tests {
 
         let data = handle_command(
             &mux,
+            0,
             Command::SetWindowTitle { title: "hello".to_string() },
             &test_writer(),
         )
@@ -1839,7 +2227,7 @@ mod tests {
             Ok(MuxEvent::WindowTitleRequested(title)) if title == "hello"
         ));
 
-        handle_command(&mux, Command::ClearWindowTitle, &test_writer()).unwrap();
+        handle_command(&mux, 0, Command::ClearWindowTitle, &test_writer()).unwrap();
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)),
             Ok(MuxEvent::WindowTitleRequested(title)) if title.is_empty()
@@ -1867,6 +2255,7 @@ mod tests {
 
         handle_command(
             &mux,
+            0,
             Command::ScrollSurface { surface: surface.id, delta: -5 },
             &test_writer(),
         )
@@ -1882,6 +2271,7 @@ mod tests {
 
         handle_command(
             &mux,
+            0,
             Command::ScrollSurface { surface: surface.id, delta: 0 },
             &test_writer(),
         )
