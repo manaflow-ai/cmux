@@ -38,10 +38,9 @@ extension TerminalController {
     ) {
         let previousMode = socketServer.accessMode
         let wasRunning = socketServer.isRunning
-        let pathChanged = wasRunning && !SocketControlSettings.pathsMatch(
-            socketServer.currentSocketPath,
+        let pathChanged = socketServer.updateConfiguredPreferredSocketPath(
             configuration.preferredSocketPath
-        )
+        ) && wasRunning
 
         if configuration.accessMode == .off {
             socketServer.reconfigure(accessMode: .off)
@@ -85,7 +84,7 @@ extension TerminalController {
     nonisolated static var socketClientAccessDeniedResponse: String {
         "ERROR: " + String(
             localized: "socket.client.accessDenied",
-            defaultValue: "Access denied — only processes started inside cmux can connect"
+            defaultValue: "Access denied - only processes started inside cmux can connect"
         )
     }
 

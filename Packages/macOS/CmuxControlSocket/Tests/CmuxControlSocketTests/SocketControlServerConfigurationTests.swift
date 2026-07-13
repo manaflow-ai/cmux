@@ -1,4 +1,4 @@
-import CmuxControlSocket
+@testable import CmuxControlSocket
 import CmuxSettings
 import Darwin
 import Foundation
@@ -82,6 +82,73 @@ struct SocketControlServerConfigurationTests {
         #expect(!fixture.server.isRunning)
     }
 
+    @Test func configuredPreferredPathTracksConfigurationInsteadOfActiveFallback() throws {
+        let fixture = try SocketConfigurationFixture()
+        defer { fixture.shutdown() }
+
+        #expect(!fixture.server.updateConfiguredPreferredSocketPath("/preferred/cmux.sock"))
+        #expect(!fixture.server.updateConfiguredPreferredSocketPath("/preferred/cmux.sock"))
+        #expect(fixture.server.updateConfiguredPreferredSocketPath("/other/cmux.sock"))
+        #expect(!fixture.server.updateConfiguredPreferredSocketPath("/other/cmux.sock"))
+    }
+
+    @Test func passwordChangeNotificationInvalidatesAcceptedConnections() async throws {
+        let fixture = try SocketConfigurationFixture()
+        defer { fixture.shutdown() }
+
+        #expect(fixture.server.start(socketPath: fixture.socketPath, accessMode: .password))
+        let client = try UnixSocketFixture.connectClient(to: fixture.socketPath)
+        defer { close(client) }
+        let connection = try #require(await nextConnection(from: fixture.server.connections))
+        defer { close(connection.socket) }
+        #expect(fixture.server.isConnectionAuthorizationCurrent(connection.authorizationGeneration))
+
+        fixture.notificationCenter.post(
+            name: SecretFileStore.didChangeNotification,
+            object: nil,
+            userInfo: [SecretFileStore.changedKeyIDKey: "automation.socketPassword"]
+        )
+
+        #expect(!fixture.server.isConnectionAuthorizationCurrent(connection.authorizationGeneration))
+    }
+
+    @Test func unrelatedSecretNotificationPreservesAcceptedConnections() async throws {
+        let fixture = try SocketConfigurationFixture()
+        defer { fixture.shutdown() }
+
+        #expect(fixture.server.start(socketPath: fixture.socketPath, accessMode: .password))
+        let client = try UnixSocketFixture.connectClient(to: fixture.socketPath)
+        defer { close(client) }
+        let connection = try #require(await nextConnection(from: fixture.server.connections))
+        defer { close(connection.socket) }
+
+        fixture.notificationCenter.post(
+            name: SecretFileStore.didChangeNotification,
+            object: nil,
+            userInfo: [SecretFileStore.changedKeyIDKey: "unrelated.secret"]
+        )
+
+        #expect(fixture.server.isConnectionAuthorizationCurrent(connection.authorizationGeneration))
+    }
+
+    @Test func passwordStoreNotificationInvalidatesAcceptedConnections() async throws {
+        let fixture = try SocketConfigurationFixture()
+        defer { fixture.shutdown() }
+
+        #expect(fixture.server.start(socketPath: fixture.socketPath, accessMode: .password))
+        let client = try UnixSocketFixture.connectClient(to: fixture.socketPath)
+        defer { close(client) }
+        let connection = try #require(await nextConnection(from: fixture.server.connections))
+        defer { close(connection.socket) }
+
+        fixture.notificationCenter.post(
+            name: SocketControlPasswordStore.didChangeNotification,
+            object: nil
+        )
+
+        #expect(!fixture.server.isConnectionAuthorizationCurrent(connection.authorizationGeneration))
+    }
+
     private func socketPermissions(at path: String) throws -> UInt16 {
         let attributes = try FileManager.default.attributesOfItem(atPath: path)
         let raw = try #require(attributes[.posixPermissions] as? NSNumber)
@@ -111,6 +178,7 @@ struct SocketControlServerConfigurationTests {
 private struct SocketConfigurationFixture: ~Copyable {
     let directory: URL
     let socketPath: String
+    let notificationCenter: NotificationCenter
     let server: SocketControlServer
 
     init() throws {
@@ -119,8 +187,10 @@ private struct SocketConfigurationFixture: ~Copyable {
             .appendingPathComponent("scr-\(identifier)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         socketPath = directory.appendingPathComponent("cmux.sock").path
+        notificationCenter = NotificationCenter()
         server = SocketControlServer(
             initialSocketPath: socketPath,
+            notificationCenter: notificationCenter,
             events: SocketControlServerEvents(
                 breadcrumb: { _, _ in },
                 failure: { _, _, _, _ in },

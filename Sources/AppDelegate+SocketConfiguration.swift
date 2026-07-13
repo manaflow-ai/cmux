@@ -51,10 +51,10 @@ extension AppDelegate {
             "path": path,
             "source": source,
         ])
-        TerminalController.shared.start(
-            tabManager: tabManager,
-            socketPath: path,
-            accessMode: config.accessMode
+        TerminalController.shared.reconcileSocketConfiguration(
+            config,
+            preferredTabManager: tabManager,
+            source: source
         )
     }
 

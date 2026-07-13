@@ -74,6 +74,7 @@ public final class SocketControlServer {
         var socketPathMonitorSource: (any DispatchSourceFileSystemObject)?
         var accessMode: SocketControlMode = .cmuxOnly
         var connectionAuthorizationGeneration: UInt64 = 0
+        var configuredPreferredSocketPath: String?
     }
 
     /// Sendable snapshot of the listener state, published to the read mirror
@@ -91,6 +92,7 @@ public final class SocketControlServer {
         let socketPathLockHeld: Bool
         let accessMode: SocketControlMode
         let connectionAuthorizationGeneration: UInt64
+        let configuredPreferredSocketPath: String?
     }
 
     /// The accept path's own state: the consecutive-failure streak (legacy
@@ -131,6 +133,7 @@ public final class SocketControlServer {
     nonisolated let events: SocketControlServerEvents
     /// Recovery-delay clock (accept-source resume backoff).
     public nonisolated let recoveryClock: any SocketRecoveryClock
+    private let authorizationObserverBag: SocketAuthorizationObserverBag
 
     /// Accepted, configured client connections, in accept order.
     ///
@@ -161,12 +164,32 @@ public final class SocketControlServer {
     ///   - maximumBufferedConnections: Maximum accepted connections waiting
     ///     for the stream consumer. New connections are closed when full.
     ///   - events: Host callback seam.
-    public init(
+    public convenience init(
         initialSocketPath: String = SocketControlSettings.stableDefaultSocketPath,
         transport: SocketTransport = SocketTransport(),
         listenerPolicy: SocketListenerPolicy = SocketListenerPolicy(),
         recoveryClock: any SocketRecoveryClock = SystemSocketRecoveryClock(),
         maximumBufferedConnections: Int = 32,
+        events: SocketControlServerEvents
+    ) {
+        self.init(
+            initialSocketPath: initialSocketPath,
+            transport: transport,
+            listenerPolicy: listenerPolicy,
+            recoveryClock: recoveryClock,
+            maximumBufferedConnections: maximumBufferedConnections,
+            notificationCenter: .default,
+            events: events
+        )
+    }
+
+    init(
+        initialSocketPath: String,
+        transport: SocketTransport = SocketTransport(),
+        listenerPolicy: SocketListenerPolicy = SocketListenerPolicy(),
+        recoveryClock: any SocketRecoveryClock = SystemSocketRecoveryClock(),
+        maximumBufferedConnections: Int = 32,
+        notificationCenter: NotificationCenter,
         events: SocketControlServerEvents
     ) {
         let initialState = ListenerState(socketPath: initialSocketPath)
@@ -176,11 +199,57 @@ public final class SocketControlServer {
         self.transport = transport
         self.listenerPolicy = listenerPolicy
         self.recoveryClock = recoveryClock
+        self.authorizationObserverBag = SocketAuthorizationObserverBag(
+            notificationCenter: notificationCenter
+        )
         self.events = events
         (self.connections, self.connectionsContinuation) =
             AsyncStream<ControlConnection>.makeStream(
                 bufferingPolicy: .bufferingOldest(max(0, maximumBufferedConnections))
             )
+        startObservingAuthorizationChanges()
+    }
+
+    private func startObservingAuthorizationChanges() {
+        let notificationCenter = authorizationObserverBag.notificationCenter
+        let socketPasswordKeyID = SettingCatalog().automation.socketPassword.id
+        authorizationObserverBag.install([
+            notificationCenter.addObserver(
+                forName: SocketControlPasswordStore.didChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.invalidateConnectionAuthorizations(source: "password_store")
+                }
+            },
+            notificationCenter.addObserver(
+                forName: SecretFileStore.didChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard notification.userInfo?[SecretFileStore.changedKeyIDKey] as? String
+                    == socketPasswordKeyID else { return }
+                MainActor.assumeIsolated {
+                    self?.invalidateConnectionAuthorizations(source: "secret_store")
+                }
+            },
+        ])
+    }
+
+    /// Invalidates every accepted connection after an authorization secret changes.
+    public func invalidateConnectionAuthorizations(source: String) {
+        let generation = withListenerState { state in
+            state.connectionAuthorizationGeneration &+= 1
+            return state.connectionAuthorizationGeneration
+        }
+        events.breadcrumb(
+            "socket.listener.authorization.invalidated",
+            socketListenerEventData(
+                stage: "authorization",
+                extra: ["generation": generation, "source": source]
+            )
+        )
     }
 
     /// Runs `body` with exclusive access to the listener state and publishes
@@ -207,7 +276,8 @@ public final class SocketControlServer {
             listenerStartInProgress: state.listenerStartInProgress,
             socketPathLockHeld: state.socketPathLockFD >= 0,
             accessMode: state.accessMode,
-            connectionAuthorizationGeneration: state.connectionAuthorizationGeneration
+            connectionAuthorizationGeneration: state.connectionAuthorizationGeneration,
+            configuredPreferredSocketPath: state.configuredPreferredSocketPath
         )
     }
 

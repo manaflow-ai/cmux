@@ -1,6 +1,21 @@
 public import CmuxSettings
 
 extension SocketControlServer {
+    /// Records the resolved preferred path and reports real configuration drift.
+    ///
+    /// The first value establishes a baseline independently of the active bound
+    /// path, which may intentionally be a fallback chosen by listener policy.
+    @discardableResult
+    public func updateConfiguredPreferredSocketPath(_ path: String) -> Bool {
+        withListenerState { state in
+            let changed = state.configuredPreferredSocketPath.map {
+                !SocketControlSettings.pathsMatch($0, path)
+            } ?? false
+            state.configuredPreferredSocketPath = path
+            return changed
+        }
+    }
+
     /// Replaces the live access policy used by subsequent client decisions.
     ///
     /// The policy is published through the server's synchronous state snapshot,

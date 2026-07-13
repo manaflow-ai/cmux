@@ -122,7 +122,14 @@ struct SocketACLReloadRegressionTests {
             try? FileManager.default.removeItem(at: directory)
         }
 
-        controller.start(tabManager: TabManager(), socketPath: firstPath, accessMode: .cmuxOnly)
+        controller.reconcileSocketConfiguration(
+            SocketControlServerConfiguration(
+                accessMode: .cmuxOnly,
+                preferredSocketPath: firstPath
+            ),
+            preferredTabManager: TabManager(),
+            source: "test.path_baseline"
+        )
         #expect(controller.socketServer.currentSocketPath == firstPath)
 
         controller.reconcileSocketConfiguration(
@@ -138,6 +145,39 @@ struct SocketACLReloadRegressionTests {
         #expect(controller.socketServer.currentSocketPath == secondPath)
         #expect(!FileManager.default.fileExists(atPath: firstPath))
         #expect(FileManager.default.fileExists(atPath: secondPath))
+    }
+
+    @Test func reconcilePreservesIntentionalFallbackForSamePreferredPath() throws {
+        let controller = TerminalController.shared
+        controller.stop()
+
+        let directory = shortTemporaryDirectory(prefix: "salf")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let preferredPath = directory.appendingPathComponent("preferred.sock").path
+        let fallbackPath = directory.appendingPathComponent("fallback.sock").path
+        defer {
+            controller.stop()
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        #expect(!controller.socketServer.updateConfiguredPreferredSocketPath(preferredPath))
+        controller.start(tabManager: TabManager(), socketPath: fallbackPath, accessMode: .cmuxOnly)
+        let originalIdentity = try #require(
+            controller.socketServer.transport.pathIdentity(at: fallbackPath)
+        )
+
+        controller.reconcileSocketConfiguration(
+            SocketControlServerConfiguration(
+                accessMode: .automation,
+                preferredSocketPath: preferredPath
+            ),
+            preferredTabManager: TabManager(),
+            source: "test.fallback_reconcile"
+        )
+
+        #expect(controller.socketServer.currentSocketPath == fallbackPath)
+        #expect(controller.socketServer.transport.pathIdentity(at: fallbackPath) == originalIdentity)
+        #expect(!FileManager.default.fileExists(atPath: preferredPath))
     }
 
     @Test func restartStopsListenerWhenModeIsOffWithoutTabManager() throws {
