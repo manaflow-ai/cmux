@@ -16,6 +16,10 @@ struct MacUpdateHintIndicatorButton: View {
         }
         .labelStyle(.iconOnly)
         .foregroundStyle(.teal)
+        // The workspace-list toolbar tints items monochrome; an explicit tint
+        // keeps the teal that marks this as good news, matching the orange the
+        // alt-screen notice gets in the detail toolbar.
+        .tint(.teal)
         .accessibilityLabel(buttonAccessibilityLabel)
         .accessibilityIdentifier("MobileMacUpdateHintIndicatorButton")
         .popover(isPresented: $isPresentingExplanation) {
