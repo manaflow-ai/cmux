@@ -3418,12 +3418,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     weak var terminalSurface: TerminalSurface?
     var scrollbar: GhosttyScrollbar?
-    /// Pending scrollbar value written from the action callback thread;
-    /// read and cleared on the main thread by `flushPendingScrollbar()`.
+    /// Pending scrollbar written from the action callback and read/cleared by `flushPendingScrollbar()`.
     /// Access is guarded by `_scrollbarLock` because the action callback
     /// fires on Ghostty's I/O thread while the flush runs on main.
-    private var _pendingScrollbar: GhosttyScrollbar?
-    private var _scrollbarFlushScheduled = false
+    private var _pendingScrollbar: GhosttyScrollbar?; private var _pendingScrollbarGeneration: UInt64 = 0
+    private var _scrollbarFlushScheduled = false; private var _scrollbarEnqueueGeneration: UInt64 = 0
     private let _scrollbarLock = NSLock()
     private var _renderedFrameFlushScheduled = false
     private let _renderedFrameLock = NSLock()
@@ -3492,7 +3491,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _scrollbarLock.lock()
         defer { _scrollbarLock.unlock() }
         // Store the latest value (always overwrites — only the newest matters).
-        _pendingScrollbar = newValue
+        _scrollbarEnqueueGeneration &+= 1; _pendingScrollbarGeneration = _scrollbarEnqueueGeneration; _pendingScrollbar = newValue
         let needsSchedule = !_scrollbarFlushScheduled
         if needsSchedule { _scrollbarFlushScheduled = true }
 
@@ -3507,8 +3506,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func flushPendingScrollbar() {
         _scrollbarLock.lock()
         _scrollbarFlushScheduled = false
-        let pending = _pendingScrollbar
-        _pendingScrollbar = nil
+        let pending = _pendingScrollbar; let pendingGeneration = _pendingScrollbarGeneration
+        _pendingScrollbar = nil; _pendingScrollbarGeneration = 0
         _scrollbarLock.unlock()
 
         guard let pending else { return }
@@ -3523,9 +3522,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         NotificationCenter.default.post(
             name: .ghosttyDidUpdateScrollbar,
             object: self,
-            userInfo: [GhosttyNotificationKey.scrollbar: pending]
+            userInfo: [GhosttyNotificationKey.scrollbar: pending, GhosttyNotificationKey.scrollbarGeneration: pendingGeneration]
         )
     }
+    func currentScrollbarEnqueueGeneration() -> UInt64 { _scrollbarLock.lock(); defer { _scrollbarLock.unlock() }; return _scrollbarEnqueueGeneration }
 
     func flushPendingScrollbarIfAvailable() -> Bool {
         _scrollbarLock.lock()
@@ -8190,7 +8190,7 @@ final class GhosttySurfaceScrollView: NSView {
     var userScrolledAwayFromBottom = false
     private var pendingExplicitWheelScroll = false
     var allowExplicitScrollbarSync = false
-    var notificationScrollRestorePhase: TerminalNotificationScrollRestorePhase = .idle; var sessionScrollbackReplayCompletionDeadlineTimer: Timer?; var isWaitingForSessionScrollbackReplayRendererUpdate = false
+    var notificationScrollRestorePhase: TerminalNotificationScrollRestorePhase = .idle; var sessionScrollbackReplayCompletionDeadlineTimer: Timer?; var sessionScrollbackReplayMarkerScrollbarGeneration: UInt64?
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
@@ -11430,7 +11430,7 @@ final class GhosttySurfaceScrollView: NSView {
         } else {
             synchronizeScrollView()
         }
-        _ = retryPendingNotificationScrollRestore(rendererDidPublishScrollbar: true)
+        _ = retryPendingNotificationScrollRestore(rendererScrollbarGeneration: notification.userInfo?[GhosttyNotificationKey.scrollbarGeneration] as? UInt64)
     }
 
     @discardableResult

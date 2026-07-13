@@ -107,6 +107,7 @@ struct NotificationScrollRestoreTests {
             TerminalNotificationScrollPosition(row: 138, totalRows: 400)
         ))
         #expect(surfaceView.bindingActions.isEmpty)
+        surfaceView.enqueueScrollbarUpdate(scrollbar(total: 100, offset: 56, visible: 44))
         #expect(!hostedView.completeSessionScrollbackReplay(
             ifMatches: "unrelated directory"
         ))
@@ -114,8 +115,10 @@ struct NotificationScrollRestoreTests {
         #expect(hostedView.completeSessionScrollbackReplay(
             ifMatches: marker.reportedDirectory
         ))
+        #expect(surfaceView.flushPendingScrollbarIfAvailable())
         #expect(surfaceView.bindingActions.isEmpty)
-        postScrollbar(total: 200, offset: 156, visible: 44, to: surfaceView)
+        surfaceView.enqueueScrollbarUpdate(scrollbar(total: 200, offset: 156, visible: 44))
+        #expect(surfaceView.flushPendingScrollbarIfAvailable())
         #expect(surfaceView.bindingActions == ["scroll_to_row:156"])
     }
 
