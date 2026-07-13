@@ -2287,6 +2287,8 @@ final class TerminalOutputCollector {
     #expect(store.selectedTerminalID?.rawValue == "terminal-notes")
 }
 
+@Suite(.serialized)
+struct TerminalStreamTests {
 @MainActor
 @Test func submittedTerminalInputIncludesClientViewportAndCarriageReturn() async throws {
     let route = try CmxAttachRoute(
@@ -2403,22 +2405,33 @@ final class TerminalOutputCollector {
     let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
 
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
-    for _ in 0..<200 where collector.lines.count < 1 {
+    // Anchor on the cold replay's DELIVERY, not just its request: submitting
+    // input while the first replay's response is still in flight races the
+    // input-triggered resync against the in-flight replay's barrier state,
+    // and one interleaving legitimately skips the second replay (the flaky
+    // iPad failure in https://github.com/manaflow-ai/cmux/issues/7820). The
+    // scenario under test is a phone SETTLED at stale content learning from
+    // an input ack that the mac is ahead.
+    for _ in 0..<4000 where !collector.lines.contains(oldGridText) {
         try await Task.sleep(nanoseconds: 1_000_000)
     }
+    #expect(collector.lines.last == oldGridText)
 
     await store.submitTerminalRawInput(Data("x".utf8), surfaceID: "live-terminal")
 
-    _ = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
+    let replayRequests = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
+    #expect(replayRequests.count >= 2)
     _ = try await waitForRequestCount("mobile.events.subscribe", count: 2, router: router)
-    for _ in 0..<200 where collector.lines.isEmpty {
+    // The request-count waits only prove the second replay was REQUESTED; its
+    // response still has to round-trip and deliver. The slower CI iPad leg
+    // regularly needs more than the file's usual 200ms here.
+    for _ in 0..<4000 where !collector.lines.contains(currentGridText) {
         try await Task.sleep(nanoseconds: 1_000_000)
     }
 
-    #expect(collector.lines == [
-        oldGridText,
-        currentGridText,
-    ])
+    #expect(collector.lines.last == currentGridText)
+    #expect(Set(collector.lines).isSubset(of: [oldGridText, currentGridText]))
+    #expect(collector.lines.count <= 2)
     collector.unmount()
 }
 
@@ -2603,6 +2616,7 @@ final class TerminalOutputCollector {
     #expect(replayRequest.viewportRows == 24)
     #expect(replayRequest.clientID?.isEmpty == false)
     collector.unmount()
+}
 }
 
 @MainActor

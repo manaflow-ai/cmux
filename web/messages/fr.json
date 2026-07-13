@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "Votre forfait personnel",
+        "free": "Gratuit",
+        "pro": "Pro",
+        "loading": "Chargement…"
+      }
     }
   },
   "community": {
@@ -836,7 +844,7 @@
       "managingTitle": "Gérer un groupe",
       "managingIntro": "Une fois le groupe créé, le menu contextuel de son en-tête et le bouton + de l’en-tête vous permettent de gérer le groupe et d’y ajouter des workspaces. Aucune de ces actions ne crée de nouveau groupe.",
       "headerMenuTitle": "Depuis le menu contextuel de l'en-tête de groupe",
-      "headerMenuDesc": "Faites un clic droit sur l'en-tête d'un groupe existant pour Renommer le groupe…, Épingler le groupe / Désépingler le groupe, Modifier la configuration du groupe… (qui ouvre ~/.config/cmux/cmux.json), Ouvrir la documentation des groupes, Dissocier (conserver les espaces de travail), et Supprimer le groupe (fermer les espaces de travail). La suppression est destructive et demande une confirmation ; la dissociation conserve les espaces de travail et supprime simplement le conteneur.",
+      "headerMenuDesc": "Faites un clic droit sur l'en-tête d'un groupe existant pour Renommer le groupe…, Épingler le groupe / Désépingler le groupe, Modifier la configuration du groupe… (qui ouvre ~/.config/cmux/cmux.json), Ouvrir la documentation des groupes, Dissocier les espaces de travail et Supprimer le groupe. Dissocier les espaces de travail conserve les espaces de travail et supprime seulement le conteneur du groupe. Supprimer le groupe ferme l'espace de travail d'en-tête et tous les espaces de travail du groupe ; si le groupe contient des espaces de travail enfants, une confirmation est demandée d'abord.",
       "plusButtonTitle": "Depuis le bouton + sur un en-tête de groupe",
       "plusButtonDesc": "Survolez l'en-tête d'un groupe pour faire apparaître un bouton + à la fin. Cliquez dessus pour créer un nouvel espace de travail dans le groupe au répertoire de travail d'ancrage. Faites un clic droit dessus pour Nouvel espace de travail dans le groupe, Modifier la configuration du groupe…, et Ouvrir la documentation des groupes.",
       "plusButtonNote": "Appuyer sur {shortcut} lorsque l'espace de travail actif est un ancrage ou un membre de groupe crée également le nouvel espace de travail à l'intérieur de ce groupe. Le placement par défaut est After current : depuis un membre de groupe ordinaire, le nouvel espace de travail se place juste après le membre actif, et depuis l'ancrage ou l'en-tête, il se place en haut du groupe.",
@@ -960,6 +968,7 @@
       "title": "Commandes personnalisées",
       "metaTitle": "Commandes personnalisées",
       "metaDescription": "Définissez des actions, commandes personnalisées et dispositions d’espace de travail dans cmux.json. Prend en charge la configuration par projet et globale avec rechargement explicite.",
+      "metaDescriptionShort": "Définissez dans cmux.json des actions, commandes personnalisées et dispositions de workspace pour les projets et la configuration globale.",
       "intro": "Définissez des commandes personnalisées et des mises en page d'espace de travail en ajoutant un fichier cmux.json à la racine de votre projet ou ~/.config/cmux/. Les commandes apparaissent dans la palette de commandes.",
       "fileLocations": "Emplacements des fichiers",
       "fileLocationsDesc": "cmux recherche la configuration à deux endroits :",
@@ -1061,6 +1070,7 @@
       "title": "Raccourcis clavier",
       "description": "Tous les raccourcis clavier disponibles dans cmux, classés par catégorie.",
       "metaDescription": "Tous les raccourcis clavier cmux pour les espaces de travail, surfaces, panneaux divisés, navigateur, notifications, recherche et gestion des fenêtres sur macOS.",
+      "metaDescriptionShort": "Utilisez les raccourcis clavier cmux pour gérer les workspaces, surfaces, panneaux, le navigateur, les notifications, la recherche et les fenêtres macOS.",
       "searchPlaceholder": "Rechercher des raccourcis...",
       "searchLabel": "Rechercher les raccourcis clavier",
       "noResults": "Aucun raccourci trouvé",
@@ -1311,6 +1321,7 @@
       "title": "Compétences",
       "metaTitle": "Compétences",
       "metaDescription": "Installez et utilisez les compétences d’agents cmux pour le contrôle CLI central, l’automatisation du navigateur, les panneaux Markdown, les fenêtres de débogage et les releases.",
+      "metaDescriptionShort": "Installez les compétences d’agents cmux pour piloter la CLI, automatiser le navigateur, utiliser les panneaux Markdown, déboguer et publier.",
       "intro": "cmux fournit des compétences qui apprennent aux agents de code à utiliser le contrôle cmux CLI, les surfaces de navigateur, les panneaux Markdown, les fenêtres de débogage et le workflow de release.",
       "installTitle": "Installer",
       "installIntro": "Exécutez <code>skills.sh</code> pour installer les compétences versionnées dans votre répertoire de compétences Codex.",
@@ -1413,6 +1424,7 @@
       "title": "Restauration de session",
       "metaTitle": "Restauration de session",
       "metaDescription": "Comment cmux restaure fenêtres, workspaces, panneaux, répertoires de travail, scrollback, historique du navigateur et sessions d'agents prises en charge après relance.",
+      "metaDescriptionShort": "Découvrez comment cmux restaure fenêtres, workspaces, panneaux, répertoires, scrollback, historique du navigateur et sessions d’agents après relance.",
       "intro": "cmux enregistre la forme de votre travail pour que la relance de l'app retrouve les mêmes fenêtres, workspaces, panneaux, contexte de terminal et état du navigateur.",
       "restoredTitle": "Ce que cmux restaure",
       "restoredDesc": "Après relance, cmux restaure la disposition et les métadonnées appartenant à l'app :",
@@ -1527,7 +1539,8 @@
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode : OpenCode multi-agent dans cmux",
-      "metaDescription": "oh-my-opencode (cmux omo) exécute la CLI OpenCode avec le plugin oh-my-openagent à l'intérieur de cmux. Orchestrez Claude, GPT, Gemini et Grok comme agents parallèles, chacun dans une division native de cmux."
+      "metaDescription": "oh-my-opencode (cmux omo) exécute la CLI OpenCode avec le plugin oh-my-openagent à l'intérieur de cmux. Orchestrez Claude, GPT, Gemini et Grok comme agents parallèles, chacun dans une division native de cmux.",
+      "metaDescriptionShort": "cmux omo exécute OpenCode avec oh-my-openagent et coordonne Claude, GPT, Gemini et Grok comme agents parallèles, chacun dans une division cmux native."
     },
     "ios": {
       "metaTitle": "App iOS",
@@ -3461,6 +3474,9 @@
       "faqQ4": "cmux est-il gratuit à utiliser avec Cursor CLI ?",
       "faqA4": "Oui. cmux est gratuit et open source pour macOS."
     }
+  },
+  "pricing": {
+    "billingUnavailable": "La facturation n'est pas disponible pour le moment. Réessayez plus tard."
   },
   "platforms": {
     "macos": "macOS",

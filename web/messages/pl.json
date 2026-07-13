@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "Twój plan osobisty",
+        "free": "Darmowy",
+        "pro": "Pro",
+        "loading": "Ładowanie…"
+      }
     }
   },
   "community": {
@@ -811,6 +819,7 @@
     "workspaceGroups": {
       "metaTitle": "Grupy workspace'ów",
       "metaDescription": "Zagnieżdżaj przestrzenie robocze w zwijanych, nazwanych sekcjach na pasku bocznym cmux. Model kotwicy, sposób tworzenia grupy i zarządzania nią oraz interfejs CLI workspace-group.",
+      "metaDescriptionShort": "Grupuj przestrzenie robocze w zwijanych sekcjach paska bocznego cmux. Poznaj model kotwicy, zarządzanie grupami i CLI workspace-group.",
       "title": "Grupy workspace'ów",
       "intro": "Grupy workspace'ów pozwalają zagnieżdżać workspace'y w zwijanych, nazwanych sekcjach w pasku bocznym. Każda grupa ma niejawny kotwicowy workspace, konfigurowalny przycisk + do tworzenia nowych workspace'ów w jej wnętrzu oraz akcje dostępne po kliknięciu prawym przyciskiem do zmiany nazwy, przypinania, rozgrupowywania i edycji jej konfiguracji.",
       "concepts": "Koncepty",
@@ -836,7 +845,7 @@
       "managingTitle": "Zarządzanie grupą",
       "managingIntro": "Gdy grupa już istnieje, menu kontekstowe jej nagłówka oraz przycisk + w nagłówku umożliwiają zarządzanie grupą i dodawanie do niej workspace’ów. Żadne z nich nie tworzy nowej grupy.",
       "headerMenuTitle": "Z menu kontekstowego nagłówka grupy",
-      "headerMenuDesc": "Kliknij prawym przyciskiem nagłówek istniejącej grupy, aby uzyskać dostęp do „Zmień nazwę grupy…”, „Przypnij grupę / Odepnij grupę”, „Edytuj konfigurację grupy…” (które otwiera ~/.config/cmux/cmux.json), „Otwórz dokumentację grup przestrzeni”, „Rozgrupuj (zachowaj przestrzenie)” oraz „Usuń grupę (zamknij przestrzenie)”. Usuwanie jest destrukcyjne i wymaga potwierdzenia; rozgrupowanie zachowuje przestrzenie robocze i jedynie usuwa kontener.",
+      "headerMenuDesc": "Kliknij prawym przyciskiem nagłówek istniejącej grupy, aby uzyskać dostęp do „Zmień nazwę grupy…”, „Przypnij grupę / Odepnij grupę”, „Edytuj konfigurację grupy…” (które otwiera ~/.config/cmux/cmux.json), „Otwórz dokumentację grup przestrzeni”, „Rozgrupuj przestrzenie” oraz „Usuń grupę”. Rozgrupuj przestrzenie zachowuje przestrzenie robocze i usuwa tylko kontener grupy. Usuń grupę zamyka przestrzeń roboczą nagłówka grupy oraz wszystkie przestrzenie w grupie; jeśli grupa zawiera przestrzenie podrzędne, najpierw wymaga potwierdzenia.",
       "plusButtonTitle": "Z przycisku + na nagłówku grupy",
       "plusButtonDesc": "Najedź na nagłówek grupy, aby odsłonić końcowy przycisk +. Kliknij go, aby utworzyć nową przestrzeń roboczą w grupie w katalogu roboczym kotwicy. Kliknij go prawym przyciskiem, aby uzyskać dostęp do „Nowa przestrzeń w grupie”, „Edytuj konfigurację grupy…” oraz „Otwórz dokumentację grup przestrzeni”.",
       "plusButtonNote": "Naciśnięcie {shortcut}, gdy aktywny workspace jest kotwicą lub członkiem grupy, również tworzy nowy workspace wewnątrz tej grupy. Domyślne umiejscowienie to After current: z poziomu zwykłego członka grupy nowy workspace pojawia się tuż za aktywnym członkiem, a z poziomu kotwicy lub nagłówka pojawia się na górze grupy.",
@@ -1270,6 +1279,7 @@
     "browserAutomation": {
       "title": "Automatyzacja przeglądarki",
       "metaDescription": "Dokumentacja poleceń przeglądarki cmux: nawigacja, interakcja z DOM, oczekiwanie, inspekcja, ewaluacja JavaScript, karty, dialogi, ramki, pobieranie i stan przeglądarki.",
+      "metaDescriptionShort": "Steruj przeglądarką cmux: nawiguj, sprawdzaj DOM, czekaj na zmiany oraz zarządzaj kartami, oknami i pobieraniem przez API Unix socket i CLI.",
       "intro": "Grupa poleceń cmux browser zapewnia automatyzację przeglądarki wobec surface'ów przeglądarki cmux. Używaj jej do nawigacji, interakcji z elementami DOM, inspekcji stanu strony, ewaluacji JavaScript i zarządzania danymi sesji przeglądarki.",
       "commandIndex": "Indeks poleceń",
       "categoryHeader": "Kategoria",
@@ -1527,7 +1537,8 @@
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: wieloagentowy OpenCode w cmux",
-      "metaDescription": "oh-my-opencode (cmux omo) uruchamia OpenCode CLI z wtyczką oh-my-openagent wewnątrz cmux. Orkiestruj Claude, GPT, Gemini i Grok jako równoległych agentów, każdego w natywnym podziale cmux."
+      "metaDescription": "oh-my-opencode (cmux omo) uruchamia OpenCode CLI z wtyczką oh-my-openagent wewnątrz cmux. Orkiestruj Claude, GPT, Gemini i Grok jako równoległych agentów, każdego w natywnym podziale cmux.",
+      "metaDescriptionShort": "cmux omo uruchamia OpenCode z oh-my-openagent i koordynuje Claude, GPT, Gemini oraz Grok jako równoległych agentów w natywnych podziałach cmux."
     },
     "ios": {
       "metaTitle": "Aplikacja iOS",
@@ -3461,6 +3472,9 @@
       "faqQ4": "Czy cmux jest darmowy w użyciu z Cursor CLI?",
       "faqA4": "Tak. cmux jest darmowy i open source dla macOS."
     }
+  },
+  "pricing": {
+    "billingUnavailable": "Płatności są teraz niedostępne. Spróbuj ponownie później."
   },
   "platforms": {
     "macos": "macOS",

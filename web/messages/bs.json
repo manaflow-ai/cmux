@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "Vaš lični plan",
+        "free": "Besplatno",
+        "pro": "Pro",
+        "loading": "Učitavanje…"
+      }
     }
   },
   "community": {
@@ -581,7 +589,7 @@
     },
     "showHnLaunch": {
       "metaTitle": "Lansiranje cmux-a na Show HN",
-      "metaDescription": "Priča o lansiranju cmux-a na Hacker News."
+      "metaDescription": "cmux je dostigao drugo mjesto na Hacker Newsu, podijelio ga je Mitchell Hashimoto i postao viralan u Japanu nakon lansiranja na Show HN."
     },
     "introducingCmux": {
       "metaTitle": "Predstavljamo cmux",
@@ -836,7 +844,7 @@
       "managingTitle": "Upravljanje grupom",
       "managingIntro": "Kada grupa postoji, kontekstualni meni njenog zaglavlja i dugme + na zaglavlju omogućavaju vam da upravljate grupom i dodajete joj workspace-ove. Nijedno od njih ne kreira novu grupu.",
       "headerMenuTitle": "Iz kontekstnog menija zaglavlja grupe",
-      "headerMenuDesc": "Desnim klikom kliknite zaglavlje postojeće grupe za Preimenuj grupu…, Zakači grupu / Otkači grupu, Uredi konfiguraciju grupe… (koja otvara ~/.config/cmux/cmux.json), Otvori dokumentaciju grupa radnih prostora, Razgrupiši (zadrži radne prostore) i Obriši grupu (zatvori radne prostore). Brisanje je destruktivno i traži potvrdu; razgrupisavanje zadržava radne prostore i samo uklanja kontejner.",
+      "headerMenuDesc": "Desnim klikom kliknite zaglavlje postojeće grupe za Preimenuj grupu…, Zakači grupu / Otkači grupu, Uredi konfiguraciju grupe… (koja otvara ~/.config/cmux/cmux.json), Otvori dokumentaciju grupa radnih prostora, Razgrupiši radne prostore i Obriši grupu. Razgrupiši radne prostore zadržava radne prostore i samo uklanja kontejner grupe. Obriši grupu zatvara radni prostor zaglavlja grupe i sve radne prostore u grupi; ako grupa sadrži dječije radne prostore, prvo traži potvrdu.",
       "plusButtonTitle": "Iz dugmeta + na zaglavlju grupe",
       "plusButtonDesc": "Pređite mišem preko zaglavlja grupe da otkrijete prateće + dugme. Kliknite ga da kreirate novi radni prostor u grupi u radnom direktoriju sidra. Desnim klikom kliknite ga za Novi radni prostor u grupi, Uredi konfiguraciju grupe… i Otvori dokumentaciju grupa radnih prostora.",
       "plusButtonNote": "Pritiskanje {shortcut} dok je aktivni radni prostor sidro ili član grupe također kreira novi radni prostor unutar te grupe. Podrazumijevani raspored je After current: iz običnog člana grupe novi radni prostor se smješta odmah nakon aktivnog člana, a iz sidra ili zaglavlja smješta se na vrh grupe.",
@@ -1270,6 +1278,7 @@
     "browserAutomation": {
       "title": "Automatizacija preglednika",
       "metaDescription": "Referenca cmux browser komandi za navigaciju, DOM interakciju, čekanje, inspekciju, JavaScript evaluaciju, tabove, dijaloge, okvire, preuzimanja i stanje preglednika.",
+      "metaDescriptionShort": "Koristite cmux browser komande za navigaciju, DOM inspekciju, čekanje i upravljanje tabovima, dijalozima i preuzimanjima putem Unix socket API-ja i CLI-ja.",
       "intro": "Grupa cmux browser komandi pruža automatizaciju preglednika nad cmux browser površinama. Koristite je za navigaciju, interakciju sa DOM elementima, inspekciju stanja stranice, evaluaciju JavaScript-a i upravljanje podacima sesije preglednika.",
       "commandIndex": "Indeks komandi",
       "categoryHeader": "Kategorija",
@@ -1514,6 +1523,7 @@
       "title": "TextBox (Beta)",
       "metaTitle": "TextBox (Beta)",
       "metaDescription": "Podesite cmux beta TextBox unos za nove terminalske tabove, podjele i radne prostore.",
+      "metaDescriptionShort": "TextBox je cmuxova bogata terminalska površina za unos i uređivanje promptova prije slanja u terminal, s podrškom za višeredni tekst.",
       "intro": "TextBox je cmuxova bogata terminalska površina za unos, za sastavljanje promptova prije slanja u terminal.",
       "betaCallout": "TextBox je beta funkcija. Zadane vrijednosti i ponašanje mogu se promijeniti tokom testiranja.",
       "defaultsTitle": "Zadane vrijednosti",
@@ -1527,7 +1537,8 @@
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode više agenata u cmux-u",
-      "metaDescription": "oh-my-opencode (cmux omo) pokreće OpenCode CLI s dodatkom oh-my-openagent unutar cmux-a. Orkestrirajte Claude, GPT, Gemini i Grok kao paralelne agente, svaki u nativnoj cmux podjeli."
+      "metaDescription": "oh-my-opencode (cmux omo) pokreće OpenCode CLI s dodatkom oh-my-openagent unutar cmux-a. Orkestrirajte Claude, GPT, Gemini i Grok kao paralelne agente, svaki u nativnoj cmux podjeli.",
+      "metaDescriptionShort": "cmux omo pokreće OpenCode uz oh-my-openagent i koordinira Claude, GPT, Gemini i Grok kao paralelne agente u izvornim cmux podjelama."
     },
     "ios": {
       "metaTitle": "iOS aplikacija",
@@ -3461,6 +3472,9 @@
         }
       }
     }
+  },
+  "pricing": {
+    "billingUnavailable": "Naplata trenutno nije dostupna. Pokušajte ponovo kasnije."
   },
   "platforms": {
     "macos": "macOS",

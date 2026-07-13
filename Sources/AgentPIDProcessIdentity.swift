@@ -1,6 +1,6 @@
 import Darwin
 
-struct AgentPIDProcessIdentity: Equatable, Sendable {
+struct AgentPIDProcessIdentity: Equatable, Hashable, Sendable {
     let pid: pid_t
     let startSeconds: Int64
     let startMicroseconds: Int64

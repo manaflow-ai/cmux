@@ -1,5 +1,5 @@
 public import Foundation
-public import CmuxGit
+import CmuxGit
 
 // MARK: - Settings toggles, command-hint reconciliation, and test seams.
 

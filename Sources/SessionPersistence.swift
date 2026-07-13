@@ -20,9 +20,9 @@ enum SessionPersistencePolicy {
     // minimum width. The titlebar title tracks the sidebar's actual width only
     // when it is wider than the minimum, so a default above the minimum would make
     // the folder/title shift when toggling the sidebar at the default width.
-    static let defaultSidebarWidth: Double = 216
-    static let defaultMinimumSidebarWidth: Double = 216
-    static let minimumSidebarWidth: Double = 216
+    static let defaultSidebarWidth: Double = 240
+    static let defaultMinimumSidebarWidth: Double = 240
+    static let minimumSidebarWidth: Double = 240
     static let sidebarMinimumWidthRange: ClosedRange<Double> = 120...260
     static let maximumSidebarWidth: Double = 600
     static let minimumWindowWidth: Double = 300
@@ -197,12 +197,6 @@ struct SessionRectSnapshot: Codable, Equatable, Sendable {
     var cgRect: CGRect {
         CGRect(x: x, y: y, width: width, height: height)
     }
-}
-
-struct SessionDisplaySnapshot: Codable, Sendable {
-    var displayID: UInt32?
-    var frame: SessionRectSnapshot?
-    var visibleFrame: SessionRectSnapshot?
 }
 
 enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
@@ -1600,23 +1594,6 @@ struct SessionMarkdownPanelSnapshot: Codable, Sendable {
 struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
-struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
-    var mode: RightSidebarMode?
-
-    init(mode: RightSidebarMode?) {
-        self.mode = mode
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case mode
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let raw = try container.decodeIfPresent(String.self, forKey: .mode)
-        self.mode = raw.flatMap { RightSidebarMode(rawValue: $0) }
-    }
-}
 struct SessionCustomSidebarPanelSnapshot: Codable, Sendable { var name: String }
 struct SessionProjectPanelSnapshot: Codable, Sendable {
     var projectPath: String
@@ -1640,68 +1617,9 @@ struct SessionProjectPanelSnapshot: Codable, Sendable {
     }
 }
 
-struct SessionNotificationSnapshot: Codable, Sendable {
-    var id: UUID
-    var title: String
-    var subtitle: String
-    var body: String
-    var createdAt: TimeInterval
-    var isRead: Bool
-    var paneFlash: Bool?
-    var clickAction: TerminalNotificationClickAction?
-
-    init(
-        id: UUID,
-        title: String,
-        subtitle: String,
-        body: String,
-        createdAt: TimeInterval,
-        isRead: Bool,
-        paneFlash: Bool? = nil,
-        clickAction: TerminalNotificationClickAction? = nil
-    ) {
-        self.id = id
-        self.title = title
-        self.subtitle = subtitle
-        self.body = body
-        self.createdAt = createdAt
-        self.isRead = isRead
-        self.paneFlash = paneFlash
-        self.clickAction = clickAction
-    }
-
-    init(notification: TerminalNotification) {
-        self.init(
-            id: notification.id,
-            title: notification.title,
-            subtitle: notification.subtitle,
-            body: notification.body,
-            createdAt: notification.createdAt.timeIntervalSince1970,
-            isRead: notification.isRead,
-            paneFlash: notification.paneFlash,
-            clickAction: notification.clickAction
-        )
-    }
-
-    func terminalNotification(tabId: UUID, surfaceId: UUID?, panelId: UUID?) -> TerminalNotification {
-        TerminalNotification(
-            id: id,
-            tabId: tabId,
-            surfaceId: surfaceId,
-            panelId: panelId,
-            title: title,
-            subtitle: subtitle,
-            body: body,
-            createdAt: Date(timeIntervalSince1970: createdAt),
-            isRead: isRead,
-            paneFlash: paneFlash ?? true,
-            clickAction: clickAction
-        )
-    }
-}
-
 struct SessionPanelSnapshot: Codable, Sendable {
     var id: UUID
+    var stableSurfaceId: UUID? = nil
     var type: PanelType
     var title: String?
     var customTitle: String?
@@ -1756,6 +1674,7 @@ enum SessionSplitOrientation: String, Codable, Sendable {
 struct SessionPaneLayoutSnapshot: Codable, Sendable {
     var panelIds: [UUID]
     var selectedPanelId: UUID?
+    var isFullWidthTabMode: Bool? = nil
 }
 
 struct SessionSplitLayoutSnapshot: Codable, Sendable {
@@ -1822,11 +1741,10 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// Restore uses this to remap closed-panel history onto the new workspace IDs;
     /// legacy or externally-created snapshots can leave it nil.
     var workspaceId: UUID? = nil
+    var stableId: UUID? = nil
     var processTitle: String
     var customTitle: String?
-    /// Provenance of `customTitle`. Optional with a `nil` default so snapshots
-    /// persisted before provenance existed decode unchanged; restore treats
-    /// absent provenance as user-set (the conservative choice for auto-naming).
+    /// Provenance of `customTitle`; absent provenance restores as user-set for compatibility.
     var customTitleSource: Workspace.CustomTitleSource? = nil
     var customDescription: String?
     var customColor: String?
@@ -1902,6 +1820,9 @@ struct SessionWindowSnapshot: Codable, Sendable {
     var display: SessionDisplaySnapshot?
     var tabManager: SessionTabManagerSnapshot
     var sidebar: SessionSidebarSnapshot
+    /// Per-display-configuration remembered frames (LRU ring). Optional and
+    /// additive so older persisted snapshots decode unchanged.
+    var configFrames: [SessionConfigFrameEntry]? = nil
 }
 
 struct AppSessionSnapshot: Codable, Sendable {
@@ -1923,22 +1844,24 @@ enum SessionScrollbackReplayStore {
     private static let directoryName = "cmux-session-scrollback"
     private static let ansiEscape = "\u{001B}"
     private static let ansiReset = "\u{001B}[0m"
-
-    static func replayEnvironment(
+    nonisolated static func replayEnvironment(
         for scrollback: String?,
         tempDirectory: URL = FileManager.default.temporaryDirectory
     ) -> [String: String] {
-        guard let replayText = normalizedScrollback(scrollback) else { return [:] }
-        guard let replayFileURL = writeReplayFile(
-            contents: replayText,
-            tempDirectory: tempDirectory
-        ) else {
-            return [:]
-        }
+        replayEnvironment(forFileURL: replayFileURL(for: scrollback, tempDirectory: tempDirectory))
+    }
+    nonisolated static func replayFileURL(
+        for scrollback: String?,
+        tempDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> URL? {
+        guard let replayText = normalizedScrollback(scrollback) else { return nil }
+        return writeReplayFile(contents: replayText, tempDirectory: tempDirectory)
+    }
+    nonisolated static func replayEnvironment(forFileURL replayFileURL: URL?) -> [String: String] {
+        guard let replayFileURL else { return [:] }
         return [environmentKey: replayFileURL.path]
     }
-
-    private static func normalizedScrollback(_ scrollback: String?) -> String? {
+    nonisolated private static func normalizedScrollback(_ scrollback: String?) -> String? {
         guard let scrollback else { return nil }
         guard scrollback.contains(where: { !$0.isWhitespace }) else { return nil }
         // Restored history must not reconfigure the live terminal's colors: the
@@ -1951,9 +1874,8 @@ enum SessionScrollbackReplayStore {
         guard let truncated = SessionPersistencePolicy.truncatedScrollback(themePortable) else { return nil }
         return ansiSafeReplayText(truncated)
     }
-
     /// Preserve ANSI color state safely across replay boundaries.
-    private static func ansiSafeReplayText(_ text: String) -> String {
+    nonisolated private static func ansiSafeReplayText(_ text: String) -> String {
         guard text.contains(ansiEscape) else { return text }
         var output = text
         if !output.hasPrefix(ansiReset) {
@@ -1977,7 +1899,7 @@ enum SessionScrollbackReplayStore {
     /// (white-on-white after a theme change — issue #5165). Explicit per-cell SGR
     /// colors and every non-color escape sequence (titles, hyperlinks, prompt
     /// marks, …) are preserved verbatim.
-    private static func strippingTerminalColorOSCSequences(_ text: String) -> String {
+    nonisolated private static func strippingTerminalColorOSCSequences(_ text: String) -> String {
         let escByte: UInt8 = 0x1B
         let oscIntroducer: UInt8 = 0x5D // ]
         let bel: UInt8 = 0x07
@@ -2047,7 +1969,7 @@ enum SessionScrollbackReplayStore {
     /// Returns `true` for OSC command numbers that configure terminal colors
     /// (palette entries and the dynamic foreground/background/cursor/highlight
     /// colors plus their resets), which restored scrollback must not carry.
-    private static func isTerminalColorOSCCode(_ code: Int) -> Bool {
+    nonisolated private static func isTerminalColorOSCCode(_ code: Int) -> Bool {
         switch code {
         case 4, 5, 104, 105: return true // palette / special color set + reset
         case 10...19: return true        // dynamic colors (fg, bg, cursor, …)
@@ -2055,8 +1977,7 @@ enum SessionScrollbackReplayStore {
         default: return false
         }
     }
-
-    private static func writeReplayFile(contents: String, tempDirectory: URL) -> URL? {
+    nonisolated private static func writeReplayFile(contents: String, tempDirectory: URL) -> URL? {
         guard let data = contents.data(using: .utf8) else { return nil }
         let directory = tempDirectory.appendingPathComponent(directoryName, isDirectory: true)
 

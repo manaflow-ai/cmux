@@ -13,6 +13,7 @@ struct CmuxConfigFile: Codable, Sendable {
     var actions: [String: CmuxConfigActionDefinition]
     var ui: CmuxConfigUIDefinition?
     var notifications: CmuxNotificationConfigDefinition?
+    var agentChat: CmuxAgentChatConfigDefinition?
     var newWorkspaceCommand: String?
     var surfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
     var commands: [CmuxCommandDefinition]
@@ -20,13 +21,14 @@ struct CmuxConfigFile: Codable, Sendable {
     var workspaceGroups: CmuxConfigWorkspaceGroupsDefinition?
 
     private enum CodingKeys: String, CodingKey {
-        case actions, ui, notifications, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups
+        case actions, ui, notifications, agentChat, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups
     }
 
     init(
         actions: [String: CmuxConfigActionDefinition] = [:],
         ui: CmuxConfigUIDefinition? = nil,
         notifications: CmuxNotificationConfigDefinition? = nil,
+        agentChat: CmuxAgentChatConfigDefinition? = nil,
         newWorkspaceCommand: String? = nil,
         surfaceTabBarButtons: [CmuxSurfaceTabBarButton]? = nil,
         commands: [CmuxCommandDefinition] = [],
@@ -36,6 +38,7 @@ struct CmuxConfigFile: Codable, Sendable {
         self.actions = actions
         self.ui = ui
         self.notifications = notifications
+        self.agentChat = agentChat
         self.newWorkspaceCommand = newWorkspaceCommand
         self.surfaceTabBarButtons = surfaceTabBarButtons
         self.commands = commands
@@ -55,6 +58,7 @@ struct CmuxConfigFile: Codable, Sendable {
         )
         ui = try container.decodeIfPresent(CmuxConfigUIDefinition.self, forKey: .ui)
         notifications = try container.decodeIfPresent(CmuxNotificationConfigDefinition.self, forKey: .notifications)
+        agentChat = try container.decodeIfPresent(CmuxAgentChatConfigDefinition.self, forKey: .agentChat)
 
         if let rawNewWorkspaceCommand = try container.decodeIfPresent(String.self, forKey: .newWorkspaceCommand) {
             let trimmed = rawNewWorkspaceCommand.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -330,28 +334,6 @@ enum CmuxConfigTerminalCommandTarget: String, Codable, Sendable, Hashable {
     case newTabInCurrentPane
 
     static let defaultForActions: CmuxConfigTerminalCommandTarget = .newTabInCurrentPane
-}
-
-extension CmuxSurfaceTabBarBuiltInAction {
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        let value = try container.decode(String.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let action = Self(configID: value) else {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Unknown built-in action '\(value)'"
-                )
-            )
-        }
-        self = action
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        try container.encode(configID)
-    }
 }
 
 /// Agent launched by an `agent` action. Known kinds carry presentation
@@ -1398,9 +1380,12 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         case .newWorkspace:
             title = String(localized: "command.newWorkspace.title", defaultValue: "New Workspace")
             keywords = ["create", "new", "workspace"]
+        case .newAgentChat:
+            title = String(localized: "command.newAgentChat.title", defaultValue: "New agent chat")
+            keywords = ["create", "new", "agent", "chat", "browser", "codex", "claude"]
         case .cloudVM:
-            title = String(localized: "command.cloudVM.title", defaultValue: "Start Cloud VM")
-            keywords = ["cloud", "vm", "virtual", "machine", "remote"]
+            title = String(localized: "command.cloudVM.title", defaultValue: "Open Base")
+            keywords = ["base", "cloud", "vm", "virtual", "machine", "remote"]
         case .mobileConnect:
             title = String(localized: "command.mobileConnect.title", defaultValue: "Connect iPhone/iPad")
             keywords = ["iphone", "ipad", "mobile", "phone", "pair", "connect"]
@@ -1734,7 +1719,6 @@ struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
 final class CmuxConfigStore: ObservableObject {
     private static let defaultNewWorkspaceContextMenu: [CmuxConfigContextMenuItem] = [
         .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID)),
-        .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.cloudVM.configID)),
     ]
 
     @Published private(set) var loadedCommands: [CmuxCommandDefinition] = []
@@ -1742,6 +1726,9 @@ final class CmuxConfigStore: ObservableObject {
     @Published private(set) var newWorkspaceCommandName: String?
     @Published private(set) var newWorkspaceActionID: String?
     @Published private(set) var newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem] = []
+    @Published private(set) var newWorkspaceContextMenuIsConfigured = false
+    @Published private(set) var newWorkspaceMenuSectionOrder: CmuxNewWorkspaceMenuSectionOrder = .default
+    @Published private(set) var agentChat: CmuxAgentChatConfiguration = .default
     /// Resolved per-cwd workspace group customization, keyed by the JSON cwd key.
     /// Use `resolveWorkspaceGroupConfig(forCwd:)` to find the best match for an
     /// anchor workspace's cwd. Empty when no `workspaceGroups.byCwd` block is
@@ -2005,6 +1992,7 @@ final class CmuxConfigStore: ObservableObject {
         var configuredNewWorkspaceActionSourcePath: String?
         var configuredNewWorkspaceContextMenu: [CmuxConfigContextMenuItem]?
         var configuredNewWorkspaceContextMenuSourcePath: String?
+        var configuredNewWorkspaceMenuSectionOrder: CmuxNewWorkspaceMenuSectionOrder?
         var configuredSurfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
         var configuredSurfaceTabBarButtonSourcePath: String?
         let localPath = localConfigPath
@@ -2041,6 +2029,9 @@ final class CmuxConfigStore: ObservableObject {
                 configuredNewWorkspaceContextMenu = contextMenu
                 configuredNewWorkspaceContextMenuSourcePath = localPath
             }
+            if let menuSectionOrder = localConfig.ui?.newWorkspace?.menuSectionOrder {
+                configuredNewWorkspaceMenuSectionOrder = menuSectionOrder
+            }
             if configuredNewWorkspaceActionID == nil,
                let newWorkspaceCommand = localConfig.newWorkspaceCommand {
                 configuredNewWorkspaceCommandName = newWorkspaceCommand
@@ -2073,6 +2064,10 @@ final class CmuxConfigStore: ObservableObject {
                let contextMenu = globalConfig.ui?.newWorkspace?.contextMenu {
                 configuredNewWorkspaceContextMenu = contextMenu
                 configuredNewWorkspaceContextMenuSourcePath = globalConfigPath
+            }
+            if configuredNewWorkspaceMenuSectionOrder == nil,
+               let menuSectionOrder = globalConfig.ui?.newWorkspace?.menuSectionOrder {
+                configuredNewWorkspaceMenuSectionOrder = menuSectionOrder
             }
             if configuredNewWorkspaceActionID == nil,
                configuredNewWorkspaceCommandName == nil,
@@ -2151,7 +2146,6 @@ final class CmuxConfigStore: ObservableObject {
                 entry.result.config.map { (path: entry.path, config: $0) }
             }
         )
-
         loadedCommands = commands
         loadedActions = resolvedActions
         commandSourcePaths = sourcePaths
@@ -2160,6 +2154,12 @@ final class CmuxConfigStore: ObservableObject {
         newWorkspaceActionSourcePath = configuredNewWorkspaceActionSourcePath
         newWorkspaceCommandName = configuredNewWorkspaceCommandName
         newWorkspaceContextMenuItems = resolvedNewWorkspaceContextMenuItems.items
+        newWorkspaceContextMenuIsConfigured = configuredNewWorkspaceContextMenu != nil
+        newWorkspaceMenuSectionOrder = configuredNewWorkspaceMenuSectionOrder ?? .default
+        agentChat = CmuxAgentChatConfiguration.resolved(
+            local: localConfig?.agentChat, global: globalConfig?.agentChat,
+            localSourcePath: localConfig?.agentChat == nil ? nil : localPath, globalSourcePath: globalConfig?.agentChat == nil ? nil : globalConfigPath
+        )
         let resolvedGroupConfigs = resolveWorkspaceGroupConfigsFromLayers(
             localConfig: localConfig,
             globalConfig: globalConfig,

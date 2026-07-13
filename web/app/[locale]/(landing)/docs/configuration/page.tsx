@@ -1,6 +1,5 @@
 import { useLocale, useTranslations } from "next-intl";
-import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "@/i18n/seo";
+import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
 import { Link } from "@/i18n/navigation";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
@@ -48,6 +47,7 @@ const sectionOrder = [
   "actions",
   "ui",
   "commands",
+  "agentChat",
   "browser",
   "markdown",
   "fileEditor",
@@ -132,6 +132,11 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "newWorkspacePlacement": "afterCurrent"
   // },
 
+  // "agentChat": {
+  //   "url": "http://127.0.0.1:7739",
+  //   "startCommand": "cmux-chat"
+  // },
+
   // "shortcuts": {
   //   "bindings": {
   //     "toggleSidebar": "cmd+b",
@@ -145,12 +150,11 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "docs.configuration" });
-  return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/docs/configuration"),
-  };
+  return auditedDocsMetadata({
+    locale,
+    pageKey: "configuration",
+    path: "/docs/configuration",
+  });
 }
 
 function shortcutToConfig(shortcut: { combos: string[][]; configValue?: string }) {

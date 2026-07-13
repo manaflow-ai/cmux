@@ -61,6 +61,29 @@ Values: `right`, `left`, `top`, `bottom`, `newTab`, `newWorkspace`.
 
 Default: `right`.
 
+## `ui.newWorkspace.menuSectionOrder`
+
+Controls the section order in the titlebar `+` button menu. The Cloud VM section is built in; the custom section comes from `ui.newWorkspace.contextMenu`.
+
+Values: `customFirst`, `cloudFirst`.
+
+Default: `cloudFirst`.
+
+```json
+{
+  "ui": {
+    "newWorkspace": {
+      "menuSectionOrder": "customFirst",
+      "contextMenu": [
+        "newWorkspace"
+      ]
+    }
+  }
+}
+```
+
+`sectionOrder` is accepted as an alias. Project-local `.cmux/cmux.json` values override the global setting.
+
 ## `terminal.agentHibernation`
 
 Opt-in Agent Hibernation. cmux kills idle background agent processes to free RAM and CPU, then resumes each one with its saved session when you visit its tab. See [agent-hooks.md](agent-hooks.md#agent-hibernation) for the full behavior, including the confirmation settle window and how resume works.
@@ -82,6 +105,26 @@ Opt-in Agent Hibernation. cmux kills idle background agent processes to free RAM
 - `maxLiveTerminals`: how many live restorable agent terminals to keep before cmux hibernates the oldest idle background ones. Nothing hibernates while you are at or under this count. Default: `12`. Range: `1`-`256`.
 
 Enable it from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux agent-hibernation on`.
+
+## `sidebar.showAgentActivity`
+
+Shows a loading spinner on sidebar workspace rows that currently have running coding agents or active manual loaders (`cmux workspace loading on`).
+
+```json
+{
+  "sidebar": {
+    "showAgentActivity": true,
+    "loadingSpinnerPosition": "leading",
+    "notificationBadgePosition": "leading"
+  }
+}
+```
+
+- `showAgentActivity`: show the spinner at all. Default: `true`. It is a live status signal, so it stays visible even when `sidebar.hideAllDetails` is on. Toggle it from **Settings > Sidebar > Show Loading Spinner**.
+- `loadingSpinnerPosition`: `leading` (left, sharing the unread-badge slot) or `trailing` (right, in the close-button corner). Default: `leading`.
+- `notificationBadgePosition`: which side the unread notification badge sits on, `leading` or `trailing`. Default: `leading`.
+
+The spinner is compositor-driven (a Core Animation transform run by the render server), so it costs no per-frame CPU and pauses automatically while the window is occluded or Reduce Motion is on. Toggle it manually per workspace with `cmux workspace loading <on|off> [--id <name>]`; each `--id` is a separate loader and the command prints the workspace state as `before=ON;after=OFF`.
 
 ## `terminal.showTextBoxOnNewTerminals` and `terminal.focusTextBoxOnNewTerminals`
 

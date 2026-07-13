@@ -161,6 +161,9 @@ doneFlags:
 		refreshAddr = readSocketAddrFile
 	}
 	if socketPath == "" {
+		socketPath = defaultCloudCLIBridgeSocketIfExists()
+	}
+	if socketPath == "" {
 		fmt.Fprintln(os.Stderr, "cmux: CMUX_SOCKET_PATH not set and --socket not provided")
 		return 1
 	}
@@ -312,7 +315,11 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 		}
 	}
 
-	resp, err := socketRoundTripV2(socketPath, spec.v2Method, params, refreshAddr)
+	method := spec.v2Method
+	if spec.name == "notify" {
+		method = applyNotifyCallerEnv(method, params)
+	}
+	resp, err := socketRoundTripV2(socketPath, method, params, refreshAddr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
 		return 1
@@ -826,6 +833,24 @@ func applySurfaceEnvFallback(params map[string]any) {
 	if envSf := os.Getenv("CMUX_SURFACE_ID"); envSf != "" {
 		params["surface_id"] = envSf
 	}
+}
+
+func applyNotifyCallerEnv(method string, params map[string]any) string {
+	if method != "notification.create" {
+		return method
+	}
+	workspaceID, _ := params["workspace_id"].(string)
+	surfaceID, _ := params["surface_id"].(string)
+	workspaceID = strings.TrimSpace(workspaceID)
+	surfaceID = strings.TrimSpace(surfaceID)
+	if workspaceID == "" || surfaceID == "" {
+		return method
+	}
+	params["preferred_workspace_id"] = workspaceID
+	params["preferred_surface_id"] = surfaceID
+	delete(params, "workspace_id")
+	delete(params, "surface_id")
+	return "notification.create_for_caller"
 }
 
 func defaultRelayOutput(resp string) string {

@@ -28,6 +28,8 @@ enum RemoteTmuxRawLayoutParser {
         }
         var cursor = 0
         guard let node = parseNode(chars, &cursor), cursor == chars.count else { return nil }
+        let paneIDs = node.paneIDsInOrder
+        guard Set(paneIDs).count == paneIDs.count else { return nil }
         return node
     }
 

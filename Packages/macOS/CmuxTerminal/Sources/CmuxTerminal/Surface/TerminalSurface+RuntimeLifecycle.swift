@@ -384,13 +384,12 @@ extension TerminalSurface {
         // If already attached to this view, nothing to do.
         // Still re-assert the display id: during split close tree restructuring, the view can be
         // removed/re-added (or briefly have window/screen nil) without recreating the surface.
-        // Ghostty's vsync-driven renderer depends on having a valid display id; if it is missing
-        // or stale, the surface can appear visually frozen until a focus/visibility change.
-        // SwiftUI also re-enters this path for ordinary state propagation (drag hover, active
-        // markers, visibility flags), so avoid forcing a geometry refresh when the attachment
+        // Ghostty's renderer depends on a valid display id; if it is missing or stale,
+        // the surface can freeze visually until focus/visibility changes. Avoid forcing refresh when the attachment
         // itself is unchanged.
         if attachedView === view && surface != nil {
             releaseHeadlessStartupWindowIfNeeded(for: view)
+            flushPendingManualSizeReportIfAttached()
 #if DEBUG
             logDebugEvent("surface.attach.reuse surface=\(id.uuidString.prefix(5)) view=\(Unmanaged.passUnretained(view as NSView).toOpaque())")
 #endif
@@ -554,14 +553,14 @@ extension TerminalSurface {
         // realizeRenderer() double-realize and trip Ghostty's defunct assert.
         rendererRealized = true
         recordRuntimeSurfaceCreation()
-        // Install the PTY tee so MobileTerminalByteTee receives every byte
+        // Install the shared PTY tee so output consumers receive every byte
         // the read thread produces, in order, before the VT parser runs.
         // Paired iPhones consume these bytes via `terminal.bytes` events
         // and feed them into their own libghostty surface, guaranteeing
         // grid parity by construction. The lease is released alongside
         // `surfaceCallbackContext` when the surface tears down.
         mobileByteTeeLease?.release()
-        mobileByteTeeLease = byteTee.installTee(on: createdSurface, surfaceID: id)
+        mobileByteTeeLease = byteTee.installTee(on: createdSurface, workspaceID: tabId, surfaceID: id)
         if runtimeInitialInput != nil {
             nextRuntimeInitialInput = nil
         }
@@ -640,7 +639,7 @@ extension TerminalSurface {
                 "workspaceId": tabId
             ]
         )
-
+        onRuntimeReady?()
 #if DEBUG
         let runtimeFontText = GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(createdSurface).map {
             String(format: "%.2f", $0)
