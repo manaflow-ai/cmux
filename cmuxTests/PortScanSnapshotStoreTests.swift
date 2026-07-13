@@ -229,4 +229,31 @@ struct PortScanSnapshotStoreTests {
         #expect(metrics.lsof.reuse.inFlight == 1)
         #expect(await capturer.callCount() == 2)
     }
+
+    @Test
+    func cancellingPerformanceExerciseUnblocksNormalConsumers() async {
+        let metricsStore = ProcessPerformanceMetrics(enabled: false)
+        metricsStore.reset(enable: true)
+        let capturer = ControlledPortScanCapturer()
+        let store = PortScanSnapshotStore(
+            capture: { pids in await capturer.capture(pids: pids) },
+            metrics: metricsStore
+        )
+        let exercise = Task { await store.performanceMetricsExercise(pids: [42]) }
+        await capturer.waitForCallCount(1)
+        #expect(await waitForMetrics {
+            metricsStore.snapshot().lsof.reuse.inFlight == 1
+        })
+
+        exercise.cancel()
+        let normal = Task {
+            await store.snapshot(pids: [42], maximumAge: 10)
+        }
+        await capturer.releaseNext()
+
+        let cancelledExercise = await exercise.value
+        #expect(cancelledExercise?.proof == nil)
+        #expect(await normal.value == [42: [1_042]])
+        #expect(metricsStore.snapshot().lsof.completed == 1)
+    }
 }

@@ -10,14 +10,16 @@ import Testing
 
 actor ControlledProcessSnapshotCapturer {
     private let autoRelease: Bool
+    private let returnsEmptySnapshot: Bool
     private var requirements: [CmuxTopProcessSnapshotRequirements] = []
     private var activeCaptures = 0
     private var maximumActiveCaptures = 0
     private var releases: [CheckedContinuation<Void, Never>] = []
     private var callCountWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
-    init(autoRelease: Bool = false) {
+    init(autoRelease: Bool = false, returnsEmptySnapshot: Bool = false) {
         self.autoRelease = autoRelease
+        self.returnsEmptySnapshot = returnsEmptySnapshot
     }
 
     func capture(requirements: CmuxTopProcessSnapshotRequirements) async -> CmuxTopProcessSnapshot {
@@ -31,8 +33,26 @@ actor ControlledProcessSnapshotCapturer {
             }
         }
         activeCaptures -= 1
+        let processes = returnsEmptySnapshot ? [] : [
+            CmuxTopProcessInfo(
+                pid: 4_242,
+                parentPID: 1,
+                name: "fixture",
+                path: nil,
+                ttyDevice: nil,
+                cmuxWorkspaceID: nil,
+                cmuxSurfaceID: nil,
+                cmuxAttributionReason: nil,
+                processGroupID: nil,
+                terminalProcessGroupID: nil,
+                cpuPercent: 0,
+                residentBytes: 1,
+                virtualBytes: 1,
+                threadCount: 1
+            )
+        ]
         return CmuxTopProcessSnapshot(
-            processes: [],
+            processes: processes,
             sampledAt: Date(timeIntervalSince1970: TimeInterval(self.requirements.count)),
             includesProcessDetails: requirements.contains(.processDetails),
             includesCMUXScope: requirements.contains(.cmuxScope)

@@ -183,6 +183,7 @@ actor CmuxTopProcessSnapshotStore {
     /// The barrier holds only the diagnostic capture result so every secondary
     /// request reaches the normal in-flight sharing branch before completion.
     func performanceMetricsExercise(requestCount: Int) async -> (
+        measurementEpoch: UInt64,
         generation: UInt64,
         processCount: Int,
         proof: ProcessPerformanceCaptureProof,
@@ -193,6 +194,10 @@ actor CmuxTopProcessSnapshotStore {
             await finishCapture(active, captureResult: captureResult)
         }
         cached = nil
+        let startingMetrics = metrics.snapshot()
+        guard startingMetrics.enabled, startingMetrics.measurementEpoch > 0 else {
+            return nil
+        }
 
         let boundedRequestCount = min(max(requestCount, 2), 8)
         let gate = ProcessPerformanceExerciseGate()
@@ -200,6 +205,7 @@ actor CmuxTopProcessSnapshotStore {
         return await withTaskCancellationHandler {
             await runPerformanceMetricsExercise(
                 requestCount: boundedRequestCount,
+                measurementEpoch: startingMetrics.measurementEpoch,
                 gate: gate
             )
         } onCancel: {
@@ -209,8 +215,10 @@ actor CmuxTopProcessSnapshotStore {
 
     private func runPerformanceMetricsExercise(
         requestCount: Int,
+        measurementEpoch: UInt64,
         gate: ProcessPerformanceExerciseGate
     ) async -> (
+        measurementEpoch: UInt64,
         generation: UInt64,
         processCount: Int,
         proof: ProcessPerformanceCaptureProof,
@@ -263,9 +271,21 @@ actor CmuxTopProcessSnapshotStore {
         guard let exercise,
               let generation = exercise.generation,
               let proof = exercise.proof else { return nil }
+        let processCount = primarySnapshot.processesByPID.count
+        let completedMetrics = metrics.snapshot()
+        guard processCount > 0,
+              completedMetrics.enabled,
+              completedMetrics.measurementEpoch == measurementEpoch,
+              let generationMetrics = completedMetrics.generations[generation],
+              generationMetrics.started == 1,
+              generationMetrics.completed == 1,
+              generationMetrics.processCount == processCount else {
+            return nil
+        }
         return (
+            measurementEpoch,
             generation,
-            primarySnapshot.processesByPID.count,
+            processCount,
             proof,
             sharedSnapshotIdentity
         )

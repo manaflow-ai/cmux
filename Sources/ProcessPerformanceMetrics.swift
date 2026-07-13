@@ -58,6 +58,7 @@ nonisolated struct ProcessPerformanceLsofMetrics: Sendable, Equatable {
 
 nonisolated struct ProcessPerformanceMetricsSnapshot: Sendable, Equatable {
     let enabled: Bool
+    let measurementEpoch: UInt64
     let resetAtUnixMilliseconds: UInt64
     let processSnapshots: ProcessPerformanceSnapshotCaptureMetrics
     let generations: [UInt64: ProcessPerformanceGenerationMetrics]
@@ -69,8 +70,9 @@ nonisolated struct ProcessPerformanceMetricsSnapshot: Sendable, Equatable {
 
     var foundationObject: [String: Any] {
         return [
-            "schema_version": 2,
+            "schema_version": 3,
             "enabled": enabled,
+            "measurement_epoch": NSNumber(value: measurementEpoch),
             "reset_at_unix_ms": NSNumber(value: resetAtUnixMilliseconds),
             "process_snapshots": [
                 "capture_started": processSnapshots.captureStarted,
@@ -184,7 +186,7 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
         var epoch: UInt64
         var enabled: Bool
         var synchronousCaptureGeneration: UInt64 = 0
-        var resetAtUnixMilliseconds = ProcessPerformanceMetrics.unixMilliseconds()
+        var resetAtUnixMilliseconds: UInt64
         var processSnapshots = ProcessPerformanceSnapshotCaptureMetrics()
         var generations: [UInt64: ProcessPerformanceGenerationMetrics] = [:]
         var requestCountsByConsumer: [String: Int] = [:]
@@ -193,30 +195,47 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
         var staleRejections: [String: Int] = [:]
         var operations: [String: ProcessPerformanceOperationMetrics] = [:]
 
-        init(epoch: UInt64 = 0, enabled: Bool = false) {
+        init(
+            epoch: UInt64 = 0,
+            enabled: Bool = false,
+            resetAtUnixMilliseconds: UInt64
+        ) {
             self.epoch = epoch
             self.enabled = enabled
+            self.resetAtUnixMilliseconds = resetAtUnixMilliseconds
         }
     }
 
     private let state: OSAllocatedUnfairLock<State>
     private let enabled: AtomicBooleanGate
     private let monotonicNanoseconds: @Sendable () -> UInt64
+    private let unixMilliseconds: @Sendable () -> UInt64
 
     init(
         enabled: Bool = _isDebugAssertConfiguration(),
         monotonicNanoseconds: @escaping @Sendable () -> UInt64 = {
             DispatchTime.now().uptimeNanoseconds
+        },
+        unixMilliseconds: @escaping @Sendable () -> UInt64 = {
+            ProcessPerformanceMetrics.currentUnixMilliseconds()
         }
     ) {
-        state = OSAllocatedUnfairLock(initialState: State(enabled: enabled))
+        state = OSAllocatedUnfairLock(initialState: State(
+            enabled: enabled,
+            resetAtUnixMilliseconds: unixMilliseconds()
+        ))
         self.enabled = AtomicBooleanGate(enabled)
         self.monotonicNanoseconds = monotonicNanoseconds
+        self.unixMilliseconds = unixMilliseconds
     }
 
     func reset(enable: Bool = true) {
         state.withLock { state in
-            state = State(epoch: state.epoch &+ 1, enabled: enable)
+            state = State(
+                epoch: Self.nextMeasurementEpoch(after: state.epoch),
+                enabled: enable,
+                resetAtUnixMilliseconds: unixMilliseconds()
+            )
         }
         enabled.storeRelease(enable)
     }
@@ -230,6 +249,7 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
         state.withLock { state in
             ProcessPerformanceMetricsSnapshot(
                 enabled: state.enabled,
+                measurementEpoch: state.epoch,
                 resetAtUnixMilliseconds: state.resetAtUnixMilliseconds,
                 processSnapshots: state.processSnapshots,
                 generations: state.generations,
@@ -459,8 +479,13 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
         return Double(end >= start ? end - start : 0) / 1_000_000
     }
 
-    private static func unixMilliseconds() -> UInt64 {
+    private static func currentUnixMilliseconds() -> UInt64 {
         UInt64(max(0, Date().timeIntervalSince1970 * 1_000))
+    }
+
+    static func nextMeasurementEpoch(after epoch: UInt64) -> UInt64 {
+        let next = epoch &+ 1
+        return next == 0 ? 1 : next
     }
 }
 

@@ -22,7 +22,7 @@ struct ProcessPerformanceMetricsEpochTests {
 
         #expect(metricsStore.snapshot().enabled == false)
         #expect(metricsStore.snapshot().processSnapshots.captureStarted == 0)
-        #expect(metricsStore.snapshot().foundationObject["schema_version"] as? Int == 2)
+        #expect(metricsStore.snapshot().foundationObject["schema_version"] as? Int == 3)
         #expect(metricsStore.snapshot().foundationObject["enabled"] as? Bool == false)
 
         metricsStore.reset(enable: true)
@@ -37,6 +37,30 @@ struct ProcessPerformanceMetricsEpochTests {
 
         metricsStore.disable()
         #expect(metricsStore.snapshot().enabled == false)
+    }
+
+    @Test
+    func monotonicMeasurementEpochDistinguishesResetsInTheSameWallClockMillisecond() {
+        let metricsStore = ProcessPerformanceMetrics(
+            enabled: false,
+            unixMilliseconds: { 1_752_345_678_901 }
+        )
+
+        metricsStore.reset(enable: true)
+        let first = metricsStore.snapshot()
+        metricsStore.reset(enable: true)
+        let second = metricsStore.snapshot()
+
+        #expect(first.resetAtUnixMilliseconds == second.resetAtUnixMilliseconds)
+        #expect(first.measurementEpoch == 1)
+        #expect(second.measurementEpoch == 2)
+        #expect(first.foundationObject["measurement_epoch"] as? UInt64 == 1)
+        #expect(second.foundationObject["measurement_epoch"] as? UInt64 == 2)
+    }
+
+    @Test
+    func measurementEpochWrapSkipsReservedZero() {
+        #expect(ProcessPerformanceMetrics.nextMeasurementEpoch(after: .max) == 1)
     }
 
     @Test

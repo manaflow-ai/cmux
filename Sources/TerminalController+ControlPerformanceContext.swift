@@ -18,7 +18,8 @@ extension TerminalController: ControlPerformanceContext {
                 data: nil
             )
         }
-        guard ProcessPerformanceMetrics.shared.snapshot().enabled else {
+        let startingMetrics = ProcessPerformanceMetrics.shared.snapshot()
+        guard startingMetrics.enabled, startingMetrics.measurementEpoch > 0 else {
             return .err(
                 code: "metrics_disabled",
                 message: "Reset performance metrics before exercising process owners",
@@ -37,9 +38,25 @@ extension TerminalController: ControlPerformanceContext {
                 data: nil
             )
         }
+        let completedMetrics = ProcessPerformanceMetrics.shared.snapshot()
+        guard process.processCount > 0,
+              process.measurementEpoch == startingMetrics.measurementEpoch,
+              completedMetrics.enabled,
+              completedMetrics.measurementEpoch == process.measurementEpoch,
+              let generationMetrics = completedMetrics.generations[process.generation],
+              generationMetrics.started == 1,
+              generationMetrics.completed == 1,
+              generationMetrics.processCount == process.processCount else {
+            return .err(
+                code: "exercise_failed",
+                message: "Process owner exercise did not match its measurement epoch and generation metrics",
+                data: nil
+            )
+        }
         return .ok([
-            "schema_version": 1,
+            "schema_version": 2,
             "exercise_nonce": nonce,
+            "measurement_epoch": NSNumber(value: process.measurementEpoch),
             "capture_generation": NSNumber(value: process.generation),
             "request_count": concurrentRequests,
             "process_count": process.processCount,
