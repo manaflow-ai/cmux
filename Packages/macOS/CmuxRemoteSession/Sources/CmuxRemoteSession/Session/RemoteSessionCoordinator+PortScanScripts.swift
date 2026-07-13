@@ -71,6 +71,15 @@ extension RemoteSessionCoordinator {
           printf '%s\\t%s\\n' "$cmux_tty" "$cmux_port"
         }
 
+        cmux_emit_host_port() {
+          cmux_host_port="$1"
+          case "$cmux_excluded_ports" in
+            *" $cmux_host_port "*) return 0 ;;
+          esac
+          [ "$cmux_host_port" -ge 1024 ] && [ "$cmux_host_port" -le 65535 ] || return 0
+          printf '%s\\t%s\\n' '\(remoteTTYHostWidePortMarker)' "$cmux_host_port"
+        }
+
         cmux_used_ss=0
         if [ -d /proc ] && command -v ss >/dev/null 2>&1; then
           cmux_ss_status=0
@@ -83,6 +92,15 @@ extension RemoteSessionCoordinator {
             cmux_mark_globally_incomplete
           fi
           [ "$cmux_ss_status" -eq 0 ] || cmux_mark_globally_incomplete
+          printf '%s\\n' "$cmux_ss_output" | while IFS= read -r cmux_line; do
+            [ -n "$cmux_line" ] || continue
+            cmux_port="$(printf '%s\\n' "$cmux_line" | awk '{print $4}' | sed -E 's/.*:([0-9]+)$/\\1/' | awk '/^[0-9]+$/ { print $1; exit }')"
+            if [ -z "$cmux_port" ]; then cmux_mark_globally_incomplete; continue; fi
+            cmux_emit_host_port "$cmux_port"
+          done
+          if [ "$cmux_ss_status" -eq 0 ] && [ -n "$cmux_global_incomplete" ] && [ ! -e "$cmux_global_incomplete" ]; then
+            printf '%s\\n' '\(remoteTTYHostWideCompleteMarker)'
+          fi
           case "$cmux_ss_output" in
             "")
               if [ "$cmux_ss_status" -eq 0 ]; then

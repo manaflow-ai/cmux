@@ -4,10 +4,76 @@ import Testing
 
 @Suite("Remote port scan per-TTY completeness")
 struct RemotePortScanCompletenessTests {
+    @Test("Repeated all-incomplete TTY scans retain briefly then finish fallback handoff")
+    func incompleteFallbackTransitionIsBounded() {
+        let panel = UUID()
+        let runner = SpyProcessRunner(
+            result: RemoteCommandResult(status: 0, stdout: "", stderr: "")
+        )
+        let host = RecordingRemoteSessionHost()
+        let coordinator = RemotePortScanGatingTests.makeCoordinator(runner: runner, host: host)
+
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.remotePortPollState.apply(
+                observedPorts: [8080],
+                mode: .hostWide,
+                completeness: .complete
+            )
+            coordinator.updateRemotePortScanTTYsLocked([panel: "ttys010"])
+            coordinator.performRemotePortScanLocked()
+            coordinator.performRemotePortScanLocked()
+        }
+
+        #expect(host.detectedPorts == [8080])
+        #expect(coordinator.queue.sync { coordinator.keepPolledRemotePortsUntilTTYScan })
+
+        coordinator.queue.sync {
+            coordinator.performRemotePortScanLocked()
+        }
+
+        #expect(host.detectedPorts.isEmpty)
+        #expect(coordinator.queue.sync { coordinator.keepPolledRemotePortsUntilTTYScan } == false)
+        coordinator.stop()
+    }
+
+    @Test("Incomplete host positives retain seen fallback and expire its unseen sibling")
+    func incompleteHostPositiveReconcilesFallbackPortsIndependently() {
+        let panel = UUID()
+        let output = "\(RemoteSessionCoordinator.remoteTTYHostWidePortMarker)\t8080\n"
+        let runner = SpyProcessRunner(
+            result: RemoteCommandResult(status: 0, stdout: output, stderr: "")
+        )
+        let host = RecordingRemoteSessionHost()
+        let coordinator = RemotePortScanGatingTests.makeCoordinator(runner: runner, host: host)
+
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.remotePortPollState.apply(
+                observedPorts: [8080, 9090],
+                mode: .hostWide,
+                completeness: .complete
+            )
+            coordinator.updateRemotePortScanTTYsLocked([panel: "ttys010"])
+            for _ in 0..<5 {
+                coordinator.performRemotePortScanLocked()
+            }
+        }
+
+        #expect(host.detectedPorts == [8080])
+        #expect(coordinator.queue.sync { coordinator.keepPolledRemotePortsUntilTTYScan })
+        let generatedCommands = runner.requests.flatMap(\.arguments)
+        #expect(generatedCommands.contains(where: { $0.contains("ttys010:") }) == false)
+        coordinator.stop()
+    }
+
     @Test("Unscoped fallback ports age out without becoming TTY-owned protection")
     func fallbackTransitionDoesNotFabricateTTYOwnership() {
         let panel = UUID()
-        let completeOutput = "\(RemoteSessionCoordinator.remoteTTYPortScanCompleteMarker)\tttys010\n"
+        let completeOutput = """
+        \(RemoteSessionCoordinator.remoteTTYPortScanCompleteMarker)\tttys010
+        \(RemoteSessionCoordinator.remoteTTYHostWideCompleteMarker)
+        """
         let runner = SpyProcessRunner(
             result: RemoteCommandResult(status: 0, stdout: completeOutput, stderr: "")
         )

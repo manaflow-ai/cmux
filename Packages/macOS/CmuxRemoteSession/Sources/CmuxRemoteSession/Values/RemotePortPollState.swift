@@ -4,8 +4,14 @@ internal import CmuxCore
 struct RemotePortPollState {
     private(set) var publishedPorts: [Int] = []
     private(set) var baselinePorts: Set<Int>?
+    private let incompleteTTYTransitionRetentionLimit: Int
     private var snapshot = PortScanSnapshotReconciler<RemotePortPollingMode>()
-    private var ttyTransitionSnapshot = PortScanSnapshotReconciler<RemotePortPollingMode>()
+    private var ttyTransitionSnapshot = PortScanSnapshotReconciler<Int>()
+    private var incompleteTTYTransitionAttemptCountsByPort: [Int: Int] = [:]
+
+    init(incompleteTTYTransitionRetentionLimit: Int = 2) {
+        self.incompleteTTYTransitionRetentionLimit = max(0, incompleteTTYTransitionRetentionLimit)
+    }
 
     /// Applies one scan when its evidence is safe for the selected polling mode.
     @discardableResult
@@ -16,7 +22,7 @@ struct RemotePortPollState {
     ) -> Bool {
         switch mode {
         case .hostWide:
-            ttyTransitionSnapshot.reset()
+            resetTTYTransitionHistory()
             let stableSnapshot = snapshot.reconcile(
                 scannedPorts: [mode: Array(observedPorts)],
                 scannedKeys: [mode],
@@ -30,7 +36,7 @@ struct RemotePortPollState {
             return true
 
         case .hostWideDelta:
-            ttyTransitionSnapshot.reset()
+            resetTTYTransitionHistory()
             guard let baselinePorts else {
                 guard completeness == .complete else { return false }
                 self.baselinePorts = observedPorts
@@ -55,34 +61,63 @@ struct RemotePortPollState {
     /// Starts bounded retention of the currently published fallback ports during TTY handoff.
     mutating func beginTTYTransition() -> Bool {
         if !ttyTransitionSnapshot.snapshot.isEmpty { return true }
+        incompleteTTYTransitionAttemptCountsByPort.removeAll()
         guard !publishedPorts.isEmpty else { return false }
+        let trackedPorts = Set(publishedPorts)
         ttyTransitionSnapshot.reconcile(
-            scannedPorts: [.ttyScoped: publishedPorts],
-            scannedKeys: [.ttyScoped],
-            trackedKeys: [.ttyScoped],
+            scannedPorts: Dictionary(uniqueKeysWithValues: trackedPorts.map { ($0, [$0]) }),
+            scannedKeys: trackedPorts,
+            trackedKeys: trackedPorts,
             completeness: .complete
         )
         return true
     }
 
-    /// Applies whether every TTY produced authoritative evidence and returns whether handoff finished.
-    mutating func advanceTTYTransition(completeness: PortScanCompleteness) -> Bool {
+    /// Applies host-wide evidence gathered during TTY handoff and returns whether fallback retention finished.
+    mutating func advanceTTYTransition(
+        observedPorts: Set<Int> = [],
+        completeness: PortScanCompleteness
+    ) -> Bool {
         guard !publishedPorts.isEmpty else {
-            ttyTransitionSnapshot.reset()
+            resetTTYTransitionHistory()
             return true
         }
         if ttyTransitionSnapshot.snapshot.isEmpty {
             _ = beginTTYTransition()
         }
+        var trackedPorts = Set(publishedPorts)
+        let retainedObservations = observedPorts.intersection(trackedPorts)
+        if completeness == .incomplete {
+            var expiredPorts: Set<Int> = []
+            for port in trackedPorts {
+                if retainedObservations.contains(port) {
+                    incompleteTTYTransitionAttemptCountsByPort.removeValue(forKey: port)
+                    continue
+                }
+                let attemptCount = incompleteTTYTransitionAttemptCountsByPort[port, default: 0] + 1
+                if attemptCount > incompleteTTYTransitionRetentionLimit {
+                    expiredPorts.insert(port)
+                    incompleteTTYTransitionAttemptCountsByPort.removeValue(forKey: port)
+                } else {
+                    incompleteTTYTransitionAttemptCountsByPort[port] = attemptCount
+                }
+            }
+            trackedPorts.subtract(expiredPorts)
+        } else {
+            incompleteTTYTransitionAttemptCountsByPort.removeAll()
+        }
+        let scannedPorts = Dictionary(uniqueKeysWithValues: trackedPorts.map { port in
+            (port, retainedObservations.contains(port) ? [port] : [])
+        })
         let stableSnapshot = ttyTransitionSnapshot.reconcile(
-            scannedPorts: [:],
-            scannedKeys: [.ttyScoped],
-            trackedKeys: [.ttyScoped],
+            scannedPorts: scannedPorts,
+            scannedKeys: trackedPorts,
+            trackedKeys: trackedPorts,
             completeness: completeness
         )
-        publishedPorts = stableSnapshot[.ttyScoped] ?? []
+        publishedPorts = stableSnapshot.values.flatMap { $0 }.sorted()
         if publishedPorts.isEmpty {
-            ttyTransitionSnapshot.reset()
+            resetTTYTransitionHistory()
         }
         return publishedPorts.isEmpty
     }
@@ -91,12 +126,17 @@ struct RemotePortPollState {
     mutating func resetScanHistory() {
         baselinePorts = nil
         snapshot.reset()
-        ttyTransitionSnapshot.reset()
+        resetTTYTransitionHistory()
     }
 
     /// Clears published ports and all scan history immediately.
     mutating func reset() {
         publishedPorts = []
         resetScanHistory()
+    }
+
+    private mutating func resetTTYTransitionHistory() {
+        ttyTransitionSnapshot.reset()
+        incompleteTTYTransitionAttemptCountsByPort.removeAll()
     }
 }

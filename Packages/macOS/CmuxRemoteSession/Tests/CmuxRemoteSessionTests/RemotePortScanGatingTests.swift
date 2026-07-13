@@ -125,8 +125,8 @@ struct RemotePortScanGatingTests {
         coordinator.stop()
     }
 
-    @Test("Repeated incomplete TTY scans never age out the published port")
-    func repeatedIncompleteTTYScansKeepPublishedPort() {
+    @Test("Repeated incomplete TTY scans fail closed only for fallback retention")
+    func repeatedIncompleteTTYScansExpireFallbackOnly() {
         let runner = SpyProcessRunner(results: [
             RemoteCommandResult(status: 0, stdout: "ttys010\t4200\n\(RemoteSessionCoordinator.remoteTTYPortScanCompleteMarker)\tttys010\n", stderr: ""),
             RemoteCommandResult(status: 0, stdout: "", stderr: ""),
@@ -143,7 +143,7 @@ struct RemotePortScanGatingTests {
             for _ in 0..<3 { coordinator.performRemotePortScanLocked() }
         }
         #expect(host.detectedPortsByPanel[panelId] == [4200])
-        #expect(host.detectedPorts == [4200, 8080])
+        #expect(host.detectedPorts == [4200])
         coordinator.stop()
     }
 

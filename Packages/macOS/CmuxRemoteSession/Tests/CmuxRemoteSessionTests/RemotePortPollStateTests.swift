@@ -84,6 +84,62 @@ struct RemotePortPollStateTests {
         #expect(state.publishedPorts.isEmpty)
     }
 
+    @Test("Incomplete TTY handoff attempts expire after the explicit retention bound")
+    func incompleteTTYTransitionAttemptsAreBounded() {
+        var state = RemotePortPollState()
+        state.apply(observedPorts: [4200], mode: .hostWide, completeness: .complete)
+        _ = state.beginTTYTransition()
+
+        let firstFinished = state.advanceTTYTransition(completeness: .incomplete)
+        #expect(firstFinished == false)
+        #expect(state.publishedPorts == [4200])
+        let secondFinished = state.advanceTTYTransition(completeness: .incomplete)
+        #expect(secondFinished == false)
+        #expect(state.publishedPorts == [4200])
+
+        let thirdFinished = state.advanceTTYTransition(completeness: .incomplete)
+        #expect(thirdFinished)
+        #expect(state.publishedPorts.isEmpty)
+    }
+
+    @Test("Incomplete scans positively revalidate a listening fallback indefinitely")
+    func incompleteHostWidePositiveRevalidatesFallback() {
+        var state = RemotePortPollState()
+        state.apply(observedPorts: [4200], mode: .hostWide, completeness: .complete)
+        _ = state.beginTTYTransition()
+
+        for _ in 0..<10 {
+            let didFinish = state.advanceTTYTransition(
+                observedPorts: [4200],
+                completeness: .incomplete
+            )
+            #expect(didFinish == false)
+            #expect(state.publishedPorts == [4200])
+        }
+    }
+
+    @Test("Authoritative host-wide positives keep a listening fallback published")
+    func hostWidePositiveRevalidatesFallback() {
+        var state = RemotePortPollState()
+        state.apply(observedPorts: [4200], mode: .hostWide, completeness: .complete)
+        _ = state.beginTTYTransition()
+
+        for _ in 0..<5 {
+            let didFinish = state.advanceTTYTransition(
+                observedPorts: [4200, 9999],
+                completeness: .complete
+            )
+            #expect(didFinish == false)
+            #expect(state.publishedPorts == [4200])
+        }
+
+        _ = state.advanceTTYTransition(completeness: .complete)
+        _ = state.advanceTTYTransition(completeness: .complete)
+        let didFinish = state.advanceTTYTransition(completeness: .complete)
+        #expect(didFinish)
+        #expect(state.publishedPorts.isEmpty)
+    }
+
     @Test("New host-wide evidence resets prior TTY handoff history")
     func hostWideEvidenceResetsTransitionHistory() {
         var state = RemotePortPollState()
