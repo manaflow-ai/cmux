@@ -138,24 +138,21 @@ extension PortScanner {
         identitiesByPID: [Int: AgentPIDProcessIdentity],
         completenessByWorkspace: [UUID: PortScanCompleteness]
     ) {
+        let capture = capturePIDIdentities(Set(ownershipByPID.keys))
         var retainedOwnership: [Int: Set<UUID>] = [:]
-        var identitiesByPID: [Int: AgentPIDProcessIdentity] = [:]
         var completenessByWorkspace = workspaceIds.reduce(into: [UUID: PortScanCompleteness]()) {
             $0[$1] = .complete
         }
         for (pid, workspaceOwnership) in ownershipByPID {
-            guard let identity = processIdentityProvider(pid_t(pid)), Int(identity.pid) == pid else {
-                if processPresenceProvider(pid_t(pid)) != .absent {
-                    for workspaceId in workspaceOwnership {
-                        completenessByWorkspace[workspaceId] = .incomplete
-                    }
+            guard capture.identitiesByPID[pid] != nil else {
+                if capture.incompletePIDs.contains(pid) {
+                    for workspaceId in workspaceOwnership { completenessByWorkspace[workspaceId] = .incomplete }
                 }
                 continue
             }
             retainedOwnership[pid] = workspaceOwnership
-            identitiesByPID[pid] = identity
         }
-        return (retainedOwnership, identitiesByPID, completenessByWorkspace)
+        return (retainedOwnership, capture.identitiesByPID, completenessByWorkspace)
     }
 
     func revalidateAgentPIDIdentities(
@@ -166,24 +163,65 @@ extension PortScanner {
         ownershipByPID: [Int: Set<UUID>],
         completenessByWorkspace: [UUID: PortScanCompleteness]
     ) {
+        let validation = revalidatePIDIdentities(identitiesByPID)
         var retainedOwnership: [Int: Set<UUID>] = [:]
         var completenessByWorkspace = workspaceIds.reduce(into: [UUID: PortScanCompleteness]()) {
             $0[$1] = .complete
         }
         for (pid, workspaceOwnership) in ownershipByPID {
-            guard let expectedIdentity = identitiesByPID[pid] else { continue }
-            guard let currentIdentity = processIdentityProvider(pid_t(pid)) else {
-                if processPresenceProvider(pid_t(pid)) != .absent {
-                    for workspaceId in workspaceOwnership {
-                        completenessByWorkspace[workspaceId] = .incomplete
-                    }
+            guard validation.validPIDs.contains(pid) else {
+                if validation.incompletePIDs.contains(pid) {
+                    for workspaceId in workspaceOwnership { completenessByWorkspace[workspaceId] = .incomplete }
                 }
                 continue
             }
-            guard currentIdentity == expectedIdentity else { continue }
             retainedOwnership[pid] = workspaceOwnership
         }
         return (retainedOwnership, completenessByWorkspace)
+    }
+
+    func capturePIDIdentities(
+        _ pids: Set<Int>
+    ) -> (identitiesByPID: [Int: AgentPIDProcessIdentity], incompletePIDs: Set<Int>) {
+        var identitiesByPID: [Int: AgentPIDProcessIdentity] = [:]
+        var incompletePIDs: Set<Int> = []
+        for pid in pids {
+            guard let identity = processIdentityProvider(pid_t(pid)), Int(identity.pid) == pid else {
+                if processPresenceProvider(pid_t(pid)) != .absent { incompletePIDs.insert(pid) }
+                continue
+            }
+            identitiesByPID[pid] = identity
+        }
+        return (identitiesByPID, incompletePIDs)
+    }
+
+    func revalidatePIDIdentities(
+        _ identitiesByPID: [Int: AgentPIDProcessIdentity]
+    ) -> (validPIDs: Set<Int>, incompletePIDs: Set<Int>) {
+        var validPIDs: Set<Int> = []
+        var incompletePIDs: Set<Int> = []
+        for (pid, expectedIdentity) in identitiesByPID {
+            guard let currentIdentity = processIdentityProvider(pid_t(pid)) else {
+                if processPresenceProvider(pid_t(pid)) != .absent { incompletePIDs.insert(pid) }
+                continue
+            }
+            if currentIdentity == expectedIdentity { validPIDs.insert(pid) }
+        }
+        return (validPIDs, incompletePIDs)
+    }
+
+    func revalidatePanelPIDOwnership(
+        capturedPIDToTTY: [Int: String],
+        capturedIdentitiesByPID: [Int: AgentPIDProcessIdentity],
+        refreshedPIDToTTY: [Int: String]
+    ) -> (values: [Int: String], incompletePIDs: Set<Int>) {
+        let validation = revalidatePIDIdentities(capturedIdentitiesByPID)
+        let values = capturedPIDToTTY.reduce(into: [Int: String]()) { result, entry in
+            guard validation.validPIDs.contains(entry.key),
+                  refreshedPIDToTTY[entry.key] == entry.value else { return }
+            result[entry.key] = entry.value
+        }
+        return (values, validation.incompletePIDs)
     }
 
     /// Requires captured identities to remain owned in a fresh process graph before accepting PID continuity.

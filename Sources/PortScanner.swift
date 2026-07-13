@@ -256,6 +256,7 @@ final class PortScanner: @unchecked Sendable {
             : await runPS(ttyList: ttyList)
         let agentProcessScan = await agentProcessScanTask
         let pidToTTY = psScan.values
+        let capturedPanelPIDs = capturePIDIdentities(Set(pidToTTY.keys))
         let capturedAgentPIDs = captureAgentPIDIdentities(
             ownershipByPID: agentProcessScan.values,
             workspaceIds: workspaceIds
@@ -267,14 +268,19 @@ final class PortScanner: @unchecked Sendable {
             workspaceIds: workspaceIds
         )
 
-        let allPids = Set(pidToTTY.keys).union(agentOwnershipBeforeLsof.keys)
+        let allPids = Set(capturedPanelPIDs.identitiesByPID.keys).union(agentOwnershipBeforeLsof.keys)
         guard !allPids.isEmpty else {
             let panelResults = panelSnapshot.map { ($0.key, [Int]()) }
+            let panelLsofEvidence = PortLsofScanResult(
+                values: [:],
+                globallyComplete: true,
+                incompletePIDs: capturedPanelPIDs.incompletePIDs
+            )
             let panelCompletenessByKey = Self.panelCompletenessByKey(
                 panelTTYs: panelSnapshot,
                 pidToTTY: pidToTTY,
                 psCompleteness: psScan.completeness,
-                lsofScan: nil
+                lsofScan: panelLsofEvidence
             )
             queue.async { [weak self] in
                 self?.completePanelScan(
@@ -296,18 +302,28 @@ final class PortScanner: @unchecked Sendable {
         let pidsCsv = allPids.sorted().map(String.init).joined(separator: ",")
         let lsofScan = await runLsof(pidsCsv: pidsCsv)
         let pidToPorts = lsofScan.values
-        let finalizedAgentPIDs = await finalizeAgentPIDOwnership(
+        async let finalizedAgentPIDTask = finalizeAgentPIDOwnership(
             rootsByWorkspace: agentRootsByWorkspace,
             capturedOwnershipByPID: agentOwnershipBeforeLsof,
             capturedIdentitiesByPID: capturedAgentPIDs.identitiesByPID,
             workspaceIds: workspaceIds
         )
+        let refreshedPanelProcessScan = capturedPanelPIDs.identitiesByPID.isEmpty
+            ? (values: [Int: String](), completeness: PortScanCompleteness.complete)
+            : await runPS(ttyList: ttyList)
+        let revalidatedPanelPIDs = revalidatePanelPIDOwnership(
+            capturedPIDToTTY: pidToTTY,
+            capturedIdentitiesByPID: capturedPanelPIDs.identitiesByPID,
+            refreshedPIDToTTY: refreshedPanelProcessScan.values
+        )
+        let validPIDToTTY = revalidatedPanelPIDs.values
+        let finalizedAgentPIDs = await finalizedAgentPIDTask
         let agentOwnershipByPID = finalizedAgentPIDs.ownershipByPID
 
         // 3. Join: PID→TTY + PID→ports → TTY→ports
         var portsByTTY: [String: Set<Int>] = [:]
         for (pid, ports) in pidToPorts {
-            guard let tty = pidToTTY[pid] else { continue }
+            guard let tty = validPIDToTTY[pid] else { continue }
             portsByTTY[tty, default: []].formUnion(ports)
         }
 
@@ -341,11 +357,21 @@ final class PortScanner: @unchecked Sendable {
             ),
             workspaceIds: workspaceIds
         )
+        let panelLsofEvidence = PortLsofScanResult(
+            values: lsofScan.values,
+            globallyComplete: lsofScan.globallyComplete,
+            incompletePIDs: lsofScan.incompletePIDs
+                .union(capturedPanelPIDs.incompletePIDs)
+                .union(revalidatedPanelPIDs.incompletePIDs)
+        )
         let panelCompletenessByKey = Self.panelCompletenessByKey(
             panelTTYs: panelSnapshot,
             pidToTTY: pidToTTY,
-            psCompleteness: psScan.completeness,
-            lsofScan: lsofScan
+            psCompleteness: Self.combinedCompleteness(
+                psScan.completeness,
+                refreshedPanelProcessScan.completeness
+            ),
+            lsofScan: panelLsofEvidence
         )
 
         queue.async { [weak self] in

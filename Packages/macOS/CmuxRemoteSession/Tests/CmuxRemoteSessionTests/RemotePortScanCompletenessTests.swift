@@ -37,6 +37,39 @@ struct RemotePortScanCompletenessTests {
         coordinator.stop()
     }
 
+    @Test("Thrown TTY scans still finish the bounded fallback handoff")
+    func thrownScansAdvanceFallbackTransition() {
+        let panel = UUID()
+        let runner = SpyProcessRunner(
+            result: RemoteCommandResult(status: 255, stdout: "", stderr: "connection lost")
+        )
+        let host = RecordingRemoteSessionHost()
+        let coordinator = RemotePortScanGatingTests.makeCoordinator(runner: runner, host: host)
+
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.remotePortPollState.apply(
+                observedPorts: [8080],
+                mode: .hostWide,
+                completeness: .complete
+            )
+            coordinator.updateRemotePortScanTTYsLocked([panel: "ttys010"])
+        }
+
+        for attempt in 0..<3 {
+            coordinator.queue.sync {
+                coordinator.performRemotePortScanLocked()
+            }
+            #expect(host.detectedPorts == (attempt < 2 ? [8080] : []))
+            #expect(
+                coordinator.queue.sync { coordinator.keepPolledRemotePortsUntilTTYScan }
+                    == (attempt < 2)
+            )
+        }
+
+        coordinator.stop()
+    }
+
     @Test("TTY-positive port stays published while incomplete handoff expires fallback")
     func ttyOwnedPortStaysPublishedDuringIncompleteFallbackExpiry() {
         let panel = UUID()

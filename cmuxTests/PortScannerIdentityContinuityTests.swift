@@ -108,6 +108,49 @@ struct PortScannerIdentityContinuityTests {
         #expect(revalidated.completenessByWorkspace[workspaceID] == .complete)
     }
 
+    @Test("Panel PID ownership requires stable birth identity and a fresh TTY mapping")
+    func panelPIDOwnershipRequiresIdentityAndFreshGraph() {
+        let capturedIdentity = AgentPIDProcessIdentity(
+            pid: 101,
+            startSeconds: 10,
+            startMicroseconds: 0
+        )
+        let replacementIdentity = AgentPIDProcessIdentity(
+            pid: 101,
+            startSeconds: 20,
+            startMicroseconds: 0
+        )
+        // Serializes identity-provider reads with the simulated lsof transition.
+        let state = OSAllocatedUnfairLock(
+            initialState: IdentityState(identities: [101: capturedIdentity])
+        )
+        let scanner = makeScanner(state: state)
+        let captured = scanner.capturePIDIdentities([101])
+        let capturedPIDToTTY = [101: "ttys010"]
+
+        let stable = scanner.revalidatePanelPIDOwnership(
+            capturedPIDToTTY: capturedPIDToTTY,
+            capturedIdentitiesByPID: captured.identitiesByPID,
+            refreshedPIDToTTY: capturedPIDToTTY
+        )
+        let moved = scanner.revalidatePanelPIDOwnership(
+            capturedPIDToTTY: capturedPIDToTTY,
+            capturedIdentitiesByPID: captured.identitiesByPID,
+            refreshedPIDToTTY: [101: "ttys011"]
+        )
+        state.withLock { $0.identities[101] = replacementIdentity }
+        let recycled = scanner.revalidatePanelPIDOwnership(
+            capturedPIDToTTY: capturedPIDToTTY,
+            capturedIdentitiesByPID: captured.identitiesByPID,
+            refreshedPIDToTTY: capturedPIDToTTY
+        )
+
+        #expect(stable.values == capturedPIDToTTY)
+        #expect(moved.values.isEmpty)
+        #expect(recycled.values.isEmpty)
+        #expect(recycled.incompletePIDs.isEmpty)
+    }
+
     @Test("A root PID recycled after tree validation cannot attribute replacement ports")
     func rootReuseAfterTreeValidationDropsReplacementAttribution() async throws {
         let recycledWorkspaceID = UUID()

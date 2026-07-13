@@ -228,18 +228,28 @@ extension RemoteSessionCoordinator {
                 completenessByKey: scan.completenessByPanel
             )
             let allTTYsComplete = scan.completenessByPanel.values.allSatisfy { $0 == .complete }
-            let wasRetainingFallback = keepPolledRemotePortsUntilTTYScan
-            if keepPolledRemotePortsUntilTTYScan {
-                keepPolledRemotePortsUntilTTYScan = !remotePortPollState.advanceTTYTransition(
-                    completeness: allTTYsComplete ? .complete : .incomplete
-                )
-            }
-            if !keepPolledRemotePortsUntilTTYScan && (wasRetainingFallback || allTTYsComplete) {
-                remotePortPollState.reset()
-            }
+            reconcileRemotePortTTYTransitionLocked(
+                completeness: allTTYsComplete ? .complete : .incomplete
+            )
             publishPortsSnapshotLocked()
         } catch {
+            if keepPolledRemotePortsUntilTTYScan {
+                reconcileRemotePortTTYTransitionLocked(completeness: .incomplete)
+                publishPortsSnapshotLocked()
+            }
             debugLog("remote.ports.scan.failed error=\(error.localizedDescription) \(debugConfigSummary())")
+        }
+    }
+
+    private func reconcileRemotePortTTYTransitionLocked(completeness: PortScanCompleteness) {
+        let wasRetainingFallback = keepPolledRemotePortsUntilTTYScan
+        if wasRetainingFallback {
+            keepPolledRemotePortsUntilTTYScan = !remotePortPollState.advanceTTYTransition(
+                completeness: completeness
+            )
+        }
+        if !keepPolledRemotePortsUntilTTYScan && (wasRetainingFallback || completeness == .complete) {
+            remotePortPollState.reset()
         }
     }
 
