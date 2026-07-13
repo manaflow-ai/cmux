@@ -51,7 +51,7 @@ extension TerminalController: ControlSystemContext {
                         continue
                     }
                     let workspace = manager.tabs[workspaceIndex]
-                    let workspaceNode = systemTreeWorkspaceNode(
+                    let workspaceNode = controlSystemTreeWorkspaceNode(
                         workspace: workspace,
                         index: workspaceIndex,
                         selected: workspace.id == manager.selectedTabId
@@ -72,7 +72,7 @@ extension TerminalController: ControlSystemContext {
                 }
 
                 let workspaceNodesForWindow = manager.tabs.enumerated().map { workspaceIndex, workspace in
-                    systemTreeWorkspaceNode(
+                    controlSystemTreeWorkspaceNode(
                         workspace: workspace,
                         index: workspaceIndex,
                         selected: workspace.id == manager.selectedTabId
@@ -106,9 +106,9 @@ extension TerminalController: ControlSystemContext {
         )
     }
 
-    /// The byte-faithful twin of the former `v2TreeWorkspaceNode`, producing
-    /// Sendable nodes instead of payload dictionaries.
-    private func systemTreeWorkspaceNode(
+    /// Projects the authoritative control-plane workspace topology shared by
+    /// `system.tree`, `system.top`, and the task-manager snapshot.
+    func controlSystemTreeWorkspaceNode(
         workspace: Workspace,
         index: Int,
         selected: Bool
