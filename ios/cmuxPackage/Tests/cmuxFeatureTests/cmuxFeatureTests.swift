@@ -22,17 +22,27 @@ import UIKit
 final class TerminalOutputCollector {
     private(set) var lines: [String] = []
     private var task: Task<Void, Never>?
+    private var lineWaiters: [UUID: (
+        expected: String,
+        continuation: CheckedContinuation<Bool, Never>,
+        timeout: DispatchSourceTimer
+    )] = [:]
 
     /// Begin consuming the surface's output stream into ``lines``.
     func mount(store: CMUXMobileShellStore, surfaceID: String) {
         task = Task { @MainActor [weak self] in
             for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                 guard let self else { break }
-                self.lines.append(String(data: chunk.data, encoding: .utf8) ?? "")
+                let line = String(data: chunk.data, encoding: .utf8) ?? ""
+                self.lines.append(line)
                 store.terminalOutputDidProcess(
                     surfaceID: surfaceID,
                     streamToken: chunk.streamToken
                 )
+                let completedWaiters = self.lineWaiters.filter { $0.value.expected == line }
+                for (id, _) in completedWaiters {
+                    self.finishLineWaiter(id: id, delivered: true)
+                }
             }
         }
     }
@@ -41,6 +51,42 @@ final class TerminalOutputCollector {
     func unmount() {
         task?.cancel()
         task = nil
+        for id in Array(lineWaiters.keys) {
+            finishLineWaiter(id: id, delivered: false)
+        }
+    }
+
+    /// Wait for a specific sink delivery without racing an already-delivered line.
+    func waitForLine(_ expected: String) async -> Bool {
+        guard !lines.contains(expected) else { return true }
+        let waiterID = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !lines.contains(expected) else {
+                    continuation.resume(returning: true)
+                    return
+                }
+                let timeout = DispatchSource.makeTimerSource(queue: .main)
+                timeout.schedule(deadline: .now() + .seconds(3))
+                timeout.setEventHandler { [weak self] in
+                    MainActor.assumeIsolated {
+                        self?.finishLineWaiter(id: waiterID, delivered: false)
+                    }
+                }
+                lineWaiters[waiterID] = (expected, continuation, timeout)
+                timeout.resume()
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.finishLineWaiter(id: waiterID, delivered: false)
+            }
+        }
+    }
+
+    private func finishLineWaiter(id: UUID, delivered: Bool) {
+        guard let waiter = lineWaiters.removeValue(forKey: id) else { return }
+        waiter.timeout.cancel()
+        waiter.continuation.resume(returning: delivered)
     }
 }
 
@@ -2561,22 +2607,27 @@ struct TerminalStreamTests {
 
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    let initialSubscribeRequests = try await waitForRequestCount(
+        "mobile.events.subscribe",
+        count: 1,
+        router: router
+    )
+    try #require(initialSubscribeRequests.count >= 1)
     collector.mount(store: store, surfaceID: "live-terminal")
     let oldGridText = try terminalRenderGridReplacementText(seq: 4, text: "old")
     let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
 
-    _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
+    let initialReplayRequests = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
+    try #require(initialReplayRequests.count >= 1)
+    try #require(await collector.waitForLine(oldGridText))
 
     await store.submitTerminalRawInput(Data("x".utf8), surfaceID: "live-terminal")
 
-    _ = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
-    _ = try await waitForRequestCount("mobile.events.subscribe", count: 2, router: router)
-    // The request-count waits only prove the second replay was REQUESTED; its
-    // response still has to round-trip and deliver. The slower CI iPad leg
-    // regularly needs more than the file's usual 200ms here.
-    for _ in 0..<4000 where !collector.lines.contains(currentGridText) {
-        try await Task.sleep(nanoseconds: 1_000_000)
-    }
+    let replayRequests = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
+    let subscribeRequests = try await waitForRequestCount("mobile.events.subscribe", count: 2, router: router)
+    #expect(replayRequests.count >= 2)
+    #expect(subscribeRequests.count >= 2)
+    try #require(await collector.waitForLine(currentGridText))
 
     #expect(collector.lines.last == currentGridText)
     #expect(Set(collector.lines).isSubset(of: [oldGridText, currentGridText]))
@@ -2612,23 +2663,22 @@ struct TerminalStreamTests {
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
     _ = try await waitForRequestCount("mobile.events.subscribe", count: 1, router: router)
     collector.mount(store: store, surfaceID: "live-terminal")
-    _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
+    let initialReplayRequests = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
+    try #require(initialReplayRequests.count >= 1)
+
+    let oldGridText = try terminalRenderGridReplacementText(seq: 4, text: "old")
+    let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
+    try #require(await collector.waitForLine(oldGridText))
 
     await store.submitTerminalRawInput(Data("x".utf8), surfaceID: "live-terminal")
     let afterFirstInput = await router.sentRequests()
     #expect(afterFirstInput.filter { $0.method == "mobile.terminal.replay" }.count == 1)
 
     await store.submitTerminalRawInput(Data("y".utf8), surfaceID: "live-terminal")
-    _ = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
-    // The request-count wait only proves the second replay REQUEST was sent;
-    // its response still flows back through the transport asynchronously.
-    // Poll for delivery like the sibling tests do, then assert content.
-    for _ in 0..<200 where collector.lines.count < 2 {
-        try await Task.sleep(nanoseconds: 1_000_000)
-    }
+    let replayRequests = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
+    #expect(replayRequests.count >= 2)
+    try #require(await collector.waitForLine(currentGridText))
 
-    let oldGridText = try terminalRenderGridReplacementText(seq: 4, text: "old")
-    let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
     #expect(collector.lines == [
         oldGridText,
         currentGridText,
@@ -3768,7 +3818,8 @@ private actor RemoteCreateWorkspaceRouter: RequestAwareTransportRouter {
 private actor TerminalOutputSelfHealingRouter: RequestAwareTransportRouter {
     private let renderGrid: Bool
     private var requests: [RecordedRPCRequest] = []
-    private var replayCount = 0
+    private var replayOrdinalByRequestID: [String: Int] = [:]
+    private var recordedReplayCount = 0
 
     init(renderGrid: Bool = false) {
         self.renderGrid = renderGrid
@@ -3776,6 +3827,10 @@ private actor TerminalOutputSelfHealingRouter: RequestAwareTransportRouter {
 
     func record(_ request: RecordedRPCRequest) {
         requests.append(request)
+        if request.method == "mobile.terminal.replay", let requestID = request.id {
+            recordedReplayCount += 1
+            replayOrdinalByRequestID[requestID] = recordedReplayCount
+        }
     }
 
     func sentRequests() -> [RecordedRPCRequest] {
@@ -3795,8 +3850,11 @@ private actor TerminalOutputSelfHealingRouter: RequestAwareTransportRouter {
         case "mobile.events.subscribe":
             return try rpcResultFrame(result: ["stream_id": "events"])
         case "mobile.terminal.replay":
-            replayCount += 1
-            if replayCount == 1 {
+            // `RequestAwareTransport` resolves requests concurrently. Assign the
+            // scripted response when the request is recorded, rather than when
+            // its response task happens to reach this actor, so scheduling cannot
+            // swap the cold replay and self-heal replay payloads.
+            if request.id.flatMap({ replayOrdinalByRequestID[$0] }) == 1 {
                 return try rpcTerminalReplayFrame(
                     seq: 4,
                     rawText: "stale-old-tail",
