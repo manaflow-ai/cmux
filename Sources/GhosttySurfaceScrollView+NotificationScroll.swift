@@ -1,35 +1,12 @@
 import Foundation
 
-enum TerminalNotificationScrollRestoreTarget: Equatable {
-    case bottom
-    case absoluteRow(Int)
-}
-
-enum TerminalNotificationScrollRestorePhase: Equatable {
-    case idle
-    case sessionScrollbackReplayActive(SessionScrollbackReplayCompletionMarker)
-    case pending(
-        TerminalNotificationScrollPosition,
-        sessionScrollbackReplayCompletionMarker: SessionScrollbackReplayCompletionMarker?
-    )
-
-    var sessionScrollbackReplayCompletionMarker: SessionScrollbackReplayCompletionMarker? {
-        switch self {
-        case .idle:
-            return nil
-        case .sessionScrollbackReplayActive(let marker), .pending(_, let marker):
-            return marker
-        }
-    }
-}
-
-private enum TerminalNotificationScrollRestoreDecision {
-    case waitForViewport
-    case perform(TerminalNotificationScrollRestoreTarget)
-}
-
 @MainActor
 extension GhosttySurfaceScrollView {
+    private enum NotificationScrollRestoreDecision {
+        case waitForViewport
+        case perform(TerminalNotificationScrollRestoreTarget)
+    }
+
     var notificationScrollPosition: TerminalNotificationScrollPosition? {
         guard let scrollbar = surfaceView.scrollbar else { return nil }
         let rowFromBottom = max(0, scrollbar.total - scrollbar.offset - scrollbar.len)
@@ -142,7 +119,7 @@ extension GhosttySurfaceScrollView {
     private func notificationScrollRestoreDecision(
         _ position: TerminalNotificationScrollPosition,
         waitingForSessionScrollbackReplay: Bool
-    ) -> TerminalNotificationScrollRestoreDecision {
+    ) -> NotificationScrollRestoreDecision {
         if position.row <= 0 {
             return .perform(.bottom)
         }
@@ -154,7 +131,7 @@ extension GhosttySurfaceScrollView {
         guard let capturedTotalRows = position.totalRows else {
             return waitingForSessionScrollbackReplay
                 ? .waitForViewport
-                : notificationScrollRestoreTarget(position).map(TerminalNotificationScrollRestoreDecision.perform) ?? .waitForViewport
+                : notificationScrollRestoreTarget(position).map(NotificationScrollRestoreDecision.perform) ?? .waitForViewport
         }
         let capturedViewportBottomRow = max(0, capturedTotalRows) - min(max(0, capturedTotalRows), max(0, position.row))
 
