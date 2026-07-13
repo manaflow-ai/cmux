@@ -1123,6 +1123,7 @@ def test_bootstrap_appstore_availability_creates_all_territories_once(tmp: Path)
                 "ASC_API_KEY_ID": "TESTKEY123",
                 "ASC_API_ISSUER_ID": "00000000-0000-0000-0000-000000000000",
                 "ASC_API_KEY_PATH": str(key_path),
+                "ASC_TIMEOUT_SECONDS": "120",
                 "CMUX_ASC_API_BASE_URL": f"http://127.0.0.1:{server.server_port}",
             }
         )
@@ -1180,6 +1181,26 @@ def test_bootstrap_appstore_availability_creates_all_territories_once(tmp: Path)
         _check(
             len([request for request in requests if request[0] == "POST"]) == 1,
             "existing availability is not created again",
+        )
+
+        requests_before_invalid_timeout = len(requests)
+        invalid_timeout_env = env.copy()
+        invalid_timeout_env["ASC_TIMEOUT_SECONDS"] = "invalid"
+        invalid_timeout = subprocess.run(
+            command,
+            env=invalid_timeout_env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        _check(
+            invalid_timeout.returncode != 0
+            and "ASC_TIMEOUT_SECONDS must be an integer" in invalid_timeout.stderr,
+            "availability bootstrap validates the configured API timeout",
+        )
+        _check(
+            len(requests) == requests_before_invalid_timeout,
+            "invalid timeout configuration fails before an API request",
         )
     finally:
         server.shutdown()

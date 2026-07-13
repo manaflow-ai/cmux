@@ -41,6 +41,17 @@ def _api_base() -> str:
     return override.rstrip("/")
 
 
+def _timeout_seconds() -> int:
+    raw = os.environ.get("ASC_TIMEOUT_SECONDS", "30")
+    try:
+        timeout = int(raw)
+    except ValueError as error:
+        raise RuntimeError("ASC_TIMEOUT_SECONDS must be an integer") from error
+    if not 1 <= timeout <= 600:
+        raise RuntimeError("ASC_TIMEOUT_SECONDS must be between 1 and 600")
+    return timeout
+
+
 def _error_code(body: Any) -> str:
     try:
         return str(((body.get("errors") or [{}])[0]).get("code", "unknown"))
@@ -53,6 +64,7 @@ def _request(
     base: str,
     method: str,
     path_or_url: str,
+    timeout: int,
     payload: dict[str, Any] | None = None,
 ) -> tuple[int, dict[str, Any]]:
     if path_or_url.startswith("/"):
@@ -69,7 +81,7 @@ def _request(
     request.add_header("Authorization", "Bearer " + token)
     request.add_header("Content-Type", "application/json")
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             return response.status, json.loads(response.read() or b"{}")
     except urllib.error.HTTPError as error:
         try:
@@ -79,12 +91,15 @@ def _request(
         return error.code, body
 
 
-def _existing_availability(token: str, base: str, app_id: str) -> str | None:
+def _existing_availability(
+    token: str, base: str, app_id: str, timeout: int
+) -> str | None:
     status, body = _request(
         token,
         base,
         "GET",
         f"/v1/apps/{urllib.parse.quote(app_id)}/appAvailabilityV2",
+        timeout,
     )
     if status == 404:
         return None
@@ -100,14 +115,14 @@ def _existing_availability(token: str, base: str, app_id: str) -> str | None:
     return str(data["id"])
 
 
-def _territory_ids(token: str, base: str) -> list[str]:
+def _territory_ids(token: str, base: str, timeout: int) -> list[str]:
     path: str | None = "/v1/territories?limit=200"
     territory_ids: set[str] = set()
     pages = 0
     while path:
         if pages >= MAX_TERRITORY_PAGES:
             raise RuntimeError("territory pagination exceeded safety limit")
-        status, body = _request(token, base, "GET", path)
+        status, body = _request(token, base, "GET", path, timeout)
         if status != 200:
             raise RuntimeError(
                 f"territory lookup HTTP {status} (code={_error_code(body)})"
@@ -163,20 +178,22 @@ def _create_payload(app_id: str, territory_ids: list[str]) -> dict[str, Any]:
 def bootstrap(app_id: str) -> tuple[str, int]:
     token = asc_max_build._token()
     base = _api_base()
-    existing_id = _existing_availability(token, base, app_id)
+    timeout = _timeout_seconds()
+    existing_id = _existing_availability(token, base, app_id, timeout)
     if existing_id:
         return existing_id, 0
 
-    territory_ids = _territory_ids(token, base)
+    territory_ids = _territory_ids(token, base, timeout)
     status, body = _request(
         token,
         base,
         "POST",
         "/v2/appAvailabilities",
+        timeout,
         _create_payload(app_id, territory_ids),
     )
     if status == 409:
-        existing_id = _existing_availability(token, base, app_id)
+        existing_id = _existing_availability(token, base, app_id, timeout)
         if existing_id:
             return existing_id, 0
     if status != 201:
