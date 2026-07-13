@@ -5,6 +5,7 @@ struct RemotePortPollState {
     private(set) var publishedPorts: [Int] = []
     private(set) var baselinePorts: Set<Int>?
     private var snapshot = PortScanSnapshotReconciler<RemotePortPollingMode>()
+    private var ttyTransitionSnapshot = PortScanSnapshotReconciler<RemotePortPollingMode>()
 
     /// Applies one scan when its evidence is safe for the selected polling mode.
     @discardableResult
@@ -15,6 +16,7 @@ struct RemotePortPollState {
     ) -> Bool {
         switch mode {
         case .hostWide:
+            ttyTransitionSnapshot.reset()
             let stableSnapshot = snapshot.reconcile(
                 scannedPorts: [mode: Array(observedPorts)],
                 scannedKeys: [mode],
@@ -28,6 +30,7 @@ struct RemotePortPollState {
             return true
 
         case .hostWideDelta:
+            ttyTransitionSnapshot.reset()
             guard let baselinePorts else {
                 guard completeness == .complete else { return false }
                 self.baselinePorts = observedPorts
@@ -45,25 +48,55 @@ struct RemotePortPollState {
             return true
 
         case .ttyScoped:
-            guard completeness == .complete else { return false }
-            reset()
+            return advanceTTYTransition(completeness: completeness)
+        }
+    }
+
+    /// Starts bounded retention of the currently published fallback ports during TTY handoff.
+    mutating func beginTTYTransition() -> Bool {
+        if !ttyTransitionSnapshot.snapshot.isEmpty { return true }
+        guard !publishedPorts.isEmpty else { return false }
+        ttyTransitionSnapshot.reconcile(
+            scannedPorts: [.ttyScoped: publishedPorts],
+            scannedKeys: [.ttyScoped],
+            trackedKeys: [.ttyScoped],
+            completeness: .complete
+        )
+        return true
+    }
+
+    /// Applies whether every TTY produced authoritative evidence and returns whether handoff finished.
+    mutating func advanceTTYTransition(completeness: PortScanCompleteness) -> Bool {
+        guard !publishedPorts.isEmpty else {
+            ttyTransitionSnapshot.reset()
             return true
         }
+        if ttyTransitionSnapshot.snapshot.isEmpty {
+            _ = beginTTYTransition()
+        }
+        let stableSnapshot = ttyTransitionSnapshot.reconcile(
+            scannedPorts: [:],
+            scannedKeys: [.ttyScoped],
+            trackedKeys: [.ttyScoped],
+            completeness: completeness
+        )
+        publishedPorts = stableSnapshot[.ttyScoped] ?? []
+        if publishedPorts.isEmpty {
+            ttyTransitionSnapshot.reset()
+        }
+        return publishedPorts.isEmpty
     }
 
     /// Discards mode-specific baseline and reconciliation history while retaining publication.
     mutating func resetScanHistory() {
         baselinePorts = nil
         snapshot.reset()
+        ttyTransitionSnapshot.reset()
     }
 
     /// Clears published ports and all scan history immediately.
     mutating func reset() {
         publishedPorts = []
         resetScanHistory()
-    }
-
-    func publishedPortsProtectedDuringTTYTransition(_ retainingFallback: Bool) -> Set<Int> {
-        retainingFallback ? Set(publishedPorts) : []
     }
 }

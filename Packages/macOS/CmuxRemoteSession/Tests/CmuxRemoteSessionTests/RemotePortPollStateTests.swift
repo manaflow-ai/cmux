@@ -61,27 +61,49 @@ struct RemotePortPollStateTests {
         #expect(state.publishedPorts.isEmpty)
     }
 
-    @Test("Incomplete TTY mode transitions preserve fallback state")
-    func incompleteTTYTransitionPreservesState() {
+    @Test("TTY handoff retains fallback until bounded complete evidence expires it")
+    func ttyTransitionRetentionIsBounded() {
         var state = RemotePortPollState()
         state.apply(observedPorts: [4200], mode: .hostWide, completeness: .complete)
-        #expect(state.publishedPortsProtectedDuringTTYTransition(true) == [4200])
-        #expect(state.publishedPortsProtectedDuringTTYTransition(false).isEmpty)
+        let didBegin = state.beginTTYTransition()
+        #expect(didBegin)
 
-        let didApplyIncomplete = state.apply(
-            observedPorts: [],
-            mode: .ttyScoped,
-            completeness: .incomplete
-        )
-        #expect(didApplyIncomplete == false)
+        let incompleteFinished = state.advanceTTYTransition(completeness: .incomplete)
+        #expect(incompleteFinished == false)
         #expect(state.publishedPorts == [4200])
 
-        let didApplyComplete = state.apply(
-            observedPorts: [],
-            mode: .ttyScoped,
-            completeness: .complete
-        )
-        #expect(didApplyComplete)
+        let firstCompleteFinished = state.advanceTTYTransition(completeness: .complete)
+        #expect(firstCompleteFinished == false)
+        #expect(state.publishedPorts == [4200])
+        let secondCompleteFinished = state.advanceTTYTransition(completeness: .complete)
+        #expect(secondCompleteFinished == false)
+        #expect(state.publishedPorts == [4200])
+
+        let thirdCompleteFinished = state.advanceTTYTransition(completeness: .complete)
+        #expect(thirdCompleteFinished)
+        #expect(state.publishedPorts.isEmpty)
+    }
+
+    @Test("New host-wide evidence resets prior TTY handoff history")
+    func hostWideEvidenceResetsTransitionHistory() {
+        var state = RemotePortPollState()
+        state.apply(observedPorts: [4200], mode: .hostWide, completeness: .complete)
+        _ = state.beginTTYTransition()
+        _ = state.advanceTTYTransition(completeness: .complete)
+        _ = state.advanceTTYTransition(completeness: .complete)
+
+        state.apply(observedPorts: [4200, 5173], mode: .hostWide, completeness: .complete)
+        _ = state.beginTTYTransition()
+        let didFinish = state.advanceTTYTransition(completeness: .complete)
+        #expect(didFinish == false)
+        #expect(state.publishedPorts == [4200, 5173])
+
+        state.resetScanHistory()
+        let didFinishAfterReset = state.advanceTTYTransition(completeness: .complete)
+        #expect(didFinishAfterReset == false)
+        #expect(state.publishedPorts == [4200, 5173])
+
+        state.reset()
         #expect(state.publishedPorts.isEmpty)
     }
 }

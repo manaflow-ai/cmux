@@ -4,6 +4,37 @@ import Testing
 
 @Suite("Remote port scan per-TTY completeness")
 struct RemotePortScanCompletenessTests {
+    @Test("Unscoped fallback ports age out without becoming TTY-owned protection")
+    func fallbackTransitionDoesNotFabricateTTYOwnership() {
+        let panel = UUID()
+        let completeOutput = "\(RemoteSessionCoordinator.remoteTTYPortScanCompleteMarker)\tttys010\n"
+        let runner = SpyProcessRunner(
+            result: RemoteCommandResult(status: 0, stdout: completeOutput, stderr: "")
+        )
+        let host = RecordingRemoteSessionHost()
+        let coordinator = RemotePortScanGatingTests.makeCoordinator(runner: runner, host: host)
+
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.remotePortPollState.apply(
+                observedPorts: [8080],
+                mode: .hostWide,
+                completeness: .complete
+            )
+            coordinator.updateRemotePortScanTTYsLocked([panel: "ttys010"])
+            for _ in 0..<3 {
+                coordinator.performRemotePortScanLocked()
+            }
+        }
+
+        let generatedCommands = runner.requests.flatMap(\.arguments)
+        #expect(generatedCommands.contains(where: { $0.contains("ttys010:8080") }) == false)
+        #expect(host.detectedPortsByPanel[panel]?.isEmpty == true)
+        #expect(host.detectedPorts.isEmpty)
+        #expect(coordinator.queue.sync { coordinator.keepPolledRemotePortsUntilTTYScan } == false)
+        coordinator.stop()
+    }
+
     @Test("A healthy TTY ages out its missing port while an incomplete sibling retains its port")
     func mixedTTYCompletenessReconcilesIndependently() {
         let healthyPanel = UUID()

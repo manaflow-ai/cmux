@@ -88,12 +88,15 @@ extension RemoteSessionCoordinator {
             cancelBootstrapRemoteTTYRetryLocked()
             bootstrapRemoteTTYRetryCount = 0
         }
-        keepPolledRemotePortsUntilTTYScan =
-            !previousTTYNames.isEmpty
-            ? keepPolledRemotePortsUntilTTYScan
-            : shouldUseFallbackRemotePortPollingLocked()
+        let shouldBeginFallbackTransition =
+            previousTTYNames.isEmpty
+            && shouldUseFallbackRemotePortPollingLocked()
                 && !remotePortPollState.publishedPorts.isEmpty
                 && !nextTTYNames.isEmpty
+        keepPolledRemotePortsUntilTTYScan =
+            previousTTYNames.isEmpty
+            ? shouldBeginFallbackTransition
+            : keepPolledRemotePortsUntilTTYScan
         let unchangedPanelIds = Set(nextTTYNames.compactMap { panelId, newTTY in
             previousTTYNames[panelId] == newTTY ? panelId : nil
         })
@@ -108,6 +111,9 @@ extension RemoteSessionCoordinator {
             keepPolledRemotePortsUntilTTYScan = false
         }
         updateRemotePortPollingStateLocked()
+        if shouldBeginFallbackTransition {
+            keepPolledRemotePortsUntilTTYScan = remotePortPollState.beginTTYTransition()
+        }
         publishPortsSnapshotLocked()
     }
 
@@ -221,8 +227,13 @@ extension RemoteSessionCoordinator {
                 trackedKeys: Set(ttyNamesByPanel.keys),
                 completenessByKey: scan.completenessByPanel
             )
-            if scan.completenessByPanel.values.allSatisfy({ $0 == .complete }) {
-                keepPolledRemotePortsUntilTTYScan = false
+            let allTTYsComplete = scan.completenessByPanel.values.allSatisfy { $0 == .complete }
+            if keepPolledRemotePortsUntilTTYScan {
+                keepPolledRemotePortsUntilTTYScan = !remotePortPollState.advanceTTYTransition(
+                    completeness: allTTYsComplete ? .complete : .incomplete
+                )
+            }
+            if allTTYsComplete && !keepPolledRemotePortsUntilTTYScan {
                 remotePortPollState.reset()
             }
             publishPortsSnapshotLocked()
@@ -240,11 +251,7 @@ extension RemoteSessionCoordinator {
         let ttyNames = Array(Set(ttyNamesByPanel.values)).sorted()
         guard !ttyNames.isEmpty else { return ([:], [:]) }
 
-        let fallbackProtectedPorts =
-            remotePortPollState.publishedPortsProtectedDuringTTYTransition(keepPolledRemotePortsUntilTTYScan)
-        var protectedPortsByTTY = Dictionary(uniqueKeysWithValues: ttyNames.map {
-            ($0, fallbackProtectedPorts)
-        })
+        var protectedPortsByTTY: [String: Set<Int>] = [:]
         for (panelId, ports) in remotePortScanSnapshot.snapshot {
             guard let ttyName = ttyNamesByPanel[panelId] else { continue }
             protectedPortsByTTY[ttyName, default: []].formUnion(ports)

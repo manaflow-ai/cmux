@@ -347,11 +347,10 @@ struct RemotePortScanGatingTests {
 
 // MARK: - Stubs
 
-/// Records how many subprocesses the coordinator tried to spawn; returns a
-/// canned successful result so port scans complete without touching ssh.
 final class SpyProcessRunner: RemoteSessionProcessRunning, @unchecked Sendable {
     private let lock = NSLock()
     private var _runCount = 0
+    private var _requests: [RemoteProcessRequest] = []
     private let results: [RemoteCommandResult]
 
     init(result: RemoteCommandResult = RemoteCommandResult(status: 0, stdout: "", stderr: "")) {
@@ -364,12 +363,14 @@ final class SpyProcessRunner: RemoteSessionProcessRunning, @unchecked Sendable {
     }
 
     var runCount: Int { lock.withLock { _runCount } }
+    var requests: [RemoteProcessRequest] { lock.withLock { _requests } }
 
     func run(
         _ request: RemoteProcessRequest,
         operation: (any RemoteTransferCancelling)?
     ) throws -> RemoteCommandResult {
         lock.withLock {
+            _requests.append(request)
             let result = results[min(_runCount, results.count - 1)]
             _runCount += 1
             return result
