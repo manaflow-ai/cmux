@@ -198,4 +198,14 @@ final class DiffCommentsBridgeTokenTests: XCTestCase {
         ))
         XCTAssertNil(DiffCommentsBridge.diffViewerToken(from: nil))
     }
+
+    func testTokenShapedURLWithoutActiveSessionIsNotTrusted() throws {
+        let inactiveToken = UUID().uuidString.lowercased()
+        let url = try XCTUnwrap(URL(
+            string: "http://127.0.0.1:5050/\(inactiveToken)/diff.html#cmux-diff-viewer"
+        ))
+
+        XCTAssertNotNil(DiffCommentsBridge.diffViewerToken(from: url))
+        XCTAssertFalse(DiffCommentsBridge.isTrustedDiffViewerURL(url))
+    }
 }
