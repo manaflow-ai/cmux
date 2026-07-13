@@ -103,11 +103,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         context.coordinator.setComposerMounted(isComposerActive)
         // Live theme change: apply a config only to this surface so other mounted
         // terminals keep their own palettes.
-        context.coordinator.themeApplicationScheduler.schedule(
-            terminalTheme,
-            generation: themeGeneration,
-            to: surfaceView
-        )
+        context.coordinator.themeApplicationScheduler.schedule(generation: themeGeneration) { [weak surfaceView] in
+            guard let surfaceView else { return }
+            GhosttyRuntime.applyTheme(terminalTheme, to: surfaceView)
+        }
         // A width change (rotation) is not a text change, so the field-content trigger
         // misses it. Re-measure the open composer here so the band height tracks the new
         // width's wrapping. No-op when closed or when the height is unchanged.

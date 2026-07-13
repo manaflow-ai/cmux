@@ -20,6 +20,7 @@ final class MobileTerminalRenderObserver {
     private var renderGridStatesBySurfaceID: [UUID: MobileTerminalRenderGridEmissionState] = [:]
     private var terminalThemesBySurfaceID: [UUID: TerminalTheme] = [:]
     private var runtimeSurfaceIdentitiesBySurfaceID: [UUID: UInt] = [:]
+    private var reconciledSurfaceTopologyGeneration: UInt64?
     private var cachedTerminalTheme: TerminalTheme = .monokai
     private var hasLoadedTerminalTheme = false
 
@@ -218,7 +219,7 @@ final class MobileTerminalRenderObserver {
             clearRenderGridCaches()
             return
         }
-        reconcileRenderGridCachesWithLiveSurfaces()
+        reconcileRenderGridCachesIfSurfaceTopologyChanged()
         let renderSurfaceIDs: Set<UUID>
         if shouldEmitAllThemes || (surfaceIDs.isEmpty && shouldEmitGlobal) {
             renderSurfaceIDs = Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id))
@@ -297,13 +298,19 @@ final class MobileTerminalRenderObserver {
         enqueueTerminalUpdate(surfaceID: nil)
     }
 
-    private func reconcileRenderGridCachesWithLiveSurfaces() {
-        let liveSurfaceIDs = Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id))
+    private func reconcileRenderGridCachesIfSurfaceTopologyChanged() {
+        let registry = GhosttyApp.terminalSurfaceRegistry
+        let generation = registry.topologyGeneration
+        guard reconciledSurfaceTopologyGeneration != generation else { return }
+        let liveSurfaceIDs = Set(registry.allSurfaces().map(\.id))
         renderGridStatesBySurfaceID = renderGridStatesBySurfaceID.filter { liveSurfaceIDs.contains($0.key) }
         terminalThemesBySurfaceID = terminalThemesBySurfaceID.filter { liveSurfaceIDs.contains($0.key) }
         runtimeSurfaceIdentitiesBySurfaceID = runtimeSurfaceIdentitiesBySurfaceID.filter {
             liveSurfaceIDs.contains($0.key)
         }
+        // Store the revision read before enumeration. If topology changed during
+        // the snapshot, the next flush observes a newer value and reconciles again.
+        reconciledSurfaceTopologyGeneration = generation
     }
 
     private func clearRenderGridCache(surfaceID: UUID) {
@@ -316,6 +323,7 @@ final class MobileTerminalRenderObserver {
         renderGridStatesBySurfaceID.removeAll()
         terminalThemesBySurfaceID.removeAll()
         runtimeSurfaceIdentitiesBySurfaceID.removeAll()
+        reconciledSurfaceTopologyGeneration = nil
     }
 
     #if DEBUG
