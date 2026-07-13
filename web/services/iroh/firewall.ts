@@ -96,7 +96,11 @@ function trustedFirewallHost(request: Request, environment: IrohFirewallEnvironm
   if (requestedHost && (requestedHost === deploymentHost || requestedHost === productionHost)) {
     return requestedHost;
   }
-  return deploymentHost ?? productionHost!;
+  // A deployment URL can be protected by Vercel Authentication even when the
+  // public project URL is intentionally reachable. Both values come from
+  // Vercel, so prefer the stable project URL when the inbound host is not one
+  // of the trusted values instead of making the rate-limit check hit SSO.
+  return productionHost ?? deploymentHost!;
 }
 
 function normalizedHost(value: string | null | undefined): string | undefined {
