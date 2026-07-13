@@ -98,7 +98,23 @@ extension GitDiffService {
         // strings. Failing the snapshot is safer than silently dropping an
         // undecodable entry and claiming the visible list is complete.
         guard !parsed.hasUndecodablePath else { return .failed }
-        let boundedFiles = Array(parsed.files.prefix(maxFiles))
+        guard let initialRawData = completeRecordData(initialListing.raw),
+              let initialRawIdentities = rawDiffIdentities(
+                initialRawData,
+                allowTrailingIncompleteRecord: initialListing.raw.capped
+              ) else { return .failed }
+        let identityVerifiedFiles: [GitDiffSummary]
+        if initialListing.raw.capped {
+            identityVerifiedFiles = parsed.files.filter { summary in
+                summary.status == .untracked || initialRawIdentities[summary.path] != nil
+            }
+        } else {
+            guard parsed.files.allSatisfy({ summary in
+                summary.status == .untracked || initialRawIdentities[summary.path] != nil
+            }) else { return .failed }
+            identityVerifiedFiles = parsed.files
+        }
+        let boundedFiles = Array(identityVerifiedFiles.prefix(maxFiles))
         let reachedFileLimit = boundedFiles.count < parsed.files.count
         guard !Task.isCancelled else { return .failed }
         let initialFileIdentities: [FileSystemIdentity]
@@ -124,14 +140,11 @@ extension GitDiffService {
             return .timedOut
         }
         guard initialListing.hasSameOutput(as: finalListing) else { return .failed }
-        guard let rawIdentityData = finalListing.raw.rawOutput,
-              !finalListing.raw.capped,
-              let rawIdentities = rawDiffIdentities(rawIdentityData) else { return .failed }
         let semanticIdentities: [Data?]
         switch semanticIdentitiesResult(
             repoRoot: repoRoot,
             summaries: boundedFiles,
-            rawIdentities: rawIdentities
+            rawIdentities: initialRawIdentities
         ) {
         case .success(let values):
             semanticIdentities = values
@@ -184,7 +197,11 @@ extension GitDiffService {
         return .success(
             GitChangedFiles(
                 files: snapshotFiles,
-                truncated: numstat.capped || nameStatus.capped || untracked.capped || reachedFileLimit
+                truncated: numstat.capped
+                    || nameStatus.capped
+                    || untracked.capped
+                    || initialListing.raw.capped
+                    || reachedFileLimit
             )
         )
     }

@@ -1,7 +1,10 @@
 internal import Foundation
 
 extension GitDiffService {
-    func rawDiffIdentities(_ output: Data) -> [String: Data]? {
+    func rawDiffIdentities(
+        _ output: Data,
+        allowTrailingIncompleteRecord: Bool = false
+    ) -> [String: Data]? {
         guard !output.isEmpty else { return [:] }
         var fields = output.split(separator: 0, omittingEmptySubsequences: false)
         if output.last == 0, fields.last?.isEmpty == true {
@@ -20,8 +23,10 @@ extension GitDiffService {
             var identity = Data(header)
             identity.append(0)
             if status == "R" || status == "C" {
-                guard index + 1 < fields.count,
-                      let oldPath = String(data: Data(fields[index]), encoding: .utf8),
+                guard index + 1 < fields.count else {
+                    return allowTrailingIncompleteRecord ? identities : nil
+                }
+                guard let oldPath = String(data: Data(fields[index]), encoding: .utf8),
                       let newPath = String(data: Data(fields[index + 1]), encoding: .utf8) else { return nil }
                 path = newPath
                 identity.append(contentsOf: oldPath.utf8)
@@ -29,8 +34,10 @@ extension GitDiffService {
                 identity.append(contentsOf: newPath.utf8)
                 index += 2
             } else {
-                guard index < fields.count,
-                      let decodedPath = String(data: Data(fields[index]), encoding: .utf8) else { return nil }
+                guard index < fields.count else {
+                    return allowTrailingIncompleteRecord ? identities : nil
+                }
+                guard let decodedPath = String(data: Data(fields[index]), encoding: .utf8) else { return nil }
                 path = decodedPath
                 identity.append(contentsOf: decodedPath.utf8)
                 index += 1
