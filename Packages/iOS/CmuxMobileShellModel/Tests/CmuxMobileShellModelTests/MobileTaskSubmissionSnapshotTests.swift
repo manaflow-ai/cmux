@@ -19,6 +19,7 @@ import Testing
         ))
 
         #expect(before.isRequestEquivalent(to: after))
+        expectIdentityPreserved(from: before, to: after)
     }
 
     @Test func unselectedTemplateEditKeepsSelectedRequestEquivalent() {
@@ -27,6 +28,7 @@ import Testing
         let after = snapshot(template: selected)
 
         #expect(before.isRequestEquivalent(to: after))
+        expectIdentityPreserved(from: before, to: after)
     }
 
     @Test func selectedTemplateCommandEditChangesRequest() {
@@ -45,6 +47,7 @@ import Testing
         ))
 
         #expect(!before.isRequestEquivalent(to: after))
+        expectIdentityRotated(from: before, to: after)
     }
 
     @Test func selectedTemplateDefaultDirectoryEditChangesEffectiveRequest() {
@@ -53,6 +56,7 @@ import Testing
         let after = snapshot(template: template, directory: "~/other")
 
         #expect(!before.isRequestEquivalent(to: after))
+        expectIdentityRotated(from: before, to: after)
     }
 
     @Test func selectedTemplateChangeWithDifferentCompositionChangesRequest() {
@@ -68,6 +72,17 @@ import Testing
         ))
 
         #expect(!before.isRequestEquivalent(to: after))
+        expectIdentityRotated(from: before, to: after)
+    }
+
+    @Test func selectedTemplateDeletionRotatesIdentity() {
+        let before = snapshot(template: MobileTaskTemplate(
+            name: "Codex",
+            icon: "agent:codex",
+            command: "codex"
+        ))
+
+        expectIdentityRotated(from: before, to: nil)
     }
 
     @Test func requestEquivalenceMatchesSentWorkspaceSpec() {
@@ -93,6 +108,30 @@ import Testing
             template: MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex"),
             macDeviceID: "mac-b"
         )))
+    }
+
+    private func expectIdentityPreserved(
+        from before: MobileTaskSubmissionSnapshot?,
+        to after: MobileTaskSubmissionSnapshot?
+    ) {
+        var identity = MobileTaskSubmissionIdentity()
+        let originalID = identity.id
+
+        identity.rotateIfRequestChanged(from: before, to: after)
+
+        #expect(identity.id == originalID)
+    }
+
+    private func expectIdentityRotated(
+        from before: MobileTaskSubmissionSnapshot?,
+        to after: MobileTaskSubmissionSnapshot?
+    ) {
+        var identity = MobileTaskSubmissionIdentity()
+        let originalID = identity.id
+
+        identity.rotateIfRequestChanged(from: before, to: after)
+
+        #expect(identity.id != originalID)
     }
 
     private func snapshot(
