@@ -135,6 +135,51 @@ struct ClosedItemHistoryAgentEnrichmentTests {
     }
 
     @Test
+    func nilBindingWithProcessDetectedIndexEvidenceCapturesFreshMetadata() async throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let cachedIndex = SharedLiveAgentIndexLoadCoalescingTests.index(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            sessionId: "cached-process-session"
+        )
+        let freshIndex = SharedLiveAgentIndexLoadCoalescingTests.index(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            sessionId: "fresh-process-session"
+        )
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                Self.loadResult(index: freshIndex)
+            },
+            hookStoreDirectoryProvider: { Self.temporaryDirectory.path }
+        )
+        sharedIndex.latestCompletedLoadResult = Self.loadResult(index: cachedIndex)
+        let store = ClosedItemHistoryStore(capacity: 10)
+        var panel = Self.panelSnapshot(panelId: panelId)
+        panel.terminal?.resumeBinding = nil
+
+        let capture = try #require(store.pushPreservingAgentMetadata(
+            .panel(ClosedPanelHistoryEntry(
+                workspaceId: workspaceId,
+                paneId: UUID(),
+                tabIndex: 0,
+                snapshot: panel
+            )),
+            coordinatedBy: sharedIndex
+        ))
+        await capture.value
+
+        let recordId = try #require(store.menuSnapshot().items.first?.id)
+        let record = try #require(store.removeRecord(id: recordId)?.record)
+        guard case .panel(let entry) = record.entry else {
+            Issue.record("Expected a panel history record")
+            return
+        }
+        #expect(entry.snapshot.terminal?.agent?.sessionId == "fresh-process-session")
+    }
+
+    @Test
     func newerCaptureReplacesOlderDeferredClose() async {
         let panelId = UUID()
         let firstGate = AsyncGate()

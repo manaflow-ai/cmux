@@ -87,7 +87,7 @@ extension ClosedItemHistoryAgentEnrichmentTests {
     }
 
     @Test
-    func repeatedUnavailableCaptureDiscardsPendingHistoryAndClosesOnce() async throws {
+    func repeatedUnavailableCapturePreservesCoreHistoryAndClosesOnce() async throws {
         let timeoutWaiter = ManualGenerationTimeoutWaiter()
         let loadStarted = DispatchSemaphore(value: 0)
         let releaseLoads = DispatchSemaphore(value: 0)
@@ -145,7 +145,17 @@ extension ClosedItemHistoryAgentEnrichmentTests {
         #expect(timeoutRequestCount.withLock { $0 } == 2)
         #expect(closeCount.withLock { $0 } == 1)
         #expect(!closeDeferrer.isDeferringClose(id: closeID))
-        #expect(store.restoreFirstRestorableResult { _ in true } == .unavailable)
+        var restoredEntry: ClosedItemHistoryEntry?
+        let restoreResult = store.restoreFirstRestorableResult { entry in
+            restoredEntry = entry
+            return true
+        }
+        #expect(restoreResult == .restored)
+        guard case .panel(let restoredPanel)? = restoredEntry else {
+            Issue.record("Expected the core panel history record")
+            return
+        }
+        #expect(restoredPanel.snapshot.terminal?.agent == nil)
 
         await timeoutWaiter.cancelAll()
         timeoutDriver.cancel()
