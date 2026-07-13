@@ -69,6 +69,10 @@ actor RoutingHostRouter {
     private var firstTerminalScrollHeld = false
     private var firstTerminalScrollContinuation: CheckedContinuation<Void, Never>?
     private var firstTerminalScrollReachedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var heldTerminalInputMethod: String?
+    private var heldTerminalInputContinuation: CheckedContinuation<Void, Never>?
+    private var heldTerminalInputReachedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var transportCloseCount = 0
 
     static let workspaceID = "ws-route"
     static let terminalA = "term-route-a"
@@ -147,6 +151,28 @@ actor RoutingHostRouter {
         let continuation = firstTerminalScrollContinuation
         firstTerminalScrollContinuation = nil
         continuation?.resume()
+    }
+
+    func holdNextTerminalInput(method: String) {
+        heldTerminalInputMethod = method
+    }
+
+    func awaitHeldTerminalInputReached() async {
+        if heldTerminalInputContinuation != nil { return }
+        await withCheckedContinuation { heldTerminalInputReachedWaiters.append($0) }
+    }
+
+    func releaseHeldTerminalInput() {
+        heldTerminalInputMethod = nil
+        let continuation = heldTerminalInputContinuation
+        heldTerminalInputContinuation = nil
+        continuation?.resume()
+    }
+
+    func recordedTransportCloseCount() -> Int { transportCloseCount }
+
+    func transportDidClose() {
+        transportCloseCount += 1
     }
 
     /// Sendable extract of the request fields the router needs, pulled off the
@@ -255,6 +281,7 @@ actor RoutingHostRouter {
             let format = info.imageFormat ?? ""
             let index = pasteImages.count
             pasteImages.append(PasteImageRecord(surfaceID: surfaceID, format: format))
+            await holdTerminalInputIfNeeded(method: method)
             if index == 0 && holdFirstPasteImage {
                 firstPasteImageHeld = true
                 let reachedWaiters = firstPasteImageReachedWaiters
@@ -270,6 +297,18 @@ actor RoutingHostRouter {
             let surfaceID = info.surfaceID ?? ""
             let text = info.text ?? ""
             pastes.append(PasteRecord(surfaceID: surfaceID, text: text))
+            await holdTerminalInputIfNeeded(method: method)
+            return try? Self.resultFrame(id: id, result: [:])
+        case "terminal.input":
+            terminalInteractions.append(TerminalInteractionRecord(
+                method: method ?? "",
+                surfaceID: info.surfaceID ?? "",
+                interactionEpoch: info.interactionEpoch,
+                clientScrollRevision: nil,
+                col: nil,
+                row: nil
+            ))
+            await holdTerminalInputIfNeeded(method: method)
             return try? Self.resultFrame(id: id, result: [:])
         case "mobile.terminal.scroll":
             terminalInteractions.append(TerminalInteractionRecord(
@@ -315,6 +354,14 @@ actor RoutingHostRouter {
         default:
             return try? Self.errorFrame(id: id, message: "Unexpected method \(method ?? "nil")")
         }
+    }
+
+    private func holdTerminalInputIfNeeded(method: String?) async {
+        guard method == heldTerminalInputMethod else { return }
+        let waiters = heldTerminalInputReachedWaiters
+        heldTerminalInputReachedWaiters = []
+        for waiter in waiters { waiter.resume() }
+        await withCheckedContinuation { heldTerminalInputContinuation = $0 }
     }
 
     private static func resultFrame(id: String?, result: [String: Any]) throws -> Data {
@@ -406,9 +453,11 @@ private actor RoutingTransport: CmxByteTransport {
         for waiter in waiters {
             waiter.resume(returning: nil)
         }
+        await router.transportDidClose()
     }
 
     private func deliver(_ frame: Data) {
+        guard !isClosed else { return }
         if receiveWaiters.isEmpty {
             pendingFrames.append(frame)
             return
@@ -416,68 +465,4 @@ private actor RoutingTransport: CmxByteTransport {
         let waiter = receiveWaiters.removeFirst()
         waiter.resume(returning: frame)
     }
-}
-
-// MARK: - Connected-store builder
-
-/// Build a store with a workspace of two terminals (term-a selected) and a real
-/// `MobileCoreRPCClient` wired DIRECTLY onto the store, backed by the recording
-/// transport. This deliberately bypasses the pairing/connect handshake (which
-/// the scripted-host harness cannot complete in this environment): the composer
-/// send path only needs a live `remoteClient` to reach the wire, and the
-/// session connects its transport lazily on the first request. The result is a
-/// deterministic end-to-end exercise of submitComposer's routing over the real
-/// terminal.paste / terminal.paste_image RPC frames.
-@MainActor
-func makeRoutingConnectedStore(
-    router: RoutingHostRouter,
-    pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(
-        defaults: UserDefaults(suiteName: "routing-dismiss-\(UUID().uuidString)")!
-    ),
-    macScopedWorkspaceMutations: Bool = false
-) async throws -> MobileShellComposite {
-    let runtime = RoutingTestRuntime(
-        transportFactory: RoutingTransportFactory(router: router)
-    )
-    let terminals = [
-        MobileTerminalPreview(id: .init(rawValue: RoutingHostRouter.terminalA), name: "A"),
-        MobileTerminalPreview(id: .init(rawValue: RoutingHostRouter.terminalB), name: "B"),
-    ]
-    let store = MobileShellComposite(
-        runtime: runtime,
-        isSignedIn: true,
-        workspaces: [
-            MobileWorkspacePreview(
-                id: .init(rawValue: RoutingHostRouter.workspaceID),
-                name: "Routing Workspace",
-                terminals: terminals
-            ),
-        ],
-        pendingDismissQueue: pendingDismissQueue
-    )
-    // 127.0.0.1 is a Stack-auth-trusted route, so authorized requests carry the
-    // Stack token and do not throw insecureManualRoute before reaching the
-    // transport. Enable the fallback to match the trusted-route production path.
-    let route = try CmxAttachRoute(
-        id: "debug_loopback",
-        kind: .debugLoopback,
-        endpoint: .hostPort(host: "127.0.0.1", port: 56585)
-    )
-    let ticket = try CmxAttachTicket(
-        workspaceID: macScopedWorkspaceMutations ? "" : RoutingHostRouter.workspaceID,
-        terminalID: macScopedWorkspaceMutations ? nil : RoutingHostRouter.terminalA,
-        macDeviceID: "test-mac",
-        macDisplayName: "Test Mac",
-        routes: [route],
-        expiresAt: Date().addingTimeInterval(3600),
-        authToken: macScopedWorkspaceMutations ? "ticket-secret" : nil
-    )
-    store.remoteClient = MobileCoreRPCClient(
-        runtime: runtime,
-        route: route,
-        ticket: ticket,
-        allowsStackAuthFallback: true
-    )
-    store.foregroundMacDeviceID = "test-mac"
-    return store
 }

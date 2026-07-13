@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileRPC
+import CmuxMobileShellModel
 import Foundation
 @testable import CmuxMobileShell
 
@@ -22,13 +23,65 @@ func installFreshRemoteClient(on store: MobileShellComposite, router: RoutingHos
         routes: [route],
         expiresAt: Date().addingTimeInterval(3600)
     )
+    store.replaceRemoteClient(with: MobileCoreRPCClient(
+        runtime: runtime,
+        route: route,
+        ticket: ticket,
+        allowsStackAuthFallback: true
+    ))
+    store.foregroundMacDeviceID = "test-mac-2"
+}
+
+/// Builds a store with a real client backed by the deterministic routing host.
+@MainActor
+func makeRoutingConnectedStore(
+    router: RoutingHostRouter,
+    pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(
+        defaults: UserDefaults(suiteName: "routing-dismiss-\(UUID().uuidString)")!
+    ),
+    macScopedWorkspaceMutations: Bool = false
+) async throws -> MobileShellComposite {
+    let runtime = RoutingTestRuntime(
+        transportFactory: RoutingTransportFactory(router: router)
+    )
+    let terminals = [
+        MobileTerminalPreview(id: .init(rawValue: RoutingHostRouter.terminalA), name: "A"),
+        MobileTerminalPreview(id: .init(rawValue: RoutingHostRouter.terminalB), name: "B"),
+    ]
+    let store = MobileShellComposite(
+        runtime: runtime,
+        isSignedIn: true,
+        workspaces: [
+            MobileWorkspacePreview(
+                id: .init(rawValue: RoutingHostRouter.workspaceID),
+                name: "Routing Workspace",
+                terminals: terminals
+            ),
+        ],
+        pendingDismissQueue: pendingDismissQueue
+    )
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56585)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: macScopedWorkspaceMutations ? "" : RoutingHostRouter.workspaceID,
+        terminalID: macScopedWorkspaceMutations ? nil : RoutingHostRouter.terminalA,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(3600),
+        authToken: macScopedWorkspaceMutations ? "ticket-secret" : nil
+    )
     store.remoteClient = MobileCoreRPCClient(
         runtime: runtime,
         route: route,
         ticket: ticket,
         allowsStackAuthFallback: true
     )
-    store.foregroundMacDeviceID = "test-mac-2"
+    store.foregroundMacDeviceID = "test-mac"
+    return store
 }
 
 /// Installs a live read-only secondary client on `store`.
