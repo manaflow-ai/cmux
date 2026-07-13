@@ -21,9 +21,9 @@ final class PortScanner: @unchecked Sendable {
     let commandRunner: any CommandRunning
 
     /// Callback delivers `(workspaceId, panelId, ports)` on the main actor.
-    var onPortsUpdated: (@MainActor (_ workspaceId: UUID, _ panelId: UUID, _ ports: [Int]) -> Void)?
+    @MainActor var onPortsUpdated: (@MainActor (_ workspaceId: UUID, _ panelId: UUID, _ ports: [Int]) -> Void)?
     /// Callback delivers workspace-scoped ports owned by tracked agents.
-    var onAgentPortsUpdated: (@MainActor (_ workspaceId: UUID, _ ports: [Int]) -> Bool)?
+    @MainActor var onAgentPortsUpdated: (@MainActor (_ workspaceId: UUID, _ ports: [Int]) -> Bool)?
     // MARK: - State (all guarded by `queue`)
 
     let queue = DispatchQueue(label: "com.cmux.port-scanner", qos: .utility)
@@ -80,7 +80,7 @@ final class PortScanner: @unchecked Sendable {
             guard previousTTY != ttyName else { return }
             panelPortSnapshot.remove(keys: [key])
             ttyNames[key] = ttyName
-            if previousTTY != nil, onPortsUpdated != nil {
+            if previousTTY != nil {
                 let publication = ttyNames.keys.reduce(into: [PanelKey: [Int]]()) { result, panelKey in
                     result[panelKey] = panelPortSnapshot.snapshot[panelKey] ?? []
                 }
@@ -541,12 +541,10 @@ final class PortScanner: @unchecked Sendable {
                 trackedKeys: trackedKeys,
                 completenessByKey: panelCompletenessByKey
             )
-            if onPortsUpdated != nil {
-                let publication = trackedKeys.reduce(into: [PanelKey: [Int]]()) { result, key in
-                    result[key] = stableSnapshot[key] ?? []
-                }
-                enqueuePanelPublication(publication)
+            let publication = trackedKeys.reduce(into: [PanelKey: [Int]]()) { result, key in
+                result[key] = stableSnapshot[key] ?? []
             }
+            enqueuePanelPublication(publication)
         }
         deliverAgentResults(
             workspaceIds: workspaceIds,

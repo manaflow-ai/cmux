@@ -67,7 +67,6 @@ extension PortScanner {
         completenessByWorkspace: [UUID: PortScanCompleteness],
         requestID: UInt64
     ) {
-        guard onAgentPortsUpdated != nil else { return }
         let validatedResults = validatedAgentResults(
             workspaceIds: workspaceIds,
             agentPortsByWorkspace: agentPortsByWorkspace,

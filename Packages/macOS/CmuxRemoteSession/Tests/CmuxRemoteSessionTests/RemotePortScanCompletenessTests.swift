@@ -71,8 +71,9 @@ struct RemotePortScanCompletenessTests {
     func fallbackTransitionDoesNotFabricateTTYOwnership() {
         let panel = UUID()
         let completeOutput = """
-        \(RemoteSessionCoordinator.remoteTTYPortScanCompleteMarker)\tttys010
+        \(RemoteSessionCoordinator.remoteTTYHostWidePortMarker)\t8080
         \(RemoteSessionCoordinator.remoteTTYHostWideCompleteMarker)
+        \(RemoteSessionCoordinator.remoteTTYPortScanCompleteMarker)\tttys010
         """
         let runner = SpyProcessRunner(
             result: RemoteCommandResult(status: 0, stdout: completeOutput, stderr: "")
@@ -97,6 +98,42 @@ struct RemotePortScanCompletenessTests {
         #expect(generatedCommands.contains(where: { $0.contains("ttys010:8080") }) == false)
         #expect(host.detectedPortsByPanel[panel]?.isEmpty == true)
         #expect(host.detectedPorts.isEmpty)
+        #expect(coordinator.queue.sync { coordinator.keepPolledRemotePortsUntilTTYScan } == false)
+        coordinator.stop()
+    }
+
+    @Test("TTY-owned port stays published while its unscoped fallback finishes handoff")
+    func ttyOwnedPortStaysPublishedDuringFallbackExpiry() {
+        let panel = UUID()
+        let completeOutput = """
+        ttys010\t8080
+        \(RemoteSessionCoordinator.remoteTTYPortScanCompleteMarker)\tttys010
+        \(RemoteSessionCoordinator.remoteTTYHostWidePortMarker)\t8080
+        \(RemoteSessionCoordinator.remoteTTYHostWideCompleteMarker)
+        """
+        let runner = SpyProcessRunner(
+            result: RemoteCommandResult(status: 0, stdout: completeOutput, stderr: "")
+        )
+        let host = RecordingRemoteSessionHost()
+        let coordinator = RemotePortScanGatingTests.makeCoordinator(runner: runner, host: host)
+
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.remotePortPollState.apply(
+                observedPorts: [8080],
+                mode: .hostWide,
+                completeness: .complete
+            )
+            coordinator.updateRemotePortScanTTYsLocked([panel: "ttys010"])
+        }
+
+        for _ in 0..<3 {
+            coordinator.queue.sync {
+                coordinator.performRemotePortScanLocked()
+            }
+            #expect(host.detectedPorts == [8080])
+            #expect(host.detectedPortsByPanel[panel] == [8080])
+        }
         #expect(coordinator.queue.sync { coordinator.keepPolledRemotePortsUntilTTYScan } == false)
         coordinator.stop()
     }

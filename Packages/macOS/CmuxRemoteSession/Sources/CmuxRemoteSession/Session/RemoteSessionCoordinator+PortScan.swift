@@ -233,8 +233,8 @@ extension RemoteSessionCoordinator {
             let wasRetainingFallback = keepPolledRemotePortsUntilTTYScan
             if keepPolledRemotePortsUntilTTYScan {
                 keepPolledRemotePortsUntilTTYScan = !remotePortPollState.advanceTTYTransition(
-                    observedPorts: scan.hostWidePorts,
-                    completeness: scan.hostWideCompleteness
+                    observedPorts: allTTYsComplete ? [] : scan.hostWidePorts,
+                    completeness: allTTYsComplete ? .complete : scan.hostWideCompleteness
                 )
             }
             if !keepPolledRemotePortsUntilTTYScan && (wasRetainingFallback || allTTYsComplete) {
