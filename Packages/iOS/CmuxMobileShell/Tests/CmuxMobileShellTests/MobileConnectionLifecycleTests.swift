@@ -96,6 +96,35 @@ import Testing
         #expect(refreshed)
     }
 
+    @Test func coalescedStreamLossRestartsTheReplacementListener() async throws {
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let clock = TestClock()
+        let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+        let baselineSubscriptions = await router.count(of: "mobile.events.subscribe")
+        await router.setHoldSubscribe(true)
+        defer { Task { await router.releaseAllHeld() } }
+
+        store.requestConnectionLifecycleRecovery(.networkPathChanged)
+        await router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: baselineSubscriptions + 1
+        )
+        let episodeID = try #require(store.connectionLifecycle.activeEpisode?.id)
+
+        store.requestConnectionLifecycleRecovery(.eventStreamLost)
+
+        await router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: baselineSubscriptions + 2
+        )
+        #expect(store.connectionLifecycle.activeEpisode?.id == episodeID)
+        #expect(store.connectionLifecycle.activeEpisode?.triggers == [
+            .networkPathChanged,
+            .eventStreamLost,
+        ])
+    }
+
     @Test func connectionTeardownCompletesAnUnacknowledgedStreamRepair() async throws {
         let router = LivenessHostRouter()
         let box = TransportBox()
