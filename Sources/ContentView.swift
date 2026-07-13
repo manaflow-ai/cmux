@@ -9441,6 +9441,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let openPullRequestLinksInCmuxBrowser: Bool
     let openPortLinksInCmuxBrowser: Bool
     let showsNotificationMessage: Bool
+    let notificationMessageLineLimit: Int
     let activeTabIndicatorStyle: WorkspaceIndicatorStyle
     let loadingSpinnerPosition: SidebarIndicatorPosition
     let notificationBadgePosition: SidebarIndicatorPosition
@@ -9482,6 +9483,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         )
         showsWorkspaceDescription = detailVisibility.showsWorkspaceDescription
         showsNotificationMessage = detailVisibility.showsNotificationMessage
+        let notificationLineRange = SidebarCatalogSection.notificationMessageLineLimitRange
+        notificationMessageLineLimit = min(max(settings.value(for: catalog.sidebar.notificationMessageLineLimit), notificationLineRange.lowerBound), notificationLineRange.upperBound)
 
         let showsMetadata = Self.bool(defaults: defaults, key: "sidebarShowStatusPills", defaultValue: SidebarWorkspaceDetailDefaults.showCustomMetadata)
         let showsLog = Self.bool(defaults: defaults, key: "sidebarShowLog", defaultValue: SidebarWorkspaceDetailDefaults.showLog)
@@ -13543,8 +13546,8 @@ struct TabItemView: View, Equatable {
             ? workspaceSnapshot.latestConversationMessage?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
             : nil
         let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
-        let subtitleLineLimit = latestNotificationSubtitle == nil ? 2 : 12
-        // Bound agent handoffs before shaping so pathological payloads stay cheap in lazy, Equatable rows.
+        let subtitleLineLimit = latestNotificationSubtitle == nil ? 2 : settings.notificationMessageLineLimit
+        // Bound notification payloads before shaping so pathological text stays cheap in lazy, Equatable rows.
         let displayedSubtitle = effectiveSubtitle?.sidebarBoundedDisplayString(maxDisplayedLines: subtitleLineLimit, maxDisplayedCharacters: 4096)
         let detailVisibility = visibleAuxiliaryDetails
         let titleLineLimit = settings.wrapsWorkspaceTitles ? Self.maxWrappedTitleLines : 1

@@ -986,6 +986,13 @@
           "default": true,
           "description": "Show the latest notification text in the sidebar."
         },
+        "notificationMessageLineLimit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 12,
+          "description": "Maximum lines shown for the latest notification below each workspace title."
+        },
         "showBranchDirectory": {
           "type": "boolean",
           "default": true,
