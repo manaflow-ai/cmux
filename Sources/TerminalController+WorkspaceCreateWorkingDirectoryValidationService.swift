@@ -57,7 +57,8 @@ extension TerminalController {
         ) async -> WorkspaceCreateWorkingDirectoryValidation {
             guard isProvided else { return .notProvided }
             guard let path = TerminalController.v2ExpandedWorkingDirectory(rawValue),
-                  (path as NSString).isAbsolutePath else {
+                  (path as NSString).isAbsolutePath,
+                  !TerminalController.v2WorkingDirectoryContainsDotComponent(path) else {
                 return .invalid
             }
             guard !Task.isCancelled else { return .cancelled }

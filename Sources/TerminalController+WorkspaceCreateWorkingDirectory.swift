@@ -31,7 +31,7 @@ extension TerminalController {
             }
         )
 
-    private struct WorkspaceCreateMountEntry {
+    struct WorkspaceCreateMountEntry {
         let path: String
         let isLocal: Bool
     }
@@ -81,6 +81,7 @@ extension TerminalController {
         _ path: String
     ) -> WorkspaceCreatePathInspection {
         guard (path as NSString).isAbsolutePath else { return .external }
+        guard !v2WorkingDirectoryContainsDotComponent(path) else { return .external }
         let normalizedPath = URL(fileURLWithPath: path).standardized.path
         guard !normalizedPath.utf8.contains(0) else { return .external }
         let mounts = v2WorkingDirectoryMountEntries()
@@ -159,20 +160,41 @@ extension TerminalController {
         return entries
     }
 
-    nonisolated private static func v2WorkingDirectoryMountIsLocal(
+    nonisolated static func v2WorkingDirectoryMountIsLocal(
         path: String,
         mounts: [WorkspaceCreateMountEntry]
     ) -> Bool? {
+        let foldedPath = v2CaseFoldedMountPath(path)
         var longestMatchLength = -1
         var longestMatchIsLocal: Bool?
         for mount in mounts {
-            let matches = path == mount.path
-                || path.hasPrefix(mount.path == "/" ? "/" : "\(mount.path)/")
-            guard matches, mount.path.count > longestMatchLength else { continue }
-            longestMatchLength = mount.path.count
-            longestMatchIsLocal = mount.isLocal
+            let foldedMountPath = v2CaseFoldedMountPath(mount.path)
+            let matches = foldedPath == foldedMountPath
+                || foldedPath.hasPrefix(
+                    foldedMountPath == "/" ? "/" : "\(foldedMountPath)/"
+                )
+            guard matches else { continue }
+            let matchLength = foldedMountPath.count
+            if matchLength > longestMatchLength {
+                longestMatchLength = matchLength
+                longestMatchIsLocal = mount.isLocal
+            } else if matchLength == longestMatchLength, !mount.isLocal {
+                // Conflicting snapshots or case aliases fail into the bounded
+                // external lane regardless of mount enumeration order.
+                longestMatchIsLocal = false
+            }
         }
         return longestMatchIsLocal
+    }
+
+    nonisolated static func v2WorkingDirectoryContainsDotComponent(_ path: String) -> Bool {
+        path.split(separator: "/", omittingEmptySubsequences: false).contains {
+            $0 == "." || $0 == ".."
+        }
+    }
+
+    nonisolated private static func v2CaseFoldedMountPath(_ path: String) -> String {
+        path.folding(options: .caseInsensitive, locale: Locale(identifier: "en_US_POSIX"))
     }
 
     nonisolated static var v2InvalidWorkingDirectoryResult: V2CallResult {
