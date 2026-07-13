@@ -1011,8 +1011,8 @@ extension CMUXCLI {
             "transparent_background": true,
             "bypass_remote_proxy": true
         ]
+        params["diff_viewer_token"] = viewer.url.scheme == DiffViewerURLMapper.scheme ? (viewer.url.host ?? "") : (viewer.url.path.split(separator: "/").first.map(String.init) ?? "")
         if viewer.url.scheme == DiffViewerURLMapper.scheme {
-            params["diff_viewer_token"] = viewer.url.host ?? ""
             params["diff_viewer_files"] = viewer.allowedFiles.map(\.jsonObject)
         }
         if let windowHandle { params["window_id"] = windowHandle }
