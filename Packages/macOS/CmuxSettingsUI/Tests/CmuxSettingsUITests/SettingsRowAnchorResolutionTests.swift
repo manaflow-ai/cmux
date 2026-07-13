@@ -102,6 +102,7 @@ struct SettingsRowAnchorResolutionTests {
         "sidebar.showCustomMetadata",
         "sidebar.showLog",
         "sidebar.showNotificationMessage",
+        "sidebar.notificationMessageLineLimit",
         "sidebar.showAgentActivity",
         "sidebar.loadingSpinnerPosition",
         "sidebar.notificationBadgePosition",
