@@ -62,6 +62,43 @@ import Testing
         #expect(!diff.unifiedDiff.contains("new file mode"))
     }
 
+    @Test func nestedRenameEndpointRemainsReviewableWithSnapshotToken() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let source = repo.appendingPathComponent("foo")
+        try Data("same content\n".utf8).write(to: source)
+        try runTestGit(in: repo, ["add", "--", "foo"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add source"])
+        try FileManager.default.removeItem(at: source)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try Data("same content\n".utf8).write(to: source.appendingPathComponent("bar"))
+        try Data("unrelated\n".utf8).write(to: source.appendingPathComponent("other"))
+        try runTestGit(in: repo, ["add", "-A", "--", "foo"])
+
+        let service = GitDiffService()
+        let changed = try #require(service.changedFiles(repoRoot: repo.path))
+        let renamed = try #require(changed.files.first { summary in
+            summary.path == "foo/bar" && summary.oldPath == "foo" && summary.status == .renamed
+        })
+        let result = service.fileDiffResult(
+            repoRoot: repo.path,
+            path: renamed.path,
+            oldPath: renamed.oldPath,
+            status: renamed.status,
+            additions: renamed.additions,
+            deletions: renamed.deletions,
+            snapshotToken: renamed.snapshotToken
+        )
+
+        guard case .success(let diff) = result else {
+            Issue.record("Nested rename endpoint was excluded from its own diff: \(result)")
+            return
+        }
+        #expect(diff.unifiedDiff.contains("rename from foo"))
+        #expect(diff.unifiedDiff.contains("rename to foo/bar"))
+        #expect(!diff.unifiedDiff.contains("foo/other"))
+    }
+
     @Test func staleRenameSourceCannotReturnMultipleFileSections() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }

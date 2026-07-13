@@ -195,6 +195,31 @@ import Testing
         })
     }
 
+    @Test func independentlyCappedTrackedListingsPublishOnlyCompleteRows() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        for index in 0..<80 {
+            try Data("old\n".utf8).write(
+                to: repo.appendingPathComponent("tracked-with-long-name-\(1000 + index).txt")
+            )
+        }
+        try runTestGit(in: repo, ["add", "--", "."])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add capped tracked files"])
+        for index in 0..<80 {
+            try Data("new\n".utf8).write(
+                to: repo.appendingPathComponent("tracked-with-long-name-\(1000 + index).txt")
+            )
+        }
+
+        let changed = try #require(
+            GitDiffService().changedFiles(repoRoot: repo.path, maxOutputBytes: 512)
+        )
+
+        #expect(changed.truncated)
+        #expect(!changed.files.isEmpty)
+        #expect(changed.files.allSatisfy { $0.additions == 1 && $0.deletions == 1 })
+    }
+
     @Test func rowLimitBoundsReturnedSnapshotTokens() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }

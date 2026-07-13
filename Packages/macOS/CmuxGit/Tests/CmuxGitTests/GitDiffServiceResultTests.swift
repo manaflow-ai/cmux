@@ -114,6 +114,42 @@ import Testing
         )
     }
 
+    @Test func fileDiffSnapshotValidationPreservesFailure() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let path = "tracked.txt"
+        let trackedFile = repo.appendingPathComponent(path)
+        try Data("original\n".utf8).write(to: trackedFile)
+        try runTestGit(in: repo, ["add", "--", path])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add tracked file"])
+        try Data("changed\n".utf8).write(to: trackedFile)
+        let visible = try #require(
+            GitDiffService().changedFiles(repoRoot: repo.path)?.files.first
+        )
+        let scopedNumstatCount = repo.appendingPathComponent("scoped-numstat-count")
+        let failingGit = repo.appendingPathComponent("failing-snapshot-git.sh")
+        try Data(
+            "#!/bin/sh\nscoped=0\nnumstat=0\nfor argument do\n  if [ \"$argument\" = ':(literal)tracked.txt' ]; then scoped=1; fi\n  if [ \"$argument\" = '--numstat' ]; then numstat=1; fi\ndone\nif [ \"$scoped:$numstat\" = '1:1' ]; then\n  count=0\n  if [ -f \(scopedNumstatCount.path.debugDescription) ]; then count=$(cat \(scopedNumstatCount.path.debugDescription)); fi\n  count=$((count + 1))\n  printf '%s' \"$count\" > \(scopedNumstatCount.path.debugDescription)\n  if [ \"$count\" -ge 2 ]; then exit 2; fi\nfi\nexec /usr/bin/git \"$@\"\n".utf8
+        ).write(to: failingGit)
+        try makeExecutable(failingGit)
+        let service = GitDiffService(gitExecutableURL: failingGit)
+
+        let result = service.fileDiffResult(
+            repoRoot: repo.path,
+            path: visible.path,
+            oldPath: visible.oldPath,
+            status: visible.status,
+            additions: visible.additions,
+            deletions: visible.deletions,
+            snapshotToken: visible.snapshotToken
+        )
+
+        guard case .failed = result else {
+            Issue.record("Snapshot validation flattened a Git failure into \(result)")
+            return
+        }
+    }
+
     private func makeTempRepo() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-git-diff-result-tests-\(UUID().uuidString)")

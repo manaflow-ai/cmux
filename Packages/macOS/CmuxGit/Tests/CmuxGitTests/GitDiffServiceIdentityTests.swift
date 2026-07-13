@@ -47,7 +47,11 @@ import Testing
             service.fileDiff(
                 repoRoot: repo.path,
                 path: replacement.path,
-                status: replacement.status
+                oldPath: replacement.oldPath,
+                status: replacement.status,
+                additions: replacement.additions,
+                deletions: replacement.deletions,
+                snapshotToken: replacement.snapshotToken
             )
         )
 
