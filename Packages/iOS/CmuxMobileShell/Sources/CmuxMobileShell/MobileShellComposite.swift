@@ -3407,7 +3407,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// aggregate. A failed refresh/reconnect should make stale rows visibly
     /// unavailable, not leave them connected/actionable until a stream callback
     /// happens to run.
-    private func markSecondaryMacUnavailable(_ macID: String) {
+    func markSecondaryMacUnavailable(_ macID: String) {
         guard var state = workspacesByMac[macID] else { return }
         state.status = .unavailable
         workspacesByMac[macID] = state
@@ -7501,32 +7501,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return true
     }
 
-    /// Scope an authorization eviction to the connection that rejected the
-    /// request. A secondary Mac must not force the healthy foreground Mac to
-    /// reauthenticate, and a stale request must not tear down its replacement.
-    func disconnectForAuthorizationFailureIfNeeded(
-        _ error: any Error,
-        target: WorkspaceMutationTarget
-    ) -> Bool {
-        guard Self.shouldDisconnectForAuthorizationFailure(error) else {
-            return false
-        }
-        guard !target.isForeground else {
-            return disconnectForAuthorizationFailureIfNeeded(error)
-        }
-        guard let macID = target.macDeviceID,
-              let targetClient = target.client,
-              let subscription = secondaryMacSubscriptions[macID],
-              subscription.client === targetClient else {
-            return true
-        }
-        secondaryMacSubscriptions[macID] = nil
-        subscription.cancel()
-        markSecondaryMacUnavailable(macID)
-        return true
-    }
-
-    private static func shouldDisconnectForAuthorizationFailure(_ error: any Error) -> Bool {
+    static func shouldDisconnectForAuthorizationFailure(_ error: any Error) -> Bool {
         guard let connectionError = error as? MobileShellConnectionError else {
             return false
         }

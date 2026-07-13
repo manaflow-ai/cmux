@@ -117,9 +117,7 @@ actor RoutingHostRouter {
     func recordedWorkspaceCreateCount() -> Int { workspaceCreateCount }
     func recordedWorkspaceCreateGroupIDs() -> [String?] { workspaceCreateGroupIDs }
 
-    func setWorkspaceDiffErrorCode(_ code: String?) {
-        workspaceDiffErrorCode = code
-    }
+    func setWorkspaceDiffErrorCode(_ code: String?) { workspaceDiffErrorCode = code }
 
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
@@ -252,15 +250,12 @@ actor RoutingHostRouter {
         case "mobile.workspace.diff_status":
             if let workspaceDiffErrorCode {
                 return try? Self.errorFrame(
-                    id: id,
-                    code: workspaceDiffErrorCode,
-                    message: "diff status rejected"
+                    id: id, code: workspaceDiffErrorCode, message: "diff status rejected"
                 )
             }
-            return try? Self.resultFrame(id: id, result: [
-                "repo_root": "/tmp/route",
-                "files": [],
-            ])
+            return try? Self.resultFrame(
+                id: id, result: ["repo_root": "/tmp/route", "files": []]
+            )
         case "mobile.events.unsubscribe", "mobile.terminal.replay", "mobile.terminal.viewport":
             return try? Self.resultFrame(id: id, result: [:])
         default:
