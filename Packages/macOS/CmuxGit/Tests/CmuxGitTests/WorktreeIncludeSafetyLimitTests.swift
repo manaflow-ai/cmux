@@ -4,6 +4,40 @@ import Testing
 @testable import CmuxGit
 
 @Suite struct WorktreeIncludeSafetyLimitTests {
+    @Test func copiedDirectoryPreservesRestrictivePermissions() async throws {
+        let (root, source, destination) = try makeRepositoryFixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let credentials = source.appendingPathComponent("credentials", isDirectory: true)
+        try FileManager.default.createDirectory(at: credentials, withIntermediateDirectories: true)
+        try "token\n".write(
+            to: credentials.appendingPathComponent("api-key"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: credentials.path
+        )
+        try "credentials/\n".write(
+            to: source.appendingPathComponent(".gitignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "credentials/\n".write(
+            to: source.appendingPathComponent(".worktreeinclude"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let diagnostics = await WorktreeIncludeSyncService().sync(from: source, to: destination)
+        let copiedAttributes = try FileManager.default.attributesOfItem(
+            atPath: destination.appendingPathComponent("credentials").path
+        )
+
+        #expect(diagnostics.isEmpty)
+        #expect(copiedAttributes[.posixPermissions] as? Int == 0o700)
+    }
+
     @Test func collapsedDirectoryOverCopyBudgetIsNotCopied() async throws {
         let (root, source, destination) = try makeRepositoryFixture()
         defer { try? FileManager.default.removeItem(at: root) }
