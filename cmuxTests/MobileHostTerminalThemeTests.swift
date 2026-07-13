@@ -29,4 +29,24 @@ import Testing
         #expect(resolved.cursorText == "#abcdef")
         #expect(resolved.palette == base.palette)
     }
+
+    @Test func rendererEffectiveThemeWinsOverRawOSCOverrides() throws {
+        var effective = TerminalTheme.monokai
+        effective.background = "#eeeeee"
+        effective.foreground = "#111111"
+        let frame = try MobileTerminalRenderGridFrame(
+            surfaceID: "surface-reverse-theme",
+            stateSeq: 1,
+            columns: 2,
+            rows: 1,
+            rowSpans: [],
+            terminalForeground: "#eeeeee",
+            terminalBackground: "#111111",
+            terminalTheme: effective
+        )
+
+        let resolved = TerminalTheme.monokai.applyingSurfaceColors(from: frame)
+
+        #expect(resolved == effective)
+    }
 }

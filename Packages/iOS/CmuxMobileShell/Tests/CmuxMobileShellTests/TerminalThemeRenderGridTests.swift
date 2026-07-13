@@ -70,6 +70,30 @@ import Testing
 }
 
 @MainActor
+@Test func staleTerminalContentStillAdvancesRevisionedThemeMetadata() throws {
+    let surfaceID = "terminal-stale-content-fresh-theme"
+    let store = MobileShellComposite.preview()
+    store.selectedTerminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
+    let outputStream = store.terminalOutputStream(surfaceID: surfaceID)
+    store.markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: 20, fullReplacement: false)
+    var light = TerminalTheme.monokai
+    light.background = "#f4f0df"
+    light.foreground = "#17212b"
+    let staleContent = try delayedFrame(
+        surfaceID: surfaceID,
+        theme: light,
+        revision: 2,
+        stateSeq: 10
+    )
+
+    store.deliverAuthoritativeTerminalRenderGrid(staleContent, source: "event")
+
+    #expect(store.activeTerminalTheme == light)
+    #expect(store.terminalThemeState.revisionsBySurfaceID[surfaceID] == 2)
+    _ = outputStream
+}
+
+@MainActor
 @Test func olderFullFrameCannotReplaceNewerThemeRevision() throws {
     let surfaceID = "terminal-ordered-theme"
     let store = MobileShellComposite.preview()
@@ -228,11 +252,12 @@ import Testing
 private func delayedFrame(
     surfaceID: String,
     theme: TerminalTheme,
-    revision: UInt64
+    revision: UInt64,
+    stateSeq: UInt64 = 1
 ) throws -> MobileTerminalRenderGridFrame {
     try MobileTerminalRenderGridFrame(
         surfaceID: surfaceID,
-        stateSeq: 1,
+        stateSeq: stateSeq,
         columns: 4,
         rows: 1,
         rowSpans: [],

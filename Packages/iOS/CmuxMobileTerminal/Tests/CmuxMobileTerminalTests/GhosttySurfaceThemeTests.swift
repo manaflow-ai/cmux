@@ -35,6 +35,45 @@ import UIKit
 }
 
 @MainActor
+@Test func accessoryControlsRecolorWithoutRebuilding() {
+    let input = TerminalInputTextView()
+    let toolbar = input.toolbarView
+    let identifiers = [
+        "terminal.inputAccessory.composer",
+        "terminal.inputAccessory.hideChrome",
+        "terminal.inputAccessory.customize",
+    ]
+    let before = Dictionary(uniqueKeysWithValues: identifiers.compactMap { identifier in
+        toolbar.descendant(withAccessibilityIdentifier: identifier).map { (identifier, $0) }
+    })
+    var light = TerminalTheme.monokai
+    light.background = "#f4f0df"
+    light.foreground = "#17212b"
+
+    input.terminalTheme = light
+
+    let after = Dictionary(uniqueKeysWithValues: identifiers.compactMap { identifier in
+        toolbar.descendant(withAccessibilityIdentifier: identifier).map { (identifier, $0) }
+    })
+    #expect(before.count == identifiers.count)
+    for identifier in identifiers {
+        #expect(before[identifier] === after[identifier])
+    }
+}
+
+private extension UIView {
+    func descendant(withAccessibilityIdentifier identifier: String) -> UIView? {
+        if accessibilityIdentifier == identifier { return self }
+        for subview in subviews {
+            if let match = subview.descendant(withAccessibilityIdentifier: identifier) {
+                return match
+            }
+        }
+        return nil
+    }
+}
+
+@MainActor
 private final class ThemeTestSurfaceDelegate: GhosttySurfaceViewDelegate {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {}
     func ghosttySurfaceView(
