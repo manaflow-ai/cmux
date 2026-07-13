@@ -10,8 +10,8 @@ struct StoredMacReconnectSuccess: Sendable {
     let workspaceResponse: MobileSyncWorkspaceListResponse
     let hostStatus: MobileHostStatusResponse?
     let resolvedInstanceTag: String?
-    let sourceMacDeviceID: String
-    let sourceMac: MobilePairedMac
+    let foregroundMacDeviceID: String
+    let registryMac: MobilePairedMac
     let scope: MobileShellScopeSnapshot
     let displayName: String
     let persistsPairedMac: Bool

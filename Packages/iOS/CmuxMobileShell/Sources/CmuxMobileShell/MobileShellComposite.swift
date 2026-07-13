@@ -1665,9 +1665,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 setHasKnownPairedMac(hasKnownPairedMac, generation: generation)
             }
             return .unavailable
-        case .failed(let hasKnownPairedMac):
+        case .failed(let error, let hasKnownPairedMac):
             if let hasKnownPairedMac {
                 setHasKnownPairedMac(hasKnownPairedMac, generation: generation)
+            }
+            if let error {
+                _ = disconnectForAuthorizationFailureIfNeeded(error)
             }
             return .failed
         case .connected(let success):
@@ -1686,7 +1689,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectedHostName = success.displayName
             replaceRemoteClient(with: success.client)
             supportedHostCapabilities = Set(success.hostStatus?.capabilities ?? [])
-            foregroundMacDeviceID = success.sourceMacDeviceID
+            foregroundMacDeviceID = success.foregroundMacDeviceID
             applyRemoteWorkspaceList(
                 success.workspaceResponse,
                 preferActiveTicketTarget: true,
@@ -1699,15 +1702,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             startTerminalRefreshPolling(initialHostStatus: success.hostStatus)
             clearPairingError()
             hasKnownPairedMac = true
-            connections[success.sourceMacDeviceID] = MacConnection(
-                macDeviceID: success.sourceMacDeviceID,
+            connections[success.foregroundMacDeviceID] = MacConnection(
+                macDeviceID: success.foregroundMacDeviceID,
                 ticket: success.ticket,
                 route: success.route,
                 client: success.client,
                 generation: connectionID
             )
             if success.persistsPairedMac {
-                refreshRoutesFromRegistry(for: success.sourceMac, scope: success.scope)
+                refreshRoutesFromRegistry(for: success.registryMac, scope: success.scope)
             }
             if multiMacAggregationEnabled, success.persistsPairedMac {
                 scheduleSecondaryAggregation()
@@ -7393,7 +7396,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func disconnectForAuthorizationFailureIfNeeded(_ error: any Error) -> Bool {
-        guard Self.shouldDisconnectForAuthorizationFailure(error) else {
+        guard let connectionFailure = error as? MobileShellConnectionError,
+              connectionFailure.requiresReauthentication else {
             return false
         }
         let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute)
@@ -7414,30 +7418,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // also route through here never emit `ios_pairing_failed`.
         recordPairingFailed(reason: category.analyticsReason, phase: "auth")
         return true
-    }
-
-    private static func shouldDisconnectForAuthorizationFailure(_ error: any Error) -> Bool {
-        guard let connectionError = error as? MobileShellConnectionError else {
-            return false
-        }
-        switch connectionError {
-        case .attachTicketExpired, .authorizationFailed, .accountMismatch, .insecureManualRoute:
-            return true
-        case let .rpcError(code, message):
-            let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            if let normalizedCode,
-               ["unauthorized", "forbidden", "invalid_token", "token_expired", "expired_token", "auth_required"].contains(normalizedCode) {
-                return true
-            }
-            let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            return normalizedMessage.contains("unauthorized")
-                || normalizedMessage.contains("forbidden")
-                || normalizedMessage.contains("invalid token")
-                || normalizedMessage.contains("expired token")
-                || normalizedMessage.contains("token expired")
-        case .invalidResponse, .connectionClosed, .requestTimedOut:
-            return false
-        }
     }
 
     private func applyPreviewTicket(_ ticket: CmxAttachTicket, route: CmxAttachRoute) {

@@ -186,9 +186,19 @@ extension MobileShellComposite {
         _ effect: MobileConnectionLifecycleEffect?
     ) {
         guard let effect else { return }
-        if case .restartStreamRepair(let episode) = effect {
+        if case .updateStreamRepair(
+            let episode,
+            let restartEventStream,
+            let refreshSecondaries
+        ) = effect {
             guard connectionLifecycle.ownsEpisode(episode.id) else { return }
-            performConnectionLifecycleStreamRepair(episode)
+            if restartEventStream {
+                performConnectionLifecycleStreamRepair(episode)
+            } else if refreshSecondaries,
+                      connectionState == .connected,
+                      multiMacAggregationEnabled {
+                scheduleSecondaryAggregation()
+            }
             return
         }
         guard case .start(let episode) = effect else { return }

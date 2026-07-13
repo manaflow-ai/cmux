@@ -45,16 +45,16 @@ actor LivenessHostRouter {
     private var heldViewportRequestNumbers: Set<Int> = []
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
-    private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
-    private var attachTicketMacDeviceID = "test-mac"
+    var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+    var attachTicketMacDeviceID = "test-mac"
     // This router models the current authenticated Mac host by default. Tests
     // for legacy identity omission opt out explicitly via `setHostIdentity`.
     // Supplying the matching instance identity also keeps unrelated liveness
     // tests from exercising the one-shot legacy identity recovery request.
-    private var macDeviceID: String? = "test-mac"
-    private var macInstanceTag: String? = "default"
-    private var macDisplayName: String? = "Test Mac"
-    private var requestFailures: [String: (code: String?, message: String)] = [:]
+    var macDeviceID: String? = "test-mac"
+    var macInstanceTag: String? = "default"
+    var macDisplayName: String? = "Test Mac"
+    var requestFailures: [String: (code: String?, message: String)] = [:]
     private var workspaceListResponseHook: (@Sendable () -> Void)?
     private var replayPayloads: [(text: String?, sequence: UInt64?, renderGrid: MobileTerminalRenderGridFrame?)] = []
     private var replayTexts: [String] = []
@@ -153,24 +153,6 @@ actor LivenessHostRouter {
             guard request.method == method else { return nil }
             return request.topics
         }
-    }
-
-    func setCapabilities(_ capabilities: [String]) {
-        self.capabilities = capabilities
-    }
-
-    func setAttachTicketMacDeviceID(_ macDeviceID: String) {
-        attachTicketMacDeviceID = macDeviceID
-    }
-
-    func setHostIdentity(deviceID: String?, instanceTag: String?, displayName: String? = nil) {
-        macDeviceID = deviceID
-        macInstanceTag = instanceTag
-        macDisplayName = displayName
-    }
-
-    func failRequests(method: String, code: String?, message: String) {
-        requestFailures[method] = (code, message)
     }
 
     func setWorkspaceListResponseHook(_ hook: @escaping @Sendable () -> Void) {
@@ -418,20 +400,6 @@ actor LivenessHostRouter {
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }
 
-    private static func errorFrame(
-        id: String?,
-        code: String? = nil,
-        message: String
-    ) throws -> Data {
-        var error: [String: Any] = ["message": message]
-        if let code { error["code"] = code }
-        let envelope: [String: Any] = [
-            "id": id ?? UUID().uuidString,
-            "ok": false,
-            "error": error,
-        ]
-        return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
-    }
 }
 
 /// Holds the live transport instance so the test can push unsolicited

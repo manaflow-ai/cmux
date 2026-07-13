@@ -184,7 +184,20 @@ import Testing
                 Issue.record("cycle \(cycle) must start one episode")
                 return
             }
-            #expect(reducer.request(.presenceRoutesChanged, health: health) == nil)
+            let joinedEffect = reducer.request(.presenceRoutesChanged, health: health)
+            if cycle.isMultiple(of: 2) {
+                guard case .updateStreamRepair(
+                    let updatedEpisode,
+                    restartEventStream: false,
+                    refreshSecondaries: true
+                ) = joinedEffect else {
+                    Issue.record("connected cycle \(cycle) must refresh secondary routes")
+                    return
+                }
+                #expect(updatedEpisode.id == episode.id)
+            } else {
+                #expect(joinedEffect == nil)
+            }
 
             let active = reducer.resourceSnapshot
             #expect(active.activeEpisodeCount == 1)
@@ -228,7 +241,11 @@ import Testing
         }
 
         let effect = reducer.request(.eventStreamLost, health: .healthy)
-        guard case .restartStreamRepair(let restartedEpisode) = effect else {
+        guard case .updateStreamRepair(
+            let restartedEpisode,
+            restartEventStream: true,
+            refreshSecondaries: false
+        ) = effect else {
             Issue.record("stream loss must restart an absorbed stream repair")
             return
         }

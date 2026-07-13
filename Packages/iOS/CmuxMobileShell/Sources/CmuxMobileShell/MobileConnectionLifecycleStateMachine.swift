@@ -119,15 +119,27 @@ struct MobileConnectionLifecycleStateMachine {
                 kind: requestedKind,
                 reconnectStackUserID: request.reconnectStackUserID
             ) {
+                let addsTrigger = !activeEpisode.triggers.contains(request.trigger)
                 let restartsStreamRepair = activeEpisode.kind == .streamRepair
                     && request.trigger == .eventStreamLost
+                let refreshesSecondaries = activeEpisode.kind == .streamRepair
+                    && addsTrigger
+                    && [
+                        MobileConnectionLifecycleTrigger.networkPathChanged,
+                        .presenceRoutesChanged,
+                        .manualRetry,
+                    ].contains(request.trigger)
                 activeEpisode.triggers.insert(request.trigger)
                 if let requestID = request.id {
                     activeEpisode.requestIDs.insert(requestID)
                 }
                 self.activeEpisode = activeEpisode
-                if restartsStreamRepair {
-                    return .restartStreamRepair(activeEpisode)
+                if restartsStreamRepair || refreshesSecondaries {
+                    return .updateStreamRepair(
+                        activeEpisode,
+                        restartEventStream: restartsStreamRepair,
+                        refreshSecondaries: refreshesSecondaries
+                    )
                 }
             } else {
                 appendPending(request)

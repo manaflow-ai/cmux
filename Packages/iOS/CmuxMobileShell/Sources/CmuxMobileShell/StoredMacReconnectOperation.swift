@@ -7,6 +7,10 @@ import Foundation
 @MainActor
 struct StoredMacReconnectOperation {
     private typealias RouteCandidate = (route: CmxAttachRoute, host: String, port: Int)
+    private typealias DialResult = (
+        success: StoredMacReconnectSuccess?,
+        error: MobileShellConnectionError?
+    )
 
     let runtime: (any MobileSyncRuntime)?
     let store: any MobilePairedMacStoring
@@ -33,13 +37,13 @@ struct StoredMacReconnectOperation {
     }
 
     func run() async -> StoredMacReconnectOperationOutcome {
-        guard ownsFence else { return .failed(hasKnownPairedMac: nil) }
+        guard ownsFence else { return .failed(error: nil, hasKnownPairedMac: nil) }
         let loadedActiveMac: MobilePairedMac?
         let loadedMacs: [MobilePairedMac]
         if loadsStoreSnapshot {
             if let refresher = store as? any PairedMacBackupRefreshing {
                 await refresher.refreshFromBackup(stackUserID: scope.userID)
-                guard ownsFence else { return .failed(hasKnownPairedMac: nil) }
+                guard ownsFence else { return .failed(error: nil, hasKnownPairedMac: nil) }
             }
             do {
                 loadedActiveMac = try await store.activeMac(
@@ -51,18 +55,18 @@ struct StoredMacReconnectOperation {
                     teamID: scope.teamID
                 )
             } catch {
-                return .failed(hasKnownPairedMac: nil)
+                return .failed(error: nil, hasKnownPairedMac: nil)
             }
         } else {
             loadedActiveMac = cachedMacs.first(where: \.isActive)
             loadedMacs = cachedMacs
         }
-        guard ownsFence else { return .failed(hasKnownPairedMac: nil) }
+        guard ownsFence else { return .failed(error: nil, hasKnownPairedMac: nil) }
 
         var forgottenIDs = pendingForgottenIDs
         for key in forgottenScopeKeys {
             forgottenIDs.formUnion(await forgottenStore.load(scope: key))
-            guard ownsFence else { return .failed(hasKnownPairedMac: nil) }
+            guard ownsFence else { return .failed(error: nil, hasKnownPairedMac: nil) }
         }
         let visibleMacs = loadedMacs.filter { !forgottenIDs.contains($0.macDeviceID) }
         let activeMac = loadedActiveMac.flatMap {
@@ -83,32 +87,52 @@ struct StoredMacReconnectOperation {
             }
             return visibleMacs.isEmpty
                 ? .unavailable(hasKnownPairedMac: false)
-                : .failed(hasKnownPairedMac: true)
+                : .failed(error: nil, hasKnownPairedMac: true)
         }
 
+        var lastError: MobileShellConnectionError?
+        var authorizationError: MobileShellConnectionError?
         for mac in candidates {
             progress.targetMacDeviceID = mac.macDeviceID
             let localRoutes = routes(for: mac)
             for route in localRoutes {
-                guard ownsFence else { return .failed(hasKnownPairedMac: nil) }
-                if let success = await dial(mac: mac, route: route) {
+                guard ownsFence else {
+                    return .failed(error: nil, hasKnownPairedMac: nil)
+                }
+                let result = await dial(mac: mac, route: route)
+                if let success = result.success {
                     return .connected(success)
+                }
+                if let error = result.error {
+                    lastError = error
+                    if error.requiresReauthentication {
+                        authorizationError = error
+                    }
                 }
             }
             if mac.macDeviceID == activeMac?.macDeviceID,
                let refreshedRoutes = await freshRoutes(
                    for: mac,
                    triedRoutes: localRoutes
-               ) {
+                ) {
                 for route in refreshedRoutes {
-                    guard ownsFence else { return .failed(hasKnownPairedMac: nil) }
-                    if let success = await dial(mac: mac, route: route) {
+                    guard ownsFence else {
+                        return .failed(error: nil, hasKnownPairedMac: nil)
+                    }
+                    let result = await dial(mac: mac, route: route)
+                    if let success = result.success {
                         return .connected(success)
+                    }
+                    if let error = result.error {
+                        lastError = error
+                        if error.requiresReauthentication {
+                            authorizationError = error
+                        }
                     }
                 }
             }
         }
-        return .failed(hasKnownPairedMac: true)
+        return .failed(error: authorizationError ?? lastError, hasKnownPairedMac: true)
     }
 
     private func routes(
@@ -128,8 +152,8 @@ struct StoredMacReconnectOperation {
     private func dial(
         mac: MobilePairedMac,
         route candidate: RouteCandidate
-    ) async -> StoredMacReconnectSuccess? {
-        guard let runtime else { return nil }
+    ) async -> DialResult {
+        guard let runtime else { return (nil, nil) }
         let route = candidate.route
         let ticket: CmxAttachTicket
         do {
@@ -140,9 +164,9 @@ struct StoredMacReconnectOperation {
                 runtime: runtime
             )
         } catch {
-            return nil
+            return (nil, error as? MobileShellConnectionError)
         }
-        guard ownsFence else { return nil }
+        guard ownsFence else { return (nil, nil) }
         let client = MobileCoreRPCClient(
             runtime: runtime,
             route: route,
@@ -160,13 +184,13 @@ struct StoredMacReconnectOperation {
             let workspaceResponse = try MobileSyncWorkspaceListResponse.decode(workspaceData)
             guard ownsFence else {
                 await client.disconnect()
-                return nil
+                return (nil, nil)
             }
             let hostStatus = await requestHostStatus(on: client, runtime: runtime)
             let authority = acceptedAuthority(for: mac, status: hostStatus)
             guard ownsFence, authority.accepted else {
                 await client.disconnect()
-                return nil
+                return (nil, nil)
             }
             if persistsPairedMac {
                 let accepted = await persist(
@@ -178,25 +202,34 @@ struct StoredMacReconnectOperation {
                 )
                 guard accepted, ownsFence else {
                     await client.disconnect()
-                    return nil
+                    return (nil, nil)
                 }
             }
-            return StoredMacReconnectSuccess(
+            let foregroundMacDeviceID = ticket.foregroundMacID(hint: mac.macDeviceID)
+            var registryMac = mac
+            registryMac.macDeviceID = foregroundMacDeviceID
+            registryMac.displayName = hostStatus?.macDisplayName ?? mac.displayName
+            registryMac.routes = ticket.routes
+            registryMac.instanceTag = authority.resolved
+            registryMac.isActive = true
+            registryMac.stackUserID = scope.userID
+            registryMac.teamID = scope.teamID
+            return (StoredMacReconnectSuccess(
                 client: client,
                 ticket: ticket,
                 route: route,
                 workspaceResponse: workspaceResponse,
                 hostStatus: hostStatus,
                 resolvedInstanceTag: authority.resolved,
-                sourceMacDeviceID: mac.macDeviceID,
-                sourceMac: mac,
+                foregroundMacDeviceID: foregroundMacDeviceID,
+                registryMac: registryMac,
                 scope: scope,
                 displayName: hostStatus?.macDisplayName ?? mac.displayName ?? candidate.host,
                 persistsPairedMac: persistsPairedMac
-            )
+            ), nil)
         } catch {
             await client.disconnect()
-            return nil
+            return (nil, error as? MobileShellConnectionError)
         }
     }
 
