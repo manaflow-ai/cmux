@@ -5654,7 +5654,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func keyDown(with event: NSEvent) {
-        terminalSurface?.hostedView.cancelPendingNotificationScrollRestore()
+        MainActor.assumeIsolated { terminalSurface?.hostedView.cancelPendingNotificationScrollRestore() }
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         let phaseTotalStart = ProcessInfo.processInfo.systemUptime
