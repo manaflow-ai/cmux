@@ -4141,6 +4141,20 @@ private struct InertPushRegistration: PushRegistering {
     return browserStore
 }
 
+@Test @MainActor func pushCoordinatorDoesNotRetainDiscardedSceneBrowserStore() {
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    weak var releasedBrowserStore: BrowserSurfaceStore?
+
+    do {
+        let store = deeplinkTestStore()
+        let browserStore = BrowserSurfaceStore()
+        releasedBrowserStore = browserStore
+        coordinator.bind(store: store, browserStore: browserStore)
+    }
+
+    #expect(releasedBrowserStore == nil)
+}
+
 /// Cold launch from a notification tap: `didReceive` fires before the root
 /// view has mounted, so no store is bound yet. The tap must survive until the
 /// store binds and its workspace list loads, then navigate. Pre-fix the tap

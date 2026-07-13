@@ -66,3 +66,30 @@ import Testing
     #expect(restored.browser(for: "workspace-shared")?.currentURL?.absoluteString == "https://second.example")
     #expect(restored.browser(for: "workspace-second-only") != nil)
 }
+
+@MainActor
+@Test func closedSceneCannotRepublishADeletedBrowser() async throws {
+    let suiteName = "MobileBrowserCompositionTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defaults.removePersistentDomain(forName: suiteName)
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let composition = MobileBrowserComposition(defaults: defaults)
+    let scope = BrowserPersistenceScope(userID: "user", teamID: "team")
+    var departingStore: BrowserSurfaceStore? = composition.makeSceneStore(defaultURL: nil)
+    departingStore?.setPersistenceScope(scope)
+    _ = departingStore?.openBrowser(for: "workspace")
+
+    let activeStore = composition.makeSceneStore(defaultURL: nil)
+    activeStore.setPersistenceScope(scope)
+    #expect(activeStore.browser(for: "workspace") != nil)
+    weak var releasedStore = departingStore
+    departingStore = nil
+    #expect(releasedStore == nil)
+
+    activeStore.closeBrowser(for: "workspace")
+    await composition.flushPersistence()
+
+    let observer = composition.makeSceneStore(defaultURL: nil)
+    observer.setPersistenceScope(scope)
+    #expect(observer.browser(for: "workspace") == nil)
+}

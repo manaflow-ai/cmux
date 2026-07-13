@@ -334,6 +334,32 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testSurfaceGridTerminalCreationLeavesLocalBrowserMode() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        defer { app.terminate() }
+        tap(app.buttons["MobileWorkspaceBackButton"], in: app)
+        XCTAssertTrue(app.scrollViews["MobileWorkspaceSurfaceGrid"].waitForExistence(timeout: 8))
+
+        tap(app.buttons["MobileSurfaceGridAddButton"], in: app)
+        tap(app.buttons["MobileSurfaceGridNewBrowserMenuItem"], in: app)
+        XCTAssertTrue(app.textFields["MobileBrowserAddressField"].waitForExistence(timeout: 4))
+
+        tap(app.buttons["MobileWorkspaceBackButton"], in: app)
+        XCTAssertTrue(app.scrollViews["MobileWorkspaceSurfaceGrid"].waitForExistence(timeout: 4))
+        tap(app.buttons["MobileSurfaceGridAddButton"], in: app)
+        tap(app.buttons["MobileSurfaceGridNewTerminalMenuItem"], in: app)
+
+        XCTAssertTrue(
+            app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8),
+            "Creating a terminal after visiting the local browser must mount the remote terminal surface."
+        )
+    }
+
+    @MainActor
     func testBottomScrollStaysPinnedAcrossComposerViewportShrink() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_BOTTOM_SCROLL_STRESS": "1",

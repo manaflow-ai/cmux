@@ -83,5 +83,41 @@ struct MobileSwipeBackGestureTests {
         host.removeFromParent()
         #expect(popGesture.delegate === previousDelegate)
     }
+
+    @Test("gesture host forwards callbacks and restores its delegate after disappearing")
+    func gestureHostForwardsCallbacksAndRestoresAfterDisappearing() throws {
+        let root = UIViewController()
+        let navigationController = UINavigationController(rootViewController: root)
+        navigationController.loadViewIfNeeded()
+        let popGesture = try #require(navigationController.interactivePopGestureRecognizer)
+        let previousDelegate = GestureDelegate()
+        popGesture.delegate = previousDelegate
+        let detail = UIViewController()
+        let host = InteractiveSwipeBackGestureHostController()
+        let window = UIWindow(frame: UIScreen.main.bounds)
+        window.rootViewController = navigationController
+        window.isHidden = false
+
+        navigationController.pushViewController(detail, animated: false)
+        detail.addChild(host)
+        detail.view.addSubview(host.view)
+        host.didMove(toParent: detail)
+        host.beginAppearanceTransition(true, animated: false)
+        host.endAppearanceTransition()
+
+        #expect(popGesture.delegate === host)
+        #expect(host.gestureRecognizerShouldBegin(popGesture))
+        #expect(
+            host.gestureRecognizer(
+                popGesture,
+                shouldRecognizeSimultaneouslyWith: UIPanGestureRecognizer()
+            )
+        )
+
+        navigationController.popViewController(animated: false)
+        host.viewDidDisappear(false)
+        #expect(popGesture.delegate === previousDelegate)
+        window.isHidden = true
+    }
 }
 #endif

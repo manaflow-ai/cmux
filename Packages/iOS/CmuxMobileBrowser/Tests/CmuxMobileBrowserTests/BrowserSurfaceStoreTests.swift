@@ -403,6 +403,97 @@ import Testing
         #expect(defaults.data(forKey: key) == nil)
     }
 
+    @Test func legacyArchiveMigrationSurvivesRelaunchBeforeRewrite() throws {
+        let suiteName = "BrowserSurfaceStoreTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let key = "cmux.mobile.browserSurfaces.v1"
+
+        var initialLaunch = BrowserArchiveGenerationState(defaults: defaults, archiveKey: key)
+        #expect(initialLaunch.accepts(nil))
+        initialLaunch.consumeLegacyRestore()
+
+        let relaunchedBeforeRewrite = BrowserArchiveGenerationState(defaults: defaults, archiveKey: key)
+
+        #expect(relaunchedBeforeRewrite.current == initialLaunch.current)
+        #expect(relaunchedBeforeRewrite.accepts(nil))
+    }
+
+    @Test func successfulArchiveRewriteCompletesLegacyMigration() async throws {
+        let suiteName = "BrowserSurfaceStoreTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let key = "cmux.mobile.browserSurfaces.v1"
+        let scope = BrowserPersistenceScope(userID: "user-a", teamID: "team-a")
+        let archive = BrowserSurfaceArchive(
+            scope: scope,
+            surfaces: [
+                BrowserSurfaceSnapshot(
+                    workspaceID: "workspace-a",
+                    surfaceID: "browser-a",
+                    currentURL: "https://example.com",
+                    title: "Example",
+                    contentMode: "recommended",
+                    isSelected: true
+                ),
+            ]
+        )
+        defaults.set(try JSONEncoder().encode(archive), forKey: key)
+        let store = BrowserSurfaceStore(defaultURL: nil, persistenceDefaults: defaults)
+
+        store.setPersistenceScope(scope)
+        await store.flushPersistence()
+
+        #expect(defaults.string(forKey: "\(key).generation.legacyMigration") == nil)
+        let relaunched = BrowserArchiveGenerationState(defaults: defaults, archiveKey: key)
+        #expect(!relaunched.accepts(nil))
+        #expect(relaunched.accepts(relaunched.current))
+    }
+
+    @Test func archiveWriterCoalescesSupersededQueuedWrites() async throws {
+        let suiteName = "BrowserSurfaceStoreTests.\(UUID().uuidString)"
+        let key = "cmux.mobile.browserSurfaces.v1"
+        let defaults = try #require(BlockingArchiveUserDefaults(suiteName: suiteName, archiveKey: key))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let writer = BrowserSurfaceArchiveWriter(defaults: defaults, key: key)
+        let scope = BrowserPersistenceScope(userID: "user", teamID: "team")
+
+        writer.enqueueWrite(
+            scope: scope,
+            snapshotsByWorkspace: ["workspace": Self.snapshot(title: "0")],
+            generation: "generation"
+        )
+        await defaults.firstArchiveWriteStarted.wait()
+        for index in 1 ... 100 {
+            writer.enqueueWrite(
+                scope: scope,
+                snapshotsByWorkspace: ["workspace": Self.snapshot(title: "\(index)")],
+                generation: "generation"
+            )
+        }
+        defaults.allowFirstArchiveWrite.signal()
+        await writer.flush()
+
+        #expect(defaults.archiveWriteCount <= 2)
+        let data = try #require(defaults.data(forKey: key))
+        let archive = try JSONDecoder().decode(BrowserSurfaceArchive.self, from: data)
+        #expect(archive.surfaces.first?.title == "100")
+    }
+
+    private static func snapshot(title: String) -> BrowserSurfaceSnapshot {
+        BrowserSurfaceSnapshot(
+            workspaceID: "workspace",
+            surfaceID: "browser",
+            currentURL: "https://example.com",
+            title: title,
+            contentMode: "recommended",
+            isSelected: true
+        )
+    }
+
     @Test func ownerlessLegacyArrayIsNeverClaimedByNextAccount() throws {
         let suiteName = "BrowserSurfaceStoreTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -493,5 +584,57 @@ import Testing
 
         store.closeBrowser(for: stable)
         #expect(store.browserSnapshot(for: stable) == nil)
+    }
+}
+
+private final class BlockingArchiveUserDefaults: UserDefaults, @unchecked Sendable {
+    let firstArchiveWriteStarted = AsyncSignal()
+    let allowFirstArchiveWrite = DispatchSemaphore(value: 0)
+
+    private let archiveKey: String
+    private let countLock = NSLock()
+    private var writeCount = 0
+
+    var archiveWriteCount: Int {
+        countLock.withLock { writeCount }
+    }
+
+    init?(suiteName: String, archiveKey: String) {
+        self.archiveKey = archiveKey
+        super.init(suiteName: suiteName)
+    }
+
+    override func set(_ value: Any?, forKey defaultName: String) {
+        if defaultName == archiveKey {
+            let isFirst = countLock.withLock {
+                writeCount += 1
+                return writeCount == 1
+            }
+            if isFirst {
+                let signal = firstArchiveWriteStarted
+                Task { await signal.signal() }
+                allowFirstArchiveWrite.wait()
+            }
+        }
+        super.set(value, forKey: defaultName)
+    }
+}
+
+private actor AsyncSignal {
+    private var isSignaled = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        if isSignaled { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func signal() {
+        isSignaled = true
+        let continuations = waiters
+        waiters.removeAll()
+        continuations.forEach { $0.resume() }
     }
 }
