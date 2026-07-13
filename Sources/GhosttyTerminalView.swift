@@ -2971,7 +2971,7 @@ class GhosttyApp {
         case GHOSTTY_ACTION_CONFIG_CHANGE:
             let resolvedFontPointSize = configuredFontPointSize(from: action.action.config_change.config)
             let terminalSurface = surfaceView.terminalSurface
-            DispatchQueue.main.async { guard surfaceView.terminalSurface === terminalSurface else { return }; terminalSurface?.completeMobileViewportFontFitConfigurationReload(configuredFontPointSize: resolvedFontPointSize, reason: "surface.configChange") }
+            Task { @MainActor in guard surfaceView.terminalSurface === terminalSurface else { return }; terminalSurface?.completeMobileViewportFontFitConfigurationReload(configuredFontPointSize: resolvedFontPointSize, reason: "surface.configChange") }
             DispatchQueue.main.async { [self] in
                 if let staleOverride = surfaceView.backgroundColor {
                     surfaceView.backgroundColor = nil
