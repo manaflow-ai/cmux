@@ -220,6 +220,36 @@ import Testing
         #expect(changed.files.allSatisfy { $0.additions == 1 && $0.deletions == 1 })
     }
 
+    @Test func cappedRawIdentityListingReturnsVerifiedTruncatedRows() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        for index in 0..<1_750 {
+            try Data("old\n".utf8).write(
+                to: repo.appendingPathComponent(String(format: "f%04d", index))
+            )
+        }
+        try runTestGit(in: repo, ["add", "--", "."])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add raw identity fixtures"])
+        for index in 0..<1_750 {
+            try Data("new\n".utf8).write(
+                to: repo.appendingPathComponent(String(format: "f%04d", index))
+            )
+        }
+
+        let changed = try #require(
+            GitDiffService().changedFiles(
+                repoRoot: repo.path,
+                maxOutputBytes: 16 * 1024,
+                maxFiles: 400
+            )
+        )
+
+        #expect(changed.truncated)
+        #expect(!changed.files.isEmpty)
+        #expect(changed.files.count <= 400)
+        #expect(changed.files.allSatisfy { !$0.snapshotToken.isEmpty })
+    }
+
     @Test func rowLimitBoundsReturnedSnapshotTokens() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
