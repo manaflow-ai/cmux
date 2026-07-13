@@ -27,11 +27,16 @@ struct NotificationScrollRestoreLifecycleTests {
 
         postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
 
+        #expect(surfaceView.performedBindingActions.isEmpty)
+        #expect(hostedView.hasPendingNotificationScrollRestore)
+
+        postRenderedFrame(to: surfaceView)
+
         #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
-    @Test func replayCompletionUsesTheFirstPostReplayGeometryPacket() {
+    @Test func replayCompletionUsesTheFirstRenderedFrameAfterGeometryUpdate() {
         let boundary = "test-replay-boundary"
         let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 0, offset: 0, len: 0)
@@ -45,6 +50,11 @@ struct NotificationScrollRestoreLifecycleTests {
         #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(boundary))
 
         postScrollbar(scrollbar(total: 400, offset: 0, len: 44), to: surfaceView)
+
+        #expect(surfaceView.performedBindingActions.isEmpty)
+        #expect(hostedView.hasPendingNotificationScrollRestore)
+
+        postRenderedFrame(to: surfaceView)
 
         #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
     }
@@ -65,6 +75,11 @@ struct NotificationScrollRestoreLifecycleTests {
         #expect(hostedView.hasPendingNotificationScrollRestore)
 
         postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
+
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
+        #expect(hostedView.hasPendingNotificationScrollRestore)
+
+        postRenderedFrame(to: surfaceView)
 
         #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
         #expect(!hostedView.hasPendingNotificationScrollRestore)
@@ -165,6 +180,11 @@ struct NotificationScrollRestoreLifecycleTests {
         postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
 
         #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
+        #expect(hostedView.hasPendingNotificationScrollRestore)
+
+        postRenderedFrame(to: surfaceView)
+
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
@@ -189,11 +209,19 @@ struct NotificationScrollRestoreLifecycleTests {
 
         postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
 
+        #expect(surfaceView.performedBindingActions.isEmpty)
+        #expect(hostedView.hasPendingNotificationScrollRestore)
+
+        postRenderedFrame(to: surfaceView)
+
         #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
-    @Test func truncatedReplayRebasesHistoricalRestoreIntoRetainedSuffix() {
+    @Test(arguments: [UInt64(4_000), 1_200])
+    func truncatedReplayWaitsForRenderedFrameBeforeRebasingIntoRetainedSuffix(
+        retainedTotalRows: UInt64
+    ) {
         let boundary = "test-replay-boundary"
         let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 0, offset: 0, len: 0)
@@ -205,9 +233,27 @@ struct NotificationScrollRestoreLifecycleTests {
         ))
         #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(boundary))
 
-        postScrollbar(scrollbar(total: 4_000, offset: 3_956, len: 44), to: surfaceView)
+        let partialTotalRows = retainedTotalRows / 2
+        postScrollbar(
+            scrollbar(total: partialTotalRows, offset: partialTotalRows - 44, len: 44),
+            to: surfaceView
+        )
 
-        #expect(surfaceView.performedBindingActions == ["scroll_to_row:3856"])
+        #expect(surfaceView.performedBindingActions.isEmpty)
+        #expect(hostedView.hasPendingNotificationScrollRestore)
+
+        postScrollbar(
+            scrollbar(total: retainedTotalRows, offset: retainedTotalRows - 44, len: 44),
+            to: surfaceView
+        )
+
+        #expect(surfaceView.performedBindingActions.isEmpty)
+        #expect(hostedView.hasPendingNotificationScrollRestore)
+
+        postRenderedFrame(to: surfaceView)
+
+        let expectedTopRow = Int(retainedTotalRows) - 100 - 44
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:\(expectedTopRow)"])
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
@@ -228,6 +274,11 @@ struct NotificationScrollRestoreLifecycleTests {
         #expect(hostedView.hasPendingNotificationScrollRestore)
 
         postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
+
+        #expect(surfaceView.performedBindingActions.isEmpty)
+        #expect(hostedView.hasPendingNotificationScrollRestore)
+
+        postRenderedFrame(to: surfaceView)
 
         #expect(surfaceView.performedBindingActions == ["scroll_to_row:344"])
         #expect(!hostedView.hasPendingNotificationScrollRestore)
@@ -281,6 +332,29 @@ struct NotificationScrollRestoreLifecycleTests {
         #expect(!panel.hostedView.hasPendingNotificationScrollRestore)
     }
 
+    @Test func missingRenderedFrameDeadlineReleasesDemandAndCancelsRestore() {
+        let boundary = "test-replay-boundary"
+        let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 400, offset: 356, len: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        beginReplay(on: hostedView, endBoundary: boundary)
+
+        #expect(!hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 100, totalRows: 400)
+        ))
+        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(boundary))
+        #expect(hostedView.notificationScrollRestoreRenderedFrameObserver != nil)
+        #expect(hostedView.releaseNotificationScrollRestoreFrameDemand != nil)
+        #expect(hostedView.notificationScrollRestoreFrameDeadlineTimer != nil)
+
+        hostedView.expireNotificationScrollRestoreFrameDeadline()
+
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
+        #expect(hostedView.notificationScrollRestoreRenderedFrameObserver == nil)
+        #expect(hostedView.releaseNotificationScrollRestoreFrameDemand == nil)
+        #expect(hostedView.notificationScrollRestoreFrameDeadlineTimer == nil)
+    }
+
     private func beginReplay(on hostedView: GhosttySurfaceScrollView, endBoundary: String) {
         let startBoundary = endBoundary + "-start"
         hostedView.armSessionScrollbackReplay(
@@ -301,10 +375,39 @@ struct NotificationScrollRestoreLifecycleTests {
             userInfo: [GhosttyNotificationKey.scrollbar: scrollbar]
         )
     }
+
+    private func postRenderedFrame(to surfaceView: GhosttyNSView) {
+        NotificationCenter.default.post(
+            name: .ghosttyDidRenderFrame,
+            object: surfaceView,
+            userInfo: ["ghostty.renderedFrameGeneration": UInt64.max]
+        )
+    }
 }
 
 private final class NotificationLifecycleRecordingSurfaceView: GhosttyNSView {
     private(set) var performedBindingActions: [String] = []
+    private var retainedTerminalSurface: TerminalSurface?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        let terminalSurface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        retainedTerminalSurface = terminalSurface
+        self.terminalSurface = terminalSurface
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        retainedTerminalSurface?.releaseSurfaceForTesting()
+    }
 
     override func performBindingAction(_ action: String) -> Bool {
         performedBindingActions.append(action)
