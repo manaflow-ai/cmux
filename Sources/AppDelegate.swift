@@ -3955,6 +3955,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 hasher.combine(0)
             case .notifications:
                 hasher.combine(1)
+            case .board:
+                hasher.combine(2)
             }
 
             if let window = context.window ?? windowForMainWindowId(context.windowId) {
@@ -6582,6 +6584,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         return false
+    }
+
+    /// Toggles the main content between the kanban board and the terminal
+    /// view for the active main window: `.board` -> `.tabs`, anything else -> `.board`.
+    @discardableResult
+    func toggleBoardViewInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
+        guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else {
+            return false
+        }
+        let window = context.window ?? windowForMainWindowId(context.windowId)
+        if let window {
+            setActiveMainWindow(window)
+        }
+        context.sidebarSelectionState.selection = context.sidebarSelectionState.selection == .board ? .tabs : .board
+        return true
     }
 
     @discardableResult
@@ -12340,6 +12357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             switch sidebarSelection {
             case .tabs: return "tabs"
             case .notifications: return "notifications"
+            case .board: return "board"
             }
         }()
         writeMultiWindowNotificationTestData([
@@ -13470,6 +13488,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Check Show Notifications shortcut
         if matchConfiguredShortcut(event: event, action: .showNotifications) {
             toggleNotificationsPopover(animated: false, anchorView: fullscreenControlsViewModel?.notificationsAnchorView)
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .toggleBoardView) {
+            _ = toggleBoardViewInActiveMainWindow(preferredWindow: mainWindowForShortcutEvent(event))
             return true
         }
 

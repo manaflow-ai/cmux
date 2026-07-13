@@ -1733,6 +1733,11 @@ struct ContentView: View {
                 .opacity(sidebarSelectionState.selection == .notifications ? 1 : 0)
                 .allowsHitTesting(sidebarSelectionState.selection == .notifications)
                 .accessibilityHidden(sidebarSelectionState.selection != .notifications)
+
+            KanbanBoardView(selection: $sidebarSelectionState.selection)
+                .opacity(sidebarSelectionState.selection == .board ? 1 : 0)
+                .allowsHitTesting(sidebarSelectionState.selection == .board)
+                .accessibilityHidden(sidebarSelectionState.selection != .board)
         }
         .modifier(WorkspacePresentationModeContentTopPaddingModifier(
             isFullScreen: isFullScreen,
@@ -16026,4 +16031,5 @@ private struct ExtensionSidebarBrowserStackEndDropDelegate: DropDelegate {
 enum SidebarSelection {
     case tabs
     case notifications
+    case board
 }
