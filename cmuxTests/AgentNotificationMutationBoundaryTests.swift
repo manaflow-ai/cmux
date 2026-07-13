@@ -8,6 +8,38 @@ import Testing
 #endif
 
 extension AgentNotificationRegressionTests {
+    @Test("A queued workspace clear lets a moved surface notification drain first")
+    func queuedWorkspaceClearPreservesNotificationMovedToAnotherWorkspace() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer {
+            bus.setDrainsSuspendedForTesting(false)
+            bus.discardPendingNotifications()
+        }
+
+        bus.enqueueNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Queued before move and clear"
+        )
+        try movePanel(fixture)
+        bus.enqueueClearNotifications(forTabId: fixture.source.id)
+
+        bus.setDrainsSuspendedForTesting(false)
+        bus.drainForTesting()
+
+        let recorded = fixture.store.notifications.filter {
+            $0.body == "Queued before move and clear"
+        }
+        #expect(recorded.map(\.tabId) == [fixture.destination.id])
+        #expect(recorded.first?.surfaceId == fixture.panelId)
+    }
+
     @Test("A queued clear preserves policy work registered after its barrier")
     func queuedClearPreservesNewerInFlightPolicyDelivery() async throws {
         let fixture = try makeFixture(policyHookCommand: "cat")
