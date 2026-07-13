@@ -32,8 +32,9 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     /// Delta frames keep only mode state needed to restore after replay-time
     /// coordinate normalization.
     public var modes: [ModeSetting]
-    /// Dynamic default foreground/background/cursor colors (OSC 10/11/12),
-    /// `nil` when the terminal still uses its configured defaults.
+    /// Surface-effective default foreground/background colors, including OSC
+    /// overrides and reverse-video. Legacy producers omit configured defaults.
+    /// The cursor value remains an optional dynamic OSC 12 override.
     public var terminalForeground: String?
     public var terminalBackground: String?
     public var terminalCursorColor: String?

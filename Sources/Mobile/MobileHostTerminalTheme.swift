@@ -94,6 +94,12 @@ extension TerminalTheme {
     /// Returns this config-resolved theme with surface-effective OSC colors
     /// exported by one render-grid frame.
     func applyingSurfaceColors(from frame: MobileTerminalRenderGridFrame) -> TerminalTheme {
+        // A renderer-exported theme has already resolved reverse-video and OSC
+        // overrides together. The legacy outer fields are raw on older GhosttyKit
+        // builds, so applying them again would undo that effective result.
+        if let effectiveTheme = frame.terminalTheme {
+            return effectiveTheme.validatedOrDefault()
+        }
         var resolved = self
         if let background = frame.terminalBackground,
            TerminalTheme.rgbComponents(background) != nil {

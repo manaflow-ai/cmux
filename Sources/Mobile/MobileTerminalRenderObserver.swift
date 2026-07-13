@@ -1,6 +1,56 @@
 import CMUXMobileCore
 import CmuxTerminal
+import Dispatch
 import Foundation
+
+@MainActor
+final class MobileTerminalThemeInvalidationScheduler {
+    private let delay: DispatchTimeInterval
+    private let handler: @MainActor (Set<UUID>) -> Void
+    private var pendingSurfaceIDs = Set<UUID>()
+    private var workItem: DispatchWorkItem?
+
+    init(
+        delay: DispatchTimeInterval = .milliseconds(100),
+        handler: @escaping @MainActor (Set<UUID>) -> Void
+    ) {
+        self.delay = delay
+        self.handler = handler
+    }
+
+    func schedule(surfaceID: UUID) {
+        pendingSurfaceIDs.insert(surfaceID)
+        guard workItem == nil else { return }
+        let item = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                self?.flush()
+            }
+        }
+        workItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+    }
+
+    func cancel() {
+        workItem?.cancel()
+        workItem = nil
+        pendingSurfaceIDs.removeAll()
+    }
+
+    #if DEBUG
+    func flushForTesting() {
+        workItem?.cancel()
+        flush()
+    }
+    #endif
+
+    private func flush() {
+        workItem = nil
+        guard !pendingSurfaceIDs.isEmpty else { return }
+        let surfaceIDs = pendingSurfaceIDs
+        pendingSurfaceIDs.removeAll(keepingCapacity: true)
+        handler(surfaceIDs)
+    }
+}
 
 /// Pushes terminal render events only while a mobile client is actively subscribed.
 /// Ghostty notification demand is tied to subscriptions so the desktop terminal
@@ -23,6 +73,10 @@ final class MobileTerminalRenderObserver {
     private var reconciledSurfaceTopologyGeneration: UInt64?
     private var cachedTerminalTheme: TerminalTheme = .monokai
     private var hasLoadedTerminalTheme = false
+    private lazy var themeInvalidationScheduler = MobileTerminalThemeInvalidationScheduler {
+        [weak self] surfaceIDs in
+        self?.enqueueCoalescedThemeUpdates(surfaceIDs)
+    }
 
     private init() {}
 
@@ -90,8 +144,7 @@ final class MobileTerminalRenderObserver {
             MainActor.assumeIsolated {
                 guard let surfaceID = notification.object as? UUID else { return }
                 guard MobileHostService.hasEventSubscribers(topic: "terminal.render_grid") else { return }
-                self?.pendingThemeSurfaceIDs.insert(surfaceID)
-                self?.enqueueTerminalUpdate(surfaceID: surfaceID)
+                self?.themeInvalidationScheduler.schedule(surfaceID: surfaceID)
             }
         })
         refreshNotificationDemand()
@@ -110,6 +163,7 @@ final class MobileTerminalRenderObserver {
         hasPendingGlobalUpdate = false
         hasPendingThemeInvalidation = false
         pendingThemeSurfaceIDs.removeAll()
+        themeInvalidationScheduler.cancel()
         isEmitFlushScheduled = false
         renderGridStatesBySurfaceID.removeAll()
         terminalThemesBySurfaceID.removeAll()
@@ -165,6 +219,7 @@ final class MobileTerminalRenderObserver {
             hasPendingGlobalUpdate = false
             hasPendingThemeInvalidation = false
             pendingThemeSurfaceIDs.removeAll()
+            themeInvalidationScheduler.cancel()
             isEmitFlushScheduled = false
             clearRenderGridCaches()
         }
@@ -180,6 +235,17 @@ final class MobileTerminalRenderObserver {
         } else {
             hasPendingGlobalUpdate = true
         }
+        scheduleTerminalUpdateFlush()
+    }
+
+    private func enqueueCoalescedThemeUpdates(_ surfaceIDs: Set<UUID>) {
+        guard MobileHostService.hasEventSubscribers(topic: "terminal.render_grid") else { return }
+        pendingThemeSurfaceIDs.formUnion(surfaceIDs)
+        pendingSurfaceIDs.formUnion(surfaceIDs)
+        scheduleTerminalUpdateFlush()
+    }
+
+    private func scheduleTerminalUpdateFlush() {
         guard !isEmitFlushScheduled else { return }
         isEmitFlushScheduled = true
         Task { @MainActor [weak self] in

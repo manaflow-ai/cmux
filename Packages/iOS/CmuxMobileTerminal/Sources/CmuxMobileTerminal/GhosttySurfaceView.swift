@@ -2789,7 +2789,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         configBackgroundColor = themeBackground
         configCursorColor = GhosttyRuntime.cursorUIColor(for: terminalTheme)
         inputProxy.terminalTheme = terminalTheme
-        inputProxy.refreshThemeColors()
         updateCursorOverlay()
         needsDraw = true
     }
@@ -2797,7 +2796,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func applyThemeConfig(_ config: ghostty_config_t) {
         applyBackgroundColorFromConfig(config)
         inputProxy.terminalTheme = terminalTheme
-        inputProxy.refreshThemeColors()
         updateCursorOverlay()
         needsDraw = true
     }

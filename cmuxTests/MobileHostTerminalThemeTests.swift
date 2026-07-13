@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import Foundation
 import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -48,5 +49,22 @@ import Testing
         let resolved = TerminalTheme.monokai.applyingSurfaceColors(from: frame)
 
         #expect(resolved == effective)
+    }
+
+    @MainActor
+    @Test func producerThemeInvalidationsCoalesceToLatestSurfaceBatch() {
+        let first = UUID()
+        let second = UUID()
+        var batches: [Set<UUID>] = []
+        let scheduler = MobileTerminalThemeInvalidationScheduler(delay: .seconds(60)) {
+            batches.append($0)
+        }
+
+        scheduler.schedule(surfaceID: first)
+        scheduler.schedule(surfaceID: first)
+        scheduler.schedule(surfaceID: second)
+        scheduler.flushForTesting()
+
+        #expect(batches == [Set([first, second])])
     }
 }

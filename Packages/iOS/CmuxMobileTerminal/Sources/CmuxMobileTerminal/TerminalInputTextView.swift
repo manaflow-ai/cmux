@@ -303,7 +303,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         accessoryBarBackgroundView?.backgroundColor = themeBarColor
         dismissButton?.tintColor = themeChromeColor.withAlphaComponent(0.78)
         accessoryArrowNub?.applyTheme(background: themeBarColor, foreground: themeChromeColor)
-        if accessoryStackView != nil { populateAccessoryActions() }
         refreshAccessoryButtonStyles()
     }
 
@@ -1202,19 +1201,39 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
 
     private func refreshAccessoryButtonStyles() {
+        if let composerButton = composerButton as? AccessoryActionButton {
+            applyAccessoryButtonStyle(
+                composerButton,
+                item: composerButton.item,
+                armed: false,
+                sticky: false
+            )
+        }
         guard let stack = accessoryStackView else { return }
-        for case let button as AccessoryActionButton in stack.arrangedSubviews {
+        for button in stack.arrangedSubviews.compactMap({ $0 as? UIButton }) {
+            guard let actionButton = button as? AccessoryActionButton else {
+                var configuration = button.configuration
+                configuration?.baseForegroundColor = themeChromeColor.withAlphaComponent(0.72)
+                button.configuration = configuration
+                button.tintColor = themeChromeColor.withAlphaComponent(0.72)
+                continue
+            }
             // Only built-in modifier keys arm; custom actions always render normal.
             let armed: Bool
             let sticky: Bool
-            if case let .builtin(action) = button.item {
+            if case let .builtin(action) = actionButton.item {
                 armed = isAccessoryActionArmed(action)
                 sticky = isAccessoryActionSticky(action)
             } else {
                 armed = false
                 sticky = false
             }
-            applyAccessoryButtonStyle(button, item: button.item, armed: armed, sticky: sticky)
+            applyAccessoryButtonStyle(
+                actionButton,
+                item: actionButton.item,
+                armed: armed,
+                sticky: sticky
+            )
         }
     }
 

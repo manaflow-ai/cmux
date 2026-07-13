@@ -54,6 +54,10 @@ extension MobileShellComposite {
               hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
             return
         }
+        // Theme revisions are ordered independently from terminal byte content.
+        // A delayed full frame may be stale for the VT replay while still carrying
+        // the newest theme revision, and subsequent deltas intentionally omit it.
+        recordTerminalTheme(renderGrid)
         // The stale floor is the delivered high-water mark, surviving a replay
         // barrier via the pre-barrier stash: a buffered frame from before the
         // barrier must not paint (and must not establish an outdated baseline)
@@ -77,11 +81,6 @@ extension MobileShellComposite {
         // dropped-frame replay is pending) must not paint an older cursor
         // frame or establish a baseline from pre-input content.
         guard !shouldDropRenderGridBehindPendingInput(renderGrid, source: source) else { return }
-        // Theme metadata belongs to the accepted authoritative frame, even when
-        // hybrid delivery treats the primary-screen grid as advisory or a
-        // replay barrier delays its terminal output. Recording it here keeps
-        // chrome updates independent from the selected output transport.
-        recordTerminalTheme(renderGrid)
         let hasDeliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID] != nil
         let previousScreen = terminalActiveScreenBySurfaceID[renderGrid.surfaceID]
         // The alternate baseline flag is maintained by DELIVERED frames only,
