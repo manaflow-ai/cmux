@@ -28,7 +28,7 @@ extension RemoteTmuxWindowMirror {
         metrics: RemoteTmuxNativeLayoutMetrics
     ) {
         guard case .split(let split) = treeNode,
-              case .split(_, _, let orientation, let firstTree, let secondTree) = tmuxTree,
+              case .split(_, _, _, let orientation, let firstTree, let secondTree) = tmuxTree,
               let splitID = UUID(uuidString: split.id),
               split.orientation == orientation.treeName else { return }
         let first = firstTree.layout

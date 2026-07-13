@@ -166,7 +166,7 @@ import Testing
             tree: RemoteTmuxNativeSplitTree(layout: layout),
             metrics: metrics
         )
-        guard case .split(_, _, let orientation, let first, let rest) = measured else {
+        guard case .split(_, _, _, let orientation, let first, let rest) = measured else {
             Issue.record("Expected binary root")
             return
         }
@@ -175,7 +175,7 @@ import Testing
             second: rest,
             orientation: orientation
         ) - (91.0 / 574.0)) < 0.000_001)
-        guard case .split(_, _, let restOrientation, let second, let third) = rest else {
+        guard case .split(_, _, _, let restOrientation, let second, let third) = rest else {
             Issue.record("Expected right-associated remainder")
             return
         }
