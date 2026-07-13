@@ -42,6 +42,65 @@ struct MobileMacUpdateAdvisorTests {
     }
 
     @Test
+    func absentVersionInfersFromAdvertisedRegisteredCapabilities() throws {
+        let hint = try #require(MobileMacUpdateAdvisor.hint(
+            hostCapabilities: ["released.early"],
+            macAppVersion: nil,
+            requirements: requirements
+        ))
+
+        #expect(hint.features == [.workspaceGroups])
+        #expect(hint.minimumMacVersion == MobileMacAppVersion(parsing: "3.0"))
+        #expect(hint.macAppVersion == MobileMacAppVersion(parsing: "2.0"))
+        #expect(hint.isVersionInferred)
+    }
+
+    @Test
+    func absentVersionWithoutRegisteredCapabilitiesStaysSilent() {
+        #expect(MobileMacUpdateAdvisor.hint(
+            hostCapabilities: ["unreleased", "unregistered.cap"],
+            macAppVersion: nil,
+            requirements: requirements
+        ) == nil)
+    }
+
+    @Test
+    func explicitVersionIsNotInferredAndWinsOverCapabilityInference() throws {
+        let hint = try #require(MobileMacUpdateAdvisor.hint(
+            hostCapabilities: ["released.early"],
+            macAppVersion: "2.5",
+            requirements: requirements
+        ))
+
+        #expect(hint.macAppVersion == MobileMacAppVersion(parsing: "2.5"))
+        #expect(!hint.isVersionInferred)
+    }
+
+    @Test
+    func unparseableVersionSuppressesCapabilityInference() {
+        #expect(MobileMacUpdateAdvisor.hint(
+            hostCapabilities: ["released.early"],
+            macAppVersion: "2.0-nightly",
+            requirements: requirements
+        ) == nil)
+    }
+
+    @Test
+    func standardRegistryInfersLegacyMacFromActionsCapability() throws {
+        // The production case the registry targets: a released 0.64.15 Mac
+        // predates both version fields, so it reports no version at all but
+        // does advertise workspace.actions.v1.
+        let hint = try #require(MobileMacUpdateAdvisor.hint(
+            hostCapabilities: ["workspace.actions.v1", "terminal.bytes.v1"],
+            macAppVersion: nil
+        ))
+
+        #expect(hint.features == [.workspaceReadState, .workspaceClose, .workspaceGroups])
+        #expect(hint.minimumMacVersion == MobileMacAppVersion(parsing: "0.64.16"))
+        #expect(hint.isVersionInferred)
+    }
+
+    @Test
     func missingUnreleasedCapabilityDoesNotProduceHint() {
         #expect(MobileMacUpdateAdvisor.hint(
             hostCapabilities: ["released.early", "released.late"],

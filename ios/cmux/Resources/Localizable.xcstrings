@@ -3860,6 +3860,23 @@
         }
       }
     },
+    "mobile.macUpdateHint.bodyFormatUnknownVersion" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating %1$@ to cmux %2$@ or later adds: %3$@."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@をcmux %2$@以降に更新すると次の機能が使えます：%3$@。"
+          }
+        }
+      }
+    },
     "mobile.macUpdateHint.button.accessibilityLabel": {
       "extractionState": "manual",
       "localizations": {

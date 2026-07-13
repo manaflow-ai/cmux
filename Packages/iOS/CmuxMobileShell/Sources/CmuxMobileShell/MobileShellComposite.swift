@@ -2610,6 +2610,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // free in the common case and keeps the phone's colors in sync with
             // the Mac even when the probe could not.
             self.applyTerminalTheme(payload.theme)
+            // Same recovery reasoning for the update hint: when the fast probe
+            // timed out, this is the only path that sees a full status payload,
+            // and skipping it would leave the hint absent (or a previous Mac's
+            // hint stale) until the next reconnect.
+            self.refreshMacUpdateHint(
+                capabilities: Set(payload.capabilities),
+                statusMacAppVersion: payload.macAppVersion,
+                macDeviceID: payload.macDeviceID ?? self.activeTicket?.macDeviceID
+            )
             await self.applyHostReportedIdentity(
                 client: client,
                 deviceID: payload.macDeviceID,

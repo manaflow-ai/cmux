@@ -33,4 +33,32 @@ import Testing
             #expect(body.contains(MobileMacUpdateFeatureDisplay.name(for: feature)))
         }
     }
+
+    @Test func bodyTextForInferredVersionNamesOnlyTheTargetVersion() throws {
+        let requirements = [
+            MobileMacUpdateCapabilityRequirement(
+                capability: "test.present",
+                feature: .workspaceActions,
+                firstReleasedMacVersion: MobileMacAppVersion(parsing: "0.64.15")
+            ),
+            MobileMacUpdateCapabilityRequirement(
+                capability: "test.missing",
+                feature: .workspaceGroups,
+                firstReleasedMacVersion: MobileMacAppVersion(parsing: "0.64.16")
+            ),
+        ]
+        let hint = try #require(MobileMacUpdateAdvisor.hint(
+            hostCapabilities: ["test.present"],
+            macAppVersion: nil,
+            requirements: requirements
+        ))
+        #expect(hint.isVersionInferred)
+
+        let body = MobileMacUpdateFeatureDisplay.bodyText(hint: hint, macName: "Studio Mac")
+
+        #expect(body.contains("Studio Mac"))
+        #expect(body.contains("0.64.16"))
+        // The inferred current version must not be presented as fact.
+        #expect(!body.contains("0.64.15"))
+    }
 }
