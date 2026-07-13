@@ -11,7 +11,7 @@ import Testing
 @MainActor
 @Suite("Notification scroll restore lifecycle", .serialized)
 struct NotificationScrollRestoreLifecycleTests {
-    @Test func replayCompletionDropsAnUnreachableHistoricalRestore() {
+    @Test func replayCompletionKeepsHistoricalRestoreUntilRowsBecomeAddressable() {
         let boundary = "test-replay-boundary"
         let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 0, offset: 0, len: 0)
@@ -27,7 +27,8 @@ struct NotificationScrollRestoreLifecycleTests {
 
         postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
 
-        #expect(surfaceView.performedBindingActions.isEmpty)
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
     @Test func replayCompletionUsesTheFirstPostReplayGeometryPacket() {
@@ -46,6 +47,22 @@ struct NotificationScrollRestoreLifecycleTests {
         postScrollbar(scrollbar(total: 400, offset: 0, len: 44), to: surfaceView)
 
         #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
+    }
+
+    @Test func replayCompletionUsesAlreadyPublishedFinalGeometry() {
+        let boundary = "test-replay-boundary"
+        let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 400, offset: 356, len: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.sessionScrollbackReplayDidBegin(expectedBoundary: boundary)
+
+        #expect(!hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 100, totalRows: 400)
+        ))
+        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(boundary))
+
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
     @Test func promptIdleDoesNotCompleteTheInBandReplayLifecycle() throws {
@@ -67,6 +84,9 @@ struct NotificationScrollRestoreLifecycleTests {
         #expect(hostedView.hasPendingNotificationScrollRestore)
         #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(boundary))
         postScrollbar(scrollbar(total: 100, offset: 56, len: 44), to: hostedView.surfaceView)
+
+        #expect(hostedView.hasPendingNotificationScrollRestore)
+        postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: hostedView.surfaceView)
 
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }

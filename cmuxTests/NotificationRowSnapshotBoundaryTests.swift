@@ -276,11 +276,9 @@ struct NotificationRowSnapshotBoundaryTests {
         let surfaceView = NotificationScrollRecordingSurfaceView(frame: .zero)
         surfaceView.scrollbar = notificationScrollbar(total: 400, offset: 356, len: 44)
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
-
         let didRestore = hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 0, totalRows: 400)
         )
-
         #expect(didRestore)
         #expect(surfaceView.performedBindingActions == ["scroll_to_bottom"])
     }
@@ -289,11 +287,9 @@ struct NotificationRowSnapshotBoundaryTests {
         let surfaceView = NotificationScrollRecordingSurfaceView(frame: .zero)
         surfaceView.scrollbar = notificationScrollbar(total: 44, offset: 0, len: 44)
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
-
         let didRestore = hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 0, totalRows: 44)
         )
-
         #expect(didRestore)
         #expect(surfaceView.performedBindingActions == ["scroll_to_bottom"])
     }
@@ -302,18 +298,14 @@ struct NotificationRowSnapshotBoundaryTests {
         let surfaceView = NotificationScrollRecordingSurfaceView(frame: .zero)
         surfaceView.scrollbar = notificationScrollbar(total: 0, offset: 0, len: 0)
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
-
         let didRestoreImmediately = hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 0, totalRows: 400)
         )
-
         #expect(!didRestoreImmediately)
         #expect(surfaceView.performedBindingActions.isEmpty)
-
         let readyScrollbar = notificationScrollbar(total: 400, offset: 356, len: 44)
         postScrollbar(readyScrollbar, to: surfaceView)
         #expect(surfaceView.performedBindingActions == ["scroll_to_bottom"])
-
         postScrollbar(readyScrollbar, to: surfaceView)
         #expect(surfaceView.performedBindingActions == ["scroll_to_bottom"])
     }
@@ -323,17 +315,14 @@ struct NotificationRowSnapshotBoundaryTests {
         surfaceView.scrollbar = notificationScrollbar(total: 400, offset: 356, len: 44)
         surfaceView.bindingActionResults = [false, true]
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
-
         let didRestoreImmediately = hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 0, totalRows: 400)
         )
         #expect(!didRestoreImmediately)
         #expect(surfaceView.performedBindingActions == ["scroll_to_bottom"])
-
         let readyScrollbar = notificationScrollbar(total: 400, offset: 356, len: 44)
         postScrollbar(readyScrollbar, to: surfaceView)
         #expect(surfaceView.performedBindingActions == ["scroll_to_bottom", "scroll_to_bottom"])
-
         postScrollbar(readyScrollbar, to: surfaceView)
         #expect(surfaceView.performedBindingActions == ["scroll_to_bottom", "scroll_to_bottom"])
     }
@@ -344,7 +333,6 @@ struct NotificationRowSnapshotBoundaryTests {
         surfaceView.bindingActionResults = [false, false, false]
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
         let position = TerminalNotificationScrollPosition(row: 100, totalRows: 400)
-
         #expect(!hostedView.restoreNotificationScrollPosition(position))
         #expect(!hostedView.userScrolledAwayFromBottom)
         #expect(!hostedView.allowExplicitScrollbarSync)
