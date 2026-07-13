@@ -215,6 +215,42 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(projection.effective == .ended)
     }
 
+    @Test func hibernatedAndRestoringSessionsOutrankAnExitedProcessObservation() throws {
+        let now = Date().timeIntervalSince1970
+        let staleRun = AgentSessionRunRecord(
+            runId: "hibernated-run",
+            pid: Int(getpid()),
+            processStartedAt: 0,
+            parentRunId: nil,
+            parentSessionId: nil,
+            relationship: nil,
+            restoreAuthority: true,
+            startedAt: now - 10,
+            updatedAt: now,
+            endedAt: nil
+        )
+
+        for (storedState, expectedState) in [
+            ("hibernated", AgentEffectiveState.hibernated),
+            ("restoring", AgentEffectiveState.restoring),
+        ] {
+            let recordData = try JSONSerialization.data(withJSONObject: [
+                "sessionId": "lifecycle-session",
+                "workspaceId": "workspace-a",
+                "surfaceId": "surface-a",
+                "sessionState": storedState,
+                "runtimeStatus": "running",
+                "startedAt": now - 10,
+                "updatedAt": now,
+            ])
+            let record = try JSONDecoder().decode(ClaudeHookSessionRecord.self, from: recordData)
+            let projection = AgentSessionStateProjection(record: record, run: staleRun)
+
+            #expect(projection.process == .exited)
+            #expect(projection.effective == expectedState)
+        }
+    }
+
     @Test func missingActivityEvidenceRemainsUnknown() throws {
         let now = Date().timeIntervalSince1970
         let recordData = try JSONSerialization.data(withJSONObject: [

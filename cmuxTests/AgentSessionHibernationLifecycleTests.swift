@@ -202,4 +202,46 @@ extension AgentHibernationTests {
         expectEqual(record["restoreAuthority"] as? Bool, true)
     }
 
+    @Test
+    func testLifecycleAndRootExitWritesKeepHookStorePrivate() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-store-permissions-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storeURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let sessionId = "private-session"
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [sessionId: [
+                "sessionId": sessionId,
+                "workspaceId": "workspace",
+                "surfaceId": "surface",
+                "restoreAuthority": true,
+                "startedAt": 1.0,
+                "updatedAt": 2.0,
+            ]],
+        ], options: []).write(to: storeURL, options: .atomic)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: Int16(0o600))],
+            ofItemAtPath: storeURL.path
+        )
+        let writer = AgentHookSessionStateWriter(
+            homeDirectory: root.path,
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": root.path]
+        )
+
+        writer.setLifecycleSynchronously(
+            kind: .codex,
+            sessionId: sessionId,
+            state: .hibernated,
+            now: 3
+        )
+        var attributes = try FileManager.default.attributesOfItem(atPath: storeURL.path)
+        expectEqual((attributes[.posixPermissions] as? NSNumber)?.intValue & 0o777, 0o600)
+
+        writer.completeSynchronously(kind: .codex, sessionId: sessionId, now: 4)
+        attributes = try FileManager.default.attributesOfItem(atPath: storeURL.path)
+        expectEqual((attributes[.posixPermissions] as? NSNumber)?.intValue & 0o777, 0o600)
+    }
+
 }

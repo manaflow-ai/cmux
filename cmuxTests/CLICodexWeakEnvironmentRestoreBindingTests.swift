@@ -76,6 +76,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
             "weak env-only Codex captures must not become durable restore bindings: \(commands)"
         )
+        XCTAssertTrue(
+            commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.clear" },
+            "a non-restorable top-level hook must clear the surface's stale agent binding: \(commands)"
+        )
     }
 
     func testCodexWeakCurrentCapturePreservesDurableMappedResumeBinding() throws {
