@@ -273,6 +273,27 @@ import CmuxTerminalCore
         #expect(scheduler.scheduledSurfaceIds.isEmpty)
     }
 
+    @Test func imagePathPasteQueuesPasteTextForColdSurface() {
+        let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let surface = makeSurface(
+            scheduler: scheduler,
+            nativeView: nativeView,
+            paneHost: paneHost
+        )
+
+        let result = surface.sendTextResult("/tmp/cmux clipboard image.png")
+
+        #expect(result == .queued)
+        let pendingInput = surface.debugPendingSocketInputForTesting()
+        #expect(pendingInput.items == 1)
+        #expect(pendingInput.pasteTextItems == 1)
+        #expect(pendingInput.inputTextItems == 0)
+        #expect(pendingInput.keyEvents == 0)
+        #expect(pendingInput.processOutputItems == 0)
+    }
+
     @Test func inputDemandHeadlessStartDoesNotQueueRestoreSpawnThroughPaneHostAttach() {
         let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let paneHost = FakeTerminalSurfacePaneHost(
