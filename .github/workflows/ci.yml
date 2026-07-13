@@ -558,7 +558,7 @@ jobs:
             echo "::warning::Passwordless sudo unavailable; XCTest will use its default automation-mode setup"
           fi
 
-      - name: Run agent notification routing regressions
+      - name: Run notification routing regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
           # The tolerant full-suite step can accept assertion failures or stop
@@ -575,6 +575,7 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/AgentNotificationRegressionTests \
+            -only-testing:cmuxTests/PhonePushPresenceGateTests \
             test
 
       - name: Run browser system proxy mirror regression
