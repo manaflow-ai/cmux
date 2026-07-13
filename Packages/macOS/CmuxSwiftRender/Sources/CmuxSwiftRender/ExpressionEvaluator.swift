@@ -254,9 +254,13 @@ public struct ExpressionEvaluator: Sendable {
     /// absent values.
     private func evalEqualityOperand(_ expr: ExprSyntax, _ env: EvalEnvironment) -> SwiftValue? {
         if let member = expr.as(MemberAccessExprSyntax.self),
-           let baseExpression = member.base,
-           case let .object(fields)? = eval(baseExpression, env) {
-            return fields[member.declName.baseName.text] ?? .null
+           let baseExpression = member.base {
+            guard let base = evalEqualityOperand(baseExpression, env) else { return nil }
+            if case .null = base { return .null }
+            if case let .object(fields) = base {
+                return fields[member.declName.baseName.text] ?? .null
+            }
+            return base.member(member.declName.baseName.text)
         }
         return eval(expr, env)
     }
