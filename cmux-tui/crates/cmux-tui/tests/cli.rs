@@ -224,6 +224,45 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_subscribe_reports_tree_changed(&server);
 }
 
+#[test]
+fn cli_apply_layout_passes_explicit_surface_size() {
+    let server = HeadlessServer::start("apply-layout-size");
+    let applied = cli(
+        &server,
+        &[
+            "--json",
+            "apply-layout",
+            "--layout",
+            r#"{"type":"leaf"}"#,
+            "--cols",
+            "111",
+            "--rows",
+            "37",
+        ],
+    );
+    assert_success(&applied);
+    let applied: serde_json::Value = serde_json::from_slice(&applied.stdout).unwrap();
+    let surface = applied["panes"][0]["surface"].as_u64().unwrap();
+
+    let state = cli(&server, &["--json", "vt-state", "--surface", &surface.to_string()]);
+    assert_success(&state);
+    let state: serde_json::Value = serde_json::from_slice(&state.stdout).unwrap();
+    assert_eq!(state["cols"].as_u64(), Some(111));
+    assert_eq!(state["rows"].as_u64(), Some(37));
+
+    let inherited = cli(&server, &["new-workspace"]);
+    assert_success(&inherited);
+    let inherited = String::from_utf8(inherited.stdout).unwrap().trim().parse::<u64>().unwrap();
+    let state = cli(&server, &["--json", "vt-state", "--surface", &inherited.to_string()]);
+    assert_success(&state);
+    let state: serde_json::Value = serde_json::from_slice(&state.stdout).unwrap();
+    assert_eq!(state["cols"].as_u64(), Some(111));
+    assert_eq!(state["rows"].as_u64(), Some(37));
+
+    let partial = cli(&server, &["apply-layout", "--layout", r#"{"type":"leaf"}"#, "--cols", "90"]);
+    assert_eq!(partial.status.code(), Some(2));
+}
+
 fn assert_subscribe_reports_tree_changed(server: &HeadlessServer) {
     let mut child = Command::new(bin())
         .args(["--socket"])

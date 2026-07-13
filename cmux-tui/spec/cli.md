@@ -61,7 +61,7 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `clear-window-title` | implemented | none | global flags | none |
 | `list-workspaces` | implemented | none | global flags | tree lines |
 | `export-layout` | implemented | none | `--screen <id>` | JSON result object |
-| `apply-layout` | implemented | `--layout <json>` | `--workspace <id>`, `--name <name>` | screen and pane/surface lines |
+| `apply-layout` | implemented | `--layout <json>` | `--workspace <id>`, `--name <name>`, `--cols <n> --rows <n>` | screen and pane/surface lines |
 | `send` | implemented | `--surface <id>` | `--text <text>`, `--bytes <base64>` | none |
 | `read-screen` | implemented | `--surface <id>` | none | screen text |
 | `vt-state` | implemented | `--surface <id>` | none | `cols=<n> rows=<n> data=<base64>` |

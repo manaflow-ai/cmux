@@ -51,6 +51,33 @@ fn read_json_line(reader: &mut impl BufRead) -> Option<serde_json::Value> {
     }
 }
 
+fn socket_request(
+    writer: &mut impl Write,
+    reader: &mut impl BufRead,
+    request: serde_json::Value,
+) -> serde_json::Value {
+    writeln!(writer, "{request}").unwrap();
+    let response = read_json_line(reader).expect("socket response");
+    assert_eq!(response["ok"], true, "request failed: {response}");
+    response
+}
+
+fn assert_vt_state_size(
+    writer: &mut impl Write,
+    reader: &mut impl BufRead,
+    id: u64,
+    surface: u64,
+    expected: (u16, u16),
+) {
+    let response = socket_request(
+        writer,
+        reader,
+        serde_json::json!({"id": id, "cmd": "vt-state", "surface": surface}),
+    );
+    assert_eq!(response["data"]["cols"], expected.0);
+    assert_eq!(response["data"]["rows"], expected.1);
+}
+
 #[test]
 fn surface_runs_command_and_screen_updates() {
     let mux = Mux::new("test-pty", shell_opts("printf 'marker-42\\n'; sleep 30"));
@@ -96,6 +123,84 @@ fn surface_resize_reports_whether_the_size_changed() {
     assert!(!surface.resize(0, 0));
 
     mux.close_surface(surface.id);
+}
+
+#[test]
+fn headless_creation_uses_legacy_default_then_latest_client_size() {
+    let mux = Mux::new(unique_session("test-headless-client-size"), shell_opts("sleep 30"));
+    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    let stream = connect(&sock_path);
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+
+    let first = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({"id": 1, "cmd": "new-workspace"}),
+    )["data"]["surface"]
+        .as_u64()
+        .unwrap();
+    assert_vt_state_size(&mut writer, &mut reader, 2, first, (80, 24));
+
+    socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": 3,
+            "cmd": "resize-surface",
+            "surface": first,
+            "cols": 143,
+            "rows": 40,
+        }),
+    );
+    let inherited = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({"id": 4, "cmd": "new-workspace"}),
+    )["data"]["surface"]
+        .as_u64()
+        .unwrap();
+    assert_vt_state_size(&mut writer, &mut reader, 5, inherited, (143, 40));
+
+    let explicit = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": 6,
+            "cmd": "new-workspace",
+            "cols": 97,
+            "rows": 31,
+        }),
+    )["data"]["surface"]
+        .as_u64()
+        .unwrap();
+    assert_vt_state_size(&mut writer, &mut reader, 7, explicit, (97, 31));
+
+    let inherited_explicit = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({"id": 8, "cmd": "new-workspace"}),
+    )["data"]["surface"]
+        .as_u64()
+        .unwrap();
+    assert_vt_state_size(&mut writer, &mut reader, 9, inherited_explicit, (97, 31));
+
+    let clamped = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": 10,
+            "cmd": "new-workspace",
+            "cols": 0,
+            "rows": 0,
+        }),
+    )["data"]["surface"]
+        .as_u64()
+        .unwrap();
+    assert_vt_state_size(&mut writer, &mut reader, 11, clamped, (1, 1));
+
+    mux.shutdown();
+    cmux_tui_core::server::cleanup(&sock_path);
 }
 
 #[test]

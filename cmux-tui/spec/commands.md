@@ -457,7 +457,7 @@ CLI mapping: verb `export-layout`; flags `[--screen <id>]`; plain stdout and JSO
 | status | implemented |
 | since | protocol 6 |
 
-Creates a new screen in the given or active workspace from a declarative split tree. Each leaf creates a new pane with one PTY surface. `command` is argv (`array<string>`), not a shell string. Ratios use the same clamp path as `set-ratio`.
+Creates a new screen in the given or active workspace from a declarative split tree. Each leaf creates a new pane with one PTY surface. `command` is argv (`array<string>`), not a shell string. Ratios use the same clamp path as `set-ratio`. A supplied size is used for every leaf PTY, clamped to at least `1x1`, and becomes the session's latest client size. Without a size, leaves use the latest client size or the configured legacy default when no client has supplied one.
 
 Params:
 
@@ -466,6 +466,8 @@ Params:
 | `workspace` | `Id` | default active workspace | Existing workspace; if omitted and none exists, one is created |
 | `name` | `string` | default null | New screen name |
 | `layout` | `DeclarativeLayout` | required | Must contain at least one leaf |
+| `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
+| `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
 
 Result:
 
@@ -475,7 +477,7 @@ object{screen:Id,panes:array<object{pane:Id,surface:Id}>}
 
 Errors: `unknown workspace <id>`, `layout must contain at least one leaf`, `leaf command must not be empty`, spawn or PTY error string, `bad request: ...`.
 
-CLI mapping: verb `apply-layout`; flags `[--workspace <id>] [--name <name>] --layout <json>`; plain stdout prints the new screen and created pane/surface pairs; JSON stdout prints the exact result object.
+CLI mapping: verb `apply-layout`; flags `[--workspace <id>] [--name <name>] [--cols <n> --rows <n>] --layout <json>`; plain stdout prints the new screen and created pane/surface pairs; JSON stdout prints the exact result object.
 
 ### send
 
@@ -670,7 +672,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Creates a new PTY tab in a pane and makes it the active tab. If `pane` is absent, the active pane of the active screen is used. If the session has no workspaces and no pane is supplied, v5 creates a new workspace containing the tab. In that empty-session fallback, a supplied `cwd` is silently dropped because v5 delegates to `new_workspace(None, size)`. The new tab inherits the active surface working directory of the target pane when `cwd` is absent.
+Creates a new PTY tab in a pane and makes it the active tab. If `pane` is absent, the active pane of the active screen is used. If the session has no workspaces and no pane is supplied, v5 creates a new workspace containing the tab. In that empty-session fallback, a supplied `cwd` is silently dropped because v5 delegates to `new_workspace(None, size)`. The new tab inherits the active surface working directory of the target pane when `cwd` is absent. In protocol v6, an explicit size is clamped to at least `1x1` and becomes the session's latest client size; an omitted size uses that latest value or the configured legacy default when no client size exists.
 
 Params:
 
@@ -678,10 +680,10 @@ Params:
 | --- | --- | --- | --- |
 | `pane` | `Id` | default null | Target pane; unknown ids error |
 | `cwd` | `string` | default null | PTY child working directory |
-| `cols` | `uint16` | default null | Used only when paired with `rows` |
-| `rows` | `uint16` | default null | Used only when paired with `cols` |
+| `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
+| `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
 
-If only one of `cols` or `rows` is present, v5 ignores both because the server uses `cols.zip(rows)`.
+If only one of `cols` or `rows` is present, the server ignores both because it uses `cols.zip(rows)`.
 
 Result:
 
@@ -774,15 +776,15 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Creates a new workspace with one screen, one pane, and one PTY tab, then makes the new workspace active. If `name` is absent, the workspace name is the next 1-based workspace count at creation time.
+Creates a new workspace with one screen, one pane, and one PTY tab, then makes the new workspace active. If `name` is absent, the workspace name is the next 1-based workspace count at creation time. In protocol v6, an explicit size is clamped to at least `1x1` and becomes the session's latest client size; an omitted size uses that latest value or the configured legacy default when no client size exists.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `name` | `string` | default null | Workspace name; empty string is accepted |
-| `cols` | `uint16` | default null | Used only when paired with `rows` |
-| `rows` | `uint16` | default null | Used only when paired with `cols` |
+| `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
+| `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
 
 Result:
 
@@ -822,15 +824,15 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Creates a new screen in a workspace with one pane and one PTY tab, then makes the new screen active. If `workspace` is absent, the active workspace is used. If no workspace exists and `workspace` is absent, v5 creates a new workspace instead.
+Creates a new screen in a workspace with one pane and one PTY tab, then makes the new screen active. If `workspace` is absent, the active workspace is used. If no workspace exists and `workspace` is absent, v5 creates a new workspace instead. In protocol v6, an explicit size is clamped to at least `1x1` and becomes the session's latest client size; an omitted size uses that latest value or the configured legacy default when no client size exists.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `workspace` | `Id` | default null | Target workspace; unknown ids error |
-| `cols` | `uint16` | default null | Used only when paired with `rows` |
-| `rows` | `uint16` | default null | Used only when paired with `cols` |
+| `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
+| `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
 
 Result:
 
@@ -872,7 +874,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Splits the screen containing `pane`, inserts a new pane after the target leaf, spawns one PTY tab in the new pane, and focuses the new pane. `dir:"right"` creates left/right columns. `dir:"down"` creates top/bottom rows. The new surface inherits the active surface working directory of the target pane when available.
+Splits the screen containing `pane`, inserts a new pane after the target leaf, spawns one PTY tab in the new pane, and focuses the new pane. `dir:"right"` creates left/right columns. `dir:"down"` creates top/bottom rows. The new surface inherits the active surface working directory of the target pane when available. In protocol v6, an explicit size is clamped to at least `1x1` and becomes the session's latest client size; an omitted size uses that latest value or the configured legacy default when no client size exists.
 
 Params:
 
@@ -880,8 +882,8 @@ Params:
 | --- | --- | --- | --- |
 | `pane` | `Id` | required | Target split leaf |
 | `dir` | `string` | required | `"right"` or `"down"` |
-| `cols` | `uint16` | default null | Used only when paired with `rows` |
-| `rows` | `uint16` | default null | Used only when paired with `cols` |
+| `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
+| `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
 
 Result:
 
@@ -1497,7 +1499,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Resizes a surface to a cell grid. PTY surfaces resize both the PTY and VT terminal state. Browser surfaces update their cell grid and CDP device metrics. `cols` and `rows` are clamped to at least 1 by the surface runtime. The command result does not report whether the size changed.
+Resizes a surface to a cell grid. PTY surfaces resize both the PTY and VT terminal state. Browser surfaces update their cell grid and CDP device metrics. `cols` and `rows` are clamped to at least 1 by the surface runtime. The final pair becomes the session's latest client size even when the target was already at that size, so later creation requests without a size use the most recent client interaction. The command result does not report whether the size changed.
 
 Params:
 

@@ -110,7 +110,7 @@ const VERBS: &[VerbSpec] = &[
     VerbSpec {
         name: "apply-layout",
         help: "Apply a screen layout.",
-        allowed: &["workspace", "name", "layout"],
+        allowed: &["workspace", "name", "layout", "cols", "rows"],
         kind: socket(build_apply_layout, print_applied_layout, false),
     },
     VerbSpec {
@@ -914,6 +914,7 @@ fn build_apply_layout(flags: &FlagMap) -> Result<Value, UsageError> {
     let mut value = json!({ "layout": layout });
     flags.insert_optional_u64(&mut value, "workspace")?;
     flags.insert_optional_string(&mut value, "name");
+    flags.insert_optional_size(&mut value)?;
     Ok(value)
 }
 
