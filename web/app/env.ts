@@ -158,14 +158,11 @@ export const env = createEnv({
       "CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON",
       z.string().min(2).max(32_768),
     ),
-    CMUX_IROH_MINT_URL: requireVercelNonPreviewValue(
-      "CMUX_IROH_MINT_URL",
-      irohMinterUrl,
-    ),
-    CMUX_IROH_MINT_HMAC_SECRET_B64: requireVercelNonPreviewValue(
-      "CMUX_IROH_MINT_HMAC_SECRET_B64",
-      z.string().max(512).regex(/^[A-Za-z0-9+/]{43,}={0,2}$/),
-    ),
+    // Optional compatibility path for n0-hosted relay credentials. The
+    // self-hosted fleet mints endpoint-bound JWTs through /api/relay/token.
+    CMUX_IROH_MINT_URL: irohMinterUrl.optional(),
+    CMUX_IROH_MINT_HMAC_SECRET_B64:
+      z.string().max(512).regex(/^[A-Za-z0-9+/]{43,}={0,2}$/).optional(),
     CMUX_IROH_RATE_LIMIT_ID: requireVercelNonPreviewValue("CMUX_IROH_RATE_LIMIT_ID"),
     CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: localDevelopmentOptIn(
       "CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER",

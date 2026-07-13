@@ -51,6 +51,12 @@ clients retain their existing credential or use the dedicated relay-token route
 when its refresh window arrives. Platform is part of the immutable binding
 identity and requires explicit revocation before it can change.
 
+The n0-hosted relay minter is an optional compatibility path. When
+`CMUX_IROH_MINT_URL` and `CMUX_IROH_MINT_HMAC_SECRET_B64` are absent, initial
+registration returns `relay.status = "unavailable"` without rolling back the
+binding. Current clients obtain endpoint-bound credentials for the self-hosted
+fleet from `/api/relay/token`.
+
 Every user-scoped mutation acquires the account-deletion advisory fence before
 any Iroh lock. If the deletion tombstone wins, no challenge, binding, grant, or
 relay audit state can be created. If an Iroh mutation wins, account deletion

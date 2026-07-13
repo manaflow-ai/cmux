@@ -99,7 +99,7 @@ describe("client config env validation", () => {
 
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("CMUX_IROH_GRANT_SIGNING_KEY_P8 is required");
-    expect(result.stderr).toContain("CMUX_IROH_MINT_HMAC_SECRET_B64 is required");
+    expect(result.stderr).not.toContain("CMUX_IROH_MINT_HMAC_SECRET_B64 is required");
   });
 
   test("allows an explicitly opted-in loopback HTTP relay minter only in local development", () => {
