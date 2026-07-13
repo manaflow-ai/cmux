@@ -278,7 +278,7 @@ import Testing
         }
     }
 
-    @Test func noCommandTemplatesWithPromptRemainUnchanged() {
+    @Test func noCommandTemplatesOpenPlainShellForBlankAndNonblankPrompts() {
         let commands = [
             "# setup note",
             " \t# setup note\n",
@@ -291,10 +291,32 @@ import Testing
 
         for command in commands {
             let template = MobileTaskTemplate(name: "Notes", icon: "terminal", command: command)
-            let result = composer.compose(template: template, prompt: "ship it")
-            #expect(result.initialCommand == command)
-            #expect(result.initialEnv.isEmpty)
-            #expect(result.title == "ship it")
+            #expect(template.isPlainShell)
+
+            let prompted = composer.compose(template: template, prompt: "ship it")
+            #expect(prompted.initialCommand == nil)
+            #expect(prompted.initialEnv.isEmpty)
+            #expect(prompted.title == "ship it")
+
+            let blank = composer.compose(template: template, prompt: " \n ")
+            #expect(blank.initialCommand == nil)
+            #expect(blank.initialEnv.isEmpty)
+            #expect(blank.title == nil)
+        }
+    }
+
+    @Test func commandsRemainExecutableAfterLeadingAssignmentsAndRedirections() {
+        let commands = [
+            "FOO=bar agent",
+            "> /tmp/cmux-task-output agent",
+            "FOO='bar baz' 2>>/tmp/cmux-task-log agent",
+            "agent > /tmp/cmux-task-output",
+        ]
+
+        for command in commands {
+            let template = MobileTaskTemplate(name: "Agent", icon: "terminal", command: command)
+            #expect(!template.isPlainShell)
+            #expect(composer.compose(template: template, prompt: "").initialCommand == command)
         }
     }
 
