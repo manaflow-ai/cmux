@@ -10,7 +10,7 @@ struct RemoteTTYPortScanScriptTests {
 
         #expect(result.status == 0)
         #expect(result.output.split(whereSeparator: \.isNewline).contains("ttys010\t4300"))
-        #expect(result.output.contains(RemoteSessionCoordinator.remotePortScanCompleteMarker) == false)
+        #expect(hasCompletionMarker(result.output, for: "ttys010") == false)
     }
 
     @Test("An unrelated pid-less row does not poison a complete TTY scan")
@@ -19,7 +19,7 @@ struct RemoteTTYPortScanScriptTests {
 
         #expect(result.status == 0)
         #expect(result.output.split(whereSeparator: \.isNewline).contains("ttys010\t4300"))
-        #expect(result.output.contains(RemoteSessionCoordinator.remotePortScanCompleteMarker))
+        #expect(hasCompletionMarker(result.output, for: "ttys010"))
     }
 
     @Test("A failed ss scan still emits positive evidence without completeness")
@@ -28,7 +28,7 @@ struct RemoteTTYPortScanScriptTests {
 
         #expect(result.status == 0)
         #expect(result.output.split(whereSeparator: \.isNewline).contains("ttys010\t4300"))
-        #expect(result.output.contains(RemoteSessionCoordinator.remotePortScanCompleteMarker) == false)
+        #expect(hasCompletionMarker(result.output, for: "ttys010") == false)
     }
 
     @Test("A successful lsof fallback supersedes an unusable ss scan")
@@ -37,7 +37,47 @@ struct RemoteTTYPortScanScriptTests {
 
         #expect(result.status == 0)
         #expect(result.output.split(whereSeparator: \.isNewline).contains("ttys010\t4200"))
-        #expect(result.output.contains(RemoteSessionCoordinator.remotePortScanCompleteMarker))
+        #expect(hasCompletionMarker(result.output, for: "ttys010"))
+    }
+
+    @Test("Readlink failures withhold each protected owner's marker but preserve a healthy TTY")
+    func readlinkFailuresAreScopedToProtectedTTYs() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try writeExecutable(
+            directory.appendingPathComponent("ss"),
+            body: """
+            #!/bin/sh
+            printf '%s\\n' 'LISTEN 0 128 127.0.0.1:4300 users:(("node",pid=123,fd=4))'
+            printf '%s\\n' 'LISTEN 0 128 127.0.0.1:4200 users:(("node",pid=456,fd=4))'
+            printf '%s\\n' 'LISTEN 0 128 127.0.0.1:5173 users:(("node",pid=789,fd=4))'
+            """
+        )
+        try writeExecutable(
+            directory.appendingPathComponent("readlink"),
+            body: """
+            #!/bin/sh
+            case "$1" in
+              */123/fd/0) printf '%s\\n' '/dev/ttys010' ;;
+              *) exit 1 ;;
+            esac
+            """
+        )
+
+        let result = try runGeneratedScript(
+            in: directory,
+            ttyNames: ["ttys010", "ttys011", "ttys012"],
+            protecting: ["ttys011": [4200], "ttys012": [5173]]
+        )
+
+        #expect(result.status == 0)
+        #expect(result.output.split(whereSeparator: \.isNewline).contains("ttys010\t4300"))
+        #expect(hasCompletionMarker(result.output, for: "ttys010"))
+        #expect(hasCompletionMarker(result.output, for: "ttys011") == false)
+        #expect(hasCompletionMarker(result.output, for: "ttys012") == false)
     }
 
     private func runFakeSS(exitStatus: Int32, protecting ports: Set<Int>) throws -> (status: Int32, output: String) {
@@ -63,7 +103,11 @@ struct RemoteTTYPortScanScriptTests {
             """
         )
 
-        return try runGeneratedScript(in: directory, protecting: ports)
+        return try runGeneratedScript(
+            in: directory,
+            ttyNames: ["ttys010"],
+            protecting: ["ttys010": ports]
+        )
     }
 
     private func runFailedSSWithSuccessfulLsof() throws -> (status: Int32, output: String) {
@@ -94,17 +138,22 @@ struct RemoteTTYPortScanScriptTests {
             """
         )
 
-        return try runGeneratedScript(in: directory, protecting: [])
+        return try runGeneratedScript(
+            in: directory,
+            ttyNames: ["ttys010"],
+            protecting: [:]
+        )
     }
 
     private func runGeneratedScript(
         in directory: URL,
-        protecting ports: Set<Int>
+        ttyNames: [String],
+        protecting portsByTTY: [String: Set<Int>]
     ) throws -> (status: Int32, output: String) {
         let generatedScript = RemoteSessionCoordinator.remotePortScanScript(
-            ttyNames: ["ttys010"],
+            ttyNames: ttyNames,
             excluding: [],
-            protecting: ports
+            protecting: portsByTTY
         )
         let testableScript = generatedScript.replacingOccurrences(
             of: "[ -d /proc ]",
@@ -126,6 +175,14 @@ struct RemoteTTYPortScanScriptTests {
 
         let data = output.fileHandleForReading.readDataToEndOfFile()
         return (process.terminationStatus, String(decoding: data, as: UTF8.self))
+    }
+
+    private func completionMarker(for ttyName: String) -> String {
+        "\(RemoteSessionCoordinator.remoteTTYPortScanCompleteMarker)\t\(ttyName)"
+    }
+
+    private func hasCompletionMarker(_ output: String, for ttyName: String) -> Bool {
+        output.split(whereSeparator: \.isNewline).contains(Substring(completionMarker(for: ttyName)))
     }
 
     private func writeExecutable(_ url: URL, body: String) throws {

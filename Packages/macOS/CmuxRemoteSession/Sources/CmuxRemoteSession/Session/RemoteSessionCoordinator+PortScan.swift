@@ -7,6 +7,7 @@ public import Foundation
 extension RemoteSessionCoordinator {
     static let remotePortScanCoalesceDelayMilliseconds = 200
     static let remotePortScanCompleteMarker = "__cmux_port_scan_complete__"
+    static let remoteTTYPortScanCompleteMarker = "__cmux_port_scan_complete_tty__"
 
     /// Replaces the tracked panel-to-TTY map (from shell integration) on the
     /// coordinator queue; panels whose TTY changed lose their scanned ports.
@@ -218,9 +219,9 @@ extension RemoteSessionCoordinator {
                 scannedPorts: scan.portsByPanel,
                 scannedKeys: Set(ttyNamesByPanel.keys),
                 trackedKeys: Set(ttyNamesByPanel.keys),
-                completeness: scan.completeness
+                completenessByKey: scan.completenessByPanel
             )
-            if scan.completeness == .complete {
+            if scan.completenessByPanel.values.allSatisfy({ $0 == .complete }) {
                 keepPolledRemotePortsUntilTTYScan = false
                 remotePortPollState.reset()
             }
@@ -232,17 +233,26 @@ extension RemoteSessionCoordinator {
 
     private func scanRemotePortsByPanelLocked(
         ttyNamesByPanel: [UUID: String]
-    ) throws -> (portsByPanel: [UUID: [Int]], completeness: PortScanCompleteness) {
+    ) throws -> (
+        portsByPanel: [UUID: [Int]],
+        completenessByPanel: [UUID: PortScanCompleteness]
+    ) {
         let ttyNames = Array(Set(ttyNamesByPanel.values)).sorted()
-        guard !ttyNames.isEmpty else { return ([:], .complete) }
+        guard !ttyNames.isEmpty else { return ([:], [:]) }
 
-        let protectedPorts = Set(remotePortScanSnapshot.snapshot.values.flatMap { $0 }).union(
+        let fallbackProtectedPorts =
             remotePortPollState.publishedPortsProtectedDuringTTYTransition(keepPolledRemotePortsUntilTTYScan)
-        )
+        var protectedPortsByTTY = Dictionary(uniqueKeysWithValues: ttyNames.map {
+            ($0, fallbackProtectedPorts)
+        })
+        for (panelId, ports) in remotePortScanSnapshot.snapshot {
+            guard let ttyName = ttyNamesByPanel[panelId] else { continue }
+            protectedPortsByTTY[ttyName, default: []].formUnion(ports)
+        }
         let script = Self.remotePortScanScript(
             ttyNames: ttyNames,
             excluding: excludedRemoteScanPorts(),
-            protecting: protectedPorts
+            protecting: protectedPortsByTTY
         )
         let command = "sh -c \(script.shellSingleQuoted)"
         let result = try sshExec(
@@ -256,18 +266,23 @@ extension RemoteSessionCoordinator {
             ])
         }
 
-        let portsByTTY = Self.parseRemoteTTYPortPairs(
+        let scanOutput = RemoteTTYPortScanOutput(
             output: result.stdout,
-            trackedTTYNames: Set(ttyNames)
+            trackedTTYNames: Set(ttyNames),
+            completionMarker: Self.remoteTTYPortScanCompleteMarker
         )
-        let completeness: PortScanCompleteness = result.stdout
-            .split(whereSeparator: \.isNewline)
-            .contains(Substring(Self.remotePortScanCompleteMarker)) ? .complete : .incomplete
 
         let portsByPanel = ttyNamesByPanel.reduce(into: [UUID: [Int]]()) { result, entry in
-            result[entry.key] = portsByTTY[entry.value] ?? []
+            result[entry.key] = scanOutput.portsByTTY[entry.value] ?? []
         }
-        return (portsByPanel, completeness)
+        let completenessByPanel = ttyNamesByPanel.reduce(
+            into: [UUID: PortScanCompleteness]()
+        ) { result, entry in
+            result[entry.key] = scanOutput.completeTTYNames.contains(entry.value)
+                ? .complete
+                : .incomplete
+        }
+        return (portsByPanel, completenessByPanel)
     }
 
     // DispatchSourceTimer stays for the poll cadence as part of the faithful
@@ -416,27 +431,6 @@ extension RemoteSessionCoordinator {
             return .hostWideDelta
         }
         return shouldUseFallbackRemotePortPollingLocked() ? .hostWide : nil
-    }
-
-    static func parseRemoteTTYPortPairs(output: String, trackedTTYNames: Set<String>) -> [String: [Int]] {
-        var portsByTTY = Dictionary(uniqueKeysWithValues: trackedTTYNames.map { ($0, Set<Int>()) })
-
-        for line in output.split(separator: "\n") {
-            let parts = line.split(separator: "\t", omittingEmptySubsequences: false)
-            guard parts.count == 2 else { continue }
-            let ttyName = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard trackedTTYNames.contains(ttyName),
-                  let port = Int(parts[1]),
-                  port >= 1024,
-                  port <= 65535 else {
-                continue
-            }
-            portsByTTY[ttyName, default: []].insert(port)
-        }
-
-        return portsByTTY.reduce(into: [String: [Int]]()) { result, entry in
-            result[entry.key] = entry.value.sorted()
-        }
     }
 
     static func parseRemotePorts(output: String) -> [Int] {

@@ -1,33 +1,59 @@
-// Remote shell programs emit positive port rows plus a completion marker only
-// when every scanner stage produced authoritative output.
+// Remote shell programs emit positive port rows plus completion markers for
+// exactly the scan scopes that produced authoritative negative evidence.
 extension RemoteSessionCoordinator {
     /// Builds the TTY-scoped remote listening-port scan program.
     static func remotePortScanScript(
         ttyNames: [String],
         excluding ports: Set<Int>,
-        protecting protectedPorts: Set<Int>
+        protecting protectedPortsByTTY: [String: Set<Int>]
     ) -> String {
         let ttySet = ttyNames.joined(separator: " ")
         let ttyCSV = ttyNames.joined(separator: ",")
         let excludedPorts = ports.sorted().map(String.init).joined(separator: " ")
-        let protectedPorts = protectedPorts.sorted().map(String.init).joined(separator: " ")
+        let protectedTTYPorts = protectedPortsByTTY.keys.sorted().flatMap { ttyName in
+            (protectedPortsByTTY[ttyName] ?? []).sorted().map { "\(ttyName):\($0)" }
+        }.joined(separator: " ")
 
         return """
         set -eu
         cmux_tracked_ttys=" \(ttySet) "
         cmux_tty_csv='\(ttyCSV)'
         cmux_excluded_ports=" \(excludedPorts) "
-        cmux_protected_ports=" \(protectedPorts) "
+        cmux_protected_tty_ports=" \(protectedTTYPorts) "
         cmux_scan_complete=0
         cmux_tmpdir="$(mktemp -d 2>/dev/null || mktemp -d -t cmux-ports 2>/dev/null || true)"
-        cmux_scan_incomplete=""
+        cmux_global_incomplete=""
+        cmux_incomplete_ttys=""
+        cmux_tab="$(printf '\\t')"
         if [ -n "$cmux_tmpdir" ]; then
-          cmux_scan_incomplete="$cmux_tmpdir/incomplete"
+          cmux_global_incomplete="$cmux_tmpdir/global-incomplete"
+          cmux_incomplete_ttys="$cmux_tmpdir/incomplete-ttys"
+          : > "$cmux_incomplete_ttys"
           trap 'rm -rf "$cmux_tmpdir"' EXIT INT TERM
         fi
 
-        cmux_mark_incomplete() {
-          [ -n "$cmux_scan_incomplete" ] && : > "$cmux_scan_incomplete"
+        cmux_mark_globally_incomplete() {
+          [ -n "$cmux_global_incomplete" ] && : > "$cmux_global_incomplete"
+          return 0
+        }
+
+        cmux_mark_tty_incomplete() {
+          cmux_incomplete_tty="$1"
+          case "$cmux_tracked_ttys" in
+            *" $cmux_incomplete_tty "*) ;;
+            *) return 0 ;;
+          esac
+          [ -n "$cmux_incomplete_ttys" ] && printf '%s\\n' "$cmux_incomplete_tty" >> "$cmux_incomplete_ttys"
+          return 0
+        }
+
+        cmux_mark_port_owners_incomplete() {
+          cmux_ambiguous_port="$1"
+          for cmux_owner_tty in $cmux_tracked_ttys; do
+            case "$cmux_protected_tty_ports" in
+              *" $cmux_owner_tty:$cmux_ambiguous_port "*) cmux_mark_tty_incomplete "$cmux_owner_tty" ;;
+            esac
+          done
           return 0
         }
 
@@ -51,12 +77,12 @@ extension RemoteSessionCoordinator {
           if [ -n "$cmux_tmpdir" ]; then
             cmux_ss_stderr="$cmux_tmpdir/ss.stderr"
             cmux_ss_output="$(ss -ltnpH 2>"$cmux_ss_stderr")" || cmux_ss_status=$?
-            [ ! -s "$cmux_ss_stderr" ] || cmux_mark_incomplete
+            [ ! -s "$cmux_ss_stderr" ] || cmux_mark_globally_incomplete
           else
             cmux_ss_output="$(ss -ltnpH 2>/dev/null)" || cmux_ss_status=$?
-            cmux_mark_incomplete
+            cmux_mark_globally_incomplete
           fi
-          [ "$cmux_ss_status" -eq 0 ] || cmux_mark_incomplete
+          [ "$cmux_ss_status" -eq 0 ] || cmux_mark_globally_incomplete
           case "$cmux_ss_output" in
             "")
               if [ "$cmux_ss_status" -eq 0 ]; then
@@ -70,7 +96,7 @@ extension RemoteSessionCoordinator {
               printf '%s\\n' "$cmux_ss_output" | while IFS= read -r cmux_line; do
                 [ -n "$cmux_line" ] || continue
                 cmux_port="$(printf '%s\\n' "$cmux_line" | awk '{print $4}' | sed -E 's/.*:([0-9]+)$/\\1/' | awk '/^[0-9]+$/ { print $1; exit }')"
-                if [ -z "$cmux_port" ]; then cmux_mark_incomplete; continue; fi
+                if [ -z "$cmux_port" ]; then cmux_mark_globally_incomplete; continue; fi
                 cmux_pid_tokens="$(printf '%s\\n' "$cmux_line" | awk '
                   {
                     line = $0
@@ -86,19 +112,18 @@ extension RemoteSessionCoordinator {
                   }
                 ')"
                 if [ -z "$cmux_pid_tokens" ]; then
-                  case "$cmux_protected_ports" in
-                    *" $cmux_port "*) cmux_mark_incomplete ;;
-                  esac
+                  cmux_mark_port_owners_incomplete "$cmux_port"
                   continue
                 fi
-                case "$cmux_pid_tokens" in
-                  *__cmux_invalid_pid__*) cmux_mark_incomplete; continue ;;
-                esac
                 for cmux_pid in $cmux_pid_tokens; do
+                  if [ "$cmux_pid" = "__cmux_invalid_pid__" ]; then
+                    cmux_mark_port_owners_incomplete "$cmux_port"
+                    continue
+                  fi
                   cmux_tty_path="$(readlink "/proc/$cmux_pid/fd/0" 2>/dev/null || true)"
-                  if [ -z "$cmux_tty_path" ]; then cmux_mark_incomplete; continue; fi
+                  if [ -z "$cmux_tty_path" ]; then cmux_mark_port_owners_incomplete "$cmux_port"; continue; fi
                   cmux_tty="${cmux_tty_path##*/}"
-                  if [ -z "$cmux_tty" ]; then cmux_mark_incomplete; continue; fi
+                  if [ -z "$cmux_tty" ]; then cmux_mark_port_owners_incomplete "$cmux_port"; continue; fi
                   cmux_emit_port "$cmux_tty" "$cmux_port"
                 done
               done
@@ -107,28 +132,29 @@ extension RemoteSessionCoordinator {
         fi
 
         if [ "$cmux_used_ss" -eq 0 ] && [ -n "$cmux_tmpdir" ] && command -v lsof >/dev/null 2>&1 && [ -n "$cmux_tty_csv" ]; then
-          rm -f "$cmux_scan_incomplete"
+          rm -f "$cmux_global_incomplete"
+          : > "$cmux_incomplete_ttys"
           cmux_scan_complete=0
           cmux_pid_tty_map="$cmux_tmpdir/pid_tty"
           cmux_ps_stderr="$cmux_tmpdir/ps.stderr"
           cmux_ps_status=0
           cmux_ps_output="$(ps -t "$cmux_tty_csv" -o pid=,tty= 2>"$cmux_ps_stderr")" || cmux_ps_status=$?
           [ "$cmux_ps_status" -eq 0 ] && [ ! -s "$cmux_ps_stderr" ] || exit 0
-          printf '%s\\n' "$cmux_ps_output" | awk -v incomplete="$cmux_scan_incomplete" '
+          printf '%s\\n' "$cmux_ps_output" | awk -v globally_incomplete="$cmux_global_incomplete" '
             NF == 2 && $1 ~ /^[0-9]+$/ {
               tty = $2
               sub(/^.*\\//, "", tty)
               if (tty != "") {
                 print $1 "\\t" tty
               } else {
-                print "1" > incomplete
-                close(incomplete)
+                print "1" > globally_incomplete
+                close(globally_incomplete)
               }
               next
             }
             NF > 0 {
-              print "1" > incomplete
-              close(incomplete)
+              print "1" > globally_incomplete
+              close(globally_incomplete)
             }
           ' > "$cmux_pid_tty_map"
           if [ ! -s "$cmux_pid_tty_map" ]; then cmux_scan_complete=1; fi
@@ -137,10 +163,21 @@ extension RemoteSessionCoordinator {
             cmux_lsof_stderr="$cmux_tmpdir/lsof.stderr"
             cmux_lsof_status=0
             cmux_lsof_output="$(lsof -nP -a -p "$cmux_pid_csv" -iTCP -sTCP:LISTEN -Fpn 2>"$cmux_lsof_stderr")" || cmux_lsof_status=$?
-            printf '%s\\n' "$cmux_lsof_output" | awk -v map="$cmux_pid_tty_map" -v incomplete="$cmux_scan_incomplete" '
-              function mark_incomplete() {
-                print "1" > incomplete
-                close(incomplete)
+            printf '%s\\n' "$cmux_lsof_output" | awk \
+              -v map="$cmux_pid_tty_map" \
+              -v globally_incomplete="$cmux_global_incomplete" \
+              -v incomplete_ttys="$cmux_incomplete_ttys" '
+              function mark_global() {
+                print "1" > globally_incomplete
+                close(globally_incomplete)
+              }
+              function mark_tty(value) {
+                if (value != "") {
+                  print value >> incomplete_ttys
+                  close(incomplete_ttys)
+                } else {
+                  mark_global()
+                }
               }
               BEGIN {
                 while ((getline < map) > 0) {
@@ -151,12 +188,12 @@ extension RemoteSessionCoordinator {
               $0 ~ /^p[0-9]+$/ {
                 pid = substr($0, 2)
                 tty = pid_to_tty[pid]
-                if (tty == "") mark_incomplete()
+                if (tty == "") mark_global()
                 next
               }
               $0 ~ /^p/ {
                 tty = ""
-                mark_incomplete()
+                mark_global()
                 next
               }
               $0 ~ /^n/ && tty != "" {
@@ -166,30 +203,35 @@ extension RemoteSessionCoordinator {
                 if (name ~ /^[0-9]+$/) {
                   print tty "\\t" name
                 } else {
-                  mark_incomplete()
+                  mark_tty(tty)
                 }
                 next
               }
-              $0 ~ /^n/ { mark_incomplete(); next }
+              $0 ~ /^n/ { mark_global(); next }
               $0 ~ /^f.+$/ { next }
-              NF > 0 { mark_incomplete() }
-            ' | while IFS=$'\\t' read -r cmux_tty cmux_port; do
+              NF > 0 { mark_tty(tty) }
+            ' | while IFS="$cmux_tab" read -r cmux_tty cmux_port; do
               [ -n "$cmux_tty" ] || continue
               [ -n "$cmux_port" ] || continue
               cmux_emit_port "$cmux_tty" "$cmux_port"
             done
             if [ ! -s "$cmux_lsof_stderr" ] && [ "$cmux_lsof_status" -eq 0 ]; then
               cmux_scan_complete=1
-            elif [ ! -s "$cmux_lsof_stderr" ] && [ "$cmux_lsof_status" -eq 1 ] && [ -z "$cmux_lsof_output" ]; then
+            elif [ ! -s "$cmux_lsof_stderr" ] && [ "$cmux_lsof_status" -eq 1 ]; then
               cmux_scan_complete=1
-              for cmux_pid in $(awk '{print $1}' "$cmux_pid_tty_map"); do
-                kill -0 "$cmux_pid" 2>/dev/null || cmux_scan_complete=0
-              done
+              while IFS="$cmux_tab" read -r cmux_pid cmux_tty; do
+                kill -0 "$cmux_pid" 2>/dev/null || cmux_mark_tty_incomplete "$cmux_tty"
+              done < "$cmux_pid_tty_map"
+            else
+              cmux_mark_globally_incomplete
             fi
           fi
         fi
-        if [ "$cmux_scan_complete" -eq 1 ] && [ -n "$cmux_scan_incomplete" ] && [ ! -e "$cmux_scan_incomplete" ]; then
-          printf '%s\\n' '\(remotePortScanCompleteMarker)'
+        if [ "$cmux_scan_complete" -eq 1 ] && [ -n "$cmux_global_incomplete" ] && [ ! -e "$cmux_global_incomplete" ]; then
+          for cmux_complete_tty in $cmux_tracked_ttys; do
+            grep -F -x -e "$cmux_complete_tty" "$cmux_incomplete_ttys" >/dev/null 2>&1 && continue
+            printf '%s\\t%s\\n' '\(remoteTTYPortScanCompleteMarker)' "$cmux_complete_tty"
+          done
         fi
         exit 0
         """

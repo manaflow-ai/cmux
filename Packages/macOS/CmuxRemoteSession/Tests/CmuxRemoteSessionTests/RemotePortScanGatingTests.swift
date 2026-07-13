@@ -102,10 +102,10 @@ struct RemotePortScanGatingTests {
     @Test("A transient empty TTY scan keeps the published port")
     func transientEmptyTTYScanKeepsPublishedPort() {
         let runner = SpyProcessRunner(results: [
-            RemoteCommandResult(status: 0, stdout: "ttys010\t4200\n\(RemoteSessionCoordinator.remotePortScanCompleteMarker)\n", stderr: ""),
+            RemoteCommandResult(status: 0, stdout: "ttys010\t4200\n\(RemoteSessionCoordinator.remoteTTYPortScanCompleteMarker)\tttys010\n", stderr: ""),
             RemoteCommandResult(
                 status: 0,
-                stdout: "\(RemoteSessionCoordinator.remotePortScanCompleteMarker)\n",
+                stdout: "\(RemoteSessionCoordinator.remoteTTYPortScanCompleteMarker)\tttys010\n",
                 stderr: ""
             ),
         ])
@@ -128,7 +128,7 @@ struct RemotePortScanGatingTests {
     @Test("Repeated incomplete TTY scans never age out the published port")
     func repeatedIncompleteTTYScansKeepPublishedPort() {
         let runner = SpyProcessRunner(results: [
-            RemoteCommandResult(status: 0, stdout: "ttys010\t4200\n\(RemoteSessionCoordinator.remotePortScanCompleteMarker)\n", stderr: ""),
+            RemoteCommandResult(status: 0, stdout: "ttys010\t4200\n\(RemoteSessionCoordinator.remoteTTYPortScanCompleteMarker)\tttys010\n", stderr: ""),
             RemoteCommandResult(status: 0, stdout: "", stderr: ""),
         ])
         let host = RecordingRemoteSessionHost()
@@ -298,9 +298,9 @@ struct RemotePortScanGatingTests {
 
     // MARK: - Harness
 
-    private static func makeCoordinator(
+    static func makeCoordinator(
         runner: SpyProcessRunner,
-        host: any RemoteSessionHosting = NoopRemoteSessionHost(),
+        host: any RemoteSessionHosting = PortScanNoopRemoteSessionHost(),
         terminalStartupCommand: String? = nil,
         relayPort: Int? = nil,
         preserveAfterTerminalExit: Bool = false,
@@ -349,7 +349,7 @@ struct RemotePortScanGatingTests {
 
 /// Records how many subprocesses the coordinator tried to spawn; returns a
 /// canned successful result so port scans complete without touching ssh.
-private final class SpyProcessRunner: RemoteSessionProcessRunning, @unchecked Sendable {
+final class SpyProcessRunner: RemoteSessionProcessRunning, @unchecked Sendable {
     private let lock = NSLock()
     private var _runCount = 0
     private let results: [RemoteCommandResult]
@@ -377,7 +377,7 @@ private final class SpyProcessRunner: RemoteSessionProcessRunning, @unchecked Se
     }
 }
 
-private struct NoopRemoteSessionHost: RemoteSessionHosting {
+struct PortScanNoopRemoteSessionHost: RemoteSessionHosting {
     func publishConnectionState(_ state: WorkspaceRemoteConnectionState, detail: String?) {}
     func publishDaemonStatus(_ status: WorkspaceRemoteDaemonStatus) {}
     func publishProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {}
@@ -386,7 +386,7 @@ private struct NoopRemoteSessionHost: RemoteSessionHosting {
     func publishBootstrapRemoteTTY(_ ttyName: String) {}
 }
 
-private final class RecordingRemoteSessionHost: RemoteSessionHosting, @unchecked Sendable {
+final class RecordingRemoteSessionHost: RemoteSessionHosting, @unchecked Sendable {
     private let lock = NSLock()
     private var _connectionStates: [(state: WorkspaceRemoteConnectionState, detail: String?)] = []
     private var _detectedPortsByPanel: [UUID: [Int]] = [:]
