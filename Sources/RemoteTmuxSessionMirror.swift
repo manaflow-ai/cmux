@@ -292,12 +292,6 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             panelIdByWindow[windowId] = nil
             windowIdByPanel[panelId] = nil
             panelIdByPane = panelIdByPane.filter { $0.value != panelId }
-            // A dead window's size claims die with it. The size table feeds
-            // both the reconnect reseed and the session client-size floor —
-            // stale entries from windows tmux removed (server restarts
-            // reuse low ids) replayed obsolete pins and dragged the client
-            // floor to sizes no live window claims.
-            connection.removeWindowSizeClaim(windowId: windowId)
         }
         // Belt for a mirror that outlived its panel bookkeeping: a mirror
         // whose window tmux no longer lists must die even if the
@@ -309,8 +303,12 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         for (windowId, mirror) in windowMirrorByWindowId where !liveWindows.contains(windowId) {
             mirror.teardown()
             windowMirrorByWindowId[windowId] = nil
-            connection.removeWindowSizeClaim(windowId: windowId)
         }
+        // A dead window's size claims die with the authoritative topology.
+        // Prune the whole ledger once: removing each dead window separately
+        // rescans the remaining claims for maxima and turns batch churn into
+        // quadratic work.
+        connection.retainWindowSizeClaims(for: liveWindows)
         // Drop cached directories for panes tmux no longer reports, so the cache
         // stays bounded across window/pane churn (tmux pane ids never recur).
         panelIdByPane = panelIdByPane.filter { livePanes.contains($0.key) }

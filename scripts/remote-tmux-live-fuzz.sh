@@ -61,6 +61,55 @@ t() { TMUX_TMPDIR="$TMPDIR_REMOTE" tmux "$@"; }
 fail=0
 note_fail() { echo "FUZZ FAIL seed=$SEED iter=$1: $2"; fail=$((fail + 1)); }
 
+settlement_has_schema() {
+  printf '%s' "$1" | jq -e '
+    (.connected | type == "boolean") and (.windows | type == "array")
+  ' >/dev/null 2>&1
+}
+
+settlement_has_reported_windows() {
+  printf '%s' "$1" | jq -e '.windows | length > 0' >/dev/null 2>&1
+}
+
+settlement_ready() {
+  printf '%s' "$1" | jq -e '
+    .connected == true
+    and (.windows | type == "array")
+    and (.windows | length > 0)
+    and all(.windows[];
+      .settled == true
+      and ((.mismatches // []) | all(.[]; contains("no-sample") | not))
+    )
+  ' >/dev/null 2>&1
+}
+
+settlement_clean() {
+  printf '%s' "$1" | jq -e '
+    .connected == true
+    and (.windows | type == "array")
+    and (.windows | length > 0)
+    and all(.windows[]; .settled == true and ((.mismatches // []) | length == 0))
+  ' >/dev/null 2>&1
+}
+
+settlement_has_render_mismatch() {
+  printf '%s' "$1" | jq -e '
+    any(.windows[]?; ((.mismatches // []) | any(.[]; test("rendered=|misplaced"))))
+  ' >/dev/null 2>&1
+}
+
+settlement_is_unsettled() {
+  printf '%s' "$1" | jq -e '
+    .connected != true or any(.windows[]?; .settled != true)
+  ' >/dev/null 2>&1
+}
+
+settlement_mismatch_lines() {
+  printf '%s' "$1" | jq -r '
+    [.windows[]?.mismatches[]? | select(test("rendered=|misplaced"))][0:4][]
+  '
+}
+
 # Fresh lab: 2 windows, random pane counts, ruler panes that redraw to their
 # tty size every 2s (a wrapped ruler is visible in text comparison).
 t kill-server 2>/dev/null
@@ -112,7 +161,6 @@ else
   CONNECT_OUT=$("$CLI" ssh-tmux "$HOST" 2>/dev/null | tail -1)
 fi
 WINDOW_ID="${CMUX_FUZZ_WINDOW_ID:-$(printf '%s' "$CONNECT_OUT" | sed -n 's/.*window=\([A-F0-9-]*\).*/\1/p')}"
-sleep "$SETTLE"
 
 # Attach barrier: the gate judges STEADY-STATE churn, so iteration 1 must
 # not begin until the initial claim/layout handshake has settled once.
@@ -125,11 +173,7 @@ if [ "$DRY" != 1 ]; then
   tries=0
   while [ "$tries" -lt 30 ]; do
     aj=$(timeout 8 "$CLI" rpc remote.tmux.sizing_settled 2>/dev/null)
-    if printf '%s' "$aj" | grep -q '"windows"' \
-       && printf '%s' "$aj" | grep -q '"window"' \
-       && printf '%s' "$aj" | grep -q '"connected" : true' \
-       && ! printf '%s' "$aj" | grep -q '"settled" : false' \
-       && ! printf '%s' "$aj" | grep -q 'no-sample'; then
+    if settlement_ready "$aj"; then
       break
     fi
     tries=$((tries + 1))
@@ -157,7 +201,7 @@ check_iter() {
     # A failed or timed-out RPC has no windows KEY at all — that is absence
     # of evidence, not settledness. Keep polling; exhausting the loop
     # reports it as never settled with whatever came back.
-    if ! printf '%s' "$settled_json" | grep -q '"windows"'; then
+    if ! settlement_has_schema "$settled_json"; then
       tries=$((tries + 1))
       sleep 2
       continue
@@ -167,7 +211,7 @@ check_iter() {
     # active window has several panes, empty means the fuzz mirror is not
     # the visible workspace — the gate would be blind, so re-select it and
     # keep polling; exhausting the loop then reports the failure.
-    if ! printf '%s' "$settled_json" | grep -q '"window"'; then
+    if ! settlement_has_reported_windows "$settled_json"; then
       local active_panes
       active_panes=$(t display -t $SESSION -p '#{window_panes}' 2>/dev/null || echo 1)
       if [ "${active_panes:-1}" -le 1 ]; then
@@ -183,10 +227,7 @@ check_iter() {
     # reported. A rendered-grid mismatch does NOT block the break: a pane
     # wrong AT settle is exactly the bug this harness exists to capture,
     # and waiting it out would misreport it as "never settled".
-    if printf '%s' "$settled_json" | grep -q '"settled" : true' \
-       && printf '%s' "$settled_json" | grep -q '"connected" : true' \
-       && ! printf '%s' "$settled_json" | grep -q '"settled" : false' \
-       && ! printf '%s' "$settled_json" | grep -q 'no-sample'; then
+    if settlement_ready "$settled_json"; then
       break
     fi
     tries=$((tries + 1))
@@ -199,16 +240,13 @@ check_iter() {
   # extra convergence time is logged so slow-to-settle never hides — a
   # window that needs the reconfirm every time is its own signal.
   reconfirm_needed=0
-  if [ "$tries" -ge 10 ] || printf '%s' "$settled_json" | grep -qE 'rendered=|misplaced'; then
+  if [ "$tries" -ge 10 ] || settlement_has_render_mismatch "$settled_json"; then
     reconfirm_needed=1
     rc_tries=0
     while [ "$rc_tries" -lt 15 ]; do
       sleep 2
       settled_json=$(timeout 8 "$CLI" rpc remote.tmux.sizing_settled 2>/dev/null)
-      if printf '%s' "$settled_json" | grep -q '"windows"' \
-         && printf '%s' "$settled_json" | grep -q '"connected" : true' \
-         && ! printf '%s' "$settled_json" | grep -q '"settled" : false' \
-         && ! printf '%s' "$settled_json" | grep -qE 'no-sample|rendered=|misplaced'; then
+      if settlement_clean "$settled_json"; then
         echo "  reconfirm: converged after $(( (rc_tries + 1) * 2 ))s extra (iter $iter)"
         reconfirm_needed=0
         break
@@ -217,11 +255,13 @@ check_iter() {
     done
   fi
   if [ "$reconfirm_needed" = 1 ]; then
-    if printf '%s' "$settled_json" | grep -q '"settled" : false'; then
+    if ! settlement_has_schema "$settled_json" \
+       || ! settlement_has_reported_windows "$settled_json" \
+       || settlement_is_unsettled "$settled_json"; then
       note_fail "$iter" "windows never settled after 50s: $(printf '%s' "$settled_json" | tr -d '\n' | cut -c1-300)"
     else
       note_fail "$iter" "settled with pane mismatches (persisted through reconfirm):"
-      printf '%s' "$settled_json" | grep -oE '"(%[0-9]* rendered=|misplaced )[^"]*"' | head -4 | sed 's/^/  /'
+      settlement_mismatch_lines "$settled_json" | sed 's/^/  /'
     fi
   fi
   # Oracle 2: every ruler redrew to its actual pane size on the tmux side
