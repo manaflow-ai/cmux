@@ -7,6 +7,9 @@ extension GhosttyApp {
         reportedDirectory: String
     ) -> Bool {
         guard let terminalSurface = surfaceView.terminalSurface,
+              terminalSurface.hostedView.hasSessionScrollbackReplayCompletionMarker(
+                matching: reportedDirectory
+              ),
               let surface = terminalSurface.surface else { return false }
         return terminalSurface.hostedView.completeSessionScrollbackReplay(
             ifMatches: reportedDirectory,

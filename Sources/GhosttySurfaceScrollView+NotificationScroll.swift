@@ -65,6 +65,11 @@ extension GhosttySurfaceScrollView {
                 sessionScrollbackReplayCompletionMarker: completionMarker
             )
         }
+        scheduleSessionScrollbackReplayCompletionDeadline()
+    }
+
+    func hasSessionScrollbackReplayCompletionMarker(matching reportedDirectory: String) -> Bool {
+        notificationScrollRestorePhase.sessionScrollbackReplayCompletionMarker?.reportedDirectory == reportedDirectory
     }
 
     @discardableResult
@@ -72,8 +77,9 @@ extension GhosttySurfaceScrollView {
         ifMatches reportedDirectory: String,
         authoritativeScrollbar: GhosttyScrollbar
     ) -> Bool {
-        guard let marker = notificationScrollRestorePhase.sessionScrollbackReplayCompletionMarker,
-              marker.reportedDirectory == reportedDirectory else { return false }
+        guard hasSessionScrollbackReplayCompletionMarker(matching: reportedDirectory) else { return false }
+        sessionScrollbackReplayCompletionDeadlineTimer?.invalidate()
+        sessionScrollbackReplayCompletionDeadlineTimer = nil
         switch notificationScrollRestorePhase {
         case .idle:
             break
@@ -88,6 +94,35 @@ extension GhosttySurfaceScrollView {
         surfaceView.enqueueScrollbarUpdate(authoritativeScrollbar)
         _ = surfaceView.flushPendingScrollbarIfAvailable()
         return true
+    }
+
+    func expireSessionScrollbackReplayCompletionDeadline() {
+        guard notificationScrollRestorePhase.sessionScrollbackReplayCompletionMarker != nil else { return }
+        sessionScrollbackReplayCompletionDeadlineTimer?.invalidate()
+        sessionScrollbackReplayCompletionDeadlineTimer = nil
+        switch notificationScrollRestorePhase {
+        case .idle:
+            break
+        case .sessionScrollbackReplayActive:
+            notificationScrollRestorePhase = .idle
+        case .pending(let position, _):
+            notificationScrollRestorePhase = .pending(
+                position,
+                sessionScrollbackReplayCompletionMarker: nil
+            )
+            _ = retryPendingNotificationScrollRestore()
+        }
+    }
+
+    private func scheduleSessionScrollbackReplayCompletionDeadline() {
+        sessionScrollbackReplayCompletionDeadlineTimer?.invalidate()
+        // The OSC 7 marker is the synchronization signal. This deadline only
+        // prevents a missing or disabled shell integration from waiting forever.
+        let timer = Timer(timeInterval: 10, repeats: false) { [weak self] _ in
+            self?.expireSessionScrollbackReplayCompletionDeadline()
+        }
+        sessionScrollbackReplayCompletionDeadlineTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func performNotificationScrollRestore(_ target: TerminalNotificationScrollRestoreTarget) -> Bool {

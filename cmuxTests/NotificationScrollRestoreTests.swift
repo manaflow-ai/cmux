@@ -118,6 +118,21 @@ struct NotificationScrollRestoreTests {
         #expect(surfaceView.bindingActions == ["scroll_to_row:156"])
     }
 
+    @Test func restoreClampsWhenReplayCompletionMarkerNeverArrives() {
+        let surfaceView = ActionProbeView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 100, offset: 56, visible: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.beginSessionScrollbackReplay(completionMarker: completionMarker(named: "replay-timeout"))
+
+        #expect(hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+        ))
+        #expect(surfaceView.bindingActions.isEmpty)
+        hostedView.expireSessionScrollbackReplayCompletionDeadline()
+        #expect(surfaceView.bindingActions == ["scroll_to_row:56"])
+        #expect(hostedView.notificationScrollRestorePhase == .idle)
+    }
+
     @Test func panelConsumesOwnedReplayCompletionMarker() {
         let workspaceID = UUID()
         let surface = TerminalSurface(
@@ -159,6 +174,16 @@ struct NotificationScrollRestoreTests {
             shell: URL(fileURLWithPath: "/bin/bash"),
             arguments: ["--noprofile", "--norc"],
             integrationFilename: "cmux-bash-integration.bash"
+        )
+    }
+
+    @Test func fishReplayEmitsOrderedCompletionMarker() throws {
+        guard let shell = ["/opt/homebrew/bin/fish", "/usr/local/bin/fish", "/usr/bin/fish"]
+            .first(where: FileManager.default.isExecutableFile(atPath:)) else { return }
+        try expectIntegrationReplay(
+            shell: URL(fileURLWithPath: shell),
+            arguments: ["--no-config"],
+            integrationFilename: "fish/config.fish"
         )
     }
 
@@ -222,6 +247,8 @@ struct NotificationScrollRestoreTests {
         process.standardOutput = stdout
         var environment = ProcessInfo.processInfo.environment
         environment[SessionScrollbackReplayStore.environmentKey] = replayFile.path
+        environment["CMUX_FISH_USER_CONFIG_ALREADY_LOADED"] = "1"
+        environment["CMUX_SHELL_INTEGRATION"] = "1"
         process.environment = environment
         try process.run()
         process.waitUntilExit()
