@@ -65,6 +65,8 @@ struct RemotePortPollStateTests {
     func incompleteTTYTransitionPreservesState() {
         var state = RemotePortPollState()
         state.apply(observedPorts: [4200], mode: .hostWide, completeness: .complete)
+        #expect(state.publishedPortsProtectedDuringTTYTransition(true) == [4200])
+        #expect(state.publishedPortsProtectedDuringTTYTransition(false).isEmpty)
 
         let didApplyIncomplete = state.apply(
             observedPorts: [],

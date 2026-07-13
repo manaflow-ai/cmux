@@ -28,7 +28,7 @@ final class PortScanner: @unchecked Sendable {
 
     // MARK: - State (all guarded by `queue`)
 
-    private let queue = DispatchQueue(label: "com.cmux.port-scanner", qos: .utility)
+    let queue = DispatchQueue(label: "com.cmux.port-scanner", qos: .utility)
 
     /// TTY name per (workspace, panel).
     private var ttyNames: [PanelKey: String] = [:]
@@ -45,7 +45,8 @@ final class PortScanner: @unchecked Sendable {
     private var agentPortSnapshot = PortScanSnapshotReconciler<UUID>()
     private var forceAgentResultWorkspaces: Set<UUID> = []
     private var trackedAgentScanningPaused = false
-    private let publicationState = PortScanPublicationState()
+    let publicationState = PortScanPublicationState()
+    var publicationBuffer = PortScanPublicationBuffer()
 
     private var pendingKicks: Set<PanelKey> = []
 
@@ -56,7 +57,6 @@ final class PortScanner: @unchecked Sendable {
 
     /// Periodic timer for agent-owned process trees that aren't attached to a TTY.
     private var agentScanTimer: DispatchSourceTimer?
-    private var publicationTask: Task<Void, Never>?
 
     /// Each scan fires at this absolute offset; the recursive scheduler
     /// converts to relative delays between consecutive scans.
@@ -514,12 +514,11 @@ final class PortScanner: @unchecked Sendable {
                 trackedKeys: trackedKeys,
                 completeness: panelCompleteness
             )
-            if let panelCallback = onPortsUpdated {
-                enqueuePublication {
-                    for key in trackedKeys {
-                        panelCallback(key.workspaceId, key.panelId, stableSnapshot[key] ?? [])
-                    }
+            if onPortsUpdated != nil {
+                let publication = trackedKeys.reduce(into: [PanelKey: [Int]]()) { result, key in
+                    result[key] = stableSnapshot[key] ?? []
                 }
+                enqueuePanelPublication(publication)
             }
         }
         deliverAgentResults(
@@ -531,13 +530,6 @@ final class PortScanner: @unchecked Sendable {
         )
     }
 
-    private func enqueuePublication(_ operation: @escaping @MainActor @Sendable () async -> Void) {
-        publicationTask = Task { @MainActor [previousTask = publicationTask] in
-            await previousTask?.value
-            await operation()
-        }
-    }
-
     private func deliverAgentResults(
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
@@ -545,7 +537,7 @@ final class PortScanner: @unchecked Sendable {
         completeness: PortScanCompleteness,
         requestID: UInt64
     ) {
-        guard let agentCallback = onAgentPortsUpdated else { return }
+        guard onAgentPortsUpdated != nil else { return }
         let validatedResults = validatedAgentResults(
             workspaceIds: workspaceIds,
             agentPortsByWorkspace: agentPortsByWorkspace,
@@ -554,27 +546,10 @@ final class PortScanner: @unchecked Sendable {
             requestID: requestID
         )
         guard !validatedResults.isEmpty else { return }
-        enqueuePublication { [weak self] in
-            guard let self else { return }
-            let currentResults = validatedResults.filter { result in
-                self.publicationState.isCurrentAgentRevision(result.revision, workspaceId: result.workspaceId)
-            }
-            guard !currentResults.isEmpty else { return }
-            let appliedResults = currentResults.filter { result in
-                agentCallback(result.workspaceId, result.ports)
-            }
-            for result in currentResults where result.removesLifecycle {
-                self.publicationState.finishAgentLifecycle(
-                    workspaceId: result.workspaceId,
-                    revision: result.revision
-                )
-            }
-            let appliedWorkspaceIds = Set(appliedResults.map(\.workspaceId))
-            await self.acknowledgeAgentResults(currentResults, appliedWorkspaceIds: appliedWorkspaceIds)
-        }
+        enqueueAgentPublication(validatedResults)
     }
 
-    private func acknowledgeAgentResults(
+    func acknowledgeAgentResults(
         _ results: [AgentPortScanPublication],
         appliedWorkspaceIds: Set<UUID>
     ) async {

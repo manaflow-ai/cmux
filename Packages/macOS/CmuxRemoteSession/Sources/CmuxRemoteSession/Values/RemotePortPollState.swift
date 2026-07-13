@@ -62,4 +62,8 @@ struct RemotePortPollState {
         publishedPorts = []
         resetScanHistory()
     }
+
+    func publishedPortsProtectedDuringTTYTransition(_ retainingFallback: Bool) -> Set<Int> {
+        retainingFallback ? Set(publishedPorts) : []
+    }
 }

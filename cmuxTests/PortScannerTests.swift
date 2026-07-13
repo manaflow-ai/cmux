@@ -263,6 +263,79 @@ struct PortScanPublicationStateTests {
 
         state.finishAgentLifecycle(workspaceId: workspaceID, revision: currentRevision)
         #expect(state.isCurrentAgentRevision(currentRevision, workspaceId: workspaceID) == false)
+
+        let restartedRevision = state.nextAgentRevision(for: workspaceID)
+        #expect(restartedRevision > currentRevision)
+        #expect(state.isCurrentAgentRevision(currentRevision, workspaceId: workspaceID) == false)
+        #expect(state.isCurrentAgentRevision(restartedRevision, workspaceId: workspaceID))
+    }
+}
+
+@Suite("Port scan publication buffer")
+struct PortScanPublicationBufferTests {
+    @Test("Repeated panel updates retain only the latest value behind one drain")
+    func panelUpdatesAreBoundedAndCoalesced() throws {
+        var buffer = PortScanPublicationBuffer()
+        let key = PortScanner.PanelKey(workspaceId: UUID(), panelId: UUID())
+        let removedKey = PortScanner.PanelKey(workspaceId: UUID(), panelId: UUID())
+
+        #expect(buffer.enqueue(panelPortsByKey: [key: [4000], removedKey: [5000]]))
+        for port in 4001...4100 {
+            #expect(buffer.enqueue(panelPortsByKey: [key: [port]]) == false)
+        }
+        #expect(buffer.isDrainScheduled)
+
+        let batch = try #require(buffer.takePendingBatch())
+        #expect(batch.panelPortsByKey[key] == [4100])
+        #expect(batch.panelPortsByKey[removedKey] == nil)
+        #expect(buffer.isDrainScheduled)
+        #expect(buffer.takePendingBatch()?.isEmpty == nil)
+        #expect(buffer.isDrainScheduled == false)
+    }
+
+    @Test("Agent updates coalesce by lifecycle revision and request ordering")
+    func agentUpdatesKeepLatestLifecycleValue() throws {
+        var buffer = PortScanPublicationBuffer()
+        let workspaceID = UUID()
+        let first = AgentPortScanPublication(
+            workspaceId: workspaceID,
+            ports: [4000],
+            revision: 1,
+            requestID: 1,
+            removesLifecycle: false
+        )
+        let latestRequest = AgentPortScanPublication(
+            workspaceId: workspaceID,
+            ports: [4200],
+            revision: 1,
+            requestID: 2,
+            removesLifecycle: false
+        )
+        let staleLifecycle = AgentPortScanPublication(
+            workspaceId: workspaceID,
+            ports: [4300],
+            revision: 0,
+            requestID: 99,
+            removesLifecycle: false
+        )
+
+        #expect(buffer.enqueue(agentPublications: [first]))
+        #expect(buffer.enqueue(agentPublications: [latestRequest]) == false)
+        #expect(buffer.enqueue(agentPublications: [staleLifecycle]) == false)
+
+        let batch = try #require(buffer.takePendingBatch())
+        #expect(batch.agentPublicationsByWorkspace[workspaceID]?.ports == [4200])
+
+        let nextLifecycle = AgentPortScanPublication(
+            workspaceId: workspaceID,
+            ports: [4400],
+            revision: 2,
+            requestID: 3,
+            removesLifecycle: false
+        )
+        #expect(buffer.enqueue(agentPublications: [nextLifecycle]) == false)
+        #expect(buffer.takePendingBatch()?.agentPublicationsByWorkspace[workspaceID]?.ports == [4400])
+        #expect(buffer.takePendingBatch()?.isEmpty == nil)
     }
 }
 

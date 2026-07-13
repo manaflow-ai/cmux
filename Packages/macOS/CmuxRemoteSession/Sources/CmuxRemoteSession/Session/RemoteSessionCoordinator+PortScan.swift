@@ -236,7 +236,9 @@ extension RemoteSessionCoordinator {
         let ttyNames = Array(Set(ttyNamesByPanel.values)).sorted()
         guard !ttyNames.isEmpty else { return ([:], .complete) }
 
-        let protectedPorts = Set(remotePortScanSnapshot.snapshot.values.flatMap { $0 })
+        let protectedPorts = Set(remotePortScanSnapshot.snapshot.values.flatMap { $0 }).union(
+            remotePortPollState.publishedPortsProtectedDuringTTYTransition(keepPolledRemotePortsUntilTTYScan)
+        )
         let script = Self.remotePortScanScript(
             ttyNames: ttyNames,
             excluding: excludedRemoteScanPorts(),
