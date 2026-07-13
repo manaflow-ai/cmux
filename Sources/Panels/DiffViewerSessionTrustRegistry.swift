@@ -8,7 +8,7 @@ final class DiffViewerSessionTrustRegistry {
         let scheme: String
         let host: String
         let port: Int
-        let createdAt: Date
+        var lastAuthenticatedActivityAt: Date
     }
 
     private var liveHTTPSessions: [String: LiveHTTPSession] = [:]
@@ -35,10 +35,15 @@ final class DiffViewerSessionTrustRegistry {
         }
         guard let candidate = Self.liveHTTPSession(from: url, now: now) else { return false }
         pruneExpiredSessionsLocked(now: now)
-        let registered = liveHTTPSessions[token]
-        return registered?.scheme == candidate.scheme &&
-            registered?.host == candidate.host &&
-            registered?.port == candidate.port
+        guard var registered = liveHTTPSessions[token],
+              registered.scheme == candidate.scheme,
+              registered.host == candidate.host,
+              registered.port == candidate.port else {
+            return false
+        }
+        registered.lastAuthenticatedActivityAt = now
+        liveHTTPSessions[token] = registered
+        return true
     }
 
     private static func liveHTTPSession(from url: URL, now: Date) -> LiveHTTPSession? {
@@ -46,12 +51,17 @@ final class DiffViewerSessionTrustRegistry {
               scheme == "http" || scheme == "https",
               url.host == "127.0.0.1",
               let port = url.port else { return nil }
-        return LiveHTTPSession(scheme: scheme, host: "127.0.0.1", port: port, createdAt: now)
+        return LiveHTTPSession(
+            scheme: scheme,
+            host: "127.0.0.1",
+            port: port,
+            lastAuthenticatedActivityAt: now
+        )
     }
 
     private func pruneExpiredSessionsLocked(now: Date) {
         liveHTTPSessions = liveHTTPSessions.filter {
-            now.timeIntervalSince($0.value.createdAt) <= maxSessionAge
+            now.timeIntervalSince($0.value.lastAuthenticatedActivityAt) <= maxSessionAge
         }
     }
 }
