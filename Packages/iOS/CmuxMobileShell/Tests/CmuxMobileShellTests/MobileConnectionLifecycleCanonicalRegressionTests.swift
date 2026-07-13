@@ -259,6 +259,44 @@ import Testing
         #expect(factory.attemptedPorts().isEmpty)
     }
 
+    @Test func cachedRetryWithoutDialableRoutePreservesPairedHint() async throws {
+        let route = try loopbackRoute(id: "unsupported", port: 51_006)
+        let pairedMacStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["": [storedMac(id: "mac-a", route: route)]],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: RouteRecordingTransportFactory(
+                    router: LivenessHostRouter(),
+                    box: TransportBox(),
+                    failingPorts: []
+                ),
+                now: { Date() },
+                supportedRouteKinds: [.tailscale]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedMacStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1")
+        )
+        await store.loadPairedMacs()
+        store.setHasKnownPairedMac(true, generation: store.storedMacReconnectGeneration)
+        let reconnectOperation = await store.makeStoredMacReconnectOperation(
+            stackUserID: "user-1",
+            usesCachedReconnect: true
+        )
+        let operation = try #require(reconnectOperation)
+
+        let operationOutcome = await operation.run()
+        let outcome = store.applyStoredMacReconnectOperationOutcome(
+            operationOutcome,
+            generation: operation.generation
+        )
+
+        #expect(outcome == .unavailable)
+        #expect(store.hasKnownPairedMac)
+    }
+
     @Test func retiredStoreReadDoesNotRetainShellAfterDeadline() async throws {
         let deadline = ControlledStoredMacReconnectDeadline()
         let pairedMacStore = DelayedTeamPairedMacStore(
