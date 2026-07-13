@@ -16,6 +16,19 @@ extension TerminalSurface {
         }
     }
 
+    /// Performs a user-initiated Ghostty binding action after notifying the pane host.
+    ///
+    /// Internal actions such as notification scroll restoration continue to use
+    /// ``performBindingAction(_:)`` so they do not cancel their own pending state.
+    ///
+    /// - Returns: Whether the runtime performed the action.
+    @MainActor
+    @discardableResult
+    public func performExplicitInputBindingAction(_ action: String) -> Bool {
+        didReceiveExplicitInput()
+        return performBindingAction(action)
+    }
+
     /// Toggles keyboard copy mode through the surface view.
     ///
     /// - Returns: Whether the view handled the toggle.

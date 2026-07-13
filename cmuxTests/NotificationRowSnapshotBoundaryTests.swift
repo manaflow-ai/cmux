@@ -385,8 +385,11 @@ struct NotificationRowSnapshotBoundaryTests {
         )
         defer { terminal.releaseSurfaceForTesting() }
         let hostedView = terminal.hostedView
-        hostedView.pendingNotificationScrollPosition = .init(row: 0, totalRows: 400)
-        hostedView.pendingNotificationScrollRestoreAttemptsRemaining = 2
+        hostedView.notificationScrollRestoreState = .replaying(
+            expectedBoundary: "test-replay-boundary",
+            pendingPosition: .init(row: 0, totalRows: 400)
+        )
+        #expect(hostedView.hasPendingNotificationScrollRestore)
         let event = try #require(NSEvent.keyEvent(
             with: .keyDown, location: .zero, modifierFlags: .shift,
             timestamp: 1, windowNumber: 0, context: nil,
@@ -394,7 +397,7 @@ struct NotificationRowSnapshotBoundaryTests {
             isARepeat: false, keyCode: 116
         ))
         hostedView.surfaceView.keyDown(with: event)
-        #expect(hostedView.pendingNotificationScrollPosition == nil)
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
     @Test func menuPasteCancelsPendingNotificationRestore() {
@@ -404,12 +407,15 @@ struct NotificationRowSnapshotBoundaryTests {
         )
         defer { terminal.releaseSurfaceForTesting() }
         let hostedView = terminal.hostedView
-        hostedView.pendingNotificationScrollPosition = .init(row: 0, totalRows: 400)
-        hostedView.pendingNotificationScrollRestoreAttemptsRemaining = 2
+        hostedView.notificationScrollRestoreState = .replaying(
+            expectedBoundary: "test-replay-boundary",
+            pendingPosition: .init(row: 0, totalRows: 400)
+        )
+        #expect(hostedView.hasPendingNotificationScrollRestore)
 
         hostedView.surfaceView.paste(nil)
 
-        #expect(hostedView.pendingNotificationScrollPosition == nil)
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
     @Test func deferredHistoricalRestoreWaitsForTargetPacket() {
@@ -417,10 +423,13 @@ struct NotificationRowSnapshotBoundaryTests {
         surfaceView.scrollbar = notificationScrollbar(total: 0, offset: 0, len: 0)
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
         let position = TerminalNotificationScrollPosition(row: 100, totalRows: 400)
+        let boundary = "test-replay-boundary"
+        hostedView.sessionScrollbackReplayDidBegin(expectedBoundary: boundary)
         #expect(!hostedView.restoreNotificationScrollPosition(position))
 
         postScrollbar(notificationScrollbar(total: 100, offset: 56, len: 44), to: surfaceView)
         #expect(surfaceView.performedBindingActions.isEmpty)
+        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(boundary))
         postScrollbar(notificationScrollbar(total: 400, offset: 0, len: 44), to: surfaceView)
         #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
         #expect(hostedView.allowExplicitScrollbarSync)
@@ -433,15 +442,18 @@ struct NotificationRowSnapshotBoundaryTests {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
-        panel.hostedView.pendingNotificationScrollPosition = .init(row: 12, totalRows: 400)
-        panel.hostedView.pendingNotificationScrollRestoreAttemptsRemaining = 2
+        panel.hostedView.notificationScrollRestoreState = .replaying(
+            expectedBoundary: "test-replay-boundary",
+            pendingPosition: .init(row: 12, totalRows: 400)
+        )
+        #expect(panel.hostedView.hasPendingNotificationScrollRestore)
 
         (AppDelegate.shared ?? AppDelegate()).restoreNotificationScrollPosition(
             nil, tabId: workspace.id, surfaceId: nil,
             panelId: panelId, workspace: workspace
         )
 
-        #expect(panel.hostedView.pendingNotificationScrollPosition == nil)
+        #expect(!panel.hostedView.hasPendingNotificationScrollRestore)
     }
 
     @Test func openingLegacyNotificationPreservesBottomRelativeViewport() {

@@ -188,6 +188,12 @@ _cmux_restore_scrollback_once() {
         /bin/cat -- "$path" 2>/dev/null || true
         /bin/rm -f -- "$path" >/dev/null 2>&1 || true
     fi
+
+    # Keep the completion signal in the PTY stream so it cannot race the
+    # socket-based shell activity report. The following real cwd report keeps
+    # Ghostty's internal pwd/title state from retaining the private marker.
+    builtin printf '\033]1337;CurrentDir=cmux-session-scrollback-replay:%s\007' "$path"
+    builtin printf '\033]1337;CurrentDir=%s\007' "$PWD"
 }
 _cmux_restore_scrollback_once
 _CMUX_CLAUDE_WRAPPER="${_CMUX_CLAUDE_WRAPPER:-}"

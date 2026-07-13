@@ -1841,6 +1841,7 @@ extension AppSessionSnapshot: SessionSnapshotRepresenting {
 
 enum SessionScrollbackReplayStore {
     static let environmentKey = "CMUX_RESTORE_SCROLLBACK_FILE"
+    static let boundaryPrefix = "cmux-session-scrollback-replay:"
     private static let directoryName = "cmux-session-scrollback"
     private static let ansiEscape = "\u{001B}"
     private static let ansiReset = "\u{001B}[0m"
@@ -1857,6 +1858,10 @@ enum SessionScrollbackReplayStore {
             return [:]
         }
         return [environmentKey: replayFileURL.path]
+    }
+
+    static func boundaryValue(forReplayFilePath path: String) -> String {
+        boundaryPrefix + path
     }
 
     private static func normalizedScrollback(_ scrollback: String?) -> String? {

@@ -7415,6 +7415,13 @@ final class Workspace: Identifiable, ObservableObject {
             additionalEnvironment: effectiveStartupEnvironment,
             runtimeSpawnPolicy: runtimeSpawnPolicy
         )
+        if let replayFilePath = effectiveStartupEnvironment[SessionScrollbackReplayStore.environmentKey] {
+            newPanel.hostedView.sessionScrollbackReplayDidBegin(
+                expectedBoundary: SessionScrollbackReplayStore.boundaryValue(
+                    forReplayFilePath: replayFilePath
+                )
+            )
+        }
         configureNewTerminalPanel(
             newPanel,
             allowTextBoxFocusDefault: shouldFocusNewTab && allowTextBoxFocusDefault

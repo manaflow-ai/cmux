@@ -2909,10 +2909,14 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_PWD:
-            guard let tabId = surfaceView.tabId,
-                  let surfaceId = surfaceView.terminalSurface?.id else { return true }
             let pwd = action.action.pwd.pwd.flatMap { String(cString: $0) } ?? ""
+            let terminalSurface = surfaceView.terminalSurface
             DispatchQueue.main.async {
+                if terminalSurface?.hostedView.sessionScrollbackReplayDidReceiveBoundary(pwd) == true {
+                    return
+                }
+                guard let tabId = surfaceView.tabId,
+                      let surfaceId = terminalSurface?.id else { return }
                 AppDelegate.shared?.tabManagerFor(tabId: tabId)?.updateReportedSurfaceDirectory(
                     tabId: tabId,
                     surfaceId: surfaceId,
@@ -4286,7 +4290,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
     @discardableResult
     func prepareSurfaceForPaste(reason: String) -> Bool {
-        terminalSurface?.hostedView.cancelPendingNotificationScrollRestoreForUserInput()
+        terminalSurface?.didReceiveExplicitInput()
         guard ensureSurfaceReadyForInput() != nil else {
             requestInputRecoveryAfterSurfaceMiss(reason: reason)
             return false
@@ -5654,7 +5658,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func keyDown(with event: NSEvent) {
-        terminalSurface?.hostedView.cancelPendingNotificationScrollRestoreForUserInput()
+        terminalSurface?.didReceiveExplicitInput()
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         let phaseTotalStart = ProcessInfo.processInfo.systemUptime
@@ -8186,8 +8190,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var scrollbarTrackingArea: NSTrackingArea?
     private var isLiveScrolling = false
     private var lastSentRow: Int?
-    var pendingNotificationScrollPosition: TerminalNotificationScrollPosition?
-    var pendingNotificationScrollRestoreAttemptsRemaining = 0
+    var notificationScrollRestoreState: NotificationScrollRestoreState = .inactive
     /// Tracks scrollback review so auto-scroll does not fight the user's position.
     var userScrolledAwayFromBottom = false
     private var pendingExplicitWheelScroll = false
