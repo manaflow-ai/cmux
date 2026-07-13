@@ -75,6 +75,21 @@ import Testing
         #expect(service.changedFiles(repoRoot: repo.path) == nil)
     }
 
+    @Test func symbolicHeadOutsideBranchesDoesNotUseTheEmptyTreeBaseline() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        try Data("staged\n".utf8).write(to: repo.appendingPathComponent("staged.txt"))
+        try runTestGit(in: repo, ["add", "--", "staged.txt"])
+        try Data("ref: refs/tags/missing\n".utf8)
+            .write(to: repo.appendingPathComponent(".git/HEAD"))
+
+        let service = GitDiffService()
+
+        // Only a missing branch ref is a valid unborn repository. Treating a
+        // missing tag ref as unborn would present the index as new additions.
+        #expect(service.changedFiles(repoRoot: repo.path) == nil)
+    }
+
     private func makeTempRepo() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-git-identity-tests-\(UUID().uuidString)")

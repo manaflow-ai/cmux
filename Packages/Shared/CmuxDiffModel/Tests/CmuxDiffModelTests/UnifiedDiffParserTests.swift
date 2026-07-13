@@ -172,6 +172,7 @@ import Testing
 
         let result = parser.parse(hunks)
 
+        #expect(result.hunks.count == 10)
         #expect(result.hunks.flatMap(\.lines).count == 20_000)
         #expect(result.isTruncated)
     }
