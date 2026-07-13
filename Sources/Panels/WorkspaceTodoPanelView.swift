@@ -24,7 +24,8 @@ struct WorkspaceTodoPanelView: View {
                 WorkspaceTodoPaneContent(
                     workspace: workspace,
                     todoState: workspace.todoState,
-                    isFocused: isFocused
+                    isFocused: isFocused,
+                    addFieldArmToken: panel.addFieldArmToken
                 )
             } else {
                 Text(String(
@@ -50,6 +51,8 @@ private struct WorkspaceTodoPaneContent: View {
     @ObservedObject var workspace: Workspace
     @ObservedObject var todoState: WorkspaceTodoState
     let isFocused: Bool
+    /// Open-or-focus bump; re-arms the add field when `isFocused` doesn't transition.
+    let addFieldArmToken: Int
 
     @State private var isStatusPopoverPresented = false
     @State private var pendingItemText = ""
@@ -134,6 +137,7 @@ private struct WorkspaceTodoPaneContent: View {
         .onChange(of: isFocused) { _, focused in
             if focused, editingItemId == nil { addFieldFocused = true }
         }
+        .onChange(of: addFieldArmToken) { _, _ in if editingItemId == nil { addFieldFocused = true } }
         .onChange(of: editFieldFocused) { _, focused in
             if !focused { finishItemEditOnFocusLoss() }
         }

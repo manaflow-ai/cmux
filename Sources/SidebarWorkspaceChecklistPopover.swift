@@ -471,8 +471,11 @@ struct SidebarWorkspaceChecklistPopover: View {
 
     private var footer: some View {
         Button {
-            actions.openPane()
+            // Close FIRST: NSPopover teardown restores the parent window's
+            // previous first responder, which would clobber the pane focus /
+            // armed add field that openPane() sets up.
             onClose()
+            actions.openPane()
         } label: {
             HStack(spacing: 6) {
                 CmuxSystemSymbolImage(systemName: "rectangle.split.2x1", pointSize: 11)

@@ -153,6 +153,16 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
         Coordinator(isPresented: $isPresented)
     }
 
+    // NOTE: the coordinator's `isPresented` binding is REFRESHED on every
+    // `updateNSView` (see below). The section builds that binding from its
+    // per-render value snapshot, so a binding captured only at
+    // `makeCoordinator` time reads a frozen value forever — a coordinator
+    // created while the popover was hidden then saw `isPresented == false`
+    // at `popoverDidClose` even when the container still said shown, skipped
+    // the `false` write-back, and left the container state stuck `true`.
+    // Every later model change then re-presented the popover with no user
+    // action (the "popover opens while typing in the todo pane" bug).
+
     /// Anchor view for the popover. Retries a pending `present()` once it
     /// actually attaches to a window: a same-transaction "open immediately"
     /// request (e.g. a zero-item workspace's first Add Checklist Item, where
@@ -183,6 +193,7 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
         coordinator.minWidth = minWidth
         coordinator.maxHeight = maxHeight
         coordinator.preferredEdge = preferredEdge
+        coordinator.isPresentedBinding = $isPresented
         coordinator.acknowledge(isPresented: isPresented, requestToken: presentationRequestToken)
         coordinator.update(model: model) { model, close in
             AnyView(content(model, close))
@@ -200,7 +211,15 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
 
     @MainActor
     final class Coordinator: NSObject, NSPopoverDelegate {
-        @Binding var isPresented: Bool
+        /// Refreshed by every `updateNSView` tick so reads and write-backs
+        /// target the CURRENT container state, not the value snapshot from
+        /// whichever render created this coordinator (see the note on
+        /// `makeCoordinator`).
+        var isPresentedBinding: Binding<Bool>
+        private var isPresented: Bool {
+            get { isPresentedBinding.wrappedValue }
+            set { isPresentedBinding.wrappedValue = newValue }
+        }
         weak var anchorView: NSView?
         var minWidth: CGFloat = 200
         var maxHeight: CGFloat = 480
@@ -232,7 +251,7 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
         private var lastRequestToken = 0
 
         init(isPresented: Binding<Bool>) {
-            _isPresented = isPresented
+            isPresentedBinding = isPresented
         }
 
         /// Called on every `updateNSView` tick, before `present()`/`dismiss()`.
