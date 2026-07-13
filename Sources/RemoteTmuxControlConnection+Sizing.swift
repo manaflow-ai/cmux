@@ -34,6 +34,7 @@ extension RemoteTmuxControlConnection {
         if removed.1 == maximumWindowClaimRows {
             maximumWindowClaimRows = lastWindowSizes.values.reduce(0) { max($0, $1.1) }
         }
+        synchronizeClientSizeToWindowClaims()
     }
 
     func retainWindowSizeClaims(for liveWindowIDs: Set<Int>) {
@@ -41,7 +42,23 @@ extension RemoteTmuxControlConnection {
         sentWindowSizes = sentWindowSizes.filter { liveWindowIDs.contains($0.key) }
         maximumWindowClaimColumns = lastWindowSizes.values.reduce(0) { max($0, $1.0) }
         maximumWindowClaimRows = lastWindowSizes.values.reduce(0) { max($0, $1.1) }
+        synchronizeClientSizeToWindowClaims()
     }
+
+    /// Keeps the control client's envelope equal to the largest live per-window claims.
+    private func synchronizeClientSizeToWindowClaims() {
+        guard supportsPerWindowSize,
+              maximumWindowClaimColumns > 0,
+              maximumWindowClaimRows > 0,
+              lastClientSize?.columns != maximumWindowClaimColumns
+                || lastClientSize?.rows != maximumWindowClaimRows
+        else { return }
+        setClientSize(
+            columns: maximumWindowClaimColumns,
+            rows: maximumWindowClaimRows
+        )
+    }
+
     /// Sizes the tmux control client to `columns`×`rows` cells (tmux
     /// `refresh-client -C`) so the remote windows/panes reflow to the rendered
     /// cmux grid. Without this a freshly attached session stays at ssh's default
@@ -115,12 +132,18 @@ extension RemoteTmuxControlConnection {
         // Record desired state before dedup. If a different debounced size is
         // pending and the user returns to the size already on the server, an
         // early return must cancel that stale task instead of letting it win.
-        let maximumClaim = recordWindowSizeClaim(windowId: windowId, columns: columns, rows: rows)
+        _ = recordWindowSizeClaim(windowId: windowId, columns: columns, rows: rows)
         lastSizeRequestWindowId = windowId
         guard supportsPerWindowSize else {
             setClientSize(columns: columns, rows: rows)
             return
         }
+        // The CLIENT's own size must cover the largest window claim: tmux
+        // derives window sizes from client sizes, and per-window pins do
+        // not carry against a client still sitting at its 80-column
+        // default. Track the exact live envelope upward or downward before
+        // per-window dedup, because a claim change can leave this pin intact.
+        synchronizeClientSizeToWindowClaims()
         // Dedup only while per-window sizing is live: on the session-wide
         // fallback the server holds ONE size, so a window's own last request
         // being unchanged does not mean the server still has it (another
@@ -135,23 +158,6 @@ extension RemoteTmuxControlConnection {
         cmuxDebugLog("remote.rects.claim @\(windowId) \(columns)x\(rows)")
         #endif
         lastSizingSendAt = .now
-        // The CLIENT's own size must cover the largest window claim: tmux
-        // derives window sizes from client sizes, and per-window pins do
-        // not carry against a client still sitting at its 80-column
-        // default — a fresh control client after a server restart wedged
-        // every window near 80 regardless of pins. Keep the session-wide
-        // client size at the running maximum of live claims (setClientSize
-        // dedups and debounces; reseed replays it on reconnect).
-        let maxColumns = maximumClaim.columns
-        let maxRows = maximumClaim.rows
-        if lastClientSize == nil
-            || lastClientSize!.columns < maxColumns
-            || lastClientSize!.rows < maxRows {
-            setClientSize(
-                columns: max(maxColumns, lastClientSize?.columns ?? 0),
-                rows: max(maxRows, lastClientSize?.rows ?? 0)
-            )
-        }
         guard connectionState == .connected else { return }
         windowSizeDebounceTasks[windowId]?.cancel()
         windowSizeDebounceTasks[windowId] = Task { @MainActor [weak self] in

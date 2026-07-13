@@ -92,10 +92,16 @@ private struct SplitMix64 {
                 + 4 + Self.draw(100, using: &rng)
             let rows = max(minimum.rows, RemoteTmuxMirrorGeometry.minRows)
                 + 4 + Self.draw(50, using: &rng)
-            let tightSize = CGSize(
+            let paddedSize = CGSize(
                 width: CGFloat(cols) * metrics.cellSize.width + overhead.width,
                 height: CGFloat(rows) * metrics.cellSize.height + overhead.height
             )
+            let tightSize = try #require(Self.tightContainer(
+                startingAt: paddedSize,
+                layout: structure,
+                metrics: metrics,
+                scale: scale
+            ))
             let looseSize = CGSize(
                 width: tightSize.width + CGFloat(Self.draw(Int(metrics.cellSize.width), using: &rng)),
                 height: tightSize.height + CGFloat(Self.draw(Int(metrics.cellSize.height), using: &rng))
@@ -209,6 +215,35 @@ private struct SplitMix64 {
             executedRegimes >= 100,
             "only \(executedRegimes)/320 regimes executed — generator or claim collapsed"
         )
+    }
+
+    /// Removes every spare device pixel without crossing into a smaller client claim.
+    private static func tightContainer(
+        startingAt initial: CGSize,
+        layout: RemoteTmuxLayoutNode,
+        metrics: RemoteTmuxNativeLayoutMetrics,
+        scale: CGFloat
+    ) -> CGSize? {
+        guard let claim = metrics.clientGrid(layout: layout, contentSize: initial) else {
+            return nil
+        }
+        let step = 1 / scale
+        var size = initial
+        while size.width - step > 1 {
+            var candidate = size
+            candidate.width -= step
+            guard metrics.clientGrid(layout: layout, contentSize: candidate)?.columns
+                    == claim.columns else { break }
+            size = candidate
+        }
+        while size.height - step > 1 {
+            var candidate = size
+            candidate.height -= step
+            guard metrics.clientGrid(layout: layout, contentSize: candidate)?.rows
+                    == claim.rows else { break }
+            size = candidate
+        }
+        return size
     }
 
     // MARK: - Random generation

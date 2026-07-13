@@ -160,13 +160,24 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         return firstExtent / max(1, firstExtent + secondExtent)
     }
 
-    /// The exact points a subtree needs along one axis: its cell span plus
-    /// its folded chrome residual.
+    /// Preferred points for a subtree: its cell span, chrome, and placement slack.
     public func idealExtent(
         of tree: RemoteTmuxNativeMeasuredSplitTree,
         along orientation: RemoteTmuxSplitOrientation
     ) -> CGFloat {
         extent(of: tree.layout, residual: tree.residual, along: orientation)
+    }
+
+    /// The point extent that preserves every assigned cell before optional placement slack.
+    func minimumIdealExtent(
+        of tree: RemoteTmuxNativeMeasuredSplitTree,
+        along orientation: RemoteTmuxSplitOrientation
+    ) -> CGFloat {
+        extent(
+            of: tree.layout,
+            residual: chromeResidual(of: tree.layout),
+            along: orientation
+        )
     }
 
     /// The whole-point extent the FIRST subtree of a split should receive:
@@ -211,6 +222,51 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         // Rounding up instead would overshoot into trailing siblings.
         let allocated = min(max(0, target.rounded()), available)
         let secondCarry = min(max(target - allocated, -0.5), 0.5)
+        return (firstExtent: allocated, secondCarry: secondCarry)
+    }
+
+    /// Allocates a rail without letting optional placement slack consume required cell extents.
+    func railAllocation(
+        firstIdeal: CGFloat,
+        secondIdeal: CGFloat,
+        firstMinimum: CGFloat,
+        secondMinimum: CGFloat,
+        carry: CGFloat,
+        available: CGFloat
+    ) -> (firstExtent: CGFloat, secondCarry: CGFloat)? {
+        guard available > 0 else { return nil }
+        let tolerance: CGFloat = 0.0001
+        let minimumFirstExtent = (firstMinimum - tolerance).rounded(.up)
+        let maximumFirstExtent = (available - secondMinimum + tolerance).rounded(.down)
+        let minimumsFit = firstMinimum + secondMinimum <= available + tolerance
+            && minimumFirstExtent <= maximumFirstExtent
+
+        let target: CGFloat
+        if minimumsFit {
+            let exactSpan = available - carry
+            if firstIdeal + secondIdeal <= exactSpan {
+                target = firstIdeal + carry
+            } else {
+                let firstSlack = max(0, firstIdeal - firstMinimum)
+                let secondSlack = max(0, secondIdeal - secondMinimum)
+                let totalSlack = firstSlack + secondSlack
+                let spare = max(0, available - firstMinimum - secondMinimum)
+                let grantedFirstSlack = totalSlack > 0
+                    ? min(firstSlack, spare * firstSlack / totalSlack)
+                    : 0
+                target = firstMinimum + grantedFirstSlack + carry
+            }
+        } else {
+            let minimumSum = firstMinimum + secondMinimum
+            let scale = minimumSum > 0 ? max(0, available) / minimumSum : 1
+            target = firstMinimum * scale + carry
+        }
+
+        let boundedTarget = minimumsFit
+            ? min(max(target, minimumFirstExtent), maximumFirstExtent)
+            : target
+        let allocated = min(max(0, boundedTarget.rounded()), available)
+        let secondCarry = min(max(boundedTarget - allocated, -0.5), 0.5)
         return (firstExtent: allocated, secondCarry: secondCarry)
     }
 

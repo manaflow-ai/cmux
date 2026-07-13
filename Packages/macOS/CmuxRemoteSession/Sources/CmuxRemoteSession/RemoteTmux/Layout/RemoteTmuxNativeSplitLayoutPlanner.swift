@@ -49,8 +49,9 @@ public struct RemoteTmuxNativeSplitLayoutPlanner: Sendable {
     /// nesting depth, and a leaf under k same-axis levels could fall half
     /// a point short per level — one lost column at depth two.)
     ///
-    /// When a split's extent cannot fit both ideals, both are scaled evenly
-    /// and the boundaries of that region are rounded on the scaled ideals.
+    /// Placement slack is preferred but optional: when both preferred ideals
+    /// do not fit, the walk preserves the chrome-only minimums that carry the
+    /// assigned cells. Only a region too small for those minimums degrades.
     /// Without a parent size (no container measured yet, or a degenerate
     /// extent mid-collapse), fractions fall back to the proportional
     /// ideal-over-ideal split and sizes stop being modeled below that
@@ -80,6 +81,12 @@ public struct RemoteTmuxNativeSplitLayoutPlanner: Sendable {
                 if let allocation = metrics.railAllocation(
                     firstIdeal: metrics.idealExtent(of: firstTree, along: orientation),
                     secondIdeal: metrics.idealExtent(of: secondTree, along: orientation),
+                    firstMinimum: metrics.minimumIdealExtent(
+                        of: firstTree, along: orientation
+                    ),
+                    secondMinimum: metrics.minimumIdealExtent(
+                        of: secondTree, along: orientation
+                    ),
                     carry: axisCarry,
                     available: available
                 ) {
