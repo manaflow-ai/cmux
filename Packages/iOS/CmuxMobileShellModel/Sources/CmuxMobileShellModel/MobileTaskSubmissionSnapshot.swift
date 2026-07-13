@@ -50,6 +50,18 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         self.composition = MobileTaskCommandComposer().compose(template: template, prompt: prompt)
     }
 
+    /// Whether both snapshots produce the same `workspace.create` request.
+    ///
+    /// Template identity and presentation metadata, raw whitespace, directory
+    /// edit provenance, and operation identity are excluded because the Mac
+    /// receives only the selected Mac, composed title/command/environment, and
+    /// trimmed effective working directory.
+    public func isRequestEquivalent(to other: MobileTaskSubmissionSnapshot) -> Bool {
+        macDeviceID == other.macDeviceID
+            && composition == other.composition
+            && trimmedDirectory == other.trimmedDirectory
+    }
+
     /// Draft restored after interruption or a failed submission.
     public var draft: MobileTaskComposerDraft {
         MobileTaskComposerDraft(

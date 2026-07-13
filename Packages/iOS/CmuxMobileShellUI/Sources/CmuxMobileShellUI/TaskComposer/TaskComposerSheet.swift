@@ -261,9 +261,10 @@ struct TaskComposerSheet: View {
             get: { directory },
             set: { newValue in
                 guard !isSubmitting else { return }
-                directory = newValue
-                submissionIdentity.rotate()
-                didEditDirectory = true
+                updateSubmissionRequest {
+                    directory = newValue
+                    didEditDirectory = true
+                }
                 failureText = nil
             }
         )
@@ -274,8 +275,9 @@ struct TaskComposerSheet: View {
             get: { prompt },
             set: { newValue in
                 guard !isSubmitting else { return }
-                prompt = newValue
-                submissionIdentity.rotate()
+                updateSubmissionRequest {
+                    prompt = newValue
+                }
                 failureText = nil
             }
         )
@@ -311,10 +313,11 @@ struct TaskComposerSheet: View {
                 ForEach(machines) { mac in
                     Button {
                         guard !isSubmitting else { return }
-                        selectedMacDeviceID = mac.macDeviceID
-                        submissionIdentity.rotate()
+                        updateSubmissionRequest {
+                            selectedMacDeviceID = mac.macDeviceID
+                            syncSuggestedDirectory()
+                        }
                         failureText = nil
-                        syncSuggestedDirectory()
                     } label: {
                         HStack {
                             machineIcon(mac)
@@ -344,11 +347,12 @@ struct TaskComposerSheet: View {
         let isSelected = template.id == selectedTemplateID
         return Button {
             guard !isSubmitting else { return }
-            selectedTemplateID = template.id
-            submissionIdentity.rotate()
+            updateSubmissionRequest {
+                selectedTemplateID = template.id
+                didEditDirectory = false
+                syncSuggestedDirectory()
+            }
             failureText = nil
-            didEditDirectory = false
-            syncSuggestedDirectory()
         } label: {
             HStack(spacing: 6) {
                 TaskTemplateIcon(value: template.icon)
@@ -429,23 +433,46 @@ struct TaskComposerSheet: View {
 
     private func refreshTemplates() {
         guard !isSubmitting else { return }
-        submissionIdentity.rotate()
-        templates = store.taskTemplateStore?.listTemplates() ?? []
-        failureText = nil
-        if let selectedTemplateID, !templates.contains(where: { $0.id == selectedTemplateID }) {
-            self.selectedTemplateID = templates.first?.id
+        updateSubmissionRequest {
+            templates = store.taskTemplateStore?.listTemplates() ?? []
+            if let selectedTemplateID, !templates.contains(where: { $0.id == selectedTemplateID }) {
+                self.selectedTemplateID = templates.first?.id
+            }
+            // Sync template edits unless the user typed the directory.
+            syncSuggestedDirectory()
         }
-        // Sync template edits unless the user typed the directory.
-        syncSuggestedDirectory()
+        failureText = nil
     }
 
     private func validateMacSelection() {
         guard !isSubmitting else { return }
         guard selectedMachine == nil else { return }
-        selectedMacDeviceID = machines.first?.macDeviceID ?? ""
-        submissionIdentity.rotate()
+        updateSubmissionRequest {
+            selectedMacDeviceID = machines.first?.macDeviceID ?? ""
+            syncSuggestedDirectory()
+        }
         failureText = nil
-        syncSuggestedDirectory()
+    }
+
+    /// Applies a composer mutation and rotates the idempotency key only when
+    /// the exact request sent to the Mac changes.
+    private func updateSubmissionRequest(_ update: () -> Void) {
+        let before = submissionSnapshot()
+        update()
+        let after = submissionSnapshot()
+        submissionIdentity.rotateIfRequestChanged(from: before, to: after)
+    }
+
+    private func submissionSnapshot() -> MobileTaskSubmissionSnapshot? {
+        guard let selectedTemplate else { return nil }
+        return MobileTaskSubmissionSnapshot(
+            template: selectedTemplate,
+            prompt: prompt,
+            macDeviceID: selectedMacDeviceID,
+            directory: directory,
+            didEditDirectory: didEditDirectory,
+            operationID: submissionIdentity.id
+        )
     }
 
     private func persistDraft() {

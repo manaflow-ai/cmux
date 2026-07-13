@@ -17,4 +17,25 @@ public struct MobileTaskSubmissionIdentity: Equatable, Sendable {
     public mutating func rotate() {
         id = UUID()
     }
+
+    /// Rotates only when optional snapshots describe different requests.
+    /// Missing-to-present transitions are request changes; two missing
+    /// snapshots represent the same unavailable request.
+    public mutating func rotateIfRequestChanged(
+        from before: MobileTaskSubmissionSnapshot?,
+        to after: MobileTaskSubmissionSnapshot?
+    ) {
+        let requestChanged: Bool
+        switch (before, after) {
+        case (nil, nil):
+            requestChanged = false
+        case (.some(let before), .some(let after)):
+            requestChanged = !before.isRequestEquivalent(to: after)
+        default:
+            requestChanged = true
+        }
+        if requestChanged {
+            rotate()
+        }
+    }
 }
