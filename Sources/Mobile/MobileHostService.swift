@@ -299,8 +299,8 @@ final class MobileHostService {
     /// `TerminalController`'s no-private-metadata branch), so the fields
     /// cannot drift. Identity-free: routes, fidelity, and capabilities are a
     /// reachability probe any peer may ask for, but the Mac's stable identity
-    /// (`mac_device_id`, `mac_display_name`) is never on this unauthenticated
-    /// surface — see ``networkStatusResult(for:)`` for the verified-caller
+    /// (`mac_device_id`, `mac_display_name`, `mac_instance_tag`) is never on
+    /// this unauthenticated surface. See ``networkStatusResult(for:)`` for the verified-caller
     /// reply that carries it.
     nonisolated static func publicStatusPayload(routesPayload: [[String: Any]]) -> [String: Any] {
         // The Mac's resolved terminal theme is caller-independent, so it rides
@@ -321,12 +321,13 @@ final class MobileHostService {
     /// `publicStatusPayload` plus the Mac's identity, for a caller that has
     /// proven same-account Stack ownership. The pairing QR no longer carries
     /// the display name or the device id, so this reply is where a freshly
-    /// paired phone learns what to call this Mac and which paired-Mac record
-    /// the connection belongs to.
+    /// paired phone learns what to call this Mac, which paired-Mac record owns
+    /// the connection, and which app instance owns its routes.
     nonisolated static func identityStatusPayload(routesPayload: [[String: Any]]) -> [String: Any] {
         var payload = publicStatusPayload(routesPayload: routesPayload)
         payload["mac_device_id"] = MobileHostIdentity.deviceID()
-        if let displayName = MobileHostIdentity.displayName() {
+        payload["mac_instance_tag"] = MobileHostIdentity.instanceTag()
+        if let displayName = MobileHostIdentity.instanceDisplayName() {
             payload["mac_display_name"] = displayName
         }
         let build = MobileHostBuildIdentity.current()
@@ -1068,19 +1069,13 @@ final class MobileHostService {
         terminalID: String?,
         ttl: TimeInterval,
         routeID: String? = nil,
-        routeKind: String? = nil
+        routeKind: String? = nil,
+        target: MobileAttachTarget? = nil
     ) async throws -> [String: Any] {
-        let routes: [CmxAttachRoute]
-        if let listenerPort {
-            routes = routeResolver.routes(port: listenerPort).routes
-        } else {
-            routes = []
-        }
-        let selectedRoutes = try Self.filteredRoutes(
-            routes,
-            routeID: routeID,
-            routeKind: routeKind
-        )
+        guard let listenerPort else { throw MobileAttachTicketStoreError.noRoutes }
+        let routes = routeResolver.routes(port: listenerPort).routes
+        let filteredRoutes = try Self.filteredRoutes(routes, routeID: routeID, routeKind: routeKind)
+        let selectedRoutes = try target.selectRoutes(from: filteredRoutes)
         let ticket = try ticketStore.createTicket(
             workspaceID: workspaceID,
             terminalID: terminalID,
@@ -1092,7 +1087,7 @@ final class MobileHostService {
             macAppVersion: MobileHostBuildIdentity.current().appVersion,
             macAppBuild: MobileHostBuildIdentity.current().appBuild
         )
-        return try ticketStore.payload(for: ticket)
+        return try ticketStore.payload(for: ticket, target: target)
     }
 
     private static func filteredRoutes(
@@ -1296,11 +1291,11 @@ final class MobileHostService {
         // pairing is bound to "who is signed in on this Mac" rather than a stored
         // ticket, so it survives Mac restarts and ticket expiry.
         if devStackTokenAuthorized(request) {
-            return nil
+            return ticketAuthorizationResultIfNeeded(for: request)
         }
         do {
             try await Self.verifyStackAuthOffMainActor(auth: request.auth)
-            return nil
+            return ticketAuthorizationResultIfNeeded(for: request)
         } catch MobileHostAuthorizationError.accountMismatch {
             // The presented Stack token is valid but belongs to a different
             // account than the one signed in on this Mac. Surface a distinct code
@@ -1318,6 +1313,20 @@ final class MobileHostService {
                 message: "Mobile sync authorization failed."
             ))
         }
+    }
+
+    private func ticketAuthorizationResultIfNeeded(for request: MobileHostRPCRequest) -> MobileHostRPCResult? {
+        let createsWorkspaceInGroup = request.method == "workspace.create" && request.params["group_id"] != nil && !(request.params["group_id"] is NSNull)
+        let requiresCurrentAttachTicket = request.method == "workspace.move" || request.method == "workspace.group.action" || request.method == "workspace.group.create" || createsWorkspaceInGroup
+        guard let attachToken = request.auth?.attachToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !attachToken.isEmpty else {
+            return requiresCurrentAttachTicket ? .failure(Self.scopedTicketError) : nil
+        }
+        guard let authorization = ticketStore.validAuthorization(authToken: attachToken) else {
+            return requiresCurrentAttachTicket ? .failure(Self.scopedTicketError) : nil
+        }
+        if let error = Self.ticketAuthorizationError(authorization: authorization, request: request) { return .failure(error) }
+        return nil
     }
 
     private nonisolated static func verifyStackAuthOffMainActor(auth: MobileHostRPCAuth?) async throws {
@@ -1352,21 +1361,7 @@ final class MobileHostService {
         }
     }
 
-    private static func ticketAuthorizationError(
-        ticket: CmxAttachTicket,
-        request: MobileHostRPCRequest
-    ) -> MobileHostRPCError? {
-        ticketAuthorizationError(
-            authorization: MobileAttachTicketAuthorization(
-                ticket: ticket,
-                createdWorkspaceIDs: [],
-                createdTerminalIDs: []
-            ),
-            request: request
-        )
-    }
-
-    private static func ticketAuthorizationError(
+    static func ticketAuthorizationError(
         authorization: MobileAttachTicketAuthorization,
         request: MobileHostRPCRequest
     ) -> MobileHostRPCError? {
@@ -1389,7 +1384,19 @@ final class MobileHostService {
         case "mobile.workspace.list", "workspace.list":
             return nil
         case "workspace.create":
+            guard request.params["group_id"] == nil || request.params["group_id"] is NSNull else {
+                return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)
+            }
             return nil
+        case "workspace.move":
+            return ticketMacScopedWorkspaceMutationAuthorizationError(
+                authorization: authorization,
+                workspaceSelection: workspaceSelection.value
+            )
+        case "workspace.action", "workspace.close":
+            return ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection.value)
+        case "workspace.group.action", "workspace.group.create":
+            return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)
         case "workspace.group.collapse", "workspace.group.expand":
             // Display-only group state. Keyed by `group_id` (not a workspace or
             // terminal selection), so it is Mac-scoped like the workspace list and
@@ -1418,11 +1425,7 @@ final class MobileHostService {
         }
     }
 
-    private static func ticketTerminalAuthorizationError(
-        authorization: MobileAttachTicketAuthorization,
-        workspaceSelection: String?,
-        terminalSelection: String?
-    ) -> MobileHostRPCError? {
+    private static func ticketTerminalAuthorizationError(authorization: MobileAttachTicketAuthorization, workspaceSelection: String?, terminalSelection: String?) -> MobileHostRPCError? {
         if let terminalSelection,
            authorization.createdTerminalIDs.contains(terminalSelection) {
             return nil
@@ -1431,54 +1434,45 @@ final class MobileHostService {
            authorization.createdWorkspaceIDs.contains(workspaceSelection) {
             return nil
         }
-
         let ticket = authorization.ticket
         let ticketWorkspaceID = ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Empty workspaceID means the ticket is Mac-wide (general pairing).
-        // Allow any workspace/terminal under it.
-        if ticketWorkspaceID.isEmpty {
-            return nil
-        }
+        // Empty workspaceID means the ticket is Mac-wide (general pairing), so allow any workspace/terminal.
+        if ticketWorkspaceID.isEmpty { return nil }
         if let workspaceSelection, workspaceSelection != ticketWorkspaceID {
             return scopedTicketError
         }
-
         if let terminalID = ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines),
            !terminalID.isEmpty {
-            guard terminalSelection == terminalID else {
-                return scopedTicketError
-            }
+            guard terminalSelection == terminalID else { return scopedTicketError }
             return nil
         }
+        guard workspaceSelection == ticketWorkspaceID else { return scopedTicketError }
+        return nil
+    }
 
-        guard workspaceSelection == ticketWorkspaceID else {
-            return scopedTicketError
+    private static func ticketWorkspaceAuthorizationError(authorization: MobileAttachTicketAuthorization, workspaceSelection: String?) -> MobileHostRPCError? {
+        if let workspaceSelection, authorization.createdWorkspaceIDs.contains(workspaceSelection) { return nil }
+        let ticket = authorization.ticket
+        let ticketWorkspaceID = ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !ticketWorkspaceID.isEmpty {
+            guard let workspaceSelection, workspaceSelection == ticketWorkspaceID else { return scopedTicketError }
         }
         return nil
     }
 
-    static func debugTicketAuthorizationError(
-        ticket: CmxAttachTicket,
-        request: MobileHostRPCRequest,
-        createdWorkspaceIDs: Set<String> = [],
-        createdTerminalIDs: Set<String> = []
+    private static func ticketMacScopedWorkspaceMutationAuthorizationError(
+        authorization: MobileAttachTicketAuthorization,
+        workspaceSelection: String? = nil
     ) -> MobileHostRPCError? {
-        ticketAuthorizationError(
-            authorization: MobileAttachTicketAuthorization(
-                ticket: ticket,
-                createdWorkspaceIDs: createdWorkspaceIDs,
-                createdTerminalIDs: createdTerminalIDs
-            ),
-            request: request
+        let ticketWorkspaceID = authorization.ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard ticketWorkspaceID.isEmpty else { return scopedTicketError }
+        return ticketWorkspaceAuthorizationError(
+            authorization: authorization,
+            workspaceSelection: workspaceSelection
         )
     }
 
-    private static var scopedTicketError: MobileHostRPCError {
-        MobileHostRPCError(
-            code: "forbidden",
-            message: "Attach ticket is not valid for this workspace or terminal."
-        )
-    }
+    private static var scopedTicketError: MobileHostRPCError { MobileHostRPCError(code: "forbidden", message: "Attach ticket is not valid for this workspace or terminal.") }
 
     private static func containsIgnoredAliasParameters(_ params: [String: Any]) -> Bool {
         params["workspaceID"] != nil || params["terminalID"] != nil

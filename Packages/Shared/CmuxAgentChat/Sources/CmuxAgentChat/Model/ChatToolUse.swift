@@ -18,7 +18,7 @@ public struct ChatToolUse: Sendable, Equatable, Codable {
     /// transcript parser (e.g. `Read src/main.swift`).
     public let summary: String
 
-    /// The full tool input rendered as text, for the expanded state.
+    /// The full tool input rendered as text for detail surfaces.
     public let inputDetail: String?
 
     /// The tool result rendered as text, when one has arrived. Truncated at
@@ -34,7 +34,7 @@ public struct ChatToolUse: Sendable, Equatable, Codable {
     /// - Parameters:
     ///   - toolName: Machine name of the tool.
     ///   - summary: One-line human-readable invocation summary.
-    ///   - inputDetail: Full input text for the expanded state.
+    ///   - inputDetail: Full input text for detail surfaces.
     ///   - output: Result text, when one has arrived.
     ///   - status: Lifecycle state of the invocation.
     public init(

@@ -51,7 +51,7 @@ public enum UpdateState: Equatable {
     }
 
     /// Invokes the phase-appropriate cancellation/acknowledgement callback.
-    public func cancel() {
+    @MainActor public func cancel() {
         switch self {
         case .checking(let checking):
             checking.cancel()
@@ -69,7 +69,7 @@ public enum UpdateState: Equatable {
     }
 
     /// Confirms the current phase, installing the update when one is available.
-    public func confirm() {
+    @MainActor public func confirm() {
         switch self {
         case .updateAvailable(let available):
             available.reply(.install)
@@ -143,11 +143,16 @@ public enum UpdateState: Equatable {
     public struct UpdateAvailable {
         /// The appcast item describing the available update.
         public let appcastItem: SUAppcastItem
-        /// Replies to Sparkle with the user's install/dismiss choice.
-        public let reply: @Sendable (SPUUserUpdateChoice) -> Void
+        /// Replies to Sparkle with the user's install/dismiss choice (at most once).
+        public let reply: UpdatePromptReply
 
         /// Creates the payload.
-        public init(appcastItem: SUAppcastItem, reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+        @MainActor public init(appcastItem: SUAppcastItem, reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+            self.appcastItem = appcastItem
+            self.reply = UpdatePromptReply(reply)
+        }
+
+        init(appcastItem: SUAppcastItem, reply: UpdatePromptReply) {
             self.appcastItem = appcastItem
             self.reply = reply
         }

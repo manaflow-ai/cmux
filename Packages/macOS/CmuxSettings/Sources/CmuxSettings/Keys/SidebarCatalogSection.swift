@@ -3,6 +3,9 @@ import Foundation
 /// Settings under the dotted-id prefix `sidebar.*` — workspace-row
 /// metadata visibility and layout.
 public struct SidebarCatalogSection: SettingCatalogSection {
+    /// Valid notification-preview line limits for settings UI and configuration parsing.
+    public static let notificationMessageLineLimitRange = 1...50
+
     public let hideAllDetails = DefaultsKey<Bool>(
         id: "sidebar.hideAllDetails",
         defaultValue: false,
@@ -48,6 +51,13 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         id: "sidebar.showNotificationMessage",
         defaultValue: true,
         userDefaultsKey: "sidebarShowNotificationMessage"
+    )
+
+    /// Maximum notification-preview lines shown per workspace, defaulting to 12.
+    public let notificationMessageLineLimit = DefaultsKey<Int>(
+        id: "sidebar.notificationMessageLineLimit",
+        defaultValue: 12,
+        userDefaultsKey: "sidebarNotificationMessageLineLimit"
     )
 
     public let showBranchDirectory = DefaultsKey<Bool>(
@@ -108,6 +118,32 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         id: "sidebar.showProgress",
         defaultValue: true,
         userDefaultsKey: "sidebarShowProgress"
+    )
+
+    /// Whether sidebar workspace rows show the loading spinner for running
+    /// coding agents and manual `cmux workspace loading` loaders
+    /// (`sidebar.showAgentActivity`). Defaults to on.
+    public let showAgentActivity = DefaultsKey<Bool>(
+        id: "sidebar.showAgentActivity",
+        defaultValue: true,
+        userDefaultsKey: "sidebarShowAgentActivity"
+    )
+
+    /// Which side of the workspace row the loading spinner appears on
+    /// (`sidebar.loadingSpinnerPosition`). Defaults to leading (left), sharing
+    /// the unread-badge slot.
+    public let loadingSpinnerPosition = DefaultsKey<SidebarIndicatorPosition>(
+        id: "sidebar.loadingSpinnerPosition",
+        defaultValue: .leading,
+        userDefaultsKey: "sidebarLoadingSpinnerPosition"
+    )
+
+    /// Which side of the workspace row the unread notification badge appears on
+    /// (`sidebar.notificationBadgePosition`). Defaults to leading (left).
+    public let notificationBadgePosition = DefaultsKey<SidebarIndicatorPosition>(
+        id: "sidebar.notificationBadgePosition",
+        defaultValue: .leading,
+        userDefaultsKey: "sidebarNotificationBadgePosition"
     )
 
     public let showCustomMetadata = DefaultsKey<Bool>(

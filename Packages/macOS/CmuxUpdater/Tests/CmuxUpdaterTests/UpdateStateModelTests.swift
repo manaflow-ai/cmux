@@ -26,6 +26,34 @@ import Testing
         #expect(model.overrideState == .notFound(.init(acknowledgement: {})))
     }
 
+    @Test func progressStateChangesCoalesceBeforeDrain() {
+        let model = UpdateStateModel()
+
+        model.setState(.downloading(.init(cancel: {}, expectedLength: 100, progress: 10)))
+        model.setState(.downloading(.init(cancel: {}, expectedLength: 100, progress: 50)))
+        model.setState(.downloading(.init(cancel: {}, expectedLength: 100, progress: 90)))
+
+        let changes = model.drainPendingChanges()
+        #expect(changes.count == 1)
+        guard case .downloading(let download) = changes.first?.state else {
+            Issue.record("expected latest downloading state")
+            return
+        }
+        #expect(download.progress == 90)
+    }
+
+    @Test func controlStateChangesStayOrderedBeforeDrain() {
+        let model = UpdateStateModel()
+
+        model.setState(.idle)
+        model.setState(.checking(.init(cancel: {})))
+        model.setState(.idle)
+
+        let changes = model.drainPendingChanges()
+        #expect(changes.count == 3)
+        #expect(changes.map(\.state) == [.idle, .checking(.init(cancel: {})), .idle])
+    }
+
     @Test func effectiveStatePrefersOverride() {
         let model = UpdateStateModel()
         model.setState(.idle)
@@ -57,7 +85,7 @@ import Testing
 
     @Test func errorDetailsIncludesLogPath() {
         let err = NSError(domain: "cmux.update", code: 7, userInfo: [NSLocalizedDescriptionKey: "boom"])
-        let details = UpdateStateModel.errorDetails(for: err, technicalDetails: "ctx", feedURLString: "https://feed", logPath: "/tmp/x.log")
+        let details = UpdateErrorDetailsFormatter().details(for: err, technicalDetails: "ctx", feedURLString: "https://feed", logPath: "/tmp/x.log")
         #expect(details.contains("Log: /tmp/x.log"))
         #expect(details.contains("Feed: https://feed"))
         #expect(details.contains("Debug: ctx"))
@@ -104,13 +132,13 @@ import Testing
             userInfo: [NSUnderlyingErrorKey: underlying]
         )
         #expect(UpdateStateModel.userFacingErrorTitle(for: err).contains("Start Updater"))
-        #expect(UpdateStateModel.manualDownloadURL(for: err)?.absoluteString.hasSuffix("cmux-macos.dmg") == true)
+        #expect(UpdateManualDownloadRecovery().url(for: err)?.absoluteString.hasSuffix("cmux-macos.dmg") == true)
     }
 
     @Test func agentInvalidationErrorIsTreatedAsAgentFailure() {
         let err = NSError(domain: "SUSparkleErrorDomain", code: 4010)
         #expect(UpdateStateModel.userFacingErrorTitle(for: err).contains("Start Updater"))
-        #expect(UpdateStateModel.manualDownloadURL(for: err) != nil)
+        #expect(UpdateManualDownloadRecovery().url(for: err) != nil)
     }
 
     @Test func genericInstallFailureKeepsPermissionTitleAndOffersDownload() {
@@ -120,7 +148,7 @@ import Testing
         #expect(title.contains("Permission"))
         let message = UpdateStateModel.userFacingErrorMessage(for: err)
         #expect(message.localizedCaseInsensitiveContains("Applications"))
-        #expect(UpdateStateModel.manualDownloadURL(for: err) != nil)
+        #expect(UpdateManualDownloadRecovery().url(for: err) != nil)
     }
 
     /// A 4005 wrapping a non-agent installer cause (auth failure, relaunch failure) must NOT be
@@ -138,7 +166,7 @@ import Testing
         let title = UpdateStateModel.userFacingErrorTitle(for: err)
         #expect(!title.contains("Start Updater"))
         #expect(title.contains("Permission"))
-        #expect(UpdateStateModel.manualDownloadURL(for: err) != nil)
+        #expect(UpdateManualDownloadRecovery().url(for: err) != nil)
     }
 
     /// The agent-connection text signal classifies the failure even when no underlying error is
@@ -153,25 +181,25 @@ import Testing
 
     @Test func downloadErrorOffersManualDownload() {
         let err = NSError(domain: "SUSparkleErrorDomain", code: 2001)
-        #expect(UpdateStateModel.manualDownloadURL(for: err) != nil)
+        #expect(UpdateManualDownloadRecovery().url(for: err) != nil)
     }
 
-    @Test(arguments: [1000, 1001, 1002, 3, 4, 3001, 3002])
+    @Test(arguments: [1000, 1001, 1002, 3, 4, 3001, 3002, 4006])
     func feedSignatureAndNoUpdateErrorsDoNotOfferManualDownload(code: Int) {
         let err = NSError(domain: "SUSparkleErrorDomain", code: code)
-        #expect(UpdateStateModel.manualDownloadURL(for: err) == nil)
+        #expect(UpdateManualDownloadRecovery().url(for: err) == nil)
     }
 
     @Test func diskImageErrorStillSaysMoveToApplications() {
         let err = NSError(domain: "SUSparkleErrorDomain", code: 1003)
         let message = UpdateStateModel.userFacingErrorMessage(for: err)
         #expect(message.localizedCaseInsensitiveContains("Applications"))
-        #expect(UpdateStateModel.manualDownloadURL(for: err) == nil)
+        #expect(UpdateManualDownloadRecovery().url(for: err) == nil)
     }
 
     @Test func nonSparkleErrorHasNoManualDownload() {
         let err = NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut)
-        #expect(UpdateStateModel.manualDownloadURL(for: err) == nil)
+        #expect(UpdateManualDownloadRecovery().url(for: err) == nil)
     }
 
     @Test func errorDetailsNamesInstallationError() {
@@ -180,7 +208,7 @@ import Testing
             code: 4005,
             userInfo: [NSLocalizedDescriptionKey: "boom"]
         )
-        let details = UpdateStateModel.errorDetails(
+        let details = UpdateErrorDetailsFormatter().details(
             for: err,
             technicalDetails: nil,
             feedURLString: nil,

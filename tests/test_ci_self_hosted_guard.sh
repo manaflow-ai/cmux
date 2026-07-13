@@ -14,6 +14,7 @@ GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
 COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
 E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
 TMUX_CORPUS_FILE="$ROOT_DIR/.github/workflows/tmux-corpus.yml"
+IOS_FILE="$ROOT_DIR/.github/workflows/test-ios.yml"
 
 check_macos_runner() {
   local file="$1" job="$2"
@@ -94,6 +95,17 @@ check_build_lag_deriveddata_cache_path() {
 
 check_e2e_runner_fallbacks() {
   if ! awk '
+    /^on:$/ { in_on=1; next }
+    in_on && /^[^[:space:]]/ { in_on=0 }
+    in_on && /^  workflow_dispatch:$/ { saw_dispatch=1; next }
+    in_on && /^  [A-Za-z0-9_-]+:/ { saw_other_trigger=1 }
+    END { exit !(saw_dispatch && !saw_other_trigger) }
+  ' "$E2E_FILE"; then
+    echo "FAIL: test-e2e.yml must remain workflow_dispatch-only before it may expose the self-hosted Tart canary"
+    exit 1
+  fi
+
+  if ! awk '
     /^run-name:/ {
       saw_run_name=1
       if ($0 ~ /inputs\.test_filter/ && ($0 ~ /inputs\.runner/ || $0 ~ /depot-macos-latest/) && ($0 ~ /inputs\.ref/ || $0 ~ /github\.ref_name/)) {
@@ -119,6 +131,20 @@ check_e2e_runner_fallbacks() {
     fi
   done
 
+  if ! awk '
+    /^      runner:$/ { in_runner=1; next }
+    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
+    in_runner && /^        options:$/ { in_options=1; next }
+    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
+    in_options && /^          - tart-canary$/ { canary_options++ }
+    in_options && /^          - tart-dual$/ { dual_options++ }
+    in_options && /^          - tart-small$/ { small_options++ }
+    END { exit !(canary_options == 1 && dual_options == 1 && small_options == 1) }
+  ' "$E2E_FILE"; then
+    echo "FAIL: test-e2e.yml must expose tart-canary, tart-dual, and tart-small exactly once under workflow_dispatch.inputs.runner.options"
+    exit 1
+  fi
+
   if ! grep -Fq 'RUNNER_CONTEXT_NAME: ${{ runner.name }}' "$E2E_FILE"; then
     echo "FAIL: test-e2e.yml must inspect the actual runner name for Depot runs"
     exit 1
@@ -126,6 +152,27 @@ check_e2e_runner_fallbacks() {
 
   if ! grep -Fq "startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner, 'depot-macos-')" "$E2E_FILE"; then
     echo "FAIL: test-e2e.yml must validate all Depot macOS runner choices"
+    exit 1
+  fi
+
+  if ! awk '
+    /^[[:space:]]*- name: Validate Tart canary identity$/ { in_tart_step=1; next }
+    in_tart_step && /^      - / { in_tart_step=0; in_runner_reject=0; in_marker_reject=0 }
+    in_tart_step && /startsWith\(\(!inputs\.runner \|\| inputs\.runner == '\''auto'\''\) && \(vars\.MACOS_RUNNER_15 \|\| '\''blacksmith-6vcpu-macos-15'\''\) \|\| inputs\.runner, '\''tart-'\''\)/ { saw_effective_runner=1 }
+    in_tart_step && /REQUESTED_RUNNER:.*inputs\.runner/ { saw_requested_runner=1 }
+    in_tart_step && /RUNNER_CONTEXT_NAME: \$\{\{ runner\.name \}\}/ { saw_runner_context=1 }
+    in_tart_step && /tart-cmux-\*/ { saw_runner_pattern=1 }
+    in_tart_step && /^[[:space:]]*\*\)$/ { in_runner_reject=1 }
+    in_runner_reject && /::error::\$REQUESTED_RUNNER resolved to unexpected runner/ { saw_runner_reject=1 }
+    in_runner_reject && /^[[:space:]]*exit 1$/ { saw_runner_exit=1 }
+    in_runner_reject && /^[[:space:]]*;;$/ { in_runner_reject=0 }
+    in_tart_step && /test -f \/etc\/cmux-tart-ci \|\| \{/ { saw_vm_marker=1; in_marker_reject=1 }
+    in_marker_reject && /::error::\$REQUESTED_RUNNER runner is missing the immutable VM identity marker/ { saw_marker_reject=1 }
+    in_marker_reject && /^[[:space:]]*exit 1$/ { saw_marker_exit=1 }
+    in_marker_reject && /^[[:space:]]*}$/ { in_marker_reject=0 }
+    END { exit !(saw_effective_runner && saw_requested_runner && saw_runner_context && saw_runner_pattern && saw_runner_reject && saw_runner_exit && saw_vm_marker && saw_marker_reject && saw_marker_exit) }
+  ' "$E2E_FILE"; then
+    echo "FAIL: test-e2e.yml must validate the effective Tart runner name and immutable VM marker, failing closed for either mismatch"
     exit 1
   fi
 
@@ -155,7 +202,28 @@ check_e2e_runner_fallbacks() {
     exit 1
   fi
 
-  echo "PASS: test-e2e.yml exposes Depot runner choices, identity guard, and duplicate-queue cancellation"
+  echo "PASS: test-e2e.yml exposes Depot and Tart runner choices, identity guards, and duplicate-queue cancellation"
+}
+
+check_ios_tart_canary() {
+  if ! grep -Eq '^[[:space:]]+- tart-ios$' "$IOS_FILE"; then
+    echo "FAIL: test-ios.yml must expose the Tart iOS canary runner"
+    exit 1
+  fi
+  if [[ "$(grep -c 'tart-ios resolved to unexpected runner' "$IOS_FILE")" -ne 2 ]] ||
+     [[ "$(grep -c 'tart-ios runner is missing the immutable VM identity marker' "$IOS_FILE")" -ne 2 ]]; then
+    echo "FAIL: both macOS iOS test jobs must fail closed on Tart identity mismatch"
+    exit 1
+  fi
+  if [[ "$(grep -Fc "runs-on: \${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}" "$IOS_FILE")" -ne 2 ]]; then
+    echo "FAIL: both macOS iOS test jobs must honor the dispatch runner override"
+    exit 1
+  fi
+  if [[ "$(grep -Fc "startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-')" "$IOS_FILE")" -ne 2 ]]; then
+    echo "FAIL: both macOS iOS test jobs must validate Tart identity for explicit and repo-variable routing"
+    exit 1
+  fi
+  echo "PASS: test-ios.yml exposes the guarded Tart iOS canary"
 }
 
 check_xcode_selection() {
@@ -207,34 +275,106 @@ check_release_build_disk_cleanup() {
   echo "PASS: release-build reclaims runner disk before large cache restores"
 }
 
-check_release_helper_upload_retry() {
+check_release_helper_artifact_from_package_lane() {
   if ! awk '
-    /^  release-ghostty-cli-helper:/ { in_job=1; next }
+    /^  swift-package-tests:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
-    in_job && /- name: Upload universal Ghostty CLI helper/ { in_upload=1; next }
-    in_upload && /^[[:space:]]*- name:/ { in_upload=0 }
-    in_upload && /id:[[:space:]]*upload-ghostty-cli-helper/ { upload_id=1 }
-    in_upload && /continue-on-error:[[:space:]]*true/ { upload_continue=1 }
-    in_upload && /uses: actions\/upload-artifact@/ { upload_action=1 }
-    in_upload && /if-no-files-found:[[:space:]]*error/ { upload_required=1 }
-
-    in_job && /- name: Retry universal Ghostty CLI helper upload/ { in_retry=1; retry_step=1; next }
-    in_retry && /^[[:space:]]*- name:/ { in_retry=0 }
-    in_retry && index($0, "steps.upload-ghostty-cli-helper.outcome == '\''failure'\''") { retry_if=1 }
-    in_retry && /uses: actions\/upload-artifact@/ { retry_action=1 }
-    in_retry && /if-no-files-found:[[:space:]]*error/ { retry_required=1 }
-    in_retry && /overwrite:[[:space:]]*true/ { retry_overwrite=1 }
+    in_job && /runs-on:[[:space:]]*\$\{\{ vars\.MACOS_RUNNER_DUAL_XCODE \|\| '\''blacksmith-6vcpu-macos-15'\'' \}\}/ { saw_dual_runner=1 }
+    in_job && /timeout-minutes:[[:space:]]*40/ { saw_timeout=1 }
+    in_job && /CMUX_CI_HELPER_XCODE_APP:/ { saw_helper_xcode_env=1 }
+    in_job && /- name: Select helper Xcode/ { saw_helper_select=1; next }
+    in_job && /CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15/ { saw_helper_sdk_pin=1 }
+    in_job && /- name: Select Xcode/ { saw_select=1; after_select=1; next }
+    in_job && /- name: Build universal Ghostty CLI helper/ {
+      saw_build_step=1
+      if (after_select) {
+        saw_build_after_select=1
+      }
+      next
+    }
+    in_job && /\.\/scripts\/build-ghostty-cli-helper\.sh --universal --output ghostty-cli-helper\/ghostty/ { saw_build=1 }
+    in_job && /lipo ghostty-cli-helper\/ghostty -verify_arch arm64 x86_64/ { saw_lipo=1 }
+    in_job && /- name: Upload universal Ghostty CLI helper/ {
+      saw_upload_step=1
+      if (after_select) {
+        saw_upload_after_select=1
+      }
+      next
+    }
+    in_job && /uses: actions\/upload-artifact@/ { saw_upload=1 }
+    in_job && /name:[[:space:]]*cmux-ghostty-cli-helper/ { saw_artifact_name=1 }
+    in_job && /\[\[ "\$HELPER_SDK_VERSION" == 15\.\* \]\]/ { saw_helper_sdk_validation=1 }
 
     END {
-      exit !(upload_id && upload_continue && upload_action && upload_required && retry_step && retry_if && retry_action && retry_required && retry_overwrite)
+      exit !(saw_dual_runner && saw_timeout && saw_helper_xcode_env && saw_helper_select && saw_helper_sdk_pin && saw_build_step && saw_build && saw_lipo && saw_helper_sdk_validation && saw_upload_step && saw_upload && saw_artifact_name && saw_select && !saw_build_after_select && !saw_upload_after_select)
     }
   ' "$CI_FILE"; then
-    echo "FAIL: release-ghostty-cli-helper must retry required Ghostty helper artifact uploads instead of failing on a single transient upload error"
+    echo "FAIL: swift-package-tests must use the dual-Xcode runner, then pin and validate the macOS 15 Ghostty helper before selecting Xcode 26"
     exit 1
   fi
 
-  echo "PASS: release-ghostty-cli-helper retries required Ghostty helper artifact uploads"
+  if ! awk '
+    /^  release-build:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+
+    in_job && /- swift-package-tests/ { saw_need=1 }
+    in_job && /- name: Download universal Ghostty CLI helper/ { saw_download_step=1; next }
+    in_job && /uses: actions\/download-artifact@/ { saw_download=1 }
+    in_job && /name:[[:space:]]*cmux-ghostty-cli-helper/ { saw_artifact_name=1 }
+    in_job && /- name: Install universal Ghostty CLI helper/ { saw_install_step=1; next }
+    in_job && /\.\/scripts\/install-prebuilt-ghostty-cli-helper\.sh/ { saw_install=1 }
+
+    END {
+      exit !(saw_need && saw_download_step && saw_download && saw_artifact_name && saw_install_step && saw_install)
+    }
+  ' "$CI_FILE"; then
+    echo "FAIL: release-build must depend on swift-package-tests, download the helper artifact, and install it into the app"
+    exit 1
+  fi
+
+  if grep -Fq "release-ghostty-cli-helper:" "$CI_FILE"; then
+    echo "FAIL: CI must not queue a separate release-ghostty-cli-helper job"
+    exit 1
+  fi
+
+  echo "PASS: release-build consumes the Ghostty helper artifact built by swift-package-tests"
+}
+
+check_runtime_regressions_collapsed() {
+  if grep -Fq "ui-regressions:" "$CI_FILE"; then
+    echo "FAIL: CI must not queue a separate ui-regressions job"
+    exit 1
+  fi
+
+  if ! awk '
+    /^  tests-build-and-lag:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+
+    in_job && /build-for-testing/ { saw_build_for_testing=1 }
+    in_job && /scripts\/ci\/run-display-ui-regressions\.sh/ { saw_ui_script=1 }
+    in_job && /kill -9 "\$VDISPLAY_PID"/ { saw_force_kill=1 }
+    in_job && /scripts\/ci\/virtual-display-lock\.sh reap-strays/ { saw_reap_strays=1 }
+    in_job && /timeout-minutes:[[:space:]]*75/ { saw_timeout=1 }
+
+    END { exit !(saw_build_for_testing && saw_ui_script && saw_force_kill && saw_reap_strays && saw_timeout) }
+  ' "$CI_FILE"; then
+    echo "FAIL: tests-build-and-lag must build once, run display UI regressions from that DerivedData, and clean virtual displays before releasing the lock"
+    exit 1
+  fi
+
+  if ! awk '
+    /^run_browser_find_focus\(\) \{/ { in_func=1; next }
+    in_func && /^}/ { in_func=0 }
+    in_func && /persistent_display_id="\$\(tr -d/ { saw_display_id_read=1 }
+    in_func && /CMUX_UI_TEST_TARGET_DISPLAY_ID="\$persistent_display_id"/ { saw_display_env=1 }
+    END { exit !(saw_display_id_read && saw_display_env) }
+  ' "$ROOT_DIR/scripts/ci/run-display-ui-regressions.sh"; then
+    echo "FAIL: browser-find UI regression must target the persistent virtual display"
+    exit 1
+  fi
+
+  echo "PASS: runtime display regressions are collapsed into tests-build-and-lag"
 }
 
 check_signing_intermediate_imports() {
@@ -714,7 +854,7 @@ check_no_bare_github_hosted_runners() {
   # deliberate single-runner pins such as the testmanagerd-wedged
   # `app-host-unit-tests` job.
   local hits
-  hits="$(grep -rnE "runs-on:[[:space:]]*(ubuntu-[a-z0-9.]+|macos-[a-z0-9]+)[[:space:]]*$" "$ROOT_DIR/.github/workflows" || true)"
+  hits="$(grep -rnE "runs-on:[[:space:]]*(ubuntu-[a-z0-9.]+|macos-[a-z0-9]+)([[:space:]]*$|[[:space:]]+#)" "$ROOT_DIR/.github/workflows" | grep -v "github-hosted-required" || true)"
   if [[ -n "$hits" ]]; then
     echo "FAIL: these jobs use a bare GitHub-hosted runner; route them through vars.LINUX_RUNNER / vars.MACOS_RUNNER_IOS so Blacksmith<->overflow stays a repo-variable flip:"
     echo "$hits"
@@ -724,19 +864,16 @@ check_no_bare_github_hosted_runners() {
 }
 
 check_no_self_hosted_fleet_runners() {
-  # We do NOT use our self-hosted mac fleet for required CI. Those runners carry
-  # custom labels that collide with cloud labels, and GitHub PREFERS a matching
-  # self-hosted runner, so any required job that names such a label can land on
-  # a mini that cannot foreground a GUI app. Forbid every real fleet label (see
-  # the runner registry) and the bare self-hosted/macOS/ARM64 combos in
-  # runner-selection positions, so required jobs only ever use cloud runners.
+  # Required jobs route through repository variables. Forbid hardcoded fleet
+  # labels so Tart cutover and paid-provider fallback remain configuration
+  # changes and a physical host label cannot bypass the isolated VM pool.
   # Allowed macOS labels (none carried by any fleet runner):
   #   blacksmith-6vcpu-macos-{15,26,latest}, warp-macos-15-arm64-6x,
   #   depot-macos-{latest,14}.
   # NOTE: reload-build.yml is the dev-build offload path (workflow_dispatch,
   # not required CI) and intentionally targets the fleet via a free-form input;
   # this guard only inspects runner-selection lines, not its input description.
-  local fleet='macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|macfleet|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
+  local fleet='macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|macfleet|tart-[a-z0-9-]+|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
   local allowed='blacksmith-6vcpu-macos-(15|26|latest)|warp-macos-15-arm64-6x|depot-macos-(latest|14)'
 
   # Bare self-hosted/macOS/ARM64 targeting (inline array or multi-line list).
@@ -749,7 +886,7 @@ check_no_self_hosted_fleet_runners() {
   # known fleet/self-hosted label must be caught, every allowed cloud label
   # must pass. Probes are raw YAML values (no path:lineno: prefix).
   local probe
-  for probe in 'runs-on: macfleet' '- mac4' '- mac-mini' '- slot-3' '- xcode-26-3' '- cmux' \
+  for probe in 'runs-on: macfleet' '- tart-canary' '- tart-dual' '- tart-small' '- tart-macos-26' '- tart-ios' '- mac4' '- mac-mini' '- slot-3' '- xcode-26-3' '- cmux' \
                "runs-on: \${{ vars.X || 'macos-26' }}" '- warp-macos-26-arm64-6x' \
                '- cmux-aws-macos-15' '- cmux-macos-26' '- self-hosted' '- macOS' '- ARM64' \
                'runs-on: [self-hosted, macOS, ARM64]'; do
@@ -762,13 +899,49 @@ check_no_self_hosted_fleet_runners() {
                "runs-on: \${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}" \
                '- warp-macos-15-arm64-6x' '- depot-macos-latest' '- blacksmith-6vcpu-macos-15' \
                '- blacksmith-4vcpu-ubuntu-2404'; do
-    if printf '%s\n' "$probe" | grep -E "($forbidden)" | grep -Eqv "($allowed)"; then
+    if printf '%s\n' "$probe" | sed -E "s/($allowed)//g" | grep -Eq "($forbidden)"; then
       echo "FAIL: fleet-runner guard self-test false-positived a cloud label: $probe"
       exit 1
     fi
   done
 
-  local hits="" line content
+  probe="runs-on: \${{ vars.USE_TART == '1' && 'tart-canary' || 'blacksmith-6vcpu-macos-15' }}"
+  if ! printf '%s\n' "$probe" | sed -E "s/($allowed)//g" | grep -Eq "($forbidden)"; then
+    echo "FAIL: fleet-runner guard self-test let an allowed fallback mask a forbidden label: $probe"
+    exit 1
+  fi
+
+  local e2e_tart_option_line e2e_tart_dual_option_line e2e_tart_small_option_line e2e_tart_tahoe_option_line ios_tart_option_line
+  e2e_tart_option_line="$(awk '
+    /^      runner:$/ { in_runner=1; next }
+    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
+    in_runner && /^        options:$/ { in_options=1; next }
+    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
+    in_options && /^          - tart-canary$/ { print FNR }
+  ' "$E2E_FILE")"
+  e2e_tart_dual_option_line="$(awk '
+    /^      runner:$/ { in_runner=1; next }
+    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
+    in_runner && /^        options:$/ { in_options=1; next }
+    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
+    in_options && /^          - tart-dual$/ { print FNR }
+  ' "$E2E_FILE")"
+  e2e_tart_small_option_line="$(awk '
+    /^      runner:$/ { in_runner=1; next }
+    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
+    in_runner && /^        options:$/ { in_options=1; next }
+    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
+    in_options && /^          - tart-small$/ { print FNR }
+  ' "$E2E_FILE")"
+  ios_tart_option_line="$(awk '
+    /^      runner:$/ { in_runner=1; next }
+    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
+    in_runner && /^        options:$/ { in_options=1; next }
+    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
+    in_options && /^          - tart-ios$/ { print FNR }
+  ' "$IOS_FILE")"
+
+  local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
   # items (`  - <label>`, which covers dispatch runner dropdowns and multi-line
   # `runs-on:` arrays). `- name:` / `- uses:` step entries have a colon and are
@@ -777,8 +950,20 @@ check_no_self_hosted_fleet_runners() {
   # never match the bare `cmux` label.
   while IFS= read -r line; do
     content="${line#*:*:}"
-    printf '%s\n' "$content" | grep -Eq "($forbidden)" || continue
-    printf '%s\n' "$content" | grep -Eq "($allowed)" && continue
+    content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/($allowed)//g")"
+    printf '%s\n' "$content_without_allowed" | grep -Eq "($forbidden)" || continue
+    if [[ -n "$e2e_tart_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_option_line:"* ]]; then
+      continue
+    fi
+    if [[ -n "$e2e_tart_dual_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_dual_option_line:"* ]]; then
+      continue
+    fi
+    if [[ -n "$e2e_tart_small_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_small_option_line:"* ]]; then
+      continue
+    fi
+    if [[ -n "$ios_tart_option_line" ]] && [[ "$line" == "$IOS_FILE:$ios_tart_option_line:"* ]]; then
+      continue
+    fi
     hits+="$line"$'\n'
   done < <(grep -rnE "(runs-on:|[[:space:]]os:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$)" "$ROOT_DIR/.github/workflows")
   if [[ -n "$hits" ]]; then
@@ -796,12 +981,9 @@ check_no_bare_github_hosted_runners
 check_no_self_hosted_fleet_runners
 check_macos_runner "$CI_FILE" "app-host-unit-tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
-check_macos_runner "$CI_FILE" "release-ghostty-cli-helper"
 check_macos_runner "$CI_FILE" "release-build"
-check_macos_runner "$CI_FILE" "ui-regressions"
 check_release_build_runner_disk_capacity
 check_display_runner_identity_guard "$CI_FILE" "tests-build-and-lag"
-check_display_runner_identity_guard "$CI_FILE" "ui-regressions"
 check_build_lag_deriveddata_cache_path
 
 # build-ghosttykit.yml
@@ -813,11 +995,13 @@ check_macos_runner "$COMPAT_FILE" "compat-tests"
 # test-e2e.yml is manual, so keep the Depot GUI runner choices but cancel
 # duplicate queued runs for the same ref/filter/runner.
 check_e2e_runner_fallbacks
+check_ios_tart_canary
 
 check_xcode_selection
 check_release_build_signal
 check_release_build_disk_cleanup
-check_release_helper_upload_retry
+check_release_helper_artifact_from_package_lane
+check_runtime_regressions_collapsed
 check_signing_intermediate_imports
 check_signing_intermediate_helper_behavior
 check_sentry_cli_install_portability

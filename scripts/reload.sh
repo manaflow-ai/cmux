@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/mobile-attach.sh
+source "$SCRIPT_DIR/lib/mobile-attach.sh"
+
 APP_NAME="cmux DEV"
 BUNDLE_ID="com.cmuxterm.app.debug"
 BASE_APP_NAME="cmux DEV"
@@ -270,20 +274,11 @@ EOF
 }
 
 sanitize_bundle() {
-  local raw="$1"
-  local cleaned
-  cleaned="$(echo "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/./g; s/^\\.+//; s/\\.+$//; s/\\.+/./g')"
-  if [[ -z "$cleaned" ]]; then
-    cleaned="agent"
-  fi
-  echo "$cleaned"
+  cmux_attach__bundle_seg "$1"
 }
 
 sanitize_path() {
-  local raw="$1"
-  local cleaned
-  cleaned="$(echo "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g')"
-  echo "$cleaned"
+  cmux_attach__slug_raw "$1"
 }
 
 is_valid_port() {
@@ -535,12 +530,11 @@ if [[ -z "$TAG" ]]; then
 fi
 
 if [[ -n "$TAG" ]]; then
-  TAG_ID="$(sanitize_bundle "$TAG")"
-  TAG_SLUG="$(sanitize_path "$TAG")"
-  if [[ -z "$TAG_SLUG" ]]; then
-    echo "error: --tag must contain at least one alphanumeric character" >&2
+  if ! cmux_attach_validate_dev_tag "$TAG"; then
     exit 1
   fi
+  TAG_ID="$(sanitize_bundle "$TAG")"
+  TAG_SLUG="$(sanitize_path "$TAG")"
   if [[ "$NAME_SET" -eq 0 ]]; then
     APP_NAME="cmux DEV ${TAG_SLUG}"
   fi
@@ -1121,9 +1115,13 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     fi
     TAG_LAUNCH_LOG="/tmp/cmux-launch-${TAG_SLUG}.out"
     if [[ -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
-      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 &
+      # 3>&- 4>&-: close the script's saved-stdout/stderr dups (exec 3>&1 4>&2
+      # above) so the long-lived app can't inherit a caller's pipe write end —
+      # an `ssh host reload.sh --launch | …` pipeline would otherwise never see
+      # EOF and hang until the app dies.
+      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 3>&- 4>&- &
     else
-      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 &
+      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 3>&- 4>&- &
     fi
   else
     echo "/tmp/cmux-debug.sock" > /tmp/cmux-last-socket-path || true
