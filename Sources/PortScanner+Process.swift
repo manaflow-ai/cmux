@@ -151,7 +151,7 @@ extension PortScanner {
         // lsof exits 1 both for "no selected files" and when a PID disappeared
         // between ps and lsof. Only the former is authoritative negative evidence.
         let requestedPIDs = pidsCsv.split(separator: ",").compactMap { Int32($0) }
-        let emptyResultIsAuthoritative = result.stdout.isEmpty && requestedPIDs.allSatisfy(Self.isProcessLive)
+        let emptyResultIsAuthoritative = result.stdout.isEmpty && requestedPIDs.allSatisfy(Self.canInspectProcess)
         let completeness: PortScanCompleteness =
             result.status == 0 || (result.status == 1 && emptyResultIsAuthoritative)
             ? .complete
@@ -159,9 +159,11 @@ extension PortScanner {
         return (portsByPID, completeness)
     }
 
-    private static func isProcessLive(_ pid: Int32) -> Bool {
+    private static func canInspectProcess(_ pid: Int32) -> Bool {
         guard pid > 0 else { return false }
-        if kill(pid, 0) == 0 { return true }
-        return errno == EPERM
+        // EPERM proves that the process exists, but not that lsof could inspect
+        // it. Treat permission-denied probes as incomplete instead of turning
+        // an inaccessible process into authoritative negative port evidence.
+        return kill(pid, 0) == 0
     }
 }
