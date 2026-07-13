@@ -68,6 +68,7 @@ beforeEach(() => {
   leaseDeleteConditions = [];
   leaseCleanupError = null;
   verifyRequest.mockClear();
+  verifyRequest.mockResolvedValue(null);
   selectRows.mockClear();
   transaction.mockClear();
   rateLimitCalls = 0;
@@ -176,6 +177,7 @@ describe("iOS analytics events route", () => {
   });
 
   test("prunes expired leases for every identity before reserving a forward", async () => {
+    verifyRequest.mockResolvedValue({ id: deletedUserID });
     const response = await POST(analyticsRequest("new-install-id"));
 
     expect(response.status).toBe(200);
@@ -232,6 +234,7 @@ describe("iOS analytics events route", () => {
   });
 
   test("retains the durable lease when PostHog may accept but the client observes a timeout", async () => {
+    verifyRequest.mockResolvedValue({ id: deletedUserID });
     postHogFetchError = new DOMException("timed out", "TimeoutError");
 
     const response = await POST(analyticsRequest(deletedUserID));
@@ -241,6 +244,7 @@ describe("iOS analytics events route", () => {
   });
 
   test("leaves a bounded durable lease when cleanup fails after a successful forward", async () => {
+    verifyRequest.mockResolvedValue({ id: deletedUserID });
     leaseCleanupError = new Error("database unavailable during cleanup");
 
     const response = await POST(analyticsRequest(deletedUserID));

@@ -14,7 +14,10 @@ import { checkRateLimit as checkVercelRateLimit } from "@vercel/firewall";
 import { verifyRequest } from "../../../../services/vms/auth";
 import { readBoundedJsonObject } from "../../../../services/apns/routePolicy";
 import { cloudDb } from "../../../../db/client";
-import { withAccountDeletionAnalyticsForwardLease } from "../../../../services/account/deletionLock";
+import {
+  hasBlockingAccountDeletionIdentity,
+  withAccountDeletionAnalyticsForwardLease,
+} from "../../../../services/account/deletionLock";
 import {
   MAX_ANALYTICS_BATCH_EVENTS,
   MAX_ANALYTICS_EVENT_PROPERTIES,
@@ -58,7 +61,7 @@ export const POST = makeAnalyticsEventsHandler();
 export function makeAnalyticsEventsHandler(dependencies: AnalyticsEventsDependencies = defaultDependencies) {
   return async function POST(request: Request): Promise<Response> {
     if (process.env.VERCEL === "1") {
-      const rateLimitId = process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID?.trim();
+      const rateLimitId = process.env.CMUX_ANALYTICS_RATE_LIMIT_ID?.trim();
       if (!rateLimitId) {
         console.error("analytics.events.rate_limit_not_configured");
         return jsonResponse({ error: "analytics_unavailable" }, 503);
@@ -116,18 +119,23 @@ export function makeAnalyticsEventsHandler(dependencies: AnalyticsEventsDependen
     // deleted. In that case the old account id becomes client-supplied input, so
     // check both the authenticated identity and every accepted client distinct id
     // against durable deletion tombstones before PostHog can recreate the person.
-    const identityCandidates = [
-      ...(user
-        ? [user.id]
-        : accepted.flatMap((event) => (event.distinctID ? [event.distinctID] : []))),
+    const clientIdentityCandidates = [
+      ...accepted.flatMap((event) => (event.distinctID ? [event.distinctID] : [])),
       ...accepted.flatMap((event) => {
         const anonymousAlias = event.properties.$anon_distinct_id;
         return typeof anonymousAlias === "string" ? [anonymousAlias] : [];
       }),
     ];
+    if (await hasBlockingAccountDeletionIdentity(dependencies.db(), clientIdentityCandidates)) {
+      return jsonResponse({ error: "account_deleted" }, 410);
+    }
+
+    // Client-supplied identities are useful for rejecting stale queued events,
+    // but only the server-authenticated identity may delay account deletion.
+    // Otherwise an anonymous caller could reserve a victim's deletion lease.
     const forwardResult = await withAccountDeletionAnalyticsForwardLease(
       dependencies.db(),
-      identityCandidates,
+      user ? [user.id] : [],
       () => forwardToPostHog(accepted, user?.id ?? null, dependencies.postHogFetch),
       (result) => result.ok || result.delivery === "definitive",
     );
