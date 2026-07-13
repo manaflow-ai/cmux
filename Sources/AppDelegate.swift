@@ -3745,7 +3745,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .seconds(1))
         timer.setEventHandler { [weak self] in
             guard let self,
-                  Self.shouldRunSessionAutosaveTick(isTerminatingApp: self.isTerminatingApp) else {
+                  Self.shouldRunSessionAutosaveTick(isTerminatingApp: self.isTerminatingApp, didAttemptStartupSessionRestore: self.didAttemptStartupSessionRestore) else {
                 return
             }
             self.runSessionAutosaveTick(source: "timer")
@@ -3982,12 +3982,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> Bool {
-        if Self.shouldSkipSessionSaveDuringRestore(
+        if !didAttemptStartupSessionRestore || Self.shouldSkipSessionSaveDuringRestore(
             isApplyingSessionRestore: isApplyingSessionRestore,
             includeScrollback: includeScrollback
         ) {
 #if DEBUG
-            cmuxDebugLog("session.save.skipped reason=session_restore_in_progress includeScrollback=0")
+            cmuxDebugLog("session.save.skipped reason=\(didAttemptStartupSessionRestore ? "session_restore_in_progress" : "startup_restore_pending") includeScrollback=0")
 #endif
             return false
         }
@@ -4105,13 +4105,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     nonisolated static func shouldSaveSessionSnapshotAfterMainWindowRegistration(
         isTerminatingApp: Bool,
         didApplyStartupSessionRestore: Bool,
-        isApplyingSessionRestore: Bool
+        isApplyingSessionRestore: Bool, didAttemptStartupSessionRestore: Bool = true
     ) -> Bool {
-        !isTerminatingApp && !didApplyStartupSessionRestore && !isApplyingSessionRestore
+        !isTerminatingApp && didAttemptStartupSessionRestore && !didApplyStartupSessionRestore && !isApplyingSessionRestore
     }
 
-    nonisolated static func shouldRunSessionAutosaveTick(isTerminatingApp: Bool) -> Bool {
-        !isTerminatingApp
+    nonisolated static func shouldRunSessionAutosaveTick(isTerminatingApp: Bool, didAttemptStartupSessionRestore: Bool = true) -> Bool {
+        !isTerminatingApp && didAttemptStartupSessionRestore
     }
 
     nonisolated static func shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp _: Bool) -> Bool {
@@ -4143,7 +4143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func runSessionAutosaveTick(source: String) {
-        guard Self.shouldRunSessionAutosaveTick(isTerminatingApp: isTerminatingApp) else { return }
+        guard Self.shouldRunSessionAutosaveTick(isTerminatingApp: isTerminatingApp, didAttemptStartupSessionRestore: didAttemptStartupSessionRestore) else { return }
         guard !sessionAutosaveTickInFlight else { return }
         if let remainingQuietPeriod = remainingSessionAutosaveTypingQuietPeriod() {
 #if DEBUG
@@ -4577,7 +4577,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let priorManagerToken = debugManagerToken(self.tabManager)
         #endif
         if let existing = mainWindowContexts[key] {
-            tabManager.window = window
+            tabManager.setOwningWindow(window)
             tabManager.windowId = existing.windowId
             existing.window = window
             let resolvedFileExplorerState = fileExplorerState ?? existing.fileExplorerState
@@ -4603,7 +4603,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         "existing={\(debugWindowToken(existingWindow))} duplicate={\(debugWindowToken(window))}"
                 )
 #endif
-                existing.tabManager.window = existingWindow
+                existing.tabManager.setOwningWindow(existingWindow)
                 existing.tabManager.windowId = existing.windowId
                 existing.keyboardFocusCoordinator.update(
                     window: existingWindow,
@@ -4614,9 +4614,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 window.close()
                 return
             }
-            tabManager.window = window
+            let previouslyActiveBrowserPanelID = tabManager.setOwningWindow(window, activateRestoredPanel: false)
             tabManager.windowId = windowId
             existing.window = window
+            existing.reconcileWindowDockBrowserExtensions(in: window, restoringActivePanelID: previouslyActiveBrowserPanelID)
             let resolvedFileExplorerState = fileExplorerState ?? existing.fileExplorerState
             if let fileExplorerState {
                 existing.fileExplorerState = fileExplorerState
@@ -4632,7 +4633,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             reindexMainWindowContextIfNeeded(existing, for: window)
             existing.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
         } else {
-            tabManager.window = window
+            tabManager.setOwningWindow(window)
             tabManager.windowId = windowId
             let context = MainWindowContext(
                 windowId: windowId,
@@ -4647,7 +4648,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             context.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
         }
         commandPaletteWindowStore.registerWindow(windowId)
-
 #if DEBUG
         cmuxDebugLog(
             "mainWindow.register windowId=\(String(windowId.uuidString.prefix(8))) window={\(debugWindowToken(window))} manager=\(debugManagerToken(tabManager)) priorActiveMgr=\(priorManagerToken) \(debugShortcutRouteSnapshot())"
@@ -4660,11 +4660,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
         }
 
-        let didApplyStartupSessionRestore = attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
+        let didApplyStartupSessionRestore = tabManager.allowsStartupSessionRestore && attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
         if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
             isTerminatingApp: isTerminatingApp,
             didApplyStartupSessionRestore: didApplyStartupSessionRestore,
-            isApplyingSessionRestore: isApplyingSessionRestore
+            isApplyingSessionRestore: isApplyingSessionRestore, didAttemptStartupSessionRestore: didAttemptStartupSessionRestore
         ) {
             saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
         }
@@ -5954,16 +5954,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // Internal (not private): see notifyMainWindowContextsDidChange.
     func discardOrphanedMainWindowContext(_ context: MainWindowContext, allowWindowlessFallback: Bool = false) {
         context.teardownWindowDock()
+        prepareBrowserWebExtensionOwnershipForOrphanedMainWindowContext(context)
         let contextKeys = mainWindowContexts.compactMap { key, value in
             value === context ? key : nil
         }
         for key in contextKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
-        rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
         removeMobileWorkspaceListObserverIfUnused(for: context.tabManager)
         notifyMainWindowContextsDidChange()
-
         commandPaletteWindowStore.removeWindow(context.windowId)
 
         if tabManager === context.tabManager {
@@ -7195,7 +7194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         suppressWelcome: Bool = false
     ) -> UUID {
         for context in sortedMainWindowContextsForSessionSnapshot() {
-            guard let window = resolvedWindow(for: context) else { continue }
+            guard didAttemptStartupSessionRestore || context.tabManager.allowsStartupSessionRestore, let window = resolvedWindow(for: context) else { continue }
             if shouldActivate {
                 mainWindowVisibilityController.focus(
                     window,
@@ -8628,7 +8627,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sourceWindow preferredSourceWindow: NSWindow? = nil,
         remapClosedPanelHistoryFromSessionSnapshot: Bool = true,
         excludingStableIdentitiesFromSessionSnapshot: Set<UUID> = [],
-        restoredSessionSnapshotHandler: (([[UUID: UUID]], TabManager) -> Void)? = nil
+        restoredSessionSnapshotHandler: (([[UUID: UUID]], TabManager) -> Void)? = nil, allowsStartupSessionRestore: Bool = true
     ) -> UUID {
         reserveInitialSocketPathIfNeeded()
         let requestedWindowId = preferredWindowId ?? sessionWindowSnapshot?.windowId
@@ -8638,7 +8637,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialWorkingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: initialTerminalInput == nil,
-            browserWebExtensionHost: browserWebExtensionHost ?? self.tabManager?.browserWebExtensionHost
+            browserWebExtensionHost: browserWebExtensionHost ?? self.tabManager?.browserWebExtensionHost,
+            allowsStartupSessionRestore: allowsStartupSessionRestore
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {
@@ -16208,8 +16208,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             persistWindowGeometry(from: window)
         }
         mainWindowVisibilityController.discardClosedWindow(window)
-
+        closingContext?.tabManager.setOwningWindow(nil)
         guard let removed = unregisterMainWindowContext(for: window) else { return }
+        if recoverableMainWindowRoute(windowId: removed.windowId) == nil { removed.tabManager.discardBrowserWebExtensionWindowOwnership() }
         windowConfigFrames.removeValue(forKey: removed.windowId)
         publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")
         commandPaletteWindowStore.removeWindow(removed.windowId)
@@ -16221,7 +16222,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 store.clearNotifications(forTabId: tab.id)
             }
         }
-
         if tabManager === removed.tabManager {
             // Repoint "active" pointers to any remaining main terminal window.
             let nextContext: MainWindowContext? = {

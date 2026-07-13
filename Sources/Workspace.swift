@@ -1834,6 +1834,7 @@ final class Workspace: Identifiable, ObservableObject {
         case userInitiated
         case automationPreload
         case restoration
+        case extensionRequested
 
         var permitsCreationWhenBrowserDisabled: Bool {
             self == .restoration
@@ -1841,6 +1842,10 @@ final class Workspace: Identifiable, ObservableObject {
 
         var preloadsInitialNavigationInBackground: Bool {
             self == .automationPreload
+        }
+
+        var opensExternallyWhenBrowserDisabled: Bool {
+            self != .extensionRequested
         }
     }
 
@@ -3520,6 +3525,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
         browserPanel.registerWebExtensionIfNeeded()
+        browserPanel.browserWebExtensionHost?.noteWindowChanged(panelID: browserPanel.id)
         if focusedPanelId == browserPanel.id {
             browserPanel.noteWebExtensionActivated()
         }
@@ -7903,7 +7909,8 @@ final class Workspace: Identifiable, ObservableObject {
         if isRemoteTmuxMirror { return nil }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
-            if let externalURL = url ?? initialRequest?.url {
+            if creationPolicy.opensExternallyWhenBrowserDisabled,
+               let externalURL = url ?? initialRequest?.url {
                 _ = NSWorkspace.shared.open(externalURL)
             }
             return nil
@@ -11287,6 +11294,17 @@ extension Workspace: PaneTreeHosting {
     /// Legacy `@Published panels` willSet: re-emits objectWillChange and the
     /// Combine bridge at the exact timing `@Published` used.
     func panelsWillChange(to newValue: [UUID: any Panel]) {
+        let addedUserOwnedPanel = newValue.contains { panelID, panel in
+            guard !(panel is BrowserPanel) else { return false }
+            guard let previousPanel = panels[panelID] else { return true }
+            return previousPanel !== panel
+        }
+        if addedUserOwnedPanel {
+            browserWebExtensionHost?.noteUserOwnedPanelAdded(
+                nativeWindow: owningTabManager?.window,
+                alongsidePanelIDs: newValue.compactMap { $0.value is BrowserPanel ? $0.key : nil }
+            )
+        }
         objectWillChange.send()
         setBrowserMediaActivity(
             currentBrowserMediaActivity(panels: newValue),

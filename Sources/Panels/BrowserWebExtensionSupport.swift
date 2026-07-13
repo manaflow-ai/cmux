@@ -66,9 +66,11 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     @ObservationIgnored
     var tabAdapters: [UUID: BrowserWebExtensionTabAdapter] = [:]
     @ObservationIgnored
+    var openTabNotificationPanelIDs: Set<UUID> = []
+    @ObservationIgnored
     private var tabMetadataSnapshotsByPanelID: [UUID: TabMetadataSnapshot] = [:]
     @ObservationIgnored
-    private var pendingTabMetadataPanelIDs: Set<UUID> = []
+    var pendingTabMetadataPanelIDs: Set<UUID> = []
     @ObservationIgnored
     private var tabMetadataFlushTask: Task<Void, Never>?
     @ObservationIgnored
@@ -78,11 +80,15 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     @ObservationIgnored
     var orderedPanelIDs: [UUID] = []
     @ObservationIgnored
-    private(set) var activePanelID: UUID?
+    var activePanelID: UUID?
     @ObservationIgnored
-    private var activePanelIDsByWindow: [ObjectIdentifier: UUID] = [:]
+    var activePanelIDsByWindow: [ObjectIdentifier: UUID] = [:]
     @ObservationIgnored
-    private(set) lazy var windowAdapter = BrowserWebExtensionWindowAdapter(support: self)
+    var windowIDsByPanelID: [UUID: ObjectIdentifier] = [:]
+    @ObservationIgnored
+    var windowAdaptersByWindowID: [ObjectIdentifier: BrowserWebExtensionWindowAdapter] = [:]
+    @ObservationIgnored
+    var lastFocusedNormalWindowID: ObjectIdentifier?
     @ObservationIgnored
     var popouts: [BrowserWebExtensionPopoutWindowController] = []
 
@@ -216,104 +222,52 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
 
     func register(panel: BrowserPanel) {
         guard tabAdapters[panel.id] == nil else { return }
+        AppDelegate.shared?.noteRecoverableBrowserWebExtensionPanelRegistered(
+            panelID: panel.id,
+            workspaceID: panel.workspaceId
+        )
         let adapter = BrowserWebExtensionTabAdapter(panel: panel, support: self)
         tabAdapters[panel.id] = adapter
         tabMetadataSnapshotsByPanelID[panel.id] = TabMetadataSnapshot(panel: panel)
         actionSnapshotInvalidationsByPanelID[panel.id] = BrowserWebExtensionActionSnapshotInvalidation()
         orderedPanelIDs.append(panel.id)
-        if activePanelID == nil { activePanelID = panel.id }
         rememberActivePanel(panel.id)
-        controller.didOpenTab(adapter)
+        if windowIDsByPanelID[panel.id] != nil,
+           openTabNotificationPanelIDs.insert(panel.id).inserted {
+            controller.didOpenTab(adapter)
+        }
     }
 
     func unregister(panelID: UUID) {
+        AppDelegate.shared?.noteRecoverableBrowserWebExtensionPanelUnregistered(panelID: panelID)
+        let oldWindowID = windowIDsByPanelID[panelID]
+        let oldWindowAdapter = oldWindowID.flatMap { windowAdaptersByWindowID[$0] }
+        oldWindowAdapter?.notePanelRemoved(panelID)
         guard let adapter = tabAdapters.removeValue(forKey: panelID) else { return }
         tabMetadataSnapshotsByPanelID.removeValue(forKey: panelID)
         pendingTabMetadataPanelIDs.remove(panelID)
         orderedPanelIDs.removeAll { $0 == panelID }
+        let tabWasOpen = openTabNotificationPanelIDs.remove(panelID) != nil
         activePanelIDsByWindow = activePanelIDsByWindow.filter { $0.value != panelID }
         actionSnapshotInvalidationsByPanelID.removeValue(forKey: panelID)
-        controller.didCloseTab(adapter, windowIsClosing: false)
+        let remainingAdapters = oldWindowID.map { orderedTabAdapters(inWindowID: $0) } ?? []
+        let windowIsClosing = oldWindowID != nil && remainingAdapters.isEmpty
+        if tabWasOpen {
+            controller.didCloseTab(adapter, windowIsClosing: windowIsClosing)
+        }
+        windowIDsByPanelID.removeValue(forKey: panelID)
+        if windowIsClosing, let oldWindowID {
+            removeWindowAdapter(oldWindowAdapter, withID: oldWindowID)
+        }
         if activePanelID == panelID {
-            activePanelID = orderedPanelIDs.last
-            // Tell extensions which tab is active now, or they keep acting on
-            // the closed one until the next focus change.
-            if let successor = activePanelID.flatMap({ tabAdapters[$0] }) {
-                controller.didActivateTab(successor, previousActiveTab: adapter)
-                refreshActionSnapshots(for: successor.panel?.id)
-            }
+            activePanelID = nil
         }
-    }
-
-    func noteActivated(panelID: UUID) {
-        guard tabAdapters[panelID] != nil else { return }
-        rememberActivePanel(panelID)
-        guard activePanelID != panelID else { return }
-        let previousPanelID = activePanelID
-        let previous = previousPanelID.flatMap { tabAdapters[$0] }
-        activePanelID = panelID
-        if let adapter = tabAdapters[panelID] {
-            controller.didActivateTab(adapter, previousActiveTab: previous)
-        }
-        refreshActionSnapshots(for: previousPanelID)
         refreshActionSnapshots(for: panelID)
     }
 
-    func noteWindowBecameKey(_ window: NSWindow) {
-        let focusedWindow = focusedWebExtensionWindow(for: window)
-        if (focusedWindow as AnyObject?) === windowAdapter,
-           let panelID = activePanelID(in: window) {
-            noteActivated(panelID: panelID)
-        }
-        notifyFocusedWindow(focusedWindow)
-    }
-
-    private func notifyFocusedWindow(_ focusedWindow: (any WKWebExtensionWindow)?) {
-        guard let popout = focusedWindow as? BrowserWebExtensionPopoutWindowController,
-              let owningContext = popout.extensionContext else {
-            controller.didFocusWindow(focusedWindow)
-            return
-        }
-        for record in loadedRecordsInOrder {
-            record.context.didFocusWindow(record.context === owningContext ? popout : nil)
-        }
-    }
-
-    func focusedWebExtensionWindow(for keyWindow: NSWindow?) -> (any WKWebExtensionWindow)? {
-        guard let keyWindow else { return nil }
-        return webExtensionWindow(for: keyWindow)
-    }
-
-    func webExtensionWindow(for window: NSWindow) -> (any WKWebExtensionWindow)? {
-        if let popout = popouts.first(where: { $0.window === window }) {
-            return popout
-        }
-        return activePanelID(in: window) == nil ? nil : windowAdapter
-    }
-
-    private func rememberActivePanel(_ panelID: UUID) {
-        guard let window = tabAdapters[panelID]?.panel?.webView.window else { return }
-        activePanelIDsByWindow[ObjectIdentifier(window)] = panelID
-    }
-
-    private func activePanelID(in window: NSWindow) -> UUID? {
-        let windowID = ObjectIdentifier(window)
-        if let rememberedPanelID = activePanelIDsByWindow[windowID],
-           tabAdapters[rememberedPanelID]?.panel?.webView.window === window {
-            return rememberedPanelID
-        }
-        guard let fallbackPanelID = orderedPanelIDs.reversed().first(where: {
-            tabAdapters[$0]?.panel?.webView.window === window
-        }) else {
-            activePanelIDsByWindow.removeValue(forKey: windowID)
-            return nil
-        }
-        activePanelIDsByWindow[windowID] = fallbackPanelID
-        return fallbackPanelID
-    }
-
     func noteTabMetadataChanged(panelID: UUID) {
-        guard tabAdapters[panelID] != nil else { return }
+        guard tabAdapters[panelID] != nil,
+              openTabNotificationPanelIDs.contains(panelID) else { return }
         pendingTabMetadataPanelIDs.insert(panelID)
         guard tabMetadataFlushTask == nil else { return }
         tabMetadataFlushTask = Task { @MainActor [weak self] in
@@ -328,6 +282,7 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
         let panelIDs = pendingTabMetadataPanelIDs
         pendingTabMetadataPanelIDs.removeAll()
         for panelID in panelIDs {
+            guard openTabNotificationPanelIDs.contains(panelID) else { continue }
             guard let adapter = tabAdapters[panelID], let panel = adapter.panel else {
                 tabMetadataSnapshotsByPanelID.removeValue(forKey: panelID)
                 continue
@@ -355,10 +310,6 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
         activePanelID.flatMap { tabAdapters[$0] }
     }
 
-    func indexInWindow(of panelID: UUID) -> Int {
-        orderedPanelIDs.firstIndex(of: panelID) ?? 0
-    }
-
     // MARK: - Action popup
 
     /// Performs the extension's toolbar action for `panel`, anchoring any popup
@@ -373,6 +324,10 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
 
     /// Offers a key equivalent to loaded extensions' declared commands
     /// (e.g. Bitwarden's ⌘⇧L autofill). Returns true when one handled it.
+    func hasCommand(for event: NSEvent) -> Bool {
+        loadedRecordsInOrder.contains { $0.context.command(for: event) != nil }
+    }
+
     func performCommand(for event: NSEvent) -> Bool {
         for record in loadedRecordsInOrder where record.context.performCommand(for: event) {
 #if DEBUG
@@ -414,8 +369,12 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
 
     func popoutDidClose(_ popout: BrowserWebExtensionPopoutWindowController) {
         guard popouts.contains(where: { $0 === popout }) else { return }
+        let wasFocused = popout.isKeyWindow
         popouts.removeAll { $0 === popout }
         guard let extensionContext = popout.extensionContext else { return }
+        if wasFocused {
+            extensionContext.didFocusWindow(nil)
+        }
         extensionContext.didCloseTab(popout.tab, windowIsClosing: true)
         extensionContext.didCloseWindow(popout)
     }

@@ -182,7 +182,10 @@ class TabManager: ObservableObject {
     /// Stable identifier of the owning macOS window. Used only for opt-in title
     /// templates that expose a WM-matchable per-window token.
     var windowId: UUID?
-
+    /// Whether this manager's first native-window registration may consume the
+    /// one-time startup session snapshot.
+    let allowsStartupSessionRestore: Bool
+    var pendingBrowserWebExtensionActivePanelID: UUID?
     // Wave-4 sub-model (TabManager decomposition): the workspace list, the
     // sidebar group sections, and the selected-workspace id storage live in
     // WorkspacesModel (CmuxWorkspaces). TabManager stays the per-window
@@ -243,6 +246,9 @@ class TabManager: ObservableObject {
     /// Legacy `@Published tabs` willSet: objectWillChange plus the Combine
     /// bridge fire before storage changes, matching @Published timing.
     func workspaceTabsWillChange(to newValue: [Workspace]) {
+        for workspace in newValue where workspacesById[workspace.id] == nil {
+            noteUserOwnedPanelsAdded(in: workspace)
+        }
         workspacesById = Dictionary(newValue.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         objectWillChange.send()
         tabsPublisher.send(newValue)
@@ -471,10 +477,12 @@ class TabManager: ObservableObject {
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
         browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil,
+        allowsStartupSessionRestore: Bool = true,
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
         self.settings = settings
         self.browserWebExtensionHost = browserWebExtensionHost
+        self.allowsStartupSessionRestore = allowsStartupSessionRestore
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
@@ -2094,7 +2102,6 @@ class TabManager: ObservableObject {
 
         return removed
     }
-
     /// Attach an existing workspace to this window.
     func attachWorkspace(_ workspace: Workspace, at index: Int? = nil, select: Bool = true) {
         workspace.owningTabManager = self
@@ -2104,6 +2111,11 @@ class TabManager: ObservableObject {
             return max(0, min(index, tabs.count))
         }()
         tabs.insert(workspace, at: insertIndex)
+        reconcileBrowserWebExtensionWindows(
+            in: workspace,
+            nativeWindow: window,
+            activateFocusedPanel: select
+        )
         // A workspace moved in from another window arrives ungrouped (detach
         // clears `groupId`) and may be pinned, so an arbitrary insert index can
         // split a destination group's contiguous run or drop a pinned workspace
@@ -2115,7 +2127,6 @@ class TabManager: ObservableObject {
             selectedTabId = workspace.id
         }
     }
-
     // Keep closeTab as convenience alias
     func closeTab(_ tab: Workspace) { closeWorkspace(tab) }
     func closeCurrentTabWithConfirmation() { closeCurrentWorkspaceWithConfirmation() }

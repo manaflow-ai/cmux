@@ -1,4 +1,5 @@
 import AppKit
+import ObjectiveC
 import WebKit
 
 /// Hosts a `windows.create({type: "popup"})` window opened by a web extension —
@@ -8,14 +9,17 @@ import WebKit
 /// `NSWindow` + extension-page `WKWebView`; its single tab uses a dedicated adapter.
 @available(macOS 15.4, *)
 @MainActor
-final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionWindow, NSWindowDelegate {
+final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionWindow, NSWindowDelegate, WKNavigationDelegate {
     private static let defaultSize = CGSize(width: 400, height: 600)
+    private static var downloadDelegateAssociationKey: UInt8 = 0
 
     let window: NSWindow
     let webView: WKWebView
     private(set) lazy var tab = BrowserWebExtensionPopoutTab(controller: self)
     private weak var support: BrowserWebExtensionSupport?
     private(set) weak var extensionContext: WKWebExtensionContext?
+    private let downloadDelegate: BrowserDownloadDelegate
+    private let subframeDownloadIntents = BrowserSubframeDownloadIntentTracker()
 
     init(
         configuration: WKWebExtension.WindowConfiguration,
@@ -24,6 +28,7 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
     ) {
         self.support = support
         self.extensionContext = context
+        downloadDelegate = BrowserDownloadDelegate()
 
         let webViewConfiguration = context.webViewConfiguration ?? WKWebViewConfiguration()
         webView = WKWebView(frame: .zero, configuration: webViewConfiguration)
@@ -61,7 +66,9 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
         }
 
         super.init()
+        downloadDelegate.savePanelParentWindow = { [weak window] in window }
         window.delegate = self
+        webView.navigationDelegate = self
         window.title = context.webExtension.displayName ?? String(
             localized: "browser.webExtension.action.help",
             defaultValue: "Extension"
@@ -154,6 +161,163 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
     func canLoadExtensionRequestedURL(_ url: URL) -> Bool {
         guard let extensionContext else { return false }
         return support?.canOpenExtensionPopupURL(url, for: extensionContext) == true
+    }
+
+    static func canFallbackToExternalBrowser(for request: URLRequest) -> Bool {
+        let method = request.httpMethod?.uppercased() ?? "GET"
+        return method == "GET" && request.httpBody == nil && request.httpBodyStream == nil &&
+            (request.allHTTPHeaderFields?.isEmpty ?? true)
+    }
+
+    // MARK: - WKNavigationDelegate
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        guard let url = navigationAction.request.url else {
+            decisionHandler(.cancel)
+            return
+        }
+        let isForMainFrame = navigationAction.targetFrame?.isMainFrame != false
+        let hasUserActivation = browserNavigationHasSimpleUserActivation()
+        if !isForMainFrame, hasUserActivation {
+            subframeDownloadIntents.record(url)
+        }
+        subframeDownloadIntents.updateIfNeeded(
+            navigationAction,
+            hasUserActivation: hasUserActivation
+        )
+        if navigationAction.shouldPerformDownload {
+            let hasRecordedIntent = !isForMainFrame && subframeDownloadIntents.consume(for: url)
+            decisionHandler(Self.actionDownloadPolicy(
+                for: url,
+                isForMainFrame: isForMainFrame,
+                hasUserActivation: hasUserActivation,
+                hasRecordedIntent: hasRecordedIntent,
+                blocksInsecureHTTP: browserShouldBlockInsecureHTTPURL(url)
+            ))
+            return
+        }
+        if !isForMainFrame {
+            decisionHandler(.allow)
+            return
+        }
+
+        if navigationAction.targetFrame != nil, canLoadExtensionRequestedURL(url) {
+            decisionHandler(.allow)
+            return
+        }
+
+        let scheme = url.scheme?.lowercased()
+        if scheme == "http" || scheme == "https" {
+            if support?.openBrowserTab(
+                url: nil,
+                initialRequest: navigationAction.request,
+                shouldActivate: true,
+                webViewConfiguration: nil
+            ) != nil {
+                decisionHandler(.cancel)
+                return
+            }
+            if !Self.canFallbackToExternalBrowser(for: navigationAction.request) ||
+                !NSWorkspace.shared.open(url) {
+                sentryCaptureWarning(
+                    "browser.webExtension.popup.externalNavigationFailed",
+                    category: "browser.webExtension",
+                    data: ["scheme": scheme ?? "", "host": url.host ?? ""]
+                )
+            }
+            decisionHandler(.cancel)
+            return
+        }
+        decisionHandler(.cancel)
+    }
+
+    static func actionDownloadPolicy(
+        for url: URL,
+        isForMainFrame: Bool,
+        hasUserActivation: Bool,
+        hasRecordedIntent: Bool,
+        blocksInsecureHTTP: Bool
+    ) -> WKNavigationActionPolicy {
+        guard !url.browserShouldRouteExternalNavigation,
+              !blocksInsecureHTTP,
+              isForMainFrame || hasUserActivation || hasRecordedIntent else {
+            return .cancel
+        }
+        return .download
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationResponse: WKNavigationResponse
+    ) async -> WKNavigationResponsePolicy {
+        let responseURL = navigationResponse.response.url
+        let allowsSubframeDownload = navigationResponse.isForMainFrame
+            || subframeDownloadIntents.consume(for: responseURL)
+        return Self.responsePolicy(
+            for: navigationResponse.response,
+            canShowMIMEType: navigationResponse.canShowMIMEType,
+            isForMainFrame: navigationResponse.isForMainFrame,
+            allowsSubframeDownload: allowsSubframeDownload,
+            blocksInsecureHTTP: responseURL.map { browserShouldBlockInsecureHTTPURL($0) } ?? true
+        )
+    }
+
+    static func responsePolicy(
+        for response: URLResponse,
+        canShowMIMEType: Bool,
+        isForMainFrame: Bool,
+        allowsSubframeDownload: Bool,
+        blocksInsecureHTTP: Bool
+    ) -> WKNavigationResponsePolicy {
+        guard let scheme = response.url?.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            return .allow
+        }
+        let contentDisposition = (response as? HTTPURLResponse)?
+            .value(forHTTPHeaderField: "Content-Disposition")
+        let downloadReason = BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
+            mimeType: response.mimeType,
+            canShowMIMEType: canShowMIMEType,
+            contentDisposition: contentDisposition,
+            isForMainFrame: isForMainFrame
+        )
+        guard downloadReason != nil else { return .allow }
+        if blocksInsecureHTTP || (!isForMainFrame && !allowsSubframeDownload) {
+            return .cancel
+        }
+        return .download
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        navigationAction: WKNavigationAction,
+        didBecome download: WKDownload
+    ) {
+        retainDownloadDelegate(for: download)
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        navigationResponse: WKNavigationResponse,
+        didBecome download: WKDownload
+    ) {
+        retainDownloadDelegate(for: download)
+    }
+
+    private func retainDownloadDelegate(for download: WKDownload) {
+        // WKDownload.delegate is weak. Tie the delegate to the download so a
+        // transfer can finish after its originating popout window closes.
+        objc_setAssociatedObject(
+            download,
+            &Self.downloadDelegateAssociationKey,
+            downloadDelegate,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+        download.delegate = downloadDelegate
     }
 
 }

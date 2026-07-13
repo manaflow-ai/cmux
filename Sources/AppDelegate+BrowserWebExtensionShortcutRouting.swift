@@ -39,7 +39,8 @@ extension AppDelegate {
 
     /// Dispatches manifest commands before the Command-only menu-equivalent guard.
     func performBrowserWebExtensionCommandKeyEquivalent(_ event: NSEvent) -> Bool {
-        guard #available(macOS 15.4, *), shouldOfferBrowserWebExtensionCommand(event) else {
+        guard #available(macOS 15.4, *),
+              browserWebExtensionCommandHasPrimaryModifier(event) else {
             return false
         }
         let panel = shortcutEventBrowserPanel(event)
@@ -48,6 +49,10 @@ extension AppDelegate {
             cmuxDebugLog("browser.webext.command noPanel keyCode=\(event.keyCode)")
         }
 #endif
+        guard panel?.browserWebExtensionSupport?.hasCommand(for: event) == true,
+              shouldOfferBrowserWebExtensionCommand(event) else {
+            return false
+        }
         return panel?.performWebExtensionCommand(for: event) == true
     }
 
@@ -90,10 +95,9 @@ extension AppDelegate {
         _ event: NSEvent,
         browserFocusModeActive: Bool
     ) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         // Manifest keyboard commands on macOS require a primary modifier. Keep
         // ordinary typing off the all-actions conflict scan in this hot path.
-        guard !flags.intersection([.command, .control, .option]).isEmpty else {
+        guard browserWebExtensionCommandHasPrimaryModifier(event) else {
             return false
         }
 
@@ -145,6 +149,11 @@ extension AppDelegate {
 #endif
             return claims
         }
+    }
+
+    private func browserWebExtensionCommandHasPrimaryModifier(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return !flags.intersection([.command, .control, .option]).isEmpty
     }
 
     private func configuredShortcutClaimsWebExtensionCommand(

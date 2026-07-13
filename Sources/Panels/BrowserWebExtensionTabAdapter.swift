@@ -19,7 +19,7 @@ final class BrowserWebExtensionTabAdapter: NSObject, WKWebExtensionTab {
     }
 
     func window(for context: WKWebExtensionContext) -> (any WKWebExtensionWindow)? {
-        support?.windowAdapter
+        support?.windowAdapter(for: panelID)
     }
 
     func indexInWindow(for context: WKWebExtensionContext) -> Int {
@@ -48,7 +48,7 @@ final class BrowserWebExtensionTabAdapter: NSObject, WKWebExtensionTab {
     }
 
     func isSelected(for context: WKWebExtensionContext) -> Bool {
-        support?.activePanelID == panelID
+        support?.isPanelActiveInWindow(panelID) == true
     }
 
     func activate(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {

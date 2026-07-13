@@ -22,6 +22,19 @@ extension AppDelegate.MainWindowContext {
         windowDock
     }
 
+    func reconcileWindowDockBrowserExtensions(
+        in window: NSWindow,
+        restoringActivePanelID: UUID?
+    ) {
+        windowDock?.reconcileBrowserWebExtensionWindows(
+            in: window,
+            activateFocusedPanel: restoringActivePanelID == nil
+        )
+        if let restoringActivePanelID {
+            tabManager.browserWebExtensionHost?.noteActivated(panelID: restoringActivePanelID)
+        }
+    }
+
     /// Tears down this context's Dock, closing any live terminals/browsers and
     /// their portals, so no Dock panel outlives its window.
     func teardownWindowDock() {

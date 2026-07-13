@@ -34,7 +34,20 @@ final class DockSplitStore: BonsplitDelegate {
     private let browserAvailabilityProvider: () -> Bool
     let browserWebExtensionHost: (any BrowserWebExtensionHosting)?
     // Internal so cross-container transfers can move live panels without tearing them down.
-    var panels: [UUID: any Panel] = [:]
+    var panels: [UUID: any Panel] = [:] {
+        didSet {
+            let addedUserOwnedPanel = panels.contains { panelID, panel in
+                guard !(panel is BrowserPanel) else { return false }
+                guard let previousPanel = oldValue[panelID] else { return true }
+                return previousPanel !== panel
+            }
+            guard addedUserOwnedPanel else { return }
+            browserWebExtensionHost?.noteUserOwnedPanelAdded(
+                nativeWindow: AppDelegate.shared?.dockReferenceTabManager(for: self)?.window,
+                alongsidePanelIDs: panels.compactMap { $0.value is BrowserPanel ? $0.key : nil }
+            )
+        }
+    }
     var surfaceIdToPanelId: [TabID: UUID] = [:]
     var panelCancellables: [UUID: AnyCancellable] = [:]
     @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
@@ -259,6 +272,7 @@ final class DockSplitStore: BonsplitDelegate {
         tmuxStartCommand: String? = nil,
         focus: Bool = true,
         preferredProfileID: UUID? = nil,
+        creationPolicy: Workspace.BrowserPanelCreationPolicy = .userInitiated,
         bypassInsecureHTTPHostOnce: String? = nil, webViewConfiguration: WKWebViewConfiguration? = nil, allowWebExtensionInitialNavigationConfiguration: Bool = true
     ) -> UUID? {
         ensureLoaded()
@@ -271,6 +285,7 @@ final class DockSplitStore: BonsplitDelegate {
             workingDirectory: workingDirectory ?? currentBaseDirectory(),
             tmuxStartCommand: tmuxStartCommand,
             preferredProfileID: preferredProfileID,
+            creationPolicy: creationPolicy,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce, webViewConfiguration: webViewConfiguration, allowWebExtensionInitialNavigationConfiguration: allowWebExtensionInitialNavigationConfiguration
         ) else { return nil }
         let previousFocus = focus ? nil : focusedDockPaneSelection()
@@ -442,6 +457,7 @@ final class DockSplitStore: BonsplitDelegate {
         workingDirectory: String,
         tmuxStartCommand: String? = nil,
         preferredProfileID: UUID? = nil,
+        creationPolicy: Workspace.BrowserPanelCreationPolicy = .userInitiated,
         bypassInsecureHTTPHostOnce: String? = nil, webViewConfiguration: WKWebViewConfiguration? = nil, allowWebExtensionInitialNavigationConfiguration: Bool = true
     ) -> (any Panel)? {
         switch kind {
@@ -457,7 +473,10 @@ final class DockSplitStore: BonsplitDelegate {
             )
         case .browser:
             guard browserAvailabilityProvider() else {
-                if let externalURL = url ?? initialRequest?.url { _ = NSWorkspace.shared.open(externalURL) }
+                if creationPolicy.opensExternallyWhenBrowserDisabled,
+                   let externalURL = url ?? initialRequest?.url {
+                    _ = NSWorkspace.shared.open(externalURL)
+                }
                 return nil
             }
             return makeBrowserPanel(
@@ -559,6 +578,7 @@ final class DockSplitStore: BonsplitDelegate {
     func installSubscription(for panel: any Panel, tracksTerminalTitle: Bool) {
         if let browser = panel as? BrowserPanel {
             browser.registerWebExtensionIfNeeded()
+            browser.browserWebExtensionHost?.noteWindowChanged(panelID: browser.id)
             if focusedPanelId == browser.id { browser.noteWebExtensionActivated() }
             let cancellable = Publishers.CombineLatest4(
                 browser.$pageTitle.removeDuplicates(), browser.$currentURL.removeDuplicates(),
