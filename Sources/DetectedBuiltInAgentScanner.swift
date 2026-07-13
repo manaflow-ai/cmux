@@ -51,24 +51,37 @@ extension RestorableAgentSessionIndex {
         }
     ) -> [PanelKey: DetectedBuiltInAgent] {
         var resolved: [PanelKey: DetectedBuiltInAgent] = [:]
-        for process in processSnapshot.cmuxScopedProcesses() {
-            guard let workspaceId = process.cmuxWorkspaceID,
-                  let panelId = process.cmuxSurfaceID else {
-                continue
-            }
-            let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
-            // A pane may host several processes (shell + agent + children); the first
-            // matched definition wins and later processes for the same panel are skipped.
-            guard resolved[key] == nil else { continue }
+        let scoped = processSnapshot.cmuxScopedProcesses()
+
+        func matchedAgent(for process: CmuxTopProcessInfo) -> DetectedBuiltInAgent? {
             let processArguments = processArgumentsProvider(process.pid)
             guard let definition = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: process.name,
                 processPath: process.path,
                 arguments: processArguments?.arguments ?? [],
                 environment: processArguments?.environment ?? [:]
-            ) else { continue }
-            resolved[key] = DetectedBuiltInAgent(agentId: definition.id)
+            ) else { return nil }
+            return DetectedBuiltInAgent(agentId: definition.id)
         }
+
+        func assign(preferringForeground foregroundOnly: Bool) {
+            for process in scoped {
+                if foregroundOnly, !process.isTerminalForegroundProcessGroup { continue }
+                guard let workspaceId = process.cmuxWorkspaceID,
+                      let panelId = process.cmuxSurfaceID else { continue }
+                let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
+                guard resolved[key] == nil, let agent = matchedAgent(for: process) else { continue }
+                resolved[key] = agent
+            }
+        }
+
+        // A pane hosts several scoped processes (shell + agent + MCP/helper children), and a
+        // background child can carry a DIFFERENT agent's signal (e.g. an opencode pane whose
+        // env inherits claude-wrapper vars). Prefer the terminal FOREGROUND process — the agent
+        // the user is actually interacting with — and only fall back to a background match when
+        // no foreground process in the pane matches a known agent.
+        assign(preferringForeground: true)
+        assign(preferringForeground: false)
         return resolved
     }
 }
