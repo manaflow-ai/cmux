@@ -2908,18 +2908,9 @@ class GhosttyApp {
             return true
         case GHOSTTY_ACTION_PWD:
             let pwd = action.action.pwd.pwd.flatMap { String(cString: $0) } ?? ""
-            // The action pointer is callback-scoped, so copy it before hopping
-            // to MainActor through performOnMain.
-            let scrollbarAtMarker = action.action.pwd.scrollbar.map { GhosttyScrollbar(c: $0.pointee) }
-            if SessionScrollbackReplayCompletionMarker.isReservedReportedDirectory(pwd), performOnMain({
-                completeSessionScrollbackReplayIfNeeded(
-                    surfaceView: surfaceView,
-                    reportedDirectory: pwd,
-                    scrollbarAtMarker: scrollbarAtMarker
-                )
-            }) { return true }
+            if completeSessionScrollbackReplayIfNeeded(surfaceView: surfaceView, action: action.action.pwd) { return true }
             guard let tabId = surfaceView.tabId, let surfaceId = surfaceView.terminalSurface?.id else { return true }
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 AppDelegate.shared?.tabManagerFor(tabId: tabId)?.updateReportedSurfaceDirectory(
                     tabId: tabId,
                     surfaceId: surfaceId,
@@ -8195,7 +8186,7 @@ final class GhosttySurfaceScrollView: NSView {
     var userScrolledAwayFromBottom = false
     private var pendingExplicitWheelScroll = false
     var allowExplicitScrollbarSync = false
-    var notificationScrollRestorePhase: TerminalNotificationScrollRestorePhase = .idle; var earlySessionScrollbackReplayCompletionDirectory: String?; var sessionScrollbackReplayCompletionDeadlineTimer: Timer?
+    var notificationScrollRestorePhase: TerminalNotificationScrollRestorePhase = .idle; var earlySessionScrollbackReplayCompletionDirectory: String?; var sessionScrollbackReplayCompletionScrollbar: GhosttyScrollbar?; var sessionScrollbackReplayCompletionDeadlineTimer: Timer?
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true

@@ -24,8 +24,7 @@ extension GhosttySurfaceScrollView {
             position,
             sessionScrollbackReplayCompletionMarker: notificationScrollRestorePhase.sessionScrollbackReplayCompletionMarker
         )
-        if notificationScrollRestorePhase.sessionScrollbackReplayCompletionMarker != nil,
-           sessionScrollbackReplayCompletionDeadlineTimer == nil {
+        if notificationScrollRestorePhase.sessionScrollbackReplayCompletionMarker != nil {
             scheduleSessionScrollbackReplayCompletionDeadline()
         }
         return retryPendingNotificationScrollRestore()
@@ -37,7 +36,10 @@ extension GhosttySurfaceScrollView {
             return false
         }
         guard completionMarker == nil else { return true }
-        switch notificationScrollRestoreDecision(position) {
+        switch notificationScrollRestoreDecision(
+            position,
+            scrollbar: sessionScrollbackReplayCompletionScrollbar ?? surfaceView.scrollbar
+        ) {
         case .waitForViewport:
             return true
         case .perform(let target):
@@ -50,6 +52,7 @@ extension GhosttySurfaceScrollView {
                 return true
             }
             cancelSessionScrollbackReplayCompletionDeadline()
+            sessionScrollbackReplayCompletionScrollbar = nil
             return true
         }
     }
@@ -58,11 +61,10 @@ extension GhosttySurfaceScrollView {
         guard case .pending(_, let completionMarker) = notificationScrollRestorePhase else { return }
         if let completionMarker {
             notificationScrollRestorePhase = .sessionScrollbackReplayActive(completionMarker)
-            if sessionScrollbackReplayCompletionDeadlineTimer == nil {
-                scheduleSessionScrollbackReplayCompletionDeadline()
-            }
+            cancelSessionScrollbackReplayCompletionDeadline()
         } else {
             cancelSessionScrollbackReplayCompletionDeadline()
+            sessionScrollbackReplayCompletionScrollbar = nil
             notificationScrollRestorePhase = .idle
         }
     }
@@ -86,6 +88,7 @@ extension GhosttySurfaceScrollView {
             }
             return
         }
+        sessionScrollbackReplayCompletionScrollbar = nil
         switch notificationScrollRestorePhase {
         case .idle:
             notificationScrollRestorePhase = .sessionScrollbackReplayActive(completionMarker)
@@ -97,7 +100,6 @@ extension GhosttySurfaceScrollView {
                 sessionScrollbackReplayCompletionMarker: completionMarker
             )
         }
-        scheduleSessionScrollbackReplayCompletionDeadline()
     }
 
     func hasSessionScrollbackReplayCompletionMarker(matching reportedDirectory: String) -> Bool {
@@ -133,7 +135,14 @@ extension GhosttySurfaceScrollView {
             )
         }
 
+        guard let scrollbarAtMarker else {
+            sessionScrollbackReplayCompletionScrollbar = nil
+            cancelPendingNotificationScrollRestore()
+            return true
+        }
+        sessionScrollbackReplayCompletionScrollbar = scrollbarAtMarker
         guard refreshAuthoritativeScrollbar(scrollbarAtMarker) else {
+            sessionScrollbackReplayCompletionScrollbar = nil
             cancelPendingNotificationScrollRestore()
             return true
         }
@@ -143,20 +152,22 @@ extension GhosttySurfaceScrollView {
 
     func expireSessionScrollbackReplayCompletionDeadline() {
         switch notificationScrollRestorePhase {
-        case .sessionScrollbackReplayActive,
-             .pending(_, sessionScrollbackReplayCompletionMarker: .some(_)):
+        case .pending(_, sessionScrollbackReplayCompletionMarker: .some(_)):
             break
-        case .idle, .pending(_, sessionScrollbackReplayCompletionMarker: nil):
+        case .idle,
+             .sessionScrollbackReplayActive,
+             .pending(_, sessionScrollbackReplayCompletionMarker: nil):
             return
         }
         cancelSessionScrollbackReplayCompletionDeadline()
+        sessionScrollbackReplayCompletionScrollbar = nil
         notificationScrollRestorePhase = .idle
     }
 
     private func scheduleSessionScrollbackReplayCompletionDeadline() {
         cancelSessionScrollbackReplayCompletionDeadline()
-        // The OSC 7 marker is the synchronization signal. This deadline only
-        // prevents a missing or disabled shell integration from waiting forever.
+        // Artifact adoption can precede paced runtime startup. Start this bound
+        // only when navigation is actually waiting for the OSC 7 marker.
         let timer = Timer(timeInterval: 10, repeats: false) { [weak self] _ in
             // This timer is registered only on RunLoop.main below.
             MainActor.assumeIsolated {
@@ -203,28 +214,32 @@ extension GhosttySurfaceScrollView {
     }
 
     private func notificationScrollRestoreDecision(
-        _ position: TerminalNotificationScrollPosition
+        _ position: TerminalNotificationScrollPosition,
+        scrollbar: GhosttyScrollbar?
     ) -> TerminalNotificationScrollRestoreDecision {
         if position.row <= 0 {
             return .perform(.bottom)
         }
-        guard let scrollbar = surfaceView.scrollbar else { return .waitForViewport }
+        guard let scrollbar else { return .waitForViewport }
         let currentTotalRows = Int(clamping: scrollbar.total)
         let currentVisibleRows = min(currentTotalRows, Int(clamping: scrollbar.len))
         guard currentVisibleRows > 0 else { return .waitForViewport }
 
-        guard let target = notificationScrollRestoreTarget(position) else { return .waitForViewport }
+        guard let target = notificationScrollRestoreTarget(position, scrollbar: scrollbar) else {
+            return .waitForViewport
+        }
         return .perform(target)
     }
 
     func notificationScrollRestoreTarget(
-        _ position: TerminalNotificationScrollPosition?
+        _ position: TerminalNotificationScrollPosition?,
+        scrollbar suppliedScrollbar: GhosttyScrollbar? = nil
     ) -> TerminalNotificationScrollRestoreTarget? {
         guard let position else { return nil }
         if position.row <= 0 {
             return .bottom
         }
-        guard let scrollbar = surfaceView.scrollbar else { return nil }
+        guard let scrollbar = suppliedScrollbar ?? surfaceView.scrollbar else { return nil }
         let currentTotalRows = Int(clamping: scrollbar.total)
         let currentVisibleRows = min(currentTotalRows, Int(clamping: scrollbar.len))
         guard currentVisibleRows > 0 else { return nil }

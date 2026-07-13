@@ -105,6 +105,7 @@ struct NotificationScrollRestoreTests {
         let marker = completionMarker(named: "replay-no-position")
         hostedView.beginSessionScrollbackReplay(completionMarker: marker)
 
+        #expect(hostedView.sessionScrollbackReplayCompletionDeadlineTimer == nil)
         #expect(!hostedView.restoreNotificationScrollPosition(nil))
         #expect(hostedView.notificationScrollRestorePhase == .sessionScrollbackReplayActive(marker))
     }
@@ -115,7 +116,7 @@ struct NotificationScrollRestoreTests {
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
         let marker = completionMarker(named: "replay-wait")
         hostedView.beginSessionScrollbackReplay(completionMarker: marker)
-        #expect(hostedView.sessionScrollbackReplayCompletionDeadlineTimer != nil)
+        #expect(hostedView.sessionScrollbackReplayCompletionDeadlineTimer == nil)
 
         #expect(hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 138, totalRows: 400)
@@ -180,6 +181,27 @@ struct NotificationScrollRestoreTests {
         #expect(surfaceView.bindingActions == ["scroll_to_row:18"])
     }
 
+    @Test func replayCompletionSnapshotSurvivesLaterOutputUntilRestore() {
+        let surfaceView = ActionProbeView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 100, offset: 56, visible: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let marker = completionMarker(named: "replay-output-after-marker")
+        hostedView.beginSessionScrollbackReplay(completionMarker: marker)
+        #expect(completeReplay(
+            hostedView,
+            marker: marker,
+            scrollbar: scrollbar(total: 200, offset: 156, visible: 44)
+        ))
+
+        postScrollbar(total: 220, offset: 176, visible: 44, to: surfaceView)
+        #expect(hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+        ))
+        #expect(surfaceView.bindingActions == ["scroll_to_row:18"])
+        #expect(surfaceView.scrollbar?.total == 220)
+        #expect(hostedView.sessionScrollbackReplayCompletionScrollbar == nil)
+    }
+
     @Test func replayCompletionBeforeArtifactAdoptionIsPreserved() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
@@ -217,11 +239,12 @@ struct NotificationScrollRestoreTests {
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
         let marker = completionMarker(named: "replay-timeout")
         hostedView.beginSessionScrollbackReplay(completionMarker: marker)
-        #expect(hostedView.sessionScrollbackReplayCompletionDeadlineTimer != nil)
+        #expect(hostedView.sessionScrollbackReplayCompletionDeadlineTimer == nil)
 
         #expect(hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 138, totalRows: 400)
         ))
+        #expect(hostedView.sessionScrollbackReplayCompletionDeadlineTimer != nil)
         #expect(surfaceView.bindingActions.isEmpty)
         hostedView.expireSessionScrollbackReplayCompletionDeadline()
         #expect(surfaceView.bindingActions.isEmpty)
@@ -234,21 +257,23 @@ struct NotificationScrollRestoreTests {
         #expect(surfaceView.bindingActions == ["scroll_to_row:18"])
     }
 
-    @Test func activeReplayExpiresBeforeNotificationNavigation() {
+    @Test func activeReplayDeadlineStartsOnlyWhenNavigationWaits() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
-        hostedView.beginSessionScrollbackReplay(completionMarker: completionMarker(named: "replay-active-timeout"))
+        let marker = completionMarker(named: "replay-active-timeout")
+        hostedView.beginSessionScrollbackReplay(completionMarker: marker)
 
-        #expect(hostedView.sessionScrollbackReplayCompletionDeadlineTimer != nil)
+        #expect(hostedView.sessionScrollbackReplayCompletionDeadlineTimer == nil)
         hostedView.expireSessionScrollbackReplayCompletionDeadline()
-        #expect(hostedView.notificationScrollRestorePhase == .idle)
+        #expect(hostedView.notificationScrollRestorePhase == .sessionScrollbackReplayActive(marker))
         #expect(hostedView.sessionScrollbackReplayCompletionDeadlineTimer == nil)
 
         #expect(hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 138, totalRows: 400)
         ))
-        #expect(surfaceView.bindingActions == ["scroll_to_row:18"])
+        #expect(surfaceView.bindingActions.isEmpty)
+        #expect(hostedView.sessionScrollbackReplayCompletionDeadlineTimer != nil)
     }
 
     @Test func authoritativeSnapshotFailureAbandonsPendingRestore() {
@@ -310,7 +335,7 @@ struct NotificationScrollRestoreTests {
         )
         _ = panel.hostedView.surfaceView.prepareSurfaceForPaste(reason: "test")
         #expect(panel.hostedView.notificationScrollRestorePhase == .sessionScrollbackReplayActive(marker))
-        #expect(panel.hostedView.sessionScrollbackReplayCompletionDeadlineTimer != nil)
+        #expect(panel.hostedView.sessionScrollbackReplayCompletionDeadlineTimer == nil)
 
         _ = panel.hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 138, totalRows: 400)
