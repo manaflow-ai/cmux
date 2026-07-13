@@ -7,7 +7,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
     private let blockedTeams: Set<String>
     private var startedTeams: Set<String> = []
     private var startWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
-    private var blockers: [String: CheckedContinuation<Void, Never>] = [:]
+    private var blockers: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var upsertCount = 0
     private var loadAllCount = 0
     private var upsertWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
@@ -139,7 +139,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         markStarted(key)
         if blockedTeams.contains(key) {
             await withCheckedContinuation { continuation in
-                blockers[key] = continuation
+                blockers[key, default: []].append(continuation)
             }
         }
         let scoped = recordsByTeam[key] ?? []
@@ -201,7 +201,14 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
 
     func release(teamID: String?) {
         let key = teamID ?? ""
-        blockers.removeValue(forKey: key)?.resume()
+        guard var queued = blockers[key], !queued.isEmpty else { return }
+        let blocker = queued.removeFirst()
+        if queued.isEmpty {
+            blockers.removeValue(forKey: key)
+        } else {
+            blockers[key] = queued
+        }
+        blocker.resume()
     }
 
     func waitUntilUpsertCount(_ count: Int) async {
