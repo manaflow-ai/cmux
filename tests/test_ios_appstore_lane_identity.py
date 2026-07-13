@@ -292,6 +292,7 @@ if "archive" in args:
     bundle_id = setting("PRODUCT_BUNDLE_IDENTIFIER=")
     build_number = setting("CURRENT_PROJECT_VERSION=") or "1"
     marketing_version = setting("MARKETING_VERSION=") or {BETA_MARKETING_VERSION!r}
+    crash_reporting_enabled = setting("CMUX_CRASH_REPORTING_ENABLED=") or "YES"
     app = archive / "Products" / "Applications" / "cmux.app"
     write_plist(
         archive / "Info.plist",
@@ -309,6 +310,7 @@ if "archive" in args:
             "CFBundleIdentifier": bundle_id,
             "CFBundleVersion": build_number,
             "CFBundleShortVersionString": marketing_version,
+            "CMUXCrashReportingEnabled": crash_reporting_enabled,
         }},
     )
     sys.exit(0)
@@ -592,6 +594,10 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
         f"MARKETING_VERSION={APPSTORE_MARKETING_VERSION}" not in archive_call,
         "beta archive command does not stamp the App Store marketing version",
     )
+    _check(
+        "CMUX_CRASH_REPORTING_ENABLED=YES" in archive_call,
+        "beta archive keeps crash reporting enabled",
+    )
 
     export_options = plistlib.loads((tmp / "ExportOptions.plist").read_bytes())
     profiles = export_options.get("provisioningProfiles", {})
@@ -766,6 +772,10 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
         "archive command does not stamp the beta marketing version",
     )
     _check(
+        "CMUX_CRASH_REPORTING_ENABLED=NO" in archive_call,
+        "App Store archive disables crash reporting",
+    )
+    _check(
         all("PRODUCT_BUNDLE_IDENTIFIER=com.cmuxterm.app" not in call for call in archive_call),
         "archive command does not stamp the retired com.cmuxterm.app id",
     )
@@ -786,6 +796,10 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
     _check(
         info.get("CFBundleShortVersionString") == APPSTORE_MARKETING_VERSION,
         "final signed IPA keeps the App Store marketing version",
+    )
+    _check(
+        info.get("CMUXCrashReportingEnabled") == "NO",
+        "final signed IPA disables crash reporting",
     )
 
 
