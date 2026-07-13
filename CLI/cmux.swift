@@ -24598,17 +24598,21 @@ struct CMUXCLI {
             // Clearing the record's stale workspace instead leaves the moved
             // pane stuck and `clear_notifications --tab=` would wipe unrelated
             // panes' notifications in the old workspace.
-            let liveEndTarget = try? resolveClaudeHookDeliveryTarget(
+            guard let liveEndTarget = try? resolveClaudeHookDeliveryTarget(
                 mappedSession: mappedSession,
                 routing: hookRouting,
                 client: client
-            )
-            let fallbackWorkspaceId = liveEndTarget?.workspaceId
-            let fallbackSurfaceId = liveEndTarget?.surfaceId
+            ) else {
+                // Keep the persisted route so a later authoritative cleanup
+                // can still clear the visible state this attempt could not.
+                telemetry.breadcrumb("claude-hook.session-end.unresolved")
+                print("OK")
+                return
+            }
             let consumedSession = try? sessionStore.consume(
                 sessionId: parsedInput.sessionId,
-                workspaceId: fallbackWorkspaceId,
-                surfaceId: fallbackSurfaceId,
+                workspaceId: liveEndTarget.workspaceId,
+                surfaceId: liveEndTarget.surfaceId,
                 turnId: parsedInput.turnId
             )
             // consume() calls clearActiveSessionIfMatching before returning
@@ -24621,36 +24625,32 @@ struct CMUXCLI {
                 // keep the record's own address.
                 let workspaceId: String
                 let cleanupSurfaceId: String
-                if let liveEndTarget, liveEndTarget.isAuthoritative {
+                if liveEndTarget.isAuthoritative {
                     workspaceId = liveEndTarget.workspaceId
                     cleanupSurfaceId = liveEndTarget.surfaceId
                 } else {
                     workspaceId = consumedSession.workspaceId
                     cleanupSurfaceId = consumedSession.surfaceId
                 }
-                // App-visible cleanup requires a resolved target; nil means a
-                // present live-identity resolver explicitly failed closed.
-                if liveEndTarget != nil {
+                clearAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: cleanupSurfaceId,
+                    sessionId: consumedSession.sessionId
+                )
+                if cleanupSurfaceId != consumedSession.surfaceId {
                     clearAgentSurfaceResumeBinding(
                         client: client,
-                        workspaceId: workspaceId,
-                        surfaceId: cleanupSurfaceId,
+                        workspaceId: consumedSession.workspaceId,
+                        surfaceId: consumedSession.surfaceId,
                         sessionId: consumedSession.sessionId
                     )
-                    if cleanupSurfaceId != consumedSession.surfaceId {
-                        clearAgentSurfaceResumeBinding(
-                            client: client,
-                            workspaceId: consumedSession.workspaceId,
-                            surfaceId: consumedSession.surfaceId,
-                            sessionId: consumedSession.sessionId
-                        )
-                    }
-                    sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: cleanupSurfaceId)
                 }
+                sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: cleanupSurfaceId)
                 // Staleness is judged on the pane being CLEANED: gating on a
                 // polluted record surface (#7391) could false-skip cleanup of
                 // the real pane, stranding its ring/status after exit.
-                let shouldClearVisibleState = liveEndTarget != nil && shouldApplyClaudeHookVisibleMutation(
+                let shouldClearVisibleState = shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
                     sessionId: consumedSession.sessionId,
                     turnId: parsedInput.turnId,

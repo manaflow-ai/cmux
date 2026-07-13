@@ -192,7 +192,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
-    static let retargetsToLiveSurfaceOwnerUserInfoKey = "retargetsToLiveSurfaceOwner"
+    nonisolated static let retargetsToLiveSurfaceOwnerUserInfoKey = "retargetsToLiveSurfaceOwner"
     /// Mobile-host event topic the Mac emits when one or more delivered
     /// notifications are dismissed/cleared on this Mac, so an attached phone can
     /// clear the matching banners it is mirroring. Payload carries the stable
@@ -1599,7 +1599,7 @@ final class TerminalNotificationStore: ObservableObject {
     ) {
         let liveTabId = surfaceId.flatMap { AppDelegate.shared?.agentNotificationDeliveryTarget(claimedTabId: tabId, surfaceId: $0)?.tabId } ?? tabId
         let tabIds = Set([tabId, liveTabId])
-        inFlightPolicyRequests.discard(forTabId: tabId, surfaceId: surfaceId)
+        tabIds.forEach { inFlightPolicyRequests.discard(forTabId: $0, surfaceId: surfaceId) }
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotificationsForClear(tabId: liveTabId, surfaceId: surfaceId) }
         let hadFocusedReadIndicator = tabIds.contains { focusedReadIndicatorByTabId[$0].map { $0 == surfaceId } ?? false }
         let hadRestoredWorkspaceUnread = surfaceId == nil && restoredUnreadWorkspaceIds.contains(tabId)
@@ -1663,7 +1663,7 @@ final class TerminalNotificationStore: ObservableObject {
         if didMoveNotification {
             notifications = updated
         }
-        if focusedReadIndicatorByTabId[sourceTabId] == surfaceId {
+        if didMoveNotification, focusedReadIndicatorByTabId[sourceTabId] == surfaceId {
             focusedReadIndicatorByTabId.removeValue(forKey: sourceTabId)
             if focusedReadIndicatorByTabId[destinationTabId] == nil {
                 focusedReadIndicatorByTabId[destinationTabId] = surfaceId

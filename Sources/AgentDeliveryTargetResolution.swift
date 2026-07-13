@@ -24,7 +24,7 @@ import Foundation
 /// method; in-app notification delivery reaches it through
 /// `agentNotificationDeliveryTarget` so stale-addressed notifications are
 /// retargeted rather than dropped or misfiled.
-struct AgentDeliveryTargetCandidate: Equatable {
+nonisolated struct AgentDeliveryTargetCandidate: Equatable {
     let workspaceId: UUID
     let surfaceId: UUID
 }
@@ -70,6 +70,27 @@ nonisolated func agentLiveProcessIdentity(pid: pid_t) -> (ttyDevice: Int64?, sco
 }
 
 @MainActor
+extension Workspace {
+    /// Reported TTY names and their device-id index share one mutation path so
+    /// live agent resolution never stats every surface on the main actor.
+    var surfaceTTYNames: [UUID: String] {
+        get { surfaceRegistry.surfaceTTYNames }
+        set {
+            let previous = surfaceRegistry.surfaceTTYNames
+            var devices = surfaceRegistry.surfaceTTYDevices.filter { newValue[$0.key] != nil }
+            for (panelId, ttyName) in newValue where previous[panelId] != ttyName {
+                devices[panelId] = CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: ttyName)
+            }
+            surfaceRegistry.surfaceTTYNames = newValue
+            surfaceRegistry.surfaceTTYDevices = devices
+        }
+    }
+
+    /// Cached TTY character-device ids, updated with ``surfaceTTYNames``.
+    var surfaceTTYDevices: [UUID: Int64] { surfaceRegistry.surfaceTTYDevices }
+}
+
+@MainActor
 extension AppDelegate {
     /// The live pane that owns the given agent process right now: the
     /// process's controlling tty matched against every surface's pty device
@@ -82,17 +103,13 @@ extension AppDelegate {
 
         var ttyTarget: AgentDeliveryTargetCandidate?
         if let ttyDevice = identity.ttyDevice {
-            // Bounded: one fast `stat` per live surface (the same per-surface
-            // scan `WorkspaceConfigActionCapture` performs), and only at
-            // turn-level hook frequency — per-tool PreToolUse hooks set
-            // `allowsPidProbe = false` on the CLI side. The env probe below
-            // is cached per process start-time key (positive hits are
-            // permanent), so it does not re-read procargs per hook.
+            // TTY device ids are indexed when each surface reports or moves,
+            // so hook delivery only walks in-memory bindings on MainActor. It
+            // never stats every live surface while UI work is serialized.
             var bindings: [(workspaceId: UUID, surfaceId: UUID, ttyDevice: Int64)] = []
             for manager in agentDeliveryTabManagers() {
                 for workspace in manager.tabs {
-                    for (panelId, ttyName) in workspace.surfaceTTYNames where workspace.panels[panelId] != nil {
-                        guard let device = CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: ttyName) else { continue }
+                    for (panelId, device) in workspace.surfaceTTYDevices where workspace.panels[panelId] != nil {
                         bindings.append((workspace.id, panelId, device))
                     }
                 }
@@ -181,7 +198,10 @@ extension TerminalController {
                   let agentPid = pid_t(exactly: pid) else {
                 return .err(
                     code: "invalid_params",
-                    message: "pid must be a positive integer representable as pid_t",
+                    message: String(
+                        localized: "agent.deliveryTarget.error.invalidPid",
+                        defaultValue: "pid must be a positive integer representable as pid_t"
+                    ),
                     data: nil
                 )
             }
@@ -192,6 +212,14 @@ extension TerminalController {
                     "source": "pid",
                 ])
             }
+            return .err(
+                code: "not_found",
+                message: String(
+                    localized: "agent.deliveryTarget.error.notFound",
+                    defaultValue: "No live delivery target"
+                ),
+                data: nil
+            )
         }
         if let claimedSurfaceId,
            let owner = appDelegate.workspaceContainingPanel(
@@ -212,6 +240,13 @@ extension TerminalController {
                 "source": "workspace",
             ])
         }
-        return .err(code: "not_found", message: "No live delivery target", data: nil)
+        return .err(
+            code: "not_found",
+            message: String(
+                localized: "agent.deliveryTarget.error.notFound",
+                defaultValue: "No live delivery target"
+            ),
+            data: nil
+        )
     }
 }

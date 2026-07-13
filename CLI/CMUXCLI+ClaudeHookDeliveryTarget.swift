@@ -73,13 +73,13 @@ extension CMUXCLI {
                 return live
             case .failed:
                 // A present resolver rejected the current invocation pid. Do
-                // not fall back to a reusable persisted pid or an uncorroborated
-                // record; only matching record+invocation surface identity may
-                // be re-homed through the app's live surface ownership map.
+                // not promote spawn-environment identity for a fresh session:
+                // only matching persisted-record + invocation surface identity
+                // may be re-homed through the app's live ownership map.
                 let invocationSurfaceId = nonEmptyClaudeHookIdentifier(routing.surfaceArg)
                 let recordedSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId)
                 guard let invocationSurfaceId,
-                      recordedSurfaceId == nil || recordedSurfaceId == invocationSurfaceId,
+                      recordedSurfaceId == invocationSurfaceId,
                       let corroborated = rehomedClaudeHookDeliveryTarget(
                           surfaceId: invocationSurfaceId,
                           claimedWorkspaceId: mappedSession?.workspaceId ?? routing.workspaceArg,

@@ -118,7 +118,7 @@ struct ClaudeHookPIDAuthenticationTests {
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
-        #expect(try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId) == nil)
+        #expect((try? Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)) == nil)
     }
 
     @Test("SessionEnd does not mutate a record rejected by live identity")
