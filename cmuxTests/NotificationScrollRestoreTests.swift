@@ -13,10 +13,15 @@ import Testing
 struct NotificationScrollRestoreTests {
     private final class ActionProbeView: GhosttyNSView {
         private(set) var bindingActions: [String] = []
+        var frameSourceGeneration: UInt64?
 
         override func performBindingAction(_ action: String) -> Bool {
             bindingActions.append(action)
             return true
+        }
+
+        override func currentRenderedFrameSourceGeneration() -> UInt64 {
+            frameSourceGeneration ?? super.currentRenderedFrameSourceGeneration()
         }
     }
 
@@ -152,6 +157,44 @@ struct NotificationScrollRestoreTests {
         #expect(surfaceView.bindingActions == ["scroll_to_row:156"])
     }
 
+    @Test func delayedPreMarkerFrameCannotCompleteRendererWait() {
+        let surfaceView = ActionProbeView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
+        surfaceView.frameSourceGeneration = 7
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let marker = completionMarker(named: "replay-delayed-frame")
+        hostedView.beginSessionScrollbackReplay(completionMarker: marker)
+
+        #expect(hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+        ))
+        #expect(hostedView.completeSessionScrollbackReplay(ifMatches: marker.reportedDirectory))
+        postRenderedFrame(generation: 7, to: surfaceView)
+        #expect(surfaceView.bindingActions.isEmpty)
+        postRenderedFrame(generation: 8, to: surfaceView)
+        #expect(surfaceView.bindingActions == ["scroll_to_row:156"])
+    }
+
+    @Test func hostedViewDeinitReleasesRendererWaitResources() {
+        #expect(!GhosttyApp.renderedFrameNotificationDemand.isActive)
+        weak var weakHostedView: GhosttySurfaceScrollView?
+        autoreleasepool {
+            let surfaceView = ActionProbeView(frame: .zero)
+            surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
+            let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+            let marker = completionMarker(named: "replay-deinit")
+            hostedView.beginSessionScrollbackReplay(completionMarker: marker)
+            _ = hostedView.restoreNotificationScrollPosition(
+                TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+            )
+            #expect(hostedView.completeSessionScrollbackReplay(ifMatches: marker.reportedDirectory))
+            #expect(GhosttyApp.renderedFrameNotificationDemand.isActive)
+            weakHostedView = hostedView
+        }
+        #expect(weakHostedView == nil)
+        #expect(!GhosttyApp.renderedFrameNotificationDemand.isActive)
+    }
+
     @Test func restoreClampsWhenReplayCompletionMarkerNeverArrives() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 100, offset: 56, visible: 44)
@@ -232,6 +275,18 @@ struct NotificationScrollRestoreTests {
         ))
         panel.hostedView.surfaceView.mouseDown(with: pointerEvent)
         #expect(panel.hostedView.notificationScrollRestorePhase == .sessionScrollbackReplayActive(marker))
+
+        _ = panel.hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+        )
+        surface.mobileScroll(deltaLines: 1, col: 0, row: 0)
+        #expect(panel.hostedView.notificationScrollRestorePhase == .sessionScrollbackReplayActive(marker))
+
+        _ = panel.hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+        )
+        surface.mobileClick(col: 0, row: 0)
+        #expect(panel.hostedView.notificationScrollRestorePhase == .sessionScrollbackReplayActive(marker))
     }
 
     @Test func zshReplayEmitsOrderedCompletionMarker() throws {
@@ -292,11 +347,11 @@ struct NotificationScrollRestoreTests {
         )
     }
 
-    private func postRenderedFrame(to view: GhosttyNSView) {
+    private func postRenderedFrame(generation: UInt64? = nil, to view: GhosttyNSView) {
         NotificationCenter.default.post(
             name: .ghosttyDidRenderFrame,
             object: view,
-            userInfo: [GhosttyNotificationKey.renderedFrameGeneration: view.currentRenderedFrameEnqueueGeneration() + 1]
+            userInfo: [GhosttyNotificationKey.renderedFrameGeneration: generation ?? view.currentRenderedFrameSourceGeneration() + 1]
         )
     }
 

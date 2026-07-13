@@ -3424,7 +3424,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var _pendingScrollbar: GhosttyScrollbar?
     private var _scrollbarFlushScheduled = false
     private let _scrollbarLock = NSLock()
-    private var _renderedFrameFlushScheduled = false; private var _renderedFrameEnqueueGeneration: UInt64 = 0; private var _pendingRenderedFrameGeneration: UInt64 = 0
+    private var _renderedFrameFlushScheduled = false; private var _pendingRenderedFrameGeneration: UInt64 = 0
     private let _renderedFrameLock = NSLock()
     nonisolated let selectionAccessibilitySignal = TerminalSelectionAccessibilitySignal()
     private var selectionAccessibilityNotifier: TerminalSelectionAccessibilityNotifier?
@@ -3535,10 +3535,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
-    func enqueueRenderedFrameUpdate() {
+    func enqueueRenderedFrameUpdate(generation: UInt64) {
         guard GhosttyApp.renderedFrameNotificationDemand.isActive else { return }
 
-        _renderedFrameLock.lock(); _renderedFrameEnqueueGeneration &+= 1; _pendingRenderedFrameGeneration = _renderedFrameEnqueueGeneration
+        _renderedFrameLock.lock(); _pendingRenderedFrameGeneration = max(_pendingRenderedFrameGeneration, generation)
         let needsSchedule = !_renderedFrameFlushScheduled
         if needsSchedule {
             _renderedFrameFlushScheduled = true
@@ -3562,7 +3562,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             object: self, userInfo: [GhosttyNotificationKey.renderedFrameGeneration: generation]
         )
     }
-    func currentRenderedFrameEnqueueGeneration() -> UInt64 { _renderedFrameLock.lock(); defer { _renderedFrameLock.unlock() }; return _renderedFrameEnqueueGeneration }
+    func currentRenderedFrameSourceGeneration() -> UInt64 { (layer as? GhosttyMetalLayer)?.currentFrameGeneration() ?? 0 }
 
     var desiredFocus: Bool = false
     var suppressingReparentFocus: Bool = false
@@ -8752,6 +8752,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     deinit {
+        cancelPendingNotificationScrollRestore()
 #if DEBUG
         cmuxDebugLog(
             "surface.hosted.deinit surface=\(debugSurfaceId?.uuidString.prefix(5) ?? "nil") " +

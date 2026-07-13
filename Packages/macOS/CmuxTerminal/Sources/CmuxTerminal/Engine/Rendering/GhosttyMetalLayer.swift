@@ -16,6 +16,7 @@ public final class GhosttyMetalLayer: CAMetalLayer {
     // SAFETY: all four are guarded by `lock`; written/read from the renderer
     // thread (`nextDrawable()`) and the main actor (configuration, debug HUD).
     nonisolated(unsafe) private var drawableCount: Int = 0
+    nonisolated(unsafe) private var frameGeneration: UInt64 = 0
     nonisolated(unsafe) private var lastDrawableTime: CFTimeInterval = 0
     nonisolated(unsafe) private weak var frameReceiver: (any TerminalRenderedFrameReceiving)?
     nonisolated(unsafe) private var renderDemand: (any RenderDemandGating)?
@@ -43,6 +44,13 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         return (drawableCount, lastDrawableTime)
     }
 
+    /// The latest generation assigned synchronously when the renderer vended a drawable.
+    public func currentFrameGeneration() -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        return frameGeneration
+    }
+
     override public func nextDrawable() -> (any CAMetalDrawable)? {
         guard let drawable = super.nextDrawable() else { return nil }
         // One critical section for the instrumentation write and both
@@ -50,6 +58,8 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         // per vended drawable.
         lock.lock()
         drawableCount += 1
+        frameGeneration &+= 1
+        let generation = frameGeneration
         lastDrawableTime = CACurrentMediaTime()
         let renderDemand = renderDemand
         let frameReceiver = frameReceiver
@@ -60,7 +70,7 @@ public final class GhosttyMetalLayer: CAMetalLayer {
             // DispatchQueue.main.async dispatch (the main-actor executor is
             // the main queue); the receiver coalesces bursts on arrival.
             Task { @MainActor [weak frameReceiver] in
-                frameReceiver?.enqueueRenderedFrameUpdate()
+                frameReceiver?.enqueueRenderedFrameUpdate(generation: generation)
             }
         }
         return drawable

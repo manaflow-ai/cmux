@@ -146,7 +146,7 @@ extension GhosttySurfaceScrollView {
     private func beginSessionScrollbackReplayRendererWait() {
         cancelSessionScrollbackReplayRendererWait()
         releaseSessionScrollbackReplayFrameDemand = GhosttyNSView.retainRenderedFrameNotifications()
-        sessionScrollbackReplayMarkerRenderedFrameGeneration = surfaceView.currentRenderedFrameEnqueueGeneration()
+        sessionScrollbackReplayMarkerRenderedFrameGeneration = surfaceView.currentRenderedFrameSourceGeneration()
         sessionScrollbackReplayRenderedFrameObserver = NotificationCenter.default.addObserver(
             forName: .ghosttyDidRenderFrame,
             object: surfaceView,

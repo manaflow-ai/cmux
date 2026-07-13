@@ -27,6 +27,10 @@ public final class RenderDemandCounter: RenderDemandGating, Sendable {
             self.counter = counter
         }
 
+        deinit {
+            release()
+        }
+
         func release() {
             released.lock()
             let shouldRelease = !didRelease

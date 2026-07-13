@@ -11,6 +11,6 @@
 /// which are implicitly `Sendable`, so the requirement costs them nothing.
 @MainActor
 public protocol TerminalRenderedFrameReceiving: AnyObject, Sendable {
-    /// Schedules a coalesced rendered-frame notification.
-    func enqueueRenderedFrameUpdate()
+    /// Schedules a coalesced rendered-frame notification stamped at the renderer source.
+    func enqueueRenderedFrameUpdate(generation: UInt64)
 }
