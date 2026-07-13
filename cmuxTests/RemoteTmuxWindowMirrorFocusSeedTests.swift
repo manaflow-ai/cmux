@@ -221,6 +221,113 @@ import Testing
         #expect(mirror.lastDividerPositions[splitID] == dragged)
     }
 
+    @Test func nestedDividerDragUsesAppliedClampedAncestorExtent() throws {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"), sessionName: "work"
+        )
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-nested-divider-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        defer {
+            writer.close()
+            try? pipe.fileHandleForReading.close()
+        }
+        connection.installStdinWriterForTesting(writer)
+        connection.handleMessageForTesting(.enter)
+        connection.handleMessageForTesting(
+            .commandResult(commandNumber: 0, lines: [], isError: false)
+        )
+
+        let layout = Self.nestedHorizontalLayout()
+        let container = CGSize(width: 800, height: 620)
+        let geometry = RemoteTmuxMirrorGeometry(
+            cellWidthPx: 16,
+            cellHeightPx: 34,
+            surfacePadWidthPx: 8,
+            surfacePadHeightPx: 0,
+            scale: 2
+        )
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 1,
+            panelId: UUID(),
+            connection: connection,
+            layout: layout,
+            geometrySource: { geometry },
+            hostingContentSizeSource: { container },
+            makePanel: { _ in nil }
+        )
+        mirror.noteContainerSize(pointSize: container, scale: 2)
+        let metrics = try #require(mirror.nativeLayoutMetrics())
+
+        guard case .split(let root) = mirror.bonsplitController.treeSnapshot(),
+              case .split(let nested) = root.first,
+              let rootID = UUID(uuidString: root.id),
+              let nestedID = UUID(uuidString: nested.id)
+        else {
+            Issue.record("Expected two nested horizontal dividers")
+            return
+        }
+        let appliedRootFraction = CGFloat(0.25)
+        let refusedRootExtent = CGFloat(600)
+        #expect(mirror.bonsplitController.setDividerPosition(
+            appliedRootFraction, forSplit: rootID, fromExternal: true
+        ))
+        #expect(mirror.bonsplitController.setImposedFirstExtent(
+            refusedRootExtent, forSplit: rootID, fromExternal: true
+        ))
+
+        let nestedBaseline = CGFloat(0.5)
+        #expect(mirror.bonsplitController.setDividerPosition(
+            nestedBaseline, forSplit: nestedID, fromExternal: true
+        ))
+        mirror.lastDividerPositions[nestedID] = nestedBaseline
+        let nestedDrag = CGFloat(0.75)
+        #expect(mirror.bonsplitController.setDividerPosition(
+            nestedDrag, forSplit: nestedID, fromExternal: true
+        ))
+
+        let measured = RemoteTmuxNativeMeasuredSplitTree(
+            tree: RemoteTmuxNativeSplitTree(layout: layout),
+            metrics: metrics
+        )
+        guard case .split(_, _, _, .horizontal, let rootFirst, _) = measured,
+              case .split(_, _, _, .horizontal, let nestedFirst, _) = rootFirst
+        else {
+            Issue.record("Expected matching measured divider tree")
+            return
+        }
+        let appliedRootExtent = metrics.childExtents(
+            parentExtent: container.width,
+            dividerPosition: appliedRootFraction
+        ).first
+        let expectedCells = metrics.requestedTmuxSpan(
+            first: nestedFirst,
+            orientation: .horizontal,
+            parentExtent: appliedRootExtent,
+            dividerPosition: nestedDrag
+        )
+        let staleCells = metrics.requestedTmuxSpan(
+            first: nestedFirst,
+            orientation: .horizontal,
+            parentExtent: refusedRootExtent,
+            dividerPosition: nestedDrag
+        )
+        #expect(expectedCells != staleCells)
+
+        mirror.syncChangedDividerPositions()
+        writer.close()
+        let commands = try #require(String(
+            bytes: try pipe.fileHandleForReading.readToEnd() ?? Data(),
+            encoding: .utf8
+        ))
+        #expect(commands.contains("resize-pane -t @1.%11 -x \(expectedCells)\n"))
+        #expect(!commands.contains("resize-pane -t @1.%11 -x \(staleCells)\n"))
+    }
+
     @Test func logicallyVisibleDetachedPassWaitsForAHostBeforeCompleting() throws {
         var hostingBound: CGSize?
         let connection = RemoteTmuxControlConnection(
@@ -269,6 +376,34 @@ import Testing
             content: .horizontal([
                 RemoteTmuxLayoutNode(width: 39, height: 24, x: 0, y: 0, content: .pane(left)),
                 RemoteTmuxLayoutNode(width: 40, height: 24, x: 40, y: 0, content: .pane(right)),
+            ])
+        )
+    }
+
+    private static func nestedHorizontalLayout() -> RemoteTmuxLayoutNode {
+        RemoteTmuxLayoutNode(
+            width: 100,
+            height: 24,
+            x: 0,
+            y: 0,
+            content: .horizontal([
+                RemoteTmuxLayoutNode(
+                    width: 49,
+                    height: 24,
+                    x: 0,
+                    y: 0,
+                    content: .horizontal([
+                        RemoteTmuxLayoutNode(
+                            width: 24, height: 24, x: 0, y: 0, content: .pane(11)
+                        ),
+                        RemoteTmuxLayoutNode(
+                            width: 24, height: 24, x: 25, y: 0, content: .pane(22)
+                        ),
+                    ])
+                ),
+                RemoteTmuxLayoutNode(
+                    width: 50, height: 24, x: 50, y: 0, content: .pane(33)
+                ),
             ])
         )
     }
