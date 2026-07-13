@@ -132,6 +132,61 @@ import Testing
         #expect(visible.first?.displayName == "Legacy B")
     }
 
+    @Test func staleReconnectRollbackCannotOverwriteNewerActiveWrite() async throws {
+        let route = try reconnectRoute()
+        let pairedMacStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "": [
+                    storedMac(id: "mac-a", route: route),
+                    storedMac(id: "mac-b", route: route, isActive: false),
+                ],
+            ],
+            blockedTeams: []
+        )
+        await pairedMacStore.gateUpsert(macDeviceID: "mac-b")
+        let router = LivenessHostRouter()
+        await router.setAttachTicketMacDeviceID("mac-b")
+        await router.setHostIdentity(deviceID: "mac-b", instanceTag: "default")
+        let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: LivenessTransportFactory(
+                    router: router,
+                    box: TransportBox()
+                ),
+                now: { Date() }
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedMacStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1")
+        )
+        let reconnect = Task { @MainActor in
+            await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        await pairedMacStore.waitUntilUpsertStarted(macDeviceID: "mac-b")
+
+        store.prepareForManualPairing()
+        let newerWrite = Task { @MainActor in
+            await store.persistPairedMacFromTicket(
+                try compactTicket(macDeviceID: "mac-c", route: route)
+            )
+        }
+        _ = try await pollUntil(attempts: 50) {
+            await pairedMacStore.currentUpsertCount() == 1
+        }
+        await pairedMacStore.releaseUpsert(macDeviceID: "mac-b")
+
+        #expect(await reconnect.value == false)
+        #expect(try await newerWrite.value)
+        #expect(try await pollUntil {
+            store.connectionResourceSnapshotForTesting().retiredLifecycleTaskCount == 0
+        })
+        let active = try await pairedMacStore.activeMac(
+            stackUserID: "user-1",
+            teamID: nil
+        )
+        #expect(active?.macDeviceID == "mac-c")
+    }
+
     private func reconnectRoute() throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: "debug_loopback",
@@ -143,7 +198,8 @@ import Testing
     private func storedMac(
         id: String,
         route: CmxAttachRoute,
-        teamID: String? = nil
+        teamID: String? = nil,
+        isActive: Bool = true
     ) -> MobilePairedMac {
         MobilePairedMac(
             macDeviceID: id,
@@ -151,7 +207,7 @@ import Testing
             routes: [route],
             createdAt: Date(),
             lastSeenAt: Date(),
-            isActive: true,
+            isActive: isActive,
             stackUserID: "user-1",
             teamID: teamID
         )

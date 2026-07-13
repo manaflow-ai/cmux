@@ -151,7 +151,15 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         return scoped + legacyTeamless
     }
 
-    func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? { nil }
+    func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? {
+        let key = teamID ?? ""
+        let scoped = recordsByTeam[key] ?? []
+        guard !key.isEmpty else { return scoped.first(where: \.isActive) }
+        let legacyTeamless = (recordsByTeam[""] ?? []).filter { mac in
+            mac.stackUserID == nil || mac.stackUserID == stackUserID
+        }
+        return (scoped + legacyTeamless).first(where: \.isActive)
+    }
     func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         let key = teamID ?? ""
         recordsByTeam[key] = recordsByTeam[key]?.map { mac in

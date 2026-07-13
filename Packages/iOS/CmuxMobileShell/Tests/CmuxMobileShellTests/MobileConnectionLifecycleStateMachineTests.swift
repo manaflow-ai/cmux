@@ -345,6 +345,37 @@ import Testing
         #expect(secondEpisode.requestIDs == [deferred.id])
     }
 
+    @Test func freshRouteDemandReplaysAfterAnInFlightReconnectSnapshot() {
+        var reducer = MobileConnectionLifecycleStateMachine()
+        let reconnect = reducer.requestStoredMacReconnect(
+            stackUserID: "user-1",
+            health: .disconnected
+        )
+        guard case .start(let firstEpisode) = reconnect.effect else {
+            Issue.record("stored Mac reconnect must start")
+            return
+        }
+
+        #expect(reducer.request(
+            .presenceRoutesChanged,
+            health: .disconnected,
+            reconnectStackUserID: "user-1"
+        ) == nil)
+        #expect(reducer.resourceSnapshot.pendingRequestCount == 1)
+
+        guard case .start(let replayEpisode) = reducer.complete(
+            id: firstEpisode.id,
+            health: .disconnected,
+            succeeded: false
+        ) else {
+            Issue.record("fresh route demand must replay with a new reconnect snapshot")
+            return
+        }
+        #expect(replayEpisode.id != firstEpisode.id)
+        #expect(replayEpisode.kind == .reconnect)
+        #expect(replayEpisode.triggers == [.presenceRoutesChanged])
+    }
+
     @Test func completingAnEpisodeWhileInactiveLeavesPendingRecoveryDeferred() {
         let now = Date()
         var reducer = MobileConnectionLifecycleStateMachine()
