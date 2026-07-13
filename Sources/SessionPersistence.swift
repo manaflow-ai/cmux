@@ -1845,26 +1845,30 @@ enum SessionScrollbackReplayStore {
     private static let directoryName = "cmux-session-scrollback"
     private static let ansiEscape = "\u{001B}"
     private static let ansiReset = "\u{001B}[0m"
-    static func replayEnvironment(
+    nonisolated static func replayEnvironment(
         for scrollback: String?,
         tempDirectory: URL = FileManager.default.temporaryDirectory
     ) -> [String: String] {
-        guard let replayText = normalizedScrollback(scrollback) else { return [:] }
-        guard let replayFileURL = writeReplayFile(
-            contents: replayText,
-            tempDirectory: tempDirectory
-        ) else {
-            return [:]
-        }
+        replayEnvironment(forFileURL: replayFileURL(for: scrollback, tempDirectory: tempDirectory))
+    }
+    nonisolated static func replayFileURL(
+        for scrollback: String?,
+        tempDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> URL? {
+        guard let replayText = normalizedScrollback(scrollback) else { return nil }
+        return writeReplayFile(contents: replayText, tempDirectory: tempDirectory)
+    }
+    nonisolated static func replayEnvironment(forFileURL replayFileURL: URL?) -> [String: String] {
+        guard let replayFileURL else { return [:] }
         return [environmentKey: replayFileURL.path]
     }
-    static func startBoundaryValue(forReplayFilePath path: String) -> String {
+    nonisolated static func startBoundaryValue(forReplayFilePath path: String) -> String {
         boundaryPrefix + URL(fileURLWithPath: path).lastPathComponent + "/start"
     }
-    static func endBoundaryValue(forReplayFilePath path: String) -> String {
+    nonisolated static func endBoundaryValue(forReplayFilePath path: String) -> String {
         boundaryPrefix + URL(fileURLWithPath: path).lastPathComponent + "/end"
     }
-    private static func normalizedScrollback(_ scrollback: String?) -> String? {
+    nonisolated private static func normalizedScrollback(_ scrollback: String?) -> String? {
         guard let scrollback else { return nil }
         guard scrollback.contains(where: { !$0.isWhitespace }) else { return nil }
         // Restored history must not reconfigure the live terminal's colors: the
@@ -1878,7 +1882,7 @@ enum SessionScrollbackReplayStore {
         return ansiSafeReplayText(truncated)
     }
     /// Preserve ANSI color state safely across replay boundaries.
-    private static func ansiSafeReplayText(_ text: String) -> String {
+    nonisolated private static func ansiSafeReplayText(_ text: String) -> String {
         guard text.contains(ansiEscape) else { return text }
         var output = text
         if !output.hasPrefix(ansiReset) {
@@ -1901,7 +1905,7 @@ enum SessionScrollbackReplayStore {
     /// (white-on-white after a theme change — issue #5165). Explicit per-cell SGR
     /// colors and every non-color escape sequence (titles, hyperlinks, prompt
     /// marks, …) are preserved verbatim.
-    private static func strippingTerminalColorOSCSequences(_ text: String) -> String {
+    nonisolated private static func strippingTerminalColorOSCSequences(_ text: String) -> String {
         let escByte: UInt8 = 0x1B
         let oscIntroducer: UInt8 = 0x5D // ]
         let bel: UInt8 = 0x07
@@ -1933,7 +1937,6 @@ enum SessionScrollbackReplayStore {
                 cursor += 1
                 if code > 100_000 { break } // overflow guard for malformed input
             }
-
             guard sawDigit, isTerminalColorOSCCode(code) else {
                 // Not a terminal-color OSC; emit `ESC` and resume scanning so the
                 // rest of the preserved sequence is copied verbatim.
@@ -1941,7 +1944,6 @@ enum SessionScrollbackReplayStore {
                 index += 1
                 continue
             }
-
             // Consume through the OSC terminator (BEL or `ESC \` / ST). A truncated
             // (unterminated) color OSC at the end of the buffer is dropped as well.
             var end = cursor
@@ -1961,14 +1963,13 @@ enum SessionScrollbackReplayStore {
             }
             index = terminated ? end : count
         }
-
         return String(decoding: output, as: UTF8.self)
     }
 
     /// Returns `true` for OSC command numbers that configure terminal colors
     /// (palette entries and the dynamic foreground/background/cursor/highlight
     /// colors plus their resets), which restored scrollback must not carry.
-    private static func isTerminalColorOSCCode(_ code: Int) -> Bool {
+    nonisolated private static func isTerminalColorOSCCode(_ code: Int) -> Bool {
         switch code {
         case 4, 5, 104, 105: return true // palette / special color set + reset
         case 10...19: return true        // dynamic colors (fg, bg, cursor, …)
@@ -1976,8 +1977,7 @@ enum SessionScrollbackReplayStore {
         default: return false
         }
     }
-
-    private static func writeReplayFile(contents: String, tempDirectory: URL) -> URL? {
+    nonisolated private static func writeReplayFile(contents: String, tempDirectory: URL) -> URL? {
         guard let data = contents.data(using: .utf8) else { return nil }
         let directory = tempDirectory.appendingPathComponent(directoryName, isDirectory: true)
 
