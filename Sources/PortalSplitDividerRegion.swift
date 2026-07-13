@@ -79,6 +79,29 @@ struct PortalDividerHits {
         }
         return nil
     }
+
+    /// Every divider that participates in one visually aligned corner. This
+    /// expands a nested pair into the matching divider on the opposite side
+    /// of a 2×2 grid when its line starts within the alignment tolerance.
+    /// The drag controller can then move the shared row/column as one unit.
+    var alignedIntersectionRegions: (vertical: [PortalSplitDividerRegion], horizontal: [PortalSplitDividerRegion])? {
+        guard let anchor = intersection else { return nil }
+        let tolerance = PortalSplitDividerRegion.alignedIntersectionTolerance
+        let vertical = verticalCandidates.map(\.region).filter { candidate in
+            !candidate.isInHostedContent &&
+                PortalSplitDividerRegion.areNested(candidate, anchor.horizontal) &&
+                abs(candidate.rectInWindow.midX - anchor.vertical.rectInWindow.midX) <= tolerance
+        }
+        let horizontal = horizontalCandidates.map(\.region).filter { candidate in
+            !candidate.isInHostedContent &&
+                PortalSplitDividerRegion.areNested(candidate, anchor.vertical) &&
+                abs(candidate.rectInWindow.midY - anchor.horizontal.rectInWindow.midY) <= tolerance
+        }
+        return (
+            PortalSplitDividerRegion.uniqueRegions(vertical),
+            PortalSplitDividerRegion.uniqueRegions(horizontal)
+        )
+    }
 }
 
 @MainActor
@@ -95,13 +118,18 @@ final class PortalSplitDividerRegion {
     /// cursor and accept a divider drag. Bonsplit's drag effective rect is fed
     /// the same value (see `Workspace.bonsplitAppearance`), so every point
     /// that shows the cursor can start a drag.
-    static let dividerHitExpansion: CGFloat = 8
+    static let dividerHitExpansion: CGFloat = 10
 
     /// Extra points on each side of a divider line that count toward a
     /// two-axis intersection. Wider than the single-axis band and not
     /// clipped to the split's bounds, so the corner zone is an easy
     /// ~28x28pt target covering all four quadrants of the junction.
     static let intersectionHitExpansion: CGFloat = 14
+
+    /// Parallel dividers this close to the chosen corner are treated as one
+    /// aligned row or column. This covers slightly uneven 2×2 grids without
+    /// pulling a visibly separate divider into the drag.
+    static let alignedIntersectionTolerance: CGFloat = 14
 
     init(
         splitView: NSSplitView,
@@ -165,9 +193,20 @@ final class PortalSplitDividerRegion {
     }
 
     var hitRectInWindow: NSRect {
-        rectInWindow
-            .insetBy(dx: -Self.dividerHitExpansion, dy: -Self.dividerHitExpansion)
-            .intersection(boundsInWindow)
+        if isVertical {
+            return NSRect(
+                x: rectInWindow.midX - Self.dividerHitExpansion,
+                y: boundsInWindow.minY,
+                width: Self.dividerHitExpansion * 2,
+                height: boundsInWindow.height
+            )
+        }
+        return NSRect(
+            x: boundsInWindow.minX,
+            y: rectInWindow.midY - Self.dividerHitExpansion,
+            width: boundsInWindow.width,
+            height: Self.dividerHitExpansion * 2
+        )
     }
 
     /// Deliberately unclipped: the corner of a nested split sits on the
@@ -301,6 +340,15 @@ final class PortalSplitDividerRegion {
         return firstSplit.isDescendant(of: secondSplit) || secondSplit.isDescendant(of: firstSplit)
     }
 
+    fileprivate static func uniqueRegions(_ regions: [PortalSplitDividerRegion]) -> [PortalSplitDividerRegion] {
+        var seen = Set<String>()
+        return regions.filter { region in
+            guard let splitView = region.splitView else { return false }
+            let key = "\(ObjectIdentifier(splitView))-\(region.dividerIndex)"
+            return seen.insert(key).inserted
+        }
+    }
+
     static func dividerRect(in splitView: NSSplitView, dividerIndex: Int) -> NSRect? {
         guard dividerIndex >= 0,
               dividerIndex + 1 < splitView.arrangedSubviews.count else {
@@ -321,9 +369,20 @@ final class PortalSplitDividerRegion {
 
     static func dividerHitRect(in splitView: NSSplitView, dividerIndex: Int) -> NSRect? {
         guard let dividerRect = dividerRect(in: splitView, dividerIndex: dividerIndex) else { return nil }
-        return dividerRect
-            .insetBy(dx: -Self.dividerHitExpansion, dy: -Self.dividerHitExpansion)
-            .intersection(splitView.bounds)
+        if splitView.isVertical {
+            return NSRect(
+                x: dividerRect.midX - Self.dividerHitExpansion,
+                y: splitView.bounds.minY,
+                width: Self.dividerHitExpansion * 2,
+                height: splitView.bounds.height
+            )
+        }
+        return NSRect(
+            x: splitView.bounds.minX,
+            y: dividerRect.midY - Self.dividerHitExpansion,
+            width: splitView.bounds.width,
+            height: Self.dividerHitExpansion * 2
+        )
     }
 
     static func dividerHitRectInWindow(in splitView: NSSplitView, dividerIndex: Int) -> NSRect? {

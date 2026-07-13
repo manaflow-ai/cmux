@@ -102,7 +102,7 @@ import Testing
         let (outer, inner) = makeNestedSplits()
         let horizontal = region(outer, rect: horizontalDividerRect, isVertical: false)
         // Two parallel dividers around a narrow pane: expanded hit bands
-        // (±8pt) overlap between x=402 and x=408. The farther divider is
+        // (±10pt) overlap. The farther divider is
         // later in the array (topmost in z-order); the pair must still use
         // the divider nearest the pointer.
         let nearVertical = region(inner, rect: NSRect(x: 400, y: 0, width: 1, height: 300), isVertical: true)
@@ -172,10 +172,10 @@ import Testing
         let (outer, inner) = makeNestedSplits()
         let horizontal = region(outer, rect: horizontalDividerRect, isVertical: false)
         let vertical = region(inner, rect: verticalDividerRect, isVertical: true)
-        // ~10.5pt diagonally from both divider lines: outside both ±8
+        // ~11.5pt diagonally from both divider lines: outside both ±10
         // single-axis bands, inside the ±14 corner zone, and in the quadrant
         // past the inner split's bounds that clipping used to exclude.
-        let diagonal = NSPoint(x: 411, y: 311)
+        let diagonal = NSPoint(x: 412, y: 312)
 
         let hits = PortalSplitDividerRegion.dividerHits(
             at: diagonal,
@@ -227,6 +227,61 @@ import Testing
         // band keeps its segment left of the corner.
         #expect(plan.bands.contains { $0.isVertical && $0.rect.maxY <= 287 })
         #expect(plan.bands.contains { !$0.isVertical && $0.rect.maxX <= 387 })
+    }
+
+    @Test func horizontalHitBandIsCenteredEvenlyOnDividerLine() {
+        let (outer, _) = makeNestedSplits()
+        let horizontal = region(outer, rect: horizontalDividerRect, isVertical: false)
+
+        let hitRect = horizontal.hitRectInWindow
+
+        #expect(abs((horizontal.rectInWindow.midY - hitRect.minY) - PortalSplitDividerRegion.dividerHitExpansion) < 0.01)
+        #expect(abs((hitRect.maxY - horizontal.rectInWindow.midY) - PortalSplitDividerRegion.dividerHitExpansion) < 0.01)
+    }
+
+    @Test func alignedTwoByTwoGridCapturesBothRowDividers() {
+        let window = NSWindow(
+            contentRect: Self.contentBounds,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+
+        let outer = NSSplitView(frame: Self.contentBounds)
+        outer.isVertical = true
+        let left = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 600))
+        let right = NSView(frame: NSRect(x: 401, y: 0, width: 399, height: 600))
+        outer.addArrangedSubview(left)
+        outer.addArrangedSubview(right)
+
+        let leftRows = NSSplitView(frame: left.bounds)
+        leftRows.isVertical = false
+        leftRows.addArrangedSubview(NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300)))
+        leftRows.addArrangedSubview(NSView(frame: NSRect(x: 0, y: 301, width: 400, height: 299)))
+        left.addSubview(leftRows)
+
+        let rightRows = NSSplitView(frame: right.bounds)
+        rightRows.isVertical = false
+        rightRows.addArrangedSubview(NSView(frame: NSRect(x: 0, y: 0, width: 399, height: 308)))
+        rightRows.addArrangedSubview(NSView(frame: NSRect(x: 0, y: 309, width: 399, height: 291)))
+        right.addSubview(rightRows)
+        window.contentView?.addSubview(outer)
+
+        let column = region(outer, rect: NSRect(x: 400, y: 0, width: 1, height: 600), isVertical: true)
+        let leftRow = region(leftRows, rect: NSRect(x: 0, y: 300, width: 400, height: 1), isVertical: false)
+        let rightRow = region(rightRows, rect: NSRect(x: 401, y: 308, width: 399, height: 1), isVertical: false)
+
+        let drag = PortalDividerDragController.drag(
+            atWindowPoint: NSPoint(x: 400, y: 304),
+            regions: [column, leftRow, rightRow]
+        )
+
+        #expect(drag?.kind == .both)
+        #expect(drag?.regions.count == 3)
+        #expect(drag?.regions.contains { $0 === column } == true)
+        #expect(drag?.regions.contains { $0 === leftRow } == true)
+        #expect(drag?.regions.contains { $0 === rightRow } == true)
     }
 
     @Test func hostedContentRegionsDoNotPair() {

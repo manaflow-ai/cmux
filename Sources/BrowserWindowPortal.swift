@@ -339,6 +339,11 @@ final class WindowBrowserHostView: NSView {
 
     override func resetCursorRects() {
         super.resetCursorRects()
+        if let activeCursor = dividerDrag.cursorKind {
+            addCursorRect(bounds, cursor: activeCursor.cursor)
+            activeCursor.cursor.set()
+            return
+        }
         invalidateSplitDividerRegionCache()
         let plan = PortalSplitDividerRegion.cursorRectPlan(for: splitDividerRegions())
         let planned = plan.bands.map { ($0.rect, ($0.isVertical ? PortalDividerCursorKind.vertical : .horizontal).cursor) }

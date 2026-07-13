@@ -46,7 +46,12 @@ extension WindowBrowserHostView {
 
     /// Starts a one-axis divider drag or two-axis corner drag.
     func beginDividerDrag(with event: NSEvent) -> Bool {
-        dividerDrag.begin(atWindowPoint: event.locationInWindow, regions: splitDividerRegions())
+        guard dividerDrag.begin(atWindowPoint: event.locationInWindow, regions: splitDividerRegions()) else {
+            return false
+        }
+        window?.invalidateCursorRects(for: self)
+        dividerDrag.cursorKind?.cursor.set()
+        return true
     }
 
     /// Forwards a drag sample to the active two-axis drag, if any. An
@@ -64,6 +69,7 @@ extension WindowBrowserHostView {
     func endDividerDragIfActive(with event: NSEvent) -> Bool {
         guard dividerDrag.isActive else { return false }
         dividerDrag.end()
+        window?.invalidateCursorRects(for: self)
         updateDividerCursor(at: convert(event.locationInWindow, from: nil))
         return true
     }

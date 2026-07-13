@@ -81,6 +81,7 @@ final class PortalDividerDragController {
 
     func update(windowPoint: NSPoint) {
         guard isActive, !isAborted else { return }
+        cursorKind?.cursor.set()
         for axis in axes {
             // Resizing the first axis can synchronously reconfigure the tree,
             // so revalidate each axis immediately before applying it.
@@ -103,8 +104,10 @@ final class PortalDividerDragController {
                 let extent = axis.isVertical ? splitView.bounds.width : splitView.bounds.height
                 let available = max(extent - splitView.dividerThickness, 1)
                 controller.setDividerPosition(clamped / available, forSplit: splitId)
+                cursorKind?.cursor.set()
             }
             splitView.setPosition(clamped, ofDividerAt: axis.dividerIndex)
+            cursorKind?.cursor.set()
         }
         cursorKind?.cursor.set()
     }
@@ -127,8 +130,8 @@ final class PortalDividerDragController {
         regions: [PortalSplitDividerRegion]
     ) -> (kind: PortalDividerCursorKind, regions: [PortalSplitDividerRegion])? {
         let hits = PortalSplitDividerRegion.dividerHits(at: windowPoint, in: regions)
-        if let intersection = hits.intersection {
-            return (.both, [intersection.vertical, intersection.horizontal])
+        if let aligned = hits.alignedIntersectionRegions {
+            return (.both, aligned.vertical + aligned.horizontal)
         }
         guard let region = hits.first else { return nil }
         return (region.isVertical ? .vertical : .horizontal, [region])
