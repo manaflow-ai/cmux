@@ -379,9 +379,14 @@ struct NotificationDismissSyncTests {
         let newTabId = UUID()
         let oldSurfaceId = UUID()
         let newSurfaceId = UUID()
+        let unmappedSurfaceId = UUID()
         buffer.stash(
             ids: ["old"],
             forKey: SupersededPhoneDismissBuffer.key(tabId: oldTabId, surfaceId: oldSurfaceId)
+        )
+        buffer.stash(
+            ids: ["unmapped"],
+            forKey: SupersededPhoneDismissBuffer.key(tabId: oldTabId, surfaceId: unmappedSurfaceId)
         )
         buffer.stash(
             ids: ["existing"],
@@ -398,6 +403,48 @@ struct NotificationDismissSyncTests {
         #expect(buffer.flush(
             forKey: SupersededPhoneDismissBuffer.key(tabId: newTabId, surfaceId: newSurfaceId)
         ) == ["existing", "old"])
+        #expect(buffer.flush(
+            forKey: SupersededPhoneDismissBuffer.key(tabId: newTabId, surfaceId: unmappedSurfaceId)
+        ) == ["unmapped"])
+    }
+
+    @Test func restoredNewerRowDoesNotOwnLiveBannerRowActions() {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let live = TerminalNotification(
+            id: UUID(), tabId: tabId, surfaceId: surfaceId,
+            title: "Live banner", subtitle: "", body: "",
+            createdAt: Date(timeIntervalSince1970: 10), isRead: false
+        )
+        let restored = TerminalNotification(
+            id: UUID(), tabId: tabId, surfaceId: surfaceId,
+            title: "Newer restored row", subtitle: "", body: "",
+            createdAt: Date(timeIntervalSince1970: 20), isRead: false
+        )
+        defer {
+            _ = store.flushSupersededPhoneDismissIDsForTesting(tabId: tabId, surfaceId: surfaceId)
+            store.replaceNotificationsForTesting(previousNotifications)
+        }
+
+        store.replaceNotificationsForTesting([live])
+        store.restoreSessionNotifications([restored], forTabId: tabId)
+        store.stashSupersededPhoneDismissIDsForTesting(
+            ["preserve-for-live-owner"], tabId: tabId, surfaceId: surfaceId
+        )
+
+        store.markRead(id: restored.id)
+        #expect(
+            store.flushSupersededPhoneDismissIDsForTesting(tabId: tabId, surfaceId: surfaceId)
+                == ["preserve-for-live-owner"]
+        )
+
+        store.stashSupersededPhoneDismissIDsForTesting(
+            ["drain-with-live-owner"], tabId: tabId, surfaceId: surfaceId
+        )
+        store.markRead(id: live.id)
+        #expect(store.flushSupersededPhoneDismissIDsForTesting(tabId: tabId, surfaceId: surfaceId) == [])
     }
 
     @Test func rowActionsFlushPhoneReplacementOnlyForNewestNotification() {
