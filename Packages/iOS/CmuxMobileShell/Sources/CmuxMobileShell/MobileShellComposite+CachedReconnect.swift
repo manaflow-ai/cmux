@@ -42,6 +42,8 @@ extension MobileShellComposite {
             }
         }
         guard isSignedIn else { return .failed }
+        guard let scope = await currentScopeSnapshot() else { return .failed }
+        let pendingForgottenIDs = pendingForgottenMacDeviceIDs(scope: scope)
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         func reachableRoutes(_ mac: MobilePairedMac) -> [(host: String, port: Int, routeID: String)] {
             Self.reconnectHostPortRoutes(
@@ -50,7 +52,9 @@ extension MobileShellComposite {
                 preferNonLoopback: Self.prefersNonLoopbackRoutes
             )
         }
-        let cachedMacs = pairedMacsForIdentityMatching
+        let cachedMacs = pairedMacsForIdentityMatching.filter {
+            !pendingForgottenIDs.contains($0.macDeviceID)
+        }
         let activeMac = cachedMacs.first { $0.isActive && !reachableRoutes($0).isEmpty }
         var candidates = activeMac.map { [$0] } ?? []
         candidates.append(contentsOf: cachedMacs.filter {

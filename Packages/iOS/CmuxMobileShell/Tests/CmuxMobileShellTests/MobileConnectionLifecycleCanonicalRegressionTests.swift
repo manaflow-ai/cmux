@@ -89,6 +89,11 @@ import Testing
         if cachedDeadlineArmed {
             await deadline.expire()
         }
+        #expect(try await pollUntil {
+            let resources = store.connectionResourceSnapshotForTesting()
+            return resources.activeEpisodeCount == 0
+                && resources.retiredCachedLifecycleTaskCount == 1
+        })
         let boundedResources = store.connectionResourceSnapshotForTesting()
         #expect(boundedResources.activeEpisodeCount == 0)
         #expect(boundedResources.retiredLifecycleTaskCount == 1)

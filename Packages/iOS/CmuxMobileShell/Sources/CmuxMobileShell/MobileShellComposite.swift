@@ -1646,26 +1646,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// from SQLite and re-mints an attach ticket via the StackAuth-authenticated
     /// manual host flow. Auth tokens never persist; we always re-mint.
     @discardableResult
-    func performStoredMacReconnect(stackUserID: String?) async -> StoredMacReconnectOutcome {
-        startObservingNetworkPathChanges()
-        // Claim this operation's generation. Only the current generation may
-        // update the paired-Mac hint; the lifecycle reducer owns reconnect phase.
-        storedMacReconnectGeneration &+= 1
-        let generation = storedMacReconnectGeneration
-        storedMacReconnectTargetDeviceID = nil
+    func performStoredMacReconnect(
+        snapshot: StoredMacReconnectStoreSnapshot
+    ) async -> StoredMacReconnectOutcome {
+        let request = snapshot.request
+        let generation = request.generation
         defer {
             if generation == storedMacReconnectGeneration {
                 storedMacReconnectTargetDeviceID = nil
             }
         }
-        // No store / not signed in: the owning lifecycle episode resolves after
-        // this method returns, while the persisted hint remains available to a
-        // future attempt.
-        guard let pairedMacStore else {
-            return .failed
-        }
+        let scope = request.scope
         guard isSignedIn,
-              let scope = await currentScopeSnapshot(userID: stackUserID) else {
+              generation == storedMacReconnectGeneration,
+              await isScopeCurrent(scope) else {
             return .failed
         }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
@@ -1682,23 +1676,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         })?.macDeviceID ?? cachedMacs.first(where: {
             !reachableRoutes($0).isEmpty
         })?.macDeviceID
-        // Pull the authoritative per-user backup first so saved-Mac routes are
-        // current before we dial: a Mac that relaunched on a new port republishes
-        // to the backup, and LWW by lastSeenAt keeps any live local edit. Without
-        // this a stale port makes the auto-connect fail and the app falls back to
-        // the Mac picker, the screen we want to avoid showing.
-        if let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
-            await refresher.refreshFromBackup(stackUserID: scope.userID)
-        }
-        guard generation == storedMacReconnectGeneration,
-              await isScopeCurrent(scope) else { return .failed }
         let loadedActiveMac: MobilePairedMac?
         let loadedMacs: [MobilePairedMac]
-        do {
-            loadedActiveMac = try await pairedMacStore.activeMac(stackUserID: scope.userID, teamID: scope.teamID)
-            loadedMacs = try await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)
-        } catch {
-            mobileShellLog.error("paired mac store read failed: \(String(describing: error), privacy: .public)")
+        switch snapshot {
+        case .loaded(_, let activeMac, let allMacs):
+            loadedActiveMac = activeMac
+            loadedMacs = allMacs
+        case .failed(_, let errorDescription):
+            mobileShellLog.error("paired mac store read failed: \(errorDescription, privacy: .public)")
             // A read failure means "couldn't determine," not "no mac": keep the
             // hint so a transient SQLite error doesn't erase a returning user's
             // paired state.

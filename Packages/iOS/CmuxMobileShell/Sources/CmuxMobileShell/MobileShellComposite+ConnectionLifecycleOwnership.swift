@@ -110,6 +110,43 @@ extension MobileShellComposite {
         )
     }
 
+    func makeStoredMacReconnectStoreRequest(
+        stackUserID: String?
+    ) async -> StoredMacReconnectStoreRequest? {
+        guard let pairedMacStore,
+              isSignedIn else {
+            return nil
+        }
+        startObservingNetworkPathChanges()
+        storedMacReconnectGeneration &+= 1
+        let generation = storedMacReconnectGeneration
+        storedMacReconnectTargetDeviceID = nil
+        let supportedKinds = runtime?.supportedRouteKinds ?? []
+        let cachedMacs = pairedMacsForIdentityMatching
+        storedMacReconnectTargetDeviceID = cachedMacs.first(where: {
+            $0.isActive && !Self.reconnectHostPortRoutes(
+                $0.routes,
+                supportedKinds: supportedKinds,
+                preferNonLoopback: Self.prefersNonLoopbackRoutes
+            ).isEmpty
+        })?.macDeviceID ?? cachedMacs.first(where: {
+            !Self.reconnectHostPortRoutes(
+                $0.routes,
+                supportedKinds: supportedKinds,
+                preferNonLoopback: Self.prefersNonLoopbackRoutes
+            ).isEmpty
+        })?.macDeviceID
+        guard let scope = await currentScopeSnapshot(userID: stackUserID),
+              generation == storedMacReconnectGeneration else {
+            return nil
+        }
+        return StoredMacReconnectStoreRequest(
+            store: pairedMacStore,
+            scope: scope,
+            generation: generation
+        )
+    }
+
     func applyConnectionLifecycleEffect(
         _ effect: MobileConnectionLifecycleEffect?
     ) {
@@ -133,9 +170,10 @@ extension MobileShellComposite {
         connectionLifecycleDeadlineTask?.cancel()
         connectionLifecycleTaskOwnership.activeUsesCachedReconnect = usesCachedReconnect
         connectionLifecycleTask = Task { @MainActor [weak self] in
-            guard let self, self.connectionLifecycle.ownsEpisode(episode.id) else { return }
+            guard self?.connectionLifecycle.ownsEpisode(episode.id) == true else { return }
             switch episode.kind {
             case .streamRepair:
+                guard let self else { return }
                 guard self.connectionState == .connected,
                       self.remoteClient != nil else {
                     self.finishConnectionLifecycleEpisode(id: episode.id, succeeded: false)
@@ -162,12 +200,25 @@ extension MobileShellComposite {
                     }
                 }
             case .reconnect:
-                let outcome = usesCachedReconnect
-                    ? await self.performCachedStoredMacReconnect()
-                    : await self.performStoredMacReconnect(
+                let outcome: StoredMacReconnectOutcome
+                if usesCachedReconnect {
+                    guard let self else { return }
+                    outcome = await self.performCachedStoredMacReconnect()
+                } else {
+                    guard let request = await self?.makeStoredMacReconnectStoreRequest(
                         stackUserID: episode.reconnectStackUserID
-                    )
-                guard !Task.isCancelled,
+                    ) else {
+                        self?.finishConnectionLifecycleEpisode(id: episode.id, succeeded: false)
+                        return
+                    }
+                    let snapshot = await request.load()
+                    guard let self,
+                          !Task.isCancelled,
+                          self.connectionLifecycle.ownsEpisode(episode.id) else { return }
+                    outcome = await self.performStoredMacReconnect(snapshot: snapshot)
+                }
+                guard let self,
+                      !Task.isCancelled,
                       self.connectionLifecycle.ownsEpisode(episode.id) else { return }
                 let cachedSnapshotWasUnavailable = usesCachedReconnect && outcome == .unavailable
                 if cachedSnapshotWasUnavailable {
@@ -181,8 +232,9 @@ extension MobileShellComposite {
                     self.replayReconnectPendingAfterRetirementIfPossible()
                 }
             }
-            if self.connectionLifecycle.ownsEpisode(episode.id), episode.kind == .streamRepair {
-                self.connectionLifecycleTask = nil
+            if self?.connectionLifecycle.ownsEpisode(episode.id) == true,
+               episode.kind == .streamRepair {
+                self?.connectionLifecycleTask = nil
             }
         }
         if episode.kind == .reconnect {

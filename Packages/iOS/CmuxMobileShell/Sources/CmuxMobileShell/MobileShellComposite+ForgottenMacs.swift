@@ -10,6 +10,16 @@ private let forgottenMacLog = Logger(
 
 @MainActor
 extension MobileShellComposite {
+    func pendingForgottenMacDeviceIDs(scope: MobileShellScopeSnapshot) -> Set<String> {
+        let scopedKey = pairedMacScopeKey(scope)
+        var pending = forgottenMacIntentDeviceIDsByScope[scopedKey] ?? []
+        if scope.teamID != nil {
+            let userWideKey = pairedMacScopeKey(userWideScope(from: scope))
+            pending.formUnion(forgottenMacIntentDeviceIDsByScope[userWideKey] ?? [])
+        }
+        return pending
+    }
+
     func storedForgottenMacDeviceIDs(scopeKey key: String) async -> Set<String> {
         if let cached = forgottenMacDeviceIDsByScope[key] { return cached }
         let loaded = await forgottenMacStore.load(scope: key)
