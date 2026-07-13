@@ -1,0 +1,4 @@
+[test]
+# Pin deterministic test env before any module (notably @/app/env) loads, so the
+# suite is not order-dependent on which test file imports env first.
+preload = ["./tests/test-preload.ts"]

@@ -10,7 +10,7 @@ extension AgentLaunchCommandSnapshot {
         workingDirectory: String?,
         environment: [String: String]
     ) {
-        var selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment)
+        var selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: environment, kind: launcher)
         if launcher == "opencode",
            let path = environment["PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !path.isEmpty {
@@ -32,7 +32,7 @@ extension RestorableAgentSessionIndex {
     static func processDetectedSnapshots(
         registry: CmuxVaultAgentRegistry,
         fileManager: FileManager
-    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
+    ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
         let capturedAt = Date().timeIntervalSince1970
         let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
         return processDetectedSnapshots(
@@ -47,14 +47,37 @@ extension RestorableAgentSessionIndex {
         registry: CmuxVaultAgentRegistry,
         fileManager: FileManager,
         processSnapshot: CmuxTopProcessSnapshot,
-        capturedAt: TimeInterval
-    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
+        capturedAt: TimeInterval,
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
+            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        }
+    ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
+        // KERN_PROCARGS2 argv/env decoding is the expensive unit of this scan; memoize so
+        // the OpenCode, fork-parent-fallback, and registry passes read each pid once.
+        // updateValue (not subscript) so a nil miss is unambiguously stored, not removed.
+        var processArgumentsByPID: [Int: CmuxTopProcessArguments?] = [:]
+        func cachedProcessArguments(_ processID: Int) -> CmuxTopProcessArguments? {
+            if let cached = processArgumentsByPID[processID] { return cached }
+            let resolved = processArgumentsProvider(processID)
+            processArgumentsByPID.updateValue(resolved, forKey: processID)
+            return resolved
+        }
+
+        let scopedProcessIDsByPanelKey = processSnapshot.cmuxScopedProcessIDsByPanelKey()
         var resolved = processDetectedOpenCodeSnapshots(
             processSnapshot: processSnapshot,
             capturedAt: capturedAt,
-            fileManager: fileManager
+            fileManager: fileManager,
+            scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey,
+            processArgumentsProvider: cachedProcessArguments
         )
-
+        resolved.merge(processDetectedOllamaSnapshots(
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt,
+            scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey,
+            processArgumentsProvider: cachedProcessArguments
+        )) { existing, _ in existing }
+        resolved.merge(processDetectedForkParentFallbackSnapshots(processSnapshot: processSnapshot, capturedAt: capturedAt, scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey, processArgumentsProvider: cachedProcessArguments)) { existing, _ in existing }
         guard !registry.registrations.isEmpty else { return resolved }
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
 
@@ -75,7 +98,7 @@ extension RestorableAgentSessionIndex {
         for process in processSnapshot.cmuxScopedProcesses() {
             guard let workspaceId = process.cmuxWorkspaceID,
                   let panelId = process.cmuxSurfaceID,
-                  let processArguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid) else {
+                  let processArguments = cachedProcessArguments(process.pid) else {
                 continue
             }
             let observed = VaultObservedAgentProcess(
@@ -87,16 +110,29 @@ extension RestorableAgentSessionIndex {
             let cwd = normalized(observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"])
             let processRegistry = registryForWorkingDirectory(cwd)
             guard let registration = processRegistry.registrations.first(where: { $0.detect.matches(observed) }),
-                  let sessionId = registration.sessionIdSource.sessionId(
+                  registration.processDetectedSnapshotIsRestorable(for: observed),
+                  let sessionIDResolution = registration.sessionIdSource.sessionIDResolution(
                       from: observed,
                       registration: registration,
                       fileManager: fileManager
                   ) else {
                 continue
             }
+            let sessionId = sessionIDResolution.sessionId
 
-            let executablePath = normalized(observed.arguments.first) ?? normalized(process.path) ?? registration.defaultExecutable
-            let arguments = observed.arguments.isEmpty ? [executablePath] : observed.arguments
+            let useDefaultExecutable = registration.detect.usesAlternateMatchWithoutPrimaryMatch(observed)
+            var executablePath = useDefaultExecutable
+                ? registration.defaultExecutable
+                : (normalized(observed.arguments.first) ?? normalized(process.path) ?? registration.defaultExecutable)
+            var arguments = useDefaultExecutable
+                ? registration.detect.alternateLaunchArguments(for: observed, defaultExecutable: executablePath)
+                : (observed.arguments.isEmpty ? [executablePath] : observed.arguments)
+            if registration.id == CmuxVaultAgentRegistration.builtInCampfire.id {
+                arguments = CampfireLaunchArgumentNormalizer(
+                    defaultExecutable: registration.defaultExecutable
+                ).normalized(arguments: observed.arguments)
+                executablePath = arguments.first ?? registration.defaultExecutable
+            }
             let snapshot = SessionRestorableAgentSnapshot(
                 kind: .custom(registration.id),
                 sessionId: sessionId,
@@ -110,7 +146,14 @@ extension RestorableAgentSessionIndex {
                 ),
                 registration: registration
             )
-            resolved[PanelKey(workspaceId: workspaceId, panelId: panelId)] = (snapshot: snapshot, updatedAt: capturedAt)
+            let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
+            resolved[key] = (
+                snapshot: snapshot,
+                updatedAt: capturedAt,
+                processIDs: scopedProcessIDsByPanelKey[key] ?? [],
+                agentProcessIDs: [process.pid],
+                sessionIDSource: sessionIDResolution.source
+            )
         }
 
         return resolved
@@ -198,14 +241,17 @@ extension RestorableAgentSessionIndex {
     private static func processDetectedOpenCodeSnapshots(
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
-        fileManager: FileManager
-    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
-        var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
+        fileManager: FileManager,
+        scopedProcessIDsByPanelKey: [PanelKey: Set<Int>],
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
+    ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
+        var resolved: [PanelKey: ProcessDetectedSnapshotEntry] = [:]
         var sessionByWorkingDirectoryAndParent: [String: String] = [:]
         var sessionMissesByWorkingDirectoryAndParent = Set<String>()
         var openCodeProcesses: [
             (
                 panelKey: PanelKey,
+                processID: Int,
                 observed: VaultObservedAgentProcess,
                 environment: [String: String],
                 workingDirectory: String?,
@@ -217,7 +263,7 @@ extension RestorableAgentSessionIndex {
         for process in processSnapshot.cmuxScopedProcesses() {
             guard let workspaceId = process.cmuxWorkspaceID,
                   let panelId = process.cmuxSurfaceID,
-                  let processArguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid) else {
+                  let processArguments = processArgumentsProvider(process.pid) else {
                 continue
             }
             let observed = VaultObservedAgentProcess(
@@ -233,6 +279,7 @@ extension RestorableAgentSessionIndex {
             let panelKey = PanelKey(workspaceId: workspaceId, panelId: panelId)
             openCodeProcesses.append((
                 panelKey: panelKey,
+                processID: process.pid,
                 observed: observed,
                 environment: processArguments.environment,
                 workingDirectory: cwd,
@@ -294,7 +341,10 @@ extension RestorableAgentSessionIndex {
             )
             resolved[process.panelKey] = (
                 snapshot: snapshot,
-                updatedAt: capturedAt
+                updatedAt: capturedAt,
+                processIDs: scopedProcessIDsByPanelKey[process.panelKey] ?? [],
+                agentProcessIDs: [process.processID],
+                sessionIDSource: .explicit
             )
         }
 
@@ -610,186 +660,57 @@ extension SurfaceResumeBindingIndex {
     }
 }
 
-private struct VaultObservedAgentProcess: Sendable {
-    let processName: String
-    let processPath: String?
-    let arguments: [String]
-    let environment: [String: String]
-
-    var executableBasenames: [String] {
-        var names: [String] = []
-        if !processName.isEmpty { names.append(processName) }
-        if let processPath, !processPath.isEmpty { names.append((processPath as NSString).lastPathComponent) }
-        if let first = arguments.first, !first.isEmpty { names.append((first as NSString).lastPathComponent) }
-        var seen = Set<String>()
-        return names.filter { seen.insert($0).inserted }
-    }
-
-    var isOpenCodeProcess: Bool {
-        processIdentityLooksLikeOpenCode || openCodeExecutableArgumentIndex != nil
-    }
-
-    var openCodeExecutableArgument: String? {
-        guard let index = openCodeExecutableArgumentIndex,
-              arguments.indices.contains(index) else {
-            return nil
-        }
-        return arguments[index]
-    }
-
-    var openCodeExecutableArgumentIndex: Int? {
-        if let first = arguments.first,
-           Self.argumentLooksLikeOpenCode(first) {
-            return 0
-        }
-        guard executableBasenames.contains(where: Self.wrapperLooksLikeNodeRuntime) else {
-            return nil
-        }
-        guard let scriptIndex = Self.nodeScriptArgumentIndex(arguments) else {
-            return nil
-        }
-        return Self.argumentLooksLikeOpenCode(arguments[scriptIndex]) ? scriptIndex : nil
-    }
-
-    private var processIdentityLooksLikeOpenCode: Bool {
-        executableBasenames.contains { basename in
-            let normalized = basename.lowercased()
-            return normalized == "opencode" ||
-                normalized == ".opencode" ||
-                normalized == "opencode-ai" ||
-                normalized == "open-code"
-        }
-    }
-
-    static func argumentLooksLikeOpenCode(_ argument: String) -> Bool {
-        let normalized = argument.lowercased()
-        let pathComponents = (normalized as NSString).pathComponents
-        let basename = pathComponents.last ?? normalized
-        return basename == "opencode" ||
-            basename == ".opencode" ||
-            basename == "opencode-ai" ||
-            basename == "open-code"
-    }
-
-    static func argumentLooksLikeTmux(_ argument: String) -> Bool {
-        TmuxResumeParser.argumentLooksLikeTmux(argument)
-    }
-
-    static func argumentLooksLikeTmuxProcessTitle(_ argument: String) -> Bool {
-        TmuxResumeParser.argumentLooksLikeTmuxProcessTitle(argument)
-    }
-
-    static func argumentLooksLikeTmuxServerProcessTitle(_ argument: String) -> Bool {
-        TmuxResumeParser.argumentLooksLikeTmuxServerProcessTitle(argument)
-    }
-
-    private static func wrapperLooksLikeNodeRuntime(_ basename: String) -> Bool {
-        switch basename.lowercased() {
-        case "node":
-            return true
-        default:
-            return false
-        }
-    }
-
-    private static func nodeScriptArgumentIndex(_ arguments: [String]) -> Int? {
-        guard !arguments.isEmpty else { return nil }
-        var index = 0
-        if wrapperLooksLikeNodeRuntime((arguments[0] as NSString).lastPathComponent) {
-            index = 1
-        }
-        while index < arguments.count {
-            let argument = arguments[index]
-            if argument == "--" {
-                let nextIndex = index + 1
-                return nextIndex < arguments.count ? nextIndex : nil
-            }
-            if argument.hasPrefix("-") {
-                if nodeOptionConsumesScript(argument) {
-                    return nil
-                }
-                index += 1 + nodeOptionValueCount(argument)
-                continue
-            }
-            return index
-        }
-        return nil
-    }
-
-    private static func nodeOptionConsumesScript(_ argument: String) -> Bool {
-        let option = argument.split(separator: "=", maxSplits: 1).first.map(String.init) ?? argument
-        switch option {
-        case "-e", "--eval", "-p", "--print", "-c", "--check":
-            return true
-        default:
-            return false
-        }
-    }
-
-    private static func nodeOptionValueCount(_ argument: String) -> Int {
-        if argument.contains("=") {
-            return 0
-        }
-        switch argument {
-        case "-r", "--require", "--import", "--loader", "--experimental-loader",
-             "--conditions", "-C", "--title", "--test-name-pattern",
-             "--test-reporter", "--test-reporter-destination":
-            return 1
-        default:
-            return 0
-        }
-    }
-}
-
-private extension CmuxVaultAgentDetectRule {
-    func matches(_ process: VaultObservedAgentProcess) -> Bool {
-        guard processName != nil || !argvContains.isEmpty else { return false }
-        let processNameMatch = processName.map { expected in
-            process.executableBasenames.contains { candidate in
-                candidate.compare(expected, options: [.caseInsensitive, .literal]) == .orderedSame
-            }
-        } ?? true
-        let argvContainsMatch = argvContains.isEmpty || argvContains.allSatisfy { needle in
-            if needle.contains(" ") {
-                let joinedArguments = process.arguments.joined(separator: " ")
-                return joinedArguments.range(of: needle, options: [.caseInsensitive, .literal]) != nil
-            }
-            if needle.contains("/") {
-                let joinedArguments = process.arguments.joined(separator: "\u{0}")
-                return joinedArguments.range(of: needle, options: [.caseInsensitive, .literal]) != nil
-            }
-            return process.arguments.contains { argument in
-                argument.range(of: needle, options: [.caseInsensitive, .literal]) != nil
-                    || (argument as NSString).lastPathComponent.range(
-                        of: needle,
-                        options: [.caseInsensitive, .literal]
-                    ) != nil
-            }
-        }
-        return processNameMatch && argvContainsMatch
-    }
+private struct VaultAgentSessionIDResolution {
+    let sessionId: String
+    let source: RestorableAgentSessionIndex.ProcessDetectedSessionIDSource
 }
 
 private extension CmuxVaultAgentSessionIDSource {
-    func sessionId(
+    func sessionIDResolution(
         from process: VaultObservedAgentProcess,
         registration: CmuxVaultAgentRegistration,
         fileManager: FileManager
-    ) -> String? {
+    ) -> VaultAgentSessionIDResolution? {
         switch self {
         case .argvOption(let option):
-            return process.arguments.value(afterOption: option)
+            guard let sessionId = process.arguments.nonOptionValue(afterOption: option) else { return nil }
+            return VaultAgentSessionIDResolution(sessionId: sessionId, source: registration.processArgumentsCarryForkParentFlag(process.arguments) ? .forkParentFallback : .explicit)
         case .piSessionFile:
-            if let session = process.arguments.value(afterOption: "--session") {
-                return PiSessionLocator.resolvedSessionPath(
+            if let session = process.piCompatibleSessionID {
+                let sessionId = PiSessionLocator.resolvedSessionPath(
                     session,
                     for: process,
                     registration: registration,
                     fileManager: fileManager
                 ) ?? session
+                return VaultAgentSessionIDResolution(sessionId: sessionId, source: registration.processArgumentsCarryForkParentFlag(process.arguments) ? .forkParentFallback : .explicit)
             }
-            return PiSessionLocator.latestSessionPath(for: process, registration: registration, fileManager: fileManager)
+            guard let sessionId = PiSessionLocator.latestSessionPath(
+                for: process,
+                registration: registration,
+                fileManager: fileManager
+            ) else {
+                return nil
+            }
+            return VaultAgentSessionIDResolution(sessionId: sessionId, source: .inferredLatestSessionFile)
+        case .grokSessionDirectory:
+            if let session = process.arguments.grokResumeSessionID {
+                return VaultAgentSessionIDResolution(sessionId: session, source: .explicit)
+            }
+            return nil
         }
+    }
+}
+
+private extension CmuxTopProcessSnapshot {
+    func cmuxScopedProcessIDsByPanelKey() -> [RestorableAgentSessionIndex.PanelKey: Set<Int>] {
+        var result: [RestorableAgentSessionIndex.PanelKey: Set<Int>] = [:]
+        for process in cmuxScopedProcesses() {
+            if let workspaceId = process.cmuxWorkspaceID, let panelId = process.cmuxSurfaceID {
+                result[.init(workspaceId: workspaceId, panelId: panelId), default: []].insert(process.pid)
+            }
+        }
+        return result
     }
 }
 
@@ -821,6 +742,38 @@ private extension Array where Element == String {
             if argument.hasPrefix(prefix) {
                 let value = String(argument.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
                 return value.isEmpty ? nil : value
+            }
+        }
+        return nil
+    }
+
+    func nonOptionValue(afterOption option: String) -> String? {
+        guard let value = value(afterOption: option), !value.hasPrefix("-") else {
+            return nil
+        }
+        return value
+    }
+
+    var grokResumeSessionID: String? {
+        let options = ["-r", "--resume"]
+        for index in indices {
+            let argument = self[index]
+            if options.contains(argument) {
+                let nextIndex = self.index(after: index)
+                guard nextIndex < endIndex else { continue }
+                let value = self[nextIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty, !value.hasPrefix("-") {
+                    return value
+                }
+                continue
+            }
+            for option in options {
+                let prefix = option + "="
+                guard argument.hasPrefix(prefix) else { continue }
+                let value = String(argument.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty, !value.hasPrefix("-") {
+                    return value
+                }
             }
         }
         return nil
@@ -877,54 +830,22 @@ enum PiSessionLocator {
             return nil
         }
 
-        var newest: (url: URL, modified: Date)?
+        var exactNewest: (url: URL, modified: Date)?
+        var partialNewest: (url: URL, modified: Date)?
         for case let url as URL in enumerator where url.pathExtension == "jsonl" {
-            guard url.deletingPathExtension().lastPathComponent.contains(trimmed) else { continue }
+            let basename = url.deletingPathExtension().lastPathComponent
+            guard basename == trimmed || basename.contains(trimmed) else { continue }
             let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
             guard values?.isRegularFile == true, let modified = values?.contentModificationDate else { continue }
-            if newest == nil || modified > newest!.modified {
-                newest = (url, modified)
+            if basename == trimmed {
+                if exactNewest == nil || modified > exactNewest!.modified {
+                    exactNewest = (url, modified)
+                }
+            } else if partialNewest == nil || modified > partialNewest!.modified {
+                partialNewest = (url, modified)
             }
         }
-        return newest?.url.path
+        return exactNewest?.url.path ?? partialNewest?.url.path
     }
 
-    private static func candidateSessionDirectory(
-        for process: VaultObservedAgentProcess,
-        registration: CmuxVaultAgentRegistration
-    ) -> String {
-        let sessionRoot = process.arguments.value(afterOption: "--session-dir")
-            ?? process.environment["PI_CODING_AGENT_SESSION_DIR"]
-            ?? registration.sessionDirectory
-            ?? defaultSessionsRoot()
-        let expandedRoot = (sessionRoot as NSString).expandingTildeInPath
-        if let cwd = process.environment["CMUX_AGENT_LAUNCH_CWD"] ?? process.environment["PWD"],
-           let projectDirectory = projectDirectoryName(for: cwd) {
-            return (expandedRoot as NSString).appendingPathComponent(projectDirectory)
-        }
-        return expandedRoot
-    }
-
-    static func newestJSONLFile(in directory: String, fileManager: FileManager = .default) -> URL? {
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
-              isDirectory.boolValue,
-              let enumerator = fileManager.enumerator(
-                  at: URL(fileURLWithPath: directory, isDirectory: true),
-                  includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
-                  options: [.skipsHiddenFiles]
-              ) else {
-            return nil
-        }
-
-        var newest: (url: URL, modified: Date)?
-        for case let url as URL in enumerator where url.pathExtension == "jsonl" {
-            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
-            guard values?.isRegularFile == true, let modified = values?.contentModificationDate else { continue }
-            if newest == nil || modified > newest!.modified {
-                newest = (url, modified)
-            }
-        }
-        return newest?.url
-    }
 }

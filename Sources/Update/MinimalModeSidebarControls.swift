@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CmuxTestSupport
 import SwiftUI
 
 struct MinimalModeSidebarControlActionProxyView: NSViewRepresentable {
@@ -27,21 +28,52 @@ struct MinimalModeSidebarControlActionProxyView: NSViewRepresentable {
 }
 
 enum TitlebarControlsHitRegions {
-    static let outerLeadingPadding: CGFloat = 4
-    static let buttonCount = 3
+    static let outerLeadingPadding: CGFloat = HeaderChromeControlMetrics.titlebarControlsLeadingPadding
+    static let buttonCount = MinimalModeSidebarControlActionSlot.allCases.count
 
     static func buttonXRanges(config: TitlebarControlsStyleConfig) -> [ClosedRange<CGFloat>] {
-        var ranges: [ClosedRange<CGFloat>] = []
-        ranges.reserveCapacity(buttonCount)
-
-        var minX = outerLeadingPadding + config.groupPadding.leading
-        for _ in 0..<buttonCount {
-            let maxX = minX + config.buttonSize
-            ranges.append(minX...maxX)
-            minX = maxX + config.spacing
+        MinimalModeSidebarControlActionSlot.allCases.compactMap {
+            buttonXRange(for: $0, config: config)
         }
+    }
 
-        return ranges
+    static func buttonXRange(
+        for slot: MinimalModeSidebarControlActionSlot,
+        config: TitlebarControlsStyleConfig
+    ) -> ClosedRange<CGFloat>? {
+        let startX = outerLeadingPadding + config.groupPadding.leading
+        let sidebarX = startX
+        let notificationsX = sidebarX + config.buttonSize + config.spacing
+        let newTabX = notificationsX + config.buttonSize + config.spacing
+        let newTabWidth = TitlebarNewWorkspaceCloudSplitButtonMetrics.primaryWidth(config: config)
+        let cloudMenuX = newTabX + newTabWidth
+        let cloudMenuWidth = TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownWidth(config: config)
+        let focusBackX = cloudMenuX + cloudMenuWidth + config.spacing
+        let focusForwardX = focusBackX + config.buttonSize + config.spacing
+
+        let minX: CGFloat = switch slot {
+        case .toggleSidebar:
+            sidebarX
+        case .showNotifications:
+            notificationsX
+        case .newTab:
+            newTabX
+        case .cloudVM:
+            cloudMenuX
+        case .focusHistoryBack:
+            focusBackX
+        case .focusHistoryForward:
+            focusForwardX
+        }
+        let width: CGFloat = switch slot {
+        case .newTab:
+            newTabWidth
+        case .cloudVM:
+            cloudMenuWidth
+        case .toggleSidebar, .showNotifications, .focusHistoryBack, .focusHistoryForward:
+            config.buttonSize
+        }
+        return minX...(minX + width)
     }
 
     static func sidebarActionSlot(
@@ -79,7 +111,7 @@ final class MinimalModeSidebarControlActionView: NSView {
 
     override init(frame frameRect: NSRect) {
         var buttons: [MinimalModeSidebarControlActionSlot: MinimalModeSidebarControlButton] = [:]
-        for slot in [MinimalModeSidebarControlActionSlot.toggleSidebar, .showNotifications, .newTab] {
+        for slot in MinimalModeSidebarControlActionSlot.allCases {
             buttons[slot] = Self.makeButton(for: slot)
         }
         self.buttons = buttons
@@ -97,7 +129,7 @@ final class MinimalModeSidebarControlActionView: NSView {
 
     required init?(coder: NSCoder) {
         var buttons: [MinimalModeSidebarControlActionSlot: MinimalModeSidebarControlButton] = [:]
-        for slot in [MinimalModeSidebarControlActionSlot.toggleSidebar, .showNotifications, .newTab] {
+        for slot in MinimalModeSidebarControlActionSlot.allCases {
             buttons[slot] = Self.makeButton(for: slot)
         }
         self.buttons = buttons
@@ -139,7 +171,7 @@ final class MinimalModeSidebarControlActionView: NSView {
 
     override func accessibilityChildren() -> [Any]? {
         guard isRevealed || !requiresRevealedState else { return [] }
-        return [MinimalModeSidebarControlActionSlot.toggleSidebar, .showNotifications, .newTab].compactMap { buttons[$0] }
+        return MinimalModeSidebarControlActionSlot.allCases.compactMap { buttons[$0] }
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
@@ -156,13 +188,13 @@ final class MinimalModeSidebarControlActionView: NSView {
         guard let slot = TitlebarControlsHitRegions.sidebarActionSlot(at: point, config: config) else {
             return nil
         }
-        if NSApp.currentEvent?.type == .rightMouseDown, slot != .newTab {
+        if NSApp.currentEvent?.type == .rightMouseDown, !slot.acceptsContextMenu {
             return nil
         }
         guard shouldAcceptAction(at: point) else { return nil }
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
-            _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+            _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                 payload["\(telemetryPrefix)LastHitTestSlot"] = slot.debugName
                 payload["\(telemetryPrefix)LastHitTestPoint"] = windowDragHandleFormatPoint(point)
                 payload["\(telemetryPrefix)LastHitTestWindowNumber"] = window.map { String($0.windowNumber) } ?? "nil"
@@ -189,12 +221,28 @@ final class MinimalModeSidebarControlActionView: NSView {
     override func rightMouseDown(with event: NSEvent) {
         let localPoint = convert(event.locationInWindow, from: nil)
         guard let slot = TitlebarControlsHitRegions.sidebarActionSlot(at: localPoint, config: config),
-              slot == .newTab,
               shouldAcceptAction(at: localPoint) else {
             super.rightMouseDown(with: event)
             return
         }
-        _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: self, event: event)
+        switch slot {
+        case .toggleSidebar:
+            CmuxExtensionSidebarSelection.showMenu(anchorView: self, event: event)
+        case .newTab:
+            _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: self, event: event)
+        case .cloudVM:
+            _ = AppDelegate.shared?.showNewWorkspaceContextMenu(
+                anchorView: self,
+                event: event,
+                debugSource: "titlebar.minimalSidebar.cloudMenu.rightClick"
+            )
+        case .focusHistoryBack:
+            _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: self, event: event, direction: .back)
+        case .focusHistoryForward:
+            _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: self, event: event, direction: .forward)
+        case .showNotifications:
+            super.rightMouseDown(with: event)
+        }
     }
 
     override func layout() {
@@ -206,7 +254,7 @@ final class MinimalModeSidebarControlActionView: NSView {
             button.frame = NSRect(
                 x: range.lowerBound,
                 y: max(0, (bounds.height - config.buttonSize) / 2),
-                width: config.buttonSize,
+                width: range.upperBound - range.lowerBound,
                 height: config.buttonSize
             )
         }
@@ -232,7 +280,7 @@ final class MinimalModeSidebarControlActionView: NSView {
 
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
-            _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+            _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                 payload["\(telemetryPrefix)LastAction"] = slot.debugName
                 payload["\(telemetryPrefix)LastPoint"] = windowDragHandleFormatPoint(convert(locationInWindow, from: nil))
                 payload["\(telemetryPrefix)WindowNumber"] = window.map { String($0.windowNumber) } ?? "nil"

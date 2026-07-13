@@ -1,9 +1,10 @@
 import Darwin
+import CmuxTerminalCore
 import Foundation
 import SwiftUI
 
-struct CmuxTaskManagerRow: Identifiable {
-    enum Kind: String {
+struct CmuxTaskManagerRow: Identifiable, Equatable {
+    enum Kind: String, Equatable {
         case window
         case workspace
         case tag
@@ -14,6 +15,7 @@ struct CmuxTaskManagerRow: Identifiable {
         case process
         case programAggregate
         case codingAgentAggregate
+        case childMemoryAggregate
 
         var systemImage: String {
             switch self {
@@ -27,6 +29,7 @@ struct CmuxTaskManagerRow: Identifiable {
             case .process: return "gearshape"
             case .programAggregate: return "gearshape.2"
             case .codingAgentAggregate: return "sparkles"
+            case .childMemoryAggregate: return "memorychip"
             }
         }
 
@@ -42,6 +45,7 @@ struct CmuxTaskManagerRow: Identifiable {
             case .process: return .secondary
             case .programAggregate: return .accentColor
             case .codingAgentAggregate: return .accentColor
+            case .childMemoryAggregate: return .pink
             }
         }
     }
@@ -60,6 +64,49 @@ struct CmuxTaskManagerRow: Identifiable {
     let rootProcessIds: [Int]
     let foregroundProcessGroupIds: [Int]
     let agentAssetName: String?
+
+    /// Replaces the synthesized memberwise init so the PID arrays are
+    /// stored in a canonical (deduped + ascending) order. The snapshot
+    /// producers happen to sort today, but this guarantees the synthesized
+    /// `Equatable` stays stable across reorderings so `.equatable()` keeps
+    /// suppressing row re-renders even if a future producer forgets.
+    /// Issue #4529.
+    init(
+        id: String,
+        kind: Kind,
+        level: Int,
+        title: String,
+        detail: String,
+        resources: CmuxTaskManagerResources,
+        isDimmed: Bool,
+        workspaceId: UUID?,
+        surfaceId: UUID?,
+        terminalSurfaceId: UUID?,
+        processId: Int?,
+        rootProcessIds: [Int],
+        foregroundProcessGroupIds: [Int],
+        agentAssetName: String?
+    ) {
+        self.id = id
+        self.kind = kind
+        self.level = level
+        self.title = title
+        self.detail = detail
+        self.resources = resources
+        self.isDimmed = isDimmed
+        self.workspaceId = workspaceId
+        self.surfaceId = surfaceId
+        self.terminalSurfaceId = terminalSurfaceId
+        self.processId = processId
+        self.rootProcessIds = Self.canonicalIds(rootProcessIds)
+        self.foregroundProcessGroupIds = Self.canonicalIds(foregroundProcessGroupIds)
+        self.agentAssetName = agentAssetName
+    }
+
+    private static func canonicalIds(_ ids: [Int]) -> [Int] {
+        guard !ids.isEmpty else { return ids }
+        return Array(Set(ids)).sorted()
+    }
 
     var canViewWorkspace: Bool {
         workspaceId != nil
@@ -252,7 +299,7 @@ private struct SortNode {
     let children: [SortNode]
 }
 
-struct CmuxTaskManagerResources {
+struct CmuxTaskManagerResources: Equatable {
     static let zero = CmuxTaskManagerResources(cpuPercent: 0, residentBytes: 0, processCount: 0)
 
     let cpuPercent: Double
@@ -272,7 +319,7 @@ struct CmuxTaskManagerResources {
         self.memoryBytes = memoryBytes ?? residentBytes
         self.residentBytes = residentBytes
         self.processCount = processCount
-        self.processIds = processIds
+        self.processIds = Self.canonicalIds(processIds)
     }
 
     init(_ payload: [String: Any]) {
@@ -280,7 +327,15 @@ struct CmuxTaskManagerResources {
         self.memoryBytes = Self.int64(payload["memory_bytes"] ?? payload["resident_bytes"])
         self.residentBytes = Self.int64(payload["resident_bytes"])
         self.processCount = Self.int(payload["process_count"]) ?? 0
-        self.processIds = Self.intArray(payload["pids"])
+        self.processIds = Self.canonicalIds(Self.intArray(payload["pids"]))
+    }
+
+    /// Canonical (deduped + ascending) ordering so synthesized
+    /// `Equatable` stays stable across snapshot reorderings. See
+    /// `CmuxTaskManagerRow.canonicalIds` for the same rationale.
+    private static func canonicalIds(_ ids: [Int]) -> [Int] {
+        guard !ids.isEmpty else { return ids }
+        return Array(Set(ids)).sorted()
     }
 
     private static func double(_ raw: Any?) -> Double {
@@ -317,6 +372,123 @@ struct CmuxTaskManagerResources {
         if let values = raw as? [Int] { return values }
         guard let values = raw as? [Any] else { return [] }
         return values.compactMap(int)
+    }
+}
+
+struct CmuxTaskManagerMemoryDiagnostic: Sendable {
+    let summary: String
+    let appFootprintBytes: Int64
+    let appResidentBytes: Int64
+    let childRSSBytes: Int64
+    let childProcessCount: Int
+    let groups: [CmuxTaskManagerMemoryGroup]
+
+    init?(_ payload: [String: Any]?) {
+        guard let payload else { return nil }
+        let app = payload["app"] as? [String: Any] ?? [:]
+        let children = payload["children"] as? [String: Any] ?? [:]
+        self.summary = Self.string(payload["summary"]) ?? ""
+        self.appFootprintBytes = Self.int64(app["physical_footprint_bytes"])
+        self.appResidentBytes = Self.int64(app["resident_bytes"])
+        self.childRSSBytes = Self.int64(children["recursive_rss_bytes"])
+        self.childProcessCount = Self.int(children["process_count"]) ?? 0
+        self.groups = (children["groups"] as? [[String: Any]] ?? [])
+            .compactMap(CmuxTaskManagerMemoryGroup.init)
+    }
+
+    static func string(_ raw: Any?) -> String? {
+        guard let value = raw as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func int64(_ raw: Any?) -> Int64 {
+        if let value = raw as? Int64 { return value }
+        if let value = raw as? Int { return Int64(value) }
+        if let value = raw as? NSNumber { return value.int64Value }
+        if let value = raw as? String,
+           let parsed = Int64(value.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return parsed
+        }
+        return 0
+    }
+
+    static func int(_ raw: Any?) -> Int? {
+        if let value = raw as? Int { return value }
+        if let value = raw as? NSNumber { return value.intValue }
+        if let value = raw as? String {
+            return Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return nil
+    }
+
+    static func intArray(_ raw: Any?) -> [Int] {
+        if let values = raw as? [Int] { return values }
+        guard let values = raw as? [Any] else { return [] }
+        return values.compactMap(int)
+    }
+}
+
+struct CmuxTaskManagerMemoryGroup: Sendable {
+    let id: String
+    let name: String
+    let rssBytes: Int64
+    let processCount: Int
+    let processIds: [Int]
+    let topAttribution: CmuxTaskManagerMemoryAttribution?
+
+    init?(_ payload: [String: Any]) {
+        guard let name = CmuxTaskManagerMemoryDiagnostic.string(payload["name"]) else {
+            return nil
+        }
+        let processCount = CmuxTaskManagerMemoryDiagnostic.int(payload["process_count"]) ?? 0
+        guard processCount > 0 else { return nil }
+        self.id = CmuxTaskManagerMemoryDiagnostic.string(payload["id"]) ?? name.lowercased()
+        self.name = name
+        self.rssBytes = CmuxTaskManagerMemoryDiagnostic.int64(payload["rss_bytes"])
+        self.processCount = processCount
+        self.processIds = CmuxTaskManagerMemoryDiagnostic.intArray(payload["pids"])
+        self.topAttribution = CmuxTaskManagerMemoryAttribution(payload["top_attribution"] as? [String: Any])
+    }
+}
+
+struct CmuxTaskManagerMemoryAttribution: Sendable {
+    let workspaceId: UUID?
+    let workspaceRef: String?
+    let paneId: UUID?
+    let paneRef: String?
+    let surfaceId: UUID?
+    let surfaceRef: String?
+    let surfaceType: String?
+
+    init?(_ payload: [String: Any]?) {
+        guard let payload else { return nil }
+        self.workspaceId = Self.uuid(payload["workspace_id"])
+        self.workspaceRef = CmuxTaskManagerMemoryDiagnostic.string(payload["workspace_ref"])
+        self.paneId = Self.uuid(payload["pane_id"])
+        self.paneRef = CmuxTaskManagerMemoryDiagnostic.string(payload["pane_ref"])
+        self.surfaceId = Self.uuid(payload["surface_id"])
+        self.surfaceRef = CmuxTaskManagerMemoryDiagnostic.string(payload["surface_ref"])
+        self.surfaceType = CmuxTaskManagerMemoryDiagnostic.string(payload["surface_type"])
+        if workspaceId == nil,
+           workspaceRef == nil,
+           paneId == nil,
+           paneRef == nil,
+           surfaceId == nil,
+           surfaceRef == nil,
+           surfaceType == nil {
+            return nil
+        }
+    }
+
+    private static func uuid(_ raw: Any?) -> UUID? {
+        if let value = raw as? UUID {
+            return value
+        }
+        guard let value = CmuxTaskManagerMemoryDiagnostic.string(raw) else {
+            return nil
+        }
+        return UUID(uuidString: value)
     }
 }
 
@@ -357,138 +529,35 @@ enum CmuxTaskManagerFormat {
     }
 }
 
-struct CmuxTaskManagerCodingAgentDefinition: Equatable {
+struct CmuxTaskManagerCodingAgentDefinition: Equatable, Sendable {
     let id: String
     let displayName: String
     let assetName: String?
     let launchKinds: [String]
     let directBasenames: [String]
     let argumentNeedles: [String]
+    let requiredArgumentPrefix: [String]
+    let promptTurnDetection: PromptLineTurnDetectionConfiguration?
 
-    static let builtIns: [CmuxTaskManagerCodingAgentDefinition] = [
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "claude",
-            displayName: "Claude Code",
-            assetName: "AgentIcons/Claude",
-            launchKinds: ["claude", "claudeteams", "claude-teams", "omc"],
-            directBasenames: ["claude", "claude-code", "claude_code", "claude-teams", "omc"],
-            argumentNeedles: [
-                "claude-code",
-                "claude_code",
-                "claude-teams",
-                "@anthropic-ai/claude-code",
-                "oh-my-claude",
-                "omc",
-                "/.local/bin/claude",
-                "/.local/share/claude/versions/",
-                "/library/application support/claude/claude-code/",
-            ]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "codex",
-            displayName: "Codex",
-            assetName: "AgentIcons/Codex",
-            launchKinds: ["codex", "omx"],
-            directBasenames: ["codex", "omx"],
-            argumentNeedles: ["codex", "@openai/codex", "oh-my-codex"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "grok",
-            displayName: "Grok",
-            assetName: nil,
-            launchKinds: ["grok"],
-            directBasenames: ["grok", "grok-macos-aarch64", "grok-macos-aarch"],
-            argumentNeedles: ["grok", "grok-build", "@xai/grok"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "opencode",
-            displayName: "OpenCode",
-            assetName: "AgentIcons/OpenCode",
-            launchKinds: ["opencode", "omo"],
-            directBasenames: ["opencode", "opencode-ai", "open-code", "omo"],
-            argumentNeedles: ["opencode", "opencode-ai", "open-code", "oh-my-openagent"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "pi",
-            displayName: "Pi",
-            assetName: "AgentIcons/Pi",
-            launchKinds: ["pi"],
-            directBasenames: ["pi", "pi-coding-agent"],
-            argumentNeedles: ["@mariozechner/pi-coding-agent", "pi-coding-agent"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "amp",
-            displayName: "Amp",
-            assetName: nil,
-            launchKinds: ["amp"],
-            directBasenames: ["amp"],
-            argumentNeedles: ["@ampcode"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "cursor",
-            displayName: "Cursor",
-            assetName: nil,
-            launchKinds: ["cursor"],
-            directBasenames: ["cursor-agent"],
-            argumentNeedles: ["cursor-agent"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "gemini",
-            displayName: "Gemini",
-            assetName: nil,
-            launchKinds: ["gemini"],
-            directBasenames: ["gemini"],
-            argumentNeedles: ["gemini"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "rovodev",
-            displayName: "Rovo Dev",
-            assetName: "AgentIcons/RovoDev",
-            launchKinds: ["rovodev", "rovo"],
-            directBasenames: ["rovodev"],
-            argumentNeedles: ["rovodev"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "hermes-agent",
-            displayName: "Hermes Agent",
-            assetName: "AgentIcons/HermesAgent",
-            launchKinds: ["hermes-agent"],
-            directBasenames: ["hermes", "hermes-agent"],
-            argumentNeedles: ["hermes-agent"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "copilot",
-            displayName: "Copilot",
-            assetName: nil,
-            launchKinds: ["copilot"],
-            directBasenames: ["copilot"],
-            argumentNeedles: ["copilot"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "codebuddy",
-            displayName: "CodeBuddy",
-            assetName: nil,
-            launchKinds: ["codebuddy"],
-            directBasenames: ["codebuddy"],
-            argumentNeedles: ["codebuddy"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "factory",
-            displayName: "Factory",
-            assetName: nil,
-            launchKinds: ["factory"],
-            directBasenames: ["droid", "factory"],
-            argumentNeedles: ["factory"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "qoder",
-            displayName: "Qoder",
-            assetName: nil,
-            launchKinds: ["qoder"],
-            directBasenames: ["qoder", "qodercli"],
-            argumentNeedles: ["qoder", "qodercli"]
-        ),
-    ]
+    init(
+        id: String,
+        displayName: String,
+        assetName: String?,
+        launchKinds: [String],
+        directBasenames: [String],
+        argumentNeedles: [String],
+        requiredArgumentPrefix: [String] = [],
+        promptTurnDetection: PromptLineTurnDetectionConfiguration? = nil
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.assetName = assetName
+        self.launchKinds = launchKinds
+        self.directBasenames = directBasenames
+        self.argumentNeedles = argumentNeedles
+        self.requiredArgumentPrefix = requiredArgumentPrefix
+        self.promptTurnDetection = promptTurnDetection
+    }
 
     static func shouldReadArguments(processName: String, processPath: String?) -> Bool {
         if let normalizedPath = normalized(processPath),
@@ -515,37 +584,55 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
         environment: [String: String]
     ) -> CmuxTaskManagerCodingAgentDefinition? {
         let definitions = builtIns
-        let launchKind = normalized(environment["CMUX_AGENT_LAUNCH_KIND"])
-        if let launchKind,
-           let definition = definitions.first(where: { $0.launchKinds.contains(launchKind) }) {
-            return definition
-        }
-
+        // The process's own executable identity outranks the launch-kind
+        // environment: CMUX_AGENT_LAUNCH_* is inherited by every descendant
+        // of the launched pane, so a later `ollama run` inside a pane that
+        // launched claude still carries CMUX_AGENT_LAUNCH_KIND=claude. The
+        // env var only identifies processes (wrappers, script hosts) whose
+        // executable matches no agent definition of its own.
         let basenames = candidateBasenames(
             processName: processName,
             processPath: processPath,
             arguments: arguments
         )
         if let definition = definitions.first(where: { definition in
-            basenames.contains { definition.directBasenames.contains($0) }
+            definition.matchesRequiredArguments(arguments)
+                && basenames.contains { definition.directBasenames.contains($0) }
         }) {
+            return definition
+        }
+
+        let launchKind = normalized(environment["CMUX_AGENT_LAUNCH_KIND"])
+        if let launchKind,
+           let definition = definitions.first(where: {
+               $0.launchKinds.contains(launchKind) && $0.matchesRequiredArguments(arguments)
+           }) {
             return definition
         }
 
         guard !arguments.isEmpty else { return nil }
         return definitions.first { definition in
-            definition.argumentNeedles.contains { needle in
-                arguments.contains { argumentMatchesNeedle(argument: $0, needle: needle) }
-            }
+            definition.matchesRequiredArguments(arguments)
+                && definition.argumentNeedles.contains { needle in
+                    arguments.contains { argumentMatchesNeedle(argument: $0, needle: needle) }
+                }
         }
     }
 
+    private func matchesRequiredArguments(_ arguments: [String]) -> Bool {
+        guard !requiredArgumentPrefix.isEmpty else { return true }
+        let normalizedArguments = arguments.compactMap(Self.normalized)
+        let required = requiredArgumentPrefix.compactMap(Self.normalized)
+        guard normalizedArguments.count > required.count else { return false }
+        return Array(normalizedArguments.dropFirst().prefix(required.count)) == required
+    }
+
     private static let argumentHostBasenames: Set<String> = [
-        "node", "bun", "deno", "npm", "npx", "pnpm", "yarn", "tsx"
+        "node", "bun", "deno", "npm", "npx", "pnpm", "yarn", "tsx", "ts-node"
     ]
 
     private static let ambiguousDirectBasenames: Set<String> = [
-        "acli"
+        "acli", "ollama"
     ]
 
     private static let argumentInspectionPathNeedles = [
