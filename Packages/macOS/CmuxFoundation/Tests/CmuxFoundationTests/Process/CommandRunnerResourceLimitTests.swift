@@ -245,4 +245,23 @@ import Testing
 
         #expect(!processTreeExited)
     }
+
+    @Test func alreadyGoneProcessGroupCountsAsSuccessfulCleanup() async {
+        let process = Process()
+
+        let processTreeExited = await withCheckedContinuation { continuation in
+            CommandProcessTreeTerminator.terminate(
+                process,
+                processGroupID: 42,
+                signalProcessGroup: { _, _ in
+                    Issue.record("An already-gone process group must not be signalled.")
+                },
+                ownsProcessGroup: { _, _ in false },
+                processGroupExists: { _ in false },
+                completion: { continuation.resume(returning: $0) }
+            )
+        }
+
+        #expect(processTreeExited)
+    }
 }

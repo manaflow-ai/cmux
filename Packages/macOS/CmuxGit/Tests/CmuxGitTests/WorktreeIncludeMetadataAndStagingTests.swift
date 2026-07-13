@@ -94,6 +94,35 @@ import Testing
         ) == "payload\n")
     }
 
+    @Test func cancellationStopsDirectoryMetadataTraversalBeforeInstall() async throws {
+        let (root, source, destination) = try makeRepositoryFixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceCache = source.appendingPathComponent("cache", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceCache, withIntermediateDirectories: true)
+
+        let copy = Task {
+            WorktreeIncludeCopyService(
+                fileManager: .default,
+                limits: WorktreeIncludeCopyLimits(
+                    maximumItemCount: 10,
+                    maximumByteCount: 1_024,
+                    freeSpaceReserve: 0
+                ),
+                availableCapacity: { _ in 4_096 },
+                sourceItemInspected: { _ in
+                    withUnsafeCurrentTask { $0?.cancel() }
+                }
+            ).copy(relativePaths: ["cache"], from: source, to: destination)
+        }
+
+        let diagnostics = await copy.value
+
+        #expect(diagnostics.contains { $0.localizedCaseInsensitiveContains("cancel") })
+        #expect(!FileManager.default.fileExists(
+            atPath: destination.appendingPathComponent("cache").path
+        ))
+    }
+
     private func makeRepositoryFixture() throws -> (root: URL, source: URL, destination: URL) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-worktreeinclude-metadata-\(UUID().uuidString)",

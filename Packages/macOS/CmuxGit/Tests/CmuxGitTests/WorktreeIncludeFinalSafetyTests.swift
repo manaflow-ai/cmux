@@ -75,6 +75,34 @@ import Testing
         #expect(!diagnostics.isEmpty)
     }
 
+    @Test func symlinkedSourceRootStillCopiesWithinResolvedCheckout() throws {
+        let (root, source, destination) = try makeRepositoryFixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceLink = root.appendingPathComponent("source-link", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: sourceLink, withDestinationURL: source)
+        try "inside\n".write(
+            to: source.appendingPathComponent("payload"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let diagnostics = WorktreeIncludeCopyService(
+            fileManager: .default,
+            limits: WorktreeIncludeCopyLimits(
+                maximumItemCount: 10,
+                maximumByteCount: 1_024,
+                freeSpaceReserve: 0
+            ),
+            availableCapacity: { _ in 4_096 }
+        ).copy(relativePaths: ["payload"], from: sourceLink, to: destination)
+
+        #expect(diagnostics.isEmpty)
+        #expect(try String(
+            contentsOf: destination.appendingPathComponent("payload"),
+            encoding: .utf8
+        ) == "inside\n")
+    }
+
     private func makeRepositoryFixture() throws -> (root: URL, source: URL, destination: URL) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-worktreeinclude-final-safety-\(UUID().uuidString)",
