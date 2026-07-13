@@ -36,7 +36,8 @@ import Testing
         store.retryMobileConnection()
 
         #expect(try await pollUntil { store.connectionState == .connected })
-        #expect(await pairedMacStore.currentLoadStartCount(teamID: nil) == 2)
+        let loadStartCount = await pairedMacStore.currentLoadStartCount(teamID: nil)
+        #expect(loadStartCount == 2)
         #expect(store.connectionLifecycle.activeEpisode == nil)
         #expect(await reconnect.value == false)
         await pairedMacStore.release(teamID: nil)

@@ -212,7 +212,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var storedMacReconnectGeneration = 0
     /// Saved Mac currently owned by the active stored-Mac reconnect operation.
     /// This includes the first reachable fallback when no row is marked active.
-    var storedMacReconnectTargetDeviceID: String?
+    private var storedMacReconnectTargetDeviceIDBacking: String?
+    var storedMacReconnectTargetDeviceID: String? {
+        get {
+            connectionLifecycleTaskOwnership.activeReconnectProgress?.targetMacDeviceID
+                ?? storedMacReconnectTargetDeviceIDBacking
+        }
+        set { storedMacReconnectTargetDeviceIDBacking = newValue }
+    }
     /// Whether the current attach ticket has a non-empty auth token and has not expired.
     public var hasActiveUnexpiredAttachTicket: Bool {
         guard let activeTicket,
@@ -1025,6 +1032,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             continuation.resume()
         }
         connectionLifecycleTask?.cancel()
+        connectionLifecycleTaskOwnership.activeReconnectFence?.invalidate()
         connectionLifecycleTaskOwnership.primaryRetiredTask?.cancel()
         connectionLifecycleTaskOwnership.cachedRetiredTask?.cancel()
         connectionLifecycleDeadlineTask?.cancel()
@@ -1075,6 +1083,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     public func signOut() {
         resetConnectionLifecycle()
+        abandonRetiredConnectionLifecycleTasks()
         // Reset analytics identity to anonymous on the signed-in→signed-out edge
         // only (this is called on every unauthenticated auth-state sync).
         if isSignedIn {
@@ -1645,145 +1654,66 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// to the last-active paired Mac. Pulls (route, displayName, macDeviceID)
     /// from SQLite and re-mints an attach ticket via the StackAuth-authenticated
     /// manual host flow. Auth tokens never persist; we always re-mint.
-    @discardableResult
-    func performStoredMacReconnect(
-        snapshot: StoredMacReconnectStoreSnapshot
-    ) async -> StoredMacReconnectOutcome {
-        let request = snapshot.request
-        let generation = request.generation
-        defer {
-            if generation == storedMacReconnectGeneration {
-                storedMacReconnectTargetDeviceID = nil
+    func applyStoredMacReconnectOperationOutcome(
+        _ outcome: StoredMacReconnectOperationOutcome,
+        generation: Int
+    ) -> StoredMacReconnectOutcome {
+        guard generation == storedMacReconnectGeneration else { return .failed }
+        switch outcome {
+        case .unavailable:
+            setHasKnownPairedMac(false, generation: generation)
+            return .unavailable
+        case .failed(let hasKnownPairedMac):
+            if let hasKnownPairedMac {
+                setHasKnownPairedMac(hasKnownPairedMac, generation: generation)
             }
-        }
-        let scope = request.scope
-        guard isSignedIn,
-              generation == storedMacReconnectGeneration,
-              await isScopeCurrent(scope) else {
             return .failed
-        }
-        let supportedKinds = runtime?.supportedRouteKinds ?? []
-        func reachableRoutes(_ mac: MobilePairedMac) -> [(host: String, port: Int, routeID: String)] {
-            Self.reconnectHostPortRoutes(
-                mac.routes,
-                supportedKinds: supportedKinds,
-                preferNonLoopback: Self.prefersNonLoopbackRoutes
+        case .connected(let success):
+            let connectionID = UUID()
+            connectionAttemptGeneration = connectionID
+            connectionGeneration = connectionID
+            connectionPairedMacPersistenceSuppressedGeneration = success.persistsPairedMac
+                ? nil
+                : connectionID
+            cancelRemoteOperationTasks()
+            rawTerminalInputBuffer.clear()
+            let previousForegroundKey = foregroundMacKey
+            activeTicket = success.ticket
+            activeRoute = success.route
+            activeMacInstanceTag = success.resolvedInstanceTag
+            connectedHostName = success.displayName
+            replaceRemoteClient(with: success.client)
+            supportedHostCapabilities = Set(success.hostStatus?.capabilities ?? [])
+            foregroundMacDeviceID = success.sourceMacDeviceID
+            applyRemoteWorkspaceList(
+                success.workspaceResponse,
+                preferActiveTicketTarget: true,
+                groupsAreAuthoritative: true
             )
-        }
-        let cachedMacs = pairedMacsForIdentityMatching
-        storedMacReconnectTargetDeviceID = cachedMacs.first(where: {
-            $0.isActive && !reachableRoutes($0).isEmpty
-        })?.macDeviceID ?? cachedMacs.first(where: {
-            !reachableRoutes($0).isEmpty
-        })?.macDeviceID
-        let loadedActiveMac: MobilePairedMac?
-        let loadedMacs: [MobilePairedMac]
-        switch snapshot {
-        case .loaded(_, let activeMac, let allMacs):
-            loadedActiveMac = activeMac
-            loadedMacs = allMacs
-        case .failed(_, let errorDescription):
-            mobileShellLog.error("paired mac store read failed: \(errorDescription, privacy: .public)")
-            // A read failure means "couldn't determine," not "no mac": keep the
-            // hint so a transient SQLite error doesn't erase a returning user's
-            // paired state.
-            return .failed
-        }
-        guard generation == storedMacReconnectGeneration,
-              await isScopeCurrent(scope) else { return .failed }
-        let forgottenIDs = await forgottenMacDeviceIDs(scope: scope)
-        guard generation == storedMacReconnectGeneration,
-              await isScopeCurrent(scope) else {
-            return .failed
-        }
-        let activeMac = loadedActiveMac.flatMap { forgottenIDs.contains($0.macDeviceID) ? nil : $0 }
-        let allMacs = loadedMacs.filter { !forgottenIDs.contains($0.macDeviceID) }
-        // Auto-connect target: the explicitly active Mac when it is reachable,
-        // otherwise the FIRST saved Mac with a usable route. Picking the first
-        // reachable Mac instead of bailing when nothing is marked active is what
-        // lets the home come up connected without the user choosing a Mac; the
-        // other Macs are then aggregated read-only into one integrated list.
-        // Candidate Macs in priority order: the active Mac first (when it has a
-        // usable route), then every OTHER saved Mac with a usable route. A
-        // down/unreachable Mac has a route but fails the connect, so we fall
-        // through to the next candidate instead of stranding the user on "Mac
-        // offline" just because their active Mac happens to be off.
-        var candidates: [MobilePairedMac] = []
-        if let activeMac, !reachableRoutes(activeMac).isEmpty {
-            candidates.append(activeMac)
-        }
-        candidates.append(contentsOf: allMacs.filter { mac in
-            mac.macDeviceID != activeMac?.macDeviceID && !reachableRoutes(mac).isEmpty
-        })
-        guard !candidates.isEmpty else {
-            // No saved Mac has a usable route right now (none paired, or all
-            // offline). Clear the hint only when there are truly no saved Macs, so
-            // the add-device sheet comes up cleanly; otherwise keep it so a Retry
-            // or network change can reconnect once a Mac comes back.
-            setHasKnownPairedMac(!allMacs.isEmpty, generation: generation)
-            return allMacs.isEmpty ? .unavailable : .failed
-        }
-        // A newer attempt may have started while we awaited the store read; if so,
-        // let it own the flags rather than marking ourselves the active reconnect.
-        guard generation == storedMacReconnectGeneration else { return .failed }
-        setHasKnownPairedMac(true, generation: generation)
-        // Try each candidate until one connects, so a single offline Mac never
-        // blocks the others.
-        for mac in candidates {
-            guard generation == storedMacReconnectGeneration,
-                  await isScopeCurrent(scope) else { break }
-            let latestForgottenIDs = await forgottenMacDeviceIDs(scope: scope)
-            guard generation == storedMacReconnectGeneration, await isScopeCurrent(scope), !latestForgottenIDs.contains(mac.macDeviceID) else { break }
-            storedMacReconnectTargetDeviceID = mac.macDeviceID
-            // Best-effort registry refresh for this Mac in the background.
-            refreshRoutesFromRegistry(for: mac, scope: scope)
-            let localRoutes = reachableRoutes(mac)
-            for route in localRoutes {
-                guard generation == storedMacReconnectGeneration,
-                      await isScopeCurrent(scope) else { break }
-                await connectStoredMacHost(
-                    name: mac.displayName ?? route.host,
-                    host: route.host,
-                    port: route.port,
-                    pairedMacDeviceID: mac.macDeviceID,
-                    instanceTag: mac.instanceTag,
-                    ifStillCurrent: { [weak self] in
-                        self?.storedMacReconnectGeneration == generation
-                            && self?.storedMacReconnectTargetDeviceID == mac.macDeviceID
-                    }
-                )
-                if connectionState == .connected { break }
+            dropStalePreviousForeground(previousForegroundKey)
+            syncSelectedTerminalForWorkspace()
+            connectionState = .connected
+            markMacConnectionHealthy()
+            startTerminalRefreshPolling(initialHostStatus: success.hostStatus)
+            clearPairingError()
+            hasKnownPairedMac = true
+            connections[success.sourceMacDeviceID] = MacConnection(
+                macDeviceID: success.sourceMacDeviceID,
+                ticket: success.ticket,
+                route: success.route,
+                client: success.client,
+                generation: connectionID
+            )
+            if success.persistsPairedMac {
+                refreshRoutesFromRegistry(for: success.sourceMac, scope: success.scope)
             }
-            if connectionState != .connected,
-               mac.macDeviceID == activeMac?.macDeviceID,
-               let refreshedRoutes = await freshReconnectRoutesAfterLocalFailure(
-                for: mac,
-                scope: scope,
-                triedRoutes: localRoutes
-               ) {
-                for route in refreshedRoutes {
-                    guard generation == storedMacReconnectGeneration,
-                          await isScopeCurrent(scope) else { break }
-                    await connectStoredMacHost(
-                        name: mac.displayName ?? route.host,
-                        host: route.host,
-                        port: route.port,
-                        pairedMacDeviceID: mac.macDeviceID,
-                        instanceTag: mac.instanceTag,
-                        ifStillCurrent: { [weak self] in
-                            self?.storedMacReconnectGeneration == generation
-                                && self?.storedMacReconnectTargetDeviceID == mac.macDeviceID
-                        }
-                    )
-                    if connectionState == .connected { break }
-                }
+            if multiMacAggregationEnabled, success.persistsPairedMac {
+                scheduleSecondaryAggregation()
             }
-            if connectionState == .connected { break }
+            return .connected
         }
-        // A newer attempt may have started during the connect; it now owns the result.
-        guard generation == storedMacReconnectGeneration else { return .failed }
-        return connectionState == .connected ? .connected : .failed
     }
+
 
     // MARK: - Paired Mac switching
 
@@ -3701,6 +3631,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     #endif
 
     func invalidateStoredMacReconnectAttempt() {
+        connectionLifecycleTaskOwnership.activeReconnectFence?.invalidate()
+        connectionLifecycleTaskOwnership.activeReconnectFence = nil
+        connectionLifecycleTaskOwnership.activeReconnectProgress = nil
         storedMacReconnectGeneration &+= 1
         storedMacReconnectTargetDeviceID = nil
     }

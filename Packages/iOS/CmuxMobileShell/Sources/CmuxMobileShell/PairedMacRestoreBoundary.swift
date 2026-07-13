@@ -35,3 +35,6 @@ public final class PairedMacRestoreBoundary: @unchecked Sendable {
         return value == generation
     }
 }
+
+/// Generic spelling for synchronous generation ownership outside restore flows.
+public typealias SynchronousGenerationBoundary = PairedMacRestoreBoundary

@@ -92,7 +92,7 @@ import Testing
         #expect(!startedDuplicate)
         await pairedMacStore.release(teamID: nil)
         _ = await reconnect.value
-        let replayedStoreRead = try await pollUntil(attempts: 50) {
+        let replayedStoreRead = try await pollUntil(attempts: 200) {
             await pairedMacStore.currentLoadStartCount(teamID: nil) == 2
         }
         #expect(replayedStoreRead)

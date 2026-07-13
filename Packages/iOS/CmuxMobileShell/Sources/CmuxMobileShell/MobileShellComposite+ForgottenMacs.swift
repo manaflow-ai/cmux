@@ -164,6 +164,7 @@ extension MobileShellComposite {
             targetIDSet.contains($0.macDeviceID)
         }
         if forgetsReconnectTarget {
+            connectionLifecycleTaskOwnership.activeReconnectProgress?.markForgotten(targetIDSet)
             // Revoke reconnect ownership before the first suspension. A store or
             // tombstone write may ignore task cancellation, so generation checks
             // must already fail when that stale work resumes.

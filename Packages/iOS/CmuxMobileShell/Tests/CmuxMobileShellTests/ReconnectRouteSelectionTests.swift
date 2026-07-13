@@ -206,6 +206,33 @@ import Testing
         #expect(factory.attemptedPorts() == [51000, 51001, 51001])
     }
 
+    @Test func reconnectActiveMacFallsBackToFreshRegistryRoute() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = RouteRecordingTransportFactory(
+            router: router,
+            box: box,
+            failingPorts: [51000]
+        )
+        let registryRoute = try loopbackRoute(id: "fresh", port: 51002)
+        let store = try await makeReconnectStore(
+            routes: [try loopbackRoute(id: "stale", port: 51000)],
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.debugLoopback]
+            ),
+            deviceRegistry: StaticReconnectDeviceRegistry(routes: [registryRoute])
+        )
+
+        let connected = await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+
+        #expect(connected)
+        #expect(store.connectionState == .connected)
+        #expect(factory.attemptedPorts() == [51000, 51002, 51002])
+    }
+
     @Test func overlappingReconnectRequestsJoinOneOwnedEpisode() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -312,7 +339,8 @@ import Testing
     private func makeReconnectStore(
         routes: [CmxAttachRoute],
         runtime: any MobileSyncRuntime,
-        markActive: Bool = true
+        markActive: Bool = true,
+        deviceRegistry: (any DeviceRegistryRefreshing)? = nil
     ) async throws -> MobileShellComposite {
         let (pairedStore, _) = try makePairedMacStore()
         try await pairedStore.upsert(
@@ -328,6 +356,7 @@ import Testing
             runtime: runtime,
             isSignedIn: true,
             pairedMacStore: pairedStore,
+            deviceRegistry: deviceRegistry,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             reachability: AlwaysOnlineReachability(),
             pairingHintDefaults: UserDefaults(suiteName: "reconnect-routes-\(UUID().uuidString)")!
