@@ -219,6 +219,9 @@ import Testing
         // the later resize without letting it poison the validated claim.
         hostingBound = nil
         mirror.noteContainerSize(pointSize: CGSize(width: 1_000, height: 700), scale: 2)
+        // Portal teardown can report a final 1x1 after the useful detached
+        // measurement. It must not overwrite the pending reattach size.
+        mirror.noteContainerSize(pointSize: CGSize(width: 1, height: 1), scale: 2)
         mirror.performSizingPassNow()
         #expect(pushed(connection)?.cols == attachedClaim?.cols)
 
@@ -229,6 +232,37 @@ import Testing
         #expect(mirror.containerSizePt == hostingBound)
         #expect((pushed(connection)?.cols ?? 0) > (attachedClaim?.cols ?? 0))
         #expect((pushed(connection)?.rows ?? 0) > (attachedClaim?.rows ?? 0))
+    }
+
+    @Test func bottomPaneTitleRowsRemainSizingChrome() {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"), sessionName: "work"
+        )
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-bottom-title-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        connection.installStdinWriterForTesting(writer)
+        connection.handleMessageForTesting(.enter)
+        connection.handleMessageForTesting(.commandResult(commandNumber: 0, lines: [], isError: false))
+        connection.handleMessageForTesting(.commandResult(
+            commandNumber: 0,
+            lines: ["@1 f92f,80x24,0,0,0 f92f,80x24,0,0,0 [] one"],
+            isError: false
+        ))
+        connection.handleMessageForTesting(.commandResult(
+            commandNumber: 0,
+            lines: ["%0 0 0 80 23 1 bottom :0 \"ejc3-mac\""],
+            isError: false
+        ))
+
+        // Bottom placement changes where tmux draws the row, not whether the
+        // pane loses one grid row to that chrome.
+        #expect(connection.windowTitleRowsVisible[1] == true)
     }
 
     @Test func reconcileClaimsOnceThenNeverChangesThePushedSize() {
