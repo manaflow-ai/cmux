@@ -264,6 +264,34 @@ import Testing
         #expect(node?.children.map(\.text) == ["other", "one", "other"])
     }
 
+    @Test func optionalMemberComparisonsDistinguishPresentAndAbsentValues() {
+        let workspaces = SwiftValue.array([
+            .object(["description": .string("hello")]),
+            .object([:]),
+        ])
+        let node = interp.evaluate("""
+        VStack {
+            Text(nil == nil ? "nil-equal" : "bad")
+            if let impossible = nil { Text("unexpected: \\(impossible)") }
+            ForEach(workspaces) { w in
+                Text(w.description != nil ? "present" : "absent")
+                if w.description == nil { Text("missing") }
+                if w.description != nil { Text("value: \\(w.description)") }
+                if let description = w.description {
+                    Text("bound: \\(description)")
+                } else {
+                    Text("unbound")
+                }
+            }
+        }
+        """, state: ["workspaces": workspaces])
+        #expect(node?.children.map(\.text) == [
+            "nil-equal",
+            "present", "value: hello", "bound: hello",
+            "absent", "missing", "unbound",
+        ])
+    }
+
     @Test func arrayFilterMapSortedFirstContains() {
         let ws = SwiftValue.array([
             .object(["title": .string("beta"), "selected": .bool(false), "n": .int(2)]),
