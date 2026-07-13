@@ -12270,8 +12270,7 @@ class TerminalController {
         }
         let (title, subtitle, body, meta) = parseNotificationPayload(payload)
 
-        // Hook and PTY-derived agent notifications share one gate + mutation-bus path.
-        let deliveryResult = AgentNotificationDelivery().enqueue(
+        switch AgentNotificationDelivery().enqueue(
             workspaceID: tabId,
             surfaceID: surfaceId,
             title: title,
@@ -12279,21 +12278,16 @@ class TerminalController {
             body: body,
             category: meta?.category,
             pending: meta?.pending ?? false
-        )
-        switch deliveryResult {
+        ) {
         case .gated:
 #if DEBUG
             if let meta {
-                cmuxDebugLog(
-                    "socket.notifyTargetAsync.gated category=\(meta.category.rawValue) pending=\(meta.pending) workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8))"
-                )
+                cmuxDebugLog("socket.notifyTargetAsync.gated category=\(meta.category.rawValue) pending=\(meta.pending) workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8))")
             }
 #endif
             return "OK"
-        case .saturated:
-            return "ERROR: notification queue saturated; retry"
-        case .accepted:
-            break
+        case .saturated: return "ERROR: notification queue saturated; retry"
+        case .accepted: break
         }
 #if DEBUG
         cmuxDebugLog(
