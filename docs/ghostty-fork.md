@@ -12,15 +12,16 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `4eeccd704`. It extends the prior cmux pin
+Current cmux pinned fork head: `cc029e7c3`. It extends the prior cmux pin
 `096622763`, current fork `main` (`81a6daa8e`), and upstream
 `ghostty-org/ghostty` `main` through `7e02af879` (2026-07-09), followed by the
 render-grid preserved-page OOM fix, lock-free selection notifications, and
 compressed-storage-preserving full scrollback reads. It also exports a
 stream-ordered scrollbar snapshot on working-directory actions for cmux
-notification navigation. A monotonic row-space revision now invalidates saved
-positions after reflow, reset, erasure, or scrollback eviction. Embedded hosts
-can read geometry and its revision atomically from terminal state without
+notification navigation. An opaque row-space identity combines the surface
+incarnation with a monotonic local revision, invalidating saved positions after
+runtime recreation, reflow, reset, erasure, or scrollback eviction. Embedded
+hosts can read geometry and identity atomically from terminal state without
 waiting for renderer publication.
 Published via
 https://github.com/manaflow-ai/ghostty/pull/96 and
@@ -34,7 +35,7 @@ release tag below, independent of the feature branch lifecycle. The fork's
 default branch is unchanged because cmux changes may not be pushed there
 directly.
 Its prebuilt framework is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-4eeccd704966789b22c6f97a6630d0d032c36d8c-crashsubdir-cmux-crash-v1.
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-cc029e7c35ef5e54fcbeee83d3f1bb782e6f06c8-crashsubdir-cmux-crash-v1.
 
 ### Upstream TLDR (`d560c645..7e02af879`)
 
