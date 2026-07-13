@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 import Testing
 @testable import CmuxIrohTransport
@@ -27,6 +28,7 @@ struct CmxIrohRelayPolicyServiceTests {
         #expect(effective.staleRelayIDs == ["removed-relay"])
         #expect(effective.endpointRelayProfile.allowedRelayURLs == [fixture.relayURLs[0]])
         #expect(effective.managedSnapshot?.relays.map(\.id) == ["cmux-us"])
+        #expect(effective.relayBootstrap == fixture.relayCredential())
         let stored = try #require(
             try await stores.preferenceStore.load(accountID: "account-a")
         )
@@ -48,6 +50,7 @@ struct CmxIrohRelayPolicyServiceTests {
         #expect(directOnly.source == .managedUnavailable)
         #expect(directOnly.effectivePreference == nil)
         #expect(directOnly.endpointRelayProfile.allowedRelayURLs.isEmpty)
+        #expect(directOnly.relayBootstrap == nil)
         #expect(await service.diagnosticsSnapshot().failure == .staleManagedSelection)
     }
 
@@ -130,6 +133,49 @@ struct CmxIrohRelayPolicyServiceTests {
         #expect(effective.source == .customUnavailable)
         #expect(effective.endpointRelayProfile.allowedRelayURLs.isEmpty)
         #expect(await service.diagnosticsSnapshot().failure == .customCredentialUnavailable)
+    }
+
+    @Test
+    func stalledRelayPolicyLoadCannotDelayTCPStartup() async throws {
+        let fixture = RelayPolicyServiceTestFixture()
+        let trustRoot = try fixture.firstTrustRoot
+        let secureStore = RelayPolicyServiceSuspendedSecureStore()
+        let service = CmxIrohRelayPolicyService(
+            policyCache: CmxIrohRelayPolicyCache(
+                secureStore: TestSecureCredentialStore()
+            ),
+            preferenceStore: CmxIrohRelayPreferenceStore(
+                secureStore: secureStore
+            ),
+            credentialStore: CmxIrohCustomRelayCredentialStore(
+                secureStore: TestSecureCredentialStore()
+            )
+        )
+        let tcpState = RelayPolicyServiceTCPState()
+        var activation: Task<Void, Never>?
+
+        CmxIrohTCPFirstActivation.start(
+            startTCP: { tcpState.markStarted() },
+            scheduleIroh: {
+                activation = Task {
+                    _ = await service.restore(
+                        accountID: "account-a",
+                        trustRoot: trustRoot,
+                        relayCredential: nil,
+                        now: Date()
+                    )
+                }
+            }
+        )
+
+        await secureStore.waitUntilReadStarts()
+        #expect(tcpState.started)
+        #expect(activation != nil)
+
+        await secureStore.resumeRead()
+        await activation?.value
+        #expect(await service.diagnosticsSnapshot().source == .managedUnavailable)
+        #expect(await service.diagnosticsSnapshot().failure == .policyUnavailable)
     }
 
     @Test
@@ -287,6 +333,196 @@ struct CmxIrohRelayPolicyServiceTests {
         #expect(cached?.sequence == 1)
     }
 
+    @Test
+    func dormantSelectionsAndCustomDefinitionsSurviveEveryActiveMode() async throws {
+        let fixture = RelayPolicyServiceTestFixture()
+        let stores = makeStores()
+        let relay = try CmxIrohCustomRelayDefinition(
+            id: "private-home",
+            url: "https://relay.example.net/",
+            provider: "personal",
+            region: "home",
+            authMode: .none
+        )
+        let configuration = try CmxIrohAccountRelayConfiguration(
+            mode: .automatic,
+            selectedManagedRelayIDs: ["cmux-us"],
+            customRelays: [relay]
+        )
+
+        let effective = try await stores.service.install(
+            response: CmxIrohRelayPolicyResponse(
+                policy: fixture.token(sequence: 1),
+                preference: configuration,
+                preferenceRevision: 1
+            ),
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            relayCredential: fixture.relayCredential(),
+            now: fixture.now
+        )
+
+        #expect(effective.requestedConfiguration == configuration)
+        #expect(effective.requestedPreference == .automatic)
+        #expect(effective.source == .managed)
+        let managed = try configuration.updatingActivePreference(.managed(["cmux-us"]))
+        #expect(managed.customRelays == [relay])
+        let custom = try managed.updatingActivePreference(.custom([relay]))
+        #expect(custom.selectedManagedRelayIDs == ["cmux-us"])
+        #expect(custom.customRelays == [relay])
+    }
+
+    @Test
+    func authoritativeDeletionPrunesDeviceSecretWithoutChangingDormantMode() async throws {
+        let fixture = RelayPolicyServiceTestFixture()
+        let credentialStore = CmxIrohCustomRelayCredentialStore(
+            secureStore: TestSecureCredentialStore()
+        )
+        let service = CmxIrohRelayPolicyService(
+            policyCache: CmxIrohRelayPolicyCache(secureStore: TestSecureCredentialStore()),
+            preferenceStore: CmxIrohRelayPreferenceStore(secureStore: TestSecureCredentialStore()),
+            credentialStore: credentialStore
+        )
+        let relay = try CmxIrohCustomRelayDefinition(
+            id: "private-home",
+            url: "https://relay.example.net/",
+            provider: "personal",
+            region: "home",
+            authMode: .staticToken
+        )
+        try await credentialStore.setStaticToken(
+            "device-only-token",
+            relayID: relay.id,
+            accountID: "account-a"
+        )
+        let saved = try CmxIrohAccountRelayConfiguration(
+            mode: .automatic,
+            selectedManagedRelayIDs: ["cmux-us"],
+            customRelays: [relay]
+        )
+        _ = try await service.install(
+            response: CmxIrohRelayPolicyResponse(
+                policy: fixture.token(sequence: 1),
+                preference: saved,
+                preferenceRevision: 1
+            ),
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            relayCredential: fixture.relayCredential(),
+            now: fixture.now
+        )
+        #expect(try await credentialStore.staticTokens(accountID: "account-a")[relay.id] != nil)
+
+        let removed = try saved.replacingCustomRelays([])
+        _ = try await service.install(
+            response: CmxIrohRelayPolicyResponse(
+                policy: fixture.token(sequence: 2),
+                preference: removed,
+                preferenceRevision: 2
+            ),
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            relayCredential: fixture.relayCredential(),
+            now: fixture.now
+        )
+
+        #expect(removed.mode == .automatic)
+        #expect(removed.selectedManagedRelayIDs == ["cmux-us"])
+        #expect(try await credentialStore.staticTokens(accountID: "account-a").isEmpty)
+    }
+
+    @Test
+    func committedRemoteConfigurationWinsWhenLocalPersistenceFails() async throws {
+        let fixture = RelayPolicyServiceTestFixture()
+        let preferenceSecureStore = TestControllableSecureCredentialStore()
+        await preferenceSecureStore.failNextWrite()
+        let first = try CmxIrohAccountRelayConfiguration(
+            mode: .automatic,
+            selectedManagedRelayIDs: ["cmux-us"],
+            customRelays: []
+        )
+        let second = try first.updatingActivePreference(.managed(["cmux-us"]))
+        let broker = RelayPolicyServiceBroker(responses: [
+            try CmxIrohRelayPreferenceResponse(preference: first, revision: 1),
+            try CmxIrohRelayPreferenceResponse(preference: second, revision: 2),
+        ])
+        let service = CmxIrohRelayPolicyService(
+            policyCache: CmxIrohRelayPolicyCache(secureStore: TestSecureCredentialStore()),
+            preferenceStore: CmxIrohRelayPreferenceStore(secureStore: preferenceSecureStore),
+            credentialStore: CmxIrohCustomRelayCredentialStore(
+                secureStore: TestSecureCredentialStore()
+            ),
+            broker: broker
+        )
+
+        let reconciled = try await service.setConfiguration(
+            first,
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            now: fixture.now
+        )
+        #expect(reconciled.requestedConfiguration == first)
+        #expect(reconciled.preferenceRevision == 1)
+        #expect(await service.accountConfiguration() == first)
+        #expect(await service.diagnosticsSnapshot().failure == .preferencePersistenceUnavailable)
+
+        _ = try await service.setConfiguration(
+            second,
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            now: fixture.now
+        )
+        #expect(await broker.expectedRevisions() == [nil, 1])
+        #expect(await service.accountConfiguration() == second)
+    }
+
+    @Test
+    func liveAuthoritativeRevisionAllowsUpdatesWhilePreferenceKeychainIsUnavailable() async throws {
+        let fixture = RelayPolicyServiceTestFixture()
+        let preferenceSecureStore = RelayPolicyServiceSwitchableSecureStore()
+        let initial = try CmxIrohAccountRelayConfiguration(
+            mode: .automatic,
+            selectedManagedRelayIDs: ["cmux-us"],
+            customRelays: []
+        )
+        let updated = try initial.updatingActivePreference(.managed(["cmux-us"]))
+        let broker = RelayPolicyServiceBroker(responses: [
+            try CmxIrohRelayPreferenceResponse(preference: updated, revision: 2),
+        ])
+        let service = CmxIrohRelayPolicyService(
+            policyCache: CmxIrohRelayPolicyCache(secureStore: TestSecureCredentialStore()),
+            preferenceStore: CmxIrohRelayPreferenceStore(secureStore: preferenceSecureStore),
+            credentialStore: CmxIrohCustomRelayCredentialStore(
+                secureStore: TestSecureCredentialStore()
+            ),
+            broker: broker
+        )
+        _ = try await service.install(
+            response: CmxIrohRelayPolicyResponse(
+                policy: fixture.token(sequence: 1),
+                preference: initial,
+                preferenceRevision: 1
+            ),
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            relayCredential: fixture.relayCredential(),
+            now: fixture.now
+        )
+        await preferenceSecureStore.setUnavailable(true)
+
+        let effective = try await service.setConfiguration(
+            updated,
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            relayCredential: fixture.relayCredential(),
+            now: fixture.now
+        )
+
+        #expect(effective.requestedConfiguration == updated)
+        #expect(await broker.expectedRevisions() == [1])
+        #expect(await service.diagnosticsSnapshot().failure == .preferencePersistenceUnavailable)
+    }
+
     private func makeStores() -> (
         service: CmxIrohRelayPolicyService,
         policyCache: CmxIrohRelayPolicyCache,
@@ -319,4 +555,121 @@ private struct RelayPolicyServiceUnavailableSecureStore: CmxIrohSecureCredential
     ) async throws { throw Unavailable() }
     func delete(account: String) async throws { throw Unavailable() }
     func deleteAll() async throws { throw Unavailable() }
+}
+
+private final class RelayPolicyServiceTCPState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    var started: Bool {
+        lock.withLock { value }
+    }
+
+    func markStarted() {
+        lock.withLock { value = true }
+    }
+}
+
+private actor RelayPolicyServiceSuspendedSecureStore: CmxIrohSecureCredentialStoring {
+    private var readStartedContinuation: CheckedContinuation<Void, Never>?
+    private var readContinuation: CheckedContinuation<Data?, Never>?
+    private var didStartRead = false
+
+    func read(account _: String) async throws -> Data? {
+        didStartRead = true
+        readStartedContinuation?.resume()
+        readStartedContinuation = nil
+        return await withCheckedContinuation { continuation in
+            readContinuation = continuation
+        }
+    }
+
+    func waitUntilReadStarts() async {
+        guard !didStartRead else { return }
+        await withCheckedContinuation { continuation in
+            readStartedContinuation = continuation
+        }
+    }
+
+    func resumeRead() {
+        readContinuation?.resume(returning: nil)
+        readContinuation = nil
+    }
+
+    func write(
+        _ data: Data,
+        account: String,
+        accessibility: CmxIrohSecureCredentialAccessibility
+    ) async throws {}
+
+    func delete(account: String) async throws {}
+    func deleteAll() async throws {}
+}
+
+private actor RelayPolicyServiceSwitchableSecureStore: CmxIrohSecureCredentialStoring {
+    private struct Unavailable: Error {}
+    private var records: [String: Data] = [:]
+    private var unavailable = false
+
+    func setUnavailable(_ unavailable: Bool) {
+        self.unavailable = unavailable
+    }
+
+    func read(account: String) throws -> Data? {
+        guard !unavailable else { throw Unavailable() }
+        return records[account]
+    }
+
+    func write(
+        _ data: Data,
+        account: String,
+        accessibility _: CmxIrohSecureCredentialAccessibility
+    ) throws {
+        guard !unavailable else { throw Unavailable() }
+        records[account] = data
+    }
+
+    func delete(account: String) throws {
+        guard !unavailable else { throw Unavailable() }
+        records.removeValue(forKey: account)
+    }
+
+    func deleteAll() throws {
+        guard !unavailable else { throw Unavailable() }
+        records.removeAll(keepingCapacity: false)
+    }
+}
+
+private actor RelayPolicyServiceBroker: CmxIrohRelayPolicyServing {
+    private enum Failure: Error { case exhausted, unsupported }
+
+    private var responses: [CmxIrohRelayPreferenceResponse]
+    private var requests: [CmxIrohRelayPreferenceUpdateRequest] = []
+
+    init(responses: [CmxIrohRelayPreferenceResponse]) {
+        self.responses = responses
+    }
+
+    func issueRelayBootstrap(
+        endpointID _: CmxIrohPeerIdentity
+    ) async throws -> CmxIrohRelayBootstrapResponse {
+        throw Failure.unsupported
+    }
+
+    func relayPreference() async throws -> CmxIrohRelayPreferenceResponse {
+        guard let response = responses.first else { throw Failure.exhausted }
+        return response
+    }
+
+    func updateRelayPreference(
+        _ request: CmxIrohRelayPreferenceUpdateRequest
+    ) async throws -> CmxIrohRelayPreferenceResponse {
+        requests.append(request)
+        guard !responses.isEmpty else { throw Failure.exhausted }
+        return responses.removeFirst()
+    }
+
+    func expectedRevisions() -> [Int64?] {
+        requests.map(\.expectedRevision)
+    }
 }

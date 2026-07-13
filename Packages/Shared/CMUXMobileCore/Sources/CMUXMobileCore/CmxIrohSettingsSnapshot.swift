@@ -79,6 +79,8 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
     public let policyExpiresAt: Date?
     public let staleRelayIDs: Set<String>
     public let failureDescription: String?
+    /// Debug-only relay-path override, or `nil` when the current app cannot control it.
+    public let debugRelayOnlyEnabled: Bool?
 
     public init(
         runtimeStatus: RuntimeStatus,
@@ -89,7 +91,8 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
         policySequence: Int64? = nil,
         policyExpiresAt: Date? = nil,
         staleRelayIDs: Set<String> = [],
-        failureDescription: String? = nil
+        failureDescription: String? = nil,
+        debugRelayOnlyEnabled: Bool? = nil
     ) {
         self.runtimeStatus = runtimeStatus
         self.preference = preference
@@ -100,6 +103,7 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
         self.policyExpiresAt = policyExpiresAt
         self.staleRelayIDs = staleRelayIDs
         self.failureDescription = failureDescription
+        self.debugRelayOnlyEnabled = debugRelayOnlyEnabled
     }
 
     public static let unavailable = CmxIrohSettingsSnapshot(

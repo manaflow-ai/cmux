@@ -24,7 +24,10 @@ function deps(overrides: Partial<RelayPreferenceDeps> = {}): RelayPreferenceDeps
   return {
     verifyRequest: async () => ({ id: "account-a" }) as AuthedUser,
     catalog: () => CATALOG,
-    getPreference: async () => ({ preference: { mode: "automatic" }, revision: 0 }),
+    getPreference: async () => ({
+      preference: { mode: "automatic", selectedManagedRelayIds: [], customRelays: [] },
+      revision: 0,
+    }),
     putPreference: async ({ preference }) => ({ preference, revision: 1 }),
     checkRateLimit: async () => ({ rateLimited: false }),
     rateLimitRuleId: () => undefined,
@@ -51,13 +54,16 @@ describe("/api/relay/preferences", () => {
     const response = await handleGetRelayPreference(getRequest(), deps({
       getPreference: async (value) => {
         accountId = value;
-        return { preference: { mode: "automatic" }, revision: 8 };
+        return {
+          preference: { mode: "automatic", selectedManagedRelayIds: [], customRelays: [] },
+          revision: 8,
+        };
       },
     }));
     expect(response.status).toBe(200);
     expect(accountId).toBe("account-a");
     expect(await response.json()).toEqual({
-      preference: { mode: "automatic" },
+      preference: { mode: "automatic", selectedManagedRelayIds: [], customRelays: [] },
       preferenceRevision: 8,
     });
   });
@@ -66,6 +72,7 @@ describe("/api/relay/preferences", () => {
     let saved: Parameters<RelayPreferenceDeps["putPreference"]>[0] | undefined;
     const preference = {
       mode: "custom" as const,
+      selectedManagedRelayIds: ["managed-one"],
       customRelays: [{
         id: "home-relay",
         provider: "self-hosted",
@@ -100,6 +107,7 @@ describe("/api/relay/preferences", () => {
       putRequest({
         preference: {
           mode: "custom",
+          selectedManagedRelayIds: [],
           customRelays: [{
             id: "home-relay",
             provider: "self-hosted",
@@ -124,7 +132,10 @@ describe("/api/relay/preferences", () => {
 
   test("returns revision conflicts and rate-limit failures as typed statuses", async () => {
     const conflict = await handlePutRelayPreference(
-      putRequest({ expectedRevision: 2, preference: { mode: "automatic" } }),
+      putRequest({
+        expectedRevision: 2,
+        preference: { mode: "automatic", selectedManagedRelayIds: [], customRelays: [] },
+      }),
       deps({
         putPreference: async () => {
           throw new RelayPreferenceConflictError({
@@ -153,5 +164,33 @@ describe("/api/relay/preferences", () => {
       verifyRequest: async () => null,
     }));
     expect(response.status).toBe(401);
+  });
+
+  test("adding custom metadata while automatic does not activate custom mode", async () => {
+    let saved: Parameters<RelayPreferenceDeps["putPreference"]>[0] | undefined;
+    const preference = {
+      mode: "automatic" as const,
+      selectedManagedRelayIds: ["managed-one"],
+      customRelays: [{
+        id: "home-relay",
+        provider: "self-hosted",
+        region: "home",
+        url: "https://relay.example.net/",
+        authMode: "none" as const,
+      }],
+    };
+    const response = await handlePutRelayPreference(
+      putRequest({ expectedRevision: 4, preference }),
+      deps({
+        putPreference: async (input) => {
+          saved = input;
+          return { preference: input.preference, revision: 5 };
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(saved?.preference).toEqual(preference);
+    expect((await response.json()).preference.mode).toBe("automatic");
   });
 });

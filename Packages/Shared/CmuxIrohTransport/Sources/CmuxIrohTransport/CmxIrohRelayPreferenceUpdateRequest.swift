@@ -3,13 +3,13 @@ public struct CmxIrohRelayPreferenceUpdateRequest: Encodable, Equatable, Sendabl
     /// Last observed revision, or `nil` when creating the first preference.
     public let expectedRevision: Int64?
 
-    /// Replacement account preference.
-    public let preference: CmxIrohAccountRelayPreference
+    /// Replacement account configuration.
+    public let preference: CmxIrohAccountRelayConfiguration
 
     /// Creates a validated preference update.
     public init(
         expectedRevision: Int64?,
-        preference: CmxIrohAccountRelayPreference
+        preference: CmxIrohAccountRelayConfiguration
     ) throws {
         guard expectedRevision.map({ $0 >= 0 }) ?? true else {
             throw CmxIrohRelayPolicyError.invalidClaims

@@ -12,7 +12,7 @@ export default function PrivacyPolicyPage() {
   return (
     <>
       <h1>Privacy Policy</h1>
-      <p>Last updated: June 23, 2026</p>
+      <p>Last updated: July 13, 2026</p>
 
       <p>
         Manaflow (the &ldquo;Company&rdquo;) is committed to maintaining robust
@@ -58,6 +58,23 @@ export default function PrivacyPolicyPage() {
       <p>
         The Application checks for updates via Sparkle, which may transmit your
         operating system version and application version to our update server.
+      </p>
+      <p>
+        When you use cmux mobile connectivity, the Application uses Iroh to
+        create encrypted connections between your devices. Our account service
+        processes your Iroh EndpointID, device and app-instance identifiers,
+        signed reachability records, relay selection, custom relay address
+        metadata, connection timing, and credential expiry metadata. Secrets
+        for custom relays stay in your device&apos;s secure storage and are not
+        synchronized to us.
+      </p>
+      <p>
+        A relay that carries an encrypted connection can observe the source and
+        destination IP addresses, EndpointIDs, connection timing, and traffic
+        volume, but cannot decrypt the cmux session content. A successful direct
+        peer-to-peer connection reveals each device&apos;s network address to the
+        other authenticated device. If you configure a relay operated by
+        another provider, that provider&apos;s privacy policy also applies.
       </p>
       <p>
         The Site uses PostHog for analytics, including page views and navigation
@@ -108,6 +125,12 @@ export default function PrivacyPolicyPage() {
         <li>
           <strong>Ghostty / libghostty</strong> &mdash; terminal rendering
           engine. Runs entirely locally on your device.
+        </li>
+        <li>
+          <strong>Iroh:</strong> encrypted device-to-device networking.
+          Connections may use cmux-operated relays or a relay provider you
+          configure. Relay operators can observe network metadata described
+          above, but cmux session content remains end-to-end encrypted.
         </li>
         <li>
           <strong>PostHog</strong> &mdash; website analytics. Collects anonymous

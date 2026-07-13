@@ -3,8 +3,8 @@ public struct CmxIrohRelayPolicyResponse: Codable, Equatable, Sendable {
     /// Compact Ed25519-signed managed relay policy.
     public let policy: String
 
-    /// Current account preference.
-    public let preference: CmxIrohAccountRelayPreference
+    /// Complete current account configuration.
+    public let preference: CmxIrohAccountRelayConfiguration
 
     /// Monotonic account preference revision.
     public let preferenceRevision: Int64
@@ -12,7 +12,7 @@ public struct CmxIrohRelayPolicyResponse: Codable, Equatable, Sendable {
     /// Creates a validated relay policy response.
     public init(
         policy: String,
-        preference: CmxIrohAccountRelayPreference,
+        preference: CmxIrohAccountRelayConfiguration,
         preferenceRevision: Int64
     ) throws {
         guard (1 ... 64 * 1_024).contains(policy.utf8.count),
@@ -31,7 +31,7 @@ public struct CmxIrohRelayPolicyResponse: Codable, Equatable, Sendable {
         do {
             try self.init(
                 policy: container.decode(String.self, forKey: .policy),
-                preference: container.decode(CmxIrohAccountRelayPreference.self, forKey: .preference),
+                preference: container.decode(CmxIrohAccountRelayConfiguration.self, forKey: .preference),
                 preferenceRevision: container.decode(Int64.self, forKey: .preferenceRevision)
             )
         } catch {

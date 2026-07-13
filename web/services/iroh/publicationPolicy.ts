@@ -1,21 +1,19 @@
 /**
  * Server publication policy for Iroh rendezvous data.
  *
- * Direct addresses, private-network coordinates, and opaque relay hints stay on
- * the endpoint. Server surfaces may persist or distribute only a verified Iroh
- * EndpointID and an exact managed relay URL. Non-Iroh routes remain opaque for
- * compatibility with the existing LAN, Tailscale, and custom-network paths.
+ * Public surfaces expose only a verified Iroh EndpointID and an exact managed
+ * relay URL. The authenticated same-account broker may additionally exchange a
+ * bounded public direct address or an exact relay already saved by that account.
+ * Private LAN and VPN coordinates never reach a server surface.
  */
 
-export const MANAGED_RELAY_URLS = [
-  "https://usc1.relay.cmux.dev/",
-  "https://usw1.relay.cmux.dev/",
-  "https://use4.relay.cmux.dev/",
-  "https://euw4.relay.cmux.dev/",
-  "https://apne1.relay.cmux.dev/",
-  "https://apse1.relay.cmux.dev/",
-  "https://ape1.relay.cmux.dev/",
-] as const;
+import {
+  MANAGED_IROH_RELAY_CATALOG,
+  MANAGED_IROH_RELAY_URLS,
+} from "../../../workers/presence/src/generated/managedRelayCatalog";
+
+export const MANAGED_RELAY_CATALOG_SEQUENCE = MANAGED_IROH_RELAY_CATALOG.sequence;
+export const MANAGED_RELAY_URLS = MANAGED_IROH_RELAY_URLS;
 
 const MANAGED_RELAY_URL_SET: ReadonlySet<string> = new Set(MANAGED_RELAY_URLS);
 const ENDPOINT_ID_RE = /^[0-9a-f]{64}$/;
@@ -24,6 +22,8 @@ const MAX_ROUTE_ID_LENGTH = 256;
 type PathHintLike = {
   readonly kind: string;
   readonly value: string;
+  readonly source?: string;
+  readonly privacy_scope?: string;
 };
 
 /** Keep only endpoint-reported managed relay URLs for server persistence. */
@@ -32,6 +32,29 @@ export function serverPublishedIrohPathHints<T extends PathHintLike>(
 ): T[] {
   return hints.filter((hint) =>
     hint.kind === "relay_url" && MANAGED_RELAY_URL_SET.has(hint.value));
+}
+
+/**
+ * Keep only routes safe for the authenticated same-account broker.
+ *
+ * An arbitrary endpoint-reported relay URL is never authoritative. Custom
+ * relays must match the account's saved metadata exactly. Direct addresses are
+ * limited to native public-internet candidates; LAN, Tailscale, and other VPN
+ * coordinates remain endpoint-local and are exchanged by Iroh only after peer
+ * admission.
+ */
+export function accountPrivateIrohPathHints<T extends PathHintLike>(
+  hints: readonly T[],
+  savedCustomRelayURLs: ReadonlySet<string>,
+): T[] {
+  return hints.filter((hint) => {
+    if (hint.kind === "relay_url") {
+      return MANAGED_RELAY_URL_SET.has(hint.value) || savedCustomRelayURLs.has(hint.value);
+    }
+    return hint.kind === "direct_address" &&
+      hint.source === "native" &&
+      hint.privacy_scope === "public_internet";
+  });
 }
 
 function plainRecord(value: unknown): Record<string, unknown> | null {

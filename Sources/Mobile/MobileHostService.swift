@@ -673,12 +673,15 @@ final class MobileHostService {
             mobileHostLog.info("mobile host listener disabled; not binding")
             return
         }
-        MobileHostIrohRuntime.shared.setDesiredActive(true)
         guard listener == nil else {
+            MobileHostIrohRuntime.shared.setDesiredActive(true)
             return
         }
 
-        startListener(usePreferredPort: true)
+        CmxIrohTCPFirstActivation.start(
+            startTCP: { startListener(usePreferredPort: true) },
+            scheduleIroh: { MobileHostIrohRuntime.shared.setDesiredActive(true) }
+        )
     }
 
     #if DEBUG

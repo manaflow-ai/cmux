@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileTransport
+import Foundation
 import SwiftUI
 import cmuxFeature
 
@@ -53,6 +54,16 @@ struct cmuxApp: App {
             stackAccessTokenForceRefresher: CMUXMobileRuntime.stackAccessTokenForceRefresher(from: auth.coordinator),
             independentEventByteStreamProvider: { request in
                 try await iroh.serverEventByteStream(for: request)
+            },
+            terminalLaneProvider: { request, surfaceID, cursor in
+                guard let surfaceUUID = UUID(uuidString: surfaceID) else {
+                    throw MobileIrohTerminalLaneError.invalidSurfaceID
+                }
+                return try await iroh.openTerminalLane(
+                    for: request,
+                    surfaceID: surfaceUUID,
+                    cursor: cursor
+                )
             }
         )
 

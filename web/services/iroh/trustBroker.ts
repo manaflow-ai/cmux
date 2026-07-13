@@ -27,6 +27,7 @@ import {
 import {
   IrohConflictError,
   IrohConfigurationError,
+  IrohDatabaseError,
   IrohForbiddenError,
   IrohInvalidInputError,
   IrohNotFoundError,
@@ -42,7 +43,6 @@ import {
   IROH_PAIR_SCOPE,
   IROH_RELAY_TOKEN_LIFETIME_SECONDS,
   IROH_RELAY_TOKEN_REFRESH_SECONDS,
-  MANAGED_RELAY_URLS,
   assertChallengeMatchesPayload,
   decodeRegistrationPayload,
   parseBindingIdBody,
@@ -64,7 +64,19 @@ import {
   IrohRelayMinterLive,
   type IrohRelayMinterShape,
 } from "./relayMinter";
-import { serverPublishedIrohPathHints } from "./publicationPolicy";
+import {
+  defaultRelayPreference,
+  type RelayPreference,
+} from "../relay/model";
+import {
+  RelayRepository,
+  RelayRepositoryLive,
+  type RelayRepositoryShape,
+} from "../relay/repository";
+import {
+  MANAGED_RELAY_URLS,
+  accountPrivateIrohPathHints,
+} from "./publicationPolicy";
 
 export type IrohTrustBrokerShape = {
   readonly issueChallenge: (
@@ -112,7 +124,25 @@ export function makeIrohTrustBroker(
   repository: IrohRepositoryShape,
   relayMinter: IrohRelayMinterShape,
   config: IrohTrustBrokerConfigShape,
+  relayPreferences: Pick<RelayRepositoryShape, "getPreference"> = {
+    getPreference: () => Effect.succeed({
+      preference: defaultRelayPreference,
+      revision: 0,
+    }),
+  },
 ): IrohTrustBrokerShape {
+  const accountRelayPreference = (
+    userId: string,
+  ): Effect.Effect<RelayPreference, IrohExpectedError> => relayPreferences
+    .getPreference(userId)
+    .pipe(
+      Effect.map((record) => record.preference),
+      Effect.mapError((cause) => new IrohDatabaseError({
+        operation: "relayPreference.get",
+        cause,
+      })),
+    );
+
   const issueRelayToken = (
     userId: string,
     raw: unknown,
@@ -201,13 +231,18 @@ export function makeIrohTrustBroker(
         payloadSha256: decoded.sha256,
         signature: request.signature,
       }));
+      const relayPreference = yield* accountRelayPreference(userId);
+      const savedCustomRelayURLs = customRelayURLs(relayPreference);
       const registration = yield* repository.consumeChallengeAndRegister({
         userId,
         challengeId: challenge.id,
         nonceHash: nonceHash(request.nonce),
         payload: {
           ...decoded.payload,
-          pathHints: serverPublishedIrohPathHints(decoded.payload.pathHints),
+          pathHints: accountPrivateIrohPathHints(
+            decoded.payload.pathHints,
+            savedCustomRelayURLs,
+          ),
         },
         now,
         deviceLimitOverrideAllowed: deviceLimitOverrideAllowed(config, userId),
@@ -222,12 +257,17 @@ export function makeIrohTrustBroker(
           Effect.catchAll(() => Effect.succeed({ status: "unavailable" as const })),
         )
         : { status: "not_requested" as const };
-      return { binding: publicBinding(registration.binding, now), relay };
+      return {
+        binding: publicBinding(registration.binding, now, savedCustomRelayURLs),
+        relay,
+      };
     }),
 
     discover: (userId, now = new Date()) => Effect.gen(function* () {
       yield* repository.pruneExpiredState({ userId, now });
       const snapshot = yield* repository.discoverySnapshot({ userId, now });
+      const relayPreference = yield* accountRelayPreference(userId);
+      const savedCustomRelayURLs = customRelayURLs(relayPreference);
       const rendezvousKey = yield* parseEffect(() => deriveLanRendezvousKey(
         config.lanDiscoverySecretBase64,
         userId,
@@ -236,7 +276,11 @@ export function makeIrohTrustBroker(
       const verificationKeys = yield* parseEffect(() => signingVerificationKeys(config));
       return {
         route_contract_version: 1,
-        bindings: snapshot.bindings.map((binding) => publicBinding(binding, now)),
+        bindings: snapshot.bindings.map((binding) => publicBinding(
+          binding,
+          now,
+          savedCustomRelayURLs,
+        )),
         relay_fleet: MANAGED_RELAY_URLS,
         lan_rendezvous: {
           generation: snapshot.lanDiscoveryGeneration,
@@ -376,6 +420,7 @@ export const IrohTrustBrokerLive = Layer.effect(
       yield* IrohRepository,
       yield* IrohRelayMinter,
       yield* IrohTrustBrokerConfig,
+      yield* RelayRepository,
     );
   }),
 );
@@ -387,6 +432,7 @@ const IrohRelayMinterWithConfig = IrohRelayMinterLive.pipe(
 export const IrohTrustBrokerRuntime = IrohTrustBrokerLive.pipe(
   Layer.provide(Layer.mergeAll(
     IrohRepositoryLive,
+    RelayRepositoryLive,
     IrohTrustBrokerConfigLive,
     IrohRelayMinterWithConfig,
   )),
@@ -403,7 +449,11 @@ function parseEffect<A>(run: () => A): Effect.Effect<A, IrohExpectedError> {
   });
 }
 
-function publicBinding(binding: IrohBindingRecord, now: Date): object {
+function publicBinding(
+  binding: IrohBindingRecord,
+  now: Date,
+  savedCustomRelayURLs: ReadonlySet<string>,
+): object {
   return {
     binding_id: binding.id,
     device_id: binding.deviceUuid,
@@ -415,15 +465,19 @@ function publicBinding(binding: IrohBindingRecord, now: Date): object {
     identity_generation: binding.identityGeneration,
     pairing_enabled: binding.pairingEnabled,
     capabilities: binding.capabilities,
-    path_hints: serverPublishedIrohPathHints(binding.pathHints.flatMap((hint): IrohPathHint[] => {
+    path_hints: accountPrivateIrohPathHints(binding.pathHints.flatMap((hint): IrohPathHint[] => {
       try {
         return [parseIrohPathHint(hint, now)];
       } catch {
         return [];
       }
-    })),
+    }), savedCustomRelayURLs),
     last_seen_at: binding.lastSeenAt.toISOString(),
   };
+}
+
+function customRelayURLs(preference: RelayPreference): ReadonlySet<string> {
+  return new Set(preference.customRelays.map((relay) => relay.url));
 }
 
 function grantPeer(binding: IrohBindingRecord): PairGrantPeer {

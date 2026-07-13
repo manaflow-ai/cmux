@@ -73,6 +73,33 @@ public actor CmxIrohCustomRelayCredentialStore {
         try await secureStore.delete(account: account)
     }
 
+    /// Deletes tokens that no longer correspond to saved secret-bearing relays.
+    /// Calling this after every authoritative account update also retries cleanup
+    /// after a previous transient Keychain failure.
+    public func retainCredentials(
+        for relayIDs: Set<String>,
+        accountID: String
+    ) async throws {
+        guard relayIDs.count <= CmxIrohRelayPolicyVerifier.maximumRelayCount,
+              relayIDs.allSatisfy(CmxIrohRelayStorageScope.isSafeRelayID) else {
+            throw CmxIrohRelayPolicyError.invalidSelection
+        }
+        let account = try CmxIrohRelayStorageScope.account(
+            accountID,
+            prefix: "custom-relay-credentials"
+        )
+        await acquire(account)
+        defer { release(account) }
+        let tokens = try await storedTokens(account: account)
+        let retained = tokens.filter { relayIDs.contains($0.key) }
+        guard retained != tokens else { return }
+        if retained.isEmpty {
+            try await secureStore.delete(account: account)
+        } else {
+            try await write(retained, account: account)
+        }
+    }
+
     func staticTokens(accountID: String) async throws -> [String: String] {
         let account = try CmxIrohRelayStorageScope.account(
             accountID,

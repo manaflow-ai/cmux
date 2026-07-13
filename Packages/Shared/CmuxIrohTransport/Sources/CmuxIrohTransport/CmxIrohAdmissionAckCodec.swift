@@ -36,6 +36,9 @@ public struct CmxIrohAdmissionAckCodec: Sendable {
         case .acceptedPendingNatTraversal:
             status = 0
             code = 0
+        case .acceptedRelayOnly:
+            status = 4
+            code = 0
         case let .denied(denialCode):
             status = 1
             code = denialCode
@@ -61,7 +64,7 @@ public struct CmxIrohAdmissionAckCodec: Sendable {
     /// - Throws: ``CmxIrohAdmissionAckCodecError`` for malformed input.
     public func decodePrefix(_ data: Data) throws -> CmxIrohAdmissionDecision {
         switch try decodeFramePrefix(data) {
-        case .acceptedPendingNatTraversal:
+        case .acceptedPendingNatTraversal, .acceptedRelayOnly:
             return .accepted
         case let .denied(code):
             return .denied(code: code)
@@ -113,6 +116,11 @@ public struct CmxIrohAdmissionAckCodec: Sendable {
                 )
             }
             return .serverReady
+        case 4:
+            guard code == 0 else {
+                throw CmxIrohAdmissionAckCodecError.invalidAcceptedCode(code)
+            }
+            return .acceptedRelayOnly
         default:
             throw CmxIrohAdmissionAckCodecError.invalidStatus(status)
         }

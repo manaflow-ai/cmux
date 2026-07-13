@@ -19,22 +19,61 @@ import {
   type RelayCatalog,
   type RelayPolicyPayload,
 } from "./model";
+import {
+  MANAGED_IROH_RELAY_CATALOG,
+} from "../../../workers/presence/src/generated/managedRelayCatalog";
 
 export const RELAY_POLICY_TTL_SECONDS = 300;
+export const RELAY_ROTATION_MIN_OVERLAP_SECONDS = RELAY_POLICY_TTL_SECONDS;
 
 export type RelayPolicySigningKey = {
   readonly kid: string;
   readonly key: KeyObject;
 };
 
-export function configuredRelayCatalog(
-  env: NodeJS.ProcessEnv = process.env,
-): RelayCatalog {
-  return parseRelayCatalog(env.CMUX_RELAY_CATALOG_JSON);
+export function configuredRelayCatalog(): RelayCatalog {
+  return parseRelayCatalog(JSON.stringify(MANAGED_IROH_RELAY_CATALOG));
 }
 
 export function relayCatalogDigest(catalog: RelayCatalog): string {
   return createHash("sha256").update(JSON.stringify(catalog)).digest("hex");
+}
+
+/**
+ * Enforces one safe add-before-remove fleet transition.
+ *
+ * Additions must retain every current relay. Removals must introduce no new
+ * relay and must wait until every prior signed policy has expired. A stable ID
+ * cannot change meaning in place; add a new ID first, then retire the old ID.
+ */
+export function assertSafeRelayCatalogRotation(input: {
+  readonly current: RelayCatalog;
+  readonly next: RelayCatalog;
+  readonly overlapSeconds?: number;
+}): void {
+  const { current, next } = input;
+  if (next.sequence <= current.sequence) {
+    throw new RelayConfigurationError({ code: "catalog_invalid" });
+  }
+  const currentByID = new Map(current.relays.map((relay) => [relay.id, relay]));
+  const nextByID = new Map(next.relays.map((relay) => [relay.id, relay]));
+  for (const [id, relay] of currentByID) {
+    const retained = nextByID.get(id);
+    if (retained && JSON.stringify(retained) !== JSON.stringify(relay)) {
+      throw new RelayConfigurationError({ code: "catalog_invalid" });
+    }
+  }
+  const added = next.relays.filter((relay) => !currentByID.has(relay.id));
+  const removed = current.relays.filter((relay) => !nextByID.has(relay.id));
+  if (added.length > 0 && removed.length > 0) {
+    throw new RelayConfigurationError({ code: "catalog_invalid" });
+  }
+  if (
+    removed.length > 0 &&
+    (input.overlapSeconds ?? 0) < RELAY_ROTATION_MIN_OVERLAP_SECONDS
+  ) {
+    throw new RelayConfigurationError({ code: "catalog_invalid" });
+  }
 }
 
 let cachedSigningKey: {
@@ -44,13 +83,12 @@ let cachedSigningKey: {
 } | null = null;
 
 export function relayPolicySigningKey(
-  env: NodeJS.ProcessEnv = process.env,
+  env: Readonly<Record<string, string | undefined>> = process.env,
 ): RelayPolicySigningKey {
   const kid = env.CMUX_RELAY_POLICY_KEY_ID?.trim();
-  const pem = (
-    env.CMUX_RELAY_POLICY_PRIVATE_KEY_PEM ??
-    env.CMUX_RELAY_JWT_PRIVATE_KEY_PEM
-  )?.replace(/\\n/g, "\n").trim();
+  const pem = env.CMUX_RELAY_POLICY_PRIVATE_KEY_PEM
+    ?.replace(/\\n/g, "\n")
+    .trim();
   if (!kid || !pem) {
     throw new RelayConfigurationError({ code: "signing_key_not_configured" });
   }

@@ -174,7 +174,7 @@ public struct CMUXMobileRootScene: View {
         return PersonalIrohDeviceRegistryDecorator(
             base: teamRegistry,
             catalog: personalIrohRouteCatalog,
-            knownRoutes: { macDeviceID in
+            knownRoutes: { macDeviceID, instanceTag in
                 guard let pairedMacStore else { return nil }
                 let userID = await coordinator.currentUser?.id
                 let teamID = await coordinator.resolvedTeamID
@@ -185,6 +185,7 @@ public struct CMUXMobileRootScene: View {
                 let target = macDeviceID.lowercased()
                 return pairedMacs?.first(where: {
                     $0.macDeviceID.lowercased() == target
+                        && $0.instanceTag == instanceTag
                 })?.routes
             }
         )

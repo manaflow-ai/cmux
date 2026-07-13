@@ -224,6 +224,16 @@ public struct IrohNetworkingSection: View {
                 Image(systemName: policySymbol)
                     .foregroundStyle(model.snapshot.policySource == .unavailable ? .orange : .secondary)
             }
+            #if DEBUG
+            if let debugRelayOnlyEnabled = model.snapshot.debugRelayOnlyEnabled {
+                SettingsCardDivider()
+                IrohDebugRelayOnlyRow(
+                    isEnabled: debugRelayOnlyEnabled,
+                    isMutating: model.isMutating,
+                    setEnabled: { model.setDebugRelayOnly($0) }
+                )
+            }
+            #endif
             if !model.snapshot.staleRelayIDs.isEmpty || model.snapshot.failureDescription != nil {
                 SettingsCardNote(String(
                     localized: "settings.networking.attention",
@@ -338,3 +348,37 @@ public struct IrohNetworkingSection: View {
         model.snapshot.policySource == .unavailable ? "exclamationmark.triangle.fill" : "checkmark.shield.fill"
     }
 }
+
+#if DEBUG
+private struct IrohDebugRelayOnlyRow: View {
+    let isEnabled: Bool
+    let isMutating: Bool
+    let setEnabled: @MainActor @Sendable (Bool) -> Void
+
+    var body: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:networking:debugRelayOnly",
+            String(
+                localized: "settings.networking.debug.relayOnly",
+                defaultValue: "Relay-Only Verification"
+            ),
+            subtitle: String(
+                localized: "settings.networking.debug.relayOnly.subtitle",
+                defaultValue: "Debug builds only. Keeps authenticated Iroh sessions on relays so the relay path can be verified."
+            )
+        ) {
+            Toggle(
+                "",
+                isOn: Binding(
+                    get: { isEnabled },
+                    set: { newValue in setEnabled(newValue) }
+                )
+            )
+            .labelsHidden()
+            .disabled(isMutating)
+            .accessibilityIdentifier("SettingsIrohDebugRelayOnly")
+        }
+    }
+}
+#endif

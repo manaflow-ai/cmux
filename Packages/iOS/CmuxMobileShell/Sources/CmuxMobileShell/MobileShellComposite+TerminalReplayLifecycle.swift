@@ -48,6 +48,7 @@ extension MobileShellComposite {
             terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
             MobileDebugLog.anchormux("sync.input_seq_caught_up surface=\(surfaceID) seq=\(endSeq)")
         }
+        resumeTerminalLaneIfSuspended(surfaceID: surfaceID)
     }
 
     func markTerminalFullReplacementObserved(surfaceID: String, seq: UInt64) {

@@ -39,6 +39,17 @@ final class IrohSettingsModel {
         }
     }
 
+    #if DEBUG
+    func setDebugRelayOnly(_ enabled: Bool) {
+        mutate { controller in
+            guard let debugController = controller as? any CmxIrohDebugSettingsControlling else {
+                return
+            }
+            try await debugController.setIrohDebugRelayOnly(enabled)
+        }
+    }
+    #endif
+
     func upsertCustomRelay(_ relay: CmxIrohCustomRelayDraft, deviceSecret: String?) async -> Bool {
         await mutateAndWait { controller in
             try await controller.upsertIrohCustomRelay(relay, deviceSecret: deviceSecret)
@@ -79,6 +90,7 @@ final class IrohSettingsModel {
             snapshot = await controller.irohSettingsSnapshot()
             return true
         } catch {
+            snapshot = await controller.irohSettingsSnapshot()
             showsSaveError = true
             return false
         }

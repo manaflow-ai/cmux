@@ -35,8 +35,8 @@ struct MobileHostIrohRejectingArtifactLaneHandler: MobileHostIrohArtifactLaneHan
 
 /// Sole Mac-side accept owner for post-admission Iroh application streams.
 ///
-/// Terminal lanes route a validated surface UUID to raw PTY output and bounded,
-/// length-prefixed UTF-8 input. Artifact lanes are delegated through one
+/// Terminal lanes route a validated surface UUID to sequence-framed PTY output
+/// and bounded, length-prefixed UTF-8 input. Artifact lanes are delegated through one
 /// registration seam and otherwise reset. Every task is owned by this admitted
 /// session and cancelled when the control connection or runtime generation ends.
 actor MobileHostIrohApplicationLaneRouter {
@@ -253,9 +253,17 @@ actor MobileHostIrohApplicationLaneRouter {
         var nextSequence = requestedSequence
         do {
             let replayOffset = Int(requestedSequence - replayStart)
-            if replayOffset < replayData.count {
-                try await stream.sendStream.send(Data(replayData.dropFirst(replayOffset)))
-            }
+            let replayPayload = Data(replayData.dropFirst(replayOffset))
+            let replayEnvelope = try CmxIrohTerminalOutputEnvelope(
+                kind: .replay,
+                retainedBaseSequence: replayStart,
+                sequence: requestedSequence,
+                currentSequence: currentSequence,
+                payload: replayPayload
+            )
+            try await stream.sendStream.send(
+                CmxIrohTerminalOutputEnvelopeCodec().encode(replayEnvelope)
+            )
             nextSequence = currentSequence
             for await chunk in updates {
                 try Task.checkCancellation()
@@ -266,7 +274,11 @@ actor MobileHostIrohApplicationLaneRouter {
                     return
                 }
                 let offset = Int(nextSequence - chunk.sequence)
-                try await stream.sendStream.send(Data(chunk.data.dropFirst(offset)))
+                try await sendTerminalOutputChunks(
+                    Data(chunk.data.dropFirst(offset)),
+                    startingAt: nextSequence,
+                    stream: stream
+                )
                 nextSequence = chunkEnd
             }
             try await stream.sendStream.finish()
@@ -274,6 +286,33 @@ actor MobileHostIrohApplicationLaneRouter {
             await stream.sendStream.reset(errorCode: 0)
         } catch {
             await stream.sendStream.reset(errorCode: ErrorCode.cursorGap)
+        }
+    }
+
+    private nonisolated static func sendTerminalOutputChunks(
+        _ data: Data,
+        startingAt startingSequence: UInt64,
+        stream: CmxIrohBidirectionalStream
+    ) async throws {
+        let codec = CmxIrohTerminalOutputEnvelopeCodec()
+        var offset = 0
+        while offset < data.count {
+            let payloadByteCount = min(
+                CmxIrohTerminalOutputEnvelope.maximumPayloadByteCount,
+                data.count - offset
+            )
+            let payload = Data(data[offset ..< (offset + payloadByteCount)])
+            let sequence = startingSequence + UInt64(offset)
+            let currentSequence = sequence + UInt64(payloadByteCount)
+            let envelope = try CmxIrohTerminalOutputEnvelope(
+                kind: .chunk,
+                retainedBaseSequence: sequence,
+                sequence: sequence,
+                currentSequence: currentSequence,
+                payload: payload
+            )
+            try await stream.sendStream.send(codec.encode(envelope))
+            offset += payloadByteCount
         }
     }
 

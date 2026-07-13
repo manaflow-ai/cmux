@@ -96,25 +96,34 @@ export const customRelaySchema = z.object({
 
 export type CustomRelay = z.infer<typeof customRelaySchema>;
 
-const automaticPreferenceSchema = z.object({ mode: z.literal("automatic") }).strict();
-const managedPreferenceSchema = z.object({
-  mode: z.literal("managed"),
-  selectedManagedRelayIds: z.array(relayIDSchema).min(1).max(MAX_MANAGED_RELAYS),
-}).strict();
-const customPreferenceSchema = z.object({
-  mode: z.literal("custom"),
-  customRelays: z.array(customRelaySchema).min(1).max(MAX_CUSTOM_RELAYS),
-}).strict();
-
-export const relayPreferenceSchema = z.discriminatedUnion("mode", [
-  automaticPreferenceSchema,
-  managedPreferenceSchema,
-  customPreferenceSchema,
-]);
+export const relayPreferenceSchema = z.object({
+  mode: z.enum(["automatic", "managed", "custom"]),
+  selectedManagedRelayIds: z.array(relayIDSchema).max(MAX_MANAGED_RELAYS),
+  customRelays: z.array(customRelaySchema).max(MAX_CUSTOM_RELAYS),
+}).strict().superRefine((preference, context) => {
+  if (preference.mode === "managed" && preference.selectedManagedRelayIds.length === 0) {
+    context.addIssue({
+      code: "custom",
+      path: ["selectedManagedRelayIds"],
+      message: "managed mode requires at least one selected relay",
+    });
+  }
+  if (preference.mode === "custom" && preference.customRelays.length === 0) {
+    context.addIssue({
+      code: "custom",
+      path: ["customRelays"],
+      message: "custom mode requires at least one saved relay",
+    });
+  }
+});
 
 export type RelayPreference = z.infer<typeof relayPreferenceSchema>;
 
-export const defaultRelayPreference: RelayPreference = { mode: "automatic" };
+export const defaultRelayPreference: RelayPreference = {
+  mode: "automatic",
+  selectedManagedRelayIds: [],
+  customRelays: [],
+};
 
 const preferenceUpdateSchema = z.object({
   expectedRevision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
@@ -160,15 +169,17 @@ export function parseRelayPreferenceUpdate(raw: unknown): {
   if (!preference.success) {
     throw new RelayPreferenceValidationError({ code: "invalid_preference" });
   }
-  if (preference.data.mode === "managed") {
-    if (new Set(preference.data.selectedManagedRelayIds).size !== preference.data.selectedManagedRelayIds.length) {
-      throw new RelayPreferenceValidationError({ code: "invalid_preference" });
-    }
-  }
   if (
-    preference.data.mode === "custom" &&
-    !hasUniqueRelayMetadata(preference.data.customRelays)
+    new Set(preference.data.selectedManagedRelayIds).size !==
+      preference.data.selectedManagedRelayIds.length
   ) {
+    throw new RelayPreferenceValidationError({ code: "invalid_preference" });
+  }
+  if (!hasUniqueRelayMetadata(preference.data.customRelays)) {
+    throw new RelayPreferenceValidationError({ code: "invalid_preference" });
+  }
+  const customIDs = new Set(preference.data.customRelays.map((relay) => relay.id));
+  if (preference.data.selectedManagedRelayIds.some((id) => customIDs.has(id))) {
     throw new RelayPreferenceValidationError({ code: "invalid_preference" });
   }
   return {

@@ -8,7 +8,8 @@ extension CmxIrohHostRuntime {
         } ?? managedRelayURLs
         try await replaceRelayProfile(
             policy.endpointRelayProfile,
-            managedRelayURLs: verifiedManagedURLs
+            managedRelayURLs: verifiedManagedURLs,
+            relayBootstrap: policy.relayBootstrap
         )
     }
 
@@ -16,12 +17,17 @@ extension CmxIrohHostRuntime {
     public func replaceRelayProfile(
         _ profile: CmxIrohEndpointRelayProfile
     ) async throws {
-        try await replaceRelayProfile(profile, managedRelayURLs: managedRelayURLs)
+        try await replaceRelayProfile(
+            profile,
+            managedRelayURLs: managedRelayURLs,
+            relayBootstrap: nil
+        )
     }
 
     private func replaceRelayProfile(
         _ profile: CmxIrohEndpointRelayProfile,
-        managedRelayURLs replacementManagedURLs: Set<String>
+        managedRelayURLs replacementManagedURLs: Set<String>,
+        relayBootstrap: CmxIrohRelayTokenResponse?
     ) async throws {
         guard lifecyclePhase == .active,
               let supervisor,
@@ -64,7 +70,8 @@ extension CmxIrohHostRuntime {
         do {
             try await coordinator.activate(
                 bindingID: binding.bindingID,
-                endpointIdentity: binding.endpointID
+                endpointIdentity: binding.endpointID,
+                bootstrap: relayBootstrap
             )
         } catch {
             // The verified allowlist is already live; direct paths remain usable

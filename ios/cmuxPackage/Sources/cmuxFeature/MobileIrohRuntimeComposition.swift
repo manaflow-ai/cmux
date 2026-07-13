@@ -1370,8 +1370,16 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         let diagnostics = await service?.diagnosticsSnapshot() ?? relayPolicyDiagnostics
         let managedPolicy = await service?.managedPolicy() ?? effective?.managedPolicy
         let runtimeState = await runtime?.snapshot().state
-        let selectedIDs = Set(diagnostics?.selectedRelayIDs ?? [])
-        let requested = effective?.requestedPreference
+        let configuration = effective?.requestedConfiguration
+        let requested = configuration?.activePreference
+        let selectedIDs = configuration?.selectedManagedRelayIDs.isEmpty == false
+            ? configuration?.selectedManagedRelayIDs ?? []
+            : Set(diagnostics?.selectedRelayIDs ?? [])
+        let configuredCredentialIDs = if let service, let activeAccountID {
+            await service.configuredCustomCredentialRelayIDs(accountID: activeAccountID)
+        } else {
+            Optional<Set<String>>.none
+        }
         return CmxIrohSettingsSnapshot(
             runtimeStatus: Self.settingsRuntimeStatus(runtimeState, failure: diagnostics?.failure),
             preference: Self.settingsPreference(requested),
@@ -1385,8 +1393,8 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                 )
             } ?? [],
             customRelays: Self.settingsCustomRelays(
-                preference: requested,
-                diagnostics: diagnostics
+                configuration: configuration,
+                configuredCredentialIDs: configuredCredentialIDs
             ),
             policySource: Self.settingsPolicySource(effective),
             policySequence: diagnostics?.policySequence,
@@ -1417,7 +1425,7 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
     ) async throws {
         let validated = try preference.validated()
         let context = try relaySettingsContext()
-        let current = await context.service.effectivePolicy()?.requestedPreference
+        let current = await context.service.accountConfiguration() ?? .automatic
         let mapped: CmxIrohAccountRelayPreference
         switch validated {
         case .automatic:
@@ -1425,13 +1433,13 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         case let .managed(ids):
             mapped = .managed(ids)
         case .custom:
-            guard case let .custom(relays) = current, !relays.isEmpty else {
+            guard !current.customRelays.isEmpty else {
                 throw SettingsError.incompleteCustomRelay
             }
-            mapped = .custom(relays)
+            mapped = .custom(current.customRelays)
         }
-        let effective = try await context.service.setPreference(
-            mapped,
+        let effective = try await context.service.setConfiguration(
+            current.updatingActivePreference(mapped),
             accountID: context.accountID,
             trustRoot: context.trustRoot,
             now: now()
@@ -1445,19 +1453,15 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         deviceSecret: String?
     ) async throws {
         let context = try relaySettingsContext()
-        let current = await context.service.effectivePolicy()?.requestedPreference
-        var definitions: [CmxIrohCustomRelayDefinition]
-        if case let .custom(existing) = current {
-            definitions = existing
-        } else {
-            definitions = []
-        }
+        let current = await context.service.accountConfiguration() ?? .automatic
+        var definitions = current.customRelays
         let requestedID = relay.id?.trimmingCharacters(in: .whitespacesAndNewlines)
         let id = (requestedID?.isEmpty == false ? requestedID : nil)?
             .lowercased() ?? UUID().uuidString.lowercased()
         let existingIndex = definitions.firstIndex(where: { $0.id == id })
+        let existingDefinition = existingIndex.map { definitions[$0] }
         if relay.authMode == .deviceSecret,
-           existingIndex == nil,
+           existingDefinition?.authMode != .staticToken,
            deviceSecret?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
             throw SettingsError.incompleteCustomRelay
         }
@@ -1475,25 +1479,17 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         } else {
             definitions.append(definition)
         }
-        if definition.authMode == .staticToken, let deviceSecret {
-            _ = try await context.service.setStaticCredential(
-                deviceSecret,
-                relayID: id,
-                accountID: context.accountID,
-                trustRoot: context.trustRoot,
-                now: now()
-            )
-        }
-        var effective = try await context.service.setPreference(
-            .custom(definitions),
+        var effective = try await context.service.setConfiguration(
+            current.replacingCustomRelays(definitions),
             accountID: context.accountID,
             trustRoot: context.trustRoot,
             now: now()
         )
         try await applyRelayPolicy(effective)
-        if definition.authMode == .none {
-            effective = try await context.service.removeStaticCredential(
-                relayID: id,
+        if definition.authMode == .staticToken, let deviceSecret {
+            effective = try await context.service.setStaticCredential(
+                deviceSecret,
+                relayID: definition.id,
                 accountID: context.accountID,
                 trustRoot: context.trustRoot,
                 now: now()
@@ -1505,35 +1501,26 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
 
     public func removeIrohCustomRelay(id: String) async throws {
         let context = try relaySettingsContext()
-        let current = await context.service.effectivePolicy()?.requestedPreference
-        guard case let .custom(existing) = current,
-              existing.contains(where: { $0.id == id }) else {
+        let current = await context.service.accountConfiguration() ?? .automatic
+        guard current.customRelays.contains(where: { $0.id == id }) else {
             throw SettingsError.missingCustomRelay
         }
-        let remaining = existing.filter { $0.id != id }
-        let nextPreference: CmxIrohAccountRelayPreference = remaining.isEmpty
-            ? .automatic
-            : .custom(remaining)
-        let effective = try await context.service.setPreference(
-            nextPreference,
+        let remaining = current.customRelays.filter { $0.id != id }
+        let effective = try await context.service.setConfiguration(
+            current.replacingCustomRelays(remaining),
             accountID: context.accountID,
             trustRoot: context.trustRoot,
             now: now()
         )
         try await applyRelayPolicy(effective)
-        _ = try await context.service.removeStaticCredential(
-            relayID: id,
-            accountID: context.accountID,
-            trustRoot: context.trustRoot,
-            now: now()
-        )
         await refreshRelayPolicyAfterMutation(context)
     }
 
     public func testIrohCustomRelay(id: String) async -> CmxIrohRelayTestResult {
         guard let effective = await relayPolicyService?.effectivePolicy(),
-              case let .custom(definitions) = effective.requestedPreference,
-              let definition = definitions.first(where: { $0.id == id }),
+              let definition = effective.requestedConfiguration?.customRelays.first(where: {
+                  $0.id == id
+              }),
               !effective.missingCredentialRelayIDs.contains(id) else {
             return .incomplete
         }
@@ -1779,19 +1766,19 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
     }
 
     private nonisolated static func settingsCustomRelays(
-        preference: CmxIrohAccountRelayPreference?,
-        diagnostics: CmxIrohRelayDiagnosticsSnapshot?
+        configuration: CmxIrohAccountRelayConfiguration?,
+        configuredCredentialIDs: Set<String>?
     ) -> [CmxIrohSettingsSnapshot.CustomRelay] {
-        guard case let .custom(definitions) = preference else { return [] }
-        let missing = Set(diagnostics?.missingCredentialRelayIDs ?? [])
-        return definitions.map { relay in
+        configuration?.customRelays.map { relay in
             let credentialState: CmxIrohSettingsSnapshot.CredentialState
             if relay.authMode == .none {
                 credentialState = .notRequired
-            } else if diagnostics?.failure == .customCredentialUnavailable {
+            } else if configuredCredentialIDs == nil {
                 credentialState = .unavailable
             } else {
-                credentialState = missing.contains(relay.id) ? .missing : .configured
+                credentialState = configuredCredentialIDs?.contains(relay.id) == true
+                    ? .configured
+                    : .missing
             }
             return CmxIrohSettingsSnapshot.CustomRelay(
                 id: relay.id,
@@ -1802,7 +1789,7 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                 authMode: relay.authMode == .staticToken ? .deviceSecret : .none,
                 credentialState: credentialState
             )
-        }
+        } ?? []
     }
 
     private nonisolated static func settingsPolicySource(

@@ -33,6 +33,30 @@ struct MobileIrohSettingsModelTests {
         #expect(model.showsSaveError)
     }
 
+    @Test func failedLocalFollowUpReconcilesToCommittedAccountSnapshot() async {
+        let initial = snapshot(sequence: 9)
+        let committed = snapshot(sequence: 10)
+        let controller = MobileIrohSettingsControllerDouble(snapshot: initial)
+        controller.snapshotAfterUpsertError = committed
+        controller.upsertError = MobileIrohSettingsTestFailure.rejected
+        let model = MobileIrohSettingsModel(controller: controller)
+
+        let saved = await model.upsertCustomRelay(
+            CmxIrohCustomRelayDraft(
+                displayName: "Relay",
+                provider: "Self-hosted",
+                region: "Home",
+                url: "https://relay.example.test",
+                authMode: .none
+            ),
+            deviceSecret: nil
+        )
+
+        #expect(!saved)
+        #expect(model.snapshot == committed)
+        #expect(model.showsSaveError)
+    }
+
     @Test func cancellingObservationRejectsSubsequentUpdates() async {
         let initial = snapshot(sequence: 1)
         let update = snapshot(sequence: 2)
@@ -90,6 +114,7 @@ private final class MobileIrohSettingsControllerDouble: CmxIrohSettingsControlli
     var snapshot: CmxIrohSettingsSnapshot
     var preferenceMutations: [CmxIrohRelayPreferenceDraft] = []
     var upsertError: Error?
+    var snapshotAfterUpsertError: CmxIrohSettingsSnapshot?
     var streamCreations = 0
     var streamTerminated = false
     let continuation: AsyncStream<CmxIrohSettingsSnapshot>.Continuation
@@ -114,7 +139,12 @@ private final class MobileIrohSettingsControllerDouble: CmxIrohSettingsControlli
         preferenceMutations.append(preference)
     }
     func upsertIrohCustomRelay(_ relay: CmxIrohCustomRelayDraft, deviceSecret: String?) async throws {
-        if let upsertError { throw upsertError }
+        if let upsertError {
+            if let snapshotAfterUpsertError {
+                snapshot = snapshotAfterUpsertError
+            }
+            throw upsertError
+        }
     }
     func removeIrohCustomRelay(id: String) async throws {}
     func testIrohCustomRelay(id: String) async -> CmxIrohRelayTestResult { .failed }

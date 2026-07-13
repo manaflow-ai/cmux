@@ -18,6 +18,13 @@ public struct CmxIrohProtocolConfiguration: Equatable, Sendable {
     /// ``maximumClientApplicationLaneCount`` without weakening bootstrap limits.
     public let maximumConcurrentClientApplicationLaneCount: UInt64
 
+    /// Whether an admitted connection may activate direct paths after both
+    /// peers have completed the authenticated admission barrier.
+    ///
+    /// Production keeps this enabled. Debug hosts can disable it to verify the
+    /// relay path without changing the ALPN or weakening admission.
+    public let allowsNATTraversalAfterAdmission: Bool
+
     /// Creates a protocol configuration.
     ///
     /// - Parameters:
@@ -26,7 +33,8 @@ public struct CmxIrohProtocolConfiguration: Equatable, Sendable {
     public init(
         alpn: Data,
         maximumHeaderByteCount: Int,
-        maximumConcurrentClientApplicationLaneCount: UInt64 = 0
+        maximumConcurrentClientApplicationLaneCount: UInt64 = 0,
+        allowsNATTraversalAfterAdmission: Bool = true
     ) {
         precondition(
             maximumConcurrentClientApplicationLaneCount
@@ -36,6 +44,7 @@ public struct CmxIrohProtocolConfiguration: Equatable, Sendable {
         self.maximumHeaderByteCount = maximumHeaderByteCount
         self.maximumConcurrentClientApplicationLaneCount =
             maximumConcurrentClientApplicationLaneCount
+        self.allowsNATTraversalAfterAdmission = allowsNATTraversalAfterAdmission
     }
 
     /// The production `cmux/mobile/1` protocol configuration.

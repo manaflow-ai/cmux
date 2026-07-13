@@ -274,9 +274,11 @@ public actor CmxIrohClientSession {
             try await stream.sendStream.send(headerCodec.encode(header))
             let admission = try await readAdmissionFrame(from: stream.receiveStream)
             switch admission.frame {
-            case .acceptedPendingNatTraversal:
-                try Task.checkCancellation()
-                try await establishedConnection.authorizeNatTraversal()
+            case .acceptedPendingNatTraversal, .acceptedRelayOnly:
+                if admission.frame == .acceptedPendingNatTraversal {
+                    try Task.checkCancellation()
+                    try await establishedConnection.authorizeNatTraversal()
+                }
                 try Task.checkCancellation()
                 try await stream.sendStream.send(
                     admissionCodec.encodeFrame(.clientReady)
@@ -290,7 +292,7 @@ public actor CmxIrohClientSession {
                     break
                 case let .denied(code):
                     throw CmxIrohClientSessionError.admissionDenied(code: code)
-                case .acceptedPendingNatTraversal, .clientReady:
+                case .acceptedPendingNatTraversal, .acceptedRelayOnly, .clientReady:
                     throw CmxIrohClientSessionError.invalidAdmissionFrame
                 }
                 try Task.checkCancellation()

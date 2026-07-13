@@ -66,6 +66,7 @@ final class MobileIrohSettingsModel {
             snapshot = await controller.irohSettingsSnapshot()
             return true
         } catch {
+            snapshot = await controller.irohSettingsSnapshot()
             showsSaveError = true
             return false
         }

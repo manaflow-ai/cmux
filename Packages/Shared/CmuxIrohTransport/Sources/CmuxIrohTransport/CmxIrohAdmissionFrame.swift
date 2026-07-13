@@ -3,6 +3,10 @@ public enum CmxIrohAdmissionFrame: Equatable, Sendable {
     /// The server accepted the credential, but NAT traversal remains gated.
     case acceptedPendingNatTraversal
 
+    /// The server accepted the credential and intentionally keeps this
+    /// connection relay-bound without authorizing NAT traversal.
+    case acceptedRelayOnly
+
     /// The server denied admission with a non-sensitive protocol code.
     case denied(code: UInt16)
 

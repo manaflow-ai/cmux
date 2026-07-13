@@ -40,7 +40,11 @@ function deps(overrides: Partial<RelayTokenDeps> = {}): RelayTokenDeps {
       return {
         policy: "signed.policy.value",
         payload: PAYLOAD,
-        preference: { mode: "managed", selectedManagedRelayIds: ["managed-one"] },
+        preference: {
+          mode: "managed",
+          selectedManagedRelayIds: ["managed-one"],
+          customRelays: [],
+        },
         preferenceRevision: 3,
       };
     },
@@ -73,6 +77,7 @@ describe("POST /api/relay/token", () => {
     expect(body.preference).toEqual({
       mode: "managed",
       selectedManagedRelayIds: ["managed-one"],
+      customRelays: [],
     });
     expect(body.preferenceRevision).toBe(3);
     expect(body.ttlSeconds).toBe(300);

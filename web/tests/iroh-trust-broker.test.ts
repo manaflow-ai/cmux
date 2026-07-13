@@ -30,6 +30,7 @@ import type {
 } from "../services/iroh/repository";
 import type { IrohRelayMinterShape } from "../services/iroh/relayMinter";
 import { makeIrohTrustBroker } from "../services/iroh/trustBroker";
+import type { RelayPreference } from "../services/relay/model";
 
 const NOW = new Date("2026-07-09T20:00:00.000Z");
 const USER_A = "user-a";
@@ -46,7 +47,14 @@ describe("Iroh trust broker registration", () => {
     expect(result.binding.endpoint_id).toBe(fixture.endpointId);
     expect(result.relay.status).toBe("issued");
     expect(fixture.repository.bindings).toHaveLength(1);
-    expect(fixture.repository.bindings[0]?.pathHints).toEqual([]);
+    expect(fixture.repository.bindings[0]?.pathHints).toEqual([{
+      kind: "direct_address",
+      value: "8.8.8.8:4433",
+      source: "native",
+      privacy_scope: "public_internet",
+      observed_at: "2026-07-09T19:55:00.000Z",
+      expires_at: "2026-07-09T20:45:00.000Z",
+    }]);
     expect(fixture.minter.calls).toBe(1);
   });
 
@@ -189,6 +197,46 @@ describe("Iroh discovery and grants", () => {
       bindings: unknown[];
     };
     expect(discovered.bindings).toEqual([]);
+  });
+
+  test("publishes only an exact account-saved custom relay and removes it after deletion", async () => {
+    const customRelay = {
+      id: "private-relay",
+      provider: "private",
+      region: "home",
+      url: "https://relay.example.net/",
+      authMode: "none" as const,
+    };
+    const fixture = makeFixture({
+      relayPreference: {
+        mode: "custom",
+        selectedManagedRelayIds: [],
+        customRelays: [customRelay],
+      },
+      registrationPathHints: [
+        relayHint(customRelay.url),
+        relayHint("https://substitution.example.net/"),
+      ],
+    });
+
+    await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration(),
+      NOW,
+    ));
+    expect(fixture.repository.bindings[0]?.pathHints).toEqual([
+      relayHint(customRelay.url),
+    ]);
+
+    fixture.setRelayPreference({
+      mode: "automatic",
+      selectedManagedRelayIds: [],
+      customRelays: [],
+    });
+    const discovered = await Effect.runPromise(
+      fixture.broker.discover(USER_A, NOW),
+    ) as { bindings: Array<{ path_hints: unknown[] }> };
+    expect(discovered.bindings[0]?.path_hints).toEqual([]);
   });
 
   test("returns the relay fleet and authenticated current/previous public keys", async () => {
@@ -735,6 +783,8 @@ function makeFixture(options: {
   appInstanceId?: string;
   deviceId?: string;
   identityGeneration?: number;
+  relayPreference?: RelayPreference;
+  registrationPathHints?: IrohRegistrationPayload["pathHints"];
 } = {}) {
   const endpointKeys = generateKeyPairSync("ed25519");
   const grantKeys = generateKeyPairSync("ed25519");
@@ -774,7 +824,14 @@ function makeFixture(options: {
     deploymentEnvironment: "test",
     isVercelDeployment: false,
   };
-  const broker = makeIrohTrustBroker(repository, minter, config);
+  let relayPreference = options.relayPreference ?? {
+    mode: "automatic" as const,
+    selectedManagedRelayIds: [],
+    customRelays: [],
+  };
+  const broker = makeIrohTrustBroker(repository, minter, config, {
+    getPreference: () => Effect.succeed({ preference: relayPreference, revision: 0 }),
+  });
 
   return {
     repository,
@@ -785,6 +842,9 @@ function makeFixture(options: {
     appInstanceId,
     deviceId,
     identityGeneration,
+    setRelayPreference(next: RelayPreference) {
+      relayPreference = next;
+    },
     async signedRegistration(platform: "mac" | "ios" = "mac") {
       const payload: IrohRegistrationPayload = {
         route_contract_version: 1,
@@ -797,7 +857,7 @@ function makeFixture(options: {
         identityGeneration,
         pairingEnabled: true,
         capabilities: ["terminal", "artifacts"],
-        pathHints: [{
+        pathHints: options.registrationPathHints ?? [{
           kind: "direct_address",
           value: "8.8.8.8:4433",
           source: "native",
@@ -826,6 +886,17 @@ function makeFixture(options: {
         }), endpointKeys.privateKey).toString("base64url"),
       };
     },
+  };
+}
+
+function relayHint(value: string): IrohRegistrationPayload["pathHints"][number] {
+  return {
+    kind: "relay_url",
+    value,
+    source: "native",
+    privacy_scope: "public_internet",
+    observed_at: "2026-07-09T19:55:00.000Z",
+    expires_at: "2026-07-09T20:45:00.000Z",
   };
 }
 

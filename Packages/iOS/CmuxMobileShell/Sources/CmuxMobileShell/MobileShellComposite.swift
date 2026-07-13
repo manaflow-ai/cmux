@@ -132,6 +132,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // does not fire for the in-init assignment, so this only observes
             // real transitions. The throttle's `outageOpen` is the per-outage gate.
             guard oldValue != connectionState else { return }
+            if connectionState == .connected {
+                restartTerminalLanesForMountedSurfaces()
+            } else {
+                deactivateAllTerminalLanes()
+            }
             // Intentional teardown (sign-out, forget, switch) must not look like
             // a network outage: swallow this edge and reset the throttle so a
             // later real reconnect doesn't emit `recovered` with a bogus duration.
@@ -175,7 +180,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// for Mac/iPhone app-version skew.
     public private(set) var pairingVersionWarning: String?
     public internal(set) var activeTicket: CmxAttachTicket?
-    public internal(set) var activeRoute: CmxAttachRoute?
+    public internal(set) var activeRoute: CmxAttachRoute? {
+        didSet {
+            guard oldValue != activeRoute, connectionState == .connected else { return }
+            restartTerminalLanesForMountedSurfaces()
+        }
+    }
     /// Authenticated Mac app-instance identity for the foreground connection.
     /// `nil` only for a fresh/legacy host that has not reported one.
     var activeMacInstanceTag: String?
@@ -798,6 +808,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation]
     var terminalOutputStreamTokensBySurfaceID: [String: UUID]
     var terminalOutputQueuesBySurfaceID: [String: TerminalOutputDeliveryQueue]
+    let terminalLaneCoordinator: MobileTerminalLaneCoordinator?
+    var terminalLaneOutputReadySurfaceIDs: Set<String>
+    var terminalLaneLifecycleID: UUID
     var terminalScrollQueueTokensBySurfaceID: [String: UUID]
     var terminalScrollQueuesBySurfaceID: [String: TerminalScrollDeliveryQueue]
     var terminalScrollbackPrefetchStatesBySurfaceID: [String: TerminalScrollbackPrefetchState]
@@ -1014,6 +1027,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalByteContinuationsBySurfaceID = [:]
         self.terminalOutputStreamTokensBySurfaceID = [:]
         self.terminalOutputQueuesBySurfaceID = [:]
+        if let terminalLaneProvider = runtime?.terminalLaneProvider {
+            self.terminalLaneCoordinator = MobileTerminalLaneCoordinator(
+                provider: terminalLaneProvider
+            )
+        } else {
+            self.terminalLaneCoordinator = nil
+        }
+        self.terminalLaneOutputReadySurfaceIDs = []
+        self.terminalLaneLifecycleID = UUID()
         self.terminalScrollQueueTokensBySurfaceID = [:]
         self.terminalScrollQueuesBySurfaceID = [:]
         self.terminalScrollbackPrefetchStatesBySurfaceID = [:]
@@ -1037,6 +1059,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pullToRefreshTask?.cancel()
         cancelAllTerminalReplayTasks()
         teardownSecondaryMacSubscriptions()
+        let terminalLaneCoordinator = terminalLaneCoordinator
+        Task { await terminalLaneCoordinator?.deactivateAll() }
         if let remoteClient {
             Task { await remoteClient.disconnect() }
         }
@@ -5273,6 +5297,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollQueuesBySurfaceID = [:]
         terminalScrollbackPrefetchStatesBySurfaceID = [:]
         terminalOutputTransport = .rawBytes
+        deactivateAllTerminalLanes()
         supportedHostCapabilities = []
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
@@ -5821,6 +5846,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         let generation = connectionGeneration
+        if let terminalLaneCoordinator {
+            switch await terminalLaneCoordinator.sendInput(
+                text,
+                surfaceID: terminalID.rawValue
+            ) {
+            case .sent:
+                return
+            case .failed:
+                mobileShellLog.error(
+                    "independent terminal input failed surface=\(terminalID.rawValue, privacy: .public)"
+                )
+                return
+            case .unavailable:
+                break
+            }
+        }
         do {
             #if DEBUG
             mobileShellLog.debug("send remote terminal input byteCount=\(text.utf8.count, privacy: .public) workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private)")
@@ -6175,12 +6216,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 transport = .rawBytes
             }
             terminalOutputTransport = transport
+            reconcileTerminalLanesForOutputTransport()
             MobileDebugLog.anchormux("sync.transport=\(transport.debugName)")
             upgradePendingColdTerminalReplaysIfNeeded()
             return transport
         } catch {
             guard remoteClient === client else { return fallback }
             terminalOutputTransport = fallback
+            reconcileTerminalLanesForOutputTransport()
             // Preserve learned capabilities during transient reconnect probe failures.
             // The probe is best-effort for the terminal transport, but a
             // freshly QR-paired Mac still needs its identity recovered, with
@@ -6693,9 +6736,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         mobileShellLog.info("CMUX_REPLAY register sink surface=\(surfaceID, privacy: .public) connected=\(self.connectionState == .connected, privacy: .public) hasClient=\(self.remoteClient != nil, privacy: .public) workspaceCount=\(self.workspaces.count, privacy: .public)")
         #endif
         requestColdAttachTerminalReplay(surfaceID: surfaceID)
+        ensureTerminalLane(surfaceID: surfaceID)
     }
 
     private func unregisterTerminalOutput(surfaceID: String) {
+        terminalLaneOutputReadySurfaceIDs.remove(surfaceID)
+        if let terminalLaneCoordinator {
+            Task { await terminalLaneCoordinator.deactivate(surfaceID: surfaceID) }
+        }
         cancelTerminalReplayInFlight(surfaceID: surfaceID)
         terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.remove(surfaceID)
         terminalByteContinuationsBySurfaceID.removeValue(forKey: surfaceID)
@@ -7273,6 +7321,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let surfaceID = payload.surfaceID
         let bytes = payload.bytes
+        guard !terminalLaneOutputReadySurfaceIDs.contains(surfaceID) else { return }
         #if DEBUG
         let debugSeq = payload.sequence ?? 0
         mobileShellLog.info("CMUX_REPLAY live bytes surface=\(surfaceID, privacy: .public) byteCount=\(bytes.count, privacy: .public) seq=\(debugSeq, privacy: .public) hasSink=\(self.hasTerminalOutputSink(surfaceID: surfaceID), privacy: .public)")

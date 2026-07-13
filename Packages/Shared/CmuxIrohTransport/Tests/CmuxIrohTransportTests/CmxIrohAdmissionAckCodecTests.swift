@@ -6,6 +6,7 @@ import Testing
 struct CmxIrohAdmissionAckCodecTests {
     @Test(arguments: [
         CmxIrohAdmissionFrame.acceptedPendingNatTraversal,
+        CmxIrohAdmissionFrame.acceptedRelayOnly,
         CmxIrohAdmissionFrame.denied(code: 1),
         CmxIrohAdmissionFrame.clientReady,
         CmxIrohAdmissionFrame.serverReady,
@@ -51,8 +52,8 @@ struct CmxIrohAdmissionAckCodecTests {
         }
 
         var invalidStatus = codec.encode(.accepted)
-        invalidStatus[5] = 4
-        #expect(throws: CmxIrohAdmissionAckCodecError.invalidStatus(4)) {
+        invalidStatus[5] = 5
+        #expect(throws: CmxIrohAdmissionAckCodecError.invalidStatus(5)) {
             try codec.decodePrefix(invalidStatus)
         }
 
@@ -75,5 +76,19 @@ struct CmxIrohAdmissionAckCodecTests {
         ) {
             try codec.decodePrefix(codec.encodeFrame(.serverReady))
         }
+
+        var invalidRelayOnlyCode = codec.encodeFrame(.acceptedRelayOnly)
+        invalidRelayOnlyCode[7] = 1
+        #expect(throws: CmxIrohAdmissionAckCodecError.invalidAcceptedCode(1)) {
+            try codec.decodeFramePrefix(invalidRelayOnlyCode)
+        }
+    }
+
+    @Test
+    func relayOnlyAcceptanceIsAnAcceptedDecision() throws {
+        let codec = CmxIrohAdmissionAckCodec()
+        #expect(
+            try codec.decodePrefix(codec.encodeFrame(.acceptedRelayOnly)) == .accepted
+        )
     }
 }

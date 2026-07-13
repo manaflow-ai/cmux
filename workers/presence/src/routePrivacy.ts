@@ -1,15 +1,13 @@
-// Keep this fleet in lockstep with web/services/iroh/publicationPolicy.ts.
-// The Worker cannot import from `web/` because each deployment has its own
-// build root. Exact URLs are intentional: arbitrary relay URLs are path hints.
-export const APPROVED_IROH_RELAY_URLS = [
-  "https://usc1.relay.cmux.dev/",
-  "https://usw1.relay.cmux.dev/",
-  "https://use4.relay.cmux.dev/",
-  "https://euw4.relay.cmux.dev/",
-  "https://apne1.relay.cmux.dev/",
-  "https://apse1.relay.cmux.dev/",
-  "https://ape1.relay.cmux.dev/",
-] as const;
+import {
+  MANAGED_IROH_RELAY_CATALOG,
+  MANAGED_IROH_RELAY_URLS,
+} from "./generated/managedRelayCatalog";
+
+// Exact URLs are intentional: arbitrary relay URLs remain endpoint-local.
+export const APPROVED_IROH_RELAY_CATALOG = MANAGED_IROH_RELAY_CATALOG;
+export const APPROVED_IROH_RELAY_CATALOG_SEQUENCE =
+  MANAGED_IROH_RELAY_CATALOG.sequence;
+export const APPROVED_IROH_RELAY_URLS = MANAGED_IROH_RELAY_URLS;
 
 const APPROVED_IROH_RELAY_URL_SET: ReadonlySet<string> = new Set(APPROVED_IROH_RELAY_URLS);
 const ENDPOINT_ID_RE = /^[0-9a-f]{64}$/;

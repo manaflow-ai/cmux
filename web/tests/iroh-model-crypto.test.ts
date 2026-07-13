@@ -184,9 +184,12 @@ describe("Iroh route wire contract", () => {
     }, NOW)).toThrow();
   });
 
-  test("accepts only endpoint-reported home relays from the separate fleet allowlist", () => {
+  test("accepts bounded canonical relay candidates before account authorization", () => {
     const relayHint = directHint({ kind: "relay_url", value: MANAGED_RELAY_URLS[0] });
     expect(parseRegistrationPayload(registrationPayload(relayHint), NOW).pathHints[0]?.value).toBe(MANAGED_RELAY_URLS[0]);
+    const customHint = directHint({ kind: "relay_url", value: "https://relay.example.net/" });
+    expect(parseRegistrationPayload(registrationPayload(customHint), NOW).pathHints[0]?.value)
+      .toBe("https://relay.example.net/");
     const payload = registrationPayload(relayHint);
     payload.pathHints = MANAGED_RELAY_URLS.slice(0, 3).map((value) => directHint({ kind: "relay_url", value }));
     expect(() => parseRegistrationPayload(payload, NOW)).toThrow();
@@ -207,7 +210,7 @@ describe("Iroh route wire contract", () => {
     ["Tailscale marked local", directHint({ value: "100.64.1.2:4433", source: "tailscale", privacy_scope: "local_network", network_profile: { source: "tailscale", profile_id: "ts" } })],
     ["stale observation", directHint({ value: "8.8.8.8:4433", observed_at: "2026-07-09T18:00:00.000Z" })],
     ["overlong lifetime", directHint({ value: "8.8.8.8:4433", observed_at: "2026-07-09T19:55:00.000Z", expires_at: "2026-07-09T21:00:01.000Z" })],
-    ["unmanaged relay", directHint({ kind: "relay_url", value: "https://example.com/" })],
+    ["credential-bearing relay", directHint({ kind: "relay_url", value: "https://user:secret@example.com/" })],
   ] as const) {
     test(`rejects ${name}`, () => {
       expect(() => parseRegistrationPayload(registrationPayload(hint), NOW)).toThrow();

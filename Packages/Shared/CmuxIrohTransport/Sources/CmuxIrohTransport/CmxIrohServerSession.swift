@@ -85,9 +85,17 @@ public actor CmxIrohServerSession {
             case .denied:
                 checkedAuthorization = authorization
             }
-            try await stream.sendStream.send(
+            let initialAdmissionFrame: Data = switch checkedAuthorization {
+            case .accepted:
+                admissionCodec.encodeFrame(
+                    protocolConfiguration.allowsNATTraversalAfterAdmission
+                        ? .acceptedPendingNatTraversal
+                        : .acceptedRelayOnly
+                )
+            case .denied:
                 admissionCodec.encode(checkedAuthorization.wireDecision)
-            )
+            }
+            try await stream.sendStream.send(initialAdmissionFrame)
             switch checkedAuthorization {
             case let .accepted(peer, onlineLease):
                 let clientReady = try await readAdmissionFrame(
@@ -97,8 +105,10 @@ public actor CmxIrohServerSession {
                 guard clientReady.frame == .clientReady else {
                     throw CmxIrohServerSessionError.invalidAdmissionFrame
                 }
-                try Task.checkCancellation()
-                try await connection.authorizeNatTraversal()
+                if protocolConfiguration.allowsNATTraversalAfterAdmission {
+                    try Task.checkCancellation()
+                    try await connection.authorizeNatTraversal()
+                }
                 try Task.checkCancellation()
                 try await stream.sendStream.send(
                     admissionCodec.encodeFrame(.serverReady)

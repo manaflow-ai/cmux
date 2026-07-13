@@ -50,7 +50,18 @@ struct MobileIrohRuntimeCompositionTests {
 
     @Test
     func terminalLaneFramesUTF8InputAndOwnsBothStreamHalves() async throws {
-        let receive = MobileIrohTerminalLaneReceiveStream(chunks: [Data("output".utf8)])
+        let outputEnvelope = try CmxIrohTerminalOutputEnvelope(
+            kind: .replay,
+            retainedBaseSequence: 10,
+            sequence: 10,
+            currentSequence: 16,
+            payload: Data("output".utf8)
+        )
+        let encodedOutput = CmxIrohTerminalOutputEnvelopeCodec().encode(outputEnvelope)
+        let receive = MobileIrohTerminalLaneReceiveStream(chunks: [
+            Data(encodedOutput.prefix(5)),
+            Data(encodedOutput.dropFirst(5)),
+        ])
         let send = MobileIrohTerminalLaneSendStream()
         let lane = MobileIrohTerminalLane(
             stream: CmxIrohBidirectionalStream(
@@ -61,7 +72,13 @@ struct MobileIrohRuntimeCompositionTests {
 
         try await lane.sendInput("é")
         try await lane.finishInput()
-        #expect(try await lane.receive() == Data("output".utf8))
+        #expect(try await lane.receiveOutput() == MobileTerminalLaneOutputFrame(
+            kind: .replay,
+            retainedBaseSequence: 10,
+            sequence: 10,
+            currentSequence: 16,
+            bytes: Data("output".utf8)
+        ))
 
         let frames = await send.frames()
         #expect(frames == [Data([0, 0, 0, 2, 0xc3, 0xa9])])
@@ -230,13 +247,19 @@ struct MobileIrohRuntimeCompositionTests {
         let registry = PersonalIrohDeviceRegistryDecorator(
             base: base,
             catalog: catalog,
-            knownRoutes: { requestedDeviceID in
+            knownRoutes: { requestedDeviceID, instanceTag in
                 guard requestedDeviceID.lowercased() == macDeviceID else { return nil }
-                return await base.freshRoutes(forMacDeviceID: requestedDeviceID)
+                return await base.freshRoutes(
+                    forMacDeviceID: requestedDeviceID,
+                    instanceTag: instanceTag
+                )
             }
         )
 
-        let routes = try #require(await registry.freshRoutes(forMacDeviceID: macDeviceID))
+        let routes = try #require(await registry.freshRoutes(
+            forMacDeviceID: macDeviceID,
+            instanceTag: "test"
+        ))
 
         #expect(routes.map(\.kind) == [.iroh, .tailscale])
         guard case let .peer(identity, hints) = routes[0].endpoint else {
@@ -245,7 +268,14 @@ struct MobileIrohRuntimeCompositionTests {
         }
         #expect(identity.endpointID == String(repeating: "a", count: 64))
         #expect(hints.isEmpty)
-        #expect(await registry.freshRoutes(forMacDeviceID: "123e4567-e89b-42d3-a456-426614174099")?.map(\.kind) == [.tailscale])
+        #expect(await registry.freshRoutes(
+            forMacDeviceID: "123e4567-e89b-42d3-a456-426614174099",
+            instanceTag: "test"
+        )?.map(\.kind) == [.tailscale])
+        #expect(await registry.freshRoutes(
+            forMacDeviceID: macDeviceID,
+            instanceTag: "other-build"
+        )?.map(\.kind) == [.tailscale])
         switch await registry.listDevices() {
         case let .ok(devices): #expect(devices.isEmpty)
         case .authRejected, .transientFailure: Issue.record("Decorator changed the base device-list outcome")
@@ -270,14 +300,23 @@ struct MobileIrohRuntimeCompositionTests {
         await catalog.activate(scope: 1)
         await catalog.activate(scope: 2)
         await catalog.replace(with: discovery, scope: 1)
-        #expect(await catalog.routes(forKnownMacDeviceID: macDeviceID).isEmpty)
+        #expect(await catalog.routes(
+            forKnownMacDeviceID: macDeviceID,
+            instanceTag: "test"
+        ).isEmpty)
 
         await catalog.replace(with: discovery, scope: 2)
         await catalog.deactivate(scope: 1)
-        #expect(await catalog.routes(forKnownMacDeviceID: macDeviceID).count == 1)
+        #expect(await catalog.routes(
+            forKnownMacDeviceID: macDeviceID,
+            instanceTag: "test"
+        ).count == 1)
 
         await catalog.deactivate(scope: 2)
-        #expect(await catalog.routes(forKnownMacDeviceID: macDeviceID).isEmpty)
+        #expect(await catalog.routes(
+            forKnownMacDeviceID: macDeviceID,
+            instanceTag: "test"
+        ).isEmpty)
     }
 
     @Test
@@ -299,18 +338,22 @@ struct MobileIrohRuntimeCompositionTests {
         let registry = PersonalIrohDeviceRegistryDecorator(
             base: nil,
             catalog: catalog,
-            knownRoutes: { requestedDeviceID in
+            knownRoutes: { requestedDeviceID, instanceTag in
                 requestedDeviceID == macDeviceID ? [] : nil
             }
         )
 
         #expect(
-            await registry.freshRoutes(forMacDeviceID: macDeviceID)?.map(\.kind)
+            await registry.freshRoutes(
+                forMacDeviceID: macDeviceID,
+                instanceTag: "test"
+            )?.map(\.kind)
                 == [.iroh]
         )
         #expect(
             await registry.freshRoutes(
-                forMacDeviceID: "123e4567-e89b-42d3-a456-426614174099"
+                forMacDeviceID: "123e4567-e89b-42d3-a456-426614174099",
+                instanceTag: "test"
             ) == nil
         )
         switch await registry.listDevices() {
@@ -532,7 +575,10 @@ private actor MobileIrohBaseRegistry: DeviceRegistryRefreshing {
         self.routes = routes
     }
 
-    func freshRoutes(forMacDeviceID _: String) -> [CmxAttachRoute]? { routes }
+    func freshRoutes(
+        forMacDeviceID _: String,
+        instanceTag _: String?
+    ) -> [CmxAttachRoute]? { routes }
     func listDevices() -> DeviceRegistryListOutcome { .ok([]) }
 }
 

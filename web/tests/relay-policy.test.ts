@@ -5,7 +5,12 @@ import {
 } from "node:crypto";
 
 import {
+  RELAY_ROTATION_MIN_OVERLAP_SECONDS,
+  assertSafeRelayCatalogRotation,
+  configuredRelayCatalog,
+  relayCatalogDigest,
   relayPolicyPayload,
+  relayPolicySigningKey,
   signRelayPolicy,
 } from "../services/relay/catalog";
 import {
@@ -18,6 +23,15 @@ import {
   type RelayCatalog,
 } from "../services/relay/model";
 import { assertCatalogAdvance } from "../services/relay/repository";
+import {
+  MANAGED_RELAY_CATALOG_SEQUENCE,
+  MANAGED_RELAY_URLS,
+} from "../services/iroh/publicationPolicy";
+import {
+  APPROVED_IROH_RELAY_CATALOG,
+  APPROVED_IROH_RELAY_CATALOG_SEQUENCE,
+  APPROVED_IROH_RELAY_URLS,
+} from "../../workers/presence/src/routePrivacy";
 
 const catalog: RelayCatalog = {
   version: 1,
@@ -39,6 +53,89 @@ const catalog: RelayCatalog = {
 };
 
 describe("signed relay policy", () => {
+  test("keeps signed policy, web publication, and Presence on one catalog digest", () => {
+    const configured = configuredRelayCatalog();
+    const presence = parseRelayCatalog(JSON.stringify(APPROVED_IROH_RELAY_CATALOG));
+    const policy = relayPolicyPayload({
+      catalog: configured,
+      nowSeconds: 1_700_000_000,
+      jti: "01890f47-9ff8-7cc2-98b3-2fefdbb4312c",
+    });
+
+    expect(relayCatalogDigest(configured)).toBe(relayCatalogDigest(presence));
+    expect(configured.sequence).toBe(MANAGED_RELAY_CATALOG_SEQUENCE);
+    expect(configured.sequence).toBe(APPROVED_IROH_RELAY_CATALOG_SEQUENCE);
+    expect(configured.relays.map((relay) => relay.url)).toEqual(MANAGED_RELAY_URLS);
+    expect(configured.relays.map((relay) => relay.url)).toEqual(APPROVED_IROH_RELAY_URLS);
+    expect(policy.relays).toEqual(configured.relays);
+  });
+
+  test("enforces add-before-remove rotation and one-policy-lifetime overlap", () => {
+    const current = configuredRelayCatalog();
+    const added = parseRelayCatalog(JSON.stringify({
+      ...current,
+      sequence: current.sequence + 1,
+      relays: [
+        ...current.relays,
+        {
+          id: "cmux-rotation",
+          provider: "cmux",
+          region: "rotation",
+          url: "https://rotation.relay.cmux.dev/",
+        },
+      ],
+    }));
+    expect(() => assertSafeRelayCatalogRotation({ current, next: added })).not.toThrow();
+
+    const replacedInOneStep = parseRelayCatalog(JSON.stringify({
+      ...added,
+      sequence: added.sequence + 1,
+      relays: [
+        ...added.relays.slice(1),
+        {
+          id: "cmux-replacement",
+          provider: "cmux",
+          region: "replacement",
+          url: "https://replacement.relay.cmux.dev/",
+        },
+      ],
+    }));
+    expect(() => assertSafeRelayCatalogRotation({
+      current: added,
+      next: replacedInOneStep,
+      overlapSeconds: RELAY_ROTATION_MIN_OVERLAP_SECONDS,
+    })).toThrow();
+
+    const removed = parseRelayCatalog(JSON.stringify({
+      ...added,
+      sequence: added.sequence + 1,
+      relays: added.relays.slice(1),
+    }));
+    expect(() => assertSafeRelayCatalogRotation({
+      current: added,
+      next: removed,
+      overlapSeconds: RELAY_ROTATION_MIN_OVERLAP_SECONDS - 1,
+    })).toThrow();
+    expect(() => assertSafeRelayCatalogRotation({
+      current: added,
+      next: removed,
+      overlapSeconds: RELAY_ROTATION_MIN_OVERLAP_SECONDS,
+    })).not.toThrow();
+  });
+
+  test("requires a dedicated policy key instead of reusing the relay token key", () => {
+    const { privateKey } = generateKeyPairSync("ed25519");
+    const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    expect(() => relayPolicySigningKey({
+      CMUX_RELAY_POLICY_KEY_ID: "relay-policy-test",
+      CMUX_RELAY_JWT_PRIVATE_KEY_PEM: pem,
+    })).toThrow();
+    expect(relayPolicySigningKey({
+      CMUX_RELAY_POLICY_KEY_ID: "relay-policy-test",
+      CMUX_RELAY_POLICY_PRIVATE_KEY_PEM: pem,
+    }).key.asymmetricKeyType).toBe("ed25519");
+  });
+
   test("matches the exact v1 JWS contract and verifies with Ed25519", () => {
     const { privateKey, publicKey } = generateKeyPairSync("ed25519");
     const payload = relayPolicyPayload({
@@ -154,10 +251,12 @@ describe("signed relay policy", () => {
     expect(() => assertManagedSelectionExists({
       mode: "managed",
       selectedManagedRelayIds: ["cmux-us-west"],
+      customRelays: [],
     }, catalog)).not.toThrow();
     expect(() => assertManagedSelectionExists({
       mode: "managed",
       selectedManagedRelayIds: ["substituted-relay"],
+      customRelays: [],
     }, catalog)).toThrow();
   });
 
@@ -166,6 +265,7 @@ describe("signed relay policy", () => {
       expect(() => parseRelayPreferenceUpdate({
         preference: {
           mode: "custom",
+          selectedManagedRelayIds: [],
           customRelays: [{
             id: "private-relay",
             provider: "private",
@@ -177,5 +277,42 @@ describe("signed relay policy", () => {
         },
       })).toThrow();
     }
+  });
+
+  test("keeps dormant managed selection and custom definitions in every mode", () => {
+    const customRelay = {
+      id: "private-relay",
+      provider: "private",
+      region: "home",
+      url: "https://relay.example.net/",
+      authMode: "none" as const,
+    };
+    const automatic = parseRelayPreferenceUpdate({
+      expectedRevision: 7,
+      preference: {
+        mode: "automatic",
+        selectedManagedRelayIds: ["cmux-us-west"],
+        customRelays: [customRelay],
+      },
+    });
+    expect(automatic.preference).toEqual({
+      mode: "automatic",
+      selectedManagedRelayIds: ["cmux-us-west"],
+      customRelays: [customRelay],
+    });
+    expect(() => parseRelayPreferenceUpdate({
+      preference: {
+        mode: "custom",
+        selectedManagedRelayIds: ["cmux-us-west"],
+        customRelays: [],
+      },
+    })).toThrow();
+    expect(() => parseRelayPreferenceUpdate({
+      preference: {
+        mode: "automatic",
+        selectedManagedRelayIds: ["private-relay"],
+        customRelays: [customRelay],
+      },
+    })).toThrow();
   });
 });

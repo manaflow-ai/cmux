@@ -8,6 +8,7 @@
 // `endpoint_id` binding (so a leaked token cannot be replayed from another key).
 
 import { createPrivateKey, sign as edSign, type KeyObject } from "node:crypto";
+import { configuredRelayCatalog } from "./catalog";
 
 export const RELAY_TOKEN_ISS = "cmux";
 export const RELAY_TOKEN_AUD = "cmux-relay";
@@ -28,28 +29,9 @@ const HEX_ENDPOINT_ID_RE = /^[0-9a-f]{64}$/;
 // iroh's BASE32_NOPAD decoder rejects — so require the canonical final symbol.
 const BASE32_ENDPOINT_ID_RE = /^[a-z2-7]{51}[aq]$/;
 
-// The relay fleet the client should probe (nearest wins). Overridable via env
-// (comma-separated) so the RelayMap can change without a code deploy.
-const DEFAULT_RELAYS = [
-  "https://usc1.relay.cmux.dev",
-  "https://usw1.relay.cmux.dev",
-  "https://use4.relay.cmux.dev",
-  "https://euw4.relay.cmux.dev",
-  "https://apne1.relay.cmux.dev",
-  "https://apse1.relay.cmux.dev",
-  "https://ape1.relay.cmux.dev",
-];
-
+/** Exact canonical fleet retained for compatibility with older route callers. */
 export function relayUrls(): string[] {
-  const raw = process.env.CMUX_RELAY_URLS;
-  if (raw && raw.trim()) {
-    const urls = raw
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (urls.length > 0) return urls;
-  }
-  return DEFAULT_RELAYS;
+  return configuredRelayCatalog().relays.map((relay) => relay.url);
 }
 
 // Note: this checks the exact encoding shape, not that the 32 bytes decode to a

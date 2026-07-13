@@ -100,6 +100,46 @@ struct CmxIrohServerSessionTests {
     }
 
     @Test
+    func relayOnlyAdmissionCompletesBarrierWithoutAuthorizingNatTraversal() async throws {
+        let events = TestIrohEventRecorder()
+        let fixture = try ServerFixture(decision: .accepted, eventRecorder: events)
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.peerID,
+            bidirectionalStreams: [fixture.controlStream],
+            eventRecorder: events
+        )
+        let session = try CmxIrohServerSession(
+            connection: connection,
+            authorizer: fixture.authorizer,
+            protocolConfiguration: .testRelayOnlyApplicationLanes
+        )
+
+        _ = try await session.admit()
+
+        #expect(await connection.observedNatTraversalAuthorizationAttemptCount() == 0)
+        #expect(await connection.observedNatTraversalActivationCount() == 0)
+        #expect(await connection.observedIncomingStreamLimits() == ["1:0", "17:0"])
+        #expect(await events.observedEvents() == [
+            "connection.limits:1:0",
+            "connection.openBidirectionalStream",
+            "control.send",
+            "control.send",
+            "connection.limits:17:0",
+        ])
+        let acknowledgements = await fixture.controlSend.observedSentBuffers()
+        #expect(
+            try CmxIrohAdmissionAckCodec().decodeFramePrefix(
+                try #require(acknowledgements.first)
+            ) == .acceptedRelayOnly
+        )
+        #expect(
+            try CmxIrohAdmissionAckCodec().decodeFramePrefix(
+                try #require(acknowledgements.dropFirst().first)
+            ) == .serverReady
+        )
+    }
+
+    @Test
     func applicationLaneHeaderTimeoutStopsTheStream() async throws {
         let fixture = try ServerFixture(decision: .accepted)
         let stalledReceive = TestBlockingIrohReceiveStream(buffer: Data())

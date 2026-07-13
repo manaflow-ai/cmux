@@ -63,7 +63,7 @@ public actor CmxIrohRelayPolicyService {
         do {
             try await validatePreferenceRevision(
                 response.preferenceRevision,
-                preference: response.preference,
+                configuration: response.preference,
                 accountID: accountID
             )
             let policy = try await policyCache.install(
@@ -72,7 +72,7 @@ public actor CmxIrohRelayPolicyService {
                 now: now
             )
             let resolution = await resolve(
-                preference: response.preference,
+                configuration: response.preference,
                 revision: response.preferenceRevision,
                 policy: policy,
                 relayCredential: relayCredential,
@@ -88,8 +88,15 @@ public actor CmxIrohRelayPolicyService {
                 staleRelayIDs: resolution.effective.staleRelayIDs,
                 accountID: accountID
             )
+            let cleanupFailure = await cleanupOrphanCredentials(
+                configuration: response.preference,
+                accountID: accountID
+            )
             try requireCurrent(operation)
-            publish(resolution.effective, failure: resolution.failure)
+            publish(
+                resolution.effective,
+                failure: cleanupFailure ?? resolution.failure
+            )
             return resolution.effective
         } catch {
             if isCurrent(operation) {
@@ -112,7 +119,7 @@ public actor CmxIrohRelayPolicyService {
         do {
             guard let stored = try await preferenceStore.load(accountID: accountID) else {
                 return publishUnavailable(
-                    preference: nil,
+                    configuration: nil,
                     revision: nil,
                     source: .managedUnavailable,
                     operation: operation,
@@ -122,7 +129,7 @@ public actor CmxIrohRelayPolicyService {
             persisted = stored
         } catch {
             return publishUnavailable(
-                preference: nil,
+                configuration: nil,
                 revision: nil,
                 source: .managedUnavailable,
                 operation: operation,
@@ -130,10 +137,14 @@ public actor CmxIrohRelayPolicyService {
             )
         }
 
-        if case .custom = persisted.requested {
+        let cleanupFailure = await cleanupOrphanCredentials(
+            configuration: persisted.requested,
+            accountID: accountID
+        )
+        if persisted.requested.mode == .custom {
             let policy = try? await policyCache.load(trustRoot: trustRoot, now: now)
             let resolution = await resolve(
-                preference: persisted.requested,
+                configuration: persisted.requested,
                 revision: persisted.revision,
                 policy: policy,
                 relayCredential: nil,
@@ -141,13 +152,19 @@ public actor CmxIrohRelayPolicyService {
                 usedCachedPolicy: policy != nil,
                 now: now
             )
-            return commit(resolution, operation: operation)
+            return commit(
+                Resolution(
+                    effective: resolution.effective,
+                    failure: cleanupFailure ?? resolution.failure
+                ),
+                operation: operation
+            )
         }
 
         do {
             guard let policy = try await policyCache.load(trustRoot: trustRoot, now: now) else {
                 return publishUnavailable(
-                    preference: persisted.requested,
+                    configuration: persisted.requested,
                     revision: persisted.revision,
                     source: .managedUnavailable,
                     operation: operation,
@@ -155,7 +172,7 @@ public actor CmxIrohRelayPolicyService {
                 )
             }
             let resolution = await resolve(
-                preference: persisted.requested,
+                configuration: persisted.requested,
                 revision: persisted.revision,
                 policy: policy,
                 relayCredential: relayCredential,
@@ -163,10 +180,16 @@ public actor CmxIrohRelayPolicyService {
                 usedCachedPolicy: true,
                 now: now
             )
-            return commit(resolution, operation: operation)
+            return commit(
+                Resolution(
+                    effective: resolution.effective,
+                    failure: cleanupFailure ?? resolution.failure
+                ),
+                operation: operation
+            )
         } catch let error as CmxIrohRelayPolicyError where error == .expired {
             return publishUnavailable(
-                preference: persisted.requested,
+                configuration: persisted.requested,
                 revision: persisted.revision,
                 source: .managedUnavailable,
                 operation: operation,
@@ -174,7 +197,7 @@ public actor CmxIrohRelayPolicyService {
             )
         } catch {
             return publishUnavailable(
-                preference: persisted.requested,
+                configuration: persisted.requested,
                 revision: persisted.revision,
                 source: .managedUnavailable,
                 operation: operation,
@@ -183,7 +206,7 @@ public actor CmxIrohRelayPolicyService {
         }
     }
 
-    /// Updates the broker preference, then resolves it against cached verified policy.
+    /// Updates only the active preference while retaining dormant account fields.
     @discardableResult
     public func setPreference(
         _ preference: CmxIrohAccountRelayPreference,
@@ -192,18 +215,105 @@ public actor CmxIrohRelayPolicyService {
         relayCredential: CmxIrohRelayTokenResponse? = nil,
         now: Date = Date()
     ) async throws -> CmxIrohEffectiveRelayPolicy {
+        let current: CmxIrohAccountRelayConfiguration
+        if let live = currentEffective?.requestedConfiguration {
+            current = live
+        } else {
+            current = try await preferenceStore.load(accountID: accountID)?.requested
+                ?? .automatic
+        }
+        return try await setConfiguration(
+            current.updatingActivePreference(preference),
+            accountID: accountID,
+            trustRoot: trustRoot,
+            relayCredential: relayCredential,
+            now: now
+        )
+    }
+
+    /// Replaces the authoritative account configuration using optimistic concurrency.
+    /// Once the broker commits, local cache or Keychain failures are represented in
+    /// diagnostics while the returned state still reflects the committed account.
+    @discardableResult
+    public func setConfiguration(
+        _ configuration: CmxIrohAccountRelayConfiguration,
+        accountID: String,
+        trustRoot: CmxIrohRelayPolicyTrustRoot,
+        relayCredential: CmxIrohRelayTokenResponse? = nil,
+        now: Date = Date()
+    ) async throws -> CmxIrohEffectiveRelayPolicy {
         let operation = beginOperation()
         guard let broker else { throw CmxIrohRelayPolicyServiceError.brokerUnavailable }
-        _ = try JSONEncoder().encode(preference)
-        let expectedRevision = try await preferenceStore.load(accountID: accountID)?.revision
+        _ = try JSONEncoder().encode(configuration)
+        let expectedRevision: Int64?
+        if let liveRevision = currentEffective?.preferenceRevision {
+            expectedRevision = liveRevision
+        } else {
+            expectedRevision = try await preferenceStore.load(accountID: accountID)?.revision
+        }
         let request = try CmxIrohRelayPreferenceUpdateRequest(
             expectedRevision: expectedRevision,
-            preference: preference
+            preference: configuration
         )
-        let response = try await broker.updateRelayPreference(request)
+        let response: CmxIrohRelayPreferenceResponse
+        do {
+            response = try await broker.updateRelayPreference(request)
+        } catch {
+            if let authoritative = try? await broker.relayPreference() {
+                _ = try? await reconcileCommittedConfiguration(
+                    authoritative,
+                    accountID: accountID,
+                    trustRoot: trustRoot,
+                    relayCredential: relayCredential,
+                    now: now,
+                    operation: operation
+                )
+            }
+            throw error
+        }
+        return try await reconcileCommittedConfiguration(
+            response,
+            accountID: accountID,
+            trustRoot: trustRoot,
+            relayCredential: relayCredential,
+            now: now,
+            operation: operation
+        )
+    }
+
+    /// Returns the last authoritative account configuration known in memory.
+    public func accountConfiguration() -> CmxIrohAccountRelayConfiguration? {
+        currentEffective?.requestedConfiguration
+    }
+
+    /// Returns only relay identifiers with configured device-local credentials.
+    /// A `nil` result means secure storage could not be read.
+    public func configuredCustomCredentialRelayIDs(
+        accountID: String
+    ) async -> Set<String>? {
+        do {
+            return Set(try await credentialStore.staticTokens(accountID: accountID).keys)
+        } catch {
+            return nil
+        }
+    }
+
+    private func reconcileCommittedConfiguration(
+        _ response: CmxIrohRelayPreferenceResponse,
+        accountID: String,
+        trustRoot: CmxIrohRelayPolicyTrustRoot,
+        relayCredential: CmxIrohRelayTokenResponse?,
+        now: Date,
+        operation: UInt64
+    ) async throws -> CmxIrohEffectiveRelayPolicy {
+        try await validatePreferenceRevision(
+            response.revision,
+            configuration: response.preference,
+            accountID: accountID
+        )
         let policy = try? await policyCache.load(trustRoot: trustRoot, now: now)
         let resolution = await resolve(
-            preference: response.preference,
+            configuration: response.preference,
             revision: response.revision,
             policy: policy,
             relayCredential: relayCredential,
@@ -211,16 +321,29 @@ public actor CmxIrohRelayPolicyService {
             usedCachedPolicy: policy != nil,
             now: now
         )
-        _ = try await preferenceStore.install(
-            requested: response.preference,
-            effective: resolution.effective.effectivePreference,
-            revision: response.revision,
-            effectivePolicySequence: resolution.effective.managedPolicy?.sequence,
-            staleRelayIDs: resolution.effective.staleRelayIDs,
+        var failure = resolution.failure
+        do {
+            _ = try await preferenceStore.install(
+                requested: response.preference,
+                effective: resolution.effective.effectivePreference,
+                revision: response.revision,
+                effectivePolicySequence: resolution.effective.managedPolicy?.sequence,
+                staleRelayIDs: resolution.effective.staleRelayIDs,
+                accountID: accountID
+            )
+        } catch {
+            failure = .preferencePersistenceUnavailable
+        }
+        if let cleanupFailure = await cleanupOrphanCredentials(
+            configuration: response.preference,
             accountID: accountID
-        )
-        try requireCurrent(operation)
-        publish(resolution.effective, failure: resolution.failure)
+        ) {
+            failure = cleanupFailure
+        }
+        guard isCurrent(operation) else {
+            return currentEffective ?? resolution.effective
+        }
+        publish(resolution.effective, failure: failure)
         return resolution.effective
     }
 
@@ -277,7 +400,7 @@ public actor CmxIrohRelayPolicyService {
     }
 
     private func resolve(
-        preference: CmxIrohAccountRelayPreference,
+        configuration: CmxIrohAccountRelayConfiguration,
         revision: Int64,
         policy: CmxIrohManagedRelayPolicy?,
         relayCredential: CmxIrohRelayTokenResponse?,
@@ -285,11 +408,12 @@ public actor CmxIrohRelayPolicyService {
         usedCachedPolicy: Bool,
         now: Date
     ) async -> Resolution {
+        let preference = configuration.activePreference
         switch preference {
         case .automatic:
             guard let policy else {
                 return unavailableResolution(
-                    preference: preference,
+                    configuration: configuration,
                     revision: revision,
                     source: .managedUnavailable,
                     failure: .policyUnavailable
@@ -297,7 +421,7 @@ public actor CmxIrohRelayPolicyService {
             }
             return resolveManaged(
                 selection: .automatic,
-                requested: preference,
+                requestedConfiguration: configuration,
                 effectivePreference: .automatic,
                 policy: policy,
                 credential: relayCredential,
@@ -309,7 +433,7 @@ public actor CmxIrohRelayPolicyService {
         case let .managed(requestedIDs):
             guard let policy else {
                 return unavailableResolution(
-                    preference: preference,
+                    configuration: configuration,
                     revision: revision,
                     source: .managedUnavailable,
                     failure: .policyUnavailable
@@ -320,7 +444,7 @@ public actor CmxIrohRelayPolicyService {
             let stale = requestedIDs.subtracting(policyIDs)
             guard !surviving.isEmpty else {
                 return unavailableResolution(
-                    preference: preference,
+                    configuration: configuration,
                     revision: revision,
                     source: .managedUnavailable,
                     staleRelayIDs: stale,
@@ -331,7 +455,7 @@ public actor CmxIrohRelayPolicyService {
             }
             return resolveManaged(
                 selection: .only(surviving),
-                requested: preference,
+                requestedConfiguration: configuration,
                 effectivePreference: .managed(surviving),
                 policy: policy,
                 credential: relayCredential,
@@ -346,7 +470,7 @@ public actor CmxIrohRelayPolicyService {
                 tokens = try await credentialStore.staticTokens(accountID: accountID)
             } catch {
                 return unavailableResolution(
-                    preference: preference,
+                    configuration: configuration,
                     revision: revision,
                     source: .customUnavailable,
                     policy: policy,
@@ -361,7 +485,7 @@ public actor CmxIrohRelayPolicyService {
             })
             guard missing.isEmpty else {
                 return unavailableResolution(
-                    preference: preference,
+                    configuration: configuration,
                     revision: revision,
                     source: .customUnavailable,
                     missingCredentialRelayIDs: missing,
@@ -385,7 +509,7 @@ public actor CmxIrohRelayPolicyService {
                         endpointRelayProfile: CmxIrohEndpointRelayProfile(customProfile: custom),
                         managedSnapshot: nil,
                         managedPolicy: policy,
-                        requestedPreference: preference,
+                        requestedConfiguration: configuration,
                         effectivePreference: preference,
                         source: .custom,
                         usedCachedPolicy: usedCachedPolicy,
@@ -395,7 +519,7 @@ public actor CmxIrohRelayPolicyService {
                 )
             } catch {
                 return unavailableResolution(
-                    preference: preference,
+                    configuration: configuration,
                     revision: revision,
                     source: .customUnavailable,
                     policy: policy,
@@ -408,7 +532,7 @@ public actor CmxIrohRelayPolicyService {
 
     private func resolveManaged(
         selection: CmxIrohManagedRelaySelection,
-        requested: CmxIrohAccountRelayPreference,
+        requestedConfiguration: CmxIrohAccountRelayConfiguration,
         effectivePreference: CmxIrohAccountRelayPreference,
         policy: CmxIrohManagedRelayPolicy,
         credential: CmxIrohRelayTokenResponse?,
@@ -421,11 +545,13 @@ public actor CmxIrohRelayPolicyService {
             let snapshot = try CmxIrohRelayPolicySnapshot(policy: policy, selection: selection)
             var selectedCredentials: [CmxIrohRelayConfiguration] = []
             var failure: CmxIrohRelayPolicyFailure?
+            var relayBootstrap: CmxIrohRelayTokenResponse?
             if let credential,
                Set(credential.relayFleet) == Set(policy.relays.map(\.url)),
                credential.relayFleet.count == policy.relays.count,
                let configurations = try? credential.relayConfigurations(now: now) {
                 selectedCredentials = configurations.filter { snapshot.relayURLs.contains($0.url) }
+                relayBootstrap = credential
             } else {
                 failure = .managedCredentialUnavailable
             }
@@ -438,18 +564,19 @@ public actor CmxIrohRelayPolicyService {
                     endpointRelayProfile: profile,
                     managedSnapshot: snapshot,
                     managedPolicy: policy,
-                    requestedPreference: requested,
+                    requestedConfiguration: requestedConfiguration,
                     effectivePreference: effectivePreference,
                     staleRelayIDs: staleRelayIDs,
                     source: .managed,
                     usedCachedPolicy: usedCachedPolicy,
-                    preferenceRevision: revision
+                    preferenceRevision: revision,
+                    relayBootstrap: relayBootstrap
                 ),
                 failure: failure
             )
         } catch {
             return unavailableResolution(
-                preference: requested,
+                configuration: requestedConfiguration,
                 revision: revision,
                 source: .managedUnavailable,
                 staleRelayIDs: staleRelayIDs,
@@ -461,7 +588,7 @@ public actor CmxIrohRelayPolicyService {
     }
 
     private func unavailableResolution(
-        preference: CmxIrohAccountRelayPreference?,
+        configuration: CmxIrohAccountRelayConfiguration?,
         revision: Int64?,
         source: CmxIrohRelayPolicySource,
         staleRelayIDs: Set<String> = [],
@@ -477,7 +604,7 @@ public actor CmxIrohRelayPolicyService {
                     : .unavailableManagedSelection,
                 managedSnapshot: nil,
                 managedPolicy: policy,
-                requestedPreference: preference,
+                requestedConfiguration: configuration,
                 effectivePreference: nil,
                 staleRelayIDs: staleRelayIDs,
                 missingCredentialRelayIDs: missingCredentialRelayIDs,
@@ -490,14 +617,14 @@ public actor CmxIrohRelayPolicyService {
     }
 
     private func publishUnavailable(
-        preference: CmxIrohAccountRelayPreference?,
+        configuration: CmxIrohAccountRelayConfiguration?,
         revision: Int64?,
         source: CmxIrohRelayPolicySource,
         operation: UInt64,
         failure: CmxIrohRelayPolicyFailure
     ) -> CmxIrohEffectiveRelayPolicy {
         let resolution = unavailableResolution(
-            preference: preference,
+            configuration: configuration,
             revision: revision,
             source: source,
             failure: failure
@@ -533,13 +660,40 @@ public actor CmxIrohRelayPolicyService {
 
     private func validatePreferenceRevision(
         _ revision: Int64,
-        preference: CmxIrohAccountRelayPreference,
+        configuration: CmxIrohAccountRelayConfiguration,
         accountID: String
     ) async throws {
+        let currentRevision = currentEffective?.preferenceRevision
+        let currentConfiguration = currentEffective?.requestedConfiguration
+        if let currentRevision, let currentConfiguration {
+            guard revision > currentRevision
+                    || (revision == currentRevision && configuration == currentConfiguration) else {
+                throw CmxIrohRelayPolicyServiceError.preferenceRollback
+            }
+            return
+        }
         guard let existing = try await preferenceStore.load(accountID: accountID) else { return }
         guard revision > existing.revision
-                || (revision == existing.revision && preference == existing.requested) else {
+                || (revision == existing.revision && configuration == existing.requested) else {
             throw CmxIrohRelayPolicyServiceError.preferenceRollback
+        }
+    }
+
+    private func cleanupOrphanCredentials(
+        configuration: CmxIrohAccountRelayConfiguration,
+        accountID: String
+    ) async -> CmxIrohRelayPolicyFailure? {
+        let credentialRelayIDs = Set(configuration.customRelays.compactMap { relay in
+            relay.authMode == .staticToken ? relay.id : nil
+        })
+        do {
+            try await credentialStore.retainCredentials(
+                for: credentialRelayIDs,
+                accountID: accountID
+            )
+            return nil
+        } catch {
+            return .customCredentialUnavailable
         }
     }
 

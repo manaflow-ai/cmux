@@ -52,6 +52,30 @@ struct IrohSettingsModelTests {
         #expect(model.showsSaveError)
     }
 
+    @Test func failedLocalFollowUpReconcilesToCommittedAccountSnapshot() async {
+        let initial = snapshot(sequence: 7, selectedRelayIDs: ["use1"])
+        let committed = snapshot(sequence: 8, selectedRelayIDs: ["euc1"])
+        let controller = IrohSettingsControllerDouble(snapshot: initial)
+        controller.snapshotAfterCustomRelayError = committed
+        controller.customRelayError = TestFailure.rejected
+        let model = IrohSettingsModel(controller: controller)
+
+        let saved = await model.upsertCustomRelay(
+            CmxIrohCustomRelayDraft(
+                displayName: "Committed",
+                provider: "Self-hosted",
+                region: "Home",
+                url: "https://committed.example.test",
+                authMode: .none
+            ),
+            deviceSecret: nil
+        )
+
+        #expect(!saved)
+        #expect(model.snapshot == committed)
+        #expect(model.showsSaveError)
+    }
+
     @Test func cancellingObservationPreventsLaterSnapshotDelivery() async {
         let initial = snapshot(sequence: 1, selectedRelayIDs: ["use1"])
         let firstUpdate = snapshot(sequence: 2, selectedRelayIDs: ["usw1"])
@@ -93,6 +117,18 @@ struct IrohSettingsModelTests {
         #expect(model.snapshot == .unavailable)
     }
 
+    #if DEBUG
+    @Test func relayOnlyMutationUsesTheDebugControllerBoundary() async {
+        let controller = IrohSettingsControllerDouble(snapshot: .unavailable)
+        let model = IrohSettingsModel(controller: controller)
+
+        model.setDebugRelayOnly(true)
+        await waitUntil { controller.debugRelayOnlyMutations == [true] }
+
+        #expect(!model.showsSaveError)
+    }
+    #endif
+
     private func waitUntil(_ predicate: () -> Bool) async {
         var spins = 0
         while !predicate(), spins < 100_000 {
@@ -126,7 +162,10 @@ struct IrohSettingsModelTests {
 }
 
 @MainActor
-private final class IrohSettingsControllerDouble: CmxIrohSettingsControlling {
+private final class IrohSettingsControllerDouble:
+    CmxIrohSettingsControlling,
+    CmxIrohDebugSettingsControlling
+{
     struct CustomRelayMutation: Equatable {
         let relay: CmxIrohCustomRelayDraft
         let deviceSecret: String?
@@ -136,6 +175,8 @@ private final class IrohSettingsControllerDouble: CmxIrohSettingsControlling {
     var preferenceMutations: [CmxIrohRelayPreferenceDraft] = []
     var customRelayMutations: [CustomRelayMutation] = []
     var customRelayError: Error?
+    var snapshotAfterCustomRelayError: CmxIrohSettingsSnapshot?
+    var debugRelayOnlyMutations: [Bool] = []
     var streamCreations = 0
     var streamTerminated = false
     let continuation: AsyncStream<CmxIrohSettingsSnapshot>.Continuation
@@ -164,13 +205,22 @@ private final class IrohSettingsControllerDouble: CmxIrohSettingsControlling {
         _ relay: CmxIrohCustomRelayDraft,
         deviceSecret: String?
     ) async throws {
-        if let customRelayError { throw customRelayError }
+        if let customRelayError {
+            if let snapshotAfterCustomRelayError {
+                snapshot = snapshotAfterCustomRelayError
+            }
+            throw customRelayError
+        }
         customRelayMutations.append(.init(relay: relay, deviceSecret: deviceSecret))
     }
 
     func removeIrohCustomRelay(id: String) async throws {}
     func testIrohCustomRelay(id: String) async -> CmxIrohRelayTestResult { .failed }
     func refreshIrohSettings() async {}
+
+    func setIrohDebugRelayOnly(_ enabled: Bool) async throws {
+        debugRelayOnlyMutations.append(enabled)
+    }
 }
 
 private enum TestFailure: Error {

@@ -7,7 +7,7 @@ public actor CmxIrohRelayPreferenceStore {
         let preference: CmxIrohPersistedRelayPreference
     }
 
-    private static let recordVersion = 1
+    private static let recordVersion = 2
     private let secureStore: any CmxIrohSecureCredentialStoring
     private var busyAccounts: Set<String> = []
     private var accountWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
@@ -24,7 +24,7 @@ public actor CmxIrohRelayPreferenceStore {
     /// Installs one preference revision with rollback and equivocation protection.
     @discardableResult
     public func install(
-        requested: CmxIrohAccountRelayPreference,
+        requested: CmxIrohAccountRelayConfiguration,
         effective: CmxIrohAccountRelayPreference?,
         revision: Int64,
         effectivePolicySequence: Int64?,
@@ -116,7 +116,7 @@ public actor CmxIrohRelayPreferenceStore {
     private func storedRecord(account: String) async throws -> Record? {
         guard let data = try await secureStore.read(account: account) else { return nil }
         guard let record = try? JSONDecoder().decode(Record.self, from: data),
-              record.version == Self.recordVersion,
+              (1 ... Self.recordVersion).contains(record.version),
               record.preference.revision >= 0,
               record.preference.effectivePolicySequence.map({ $0 > 0 }) ?? true,
               record.preference.staleRelayIDs.count

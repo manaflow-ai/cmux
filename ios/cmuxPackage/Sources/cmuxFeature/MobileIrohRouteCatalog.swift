@@ -15,7 +15,7 @@ public actor MobileIrohRouteCatalog {
     static let preferredRoutePriority = -10_000
 
     private var activeScope: UInt64?
-    private var routesByMacDeviceID: [String: [CmxAttachRoute]] = [:]
+    private var routesByMacDeviceID: [String: [String: [CmxAttachRoute]]] = [:]
 
     public init() {}
 
@@ -69,28 +69,45 @@ public actor MobileIrohRouteCatalog {
             $0.deviceID.lowercased()
         }
 
-        var replacement: [String: [CmxAttachRoute]] = [:]
+        var replacement: [String: [String: [CmxAttachRoute]]] = [:]
         replacement.reserveCapacity(grouped.count)
         for (deviceID, bindings) in grouped {
-            let ordered = bindings.sorted(by: Self.bindingSortsBefore)
-            let routes = ordered.enumerated().compactMap { index, binding in
-                try? CmxAttachRoute(
-                    id: "iroh-personal-\(binding.bindingID)",
-                    kind: .iroh,
-                    endpoint: .peer(identity: binding.endpointID, pathHints: []),
-                    priority: Self.preferredRoutePriority + index
-                )
+            let bindingsByTag = Dictionary(grouping: bindings, by: \.tag)
+            var routesByTag: [String: [CmxAttachRoute]] = [:]
+            for (tag, taggedBindings) in bindingsByTag {
+                let ordered = taggedBindings.sorted(by: Self.bindingSortsBefore)
+                let routes = ordered.enumerated().compactMap { index, binding in
+                    try? CmxAttachRoute(
+                        id: "iroh-personal-\(binding.bindingID)",
+                        kind: .iroh,
+                        endpoint: .peer(identity: binding.endpointID, pathHints: []),
+                        priority: Self.preferredRoutePriority + index
+                    )
+                }
+                if !routes.isEmpty {
+                    routesByTag[tag] = routes
+                }
             }
-            if !routes.isEmpty {
-                replacement[deviceID] = routes
+            if !routesByTag.isEmpty {
+                replacement[deviceID] = routesByTag
             }
         }
         routesByMacDeviceID = replacement
     }
 
     /// Returns authenticated personal-account routes for an already-known Mac.
-    public func routes(forKnownMacDeviceID macDeviceID: String) -> [CmxAttachRoute] {
-        routesByMacDeviceID[macDeviceID.lowercased()] ?? []
+    public func routes(
+        forKnownMacDeviceID macDeviceID: String,
+        instanceTag: String?
+    ) -> [CmxAttachRoute] {
+        guard let routesByTag = routesByMacDeviceID[macDeviceID.lowercased()] else {
+            return []
+        }
+        if let instanceTag {
+            return routesByTag[instanceTag] ?? []
+        }
+        guard routesByTag.count == 1 else { return [] }
+        return routesByTag.values.first ?? []
     }
 
     /// Clears this exact lifecycle scope, ignoring stale teardown callbacks.
@@ -132,24 +149,39 @@ public actor MobileIrohRouteCatalog {
 public struct PersonalIrohDeviceRegistryDecorator: DeviceRegistryRefreshing {
     private let base: (any DeviceRegistryRefreshing)?
     private let catalog: MobileIrohRouteCatalog
-    private let knownRoutes: @Sendable (_ macDeviceID: String) async -> [CmxAttachRoute]?
+    private let knownRoutes: @Sendable (
+        _ macDeviceID: String,
+        _ instanceTag: String?
+    ) async -> [CmxAttachRoute]?
 
     public init(
         base: (any DeviceRegistryRefreshing)?,
         catalog: MobileIrohRouteCatalog,
-        knownRoutes: @escaping @Sendable (_ macDeviceID: String) async -> [CmxAttachRoute]?
+        knownRoutes: @escaping @Sendable (
+            _ macDeviceID: String,
+            _ instanceTag: String?
+        ) async -> [CmxAttachRoute]?
     ) {
         self.base = base
         self.catalog = catalog
         self.knownRoutes = knownRoutes
     }
 
-    public func freshRoutes(forMacDeviceID macDeviceID: String) async -> [CmxAttachRoute]? {
-        async let baseRoutes = base?.freshRoutes(forMacDeviceID: macDeviceID)
-        guard let localRoutes = await knownRoutes(macDeviceID) else {
+    public func freshRoutes(
+        forMacDeviceID macDeviceID: String,
+        instanceTag: String?
+    ) async -> [CmxAttachRoute]? {
+        async let baseRoutes = base?.freshRoutes(
+            forMacDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        guard let localRoutes = await knownRoutes(macDeviceID, instanceTag) else {
             return await baseRoutes
         }
-        let personalRoutes = await catalog.routes(forKnownMacDeviceID: macDeviceID)
+        let personalRoutes = await catalog.routes(
+            forKnownMacDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
         let teamRoutes = await baseRoutes
         guard !personalRoutes.isEmpty else { return teamRoutes }
         let networkRoutes: [CmxAttachRoute]

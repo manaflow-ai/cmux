@@ -75,7 +75,8 @@ struct CmxIrohRelayPolicyBrokerTests {
         let client = try makeClient(transport: transport)
 
         let current = try await client.relayPreference()
-        #expect(current.preference == .managed(["cmux-us"]))
+        let currentConfiguration = try CmxIrohAccountRelayConfiguration.managed(["cmux-us"])
+        #expect(current.preference == currentConfiguration)
         #expect(current.revision == 0)
 
         let definition = try CmxIrohCustomRelayDefinition(
@@ -92,7 +93,8 @@ struct CmxIrohRelayPolicyBrokerTests {
                 preference: .custom([definition])
             )
         )
-        #expect(updated.preference == .custom([definition]))
+        let updatedConfiguration = try CmxIrohAccountRelayConfiguration.custom([definition])
+        #expect(updated.preference == updatedConfiguration)
         #expect(updated.revision == 1)
 
         let requests = await transport.requests()
@@ -109,6 +111,7 @@ struct CmxIrohRelayPolicyBrokerTests {
         let preference = try #require(object["preference"] as? [String: Any])
         #expect(preference["mode"] as? String == "custom")
         #expect(preference["relays"] == nil)
+        #expect(preference["selectedManagedRelayIds"] as? [String] == [])
         let relays = try #require(preference["customRelays"] as? [[String: Any]])
         #expect(relays.first?["authMode"] as? String == "device_secret")
     }

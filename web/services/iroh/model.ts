@@ -1,8 +1,6 @@
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import { IrohInvalidInputError } from "./errors";
-import { MANAGED_RELAY_URLS } from "./publicationPolicy";
-
 export { MANAGED_RELAY_URLS } from "./publicationPolicy";
 
 export const IROH_ALPN = "cmux/mobile/1";
@@ -265,7 +263,7 @@ export function parseIrohPathHint(value: unknown, now: Date): IrohPathHint {
     throw new IrohInvalidInputError({ code: "invalid_path_hint_profile" });
   }
   const hintValue = kind === "relay_url"
-    ? managedRelayUrl(hint.value, source)
+    ? relayUrl(hint.value, source, privacyScope)
     : literalSocketAddress(hint.value, privacyScope, source);
   const parsed: IrohPathHint = {
     kind,
@@ -351,11 +349,37 @@ function parseNetworkProfile(
   return { source, profile_id: profileId };
 }
 
-function managedRelayUrl(value: unknown, source: IrohPathHint["source"]): string {
-  if (source !== "native" || typeof value !== "string" || !MANAGED_RELAY_URLS.includes(value as typeof MANAGED_RELAY_URLS[number])) {
-    throw new IrohInvalidInputError({ code: "unmanaged_relay_hint" });
+function relayUrl(
+  value: unknown,
+  source: IrohPathHint["source"],
+  privacyScope: IrohPathHint["privacy_scope"],
+): string {
+  if (
+    source !== "native" ||
+    privacyScope !== "public_internet" ||
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > 2_048
+  ) {
+    throw new IrohInvalidInputError({ code: "invalid_relay_hint" });
   }
-  return value;
+  try {
+    const parsed = new URL(value);
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.username ||
+      parsed.password ||
+      parsed.search ||
+      parsed.hash ||
+      parsed.pathname !== "/" ||
+      parsed.toString() !== value
+    ) {
+      throw new Error("non-canonical relay URL");
+    }
+    return value;
+  } catch {
+    throw new IrohInvalidInputError({ code: "invalid_relay_hint" });
+  }
 }
 
 function assertAddressSafe(

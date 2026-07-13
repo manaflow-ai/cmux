@@ -1,20 +1,26 @@
 import CmuxIrohTransport
+import CmuxMobileRPC
 import Foundation
 
 public enum MobileIrohTerminalLaneError: Error, Equatable, Sendable {
     case closed
     case emptyInput
     case inputTooLarge
+    case truncatedOutputFrame
+    case invalidSurfaceID
 }
 
 /// iOS owner for one independent Iroh terminal byte lane.
 ///
-/// Mac output remains raw PTY bytes. iOS input uses bounded length-prefixed
-/// UTF-8 frames so QUIC receive chunking can never split or corrupt a character.
-public actor MobileIrohTerminalLane {
+/// Mac output wraps raw PTY bytes in bounded sequence-aware envelopes. iOS input
+/// uses bounded length-prefixed UTF-8 frames so QUIC receive chunking can never
+/// split or corrupt a character.
+public actor MobileIrohTerminalLane: MobileTerminalLaneConnection {
     public static let maximumInputByteCount = 16 * 1_024
 
     private let stream: CmxIrohBidirectionalStream
+    private var outputDecoder = CmxIrohTerminalOutputEnvelopeDecoder()
+    private var pendingOutputEnvelopes: [CmxIrohTerminalOutputEnvelope] = []
     private var closed = false
 
     init(stream: CmxIrohBidirectionalStream) {
@@ -25,6 +31,30 @@ public actor MobileIrohTerminalLane {
     public func receive(maximumByteCount: Int = 64 * 1_024) async throws -> Data? {
         guard !closed else { return nil }
         return try await stream.receiveStream.receive(maximumByteCount: maximumByteCount)
+    }
+
+    /// Reads one complete output envelope regardless of QUIC receive chunking.
+    public func receiveOutput() async throws -> MobileTerminalLaneOutputFrame? {
+        while pendingOutputEnvelopes.isEmpty {
+            guard !closed else { return nil }
+            guard let bytes = try await stream.receiveStream.receive(
+                maximumByteCount: 64 * 1_024
+            ) else {
+                guard !outputDecoder.hasBufferedBytes else {
+                    throw MobileIrohTerminalLaneError.truncatedOutputFrame
+                }
+                return nil
+            }
+            pendingOutputEnvelopes.append(contentsOf: try outputDecoder.append(bytes))
+        }
+        let envelope = pendingOutputEnvelopes.removeFirst()
+        return MobileTerminalLaneOutputFrame(
+            kind: envelope.kind == .replay ? .replay : .chunk,
+            retainedBaseSequence: envelope.retainedBaseSequence,
+            sequence: envelope.sequence,
+            currentSequence: envelope.currentSequence,
+            bytes: envelope.payload
+        )
     }
 
     /// Sends one terminal input operation as an exact UTF-8 frame.

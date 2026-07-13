@@ -31,6 +31,7 @@ describe("relay workflows", () => {
         preference: {
           mode: "managed",
           selectedManagedRelayIds: ["managed-removed"],
+          customRelays: [],
         },
         revision: 4,
       }),
@@ -51,6 +52,7 @@ describe("relay workflows", () => {
     expect(result.preference).toEqual({
       mode: "managed",
       selectedManagedRelayIds: ["managed-removed"],
+      customRelays: [],
     });
     expect(result.preferenceRevision).toBe(4);
   });

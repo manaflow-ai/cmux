@@ -43,7 +43,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         let ttlSeconds: Int64
         let relays: [String]
         let policy: String?
-        let preference: CmxIrohAccountRelayPreference?
+        let preference: CmxIrohAccountRelayConfiguration?
         let preferenceRevision: Int64?
     }
     private struct RelayTokenHeader: Decodable {

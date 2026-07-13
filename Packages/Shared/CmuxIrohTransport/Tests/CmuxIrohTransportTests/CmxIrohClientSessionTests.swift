@@ -97,6 +97,45 @@ struct CmxIrohClientSessionTests {
     }
 
     @Test
+    func relayOnlyAdmissionCompletesBarrierWithoutAuthorizingNatTraversal() async throws {
+        let events = TestIrohEventRecorder()
+        let control = controlStream(
+            decision: .accepted,
+            acceptedFrame: .acceptedRelayOnly,
+            trailingBytes: Data("rpc".utf8),
+            eventRecorder: events
+        )
+        let connection = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: [control.stream],
+            eventRecorder: events
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(),
+            credential: credential
+        )
+
+        try await session.connect()
+
+        #expect(await connection.observedNatTraversalAuthorizationAttemptCount() == 0)
+        #expect(await connection.observedNatTraversalActivationCount() == 0)
+        #expect(await control.send.observedSentBuffers().count == 2)
+        #expect(await events.observedEvents() == [
+            "connection.limits:0:0",
+            "connection.openBidirectionalStream",
+            "control.send",
+            "control.send",
+        ])
+        #expect(try await session.receiveControl() == Data("rpc".utf8))
+    }
+
+    @Test
     func privateHintsAreAttemptedOnlyAfterPublicFailure() async throws {
         let control = controlStream(decision: .accepted)
         let connection = TestIrohConnection(
@@ -390,6 +429,7 @@ struct CmxIrohClientSessionTests {
 
     func controlStream(
         decision: CmxIrohAdmissionDecision,
+        acceptedFrame: CmxIrohAdmissionFrame = .acceptedPendingNatTraversal,
         trailingBytes: Data = Data(),
         serverConfirmationStatus: UInt8? = 3,
         eventRecorder: TestIrohEventRecorder? = nil
@@ -399,8 +439,14 @@ struct CmxIrohClientSessionTests {
         } else {
             Data()
         }
+        let initialFrame = switch decision {
+        case .accepted:
+            CmxIrohAdmissionAckCodec().encodeFrame(acceptedFrame)
+        case .denied:
+            CmxIrohAdmissionAckCodec().encode(decision)
+        }
         let receive = TestIrohReceiveStream(
-            buffer: CmxIrohAdmissionAckCodec().encode(decision) + finalFrame + trailingBytes
+            buffer: initialFrame + finalFrame + trailingBytes
         )
         let send = TestIrohSendStream(
             eventRecorder: eventRecorder,

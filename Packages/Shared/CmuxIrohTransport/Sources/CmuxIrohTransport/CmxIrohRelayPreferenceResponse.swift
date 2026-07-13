@@ -5,14 +5,14 @@ public struct CmxIrohRelayPreferenceResponse: Codable, Equatable, Sendable {
         case revision = "preferenceRevision"
     }
 
-    /// Current account preference.
-    public let preference: CmxIrohAccountRelayPreference
+    /// Complete current account configuration.
+    public let preference: CmxIrohAccountRelayConfiguration
 
     /// Monotonic preference revision.
     public let revision: Int64
 
     /// Creates a validated preference response.
-    public init(preference: CmxIrohAccountRelayPreference, revision: Int64) throws {
+    public init(preference: CmxIrohAccountRelayConfiguration, revision: Int64) throws {
         guard revision >= 0 else { throw CmxIrohRelayPolicyError.invalidClaims }
         self.preference = preference
         self.revision = revision
@@ -23,7 +23,7 @@ public struct CmxIrohRelayPreferenceResponse: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         do {
             try self.init(
-                preference: container.decode(CmxIrohAccountRelayPreference.self, forKey: .preference),
+                preference: container.decode(CmxIrohAccountRelayConfiguration.self, forKey: .preference),
                 revision: container.decode(Int64.self, forKey: .revision)
             )
         } catch {

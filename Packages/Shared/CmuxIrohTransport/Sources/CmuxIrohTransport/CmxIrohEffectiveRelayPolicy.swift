@@ -9,8 +9,13 @@ public struct CmxIrohEffectiveRelayPolicy: Equatable, Sendable {
     /// Latest verified managed catalog, retained even when custom or direct-only is active.
     public let managedPolicy: CmxIrohManagedRelayPolicy?
 
-    /// Account preference requested by the broker.
-    public let requestedPreference: CmxIrohAccountRelayPreference?
+    /// Complete account configuration requested by the broker.
+    public let requestedConfiguration: CmxIrohAccountRelayConfiguration?
+
+    /// Active preference derived from ``requestedConfiguration``.
+    public var requestedPreference: CmxIrohAccountRelayPreference? {
+        requestedConfiguration?.activePreference
+    }
 
     /// Preference subset that could safely be honored.
     public let effectivePreference: CmxIrohAccountRelayPreference?
@@ -30,27 +35,34 @@ public struct CmxIrohEffectiveRelayPolicy: Equatable, Sendable {
     /// Monotonic broker preference revision, when one was restored.
     public let preferenceRevision: Int64?
 
+    /// The endpoint-scoped credential returned with this exact broker policy.
+    ///
+    /// Kept internal so tokens cannot cross the transport/settings boundary.
+    let relayBootstrap: CmxIrohRelayTokenResponse?
+
     init(
         endpointRelayProfile: CmxIrohEndpointRelayProfile,
         managedSnapshot: CmxIrohRelayPolicySnapshot?,
         managedPolicy: CmxIrohManagedRelayPolicy?,
-        requestedPreference: CmxIrohAccountRelayPreference?,
+        requestedConfiguration: CmxIrohAccountRelayConfiguration?,
         effectivePreference: CmxIrohAccountRelayPreference?,
         staleRelayIDs: Set<String> = [],
         missingCredentialRelayIDs: Set<String> = [],
         source: CmxIrohRelayPolicySource,
         usedCachedPolicy: Bool,
-        preferenceRevision: Int64?
+        preferenceRevision: Int64?,
+        relayBootstrap: CmxIrohRelayTokenResponse? = nil
     ) {
         self.endpointRelayProfile = endpointRelayProfile
         self.managedSnapshot = managedSnapshot
         self.managedPolicy = managedPolicy
-        self.requestedPreference = requestedPreference
+        self.requestedConfiguration = requestedConfiguration
         self.effectivePreference = effectivePreference
         self.staleRelayIDs = staleRelayIDs
         self.missingCredentialRelayIDs = missingCredentialRelayIDs
         self.source = source
         self.usedCachedPolicy = usedCachedPolicy
         self.preferenceRevision = preferenceRevision
+        self.relayBootstrap = relayBootstrap
     }
 }

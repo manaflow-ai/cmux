@@ -105,11 +105,11 @@ function rowPreference(row: {
   readonly customRelays: unknown;
   readonly revision: number;
 }): RelayPreferenceRecord {
-  const candidate: unknown = row.mode === "automatic"
-    ? { mode: "automatic" }
-    : row.mode === "managed"
-      ? { mode: "managed", selectedManagedRelayIds: row.selectedManagedRelayIds }
-      : { mode: "custom", customRelays: row.customRelays };
+  const candidate: unknown = {
+    mode: row.mode,
+    selectedManagedRelayIds: row.selectedManagedRelayIds,
+    customRelays: row.customRelays,
+  };
   const parsed = relayPreferenceSchema.safeParse(candidate);
   if (!parsed.success || !Number.isSafeInteger(row.revision) || row.revision < 0) {
     throw new Error("invalid persisted relay preference");
@@ -216,19 +216,11 @@ export const RelayRepositoryLive = Layer.succeed(RelayRepository, {
             });
           }
           const revision = currentRevision + 1;
-          const values = preference.mode === "automatic"
-            ? { mode: "automatic" as const, selectedManagedRelayIds: [], customRelays: [] }
-            : preference.mode === "managed"
-              ? {
-                  mode: "managed" as const,
-                  selectedManagedRelayIds: preference.selectedManagedRelayIds,
-                  customRelays: [],
-                }
-              : {
-                  mode: "custom" as const,
-                  selectedManagedRelayIds: [],
-                  customRelays: preference.customRelays,
-                };
+          const values = {
+            mode: preference.mode,
+            selectedManagedRelayIds: preference.selectedManagedRelayIds,
+            customRelays: preference.customRelays,
+          };
           const [saved] = await tx
             .insert(irohRelayPreferences)
             .values({

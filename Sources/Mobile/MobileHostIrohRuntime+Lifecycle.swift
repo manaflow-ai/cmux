@@ -4,6 +4,27 @@ import CmuxIrohTransport
 import Foundation
 
 extension MobileHostIrohRuntime {
+    var protocolConfiguration: CmxIrohProtocolConfiguration {
+        #if DEBUG
+        let allowsNATTraversalAfterAdmission = !Self.isDebugRelayOnlyEnabled
+        #else
+        let allowsNATTraversalAfterAdmission = true
+        #endif
+        return CmxIrohProtocolConfiguration(
+            alpn: CmxIrohProtocolConfiguration.cmuxMobileV1.alpn,
+            maximumHeaderByteCount: CmxIrohProtocolConfiguration.cmuxMobileV1.maximumHeaderByteCount,
+            maximumConcurrentClientApplicationLaneCount:
+                MobileHostIrohApplicationLaneRouter.maximumConcurrentLaneCount,
+            allowsNATTraversalAfterAdmission: allowsNATTraversalAfterAdmission
+        )
+    }
+
+    #if DEBUG
+    static var isDebugRelayOnlyEnabled: Bool {
+        UserDefaults.standard.bool(forKey: debugRelayOnlyDefaultsKey)
+    }
+    #endif
+
     /// Fences lifecycle work before auth begins its first asynchronous token read.
     func beginSignOutPreparation() {
         guard signOutPreparationTask == nil else { return }
@@ -362,3 +383,17 @@ extension MobileHostIrohRuntime {
         return value.isEmpty ? nil : value
     }
 }
+
+#if DEBUG
+extension MobileHostIrohRuntime: CmxIrohDebugSettingsControlling {
+    func setIrohDebugRelayOnly(_ enabled: Bool) async throws {
+        guard Self.isDebugRelayOnlyEnabled != enabled else { return }
+        UserDefaults.standard.set(enabled, forKey: Self.debugRelayOnlyDefaultsKey)
+        publishIrohSettingsUpdate()
+        await scheduleReconcile(
+            eraseAccountState: false,
+            restartActiveRuntime: true
+        ).value
+    }
+}
+#endif
