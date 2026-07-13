@@ -12,6 +12,57 @@ import Testing
 /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/7899.
 @Suite("Worktree include integration")
 struct WorktreeIncludeIntegrationTests {
+    @Test("generated sample directory cannot be replaced by an included symlink")
+    func generatedSampleDirectoryCannotEscapeWorktree() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-worktree-sample-reservation-\(UUID().uuidString)", isDirectory: true)
+        let projectRoot = root.appendingPathComponent("Project", isDirectory: true)
+        let outside = root.appendingPathComponent("outside", isDirectory: true)
+        let outsideIndex = outside.appendingPathComponent("index.html")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try "outside\n".write(to: outsideIndex, atomically: true, encoding: .utf8)
+        try runGit(["init"], in: projectRoot)
+        try "cmux-sample-dev\n".write(
+            to: projectRoot.appendingPathComponent(".gitignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "cmux-sample-dev\n".write(
+            to: projectRoot.appendingPathComponent(".worktreeinclude"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "hello\n".write(
+            to: projectRoot.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.createSymbolicLink(
+            at: projectRoot.appendingPathComponent("cmux-sample-dev"),
+            withDestinationURL: outside
+        )
+        try runGit(["add", ".gitignore", ".worktreeinclude", "README.md"], in: projectRoot)
+        try runGit([
+            "-c", "user.name=cmux Test",
+            "-c", "user.email=cmux@example.invalid",
+            "commit", "-m", "initial",
+        ], in: projectRoot)
+
+        let result = try await CmuxExtensionWorktreePrototype.createWorktree(projectRootPath: projectRoot.path)
+        let generatedSample = URL(fileURLWithPath: result.worktreePath)
+            .appendingPathComponent("cmux-sample-dev", isDirectory: true)
+        let generatedValues = try generatedSample.resourceValues(
+            forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+        )
+
+        #expect(generatedValues.isDirectory == true)
+        #expect(generatedValues.isSymbolicLink != true)
+        #expect(try String(contentsOf: outsideIndex, encoding: .utf8) == "outside\n")
+    }
+
     @Test("sidebar worktree creation copies ignored files listed in .worktreeinclude")
     func sidebarCreationCopiesIncludedIgnoredFile() async throws {
         let root = FileManager.default.temporaryDirectory

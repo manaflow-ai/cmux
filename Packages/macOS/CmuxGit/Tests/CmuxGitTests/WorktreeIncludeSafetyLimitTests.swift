@@ -4,6 +4,67 @@ import Testing
 @testable import CmuxGit
 
 @Suite struct WorktreeIncludeSafetyLimitTests {
+    @Test func cleanupPreservesConcurrentDestinationReplacement() throws {
+        let (root, source, destination) = try makeRepositoryFixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceFile = source.appendingPathComponent("payload")
+        let destinationFile = destination.appendingPathComponent("payload")
+        let displacedCopy = destination.appendingPathComponent("payload.displaced")
+        try Data([0x41]).write(to: sourceFile)
+
+        let diagnostics = WorktreeIncludeCopyService(
+            fileManager: .default,
+            limits: WorktreeIncludeCopyLimits(
+                maximumItemCount: 10,
+                maximumByteCount: 1,
+                freeSpaceReserve: 0
+            ),
+            availableCapacity: { _ in 1_024 },
+            destinationFileCreated: { createdFile in
+                try? FileManager.default.moveItem(at: createdFile, to: displacedCopy)
+                try? Data("concurrent\n".utf8).write(to: createdFile)
+            },
+            sourceItemInspected: { inspectedItem in
+                guard inspectedItem == sourceFile,
+                      let handle = try? FileHandle(forWritingTo: inspectedItem) else { return }
+                try? handle.truncate(atOffset: 2)
+                try? handle.close()
+            }
+        ).copy(relativePaths: ["payload"], from: source, to: destination)
+
+        #expect(diagnostics.contains { $0.localizedCaseInsensitiveContains("copy limit") })
+        #expect(try Data(contentsOf: destinationFile) == Data("concurrent\n".utf8))
+    }
+
+    @Test func capacityIsRecheckedBeforeCreatingMetadataOnlyItems() throws {
+        let (root, source, destination) = try makeRepositoryFixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceDirectory = source.appendingPathComponent("cache", isDirectory: true)
+        let inspectionMarker = root.appendingPathComponent("source-inspected")
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+
+        let diagnostics = WorktreeIncludeCopyService(
+            fileManager: .default,
+            limits: WorktreeIncludeCopyLimits(
+                maximumItemCount: 10,
+                maximumByteCount: 1_024,
+                freeSpaceReserve: 512
+            ),
+            availableCapacity: { _ in
+                FileManager.default.fileExists(atPath: inspectionMarker.path) ? 512 : 513
+            },
+            sourceItemInspected: { inspectedItem in
+                guard inspectedItem == sourceDirectory else { return }
+                _ = FileManager.default.createFile(atPath: inspectionMarker.path, contents: Data())
+            }
+        ).copy(relativePaths: ["cache"], from: source, to: destination)
+
+        #expect(diagnostics.contains { $0.localizedCaseInsensitiveContains("free space") })
+        #expect(!FileManager.default.fileExists(
+            atPath: destination.appendingPathComponent("cache").path
+        ))
+    }
+
     @Test func destinationSymlinkAncestorCannotEscapeWorktree() throws {
         let (root, source, destination) = try makeRepositoryFixture()
         defer { try? FileManager.default.removeItem(at: root) }

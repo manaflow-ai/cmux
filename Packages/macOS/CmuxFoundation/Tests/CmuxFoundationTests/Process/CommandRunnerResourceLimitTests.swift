@@ -120,4 +120,82 @@ import Testing
         #expect(kill(pid, 0) == -1)
         #expect(errno == ESRCH)
     }
+
+    @Test(.timeLimit(.minutes(1)))
+    func processTreeTerminationUsesLeaderPIDAfterImmediateExit() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-command-orphan-cancellation-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let pidFile = root.appendingPathComponent("descendant-pid.txt")
+        let helperSource = root.appendingPathComponent("immediate-exit.c")
+        let helperExecutable = root.appendingPathComponent("immediate-exit")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try """
+        #include <signal.h>
+        #include <stdio.h>
+        #include <stdlib.h>
+        #include <unistd.h>
+
+        int main(int argc, char **argv) {
+            if (argc != 2) return 2;
+            pid_t child = fork();
+            if (child < 0) return 3;
+            if (child == 0) {
+                signal(SIGTERM, SIG_IGN);
+                signal(SIGHUP, SIG_IGN);
+                FILE *file = fopen(argv[1], "w");
+                if (file == NULL) _exit(4);
+                fprintf(file, "%d\\n", getpid());
+                fclose(file);
+                for (;;) pause();
+            }
+            _exit(0);
+        }
+        """.write(to: helperSource, atomically: true, encoding: .utf8)
+        let compiler = Process()
+        compiler.executableURL = URL(fileURLWithPath: "/usr/bin/clang")
+        compiler.arguments = [helperSource.path, "-o", helperExecutable.path]
+        compiler.standardOutput = FileHandle.nullDevice
+        compiler.standardError = FileHandle.nullDevice
+        try compiler.run()
+        compiler.waitUntilExit()
+        #expect(compiler.terminationStatus == 0)
+
+        let process = Process()
+        process.executableURL = helperExecutable
+        process.arguments = [pidFile.path]
+        process.currentDirectoryURL = root
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        try process.run()
+        process.waitUntilExit()
+        for _ in 0..<500 {
+            if (try? pidFile.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) ?? 0 > 0 {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let pid = try #require(Int32(
+            String(contentsOf: pidFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        defer {
+            if kill(pid, 0) == 0 {
+                _ = kill(pid, SIGKILL)
+            }
+        }
+
+        await withCheckedContinuation { continuation in
+            CommandProcessTreeTerminator.terminate(
+                process,
+                processGroupID: nil,
+                completion: { continuation.resume() }
+            )
+        }
+
+        #expect(kill(pid, 0) == -1)
+        #expect(errno == ESRCH)
+    }
 }
