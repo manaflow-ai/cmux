@@ -1072,6 +1072,73 @@ struct MobileHostAuthorizationTests {
         let recordedMethods = await requestRecorder.recordedMethods()
         #expect(recordedMethods == ["workspace.list"])
     }
+    @Test func testWorkspaceDiffCoordinatorReplacesPendingRequestWhileActiveWorkIsStalled() async throws {
+        let coordinator = MobileWorkspaceDiffRequestCoordinator()
+        let activeStarted = AsyncTestSignal()
+        let activeCancelled = AsyncTestSignal()
+        let activeGate = MobileWorkspaceDiffOperationGate()
+        let secondFinished = AsyncTestSignal()
+
+        let first = Task {
+            await coordinator.perform {
+                await withTaskCancellationHandler {
+                    activeStarted.fulfill()
+                    await activeGate.wait()
+                    return .ok(["request": "first"])
+                } onCancel: {
+                    activeCancelled.fulfill()
+                }
+            }
+        }
+        try await activeStarted.wait()
+
+        let second = Task {
+            let result = await coordinator.perform {
+                .ok(["request": "second"])
+            }
+            secondFinished.fulfill()
+            return result
+        }
+        try await activeCancelled.wait()
+
+        let thirdSubmitted = AsyncTestSignal()
+        let third = Task {
+            thirdSubmitted.fulfill()
+            return await coordinator.perform {
+                .ok(["request": "third"])
+            }
+        }
+        try await thirdSubmitted.wait()
+
+        let supersededFinishedBeforeActiveRelease: Bool
+        do {
+            try await secondFinished.wait(timeout: 1)
+            supersededFinishedBeforeActiveRelease = true
+        } catch {
+            supersededFinishedBeforeActiveRelease = false
+        }
+
+        await activeGate.release()
+        _ = await first.value
+        let secondResult = await second.value
+        let thirdResult = await third.value
+
+        #expect(
+            supersededFinishedBeforeActiveRelease,
+            "A replaced pending request must finish while cancelled active work is still stalled"
+        )
+        guard case let .failure(secondError) = secondResult else {
+            Issue.record("The replaced pending request did not return cancellation")
+            return
+        }
+        #expect(secondError.code == "cancelled")
+        guard case let .ok(thirdPayload) = thirdResult,
+              let thirdDictionary = thirdPayload as? [String: String] else {
+            Issue.record("The newest pending request did not run after active work stopped")
+            return
+        }
+        #expect(thirdDictionary["request"] == "third")
+    }
     // MARK: - Advertised mobile host capabilities
     @Test func testMobileHostAdvertisesWorkspaceActionCapabilities() {
         let capabilities = MobileHostService.mobileHostCapabilities
@@ -1265,6 +1332,21 @@ private final class AsyncTestSignal: @unchecked Sendable {
                 throw AsyncTestSignalError.timedOut
             }
         }
+    }
+}
+private actor MobileWorkspaceDiffOperationGate {
+    private var isReleased = false
+    private var waiter: CheckedContinuation<Void, Never>?
+    func wait() async {
+        guard !isReleased else { return }
+        await withCheckedContinuation { continuation in
+            waiter = continuation
+        }
+    }
+    func release() {
+        isReleased = true
+        waiter?.resume()
+        waiter = nil
     }
 }
 private final class SendableSemaphore: @unchecked Sendable {

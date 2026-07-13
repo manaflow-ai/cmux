@@ -61,6 +61,58 @@ import Testing
         }
     }
 
+    @Test func changedFilesPipelineUsesOneAggregateDeadlineAcrossCommands() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let trackedFile = repo.appendingPathComponent("tracked.txt")
+        try Data("original\n".utf8).write(to: trackedFile)
+        try runTestGit(in: repo, ["add", "--", "tracked.txt"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add tracked file"])
+        try Data("changed\n".utf8).write(to: trackedFile)
+
+        let invocationLog = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-git-listing-invocations-\(UUID().uuidString).log")
+        defer { try? FileManager.default.removeItem(at: invocationLog) }
+        let delayedGit = repo.appendingPathComponent("delayed-git.sh")
+        try Data(
+            "#!/bin/sh\ndelayed=0\nfor argument do\n  case \"$argument\" in\n    --numstat|--name-status|--others|--raw) delayed=1 ;;\n  esac\ndone\nif [ \"$delayed\" = 1 ]; then\n  printf 'listing\\n' >> \(invocationLog.path.debugDescription)\n  /bin/sleep 0.12\nfi\nexec /usr/bin/git \"$@\"\n".utf8
+        ).write(to: delayedGit)
+        try makeExecutable(delayedGit)
+        let service = GitDiffService(
+            gitExecutableURL: delayedGit,
+            processDeadlineSeconds: 0.35
+        )
+        let clock = ContinuousClock()
+        let started = clock.now
+
+        let result = service.changedFilesResult(repoRoot: repo.path)
+        let elapsed = started.duration(to: clock.now)
+        let invocationCount = try String(contentsOf: invocationLog, encoding: .utf8)
+            .split(separator: "\n")
+            .count
+
+        switch result {
+        case .timedOut:
+            break
+        case .success:
+            Issue.record(
+                "The pipeline completed \(invocationCount) sequential listings in \(elapsed) by resetting the deadline"
+            )
+            return
+        case .failed, .notFound:
+            Issue.record("The delayed listing fixture failed before exercising the aggregate deadline")
+            return
+        }
+        #expect(
+            elapsed < .seconds(1),
+            "The pipeline continued running after its aggregate deadline: \(elapsed)"
+        )
+        #expect(
+            invocationCount <= 4,
+            "The pipeline started \(invocationCount) Git listings after its shared budget should have stopped it"
+        )
+    }
+
     private func makeTempRepo() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-git-diff-result-tests-\(UUID().uuidString)")
@@ -82,6 +134,18 @@ import Testing
             try #require(process.terminationStatus == 0)
         }
         return root
+    }
+
+    private func runTestGit(in root: URL, _ arguments: [String]) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = arguments
+        process.currentDirectoryURL = root
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        try #require(process.terminationStatus == 0)
     }
 
     private func makeExecutable(_ url: URL) throws {
