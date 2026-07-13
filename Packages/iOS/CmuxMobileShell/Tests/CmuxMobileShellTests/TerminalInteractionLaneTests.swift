@@ -12,11 +12,38 @@ struct TerminalInteractionLaneTests {
         #expect(TerminalScrollSession.interactionDeadlineMilliseconds == 200)
         #expect(TerminalScrollSession.interactionDeadlineDuration == .milliseconds(200))
         #expect(TerminalScrollSession.interactionDeadlineDuration <= .milliseconds(200))
-        #expect(TerminalScrollSession.interactionRPCDeadlineNanoseconds == 200_000_000)
+        #expect(TerminalRPCDeadlinePolicy.interaction.timeoutNanoseconds == 200_000_000)
+        #expect(TerminalRPCDeadlinePolicy.input.timeoutNanoseconds == nil)
         #expect(
-            TerminalScrollSession.interactionRPCDeadlineNanoseconds
+            TerminalRPCDeadlinePolicy.interaction.timeoutNanoseconds
                 == TerminalScrollSession.interactionDeadlineMilliseconds * 1_000_000
         )
+    }
+
+    @Test("large input is not governed by the scroll deadline")
+    func largeInputIgnoresScrollDeadline() async throws {
+        let harness = InteractionLaneHarness()
+        harness.holdInputs = true
+        let session = harness.makeSession()
+        let image = Data(repeating: 0xA5, count: 1_000_000)
+
+        let receipt = session.submitInput(.image(image, format: "png", workspaceID: "workspace-1"))
+        try await requireEventually { harness.remoteInputs.count == 1 }
+        guard case .inputSend = session.phase else {
+            Issue.record("Expected a dispatched input send")
+            return
+        }
+
+        harness.deadline.fire()
+        await Task.yield()
+
+        #expect(harness.replayEpochs.isEmpty)
+        guard case .inputSend = session.phase else {
+            Issue.record("Scroll deadline must not end an input send")
+            return
+        }
+        harness.remoteInputs[0].continuation.resume(returning: true)
+        #expect(await receipt.value)
     }
 
     @Test("scroll deadline releases the newest live frame and requests replay")
@@ -206,11 +233,16 @@ private final class InteractionLaneHarness {
         let continuation: CheckedContinuation<Bool, Never>
     }
 
+    struct PendingInput {
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
     let deadline = TerminalInteractionDeadlineSignal()
     var localReceipts: [TerminalSurfaceMutationReceipt] = []
     var barrierReceipts: [TerminalSurfaceMutationReceipt] = []
     var remoteScrolls: [PendingScroll] = []
     var remoteClicks: [PendingClick] = []
+    var remoteInputs: [PendingInput] = []
     var events: [Event] = []
     var deliveredReconciliations: [(UInt64, UInt64)] = []
     var deferredFrame: String?
@@ -219,6 +251,7 @@ private final class InteractionLaneHarness {
     var bottomSnapCount = 0
     var momentumCancellationCount = 0
     var supportsOrderedRuns = false
+    var holdInputs = false
     var epoch: UInt64 = 1
 
     func makeSession() -> TerminalScrollSession {
@@ -263,9 +296,13 @@ private final class InteractionLaneHarness {
                 }
             },
             sendInput: { [weak self] _, epoch, input in
-                guard case .text(let text, _) = input else { return true }
-                self?.events.append(.input(epoch: epoch, text: text))
-                return true
+                if case .text(let text, _) = input {
+                    self?.events.append(.input(epoch: epoch, text: text))
+                }
+                guard self?.holdInputs == true else { return true }
+                return await withCheckedContinuation { continuation in
+                    self?.remoteInputs.append(PendingInput(continuation: continuation))
+                }
             },
             supportsOrderedRemoteRuns: { [weak self] in
                 self?.supportsOrderedRuns == true
