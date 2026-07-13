@@ -352,6 +352,9 @@ export class CmuxClient {
   setRatio(pane: Id, dir: SplitDirection, ratio: number): Promise<EmptyResult> {
     return this.request("set-ratio", { pane, dir, ratio });
   }
+  setSplitRatio(split: Id, ratio: number): Promise<EmptyResult> {
+    return this.request("set-split-ratio", { split, ratio });
+  }
   paneNeighbor(pane: Id, dir: PaneDirection): Promise<PaneNeighborResult> {
     return this.request("pane-neighbor", { pane, dir });
   }
@@ -393,7 +396,7 @@ export class CmuxClient {
 
   async attachSurface(surface: Id): Promise<CmuxStream<DecodedAttachEvent>> {
     const protocol = this.protocol ?? (await this.identify()).protocol;
-    if (protocol > 6 || (protocol > 5 && !this.allowProtocolV6Attach)) {
+    if (protocol > 7 || (protocol > 5 && !this.allowProtocolV6Attach)) {
       throw new CmuxProtocolError(`unsupported attach protocol ${protocol}`);
     }
     return this.openStream(

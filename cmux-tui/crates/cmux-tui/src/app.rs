@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use cmux_tui_core::{
     BrowserSource, BrowserStatus, MuxEvent, PaneId, Rect, SplitDir, SplitEdge, SurfaceId,
-    SurfaceKind, WorkspaceId, layout_screen, split_for_pane_edge, split_sides,
+    SurfaceKind, WorkspaceId, exact_split_for_pane_edge, layout_screen, split_sides,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -2794,40 +2794,36 @@ impl App {
         let Some((edge, target)) = candidates
             .into_iter()
             .filter_map(|(split_edge, pane_edge)| {
-                split_for_pane_edge(&screen.layout, self.content_area, pane, split_edge)
+                exact_split_for_pane_edge(&screen.layout, self.content_area, pane, split_edge)
                     .map(|target| (pane_edge, target))
             })
             .min_by_key(|(_, target)| target.area.width as u32 * target.area.height as u32)
         else {
             return;
         };
-        let (current, dir, sign) = match edge {
+        let (current, sign) = match edge {
             PaneEdge::Left => (
                 (area.rect.x.saturating_sub(target.area.x)) as f32
                     / target.area.width.max(1) as f32,
-                SplitDir::Right,
                 -1.0,
             ),
             PaneEdge::Right => (
                 (area.rect.x + area.rect.width).saturating_sub(target.area.x) as f32
                     / target.area.width.max(1) as f32,
-                SplitDir::Right,
                 1.0,
             ),
             PaneEdge::Top => (
                 (area.rect.y.saturating_sub(target.area.y)) as f32
                     / target.area.height.max(1) as f32,
-                SplitDir::Down,
                 -1.0,
             ),
             PaneEdge::Bottom => (
                 (area.rect.y + area.rect.height).saturating_sub(target.area.y) as f32
                     / target.area.height.max(1) as f32,
-                SplitDir::Down,
                 1.0,
             ),
         };
-        self.session.set_ratio(target.set_pane, dir, (current + delta * sign).clamp(0.05, 0.95));
+        self.session.set_split_ratio(target.split, (current + delta * sign).clamp(0.05, 0.95));
     }
 
     fn resize_split(&mut self, pane: PaneId, edge: PaneEdge, x: u16, y: u16) {
@@ -2838,25 +2834,22 @@ impl App {
             PaneEdge::Top => SplitEdge::Top,
             PaneEdge::Bottom => SplitEdge::Bottom,
         };
-        let Some(target) = split_for_pane_edge(&screen.layout, self.content_area, pane, split_edge)
+        let Some(target) =
+            exact_split_for_pane_edge(&screen.layout, self.content_area, pane, split_edge)
         else {
             return;
         };
-        let (coord, start, extent, dir) = match edge {
-            PaneEdge::Left => (x, target.area.x, target.area.width, SplitDir::Right),
-            PaneEdge::Right => {
-                (x.saturating_add(1), target.area.x, target.area.width, SplitDir::Right)
-            }
-            PaneEdge::Top => (y, target.area.y, target.area.height, SplitDir::Down),
-            PaneEdge::Bottom => {
-                (y.saturating_add(1), target.area.y, target.area.height, SplitDir::Down)
-            }
+        let (coord, start, extent) = match edge {
+            PaneEdge::Left => (x, target.area.x, target.area.width),
+            PaneEdge::Right => (x.saturating_add(1), target.area.x, target.area.width),
+            PaneEdge::Top => (y, target.area.y, target.area.height),
+            PaneEdge::Bottom => (y.saturating_add(1), target.area.y, target.area.height),
         };
         if extent == 0 {
             return;
         }
         let ratio = (coord.saturating_sub(start) as f32 / extent as f32).clamp(0.05, 0.95);
-        self.session.set_ratio(target.set_pane, dir, ratio);
+        self.session.set_split_ratio(target.split, ratio);
     }
 
     fn open_context_menu(&mut self, x: u16, y: u16) {

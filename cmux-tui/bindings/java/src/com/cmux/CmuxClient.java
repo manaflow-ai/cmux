@@ -170,6 +170,13 @@ public final class CmuxClient implements AutoCloseable {
         request("set-ratio", params);
     }
 
+    public void setSplitRatio(long split, double ratio) throws CmuxException {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("split", split);
+        params.put("ratio", ratio);
+        request("set-split-ratio", params);
+    }
+
     public void setDefaultColors(String fg, String bg) throws CmuxException {
         Map<String, Object> params = new LinkedHashMap<>();
         putIfNotNull(params, "fg", fg);
@@ -290,7 +297,7 @@ public final class CmuxClient implements AutoCloseable {
 
     public CmuxStream attachSurface(long surface) throws CmuxException {
         int negotiated = protocol != null ? protocol : identify().protocol();
-        if (negotiated > 6 || (negotiated > 5 && !allowProtocolV6Attach)) {
+        if (negotiated > 7 || (negotiated > 5 && !allowProtocolV6Attach)) {
             throw new CmuxProtocolMismatchException("unsupported attach protocol " + negotiated);
         }
         Map<String, Object> params = new LinkedHashMap<>();

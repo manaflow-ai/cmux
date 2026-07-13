@@ -2,7 +2,7 @@
 
 Generated bindings live under `cmux-tui/bindings/<lang>/` in a future round. They are generated from this spec and validated by the conformance suite in this file.
 
-All bindings must expose the implemented protocol v5 commands, events, and socket transport. Proposed protocol v6 APIs may be generated behind explicit version checks or feature gates.
+All bindings must expose the implemented protocol v5 commands, events, and socket transport plus the protocol-v7 stable split id and `set-split-ratio` API. APIs newer than a connected server may be used only behind explicit version checks or caller opt-in probing.
 
 ## Shared Requirements
 

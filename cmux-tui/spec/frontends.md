@@ -18,11 +18,11 @@ Only after that preamble should the client send protocol requests. See [`transpo
 
 ## 2. Identify the Server
 
-Send [`identify`](commands.md#identify) immediately after connecting. Verify `data.app == "cmux-tui"` and `data.protocol == 6` before enabling protocol-v6 behavior. Preserve request `id` values and route every non-event response back to the pending request with that id.
+Send [`identify`](commands.md#identify) immediately after connecting. Verify `data.app == "cmux-tui"` and `data.protocol == 7` before enabling protocol-v7 behavior. Preserve request `id` values and route every non-event response back to the pending request with that id.
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":6,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":7,"session":"main","pid":12345}}
 ```
 
 ## 3. Load and Track the Workspace Tree
@@ -37,6 +37,8 @@ Call [`list-workspaces`](commands.md#list-workspaces) to load the authoritative 
 4. Process buffered invalidations and re-fetch the affected state.
 
 Treat `tree-changed` as an instruction to call `list-workspaces`, `layout-changed` as an instruction to refresh layout/tree data, and surface/title/notification events as invalidations according to [`events.md`](events.md). Responses and events can be interleaved; route a message with `event` as an event and a message without it as a response.
+
+Every protocol-v7 split layout node has a stable `split` id. Preserve that id as the UI key for the divider and call [`set-split-ratio`](commands.md#set-split-ratio) while dragging. Do not derive divider identity from child panes or tree position. Ratio changes, focus changes, tab changes, and leaf swaps preserve the id; collapsing that node removes it.
 
 ## 4. Attach and Render a Terminal Surface
 
@@ -56,7 +58,7 @@ Browser surfaces use the browser attach events documented in [`events.md`](event
 
 The workspace tree carries per-surface notification state for initial rendering. A subscribed frontend also receives `notification` events with title, body, level, and optional surface. Show the notification and mark the referenced surface as needing attention until the user views it; then use the relevant selection/read path described in [`commands.md`](commands.md).
 
-Call [`list-agents`](commands.md#list-agents) to read current agent records, optionally filtered by surface or state. Agent producers report state through [`report-agent`](commands.md#report-agent); a presentation-only frontend normally reads and displays these records rather than inventing its own agent state. There is no dedicated agent-change event in protocol v6, so re-fetch after a frontend reports state and when tree or surface lifecycle events make the presentation stale.
+Call [`list-agents`](commands.md#list-agents) to read current agent records, optionally filtered by surface or state. Agent producers report state through [`report-agent`](commands.md#report-agent); a presentation-only frontend normally reads and displays these records rather than inventing its own agent state. There is no dedicated agent-change event in protocol v7, so re-fetch after a frontend reports state and when tree or surface lifecycle events make the presentation stale.
 
 ## End-to-End WebSocket Transcript
 
@@ -65,7 +67,7 @@ Each line below is one WebSocket text frame. `C>` is client-to-server and `S>` i
 ```text
 C> {"auth":{"token":"secret"}}
 C> {"id":1,"cmd":"identify"}
-S> {"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":6,"session":"main","pid":12345}}
+S> {"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":7,"session":"main","pid":12345}}
 C> {"id":2,"cmd":"subscribe"}
 S> {"id":2,"ok":true,"data":{}}
 C> {"id":3,"cmd":"list-workspaces"}

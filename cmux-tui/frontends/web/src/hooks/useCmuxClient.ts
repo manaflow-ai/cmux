@@ -87,7 +87,7 @@ export function useCmuxClient() {
       try {
         const info = await client.identify();
         if (info.app !== "cmux-tui") throw new Error(t("wrongApp", { app: info.app }));
-        if (info.protocol !== 6) throw new Error(t("wrongProtocol", { protocol: info.protocol }));
+        if (info.protocol !== 7) throw new Error(t("wrongProtocol", { protocol: info.protocol }));
         const events = await client.subscribe();
         const tree = await client.listWorkspaces();
         if (cancelled) return;

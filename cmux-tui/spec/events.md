@@ -1,6 +1,6 @@
 # Event Contract
 
-This file specifies event lines emitted by protocol v5 and proposed protocol v6. Event lines are JSON objects with an `event` string and no response envelope.
+This file specifies event lines emitted by current protocol v7, including the attach-stream extensions introduced in protocol v6. Event lines are JSON objects with an `event` string and no response envelope.
 
 Implemented event lines can appear on two stream types:
 
@@ -8,7 +8,7 @@ Implemented event lines can appear on two stream types:
 | --- | --- | --- |
 | Subscribe stream | `subscribe` command | `tree-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-exited`, `title-changed`, `bell`, `notification`, `config-reload-requested`, `window-title-requested`, `empty` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached` |
-| Attach stream v6 | `attach-surface` command | `vt-state`, `resized`, `output`, `scroll-changed`, `detached` |
+| Attach stream v6+ | `attach-surface` command | `vt-state`, `resized`, `output`, `scroll-changed`, `detached` |
 
 Events and command responses share one full-duplex connection. Each event or response is a complete transport message: a JSON line on Unix or a text frame on WebSocket. Clients must route messages by checking for `event`. If `event` is absent, the message is a command response and should be matched by `id`.
 
@@ -24,7 +24,7 @@ For a single subscription, events are delivered in the order the mux broadcasts 
 
 `attach-surface` has a stronger ordering contract. The server takes the VT replay snapshot and registers the live output tap under the same terminal lock. The attach stream therefore has no gap and no duplicated bytes between the `vt-state` replay and subsequent `output` chunks. In v5, the `vt-state` event is sent before the `attach-surface` command response.
 
-Protocol v6 attach streams are ordered as `vt-state -> (resized | output)* -> detached`. The v6 `resized` event carries a fresh replay, and attach clients must replace their mirror terminal from that replay before applying later `output` chunks. Clients that support only protocol 5 or older must refuse protocol v6 attach streams. The field name `replay` on the v6 `resized` event could not be verified against this branch's code.
+Protocol v6 and v7 attach streams are ordered as `vt-state -> (resized | output)* -> detached`. The `resized` event carries a fresh replay, and attach clients must replace their mirror terminal from that replay before applying later `output` chunks. Clients that support only protocol 5 or older must refuse these attach streams.
 
 When a surface exits, the mux removes it from the tree itself. Subscribe streams normally receive `tree-changed` and possibly `empty` before `surface-exited` for that surface. By the time `surface-exited` is observed, frontends should consider the surface reaped from authoritative tree state.
 

@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 
 use super::tree::{TreeView, parse_tree};
 
-const SUPPORTED_PROTOCOL_VERSION: u64 = 6;
+const SUPPORTED_PROTOCOL_VERSION: u64 = 7;
 #[derive(Clone)]
 struct RemoteBrowserFrame {
     frame: BrowserFrame,
@@ -221,7 +221,7 @@ impl RemoteSession {
         let protocol = ident.get("protocol").and_then(|v| v.as_u64()).unwrap_or(0);
         if protocol != SUPPORTED_PROTOCOL_VERSION {
             anyhow::bail!(
-                "unsupported cmux-tui protocol {protocol}; this client requires protocol 6; restart the cmux-tui server"
+                "unsupported cmux-tui protocol {protocol}; this client requires protocol 7; restart the cmux-tui server"
             );
         }
         session.request(json!({"cmd": "subscribe"}))?;

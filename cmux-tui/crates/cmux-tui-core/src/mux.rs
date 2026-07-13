@@ -11,7 +11,7 @@ use crate::browser::{self, BrowserBootstrap, BrowserRuntime};
 use crate::layout::{Rect, layout_screen};
 use crate::model::{Node, Pane, Screen, State, Workspace};
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
-use crate::{PaneId, ScreenId, SplitDir, SurfaceId, WorkspaceId};
+use crate::{PaneId, ScreenId, SplitDir, SplitId, SurfaceId, WorkspaceId};
 
 /// Events pushed to subscribed frontends.
 #[derive(Debug, Clone)]
@@ -1138,6 +1138,7 @@ impl Mux {
         });
         let surface = self.spawn_surface(cwd, size)?;
         let pane_id = self.next_id();
+        let split_id = self.next_id();
         let active_at = self.next_active_at();
         let mut done = false;
         let mut changed_screen = None;
@@ -1145,7 +1146,7 @@ impl Mux {
             let mut state = self.state.lock().unwrap();
             'outer: for ws in state.workspaces.iter_mut() {
                 for screen in ws.screens.iter_mut() {
-                    if screen.root.split_leaf(target, dir, pane_id) {
+                    if screen.root.split_leaf(target, split_id, dir, pane_id) {
                         screen.active_pane = pane_id;
                         changed_screen = Some(screen.id);
                         done = true;
@@ -1426,6 +1427,25 @@ impl Mux {
         }
     }
 
+    /// Set one split ratio by its stable split-tree node id.
+    pub fn set_split_ratio(&self, split: SplitId, ratio: f32) -> bool {
+        let ratio = clamp_split_ratio(ratio);
+        let changed_screen =
+            {
+                let mut state = self.state.lock().unwrap();
+                state.workspaces.iter_mut().flat_map(|ws| ws.screens.iter_mut()).find_map(
+                    |screen| screen.root.set_split_ratio(split, ratio).then_some(screen.id),
+                )
+            };
+        if let Some(screen) = changed_screen {
+            self.emit(MuxEvent::TreeChanged);
+            self.emit(MuxEvent::LayoutChanged(screen));
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn pane_neighbor(&self, pane: PaneId, dir: Direction) -> anyhow::Result<Option<PaneId>> {
         self.with_state(|state| {
             let Some((wi, si)) = state.screen_of(pane) else {
@@ -1595,6 +1615,7 @@ impl Mux {
                 Ok(Node::Leaf(pane_id))
             }
             LayoutSpec::Split { dir, ratio, a, b } => Ok(Node::Split {
+                id: self.next_id(),
                 dir: *dir,
                 ratio: clamp_split_ratio(*ratio),
                 a: Box::new(self.instantiate_layout(a, panes, created, spawned)?),
@@ -2154,9 +2175,11 @@ mod tests {
                     id: 1,
                     name: None,
                     root: Node::Split {
+                        id: 10,
                         dir: SplitDir::Right,
                         ratio: 0.5,
                         a: Box::new(Node::Split {
+                            id: 11,
                             dir: SplitDir::Right,
                             ratio: 0.5,
                             a: Box::new(Node::Leaf(p1)),
@@ -2191,7 +2214,7 @@ mod tests {
     fn node_shape(node: &Node) -> String {
         match node {
             Node::Leaf(_) => "leaf".to_string(),
-            Node::Split { dir, ratio, a, b } => {
+            Node::Split { dir, ratio, a, b, .. } => {
                 let dir = match dir {
                     SplitDir::Right => "right",
                     SplitDir::Down => "down",
@@ -2253,7 +2276,7 @@ mod tests {
             fn from_node(node: &Node) -> LayoutSpec {
                 match node {
                     Node::Leaf(_) => leaf_spec(),
-                    Node::Split { dir, ratio, a, b } => {
+                    Node::Split { dir, ratio, a, b, .. } => {
                         split_spec(*dir, *ratio, from_node(a), from_node(b))
                     }
                 }
@@ -2567,6 +2590,59 @@ mod tests {
         });
 
         assert!(!mux.set_ratio(9999, SplitDir::Right, 0.4));
+    }
+
+    #[test]
+    fn set_split_ratio_updates_only_the_exact_split_and_clamps() {
+        let mux = test_mux();
+        seed_split_ratio_tree(&mux);
+        let events = mux.subscribe();
+
+        assert!(mux.set_split_ratio(10, 2.0));
+        mux.with_state(|s| {
+            let Node::Split { id, ratio: root_ratio, a, .. } = &s.workspaces[0].screens[0].root
+            else {
+                panic!("root should be split");
+            };
+            assert_eq!(*id, 10);
+            assert_eq!(*root_ratio, 0.95);
+            let Node::Split { id, ratio: inner_ratio, .. } = a.as_ref() else {
+                panic!("first child should be split");
+            };
+            assert_eq!(*id, 11);
+            assert_eq!(*inner_ratio, 0.5);
+        });
+        assert!(matches!(events.recv().unwrap(), MuxEvent::TreeChanged));
+        assert!(matches!(events.recv().unwrap(), MuxEvent::LayoutChanged(1)));
+        assert!(!mux.set_split_ratio(9999, 0.4));
+    }
+
+    #[test]
+    fn dynamically_created_split_ids_remain_stable_across_tree_edits() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let p1 = mux.with_state(|s| s.pane_of(first.id).unwrap());
+        let second = mux.split(p1, SplitDir::Right, None).unwrap();
+        let p2 = mux.with_state(|s| s.pane_of(second.id).unwrap());
+        let original = mux.with_state(|s| {
+            let Node::Split { id, .. } = &s.workspaces[0].screens[0].root else {
+                panic!("root should be split");
+            };
+            *id
+        });
+
+        let third = mux.split(p2, SplitDir::Down, None).unwrap();
+        let p3 = mux.with_state(|s| s.pane_of(third.id).unwrap());
+        assert!(mux.swap_panes(p1, p3));
+        assert!(mux.set_split_ratio(original, 0.7));
+
+        mux.with_state(|s| {
+            let Node::Split { id, ratio, .. } = &s.workspaces[0].screens[0].root else {
+                panic!("root should remain split");
+            };
+            assert_eq!(*id, original);
+            assert_eq!(*ratio, 0.7);
+        });
     }
 
     #[test]

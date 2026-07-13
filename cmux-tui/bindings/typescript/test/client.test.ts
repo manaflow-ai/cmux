@@ -66,3 +66,17 @@ test("generic request preserves exact wire command and typed result", async () =
   assert.deepEqual(sent, { id: 1, cmd: "ping" });
   await client.close();
 });
+
+test("setSplitRatio sends the stable split id", async () => {
+  let sent: Record<string, unknown> | undefined;
+  const transport = new ScriptedTransport((request, connection) => {
+    sent = request;
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport });
+
+  await client.setSplitRatio(42, 0.65);
+
+  assert.deepEqual(sent, { id: 1, cmd: "set-split-ratio", split: 42, ratio: 0.65 });
+  await client.close();
+});

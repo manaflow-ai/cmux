@@ -42,10 +42,11 @@ use crate::platform::{self, transport};
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction, LayoutLeafSpec,
     LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PaneId, Rgb, ScreenId, SidebarPluginStatus,
-    SplitDir, SurfaceId, SurfaceKind, SurfaceNotification, WorkspaceId, ZoomMode, assign_short_ids,
+    SplitDir, SplitId, SurfaceId, SurfaceKind, SurfaceNotification, WorkspaceId, ZoomMode,
+    assign_short_ids,
 };
 
-pub const PROTOCOL_VERSION: u32 = 6;
+pub const PROTOCOL_VERSION: u32 = 7;
 
 /// Default socket path for a session.
 pub fn default_socket_path(session: &str) -> PathBuf {
@@ -269,6 +270,10 @@ enum Command {
         pane: PaneId,
         /// "right" or "down"
         dir: String,
+        ratio: f32,
+    },
+    SetSplitRatio {
+        split: SplitId,
         ratio: f32,
     },
     PaneNeighbor {
@@ -718,8 +723,9 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 fn node_json(node: &Node) -> Value {
     match node {
         Node::Leaf(id) => json!({ "type": "leaf", "pane": id }),
-        Node::Split { dir, ratio, a, b } => json!({
+        Node::Split { id, dir, ratio, a, b } => json!({
             "type": "split",
+            "split": id,
             "dir": match dir { SplitDir::Right => "right", SplitDir::Down => "down" },
             "ratio": ratio,
             "a": node_json(a),
@@ -1430,6 +1436,12 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &MessageWriter) -> anyho
             }
             Ok(json!({}))
         }
+        Command::SetSplitRatio { split, ratio } => {
+            if !mux.set_split_ratio(split, ratio) {
+                anyhow::bail!("unknown split {split}");
+            }
+            Ok(json!({}))
+        }
         Command::PaneNeighbor { pane, dir } => {
             let dir = parse_direction(&dir)?;
             let pane = mux.pane_neighbor(pane, dir)?;
@@ -1786,6 +1798,63 @@ mod tests {
         assert_eq!(data["ok"].as_bool(), Some(true));
         assert_eq!(data["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(data["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
+        assert_eq!(PROTOCOL_VERSION, 7);
+    }
+
+    #[test]
+    fn split_ids_serialize_stably_and_both_ratio_commands_work() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.split(first_pane, SplitDir::Right, None).unwrap();
+        let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
+
+        let before = handle_command(&mux, Command::ListWorkspaces, &test_writer()).unwrap();
+        let split = before["workspaces"][0]["screens"][0]["layout"]["split"]
+            .as_u64()
+            .expect("protocol v7 split id");
+
+        let request: Request = serde_json::from_value(json!({
+            "id": 1,
+            "cmd": "set-split-ratio",
+            "split": split,
+            "ratio": 0.7
+        }))
+        .unwrap();
+        handle_command(&mux, request.cmd, &test_writer()).unwrap();
+        let after_exact = handle_command(&mux, Command::ListWorkspaces, &test_writer()).unwrap();
+        assert_eq!(after_exact["workspaces"][0]["screens"][0]["layout"]["split"], split);
+        let exact_ratio = after_exact["workspaces"][0]["screens"][0]["layout"]["ratio"]
+            .as_f64()
+            .expect("split ratio");
+        assert!((exact_ratio - 0.7).abs() < 1e-6);
+
+        let legacy: Request = serde_json::from_value(json!({
+            "id": 2,
+            "cmd": "set-ratio",
+            "pane": second_pane,
+            "dir": "right",
+            "ratio": 0.3
+        }))
+        .unwrap();
+        handle_command(&mux, legacy.cmd, &test_writer()).unwrap();
+        let after_legacy = handle_command(&mux, Command::ListWorkspaces, &test_writer()).unwrap();
+        assert_eq!(after_legacy["workspaces"][0]["screens"][0]["layout"]["split"], split);
+        let legacy_ratio = after_legacy["workspaces"][0]["screens"][0]["layout"]["ratio"]
+            .as_f64()
+            .expect("split ratio");
+        assert!((legacy_ratio - 0.3).abs() < 1e-6);
+
+        let unknown: Request = serde_json::from_value(json!({
+            "cmd": "set-split-ratio",
+            "split": 999999,
+            "ratio": 0.5
+        }))
+        .unwrap();
+        assert_eq!(
+            handle_command(&mux, unknown.cmd, &test_writer()).unwrap_err().to_string(),
+            "unknown split 999999"
+        );
     }
 
     #[test]
