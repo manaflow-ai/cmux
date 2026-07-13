@@ -3,10 +3,11 @@
 import CMUXMobileCore
 import CmuxAgentGUIProjection
 import CmuxAgentReplica
+import Foundation
 import Testing
 import UIKit
 
-@Suite @MainActor struct TranscriptRenderingRegressionTests {
+@Suite(.serialized) @MainActor struct TranscriptRenderingRegressionTests {
     @Test func chromePassesBackgroundTouchesToTranscript() {
         let chrome = TranscriptChromePassthroughView(frame: CGRect(x: 0, y: 0, width: 300, height: 600))
         let control = UIButton(frame: CGRect(x: 220, y: 520, width: 60, height: 44))
@@ -57,6 +58,10 @@ import UIKit
         )
         container.loadViewIfNeeded()
         container.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        let window = UIWindow(frame: container.view.frame)
+        window.rootViewController = container
+        window.isHidden = false
+        defer { window.isHidden = true }
         let entries = (1...40).map { seq in
             EntrySnapshot(
                 journalID: JournalID(rawValue: "live-theme"),
@@ -232,6 +237,103 @@ import UIKit
         })
     }
 
+    @Test func failedAskRemeasuresWithoutClippingAndRetryRestoresHeight() throws {
+        let controller = TranscriptListViewController(theme: AgentGUITheme(terminalTheme: .monokai))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = controller
+        window.isHidden = false
+        defer { window.isHidden = true }
+        Self.pumpRenderingRunLoop()
+
+        let journal = JournalID(rawValue: "failed-ask-layout")
+        let entries = (1...40).map { seq in
+            let payload: EntryPayload = seq.isMultiple(of: 2)
+                ? .agentProse(AgentProsePayload(
+                    markdown: "History answer \(seq) keeps the ask near the newest edge."
+                ))
+                : .userMessage(UserMessagePayload(
+                    text: "History prompt \(seq)",
+                    attachmentCount: 0,
+                    hasImage: false
+                ))
+            return EntrySnapshot(
+                journalID: journal,
+                seq: EntrySeq(rawValue: seq),
+                kind: payload.kind,
+                content: EntryContent(contentHash: seq, payload: payload),
+                version: EntityVersion(rawValue: UInt64(seq))
+            )
+        }
+        let ask = PendingAsk(
+            id: "failed-ask",
+            sessionID: AgentSessionID(rawValue: "failed-ask-session"),
+            kind: .question,
+            promptSummary: "Choose a recovery path",
+            options: ["Retry", "Cancel"],
+            state: .active
+        )
+        controller.apply(input: TranscriptProjectionInput(entries: entries, asks: [ask]))
+        Self.pumpRenderingRunLoop()
+
+        let rowID = TranscriptRowID.pendingAsk(ask.id)
+        let indexPath = try #require(controller.dataSource.indexPath(for: rowID))
+        let initialAttributes = try #require(
+            controller.collectionView.layoutAttributesForItem(at: indexPath)
+        )
+        let initialHeight = initialAttributes.frame.height
+        let initialScreenY = controller.collectionView.convert(
+            initialAttributes.frame,
+            to: controller.view
+        ).standardized.minY
+        let pixelTolerance = 1 / (controller.view.window?.screen.scale ?? 1)
+
+        controller.applyPendingAskInteraction(
+            answeringAskID: nil,
+            failedAskID: ask.id,
+            onAnswer: { _, _ in },
+            onShowTerminal: {}
+        )
+        Self.pumpRenderingRunLoop()
+
+        let failedAttributes = try #require(
+            controller.collectionView.layoutAttributesForItem(at: indexPath)
+        )
+        let failedHeight = failedAttributes.frame.height
+        let failedFittingHeight = controller.heightForRow(
+            at: indexPath,
+            width: controller.collectionView.bounds.width
+        )
+        let failedScreenY = controller.collectionView.convert(
+            failedAttributes.frame,
+            to: controller.view
+        ).standardized.minY
+        let failedCell = try #require(
+            controller.collectionView.cellForItem(at: indexPath) as? TranscriptCollectionCell
+        )
+        #expect(failedHeight > initialHeight)
+        #expect(abs(failedHeight - failedFittingHeight) <= pixelTolerance)
+        #expect(failedCell.contentView.bounds.height + pixelTolerance >= failedFittingHeight)
+        #expect(abs(failedScreenY - initialScreenY) <= pixelTolerance)
+
+        controller.applyPendingAskInteraction(
+            answeringAskID: nil,
+            failedAskID: nil,
+            onAnswer: { _, _ in },
+            onShowTerminal: {}
+        )
+        Self.pumpRenderingRunLoop()
+
+        let restoredAttributes = try #require(
+            controller.collectionView.layoutAttributesForItem(at: indexPath)
+        )
+        let restoredScreenY = controller.collectionView.convert(
+            restoredAttributes.frame,
+            to: controller.view
+        ).standardized.minY
+        #expect(abs(restoredAttributes.frame.height - initialHeight) <= pixelTolerance)
+        #expect(abs(restoredScreenY - initialScreenY) <= pixelTolerance)
+    }
+
     @Test func tallFixtureAndBurstAppendImmediatelyUpdateProjection() {
         let model = TranscriptDemoModel()
 
@@ -256,6 +358,10 @@ import UIKit
         let controller = TranscriptListViewController(theme: initial)
         controller.loadViewIfNeeded()
         controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        let window = UIWindow(frame: controller.view.frame)
+        window.rootViewController = controller
+        window.isHidden = false
+        defer { window.isHidden = true }
         let journal = JournalID(rawValue: "theme-test")
         let entries = (1...40).map { seq in
             let payload: EntryPayload = seq.isMultiple(of: 2)
@@ -327,5 +433,10 @@ import UIKit
             verticalFittingPriority: .fittingSizeLevel
         ).height
     }
+
+    private static func pumpRenderingRunLoop() {
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
+    }
+
 }
 #endif

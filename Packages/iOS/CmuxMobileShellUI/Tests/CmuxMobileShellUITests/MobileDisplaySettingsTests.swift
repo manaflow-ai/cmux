@@ -20,6 +20,27 @@ import Testing
         #expect(defaults.object(forKey: "cmux.mobile.workspacePreviewLineCount") == nil)
     }
 
+    @Test func transcriptDensityDefaultsToComfortableWithoutAWrite() throws {
+        let defaults = try makeDefaults("transcriptDensityDefaults")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        #expect(settings.transcriptDensity == .comfortable)
+        #expect(defaults.object(forKey: "cmux.mobile.transcriptDensity") == nil)
+    }
+
+    @Test func transcriptDensityPersistsAcrossInstances() throws {
+        let defaults = try makeDefaults("transcriptDensityPersists")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.transcriptDensity = .compact
+        #expect(MobileDisplaySettings(defaults: defaults).transcriptDensity == .compact)
+        #expect(defaults.string(forKey: "cmux.mobile.transcriptDensity") == "compact")
+    }
+
+    @Test func invalidStoredTranscriptDensityFallsBackToComfortable() throws {
+        let defaults = try makeDefaults("transcriptDensityInvalid")
+        defaults.set("dense", forKey: "cmux.mobile.transcriptDensity")
+        #expect(MobileDisplaySettings(defaults: defaults).transcriptDensity == .comfortable)
+    }
+
     @Test func showAltScreenNoticeDefaultsToTrueWithoutAWrite() throws {
         let defaults = try makeDefaults("altScreenNoticeDefaults")
         let settings = MobileDisplaySettings(defaults: defaults)

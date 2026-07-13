@@ -1,8 +1,6 @@
 #if os(iOS)
 import CmuxAuthRuntime
-#if DEBUG
 import CmuxAgentGUIUI
-#endif
 import CmuxMobileShell
 import CmuxMobileSupport
 import CmuxMobileWorkspace
@@ -189,6 +187,25 @@ struct MobileSettingsView: View {
                 #endif
 
                 Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
+                    Picker(selection: $displaySettings.transcriptDensity) {
+                        Text(L10n.string(
+                            "mobile.settings.transcriptDensity.comfortable",
+                            defaultValue: "Comfortable"
+                        ))
+                        .tag(TranscriptDensity.comfortable)
+                        Text(L10n.string(
+                            "mobile.settings.transcriptDensity.compact",
+                            defaultValue: "Compact"
+                        ))
+                        .tag(TranscriptDensity.compact)
+                    } label: {
+                        Text(L10n.string(
+                            "mobile.settings.transcriptDensity",
+                            defaultValue: "Transcript Density"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsTranscriptDensityPicker")
+
                     Toggle(isOn: $displaySettings.wrapWorkspaceTitles) {
                         Text(L10n.string("mobile.settings.wrapTitles", defaultValue: "Wrap Workspace Titles"))
                     }

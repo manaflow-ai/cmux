@@ -11,9 +11,13 @@ public import UIKit
     private let projector = TranscriptProjector()
     var currentTheme: AgentGUITheme
     var dataSource: UICollectionViewDiffableDataSource<TranscriptListSection, TranscriptRowID>!
+    private let sizingCell = TranscriptCollectionCell(frame: .zero)
     var rowsByID: [TranscriptRowID: TranscriptRow] = [:]
-    private var spacingByID: [TranscriptRowID: TranscriptRowSpacing] = [:]
-    private var currentRows: [TranscriptRow] = []
+    var spacingByID: [TranscriptRowID: TranscriptRowSpacing] = [:]
+    var currentRows: [TranscriptRow] = []
+    var currentDensity: TranscriptDensity = .comfortable
+    var pendingDensity: TranscriptDensity?
+    var isApplyingDensityTransaction = false
     private var latestInput: TranscriptProjectionInput?
     private var scrollAnimator: UIViewPropertyAnimator?
     var isAutoStickingToBottom = false
@@ -36,7 +40,6 @@ public import UIKit
     var expandedActivityTurnIDs = Set<TranscriptTurnID>()
     var onAnswer: (PendingAsk, Int) -> Void = { _, _ in }
     var onShowTerminal: () -> Void = {}
-
     /// Creates the transcript list controller.
     public init(theme: AgentGUITheme) {
         currentTheme = theme
@@ -46,11 +49,9 @@ public import UIKit
     required init?(coder: NSCoder) {
         nil
     }
-
     public override func loadView() {
         view = TranscriptChromePassthroughView()
     }
-
     public override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = UIColor(currentTheme.background)
@@ -96,15 +97,12 @@ public import UIKit
         topMaskView?.apply(theme: theme)
         bottomMaskView?.apply(theme: theme)
         refreshPillTheme()
-        var snapshot = dataSource.snapshot()
-        snapshot.reconfigureItems(snapshot.itemIdentifiers)
-        UIView.performWithoutAnimation {
-            dataSource.apply(snapshot, animatingDifferences: false)
-            collectionView.layoutIfNeeded()
-            if let anchor {
-                restore(anchor: anchor)
-            }
-        }
+        applySnapshot(
+            dataSource.snapshot(),
+            reconfiguring: Set(dataSource.snapshot().itemIdentifiers),
+            anchor: anchor,
+            invalidatingLayout: true
+        )
     }
 
     /// Scrolls to the newest transcript row in flipped space.
@@ -157,12 +155,10 @@ public import UIKit
     }
 
     private func configureCollectionView() {
-        var configuration = UICollectionLayoutListConfiguration(appearance: .plain)
-        configuration.showsSeparators = false
-        // The list layout otherwise installs its system background behind the
-        // clear cells, which breaks terminal-derived palettes.
-        configuration.backgroundColor = .clear
-        let layout = UICollectionViewCompositionalLayout.list(using: configuration)
+        let layout = TranscriptCollectionLayout()
+        layout.heightForItem = { [weak self] indexPath, width in
+            self?.heightForRow(at: indexPath, width: width) ?? 44
+        }
         let collection = TranscriptCollectionView(frame: .zero, collectionViewLayout: layout)
         collection.translatesAutoresizingMaskIntoConstraints = false
         collection.backgroundColor = UIColor(currentTheme.background)
@@ -220,31 +216,61 @@ public import UIKit
                 for: indexPath
             ) as? TranscriptCollectionCell
             guard let self,
-                  let cell,
-                  let row = rowsByID[rowID],
-                  let spacing = spacingByID[rowID]
+                  let cell
             else {
                 return UICollectionViewCell()
             }
-            cell.configure(
-                row: row,
-                spacing: spacing,
-                theme: currentTheme,
-                isActivitySummaryExpanded: row.turnID.map(expandedActivityTurnIDs.contains) ?? false,
-                answeringAskID: answeringAskID,
-                failedAskID: failedAskID,
-                onToggleActivitySummary: { [weak self] in self?.toggleActivitySummary(row: row) },
-                onAnswer: onAnswer,
-                onShowTerminal: onShowTerminal
-            )
-            return cell
+            return self.configure(cell: cell, rowID: rowID)
         }
         var snapshot = NSDiffableDataSourceSnapshot<TranscriptListSection, TranscriptRowID>()
         snapshot.appendSections([.main])
-        dataSource.apply(snapshot, animatingDifferences: false)
+        applySnapshot(snapshot, reconfiguring: [], anchor: nil, invalidatingLayout: false)
         #if DEBUG
         (collectionView as? TranscriptCollectionView)?.allowsReloadData = false
         #endif
+    }
+
+    func configure(
+        cell: TranscriptCollectionCell,
+        rowID: TranscriptRowID
+    ) -> UICollectionViewCell {
+        guard let row = rowsByID[rowID],
+              let spacing = spacingByID[rowID]
+        else {
+            return UICollectionViewCell()
+        }
+        cell.configure(
+            row: row,
+            spacing: spacing,
+            theme: currentTheme,
+            isActivitySummaryExpanded: row.turnID.map(expandedActivityTurnIDs.contains) ?? false,
+            answeringAskID: answeringAskID,
+            failedAskID: failedAskID,
+            onToggleActivitySummary: { [weak self] in self?.toggleActivitySummary(row: row) },
+            onAnswer: onAnswer,
+            onShowTerminal: onShowTerminal
+        )
+        return cell
+    }
+
+    func heightForRow(at indexPath: IndexPath, width: CGFloat) -> CGFloat {
+        guard currentRows.indices.contains(indexPath.item) else { return 44 }
+        let rowID = currentRows[indexPath.item].rowID
+        sizingCell.frame = CGRect(
+            origin: .zero,
+            size: CGSize(width: width, height: 1)
+        )
+        _ = configure(cell: sizingCell, rowID: rowID)
+        let fittedHeight = sizingCell.contentView.systemLayoutSizeFitting(
+            CGSize(
+                width: width,
+                height: UIView.layoutFittingCompressedSize.height
+            ),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        ).height
+        let scale = view.window?.screen.scale ?? traitCollection.displayScale
+        return (fittedHeight * max(scale, 1)).rounded(.up) / max(scale, 1)
     }
 
     private func applyRows(
@@ -252,7 +278,9 @@ public import UIKit
         diff: TranscriptProjectionDiff
     ) {
         pruneExpandedActivityTurns(retaining: rows)
+        guard diff.appliedOperationCount > 0 else { return }
         cancelActiveScrollTransition()
+        let previousIDs = Set(dataSource.snapshot().itemIdentifiers)
         let policy = TranscriptMutationApplyPolicy(
             scrollIsInteracting: isScrollInteractionActive,
             distanceFromBottom: Double(distanceFromBottom),
@@ -264,29 +292,19 @@ public import UIKit
             assertionFailure("Transcript mutations must not animate while the scroll view is tracking, dragging, or decelerating")
         }
         #endif
-        let anchor = mode == .nonAnimatedPreservingAnchor ? captureAnchor() : nil
-        rowsByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.rowID, $0) })
-        spacingByID = TranscriptRowSpacing.resolved(for: rows)
-        let previousIDs = Set(dataSource.snapshot().itemIdentifiers)
+        let anchor = mode == .nonAnimatedPreservingAnchor || mode == .animatedIdleAtBottom
+            ? captureAnchor()
+            : nil
         var snapshot = NSDiffableDataSourceSnapshot<TranscriptListSection, TranscriptRowID>()
         snapshot.appendSections([.main])
         snapshot.appendItems(rows.map(\.rowID), toSection: .main)
-        let reconfigured = diff.updated.filter(previousIDs.contains)
-        if !reconfigured.isEmpty {
-            snapshot.reconfigureItems(Array(reconfigured))
-        }
-        if mode == .animatedIdleAtBottom {
-            let anchor = captureAnchor()
-            UIView.performWithoutAnimation {
-                CATransaction.begin()
-                CATransaction.setDisableActions(true)
-                self.dataSource.apply(snapshot, animatingDifferences: false)
-                self.collectionView.layoutIfNeeded()
-                if let anchor {
-                    self.restore(anchor: anchor)
-                }
-                CATransaction.commit()
-            }
+        applySnapshot(
+            snapshot,
+            reconfiguring: diff.updated,
+            anchor: previousIDs.isEmpty ? nil : anchor,
+            invalidatingLayout: true
+        )
+        if mode == .animatedIdleAtBottom, !previousIDs.isEmpty {
             isAutoStickingToBottom = true
             updateUnreadCountFromVisibility()
             updatePillVisibility()
@@ -306,45 +324,10 @@ public import UIKit
                 self.updatePillVisibility()
             }
             animator.startAnimation()
-        } else {
-            UIView.performWithoutAnimation {
-                CATransaction.begin()
-                CATransaction.setDisableActions(true)
-                self.dataSource.apply(snapshot, animatingDifferences: false)
-                self.collectionView.layoutIfNeeded()
-                if let anchor {
-                    self.restore(anchor: anchor)
-                }
-                CATransaction.commit()
-            }
-            (collectionView as? TranscriptCollectionView)?.updateAccessibilityOrder()
-            updateUnreadCountFromVisibility()
-            updatePillVisibility()
         }
-    }
-
-    private func captureAnchor() -> TranscriptAnchorSnapshot? {
-        let visible = collectionView.indexPathsForVisibleItems.sorted()
-        guard let indexPath = visible.first,
-              let rowID = dataSource.itemIdentifier(for: indexPath),
-              let attributes = collectionView.layoutAttributesForItem(at: indexPath)
-        else {
-            return nil
-        }
-        let screenY = collectionView.convert(attributes.frame, to: view).minY
-        return TranscriptAnchorSnapshot(rowID: rowID, screenY: screenY)
-    }
-
-    private func restore(anchor: TranscriptAnchorSnapshot) {
-        guard let indexPath = dataSource.indexPath(for: anchor.rowID),
-              let attributes = collectionView.layoutAttributesForItem(at: indexPath)
-        else {
-            return
-        }
-        let newScreenY = collectionView.convert(attributes.frame, to: view).minY
-        // Flipped space: d(screenY)/d(offset) = +1, so holding the anchor's
-        // screen position requires subtracting the screen-space displacement.
-        collectionView.contentOffset.y -= newScreenY - anchor.screenY
+        (collectionView as? TranscriptCollectionView)?.updateAccessibilityOrder()
+        updateUnreadCountFromVisibility()
+        updatePillVisibility()
     }
 
     func updateVisualEdgeInsets(preservingBottomPosition: Bool) {
@@ -367,7 +350,11 @@ public import UIKit
             self.collectionView.verticalScrollIndicatorInsets = mappedInsets
             CATransaction.commit()
         }
-        guard preservingBottomPosition, wasNearBottom, !isScrollInteractionActive else {
+        guard preservingBottomPosition,
+              !isApplyingDensityTransaction,
+              wasNearBottom,
+              !isScrollInteractionActive
+        else {
             return
         }
         let newRestOffset = bottomRestOffset
@@ -389,7 +376,7 @@ public import UIKit
         return (value * scale).rounded() / scale
     }
 
-    private func cancelActiveScrollTransition() {
+    func cancelActiveScrollTransition() {
         scrollAnimator?.stopAnimation(true)
         scrollAnimator = nil
         jumpSnapshotView?.removeFromSuperview()
@@ -405,30 +392,18 @@ public import UIKit
         }
         let projection = projector.project(latestInput, previousRows: currentRows)
         currentRows = projection.rows
-        rowsByID = Dictionary(uniqueKeysWithValues: projection.rows.map { ($0.rowID, $0) })
-        spacingByID = TranscriptRowSpacing.resolved(for: projection.rows)
-        let previousIDs = Set(dataSource.snapshot().itemIdentifiers)
         var snapshot = NSDiffableDataSourceSnapshot<TranscriptListSection, TranscriptRowID>()
         snapshot.appendSections([.main])
         snapshot.appendItems(projection.rows.map(\.rowID), toSection: .main)
-        let reconfigured = projection.diff.updated.filter(previousIDs.contains)
-        if !reconfigured.isEmpty {
-            snapshot.reconfigureItems(Array(reconfigured))
-        }
-        UIView.performWithoutAnimation {
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            self.dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
-                guard let self else { return }
-                UIView.performWithoutAnimation {
-                    self.collectionView.layoutIfNeeded()
-                }
-                self.updateUnreadCountFromVisibility()
-                self.updatePillVisibility()
-                completion()
-            }
-            CATransaction.commit()
-        }
+        applySnapshot(
+            snapshot,
+            reconfiguring: projection.diff.updated,
+            anchor: nil,
+            invalidatingLayout: projection.diff.appliedOperationCount > 0
+        )
+        updateUnreadCountFromVisibility()
+        updatePillVisibility()
+        completion()
     }
 
     func updateUnreadCountFromVisibility() {
@@ -495,5 +470,6 @@ extension TranscriptListViewController: UICollectionViewDelegate {
         updateUnreadCountFromVisibility()
         updatePillVisibility()
     }
+
 }
 #endif

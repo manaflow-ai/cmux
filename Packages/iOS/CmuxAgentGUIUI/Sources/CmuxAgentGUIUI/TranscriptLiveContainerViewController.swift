@@ -83,5 +83,11 @@ public import UIKit
     public func setBottomChromeHeight(_ height: CGFloat) {
         transcript.setBottomChromeHeight(height)
     }
+
+    /// Applies the transcript spacing and metadata-type register.
+    /// - Parameter density: The density selected in mobile display settings.
+    public func setDensity(_ density: TranscriptDensity) {
+        transcript.setDensity(density)
+    }
 }
 #endif

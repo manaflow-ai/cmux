@@ -9,6 +9,7 @@ public struct TranscriptLiveControllerRepresentable: UIViewControllerRepresentab
     private let bottomChromeHeight: CGFloat
     private let theme: AgentGUITheme
     private let terminalThemeGeneration: UInt64
+    private let density: TranscriptDensity
     private let answeringAskID: String?
     private let failedAskID: String?
     private let onAnswer: (PendingAsk, Int) -> Void
@@ -20,11 +21,13 @@ public struct TranscriptLiveControllerRepresentable: UIViewControllerRepresentab
     ///   - bottomChromeHeight: Height occupied by bottom composer chrome.
     ///   - theme: Agent GUI palette derived from the current terminal theme.
     ///   - terminalThemeGeneration: Observable generation for terminal-theme changes.
+    ///   - density: Current transcript spacing and metadata-type register.
     public init(
         input: TranscriptProjectionInput,
         bottomChromeHeight: CGFloat,
         theme: AgentGUITheme,
         terminalThemeGeneration: UInt64,
+        density: TranscriptDensity,
         answeringAskID: String?,
         failedAskID: String?,
         onAnswer: @escaping (PendingAsk, Int) -> Void,
@@ -34,6 +37,7 @@ public struct TranscriptLiveControllerRepresentable: UIViewControllerRepresentab
         self.bottomChromeHeight = bottomChromeHeight
         self.theme = theme
         self.terminalThemeGeneration = terminalThemeGeneration
+        self.density = density
         self.answeringAskID = answeringAskID
         self.failedAskID = failedAskID
         self.onAnswer = onAnswer
@@ -45,6 +49,7 @@ public struct TranscriptLiveControllerRepresentable: UIViewControllerRepresentab
             theme: theme,
             terminalThemeGeneration: terminalThemeGeneration
         )
+        controller.setDensity(density)
         controller.apply(input: input)
         controller.applyPendingAskInteraction(
             answeringAskID: answeringAskID,
@@ -64,6 +69,7 @@ public struct TranscriptLiveControllerRepresentable: UIViewControllerRepresentab
             theme: theme,
             terminalThemeGeneration: terminalThemeGeneration
         )
+        uiViewController.setDensity(density)
         uiViewController.apply(input: input)
         uiViewController.applyPendingAskInteraction(
             answeringAskID: answeringAskID,

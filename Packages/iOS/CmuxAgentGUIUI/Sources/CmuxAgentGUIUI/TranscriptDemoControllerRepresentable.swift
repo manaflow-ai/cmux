@@ -8,9 +8,11 @@ struct TranscriptDemoControllerRepresentable: UIViewControllerRepresentable {
     let theme: AgentGUITheme
     let jumpToken: Int
     let bottomChromeHeight: CGFloat
+    let density: TranscriptDensity
 
     func makeUIViewController(context: Context) -> TranscriptDemoContainerViewController {
         let controller = TranscriptDemoContainerViewController(theme: theme)
+        controller.setDensity(density)
         controller.apply(input: input)
         controller.setBottomChromeHeight(bottomChromeHeight)
         return controller
@@ -18,6 +20,7 @@ struct TranscriptDemoControllerRepresentable: UIViewControllerRepresentable {
 
     func updateUIViewController(_ controller: TranscriptDemoContainerViewController, context: Context) {
         controller.apply(theme: theme)
+        controller.setDensity(density)
         controller.apply(input: input)
         controller.setBottomChromeHeight(bottomChromeHeight)
         if context.coordinator.jumpToken != jumpToken {

@@ -10,10 +10,16 @@ public struct TranscriptDemoScreen: View {
     @State private var jumpToken = 0
     @State private var bottomChromeHeight: CGFloat = 0
     @State private var demoText = ""
+    @State private var density: TranscriptDensity
     @FocusState private var demoFieldFocused: Bool
 
     /// Creates the transcript demo screen.
-    public init() {}
+    public init() {
+        let rawDensity = UITestEnvironmentConfig(
+            environment: ProcessInfo.processInfo.environment
+        ).transcriptDensity
+        _density = State(initialValue: rawDensity.flatMap(TranscriptDensity.init(rawValue:)) ?? .comfortable)
+    }
 
     public var body: some View {
         let theme = AgentGUITheme(terminalTheme: TerminalThemeStore.current)
@@ -22,7 +28,8 @@ public struct TranscriptDemoScreen: View {
                 input: model.input,
                 theme: theme,
                 jumpToken: jumpToken,
-                bottomChromeHeight: bottomChromeHeight
+                bottomChromeHeight: bottomChromeHeight,
+                density: density
             )
             .ignoresSafeArea(.keyboard, edges: .bottom)
 
@@ -141,6 +148,23 @@ public struct TranscriptDemoScreen: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(AgentGUIL10n.string("agent.demo.jump", defaultValue: "Jump to bottom"))
+
+            Button {
+                density = density == .comfortable ? .compact : .comfortable
+            } label: {
+                controlIcon(density == .comfortable
+                    ? "rectangle.compress.vertical"
+                    : "rectangle.expand.vertical")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(AgentGUIL10n.string(
+                "agent.demo.densityToggle",
+                defaultValue: "Toggle transcript density"
+            ))
+            .accessibilityValue(density == .comfortable
+                ? AgentGUIL10n.string("agent.demo.density.comfortable", defaultValue: "Comfortable")
+                : AgentGUIL10n.string("agent.demo.density.compact", defaultValue: "Compact"))
+            .accessibilityIdentifier("TranscriptDemoDensityToggle")
         }
         .padding(6)
         .mobileGlassField(cornerRadius: 24)

@@ -14,6 +14,10 @@ struct TranscriptRowContentView: View {
     let onAnswer: (PendingAsk, Int) -> Void
     let onShowTerminal: () -> Void
 
+    private var register: TranscriptRowSpacingRegister {
+        TranscriptRowSpacing.register(for: spacing.density)
+    }
+
     var body: some View {
         switch row.rowKind {
         case .proseAgent(let text, _):
@@ -48,13 +52,14 @@ struct TranscriptRowContentView: View {
                 isExpanded: isActivitySummaryExpanded,
                 summary: summary,
                 theme: theme,
+                density: spacing.density,
                 onToggleExpanded: onToggleActivitySummary
             )
                 .padding(.horizontal, 24)
                 .padding(.top, spacing.top)
                 .padding(.bottom, spacing.bottom)
         case .activityItem(let item):
-            TranscriptActivityItemView(item: item, theme: theme)
+            TranscriptActivityItemView(item: item, theme: theme, density: spacing.density)
                 .padding(.horizontal, 24)
                 .padding(.top, spacing.top)
                 .padding(.bottom, spacing.bottom)
@@ -108,12 +113,12 @@ struct TranscriptRowContentView: View {
 
     private func centered(label: String) -> some View {
         Text(label)
-            .font(.footnote)
+            .font(spacing.density.metadataFont)
             .foregroundStyle(Color(theme.faintForeground))
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 20)
-            .padding(.vertical, 4)
+            .padding(.vertical, register.metadataVerticalPadding)
             .padding(.top, spacing.top)
             .padding(.bottom, spacing.bottom)
             .accessibilityLabel(label)
@@ -124,15 +129,15 @@ struct TranscriptRowContentView: View {
             Image(systemName: symbol(for: activity.kindLabel))
                 .foregroundStyle(Color(theme.faintForeground))
             Text(AgentGUIL10n.activityKind(activity.kindLabel))
-                .font(.footnote.weight(.semibold))
+                .font(spacing.density.metadataFont.weight(.semibold))
             Text(activity.summary)
-                .font(.footnote)
+                .font(spacing.density.metadataFont)
                 .foregroundStyle(Color(theme.dimForeground))
                 .lineLimit(1)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 4)
+        .padding(.vertical, register.activityVerticalPadding)
         .padding(.top, spacing.top)
         .padding(.bottom, spacing.bottom)
         .accessibilityElement(children: .combine)
@@ -153,7 +158,7 @@ struct TranscriptRowContentView: View {
                     "agent.ask.terminalRequired",
                     defaultValue: "Answer this request in Terminal."
                 ))
-                .font(.footnote)
+                .font(spacing.density.metadataFont)
                 .foregroundStyle(Color(theme.dimForeground))
                 terminalButton
             } else {
@@ -182,7 +187,7 @@ struct TranscriptRowContentView: View {
                     "agent.ask.failed",
                     defaultValue: "The answer could not be sent. Try again or use Terminal."
                 ))
-                .font(.footnote)
+                .font(spacing.density.metadataFont)
                 .foregroundStyle(.red)
                 terminalButton
             }

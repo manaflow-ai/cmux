@@ -85,6 +85,27 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "今日" } }
       }
     },
+    "agent.demo.density.compact" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Compact" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コンパクト" } }
+      }
+    },
+    "agent.demo.density.comfortable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Comfortable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ゆったり" } }
+      }
+    },
+    "agent.demo.densityToggle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Toggle transcript density" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "トランスクリプトの密度を切り替え" } }
+      }
+    },
     "agent.demo.burstAppend" : {
       "extractionState" : "manual",
       "localizations" : {

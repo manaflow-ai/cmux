@@ -12,13 +12,14 @@ extension TranscriptListViewController {
         if expandedActivityTurnIDs.remove(turnID) == nil {
             expandedActivityTurnIDs.insert(turnID)
         }
-        var snapshot = dataSource.snapshot()
+        let snapshot = dataSource.snapshot()
         guard snapshot.indexOfItem(row.rowID) != nil else { return }
-        snapshot.reconfigureItems([row.rowID])
-        UIView.performWithoutAnimation {
-            dataSource.apply(snapshot, animatingDifferences: false)
-            collectionView.layoutIfNeeded()
-        }
+        applySnapshot(
+            snapshot,
+            reconfiguring: [row.rowID],
+            anchor: captureAnchor(),
+            invalidatingLayout: true
+        )
     }
 }
 #endif

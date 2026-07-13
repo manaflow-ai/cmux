@@ -97,17 +97,27 @@ final class TranscriptCollectionView: UICollectionView, UIGestureRecognizerDeleg
     #endif
 
     #if DEBUG
-    private func assertRestingRhythmTokens() {
+    func assertRestingRhythmTokens() {
         guard !isTracking, !isDragging, !isDecelerating else { return }
-        let cells = visibleCells.compactMap { $0 as? TranscriptCollectionCell }.sorted {
-            $0.frame.minY < $1.frame.minY
-        }
+        let visibleBounds = bounds.insetBy(dx: 0, dy: -0.5)
+        let cells = visibleCells.compactMap { $0 as? TranscriptCollectionCell }
+            .filter { $0.frame.intersects(visibleBounds) }
+            .sorted { $0.frame.minY < $1.frame.minY }
         for pair in zip(cells, cells.dropFirst()) {
             let geometricGap = pair.1.frame.minY - pair.0.frame.maxY
-            assert(abs(geometricGap) < 0.5, "Transcript cells must remain contiguous")
+            assert(
+                abs(geometricGap) < 0.5,
+                "Transcript cells must remain contiguous (gap: \(geometricGap), frames: \(pair.0.frame), \(pair.1.frame))"
+            )
             guard let newerRow = pair.0.row, let olderRow = pair.1.row else { continue }
             let visualGap = pair.0.rowSpacing.top + pair.1.rowSpacing.bottom
-            let expected = TranscriptRowSpacing.gap(betweenNewer: newerRow, older: olderRow)
+            let activeDensity = pair.0.rowSpacing.density
+            assert(pair.1.rowSpacing.density == activeDensity)
+            let expected = TranscriptRowSpacing.gap(
+                betweenNewer: newerRow,
+                older: olderRow,
+                density: activeDensity
+            )
             assert(abs(expected - visualGap) < 0.5, "Transcript row gap must equal its adjacent-kind rhythm token")
         }
     }

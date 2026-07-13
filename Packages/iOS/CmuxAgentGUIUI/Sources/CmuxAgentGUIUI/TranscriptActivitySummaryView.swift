@@ -6,7 +6,12 @@ struct TranscriptActivitySummaryView: View {
     let isExpanded: Bool
     let summary: TranscriptActivitySummary
     let theme: AgentGUITheme
+    let density: TranscriptDensity
     let onToggleExpanded: () -> Void
+
+    private var register: TranscriptRowSpacingRegister {
+        TranscriptRowSpacing.register(for: density)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
@@ -20,14 +25,14 @@ struct TranscriptActivitySummaryView: View {
                         .foregroundStyle(Color(theme.faintForeground))
                         .accessibilityHidden(true)
                     Text(AgentGUIL10n.activitySummary(summary))
-                        .font(.footnote)
+                        .font(density.metadataFont)
                         .foregroundStyle(Color(theme.faintForeground))
                         .lineLimit(1)
                     Spacer(minLength: 0)
                 }
-                .frame(height: 26)
+                .frame(height: register.activitySummaryLabelHeight)
             }
-            .frame(minHeight: 44)
+            .frame(minHeight: register.activitySummaryMinimumHeight)
             .buttonStyle(.plain)
             .accessibilityLabel(AgentGUIL10n.activitySummary(summary))
             .accessibilityValue(isExpanded
@@ -41,7 +46,7 @@ struct TranscriptActivitySummaryView: View {
             if isExpanded {
                 VStack(spacing: 1) {
                     ForEach(summary.items) { item in
-                        TranscriptActivityItemView(item: item, theme: theme)
+                        TranscriptActivityItemView(item: item, theme: theme, density: density)
                     }
                 }
             }

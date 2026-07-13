@@ -2,6 +2,21 @@ import Testing
 @testable import CmuxMobileSupport
 
 @Suite struct UITestConfigTests {
+    @Test(arguments: ["comfortable", "compact"])
+    func transcriptDensityAcceptsSupportedLaunchValues(value: String) {
+        let config = UITestEnvironmentConfig(environment: [
+            "CMUX_UITEST_TRANSCRIPT_DENSITY": " \(value.uppercased()) ",
+        ])
+        #expect(config.transcriptDensity == value)
+    }
+
+    @Test func transcriptDensityRejectsUnsupportedLaunchValue() {
+        let config = UITestEnvironmentConfig(environment: [
+            "CMUX_UITEST_TRANSCRIPT_DENSITY": "dense",
+        ])
+        #expect(config.transcriptDensity == nil)
+    }
+
     @Test func explicitDisableWinsOverTestHost() {
         let env = [
             "CMUX_UITEST_MOCK_DATA": "0",

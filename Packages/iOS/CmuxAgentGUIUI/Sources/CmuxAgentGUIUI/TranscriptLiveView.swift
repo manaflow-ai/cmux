@@ -12,6 +12,7 @@ public struct TranscriptLiveView: View {
     private let bottomChromeHeight: CGFloat
     private let terminalTheme: TerminalTheme
     private let terminalThemeGeneration: UInt64
+    private let density: TranscriptDensity
     private let onShowTerminal: () -> Void
     @State private var input = TranscriptProjectionInput(entries: [])
     @State private var driver: TranscriptProjectionDriver?
@@ -28,12 +29,14 @@ public struct TranscriptLiveView: View {
     ///   - bottomChromeHeight: Height occupied by bottom composer chrome.
     ///   - terminalTheme: Current terminal theme reported by the attached Mac.
     ///   - terminalThemeGeneration: Observable generation for terminal-theme changes.
+    ///   - density: Current transcript spacing and metadata-type register.
     public init(
         engine: AgentSyncEngine,
         sessionID: AgentSessionID,
         bottomChromeHeight: CGFloat,
         terminalTheme: TerminalTheme,
         terminalThemeGeneration: UInt64,
+        density: TranscriptDensity,
         onShowTerminal: @escaping () -> Void = {}
     ) {
         self.engine = engine
@@ -41,6 +44,7 @@ public struct TranscriptLiveView: View {
         self.bottomChromeHeight = bottomChromeHeight
         self.terminalTheme = terminalTheme
         self.terminalThemeGeneration = terminalThemeGeneration
+        self.density = density
         self.onShowTerminal = onShowTerminal
     }
 
@@ -57,6 +61,7 @@ public struct TranscriptLiveView: View {
                 bottomChromeHeight: bottomChromeHeight,
                 theme: theme,
                 terminalThemeGeneration: terminalThemeGeneration,
+                density: density,
                 answeringAskID: answeringAskID,
                 failedAskID: failedAskID,
                 onAnswer: answer,

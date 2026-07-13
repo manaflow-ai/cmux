@@ -3,7 +3,7 @@ import CmuxAgentGUIProjection
 import UIKit
 
 final class TranscriptDemoContainerViewController: UIViewController {
-    private let transcript: TranscriptListViewController
+    let transcript: TranscriptListViewController
     private var currentTheme: AgentGUITheme
 
     init(theme: AgentGUITheme) {
@@ -51,6 +51,10 @@ final class TranscriptDemoContainerViewController: UIViewController {
 
     func setBottomChromeHeight(_ height: CGFloat) {
         transcript.setBottomChromeHeight(height)
+    }
+
+    func setDensity(_ density: TranscriptDensity) {
+        transcript.setDensity(density)
     }
 }
 #endif

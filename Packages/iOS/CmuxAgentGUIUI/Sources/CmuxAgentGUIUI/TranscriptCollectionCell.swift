@@ -4,7 +4,7 @@ import CmuxAgentReplica
 import SwiftUI
 import UIKit
 
-final class TranscriptCollectionCell: UICollectionViewListCell {
+final class TranscriptCollectionCell: UICollectionViewCell {
     private(set) var rowSpacing = TranscriptRowSpacing(top: 0, bottom: 0)
 
     override init(frame: CGRect) {
@@ -47,7 +47,7 @@ final class TranscriptCollectionCell: UICollectionViewListCell {
         contentConfiguration = UIHostingConfiguration {
             TranscriptRowContentView(
                 row: row,
-                spacing: rowSpacing,
+                spacing: spacing,
                 theme: theme,
                 isActivitySummaryExpanded: isActivitySummaryExpanded,
                 answeringAskID: answeringAskID,
@@ -58,7 +58,7 @@ final class TranscriptCollectionCell: UICollectionViewListCell {
             )
         }
         .margins(.all, 0)
-        // UICollectionViewListCell may refresh its default background when its
+        // UICollectionViewCell may refresh its default background when its
         // hosting configuration changes. Reassert transparency so the single
         // transcript canvas remains visible through row gaps.
         backgroundConfiguration = .clear()

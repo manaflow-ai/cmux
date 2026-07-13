@@ -1,3 +1,4 @@
+import CmuxAgentGUIUI
 import Foundation
 import Observation
 
@@ -23,6 +24,7 @@ public final class MobileDisplaySettings {
     private static let wrapWorkspaceTitlesKey = "cmux.mobile.wrapWorkspaceTitles"
     private static let showAltScreenNoticeKey = "cmux.mobile.showAltScreenNotice"
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
+    private static let transcriptDensityKey = "cmux.mobile.transcriptDensity"
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
     private static let profilePictureLeftShiftKey = "cmux.mobile.debug.profilePictureLeftShift"
     private static let profilePictureSizeKey = "cmux.mobile.debug.profilePictureSize"
@@ -70,6 +72,12 @@ public final class MobileDisplaySettings {
         }
     }
 
+    /// The transcript's vertical and metadata-type register. Defaults to comfortable.
+    /// Mutating this writes the raw value through to the injected ``UserDefaults``.
+    public var transcriptDensity: TranscriptDensity {
+        didSet { defaults.set(transcriptDensity.rawValue, forKey: Self.transcriptDensityKey) }
+    }
+
     /// DEBUG-only layout tuning value, exposed in Settings > Developer. Positive
     /// values move the unread indicator left without changing row column widths.
     public var unreadIndicatorLeftShift: Double {
@@ -112,6 +120,8 @@ public final class MobileDisplaySettings {
         self.workspacePreviewLineCount = Self.clampedWorkspacePreviewLineCount(
             storedPreviewLines ?? Self.defaultWorkspacePreviewLineCount
         )
+        self.transcriptDensity = defaults.string(forKey: Self.transcriptDensityKey)
+            .flatMap(TranscriptDensity.init(rawValue:)) ?? .comfortable
         let storedUnreadLeftShift = defaults.object(forKey: Self.unreadIndicatorLeftShiftKey) as? Double
         self.unreadIndicatorLeftShift = Self.clamped(
             storedUnreadLeftShift ?? Self.defaultUnreadIndicatorLeftShift,

@@ -4540,6 +4540,57 @@
         }
       }
     },
+    "mobile.settings.transcriptDensity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcript Density"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トランスクリプトの密度"
+          }
+        }
+      }
+    },
+    "mobile.settings.transcriptDensity.comfortable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comfortable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゆったり"
+          }
+        }
+      }
+    },
+    "mobile.settings.transcriptDensity.compact": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compact"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンパクト"
+          }
+        }
+      }
+    },
     "mobile.settings.profilePictureLeftness": {
       "extractionState": "manual",
       "localizations": {

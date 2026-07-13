@@ -30,5 +30,5 @@ struct TranscriptMutationApplyPolicy: Hashable, Sendable {
         return .nonAnimatedPreservingAnchor
     }
 
-    private static let bottomStickinessThreshold = 40.0
+    static let bottomStickinessThreshold = 40.0
 }

@@ -37,6 +37,7 @@ extension WorkspaceDetailView {
                     bottomChromeHeight: transcriptBottomChromeHeight,
                     terminalTheme: TerminalThemeStore.current,
                     terminalThemeGeneration: store.terminalThemeGeneration,
+                    density: displaySettings.transcriptDensity,
                     onShowTerminal: { guiModeSelected = false }
                 )
                 .ignoresSafeArea(.keyboard, edges: .bottom)
