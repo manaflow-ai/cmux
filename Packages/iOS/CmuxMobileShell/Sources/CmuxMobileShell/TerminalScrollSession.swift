@@ -48,7 +48,7 @@ final class TerminalScrollSession {
         _ input: TerminalInputIntent
     ) async -> Bool
     typealias SupportsOrderedRemoteRuns = @MainActor @Sendable () -> Bool
-    typealias InteractionDeadline = @MainActor @Sendable () async -> Void
+    typealias InteractionDeadline = @MainActor @Sendable (_ budget: Duration) async -> Void
     typealias PrepareIntent = @MainActor @Sendable () -> Void
     typealias DeliverAuthoritative = @MainActor @Sendable (
         _ frame: MobileTerminalRenderGridFrame,
@@ -139,11 +139,22 @@ final class TerminalScrollSession {
 
     nonisolated static let maximumQueuedInteractionCount = 64
     nonisolated static let interactionDeadlineMilliseconds: UInt64 = 200
+    nonisolated static let maximumInteractionPlanDeadlineIntervals: UInt64 = 3
     nonisolated static let interactionDeadlineDuration = Duration.milliseconds(
         Int64(interactionDeadlineMilliseconds)
     )
     nonisolated static let interactionRPCDeadlineNanoseconds =
         interactionDeadlineMilliseconds * 1_000_000
+
+    nonisolated static func interactionPlanDeadlineDuration(
+        plannedRequestCount: Int
+    ) -> Duration {
+        let intervals = min(
+            UInt64(max(plannedRequestCount, 1)),
+            maximumInteractionPlanDeadlineIntervals
+        )
+        return .milliseconds(Int64(interactionDeadlineMilliseconds * intervals))
+    }
 
     let token: UUID
     let surfaceID: String
@@ -203,8 +214,8 @@ final class TerminalScrollSession {
         sendClick: @escaping SendClick = { _, _, _, _ in false },
         sendInput: @escaping SendInput = { _, _, _ in false },
         supportsOrderedRemoteRuns: @escaping SupportsOrderedRemoteRuns = { false },
-        interactionDeadline: @escaping InteractionDeadline = {
-            try? await ContinuousClock().sleep(for: interactionDeadlineDuration)
+        interactionDeadline: @escaping InteractionDeadline = { budget in
+            try? await ContinuousClock().sleep(for: budget)
         },
         prepareIntent: @escaping PrepareIntent,
         prepareInput: @escaping PrepareIntent = {},

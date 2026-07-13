@@ -88,6 +88,9 @@ extension TerminalScrollSession {
             requiresLocalApply: requiresLocalApply,
             localApplied: !requiresLocalApply
         ))
+        let plannedRequests = request.plannedRPCRequests(
+            supportsOrderedRuns: supportsOrderedRemoteRuns()
+        )
         if requiresLocalApply {
             let receipts: [TerminalSurfaceMutationReceipt]
             if let localReceipts, !localReceipts.isEmpty {
@@ -106,11 +109,8 @@ extension TerminalScrollSession {
         }
         remoteTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let planned = request.plannedRPCRequests(
-                supportsOrderedRuns: self.supportsOrderedRemoteRuns()
-            )
             var response: TerminalScrollResponse?
-            for plannedRequest in planned {
+            for plannedRequest in plannedRequests {
                 guard !Task.isCancelled,
                       let plannedResponse = await self.sendRemote(plannedRequest),
                       plannedResponse.accepted,
@@ -127,7 +127,9 @@ extension TerminalScrollSession {
         }
         deadlineTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.interactionDeadline()
+            await self.interactionDeadline(Self.interactionPlanDeadlineDuration(
+                plannedRequestCount: plannedRequests.count
+            ))
             guard !Task.isCancelled else { return }
             self.scrollDeadlineDidFire(id: id)
         }

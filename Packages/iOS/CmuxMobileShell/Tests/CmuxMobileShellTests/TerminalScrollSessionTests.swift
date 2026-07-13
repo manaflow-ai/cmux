@@ -469,7 +469,7 @@ private final class Harness {
                     remote.pending.append(PendingRemote(request: request, continuation: continuation))
                 }
             },
-            interactionDeadline: { [deadline] in await deadline.wait() },
+            interactionDeadline: { [deadline] _ in await deadline.wait() },
             prepareIntent: { [weak self] in
                 self?.prepareIntentCount += 1
             },

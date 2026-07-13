@@ -429,11 +429,11 @@ public struct MobileTerminalRenderGridReplay: Sendable {
             return
         }
         bytes.append(cursorStyleBytes(for: cursor))
-        if cursor.visible {
-            bytes.append(Data("\u{1B}[?25h\u{1B}[\(cursor.row + 1);\(cursor.column + 1)H".utf8))
-        } else {
-            bytes.append(Data("\u{1B}[?25l\u{1B}[\(cursor.row + 1);\(cursor.column + 1)H".utf8))
-        }
+        let preservesReconstructedActiveRow = !cursor.visible
+            && frame.activeScreen == .primary && frame.scrollForwardRows > 0
+        let position = preservesReconstructedActiveRow
+            ? "\u{1B}[\(cursor.column + 1)G" : "\u{1B}[\(cursor.row + 1);\(cursor.column + 1)H"
+        bytes.append(Data("\u{1B}[?\(cursor.visible ? "25h" : "25l")\(position)".utf8))
     }
 
     private func styleMapByID(

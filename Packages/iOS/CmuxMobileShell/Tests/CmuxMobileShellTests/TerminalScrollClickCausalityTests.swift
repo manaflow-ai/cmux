@@ -203,7 +203,7 @@ private final class ClickCausalityHarness {
                     ))
                 }
             },
-            interactionDeadline: { [deadline] in await deadline.wait() },
+            interactionDeadline: { [deadline] _ in await deadline.wait() },
             prepareIntent: {},
             deliverAuthoritative: { [weak self] _, epoch, revision in
                 self?.deliveredReconciliations.append(Reconciliation(epoch: epoch, revision: revision))

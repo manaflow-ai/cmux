@@ -307,7 +307,7 @@ private final class InteractionLaneHarness {
             supportsOrderedRemoteRuns: { [weak self] in
                 self?.supportsOrderedRuns == true
             },
-            interactionDeadline: { [deadline] in
+            interactionDeadline: { [deadline] _ in
                 await deadline.wait()
             },
             prepareIntent: {},

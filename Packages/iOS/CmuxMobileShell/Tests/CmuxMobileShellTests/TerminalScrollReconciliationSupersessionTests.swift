@@ -103,7 +103,7 @@ private final class ScrollReconciliationSupersessionHarness {
                     ))
                 }
             },
-            interactionDeadline: { [deadline] in await deadline.wait() },
+            interactionDeadline: { [deadline] _ in await deadline.wait() },
             prepareIntent: {},
             deliverAuthoritative: { [weak self] frame, interactionEpoch, clientRevision in
                 guard let self else { return false }
