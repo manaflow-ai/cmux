@@ -3,13 +3,19 @@ import Foundation
 actor ControlledStoredMacReconnectDeadline {
     private var armCount = 0
     private var armWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
-    private var deadlineWaiters: [CheckedContinuation<Void, Never>] = []
+    private var deadlineWaiters: [(id: UUID, continuation: CheckedContinuation<Void, Never>)] = []
 
     func wait() async {
         armCount += 1
         resumeSatisfiedArmWaiters()
-        await withCheckedContinuation { continuation in
-            deadlineWaiters.append(continuation)
+        let id = UUID()
+        await withTaskCancellationHandler {
+            guard !Task.isCancelled else { return }
+            await withCheckedContinuation { continuation in
+                deadlineWaiters.append((id, continuation))
+            }
+        } onCancel: {
+            Task { await self.cancel(id: id) }
         }
     }
 
@@ -28,9 +34,14 @@ actor ControlledStoredMacReconnectDeadline {
 
     func expire() async {
         guard !deadlineWaiters.isEmpty else { return }
-        deadlineWaiters.removeFirst().resume()
+        deadlineWaiters.removeFirst().continuation.resume()
         await Task.yield()
         await Task.yield()
+    }
+
+    private func cancel(id: UUID) {
+        guard let index = deadlineWaiters.firstIndex(where: { $0.id == id }) else { return }
+        deadlineWaiters.remove(at: index).continuation.resume()
     }
 
     private func resumeSatisfiedArmWaiters() {

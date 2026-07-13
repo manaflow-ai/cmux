@@ -51,7 +51,7 @@ extension MobileShellComposite {
             let displayFallbackMac = existing
                 ?? matchingMacs.first { $0.stackUserID == stackUserID }
                 ?? matchingMacs.first
-            let storedTag = existing?.instanceTag
+            let storedTag = existing?.instanceTag ?? displayFallbackMac?.instanceTag
             var displayName = ticketDisplayName ?? displayFallbackMac?.displayName
             if displayName == nil {
                 let knownMacs = (try? await pairedMacStore.loadAll(

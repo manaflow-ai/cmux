@@ -151,9 +151,11 @@ final class MobileRecoveryStressCoordinator: NSObject, GhosttySurfaceViewDelegat
                 )
                 return
             }
-            let recoveryOutputApplied = await view.processOutputAndWait(
-                postRecoveryOutput(cycle: cycle, generation: after.generation)
-            )
+            let recoveryOutputApplied = await waitForSurfaceAcknowledgement(on: view) {
+                await view.processOutputAndWait(
+                    self.postRecoveryOutput(cycle: cycle, generation: after.generation)
+                )
+            }
             guard recoveryOutputApplied else {
                 reporter.emit(
                     "recovery.stress.DEADLOCK kind=output_apply cycle=\(cycle) generation=\(after.generation) pendingFrees=\(after.pendingSurfaceFreeCount)"
@@ -194,11 +196,32 @@ final class MobileRecoveryStressCoordinator: NSObject, GhosttySurfaceViewDelegat
         view.bounds = mountedBounds
         view.setNeedsLayout()
         view.layoutIfNeeded()
-        guard await view.useNaturalViewSizeAndWait() else { return false }
+        guard await waitForSurfaceAcknowledgement(
+            on: view,
+            operation: { await view.useNaturalViewSizeAndWait() }
+        ) else { return false }
         return geometryConverged(
             view.debugGeometrySnapshotForTesting(),
             mountedBounds: mountedBounds
         )
+    }
+
+    private func waitForSurfaceAcknowledgement(
+        on view: GhosttySurfaceView,
+        operation: @escaping @MainActor () async -> Bool
+    ) async -> Bool {
+        let timeout = Task { @MainActor [weak view, clock] in
+            do {
+                try await clock.sleep(for: .seconds(5))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            _ = view?.completePendingSurfaceOperations(returning: false)
+        }
+        let acknowledged = await operation()
+        timeout.cancel()
+        return acknowledged
     }
 
     private func geometryConverged(

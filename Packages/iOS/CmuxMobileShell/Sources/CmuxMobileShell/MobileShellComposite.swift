@@ -909,7 +909,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
         feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
         storedMacReconnectDeadline: @escaping @Sendable () async -> Void = {
-            try? await ContinuousClock().sleep(for: .seconds(10))
+            try? await ContinuousClock().sleep(for: .seconds(30))
         },
         draftStore: (any TerminalDraftStoring)? = nil,
         groupCollapseStore: MobileWorkspaceGroupCollapseStore = MobileWorkspaceGroupCollapseStore()

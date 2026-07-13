@@ -178,6 +178,7 @@ extension MobileShellComposite {
                 }
             )
         }
+        let episodeID = connectionLifecycle.activeEpisode?.id
         return StoredMacReconnectOperation(
             runtime: runtime,
             store: pairedMacStore,
@@ -198,7 +199,11 @@ extension MobileShellComposite {
             forgottenScopeKeys: usesCachedReconnect ? [] : forgottenScopeKeys,
             loadsStoreSnapshot: !usesCachedReconnect,
             persistsPairedMac: !usesCachedReconnect,
-            persistPairedMac: persistPairedMac
+            persistPairedMac: persistPairedMac,
+            renewDeadline: { [weak self] in
+                guard let episodeID else { return }
+                self?.armStoredMacReconnectDeadline(id: episodeID)
+            }
         )
     }
 
@@ -278,14 +283,21 @@ extension MobileShellComposite {
             }
         }
         if episode.kind == .reconnect {
-            let deadline = storedMacReconnectDeadline
-            connectionLifecycleDeadlineTask = Task { @MainActor [weak self] in
-                await deadline()
-                guard !Task.isCancelled else { return }
-                self?.expireStoredMacReconnectEpisode(id: episode.id)
-            }
+            armStoredMacReconnectDeadline(id: episode.id)
         } else {
             connectionLifecycleDeadlineTask = nil
+        }
+    }
+
+    private func armStoredMacReconnectDeadline(id: UInt64) {
+        guard connectionLifecycle.ownsEpisode(id),
+              connectionLifecycle.activeEpisode?.kind == .reconnect else { return }
+        connectionLifecycleDeadlineTask?.cancel()
+        let deadline = storedMacReconnectDeadline
+        connectionLifecycleDeadlineTask = Task { @MainActor [weak self] in
+            await deadline()
+            guard !Task.isCancelled else { return }
+            self?.expireStoredMacReconnectEpisode(id: id)
         }
     }
 

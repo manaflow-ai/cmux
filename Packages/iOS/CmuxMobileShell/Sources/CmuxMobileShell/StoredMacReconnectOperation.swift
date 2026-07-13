@@ -32,6 +32,7 @@ struct StoredMacReconnectOperation {
     let loadsStoreSnapshot: Bool
     let persistsPairedMac: Bool
     let persistPairedMac: @MainActor (StoredMacReconnectPersistenceRequest) async -> Bool
+    let renewDeadline: @MainActor () -> Void
 
     private var ownsFence: Bool {
         fence.isCurrent(fenceGeneration)
@@ -97,6 +98,7 @@ struct StoredMacReconnectOperation {
             progress.targetMacDeviceID = mac.macDeviceID
             let localRoutes = routes(for: mac)
             for route in localRoutes {
+                renewDeadline()
                 guard ownsFence else {
                     return .failed(error: nil, hasKnownPairedMac: nil)
                 }
@@ -117,11 +119,16 @@ struct StoredMacReconnectOperation {
                 }
             }
             if mac.macDeviceID == activeMac?.macDeviceID,
+               ownsFence {
+                renewDeadline()
+            }
+            if mac.macDeviceID == activeMac?.macDeviceID,
                let refreshedRoutes = await freshRoutes(
                    for: mac,
                    triedRoutes: localRoutes
                 ) {
                 for route in refreshedRoutes {
+                    renewDeadline()
                     guard ownsFence else {
                         return .failed(error: nil, hasKnownPairedMac: nil)
                     }

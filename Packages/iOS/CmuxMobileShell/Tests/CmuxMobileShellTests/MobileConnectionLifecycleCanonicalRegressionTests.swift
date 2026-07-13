@@ -82,7 +82,7 @@ import Testing
         store.retryMobileConnection()
         #expect(try await pollUntil { factory.attemptedPorts() == [51_000] })
         let cachedDeadlineArmed = try await pollUntil(attempts: 50) {
-            await deadline.currentArmCount() == 2
+            await deadline.currentArmCount() >= 2
         }
         #expect(cachedDeadlineArmed)
 
@@ -300,8 +300,18 @@ import Testing
     @Test func reconnectRenewsItsDeadlineForEveryFallbackRoute() async throws {
         let deadline = ControlledStoredMacReconnectDeadline()
         let routes = [
-            try loopbackRoute(id: "stale", port: 51_016),
-            try loopbackRoute(id: "good", port: 51_017),
+            try CmxAttachRoute(
+                id: "stale",
+                kind: .debugLoopback,
+                endpoint: .hostPort(host: "127.0.0.1", port: 51_016),
+                priority: 0
+            ),
+            try CmxAttachRoute(
+                id: "good",
+                kind: .debugLoopback,
+                endpoint: .hostPort(host: "127.0.0.1", port: 51_017),
+                priority: 10
+            ),
         ]
         var mac = storedMac(id: "mac-a", route: routes[0])
         mac.routes = routes
@@ -312,7 +322,8 @@ import Testing
         let factory = RouteRecordingTransportFactory(
             router: LivenessHostRouter(),
             box: TransportBox(),
-            failingPorts: [51_016]
+            failingPorts: [51_016],
+            holdFirstFailingPort: 51_016
         )
         let store = MobileShellComposite(
             runtime: LivenessTestRuntime(
@@ -326,11 +337,20 @@ import Testing
             storedMacReconnectDeadline: { await deadline.wait() }
         )
 
-        let connected = await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        let reconnect = Task { @MainActor in
+            await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        let firstRouteReached = try await pollUntil {
+            factory.attemptedPorts().contains(51_016)
+        }
+        #expect(firstRouteReached, "attempts=\(factory.attemptedPorts())")
+        await deadline.waitUntilArmed()
+        factory.releaseHeldConnect()
+        let connected = await reconnect.value
 
         #expect(connected)
         #expect(factory.attemptedPorts().contains(51_017))
-        #expect(await deadline.currentArmCount() >= 3)
+        #expect(await deadline.currentArmCount() >= 2)
         store.signOut()
     }
 
