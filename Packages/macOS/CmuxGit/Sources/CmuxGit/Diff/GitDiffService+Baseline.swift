@@ -26,7 +26,8 @@ extension GitDiffService {
         guard symbolicHead.failure == nil,
               let symbolicOutput = symbolicHead.successOutput,
               let headRef = Self.removingGitLineTerminator(symbolicOutput),
-              !headRef.isEmpty else { return .failed }
+              headRef.hasPrefix("refs/heads/"),
+              headRef != "refs/heads/" else { return .failed }
         // `show-ref` without a pattern validates every branch ref. Exit 1 is
         // the valid no-refs state; any other failure identifies corrupt ref
         // storage. Bound its otherwise irrelevant output and fail closed when

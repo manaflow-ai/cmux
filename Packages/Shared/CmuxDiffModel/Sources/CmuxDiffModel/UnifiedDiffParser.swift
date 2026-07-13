@@ -53,9 +53,13 @@ public struct UnifiedDiffParser: Sendable {
                 if let current {
                     hunks.append(current.build())
                 }
+                current = nil
+                guard totalLineCount < Self.maximumTotalLineCount else {
+                    parserTruncated = true
+                    break
+                }
                 guard hunks.count < Self.maximumHunkCount else {
                     parserTruncated = true
-                    current = nil
                     break
                 }
                 oldLine = header.oldStart
