@@ -74,17 +74,15 @@ public struct UnifiedDiffParser: Sendable {
                 continue
             }
 
-            guard var builder = current else {
+            guard let builder = current else {
                 continue
             }
             guard totalLineCount < Self.maximumTotalLineCount else {
                 parserTruncated = true
-                current = builder
                 break
             }
             if currentHunkLineCount >= Self.maximumLineCountPerHunk {
                 parserTruncated = true
-                current = builder
                 continue
             }
             guard let marker = rawLine.first else {
@@ -96,7 +94,6 @@ public struct UnifiedDiffParser: Sendable {
                 totalLineCount += 1
                 oldLine += 1
                 newLine += 1
-                current = builder
                 continue
             }
 
@@ -132,7 +129,6 @@ public struct UnifiedDiffParser: Sendable {
                 currentHunkLineCount += 1
                 totalLineCount += 1
             }
-            current = builder
         }
 
         if let current {
@@ -214,7 +210,9 @@ private struct HunkHeader {
     }
 }
 
-private struct HunkBuilder {
+/// Reference semantics keep one mutable line buffer per hunk. Copying a value
+/// builder on every parsed row would repeatedly trigger Array copy-on-write.
+private final class HunkBuilder {
     let id: Int
     let header: String
     let oldStart: Int
@@ -232,7 +230,7 @@ private struct HunkBuilder {
         self.newCount = newCount
     }
 
-    mutating func append(_ line: DiffLine) {
+    func append(_ line: DiffLine) {
         lines.append(line)
     }
 

@@ -181,10 +181,6 @@ public struct GitDiffService: Sendable {
         case .timedOut:
             return .timedOut
         }
-        // A baseline tree is always a directory-shaped request. Even if the
-        // worktree now has a file with the same spelling, Git would otherwise
-        // widen the pathspec to deleted descendants.
-        guard requestedBaselineEntry != .directory else { return .notFound }
         let indexed: Bool
         switch isExactIndexedEntry(repoRoot: repoRoot, path: path, maxOutputBytes: maxOutputBytes) {
         case .success(let value):
@@ -208,12 +204,13 @@ public struct GitDiffService: Sendable {
             return .timedOut
         }
         // With no exact baseline, index, or untracked entry, this is either a
-        // directory-shaped pathspec or a missing path. Fail closed before a
-        // diff command can expand it to descendants.
+        // directory-shaped pathspec or a missing path. A baseline directory is
+        // accepted only when the current tree has an exact file replacement.
+        // Fail closed before a diff command can expand the request to children.
         guard requestedBaselineEntry == .file || indexed || untracked else {
             return .notFound
         }
-        if untracked, requestedBaselineEntry == .missing {
+        if untracked, requestedBaselineEntry != .file {
             // In `--no-index` mode a bare `-` names stdin even after `--`.
             // Prefix only the git-side spelling while preserving the API path.
             let gitPath = path == "-" ? "./-" : path
@@ -255,10 +252,14 @@ public struct GitDiffService: Sendable {
                     paths.append(candidate)
                 }
             }
+        var pathspecs = diffPaths.map(Self.literalPathspec)
+        if requestedBaselineEntry == .directory {
+            pathspecs.append(Self.descendantExclusionPathspec(path))
+        }
         let result = runGit(
             in: repoRoot,
             arguments: ["diff", baseline, "--no-ext-diff", "--no-textconv", "--no-color", "--find-renames", "--"]
-                + diffPaths.map(Self.literalPathspec),
+                + pathspecs,
             maxOutputBytes: maxOutputBytes
         )
         if let failure: GitDiffQueryResult<GitFileDiff> = queryFailure(from: result) {
@@ -273,6 +274,13 @@ public struct GitDiffService: Sendable {
     /// instead of expanding as a wildcard pattern over the whole tree.
     private static func literalPathspec(_ path: String) -> String {
         ":(literal)\(path)"
+    }
+
+    /// Excludes descendants when Git compares an exact file request. This is
+    /// inert for ordinary files, but prevents a baseline directory replaced by
+    /// an indexed file from widening the response to deleted children.
+    private static func descendantExclusionPathspec(_ path: String) -> String {
+        ":(top,literal,exclude)\(path)/"
     }
 
     /// Whether `path` is an untracked file. The `:(literal)` pathspec keeps a

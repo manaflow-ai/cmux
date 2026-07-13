@@ -342,7 +342,9 @@ struct DiffReviewFileView: View {
                 path: path,
                 message: DiffReviewErrorPresentation(error: error).message
             )
-            session.recordHunkCount(0, for: path)
+            // A transient failure has no authoritative hunk count. Preserve
+            // the bookmark, current hunk, and pending cross-file navigation
+            // until a successful retry reports the file's parsed hunks.
         }
     }
 
