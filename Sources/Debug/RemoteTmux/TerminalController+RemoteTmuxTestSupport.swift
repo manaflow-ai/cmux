@@ -256,6 +256,62 @@ extension TerminalController {
         }
     }
 
+    /// `remote.tmux.test_perturb_divider` (DEBUG only) — clears the visible
+    /// mirror's root-split imposition and moves its divider to `position`,
+    /// changing rendered geometry while every sizing input stays put. The
+    /// deterministic stand-in for an apply that terminated off-target
+    /// (bonsplit parking a divider at a minimum, a retry budget expiring
+    /// against mid-commit bounds): the sizing UI suite fires this at a
+    /// settled mirror and asserts it re-converges, pinning the liveness rule
+    /// end to end — an apply may never stay off-target behind unchanged
+    /// inputs. Never compiled into release.
+    nonisolated func v2RemoteTmuxTestPerturbDivider(id: Any?, params: [String: Any]) -> String {
+        let windowId = params["window"] as? Int ?? 0
+        let position = params["position"] as? Double ?? 0.8
+        guard position > 0, position < 1 else {
+            return v2Error(id: id, code: "invalid_params", message: "position must be in (0, 1)")
+        }
+        return v2VmCall(id: id, timeoutSeconds: 15) {
+            let result: [String: Any]? = await MainActor.run {
+                for workspace in self.tabManager?.tabs ?? [] {
+                    guard let session = workspace.remoteTmuxSessionMirror,
+                          let mirror = session.windowMirrorByWindowId[windowId],
+                          mirror.isEffectivelyVisibleForSizing,
+                          case .split(let split) = mirror.bonsplitController.treeSnapshot(),
+                          let splitId = UUID(uuidString: split.id) else { continue }
+                    let before = split.dividerPosition
+                    _ = mirror.bonsplitController.setImposedFirstExtent(
+                        nil, forSplit: splitId, fromExternal: true
+                    )
+                    let moved = mirror.bonsplitController.setDividerPosition(
+                        CGFloat(position), forSplit: splitId, fromExternal: true
+                    )
+                    // Drop the divider baseline so the geometry callback that
+                    // follows the move SEEDS it instead of diffing against
+                    // it — no resize-pane goes to tmux, so no layout echo
+                    // changes a sizing input. Without this the scenario
+                    // exercises drag propagation (tmux re-assigns, inputs
+                    // change, the normal pass heals); with it, the only way
+                    // back onto the plan is the output-parity re-arm.
+                    mirror.lastDividerPositions[splitId] = nil
+                    return [
+                        "split": split.id,
+                        "moved": moved,
+                        "position_before": before,
+                        "position_after": position,
+                    ]
+                }
+                return nil
+            }
+            guard let result else {
+                throw RemoteTmuxError.unreachable(
+                    "no visible mirrored split window @\(windowId)"
+                )
+            }
+            return result
+        }
+    }
+
     /// `remote.tmux.root_frames` (DEBUG only) — the window-versus-content
     /// truth the growth-spiral tripwire logs (`mirror.container.ancestors`),
     /// as data: for every visible mirror, the hosting window's frame and

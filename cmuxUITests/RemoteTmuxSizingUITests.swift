@@ -101,7 +101,7 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         // frame an earlier app run left behind — small enough, and the pane
         // surfaces can never produce the measured constants sizing needs.
         setMirrorWindowSize(CGSize(width: 1000, height: 700))
-        try assertSettles(selectedWindow: 0, within: 15, context: "after attach")
+        try assertSettles(selectedWindow: 0, within: 10, context: "after attach")
     }
 
     /// The deterministic exploratory sweep: EVERY layout shape, at EVERY
@@ -146,7 +146,7 @@ final class RemoteTmuxSizingUITests: XCTestCase {
                 }
                 XCTAssertTrue(selectTab(named: name), "could not select tab \(name)")
                 try assertSettles(
-                    selectedWindow: id, within: 25,
+                    selectedWindow: id, within: 10,
                     context: "shape \(name) at width \(Int(size.width))"
                 )
             }
@@ -163,7 +163,7 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         try buildLabSession()
         attachSession()
         setMirrorWindowSize(CGSize(width: 1000, height: 700))
-        try assertSettles(selectedWindow: 0, within: 15, context: "before sweep")
+        try assertSettles(selectedWindow: 0, within: 10, context: "before sweep")
 
         // End-to-end proof each resize really happened: a wider window must
         // settle to strictly more pushed columns (1032 < 1048 < 1080 spans
@@ -174,7 +174,7 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         var previousCols: Int?
         for width in [1032.0, 1048.0, 1080.0] {
             setMirrorWindowSize(CGSize(width: width, height: 700))
-            try assertSettles(selectedWindow: 0, within: 10, context: "at width \(Int(width))")
+            try assertSettles(selectedWindow: 0, within: 5, context: "at width \(Int(width))")
             try assertRatiosPreserved(context: "at width \(Int(width))")
             let cols = try XCTUnwrap(pushedCols(window: 0), "no pushed size at width \(Int(width))")
             if let previous = previousCols {
@@ -200,7 +200,7 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         _ = tmux(["set", "-w", "-t", "\(sessionName):0", "pane-border-status", "top"])
         attachSession()
         setMirrorWindowSize(CGSize(width: 1000, height: 700))
-        try assertSettles(selectedWindow: 0, within: 15, context: "with pane-border-status top")
+        try assertSettles(selectedWindow: 0, within: 10, context: "with pane-border-status top")
     }
 
     /// The growth-spiral trigger, deterministically: shrink the window while
@@ -220,7 +220,7 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         try buildLabSession()
         attachSession()
         setMirrorWindowSize(CGSize(width: 1080, height: 700))
-        try assertSettles(selectedWindow: 0, within: 15, context: "at 1080 before shrink")
+        try assertSettles(selectedWindow: 0, within: 10, context: "at 1080 before shrink")
         try assertRootContentTracksWindow(context: "at 1080 before shrink")
 
         // Two shrinks: each leaves the banked container and the imposed
@@ -229,7 +229,7 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         // in setMirrorWindowSize holds (see the sweep scenarios).
         for width in [1048.0, 1000.0] {
             setMirrorWindowSize(CGSize(width: width, height: 700))
-            try assertSettles(selectedWindow: 0, within: 10, context: "after shrink to \(Int(width))")
+            try assertSettles(selectedWindow: 0, within: 5, context: "after shrink to \(Int(width))")
             try assertRootContentTracksWindow(context: "after shrink to \(Int(width))")
             try assertClaimsWithinWindowCeiling(context: "after shrink to \(Int(width))")
         }
@@ -262,9 +262,37 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         // mirror banked at birth is stale by the time it is shown.
         setMirrorWindowSize(CGSize(width: 1000, height: 700))
         XCTAssertTrue(selectWorkspace(id: workspaceId), "could not select the mirror workspace")
-        try assertSettles(selectedWindow: 0, within: 25, context: "after reveal")
+        try assertSettles(selectedWindow: 0, within: 10, context: "after reveal")
         try assertRootContentTracksWindow(context: "after reveal")
         try assertClaimsWithinWindowCeiling(context: "after reveal")
+    }
+
+    /// The render-ownership liveness rule, end to end: geometry knocked off
+    /// the imposed plan with NO sizing input change must re-converge. The
+    /// perturb verb clears the visible mirror's root imposition and moves
+    /// the divider (the deterministic stand-in for an apply that terminated
+    /// off-target — a parked divider, an expired retry budget), and drops
+    /// the divider baseline so no `resize-pane` reaches tmux: no layout
+    /// echo, no input change, so only the transaction's outcome-parity
+    /// re-arm can put the views back on the plan. Before that edge existed,
+    /// this state held for 50+ seconds on the live fuzz with every trigger
+    /// reporting settled.
+    func testDividerPerturbedOffPlanReconvergesWithoutInputChange() throws {
+        try requireTmux()
+        let app = launchApp()
+        defer { app.terminate() }
+        try buildLabSession()
+        attachSession()
+        setMirrorWindowSize(CGSize(width: 1000, height: 700))
+        try assertSettles(selectedWindow: 0, within: 10, context: "before divider perturbation")
+
+        let response = socketJSON(method: "remote.tmux.test_perturb_divider", params: [
+            "window": 0,
+            "position": 0.8,
+        ])
+        XCTAssertEqual(response?["ok"] as? Bool, true, "test_perturb_divider failed: \(response ?? [:])")
+        XCTAssertEqual(response?["moved"] as? Bool, true, "divider did not move: \(response ?? [:])")
+        try assertSettles(selectedWindow: 0, within: 5, context: "after divider perturbation")
     }
 
     /// A geometry-only layout change NOT caused by the app — a co-attached
@@ -277,11 +305,11 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         try buildLabSession()
         attachSession()
         setMirrorWindowSize(CGSize(width: 1000, height: 700))
-        try assertSettles(selectedWindow: 0, within: 15, context: "before foreign resize")
+        try assertSettles(selectedWindow: 0, within: 10, context: "before foreign resize")
 
         let panes = try splitWindowPaneIds()
         _ = tmux(["resize-pane", "-t", "\(sessionName):@0.\(panes[0])", "-x", "13"])
-        try assertSettles(selectedWindow: 0, within: 10, context: "after foreign resize-pane")
+        try assertSettles(selectedWindow: 0, within: 5, context: "after foreign resize-pane")
     }
 
     // MARK: lab state

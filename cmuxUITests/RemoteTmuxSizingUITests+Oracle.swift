@@ -35,7 +35,8 @@ extension RemoteTmuxSizingUITests {
     func assertSettles(
         selectedWindow: Int, within timeout: TimeInterval, context: String
     ) throws {
-        let deadline = Date().addingTimeInterval(timeout)
+        let started = Date()
+        let deadline = started.addingTimeInterval(timeout)
         var lastFailure = "no samples"
         while Date() < deadline {
             if let failure = settleFailure(selectedWindow: selectedWindow) {
@@ -43,6 +44,12 @@ extension RemoteTmuxSizingUITests {
                 Thread.sleep(forTimeInterval: 0.5)
                 continue
             }
+            // The measured latency, printed against the budget so a scenario
+            // creeping toward its limit is visible before it flakes. The
+            // floor is the ~2s stability probe (8 samples x 0.25s), not
+            // sizing latency.
+            let elapsed = Date().timeIntervalSince(started)
+            print("assertSettles: \(String(format: "%.1f", elapsed))s of \(Int(timeout))s \(context)")
             return
         }
         XCTFail("Sizing never settled \(context): \(lastFailure)")

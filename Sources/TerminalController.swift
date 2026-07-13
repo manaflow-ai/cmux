@@ -1390,6 +1390,7 @@ class TerminalController {
 #if DEBUG
         case "remote.tmux.test_exec": return v2RemoteTmuxTestExec(id: request.id, params: request.params)
         case "remote.tmux.test_set_frame": return v2RemoteTmuxTestSetFrame(id: request.id, params: request.params)
+        case "remote.tmux.test_perturb_divider": return v2RemoteTmuxTestPerturbDivider(id: request.id, params: request.params)
         case "remote.tmux.root_frames": return v2RemoteTmuxRootFrames(id: request.id)
 #endif
         case "sidebar.custom.validate":

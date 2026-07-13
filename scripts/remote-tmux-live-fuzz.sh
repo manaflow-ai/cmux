@@ -87,7 +87,27 @@ fi
 
 t() { TMUX_TMPDIR="$TMPDIR_REMOTE" tmux "$@"; }
 fail=0
-note_fail() { echo "FUZZ FAIL seed=$SEED iter=$1: $2"; fail=$((fail + 1)); }
+EVIDENCE_DIR="${CMUX_FUZZ_EVIDENCE_DIR:-}"
+
+# The end-of-seed debug-log capture cannot cover a mid-seed failure: later
+# iterations churn the log past the failure window before the seed ends
+# (both stall captures from the last marathon held zero stall lines).
+# Snapshot the tail at the moment of failure instead, one file per failure.
+snapshot_debug_evidence() {
+  [ -f "$DEBUG_LOG" ] || return 0
+  if [ -z "$EVIDENCE_DIR" ]; then
+    EVIDENCE_DIR=$(mktemp -d "$LOCAL_TMP_ROOT/cmux-remote-tmux-fuzz-evidence.XXXXXXXX") \
+      || { EVIDENCE_DIR=""; return 0; }
+    echo "evidence dir: $EVIDENCE_DIR"
+  fi
+  tail -600 "$DEBUG_LOG" > "$EVIDENCE_DIR/seed-$SEED-iter-$1-fail$fail-debuglog.txt" 2>/dev/null
+}
+
+note_fail() {
+  echo "FUZZ FAIL seed=$SEED iter=$1: $2"
+  fail=$((fail + 1))
+  snapshot_debug_evidence "$1"
+}
 
 settlement_has_schema() {
   printf '%s' "$1" | jq -e '
@@ -315,74 +335,64 @@ check_iter() {
     exit 99
   fi
   # Ask the app whether everything has finished settling, instead of
-  # guessing with a timer. Poll up to 20s; a window that never settles is
-  # itself a failure, and any pane mismatch reported WHILE settled is a
-  # real rendering bug — no transition ambiguity.
-  local settled_json="" tries=0
-  while [ "$tries" -lt 10 ]; do
+  # guessing with a timer. The budget is a hard 8 seconds: a healthy full
+  # cycle (claim → tmux layout → imposition → rendered frames) settles in
+  # about 0.4s, so a window still unsettled at 8s is a liveness defect. The
+  # old ladder here (10x2s poll + 15x2s reconfirm, up to 50s) existed to
+  # avoid misreading transitions — and instead it hid stalls the app took
+  # tens of seconds to argue its way out of.
+  local settle_start=$SECONDS settled_json="" budget=8 settled=0
+  while :; do
     settled_json=$("$TIMEOUT_BIN" 8 "$CLI" rpc remote.tmux.sizing_settled 2>/dev/null)
     # A failed or timed-out RPC has no windows KEY at all — that is absence
-    # of evidence, not settledness. Keep polling; exhausting the loop
-    # reports it as never settled with whatever came back.
+    # of evidence, not settledness. Keep polling inside the budget.
     if ! settlement_has_schema "$settled_json"; then
-      tries=$((tries + 1))
-      sleep 2
-      continue
-    fi
+      :
     # An EMPTY window list is settled only when there is genuinely nothing
     # to judge: the visible tab mirrors a single-pane window. If the lab's
     # active window has several panes, empty means the fuzz mirror is not
     # the visible workspace — the gate would be blind, so re-select it and
-    # keep polling; exhausting the loop then reports the failure.
-    if ! settlement_has_reported_windows "$settled_json"; then
+    # keep polling; exhausting the budget then reports the failure.
+    elif ! settlement_has_reported_windows "$settled_json"; then
       local active_panes
       active_panes=$(t display -t $SESSION -p '#{window_panes}' 2>/dev/null || echo 1)
       if [ "${active_panes:-1}" -le 1 ]; then
+        settled=1
         break
       fi
       "$CLI" workspace select "$WORKSPACE_REF" >/dev/null 2>&1
-      tries=$((tries + 1))
-      sleep 2
-      continue
-    fi
     # A pane with no sizing sample yet is still in transition even when the
     # window's claim/layout dims agree — keep polling until every pane has
     # reported. A rendered-grid mismatch does NOT block the break: a pane
     # wrong AT settle is exactly the bug this harness exists to capture,
     # and waiting it out would misreport it as "never settled".
-    if settlement_ready "$settled_json"; then
+    elif settlement_ready "$settled_json"; then
+      settled=1
       break
     fi
-    tries=$((tries + 1))
-    sleep 2
+    if [ $((SECONDS - settle_start)) -ge "$budget" ]; then
+      break
+    fi
+    sleep 1
   done
-  # Re-confirm before failing: an end-of-seed relayout storm or a reconnect
-  # can leave a window a few seconds from convergence when the 20s poll
-  # expires, and a mismatch read mid-transition is not a mismatch at rest.
-  # Poll a final stretch; only a state that STAYS wrong is a defect. The
-  # extra convergence time is logged so slow-to-settle never hides — a
-  # window that needs the reconfirm every time is its own signal.
-  reconfirm_needed=0
-  if [ "$tries" -ge 10 ] || settlement_has_render_mismatch "$settled_json"; then
-    reconfirm_needed=1
+  echo "  settle $((SECONDS - settle_start))s (iter $iter)"
+  if [ "$settled" != 1 ]; then
+    note_fail "$iter" "settle exceeded ${budget}s budget (healthy baseline ~0.4s): $(printf '%s' "$settled_json" | tr -d '\n' | cut -c1-300)"
+  elif settlement_has_render_mismatch "$settled_json"; then
+    # Mismatch WHILE settled: re-read twice before failing, so a probe that
+    # raced the last frame of a transition cannot manufacture a defect.
+    # Only a state that stays wrong is one.
     rc_tries=0
-    while [ "$rc_tries" -lt 15 ]; do
-      sleep 2
+    while [ "$rc_tries" -lt 2 ]; do
+      sleep 1
       settled_json=$("$TIMEOUT_BIN" 8 "$CLI" rpc remote.tmux.sizing_settled 2>/dev/null)
       if settlement_clean "$settled_json"; then
-        echo "  reconfirm: converged after $(( (rc_tries + 1) * 2 ))s extra (iter $iter)"
-        reconfirm_needed=0
+        echo "  reconfirm: mismatch cleared after $((rc_tries + 1))s (iter $iter)"
         break
       fi
       rc_tries=$((rc_tries + 1))
     done
-  fi
-  if [ "$reconfirm_needed" = 1 ]; then
-    if ! settlement_has_schema "$settled_json" \
-       || ! settlement_has_reported_windows "$settled_json" \
-       || settlement_is_unsettled "$settled_json"; then
-      note_fail "$iter" "windows never settled after 50s: $(printf '%s' "$settled_json" | tr -d '\n' | cut -c1-300)"
-    else
+    if ! settlement_clean "$settled_json"; then
       note_fail "$iter" "settled with pane mismatches (persisted through reconfirm):"
       settlement_mismatch_lines "$settled_json" | sed 's/^/  /'
     fi

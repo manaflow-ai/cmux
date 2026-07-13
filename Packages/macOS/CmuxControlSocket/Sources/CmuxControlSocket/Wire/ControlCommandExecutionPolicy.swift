@@ -30,6 +30,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     public init(forMethod method: String) {
 #if DEBUG
         if method == "remote.tmux.test_exec" || method == "remote.tmux.test_set_frame"
+            || method == "remote.tmux.test_perturb_divider"
             || method == "remote.tmux.root_frames"
             || method == "remote.tmux.window" {
             self = .socketWorker(mainThreadCallable: false)
