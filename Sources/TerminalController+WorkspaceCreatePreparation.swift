@@ -4,18 +4,26 @@ extension TerminalController {
     struct WorkspaceCreatePreparation {
         let tabManager: TabManager
         let operationID: UUID?
+        let idempotencyCache: WorkspaceCreateIdempotencyCache
     }
 
     enum WorkspaceCreatePreparationOutcome {
         case failure(V2CallResult)
         case existing(TaskCreateWorkspaceResolution)
+        case completed(tabManager: TabManager, operationID: UUID)
         case ready(WorkspaceCreatePreparation)
+    }
+
+    enum TaskCreateOperationResolution {
+        case live(TaskCreateWorkspaceResolution)
+        case completed
     }
 
     func v2PrepareWorkspaceCreate(
         params: [String: Any],
         tabManager resolvedTabManager: TabManager?,
-        taskCreateCandidates: [TaskCreateWorkspaceCandidate]?
+        taskCreateCandidates: [TaskCreateWorkspaceCandidate]?,
+        idempotencyCache suppliedIdempotencyCache: WorkspaceCreateIdempotencyCache?
     ) -> WorkspaceCreatePreparationOutcome {
         let operationID: UUID?
         if v2HasNonNullParam(params, "operation_id") {
@@ -31,18 +39,27 @@ extension TerminalController {
         guard let tabManager = resolvedTabManager ?? v2ResolveTabManager(params: params) else {
             return .failure(.err(code: "unavailable", message: "TabManager not available", data: nil))
         }
+        let idempotencyCache = suppliedIdempotencyCache ?? workspaceCreateIdempotencyCache
 
         let candidates = taskCreateCandidates ?? taskCreateWorkspaceCandidates(requested: tabManager)
-        if let operationID,
-           let resolution = existingTaskCreateWorkspace(
-               operationID: operationID,
-               candidates: candidates
-           ) {
-            return .existing(resolution)
+        if let operationID {
+            switch taskCreateOperationResolution(
+                operationID: operationID,
+                candidates: candidates,
+                idempotencyCache: idempotencyCache
+            ) {
+            case let .live(resolution):
+                return .existing(resolution)
+            case .completed:
+                return .completed(tabManager: tabManager, operationID: operationID)
+            case nil:
+                break
+            }
         }
         return .ready(WorkspaceCreatePreparation(
             tabManager: tabManager,
-            operationID: operationID
+            operationID: operationID,
+            idempotencyCache: idempotencyCache
         ))
     }
 
@@ -57,22 +74,24 @@ extension TerminalController {
         return candidates
     }
 
-    func existingTaskCreateWorkspace(
+    func taskCreateOperationResolution(
         operationID: UUID,
-        candidates: [TaskCreateWorkspaceCandidate]
-    ) -> TaskCreateWorkspaceResolution? {
+        candidates: [TaskCreateWorkspaceCandidate],
+        idempotencyCache: WorkspaceCreateIdempotencyCache
+    ) -> TaskCreateOperationResolution? {
         let resolution = Self.resolveTaskCreateWorkspace(
             operationID: operationID,
-            cachedWorkspaceID: workspaceCreateIdempotencyCache.workspaceID(for: operationID),
+            cachedWorkspaceID: idempotencyCache.workspaceID(for: operationID),
             candidates: candidates
         )
         if let resolution {
-            workspaceCreateIdempotencyCache.record(
+            idempotencyCache.record(
                 operationID: operationID,
                 workspaceID: resolution.workspace.id
             )
+            return .live(resolution)
         }
-        return resolution
+        return idempotencyCache.containsCompletedOperation(operationID) ? .completed : nil
     }
 
     static func resolveTaskCreateWorkspace(

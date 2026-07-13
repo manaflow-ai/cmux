@@ -14,31 +14,45 @@ extension TerminalController {
 
     final class WorkspaceCreateIdempotencyCache {
         private let capacity: Int
+        private let defaults: UserDefaults
+        private let persistenceKey: String
         private var workspaceIDs: [UUID: UUID] = [:]
+        private var completedOperationIDs: Set<UUID> = []
         private var insertionOrder: [UUID] = []
-        private var nextEvictionIndex = 0
 
-        init(capacity: Int) {
+        init(
+            capacity: Int,
+            defaults: UserDefaults = .standard,
+            persistenceKey: String = "cmux.workspaceCreate.completedOperationIDs.v1"
+        ) {
             precondition(capacity > 0)
             self.capacity = capacity
+            self.defaults = defaults
+            self.persistenceKey = persistenceKey
+            let persisted = defaults.stringArray(forKey: persistenceKey) ?? []
+            let retained = persisted.compactMap(UUID.init(uuidString:)).suffix(capacity)
+            insertionOrder = Array(retained)
+            completedOperationIDs = Set(retained)
         }
 
         func workspaceID(for operationID: UUID) -> UUID? {
             workspaceIDs[operationID]
         }
 
+        func containsCompletedOperation(_ operationID: UUID) -> Bool {
+            completedOperationIDs.contains(operationID)
+        }
+
         func record(operationID: UUID, workspaceID: UUID) {
-            if workspaceIDs.updateValue(workspaceID, forKey: operationID) != nil {
-                return
-            }
-            if insertionOrder.count < capacity {
-                insertionOrder.append(operationID)
-            } else {
-                let evictedID = insertionOrder[nextEvictionIndex]
+            workspaceIDs[operationID] = workspaceID
+            guard completedOperationIDs.insert(operationID).inserted else { return }
+            if insertionOrder.count == capacity {
+                let evictedID = insertionOrder.removeFirst()
                 workspaceIDs.removeValue(forKey: evictedID)
-                insertionOrder[nextEvictionIndex] = operationID
-                nextEvictionIndex = (nextEvictionIndex + 1) % capacity
+                completedOperationIDs.remove(evictedID)
             }
+            insertionOrder.append(operationID)
+            defaults.set(insertionOrder.map(\.uuidString), forKey: persistenceKey)
         }
     }
 
@@ -57,12 +71,14 @@ extension TerminalController {
     func v2WorkspaceCreate(
         params: [String: Any],
         tabManager resolvedTabManager: TabManager? = nil,
-        taskCreateCandidates: [TaskCreateWorkspaceCandidate]? = nil
+        taskCreateCandidates: [TaskCreateWorkspaceCandidate]? = nil,
+        idempotencyCache: WorkspaceCreateIdempotencyCache? = nil
     ) -> V2CallResult {
         let outcome = v2PrepareWorkspaceCreate(
             params: params,
             tabManager: resolvedTabManager,
-            taskCreateCandidates: taskCreateCandidates
+            taskCreateCandidates: taskCreateCandidates,
+            idempotencyCache: idempotencyCache
         )
         let preparation: WorkspaceCreatePreparation
         switch outcome {
@@ -72,6 +88,12 @@ extension TerminalController {
             return workspaceCreateResult(
                 workspace: resolution.workspace,
                 windowID: resolution.candidate.windowID
+            )
+        case let .completed(_, operationID):
+            return .err(
+                code: "already_completed",
+                message: "workspace.create operation already completed",
+                data: ["operation_id": operationID.uuidString]
             )
         case let .ready(ready):
             preparation = ready
@@ -258,7 +280,7 @@ extension TerminalController {
             return .err(code: "internal_error", message: "Failed to create workspace", data: nil)
         }
         if let operationID {
-            workspaceCreateIdempotencyCache.record(operationID: operationID, workspaceID: newWorkspace.id)
+            preparation.idempotencyCache.record(operationID: operationID, workspaceID: newWorkspace.id)
         }
         return workspaceCreateResult(
             workspace: newWorkspace,
@@ -361,7 +383,8 @@ extension TerminalController {
     func v2MobileWorkspaceCreate(
         params: [String: Any],
         workingDirectoryValidator: WorkspaceCreateWorkingDirectoryValidator? = nil,
-        tabManager resolvedTabManager: TabManager? = nil
+        tabManager resolvedTabManager: TabManager? = nil,
+        idempotencyCache: WorkspaceCreateIdempotencyCache? = nil
     ) async -> V2CallResult {
         var createParams = params
         createParams["focus"] = false
@@ -370,7 +393,8 @@ extension TerminalController {
         let outcome = v2PrepareWorkspaceCreate(
             params: createParams,
             tabManager: resolvedTabManager,
-            taskCreateCandidates: nil
+            taskCreateCandidates: nil,
+            idempotencyCache: idempotencyCache
         )
         let preparation: WorkspaceCreatePreparation
         switch outcome {
@@ -380,6 +404,12 @@ extension TerminalController {
             return mobileWorkspaceCreateResult(
                 resolution: resolution,
                 params: createParams
+            )
+        case let .completed(tabManager, _):
+            return v2MobileWorkspaceList(
+                params: createParams,
+                tabManager: tabManager,
+                createdWorkspaceID: nil
             )
         case let .ready(ready):
             preparation = ready
@@ -395,15 +425,23 @@ extension TerminalController {
         guard !Task.isCancelled, validation != .cancelled else {
             return .err(code: "cancelled", message: "Workspace creation was cancelled", data: nil)
         }
-        if let operationID = preparation.operationID,
-           let resolution = existingTaskCreateWorkspace(
-               operationID: operationID,
-               candidates: taskCreateWorkspaceCandidates(requested: preparation.tabManager)
-           ) {
-            return mobileWorkspaceCreateResult(
-                resolution: resolution,
-                params: createParams
-            )
+        if let operationID = preparation.operationID {
+            switch taskCreateOperationResolution(
+                operationID: operationID,
+                candidates: taskCreateWorkspaceCandidates(requested: preparation.tabManager),
+                idempotencyCache: preparation.idempotencyCache
+            ) {
+            case let .live(resolution):
+                return mobileWorkspaceCreateResult(resolution: resolution, params: createParams)
+            case .completed:
+                return v2MobileWorkspaceList(
+                    params: createParams,
+                    tabManager: preparation.tabManager,
+                    createdWorkspaceID: nil
+                )
+            case nil:
+                break
+            }
         }
         let createResult = v2PerformWorkspaceCreate(
             params: createParams,

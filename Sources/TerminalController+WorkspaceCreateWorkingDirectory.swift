@@ -25,9 +25,10 @@ extension TerminalController {
         }
 
         private let timeout: Duration
+        private let maxConcurrentProbes: Int
         private let probe: Probe
         private let sleepUntilDeadline: DeadlineSleep
-        private var activePath: String?
+        private var activePaths: Set<String> = []
         private var queuedPaths: [String] = []
         private var waiterIDsByPath: [String: Set<UUID>] = [:]
         private var waiters: [UUID: Waiter] = [:]
@@ -35,10 +36,13 @@ extension TerminalController {
 
         init(
             timeout: Duration,
+            maxConcurrentProbes: Int,
             probe: @escaping Probe,
             sleepUntilDeadline: @escaping DeadlineSleep
         ) {
+            precondition(maxConcurrentProbes > 0)
             self.timeout = timeout
+            self.maxConcurrentProbes = maxConcurrentProbes
             self.probe = probe
             self.sleepUntilDeadline = sleepUntilDeadline
         }
@@ -69,7 +73,7 @@ extension TerminalController {
         }
 
         func waitUntilIdleForTesting() async {
-            guard activePath != nil || !queuedPaths.isEmpty else { return }
+            guard !activePaths.isEmpty || !queuedPaths.isEmpty else { return }
             await withCheckedContinuation { idleWaiters.append($0) }
         }
 
@@ -89,10 +93,10 @@ extension TerminalController {
                 deadlineTask: deadlineTask
             )
             waiterIDsByPath[path, default: []].insert(waiterID)
-            if activePath != path, !queuedPaths.contains(path) {
+            if !activePaths.contains(path), !queuedPaths.contains(path) {
                 queuedPaths.append(path)
             }
-            startNextProbeIfNeeded()
+            startProbesUpToLimit()
         }
 
         private func cancelWaiter(_ waiterID: UUID) {
@@ -114,41 +118,38 @@ extension TerminalController {
             waiterIDsByPath[path]?.remove(waiterID)
             if waiterIDsByPath[path]?.isEmpty == true {
                 waiterIDsByPath.removeValue(forKey: path)
-                if activePath != path {
+                if !activePaths.contains(path) {
                     queuedPaths.removeAll { $0 == path }
                 }
             }
             waiter.continuation.resume(returning: result)
         }
 
-        private func startNextProbeIfNeeded() {
-            guard activePath == nil else { return }
-            while !queuedPaths.isEmpty {
+        private func startProbesUpToLimit() {
+            while activePaths.count < maxConcurrentProbes, !queuedPaths.isEmpty {
                 let path = queuedPaths.removeFirst()
                 guard waiterIDsByPath[path]?.isEmpty == false else { continue }
-                activePath = path
+                activePaths.insert(path)
                 Task { [weak self, probe] in
                     let isDirectory = await probe(path)
                     await self?.completeProbe(path: path, isDirectory: isDirectory)
                 }
-                return
             }
             resumeIdleWaiters()
         }
 
         private func completeProbe(path: String, isDirectory: Bool) {
-            guard activePath == path else { return }
-            activePath = nil
+            guard activePaths.remove(path) != nil else { return }
             let waiterIDs = Array(waiterIDsByPath[path] ?? [])
             let result: WorkspaceCreateWorkingDirectoryValidation = isDirectory ? .valid(path) : .invalid
             for waiterID in waiterIDs {
                 finishWaiter(waiterID, result: result)
             }
-            startNextProbeIfNeeded()
+            startProbesUpToLimit()
         }
 
         private func resumeIdleWaiters() {
-            guard activePath == nil, queuedPaths.isEmpty else { return }
+            guard activePaths.isEmpty, queuedPaths.isEmpty else { return }
             let continuations = idleWaiters
             idleWaiters = []
             for continuation in continuations { continuation.resume() }
@@ -158,6 +159,7 @@ extension TerminalController {
     nonisolated static let v2MobileWorkingDirectoryValidationService =
         WorkspaceCreateWorkingDirectoryValidationService(
             timeout: .seconds(3),
+            maxConcurrentProbes: 2,
             probe: { path in
                 await Task.detached(priority: .utility) {
                     var isDirectory: ObjCBool = false

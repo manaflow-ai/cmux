@@ -2,6 +2,73 @@ import Foundation
 
 /// Composes shell-safe task startup parameters from templates and user prompts.
 public struct MobileTaskCommandComposer: Sendable {
+    private enum ShellQuote {
+        case unquoted
+        case single
+        case double
+    }
+
+    private struct ShellLexicalState {
+        private(set) var quote = ShellQuote.unquoted
+        private(set) var escaped = false
+        private(set) var inComment = false
+        private var atWordBoundary = true
+
+        var permitsEnvironmentExpansion: Bool {
+            !inComment && !escaped && quote != .single
+        }
+
+        func startsComment(with character: Character) -> Bool {
+            quote == .unquoted && !escaped && character == "#" && atWordBoundary
+        }
+
+        mutating func beginComment() {
+            inComment = true
+        }
+
+        mutating func markExpansion() {
+            atWordBoundary = false
+        }
+
+        mutating func consume(_ character: Character) {
+            if inComment {
+                if character == "\n" {
+                    inComment = false
+                    atWordBoundary = true
+                }
+                return
+            }
+            if escaped {
+                escaped = false
+                atWordBoundary = false
+                return
+            }
+            switch (quote, character) {
+            case (.unquoted, "\\"), (.double, "\\"):
+                escaped = true
+            case (.unquoted, "'"):
+                quote = .single
+                atWordBoundary = false
+            case (.unquoted, "\""):
+                quote = .double
+                atWordBoundary = false
+            case (.single, "'"):
+                quote = .unquoted
+            case (.double, "\""):
+                quote = .unquoted
+            case (.unquoted, " "), (.unquoted, "\t"), (.unquoted, "\r"), (.unquoted, "\n"):
+                atWordBoundary = true
+            case (.unquoted, ";"), (.unquoted, "|"), (.unquoted, "&"),
+                 (.unquoted, "("), (.unquoted, ")"), (.unquoted, "<"), (.unquoted, ">"):
+                atWordBoundary = true
+            default:
+                if quote == .unquoted {
+                    atWordBoundary = false
+                }
+            }
+        }
+    }
+
     /// Creates a command composer.
     public init() {}
 
@@ -40,21 +107,29 @@ public struct MobileTaskCommandComposer: Sendable {
     /// Replaces unescaped `{prompt}` placeholders with an environment expansion
     /// that is safe in the placeholder's current POSIX shell quote context.
     private static func interpolatingPromptEnvironment(in command: String) -> (command: String, didReplacePrompt: Bool) {
-        enum Quote {
-            case unquoted
-            case single
-            case double
-        }
-
         var output = ""
         var index = command.startIndex
-        var quote = Quote.unquoted
-        var escaped = false
+        var lexicalState = ShellLexicalState()
         var didReplacePrompt = false
 
         while index < command.endIndex {
-            if !escaped, command[index...].hasPrefix("{prompt}") {
-                switch quote {
+            let character = command[index]
+            if lexicalState.inComment {
+                output.append(character)
+                lexicalState.consume(character)
+                index = command.index(after: index)
+                continue
+            }
+
+            if lexicalState.startsComment(with: character) {
+                lexicalState.beginComment()
+                output.append(character)
+                index = command.index(after: index)
+                continue
+            }
+
+            if !lexicalState.escaped, command[index...].hasPrefix("{prompt}") {
+                switch lexicalState.quote {
                 case .unquoted:
                     output += "\"${CMUX_TASK_PROMPT}\""
                 case .single:
@@ -64,29 +139,12 @@ public struct MobileTaskCommandComposer: Sendable {
                 }
                 index = command.index(index, offsetBy: "{prompt}".count)
                 didReplacePrompt = true
+                lexicalState.markExpansion()
                 continue
             }
 
-            let character = command[index]
             output.append(character)
-            if escaped {
-                escaped = false
-            } else {
-                switch (quote, character) {
-                case (.unquoted, "\\"), (.double, "\\"):
-                    escaped = true
-                case (.unquoted, "'"):
-                    quote = .single
-                case (.unquoted, "\""):
-                    quote = .double
-                case (.single, "'"):
-                    quote = .unquoted
-                case (.double, "\""):
-                    quote = .unquoted
-                default:
-                    break
-                }
-            }
+            lexicalState.consume(character)
             index = command.index(after: index)
         }
         return (output, didReplacePrompt)
@@ -95,7 +153,41 @@ public struct MobileTaskCommandComposer: Sendable {
     /// The documented environment-variable form is an explicit prompt consumer,
     /// so the composer must not append a second prompt argument.
     private static func referencesPromptEnvironment(in command: String) -> Bool {
-        command.contains("$CMUX_TASK_PROMPT") || command.contains("${CMUX_TASK_PROMPT}")
+        let unbraced = "$CMUX_TASK_PROMPT"
+        let braced = "${CMUX_TASK_PROMPT}"
+        var lexicalState = ShellLexicalState()
+        var index = command.startIndex
+        while index < command.endIndex {
+            let character = command[index]
+            if lexicalState.inComment {
+                lexicalState.consume(character)
+                index = command.index(after: index)
+                continue
+            }
+            if lexicalState.startsComment(with: character) {
+                lexicalState.beginComment()
+                index = command.index(after: index)
+                continue
+            }
+            if lexicalState.permitsEnvironmentExpansion {
+                if command[index...].hasPrefix(braced) {
+                    return true
+                }
+                if command[index...].hasPrefix(unbraced) {
+                    let end = command.index(index, offsetBy: unbraced.count)
+                    if end == command.endIndex || !Self.isShellIdentifierCharacter(command[end]) {
+                        return true
+                    }
+                }
+            }
+            lexicalState.consume(character)
+            index = command.index(after: index)
+        }
+        return false
+    }
+
+    private static func isShellIdentifierCharacter(_ character: Character) -> Bool {
+        character == "_" || character.isLetter || character.isNumber
     }
 
     /// The suggested workspace title for a task prompt: its first line, capped
