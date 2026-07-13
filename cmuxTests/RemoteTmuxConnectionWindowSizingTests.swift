@@ -64,4 +64,17 @@ import Testing
         #expect(connection.maximumWindowClaimColumns == 80)
         #expect(connection.maximumWindowClaimRows == 20)
     }
+
+    @Test func returningToSentSizeCancelsDifferentPendingClaim() {
+        let connection = makeConnection()
+        connection.handleMessageForTesting(.enter)
+        connection.sentWindowSizes[4] = (100, 30)
+        connection.recordWindowSizeClaim(windowId: 4, columns: 120, rows: 30)
+        connection.windowSizeDebounceTasks[4] = Task { try? await Task.sleep(for: .seconds(60)) }
+
+        connection.setWindowSize(windowId: 4, columns: 100, rows: 30)
+
+        #expect(connection.lastWindowSizes[4]?.0 == 100)
+        #expect(connection.windowSizeDebounceTasks[4] == nil)
+    }
 }

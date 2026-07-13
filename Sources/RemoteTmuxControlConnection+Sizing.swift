@@ -112,27 +112,28 @@ extension RemoteTmuxControlConnection {
     /// method either way.
     func setWindowSize(windowId: Int, columns: Int, rows: Int) {
         guard columns > 0, rows > 0 else { return }
-        // Dedup only while per-window sizing is live: on the session-wide
-        // fallback the server holds ONE size, so a window's own last request
-        // being unchanged does not mean the server still has it (another
-        // window may have re-sized the session since).
-        if supportsPerWindowSize, let sent = sentWindowSizes[windowId], sent == (columns, rows),
-           connectionState == .connected {
-            return
-        }
-        #if DEBUG
-        cmuxDebugLog("remote.rects.claim @\(windowId) \(columns)x\(rows)")
-        #endif
-        // Record BEFORE the old-server fallback branch: the table is also the
-        // hidden-mirror claim ledger (updateClientSize's write-once gate) and
-        // the per-window dedup baseline — skipping it on the fallback would
-        // let every hidden mirror re-push a session-wide size forever.
+        // Record desired state before dedup. If a different debounced size is
+        // pending and the user returns to the size already on the server, an
+        // early return must cancel that stale task instead of letting it win.
         let maximumClaim = recordWindowSizeClaim(windowId: windowId, columns: columns, rows: rows)
         lastSizeRequestWindowId = windowId
         guard supportsPerWindowSize else {
             setClientSize(columns: columns, rows: rows)
             return
         }
+        // Dedup only while per-window sizing is live: on the session-wide
+        // fallback the server holds ONE size, so a window's own last request
+        // being unchanged does not mean the server still has it (another
+        // window may have re-sized the session since).
+        if supportsPerWindowSize, let sent = sentWindowSizes[windowId], sent == (columns, rows),
+           connectionState == .connected {
+            windowSizeDebounceTasks[windowId]?.cancel()
+            windowSizeDebounceTasks[windowId] = nil
+            return
+        }
+        #if DEBUG
+        cmuxDebugLog("remote.rects.claim @\(windowId) \(columns)x\(rows)")
+        #endif
         lastSizingSendAt = .now
         // The CLIENT's own size must cover the largest window claim: tmux
         // derives window sizes from client sizes, and per-window pins do

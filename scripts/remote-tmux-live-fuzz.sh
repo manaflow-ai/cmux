@@ -126,6 +126,7 @@ if [ "$DRY" != 1 ]; then
   while [ "$tries" -lt 30 ]; do
     aj=$(timeout 8 "$CLI" rpc remote.tmux.sizing_settled 2>/dev/null)
     if printf '%s' "$aj" | grep -q '"windows"' \
+       && printf '%s' "$aj" | grep -q '"window"' \
        && printf '%s' "$aj" | grep -q '"connected" : true' \
        && ! printf '%s' "$aj" | grep -q '"settled" : false' \
        && ! printf '%s' "$aj" | grep -q 'no-sample'; then

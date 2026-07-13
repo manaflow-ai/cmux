@@ -204,7 +204,6 @@ extension RemoteTmuxWindowMirror {
     /// view to the window logging each ancestor's class and width. The
     /// FIRST ancestor wider than the window names the view whose sizing
     /// rule still adopts a content-derived ideal.
-    private static var dumpedAncestorChains = Set<Int>()
     func debugDumpAncestorWidths() {
         guard !Self.dumpedAncestorChains.contains(windowId),
               let view = panelsByPaneId.values.first?.hostedView else { return }

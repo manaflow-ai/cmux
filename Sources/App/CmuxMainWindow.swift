@@ -74,7 +74,7 @@ func configureCmuxMainWindowDragBehavior(_ window: NSWindow) {
 @MainActor
 final class CmuxMainWindow: NSWindow {
 
-    /// No content may resize this window past its display. The content view
+    /// No content may resize this window past the attached display union. The content view
     /// hosts AppKit subtrees whose subviews carry REQUIRED autoresizing-mask
     /// constraints, and if any of them is ever laid out oversized, AppKit
     /// satisfies those constraints by growing the WINDOW — and since this
@@ -84,20 +84,13 @@ final class CmuxMainWindow: NSWindow {
     /// pass). The user sizes this window; layout does not.
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
         var frame = frameRect
-        let requestedCenter = NSPoint(x: frameRect.midX, y: frameRect.midY)
-        let targetScreen = NSScreen.screens.first { $0.frame.contains(requestedCenter) }
-            ?? NSScreen.screens
-                .map { ($0, $0.frame.intersection(frameRect)) }
-                .filter { !$0.1.isNull && $0.1.width > 0 && $0.1.height > 0 }
-                .max { $0.1.width * $0.1.height < $1.1.width * $1.1.height }?.0
-            ?? screen
+        let displayUnion = NSScreen.screens.map(\.frame).reduce(NSRect.null) { $0.union($1) }
         if !styleMask.contains(.fullScreen),
-           let displayFrame = targetScreen?.frame,
-           displayFrame.width > 1, displayFrame.height > 1 {
-            frame.size.width = min(frame.size.width, displayFrame.width)
-            frame.size.height = min(frame.size.height, displayFrame.height)
-            frame.origin.x = min(max(frame.origin.x, displayFrame.minX), displayFrame.maxX - frame.width)
-            frame.origin.y = min(max(frame.origin.y, displayFrame.minY), displayFrame.maxY - frame.height)
+           !displayUnion.isNull, displayUnion.width > 1, displayUnion.height > 1 {
+            // Preserve normal partially off-screen and display-spanning placement;
+            // only cap impossible runaway dimensions from content feedback.
+            frame.size.width = min(frame.size.width, displayUnion.width)
+            frame.size.height = min(frame.size.height, displayUnion.height)
         }
         super.setFrame(frame, display: flag)
     }
