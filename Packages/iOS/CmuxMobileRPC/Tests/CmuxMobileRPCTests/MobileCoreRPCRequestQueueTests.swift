@@ -196,4 +196,52 @@ import Testing
         }
     }
 
+    @Test func settledSessionFailureOutranksAmbientCancellation() async throws {
+        let transport = QueuedCancellationProbeTransport()
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59135)
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
+            rpcRequestTimeoutNanoseconds: 60 * 1_000_000_000
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: "terminal-main",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(runtime: runtime, route: route, ticket: ticket)
+        let requestID = "settled-before-cancel"
+        let request = try MobileCoreRPCClient.requestData(
+            method: "workspace.create",
+            params: ["title": "Task"],
+            id: requestID
+        )
+
+        let firstTask = Task { try await client.sendRequest(request) }
+        _ = try await transport.waitForSentRequestCount(1)
+
+        let duplicateTask = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await client.session.send(
+                payload: request,
+                requestID: requestID,
+                deadlineUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds + 60 * 1_000_000_000
+            )
+        }
+        do {
+            _ = try await duplicateTask.value
+            Issue.record("Expected the already-settled duplicate request failure")
+        } catch MobileShellConnectionError.invalidResponse {
+        } catch {
+            Issue.record("Expected invalidResponse to outrank ambient cancellation, got \(error)")
+        }
+
+        firstTask.cancel()
+        await transport.releaseFirstSend()
+        _ = try? await firstTask.value
+    }
+
 }

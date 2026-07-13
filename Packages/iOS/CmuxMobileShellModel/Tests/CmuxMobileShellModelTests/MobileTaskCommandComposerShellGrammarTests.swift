@@ -86,6 +86,40 @@ import Testing
         #expect(environmentResult.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
     }
 
+    @Test func heredocBodiesKeepPromptPlaceholdersLiteral() {
+        let commands = [
+            "cat <<'EOF'\n{prompt}\nEOF",
+            "cat <<EOF\n{prompt}\nEOF",
+        ]
+
+        for command in commands {
+            let template = MobileTaskTemplate(name: "Script", icon: "terminal", command: command)
+            let result = composer.compose(template: template, prompt: "ship it")
+
+            #expect(result.initialCommand == command)
+            #expect(result.initialEnv.isEmpty)
+        }
+    }
+
+    @Test func heredocEnvironmentReferenceHonorsDelimiterExpansion() {
+        let expandable = "cat <<EOF\n$CMUX_TASK_PROMPT\nEOF"
+        let literal = "cat <<'EOF'\n$CMUX_TASK_PROMPT\nEOF"
+
+        let expandableResult = composer.compose(
+            template: MobileTaskTemplate(name: "Script", icon: "terminal", command: expandable),
+            prompt: "ship it"
+        )
+        let literalResult = composer.compose(
+            template: MobileTaskTemplate(name: "Script", icon: "terminal", command: literal),
+            prompt: "ship it"
+        )
+
+        #expect(expandableResult.initialCommand == expandable)
+        #expect(expandableResult.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
+        #expect(literalResult.initialCommand == literal)
+        #expect(literalResult.initialEnv.isEmpty)
+    }
+
     @Test func compoundCommandsRequireExplicitPromptConsumer() {
         let commands = [
             "claude | tee /tmp/task.log",
