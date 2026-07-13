@@ -5,7 +5,7 @@ import Foundation
 // DispatchSourceWrite has no async-native equivalent. Its event handler owns
 // all offset mutation, while `cancel()` is the source's thread-safe lifecycle API.
 final class CommandStandardInputWriter: @unchecked Sendable {
-    private let data: Data
+    private var data: Data?
     private let descriptor: Int32
     private let source: any DispatchSourceWrite
     private var offset = 0
@@ -33,7 +33,8 @@ final class CommandStandardInputWriter: @unchecked Sendable {
         source.setEventHandler { [weak self] in
             self?.writeAvailableBytes()
         }
-        source.setCancelHandler {
+        source.setCancelHandler { [weak self] in
+            self?.data = nil
             Darwin.close(duplicate)
         }
         source.resume()
@@ -47,7 +48,7 @@ final class CommandStandardInputWriter: @unchecked Sendable {
     }
 
     private func writeAvailableBytes() {
-        guard !source.isCancelled else { return }
+        guard !source.isCancelled, let data else { return }
         let available = max(1, Int(source.data))
         let written = data.withUnsafeBytes { bytes -> Int in
             guard let baseAddress = bytes.baseAddress, offset < bytes.count else { return 0 }

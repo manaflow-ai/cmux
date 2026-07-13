@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Copies selected worktree paths with aggregate item, byte, disk, and cancellation guards.
@@ -36,6 +37,7 @@ struct WorktreeIncludeCopyService: Sendable {
         var byteCount: Int64 = 0
         var copiedItemCount = 0
         var copiedByteCount: Int64 = 0
+        var copiedDirectories: [(source: URL, destination: URL)] = []
 
         for relativePath in relativePaths {
             if Task.isCancelled {
@@ -69,10 +71,10 @@ struct WorktreeIncludeCopyService: Sendable {
             return diagnostics
         }
 
-        for relativePath in copyablePaths {
+        copyLoop: for relativePath in copyablePaths {
             if Task.isCancelled {
                 diagnostics.append("Cancelled .worktreeinclude copy before it completed.")
-                return diagnostics
+                break copyLoop
             }
             let destinationItem = destination.appendingPathComponent(relativePath).standardizedFileURL
             let destinationExisted = fileManager.fileExists(atPath: destinationItem.path)
@@ -82,20 +84,33 @@ struct WorktreeIncludeCopyService: Sendable {
                     to: destinationItem,
                     itemCount: &copiedItemCount,
                     byteCount: &copiedByteCount,
-                    availableByteBudget: availableByteBudget
+                    availableByteBudget: availableByteBudget,
+                    destinationRoot: destination,
+                    copiedDirectories: &copiedDirectories
                 )
             } catch is CancellationError {
                 if !destinationExisted { try? fileManager.removeItem(at: destinationItem) }
                 diagnostics.append("Cancelled .worktreeinclude copy before it completed.")
-                return diagnostics
+                break copyLoop
             } catch let limitError as WorktreeIncludeCopyLimitError {
                 if !destinationExisted { try? fileManager.removeItem(at: destinationItem) }
                 diagnostics.append(limitError.localizedDescription)
-                return diagnostics
+                break copyLoop
             } catch {
                 if !destinationExisted { try? fileManager.removeItem(at: destinationItem) }
                 diagnostics.append(
                     "Could not copy .worktreeinclude path \(relativePath): \(error.localizedDescription)"
+                )
+            }
+        }
+        for directory in copiedDirectories.reversed() {
+            guard fileManager.fileExists(atPath: directory.destination.path) else { continue }
+            do {
+                try copySecurityMetadata(from: directory.source, to: directory.destination)
+            } catch {
+                try? fileManager.removeItem(at: directory.destination)
+                diagnostics.append(
+                    "Could not preserve .worktreeinclude directory metadata for \(directory.source.lastPathComponent): \(error.localizedDescription)"
                 )
             }
         }
@@ -142,13 +157,17 @@ struct WorktreeIncludeCopyService: Sendable {
         to destinationItem: URL,
         itemCount: inout Int,
         byteCount: inout Int64,
-        availableByteBudget: Int64?
+        availableByteBudget: Int64?,
+        destinationRoot: URL,
+        copiedDirectories: inout [(source: URL, destination: URL)]
     ) throws {
         let rootValues = try sourceItem.resourceValues(forKeys: Self.resourceKeys)
         guard rootValues.isDirectory == true, rootValues.isSymbolicLink != true else {
-            try fileManager.createDirectory(
-                at: destinationItem.deletingLastPathComponent(),
-                withIntermediateDirectories: true
+            try createDirectoryIfNeeded(
+                destinationItem.deletingLastPathComponent(),
+                from: sourceItem.deletingLastPathComponent(),
+                destinationRoot: destinationRoot,
+                copiedDirectories: &copiedDirectories
             )
             try accountCopiedItem(itemCount: &itemCount, byteCount: byteCount)
             if rootValues.isRegularFile == true, rootValues.isSymbolicLink != true {
@@ -166,7 +185,12 @@ struct WorktreeIncludeCopyService: Sendable {
         }
 
         try accountCopiedItem(itemCount: &itemCount, byteCount: byteCount)
-        try fileManager.createDirectory(at: destinationItem, withIntermediateDirectories: true)
+        try createDirectoryIfNeeded(
+            destinationItem,
+            from: sourceItem,
+            destinationRoot: destinationRoot,
+            copiedDirectories: &copiedDirectories
+        )
         guard let enumerator = fileManager.enumerator(atPath: sourceItem.path) else {
             throw CocoaError(.fileReadUnknown)
         }
@@ -177,11 +201,18 @@ struct WorktreeIncludeCopyService: Sendable {
             let values = try child.resourceValues(forKeys: Self.resourceKeys)
             if values.isDirectory == true, values.isSymbolicLink != true {
                 try accountCopiedItem(itemCount: &itemCount, byteCount: byteCount)
-                try fileManager.createDirectory(at: destinationChild, withIntermediateDirectories: true)
+                try createDirectoryIfNeeded(
+                    destinationChild,
+                    from: child,
+                    destinationRoot: destinationRoot,
+                    copiedDirectories: &copiedDirectories
+                )
             } else {
-                try fileManager.createDirectory(
-                    at: destinationChild.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
+                try createDirectoryIfNeeded(
+                    destinationChild.deletingLastPathComponent(),
+                    from: child.deletingLastPathComponent(),
+                    destinationRoot: destinationRoot,
+                    copiedDirectories: &copiedDirectories
                 )
                 try accountCopiedItem(itemCount: &itemCount, byteCount: byteCount)
                 if values.isRegularFile == true, values.isSymbolicLink != true {
@@ -197,6 +228,27 @@ struct WorktreeIncludeCopyService: Sendable {
                 }
             }
         }
+    }
+
+    private func createDirectoryIfNeeded(
+        _ destinationDirectory: URL,
+        from sourceDirectory: URL,
+        destinationRoot: URL,
+        copiedDirectories: inout [(source: URL, destination: URL)]
+    ) throws {
+        let destinationDirectory = destinationDirectory.standardizedFileURL
+        guard destinationDirectory != destinationRoot.standardizedFileURL,
+              !fileManager.fileExists(atPath: destinationDirectory.path) else {
+            return
+        }
+        try createDirectoryIfNeeded(
+            destinationDirectory.deletingLastPathComponent(),
+            from: sourceDirectory.deletingLastPathComponent(),
+            destinationRoot: destinationRoot,
+            copiedDirectories: &copiedDirectories
+        )
+        try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: false)
+        copiedDirectories.append((sourceDirectory, destinationDirectory))
     }
 
     private func accountCopiedItem(
@@ -257,14 +309,16 @@ struct WorktreeIncludeCopyService: Sendable {
                 byteCount = nextByteCount
             }
 
-            let sourceAttributes = try fileManager.attributesOfItem(atPath: sourceItem.path)
-            var copiedAttributes: [FileAttributeKey: Any] = [:]
-            copiedAttributes[.posixPermissions] = sourceAttributes[.posixPermissions]
-            copiedAttributes[.modificationDate] = sourceAttributes[.modificationDate]
-            try fileManager.setAttributes(copiedAttributes, ofItemAtPath: destinationItem.path)
+            try copySecurityMetadata(from: sourceItem, to: destinationItem)
         } catch {
             try? fileManager.removeItem(at: destinationItem)
             throw error
+        }
+    }
+
+    private func copySecurityMetadata(from source: URL, to destination: URL) throws {
+        guard copyfile(source.path, destination.path, nil, copyfile_flags_t(COPYFILE_SECURITY)) == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
         }
     }
 
