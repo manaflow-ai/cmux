@@ -1,5 +1,6 @@
 import AppKit
 import CmuxRemoteSession
+import CmuxTerminal
 import SwiftUI
 import Testing
 @testable import Bonsplit
@@ -428,6 +429,170 @@ import Testing
                 "panes do not tile: \(widths.first)+\(widths.second) != available \(host.available)"
             )
         }
+    }
+
+    /// The same plan-versus-view judgment the settle payload makes: every
+    /// pane's hosted view must sit within tolerance of the outer size the
+    /// last imposition granted it (planned height carries the per-pane tab
+    /// bar; the hosted view is the content below it).
+    private func planViewMismatch(_ mirror: RemoteTmuxWindowMirror) -> String? {
+        guard let metrics = mirror.nativeLayoutMetrics() else { return "no metrics" }
+        guard !mirror.lastPlannedOuterSizes.isEmpty else { return "no plan yet" }
+        for (paneId, planned) in mirror.lastPlannedOuterSizes.sorted(by: { $0.key < $1.key }) {
+            guard let view = mirror.panelsByPaneId[paneId]?.hostedView, view.window != nil else {
+                return "%\(paneId) not hosted"
+            }
+            let content = CGSize(
+                width: planned.width,
+                height: max(0, planned.height - metrics.tabBarHeight)
+            )
+            if abs(content.width - view.frame.width) > 1.5
+                || abs(content.height - view.frame.height) > 1.5 {
+                return "%\(paneId) plan=\(Int(content.width))x\(Int(content.height))"
+                    + " view=\(Int(view.frame.width))x\(Int(view.frame.height))"
+            }
+        }
+        return nil
+    }
+
+    /// The liveness half of render ownership. The sizing transaction's
+    /// convergence proof is input-only: once a completed pass's inputs match
+    /// the current inputs, every later trigger early-returns. An apply that
+    /// terminates OFF-target with no input change — bonsplit parking a
+    /// divider at a minimum, a retry budget expiring against mid-commit
+    /// bounds — therefore never gets corrected: the live fuzz held a 1199pt
+    /// plan against a 984pt view for 50+ seconds while every trigger said
+    /// "settled". The rule this pins: an apply may never terminate
+    /// off-target without a re-arm edge — the transaction must verify
+    /// outcome parity and re-impose (bounded) when the views miss the plan.
+    @Test func offPlanGeometryWithUnchangedSizingInputsReconverges() async throws {
+        let layout = node(.horizontal([
+            node(.pane(1), w: 61, h: 35, x: 0, y: 0),
+            node(.pane(2), w: 61, h: 35, x: 62, y: 0),
+        ]), w: 123, h: 35, x: 0, y: 0)
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "parity-\(UUID().uuidString)@host"),
+            sessionName: "work"
+        )
+        let workspaceId = UUID()
+        // Real panels: the parity judgment reads the panes' hosted terminal
+        // views, so the fixture needs them mounted through the app's real
+        // render chain. The spawn stays paced (no shells launch in a unit
+        // test); only the view tree matters here.
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0,
+            panelId: UUID(),
+            connection: connection,
+            layout: layout,
+            geometrySource: {
+                RemoteTmuxMirrorGeometry(
+                    cellWidthPx: 16, cellHeightPx: 34,
+                    surfacePadWidthPx: 8, surfacePadHeightPx: 0,
+                    scale: 2
+                )
+            },
+            makePanel: { _ in
+                TerminalPanel(workspaceId: workspaceId, runtimeSpawnPolicy: .pacedSessionRestore)
+            }
+        )
+        // Freeze the live-sample channel. The injected geometrySource already
+        // fixes the render constants; a real surface sample landing mid-test
+        // would change the geometry SNAPSHOT — a sizing input — and the pass
+        // would then re-impose on an input change, masking exactly the
+        // no-input-change hole this test pins.
+        for panel in mirror.panelsByPaneId.values {
+            panel.surface.onManualSizeApplied = nil
+            panel.surface.onRuntimeReady = nil
+        }
+        let appearance = PanelAppearance(
+            backgroundColor: .black, foregroundColor: .white,
+            dividerColor: .gray, unfocusedOverlayNSColor: .black,
+            unfocusedOverlayOpacity: 0, usesClearContentBackground: false
+        )
+        let hostingView = NSHostingView(
+            rootView: RemoteTmuxWindowMirrorSplitView(
+                mirror: mirror,
+                appearance: appearance,
+                isOuterFocused: false,
+                isVisibleInUI: true,
+                portalPriority: 0,
+                onOuterFocus: {}
+            )
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false
+        )
+        let contentView = try #require(window.contentView)
+        hostingView.frame = contentView.bounds
+        hostingView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostingView)
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        // Pump with async suspensions, not RunLoop.run: sizing passes ride
+        // DispatchQueue.main and a nested runloop would starve them (see
+        // staleWideBankHealsThroughTheFullPaneChain).
+        func pump(_ turns: Int, until done: () -> Bool = { false }) async throws {
+            for _ in 0..<turns {
+                window.displayIfNeeded()
+                window.contentView?.layoutSubtreeIfNeeded()
+                try await Task.sleep(for: .milliseconds(50))
+                if done() { return }
+            }
+        }
+
+        // Baseline: the fixture must reach plan == view on its own, or it
+        // cannot judge anything. The extra drain pass afterwards consumes any
+        // input drift still in flight (a surface sample swept mid-pass lands
+        // AFTER that pass's input snapshot), so the fixed point captured
+        // below really is one.
+        try await pump(60, until: { planViewMismatch(mirror) == nil })
+        try #require(
+            planViewMismatch(mirror) == nil,
+            "fixture never converged to its own plan: \(planViewMismatch(mirror) ?? "")"
+        )
+        mirror.setNeedsSizingPass()
+        try await pump(6)
+        try #require(planViewMismatch(mirror) == nil)
+        let inputsAtSettle = try #require(mirror.lastCompletedSizingInputs)
+        let splitId: UUID = try {
+            guard case .split(let split) = mirror.bonsplitController.treeSnapshot(),
+                  let id = UUID(uuidString: split.id) else { throw TestError.notASplit }
+            return id
+        }()
+
+        // The perturbation: geometry moves, no sizing input changes — the
+        // desk stand-in for bonsplit parking a divider off the imposed
+        // extent. Clearing the imposition first is part of the simulation
+        // (a parked apply leaves no live imposition holding the plan).
+        _ = mirror.bonsplitController.setImposedFirstExtent(nil, forSplit: splitId, fromExternal: true)
+        _ = mirror.bonsplitController.setDividerPosition(0.8, forSplit: splitId, fromExternal: true)
+        try await pump(12, until: { planViewMismatch(mirror) != nil })
+        try #require(
+            planViewMismatch(mirror) != nil,
+            "the perturbation moved nothing — the test exercised nothing"
+        )
+        // Fixture validity: the perturbation must not have completed a pass
+        // (a changed input would re-impose legitimately and mask the hole).
+        try #require(
+            mirror.lastCompletedSizingInputs == inputsAtSettle,
+            "sizing inputs drifted during the perturbation — this run judged an input change, not the liveness hole"
+        )
+
+        // A redundant trigger, exactly what the live app keeps delivering at
+        // rest (surface samples, geometry echoes). Inputs are unchanged, so
+        // today the pass early-returns and the views stay off-plan forever.
+        mirror.setNeedsSizingPass()
+        try await pump(60, until: { planViewMismatch(mirror) == nil })
+        #expect(
+            planViewMismatch(mirror) == nil,
+            "off-plan geometry never re-converged with unchanged inputs: \(planViewMismatch(mirror) ?? "") — the apply terminated off-target and no re-arm edge exists"
+        )
+        withExtendedLifetime(connection) {}
     }
 
     /// A tab re-show races two host probes: SwiftUI mounts the NEW probe
