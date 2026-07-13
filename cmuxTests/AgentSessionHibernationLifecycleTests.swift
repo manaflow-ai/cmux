@@ -8,6 +8,28 @@ import Testing
 #endif
 
 extension AgentHibernationTests {
+    @MainActor
+    @Test
+    func testRootExitInvalidatesInMemoryRestoreOwnerBeforeQueuedPersistence() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Codex",
+            kind: "codex",
+            command: "codex resume root-session",
+            cwd: "/tmp/repo",
+            checkpointId: "root-session",
+            source: "agent-hook",
+            updatedAt: 10
+        )
+        workspace.surfaceResumeBindingsByPanelId[panelId] = binding
+
+        workspace.markAgentRootExitLocally(panelId: panelId, binding: binding)
+
+        expectNil(workspace.surfaceResumeBinding(panelId: panelId))
+        expectEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .completedAgentExit)
+    }
+
     @Test
     func testPassiveMonitorPreventsHibernationEvenWhenProviderLifecycleSaysIdle() throws {
         let home = FileManager.default.temporaryDirectory
