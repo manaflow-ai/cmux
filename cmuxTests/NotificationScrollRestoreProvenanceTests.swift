@@ -12,7 +12,7 @@ extension NotificationScrollRestoreTests {
     @Test func rowSpaceRevisionInvalidatesPreReplayNotification() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 100, offset: 56, visible: 44)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let hostedView = makeHostedView(surfaceView: surfaceView)
         let marker = completionMarker(named: "replay-row-space-revision")
         hostedView.beginSessionScrollbackReplay(completionMarker: marker)
         #expect(completeReplay(
@@ -33,7 +33,7 @@ extension NotificationScrollRestoreTests {
     @Test func rowSpaceRevisionInvalidatesSameGenerationNotification() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let hostedView = makeHostedView(surfaceView: surfaceView)
         let marker = completionMarker(named: "same-generation-row-space-revision")
         hostedView.beginSessionScrollbackReplay(completionMarker: marker)
         #expect(completeReplay(
@@ -58,7 +58,7 @@ extension NotificationScrollRestoreTests {
     @Test func revisionAwarePositionFailsClosedAcrossReplayGenerations() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let hostedView = makeHostedView(surfaceView: surfaceView)
         let marker = completionMarker(named: "cross-generation-row-space-revision")
         hostedView.beginSessionScrollbackReplay(completionMarker: marker)
         #expect(completeReplay(
@@ -77,7 +77,7 @@ extension NotificationScrollRestoreTests {
     @Test func rowSpaceRevisionDoesNotInvalidateBottomAnchor() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let hostedView = makeHostedView(surfaceView: surfaceView)
         hostedView.updateScrollbackRowSpaceRevision(8)
 
         #expect(hostedView.restoreNotificationScrollPosition(
@@ -94,7 +94,7 @@ extension NotificationScrollRestoreTests {
     @Test func rowSpaceRevisionTracksLatestSurfaceIncarnation() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 200, offset: 116, visible: 44)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let hostedView = makeHostedView(surfaceView: surfaceView)
         hostedView.updateScrollbackRowSpaceRevision(8)
         hostedView.updateScrollbackRowSpaceRevision(1)
 
@@ -111,7 +111,7 @@ extension NotificationScrollRestoreTests {
     @Test func postReplayNotificationUsesItsLiveGeneration() throws {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 100, offset: 56, visible: 44)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let hostedView = makeHostedView(surfaceView: surfaceView)
         let marker = completionMarker(named: "post-replay-notification")
         hostedView.beginSessionScrollbackReplay(completionMarker: marker)
         #expect(completeReplay(
@@ -131,7 +131,7 @@ extension NotificationScrollRestoreTests {
     @Test func replayCompletionBeforeArtifactAdoptionIsPreserved() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let hostedView = makeHostedView(surfaceView: surfaceView)
         let marker = completionMarker(named: "replay-complete-before-adoption")
         #expect(completeReplay(hostedView, marker: marker, scrollbar: surfaceView.scrollbar))
         hostedView.beginSessionScrollbackReplay(completionMarker: marker)
@@ -147,7 +147,7 @@ extension NotificationScrollRestoreTests {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 100, offset: 56, visible: 44)
         let authoritativeScrollbar = scrollbar(total: 200, offset: 156, visible: 44)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let hostedView = makeHostedView(surfaceView: surfaceView)
         let marker = completionMarker(named: "replay-authoritative-snapshot")
         hostedView.beginSessionScrollbackReplay(completionMarker: marker)
 
@@ -163,7 +163,7 @@ extension NotificationScrollRestoreTests {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 100, offset: 56, visible: 44)
         surfaceView.enqueueScrollbarUpdate(scrollbar(total: 120, offset: 76, visible: 44))
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let hostedView = makeHostedView(surfaceView: surfaceView)
 
         #expect(hostedView.performNotificationScrollRestore(
             .absoluteRow(218),
@@ -173,6 +173,22 @@ extension NotificationScrollRestoreTests {
         #expect(surfaceView.scrollbar?.total == 400)
         #expect(surfaceView.scrollbar?.offset == 218)
         #expect(!surfaceView.flushPendingScrollbarIfAvailable())
+        #expect(surfaceView.bindingActions == ["scroll_to_row:218"])
+    }
+
+    @Test func restoreWaitsForUsableAppKitViewport() {
+        let surfaceView = ActionProbeView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 400, offset: 218, visible: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+
+        #expect(hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+        ))
+        #expect(surfaceView.bindingActions.isEmpty)
+
+        surfaceView.cellSize = CGSize(width: 8, height: 16)
+        hostedView.frame = CGRect(x: 0, y: 0, width: 800, height: 640)
+        hostedView.layoutSubtreeIfNeeded()
         #expect(surfaceView.bindingActions == ["scroll_to_row:218"])
     }
 }

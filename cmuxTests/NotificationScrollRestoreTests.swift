@@ -67,7 +67,7 @@ struct NotificationScrollRestoreTests {
     @Test func restoreRebasesWhenHistoryRetainsOnlyCapturedSuffix() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let hostedView = makeHostedView(surfaceView: surfaceView)
 
         #expect(hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 138, totalRows: 400)
@@ -78,7 +78,7 @@ struct NotificationScrollRestoreTests {
     @Test func restoreWaitsForUsableViewport() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 400, offset: 218, visible: 0)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let hostedView = makeHostedView(surfaceView: surfaceView)
 
         #expect(hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 138, totalRows: 400)
@@ -91,7 +91,7 @@ struct NotificationScrollRestoreTests {
     @Test func notificationWithoutPositionSupersedesPendingRestore() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 400, offset: 218, visible: 0)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let hostedView = makeHostedView(surfaceView: surfaceView)
 
         #expect(hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 138, totalRows: 400)
@@ -115,7 +115,7 @@ struct NotificationScrollRestoreTests {
     @Test func restoreWaitsForReplayCompletionBeforeRebasing() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let hostedView = makeHostedView(surfaceView: surfaceView)
         let marker = completionMarker(named: "replay-wait")
         hostedView.beginSessionScrollbackReplay(completionMarker: marker)
         #expect(hostedView.sessionScrollbackReplayCompletionDeadlineTimer == nil)
@@ -134,7 +134,7 @@ struct NotificationScrollRestoreTests {
     @Test func restoreRebasesWhenReplayCompletesWithRetainedSuffix() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 100, offset: 56, visible: 44)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let hostedView = makeHostedView(surfaceView: surfaceView)
         let marker = completionMarker(named: "replay-trim")
         hostedView.beginSessionScrollbackReplay(completionMarker: marker)
 
@@ -157,7 +157,7 @@ struct NotificationScrollRestoreTests {
     @Test func restoreUsesAuthoritativeScrollbarWhenCachedGeometryIsUnchanged() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let hostedView = makeHostedView(surfaceView: surfaceView)
         let marker = completionMarker(named: "replay-unchanged-scrollbar")
         hostedView.beginSessionScrollbackReplay(completionMarker: marker)
 
@@ -171,7 +171,7 @@ struct NotificationScrollRestoreTests {
     @Test func replayCompletionPublishesAuthoritativeScrollbarBeforeRestore() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let hostedView = makeHostedView(surfaceView: surfaceView)
         let marker = completionMarker(named: "replay-complete-before-restore")
         hostedView.beginSessionScrollbackReplay(completionMarker: marker)
         #expect(completeReplay(hostedView, marker: marker, scrollbar: surfaceView.scrollbar))
@@ -186,7 +186,7 @@ struct NotificationScrollRestoreTests {
     @Test func replayCompletionSnapshotSurvivesLaterOutputUntilRestore() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 100, offset: 56, visible: 44)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let hostedView = makeHostedView(surfaceView: surfaceView)
         let marker = completionMarker(named: "replay-output-after-marker")
         hostedView.beginSessionScrollbackReplay(completionMarker: marker)
         #expect(completeReplay(
@@ -207,7 +207,7 @@ struct NotificationScrollRestoreTests {
     @Test func preReplayNotificationUsesLiveViewportAfterResize() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 100, offset: 56, visible: 44)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let hostedView = makeHostedView(surfaceView: surfaceView)
         let marker = completionMarker(named: "replay-resized-after-marker")
         hostedView.beginSessionScrollbackReplay(completionMarker: marker)
         #expect(completeReplay(
@@ -226,7 +226,7 @@ struct NotificationScrollRestoreTests {
     @Test func restoreCancelsWhenReplayCompletionMarkerNeverArrives() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 100, offset: 56, visible: 44)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let hostedView = makeHostedView(surfaceView: surfaceView)
         let marker = completionMarker(named: "replay-timeout")
         hostedView.beginSessionScrollbackReplay(completionMarker: marker)
         #expect(hostedView.sessionScrollbackReplayCompletionDeadlineTimer == nil)
@@ -250,7 +250,7 @@ struct NotificationScrollRestoreTests {
     @Test func activeReplayDeadlineStartsOnlyWhenNavigationWaits() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let hostedView = makeHostedView(surfaceView: surfaceView)
         let marker = completionMarker(named: "replay-active-timeout")
         hostedView.beginSessionScrollbackReplay(completionMarker: marker)
 
@@ -269,7 +269,7 @@ struct NotificationScrollRestoreTests {
     @Test func authoritativeSnapshotFailureAbandonsPendingRestore() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let hostedView = makeHostedView(surfaceView: surfaceView)
         let marker = completionMarker(named: "replay-snapshot-failure")
         hostedView.beginSessionScrollbackReplay(completionMarker: marker)
         _ = hostedView.restoreNotificationScrollPosition(
@@ -437,7 +437,7 @@ struct NotificationScrollRestoreTests {
     @Test func userWheelInputCancelsPendingRestore() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 400, offset: 218, visible: 0)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let hostedView = makeHostedView(surfaceView: surfaceView)
 
         #expect(hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 138, totalRows: 400)
@@ -450,7 +450,15 @@ struct NotificationScrollRestoreTests {
     func makeHostedView(total: UInt64, offset: UInt64, visible: UInt64) -> GhosttySurfaceScrollView {
         let surfaceView = GhosttyNSView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: total, offset: offset, visible: visible)
-        return GhosttySurfaceScrollView(surfaceView: surfaceView)
+        return makeHostedView(surfaceView: surfaceView)
+    }
+
+    func makeHostedView(surfaceView: GhosttyNSView) -> GhosttySurfaceScrollView {
+        surfaceView.cellSize = CGSize(width: 8, height: 16)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = CGRect(x: 0, y: 0, width: 800, height: 640)
+        hostedView.layoutSubtreeIfNeeded()
+        return hostedView
     }
 
     func scrollbar(total: UInt64, offset: UInt64, visible: UInt64) -> GhosttyScrollbar {
