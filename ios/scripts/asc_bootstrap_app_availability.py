@@ -133,7 +133,7 @@ def _create_payload(app_id: str, territory_ids: list[str]) -> dict[str, Any]:
     linkage: list[dict[str, str]] = []
     included: list[dict[str, Any]] = []
     for territory_id in territory_ids:
-        availability_id = f"availability-{territory_id}"
+        availability_id = f"${{local-{territory_id.lower()}}}"
         linkage.append({"type": "territoryAvailabilities", "id": availability_id})
         included.append(
             {

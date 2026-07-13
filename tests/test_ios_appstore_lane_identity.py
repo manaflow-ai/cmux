@@ -8,6 +8,7 @@ import http.server
 import json
 import os
 import plistlib
+import re
 import shutil
 import stat
 import subprocess
@@ -1062,6 +1063,31 @@ def test_bootstrap_appstore_availability_creates_all_territories_once(tmp: Path)
             if self.path != "/v2/appAvailabilities":
                 self._write_json(404, {"errors": [{"code": "NOT_FOUND"}]})
                 return
+            data = body.get("data", {})
+            relationships = data.get("relationships", {})
+            territory_relationship = relationships.get("territoryAvailabilities", {})
+            linkage = territory_relationship.get("data", [])
+            included = body.get("included", [])
+            linkage_ids = {
+                item.get("id") for item in linkage if isinstance(item, dict)
+            }
+            included_ids = {
+                item.get("id") for item in included if isinstance(item, dict)
+            }
+            if (
+                linkage_ids != included_ids
+                or not linkage_ids
+                or not all(
+                    isinstance(item_id, str)
+                    and re.fullmatch(r"\$\{local-[a-z0-9-]+\}", item_id)
+                    for item_id in linkage_ids
+                )
+            ):
+                self._write_json(
+                    409,
+                    {"errors": [{"code": "ENTITY_ERROR.INCLUDED.INVALID_ID"}]},
+                )
+                return
             availability_created = True
             self._write_json(
                 201,
@@ -1135,7 +1161,7 @@ def test_bootstrap_appstore_availability_creates_all_territories_once(tmp: Path)
         )
         _check(
             {item.get("id") for item in linkage if isinstance(item, dict)}
-            == {"availability-USA", "availability-CAN", "availability-JPN"},
+            == {"${local-usa}", "${local-can}", "${local-jpn}"},
             "availability links every current territory",
         )
         _check(
