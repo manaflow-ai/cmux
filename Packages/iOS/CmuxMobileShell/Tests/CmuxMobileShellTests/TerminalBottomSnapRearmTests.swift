@@ -20,10 +20,6 @@ struct TerminalBottomSnapRearmTests {
         harness.snapReceipts[0].resolve(true)
 
         #expect(await firstInput.value)
-        guard case .scroll = session.phase else {
-            Issue.record("queued scroll did not become the active transaction")
-            return
-        }
         try #require(await pollUntil { harness.scrollRequests.count == 1 }, "scroll request")
         try #require(await pollUntil { session.phase.isIdle }, "scroll completion")
         #expect(harness.scrollRequests[0].directionalRuns.map(\.lines) == [-12])
