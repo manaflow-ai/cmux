@@ -17,10 +17,14 @@ extension GhosttySurfaceScrollView {
             cancelPendingNotificationScrollRestore()
             return false
         }
+        let replayCompletedBeforeRestore = notificationScrollRestorePhase == .sessionScrollbackReplayCompleted
         notificationScrollRestorePhase = .pending(
             position,
             sessionScrollbackReplayCompletionMarker: notificationScrollRestorePhase.sessionScrollbackReplayCompletionMarker
         )
+        if replayCompletedBeforeRestore {
+            beginSessionScrollbackReplayRendererWait()
+        }
         if notificationScrollRestorePhase.sessionScrollbackReplayCompletionMarker != nil {
             scheduleSessionScrollbackReplayCompletionDeadline()
         }
@@ -67,10 +71,25 @@ extension GhosttySurfaceScrollView {
 
     func beginSessionScrollbackReplay(completionMarker: SessionScrollbackReplayCompletionMarker) {
         cancelSessionScrollbackReplayRendererWait()
+        let completedBeforeActivation = earlySessionScrollbackReplayCompletionDirectory == completionMarker.reportedDirectory
+        earlySessionScrollbackReplayCompletionDirectory = nil
+        if completedBeforeActivation {
+            switch notificationScrollRestorePhase {
+            case .idle, .sessionScrollbackReplayActive, .sessionScrollbackReplayCompleted:
+                notificationScrollRestorePhase = .sessionScrollbackReplayCompleted
+            case .pending(let position, _):
+                notificationScrollRestorePhase = .pending(
+                    position,
+                    sessionScrollbackReplayCompletionMarker: nil
+                )
+                beginSessionScrollbackReplayRendererWait()
+            }
+            return
+        }
         switch notificationScrollRestorePhase {
         case .idle:
             notificationScrollRestorePhase = .sessionScrollbackReplayActive(completionMarker)
-        case .sessionScrollbackReplayActive:
+        case .sessionScrollbackReplayActive, .sessionScrollbackReplayCompleted:
             notificationScrollRestorePhase = .sessionScrollbackReplayActive(completionMarker)
         case .pending(let position, _):
             notificationScrollRestorePhase = .pending(
@@ -91,13 +110,21 @@ extension GhosttySurfaceScrollView {
     func completeSessionScrollbackReplay(
         ifMatches reportedDirectory: String
     ) -> Bool {
-        guard hasSessionScrollbackReplayCompletionMarker(matching: reportedDirectory) else { return false }
+        guard hasSessionScrollbackReplayCompletionMarker(matching: reportedDirectory) else {
+            guard SessionScrollbackReplayCompletionMarker.isReservedReportedDirectory(reportedDirectory) else { return false }
+            if notificationScrollRestorePhase != .sessionScrollbackReplayCompleted {
+                earlySessionScrollbackReplayCompletionDirectory = reportedDirectory
+            }
+            return true
+        }
         switch notificationScrollRestorePhase {
         case .idle:
             break
         case .sessionScrollbackReplayActive:
-            notificationScrollRestorePhase = .idle
+            notificationScrollRestorePhase = .sessionScrollbackReplayCompleted
             cancelSessionScrollbackReplayCompletionDeadline()
+        case .sessionScrollbackReplayCompleted:
+            break
         case .pending(let position, _):
             notificationScrollRestorePhase = .pending(
                 position,
@@ -117,6 +144,8 @@ extension GhosttySurfaceScrollView {
         case .idle:
             break
         case .sessionScrollbackReplayActive:
+            notificationScrollRestorePhase = .idle
+        case .sessionScrollbackReplayCompleted:
             notificationScrollRestorePhase = .idle
         case .pending(let position, _):
             notificationScrollRestorePhase = .pending(

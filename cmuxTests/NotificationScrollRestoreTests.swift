@@ -157,6 +157,40 @@ struct NotificationScrollRestoreTests {
         #expect(surfaceView.bindingActions == ["scroll_to_row:156"])
     }
 
+    @Test func replayCompletionBeforeRestoreKeepsRendererBarrier() {
+        let surfaceView = ActionProbeView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let marker = completionMarker(named: "replay-complete-before-restore")
+        hostedView.beginSessionScrollbackReplay(completionMarker: marker)
+        #expect(hostedView.completeSessionScrollbackReplay(ifMatches: marker.reportedDirectory))
+        #expect(hostedView.notificationScrollRestorePhase == .sessionScrollbackReplayCompleted)
+
+        #expect(hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+        ))
+        #expect(surfaceView.bindingActions.isEmpty)
+        postRenderedFrame(to: surfaceView)
+        #expect(surfaceView.bindingActions == ["scroll_to_row:156"])
+    }
+
+    @Test func replayCompletionBeforeArtifactAdoptionIsPreserved() {
+        let surfaceView = ActionProbeView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let marker = completionMarker(named: "replay-complete-before-adoption")
+        #expect(hostedView.completeSessionScrollbackReplay(ifMatches: marker.reportedDirectory))
+        hostedView.beginSessionScrollbackReplay(completionMarker: marker)
+        #expect(hostedView.notificationScrollRestorePhase == .sessionScrollbackReplayCompleted)
+
+        #expect(hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+        ))
+        #expect(surfaceView.bindingActions.isEmpty)
+        postRenderedFrame(to: surfaceView)
+        #expect(surfaceView.bindingActions == ["scroll_to_row:156"])
+    }
+
     @Test func delayedPreMarkerFrameCannotCompleteRendererWait() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
@@ -231,7 +265,7 @@ struct NotificationScrollRestoreTests {
         #expect(panel.hostedView.completeSessionScrollbackReplay(
             ifMatches: marker.reportedDirectory
         ))
-        #expect(panel.hostedView.notificationScrollRestorePhase == .idle)
+        #expect(panel.hostedView.notificationScrollRestorePhase == .sessionScrollbackReplayCompleted)
         #expect(SessionScrollbackReplayCompletionMarker.isReservedReportedDirectory(marker.reportedDirectory))
     }
 
