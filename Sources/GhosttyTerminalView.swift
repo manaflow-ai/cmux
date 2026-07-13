@@ -8204,7 +8204,6 @@ final class GhosttySurfaceScrollView: NSView {
     private var pendingAutomaticFirstResponderApply = false
     private var pendingSuppressedFirstResponderFocusReapply = false
     // Hidden/tiny focus retry is bounded by layout/visibility signals, not a timer loop.
-
     /// Tracks whether keyboard focus should go to the search field or the terminal
     /// when the window becomes key while the find bar is open.
     enum SearchFocusTarget {
@@ -8212,8 +8211,6 @@ final class GhosttySurfaceScrollView: NSView {
         case terminal
     }
     private(set) var searchFocusTarget: SearchFocusTarget = .searchField
-
-
 #if DEBUG
     private var lastDropZoneOverlayLogSignature: String?
     private var lastDragGeometryLogSignature: String?
@@ -8620,7 +8617,6 @@ final class GhosttySurfaceScrollView: NSView {
         linkHoverIndicatorView.frame = bounds
         linkHoverIndicatorView.autoresizingMask = [.width, .height]
         addSubview(linkHoverIndicatorView)
-
         scrollView.contentView.postsBoundsChangedNotifications = true
         observers.append(NotificationCenter.default.addObserver(
             forName: NSView.boundsDidChangeNotification,
@@ -8629,7 +8625,6 @@ final class GhosttySurfaceScrollView: NSView {
         ) { [weak self] _ in
             self?.handleScrollChange()
         })
-
         observers.append(NotificationCenter.default.addObserver(
             forName: NSScrollView.willStartLiveScrollNotification,
             object: scrollView,
@@ -8637,7 +8632,6 @@ final class GhosttySurfaceScrollView: NSView {
         ) { [weak self] _ in
             self?.isLiveScrolling = true
         })
-
         observers.append(NotificationCenter.default.addObserver(
             forName: NSScrollView.didEndLiveScrollNotification,
             object: scrollView,
@@ -8674,7 +8668,6 @@ final class GhosttySurfaceScrollView: NSView {
                   readySurfaceId == self.surfaceView.terminalSurface?.id else {
                 return
             }
-            _ = self.retryPendingNotificationScrollRestore()
             // Session restore can request focus before the runtime surface exists.
             // Re-run the normal first-responder/focus path once the surface is live.
             guard self.isActive || self.surfaceView.desiredFocus || self.isSurfaceViewFirstResponder() else {
@@ -9928,7 +9921,6 @@ final class GhosttySurfaceScrollView: NSView {
             // path so the Metal layer is nudged immediately on plain visibility restores.
             refreshSurfaceNow(reason: "setVisibleInUI")
             scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
-            _ = retryPendingNotificationScrollRestore()
         }
     }
 
