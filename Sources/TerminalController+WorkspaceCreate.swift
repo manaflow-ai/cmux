@@ -197,7 +197,18 @@ extension TerminalController {
             // Acceptance must be durable before addWorkspace constructs a
             // terminal and can execute the task command. A crash in between
             // intentionally favors at-most-once startup over workspace recovery.
-            preparation.idempotencyCache.accept(operationID: operationID)
+            do {
+                try preparation.idempotencyCache.accept(operationID: operationID)
+            } catch {
+                workspaceCreateIdempotencyLogger.error(
+                    "Task reservation failed: \(String(describing: error), privacy: .private)"
+                )
+                return .err(
+                    code: "persistence_failed",
+                    message: "Workspace task could not be reserved safely",
+                    data: nil
+                )
+            }
         }
         v2MainSync {
             let ws = tabManager.addWorkspace(

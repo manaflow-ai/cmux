@@ -423,18 +423,11 @@ extension MobileShellComposite {
                ["unauthorized", "forbidden", "invalid_token", "token_expired", "expired_token", "auth_required", "account_mismatch"].contains(normalizedCode) {
                 return .authorizationFailed(hostDisplayName: hostDisplayName)
             }
-            if normalizedCode == "unavailable" {
-                return .notConnected(hostDisplayName: hostDisplayName)
-            }
-            if normalizedCode == "request_timeout" {
-                return .requestTimedOut(hostDisplayName: hostDisplayName)
-            }
-            if normalizedCode == "busy" {
-                return .busy(hostDisplayName: hostDisplayName)
-            }
-            if normalizedCode == "invalid_working_directory" {
-                return .invalidWorkingDirectory(hostDisplayName: hostDisplayName)
-            }
+            if normalizedCode == "unavailable" { return .notConnected(hostDisplayName: hostDisplayName) }
+            if normalizedCode == "request_timeout" { return .requestTimedOut(hostDisplayName: hostDisplayName) }
+            if normalizedCode == "busy" { return .busy(hostDisplayName: hostDisplayName) }
+            if normalizedCode == "invalid_working_directory" { return .invalidWorkingDirectory(hostDisplayName: hostDisplayName) }
+            if normalizedCode == "persistence_failed" { return .persistenceUnavailable(hostDisplayName: hostDisplayName) }
             return .rejected(hostDisplayName: hostDisplayName)
         case .invalidResponse:
             return .rejected(hostDisplayName: hostDisplayName)

@@ -36,9 +36,18 @@ import Testing
             "initial_command": "codex \"${CMUX_TASK_PROMPT}\"",
             "initial_env": ["CMUX_TASK_PROMPT": "Fix the composer"],
         ]
+        let cache = Self.makeCache()
 
-        let first = TerminalController.shared.v2WorkspaceCreate(params: params, tabManager: manager)
-        let retry = TerminalController.shared.v2WorkspaceCreate(params: params, tabManager: manager)
+        let first = TerminalController.shared.v2WorkspaceCreate(
+            params: params,
+            tabManager: manager,
+            idempotencyCache: cache
+        )
+        let retry = TerminalController.shared.v2WorkspaceCreate(
+            params: params,
+            tabManager: manager,
+            idempotencyCache: cache
+        )
         let created = try #require(manager.tabs.first { !initialWorkspaceIDs.contains($0.id) })
         let createdPanels = created.panels.values.compactMap { $0 as? TerminalPanel }
 
@@ -122,11 +131,12 @@ import Testing
         manager.restoreSessionSnapshot(snapshot)
         let restored = try #require(manager.selectedWorkspace)
         let initialIDs = Set(manager.tabs.map(\.id))
+        let cache = Self.makeCache()
 
         let result = TerminalController.shared.v2WorkspaceCreate(params: [
             "operation_id": operationID.uuidString,
             "initial_command": "must-not-launch",
-        ], tabManager: manager)
+        ], tabManager: manager, idempotencyCache: cache)
 
         #expect(Set(manager.tabs.map(\.id)) == initialIDs)
         #expect(restored.id != sourceWorkspace.id)
@@ -143,7 +153,8 @@ import Testing
         let ownerWindowID = UUID()
         let ownerWorkspace = try #require(ownerManager.selectedWorkspace)
         ownerWorkspace.taskCreateOperationID = operationID
-        TerminalController.shared.workspaceCreateIdempotencyCache.record(
+        let cache = Self.makeCache()
+        cache.record(
             operationID: operationID,
             workspaceID: ownerWorkspace.id
         )
@@ -159,7 +170,8 @@ import Testing
             taskCreateCandidates: [
                 .init(tabManager: currentManager, windowID: UUID()),
                 .init(tabManager: ownerManager, windowID: ownerWindowID),
-            ]
+            ],
+            idempotencyCache: cache
         )
 
         #expect(Set(currentManager.tabs.map(\.id)) == currentIDs)
@@ -282,14 +294,17 @@ import Testing
             "operation_id": operationID.uuidString,
             "title": "Retry Shape",
         ]
+        let cache = Self.makeCache()
 
         let initial = await TerminalController.shared.v2MobileWorkspaceCreate(
             params: params,
-            tabManager: manager
+            tabManager: manager,
+            idempotencyCache: cache
         )
         let retry = await TerminalController.shared.v2MobileWorkspaceCreate(
             params: params,
-            tabManager: manager
+            tabManager: manager,
+            idempotencyCache: cache
         )
         let initialResponse = try Self.decodeMobileWorkspaceList(initial)
         let retryResponse = try Self.decodeMobileWorkspaceList(retry)
@@ -309,18 +324,21 @@ import Testing
             "working_directory": "/tmp",
             "initial_command": "must-run-once",
         ]
+        let cache = Self.makeCache()
         let first = Task { @MainActor in
             await TerminalController.shared.v2MobileWorkspaceCreate(
                 params: params,
                 workingDirectoryValidator: { rawValue, _ in await gate.validate(rawValue) },
-                tabManager: manager
+                tabManager: manager,
+                idempotencyCache: cache
             )
         }
         let second = Task { @MainActor in
             await TerminalController.shared.v2MobileWorkspaceCreate(
                 params: params,
                 workingDirectoryValidator: { rawValue, _ in await gate.validate(rawValue) },
-                tabManager: manager
+                tabManager: manager,
+                idempotencyCache: cache
             )
         }
         await gate.waitForStarts(2)
@@ -338,7 +356,7 @@ import Testing
     }
 
     @Test func idempotencyCacheEvictsSuccessfulResultsInFIFOOrder() {
-        let cache = TerminalController.WorkspaceCreateIdempotencyCache(capacity: 2)
+        let cache = Self.makeCache(capacity: 2)
         let firstID = UUID()
         let secondID = UUID()
         let thirdID = UUID()
@@ -363,6 +381,13 @@ import Testing
             return nil
         }
         return UUID(uuidString: rawID)
+    }
+
+    private static func makeCache(capacity: Int = 256) -> TerminalController.WorkspaceCreateIdempotencyCache {
+        TerminalController.WorkspaceCreateIdempotencyCache(
+            capacity: capacity,
+            persistence: InMemoryWorkspaceCreateIdempotencyStore()
+        )
     }
 
     private static func errorCode(from result: TerminalController.V2CallResult) -> String? {

@@ -97,13 +97,28 @@ struct TaskComposerSheet: View {
                 && draft?.macDeviceID == (selectedMacID.isEmpty ? nil : selectedMacID)
                 && canRestoreDraftDirectory
         ) ? draft?.operationID : nil
-        _prompt = State(initialValue: draft?.prompt ?? "")
+        let initialPrompt = draft?.prompt ?? ""
+        let initialOperationID = restoredOperationID ?? UUID()
+        let initialRequest = selectedTemplate.map {
+            MobileTaskSubmissionSnapshot(
+                template: $0,
+                prompt: initialPrompt,
+                macDeviceID: selectedMacID,
+                directory: initialDirectory,
+                didEditDirectory: canRestoreDraftDirectory && draft?.didEditDirectory == true,
+                operationID: initialOperationID
+            )
+        }
+        _prompt = State(initialValue: initialPrompt)
         _templates = State(initialValue: templates)
         _selectedTemplateID = State(initialValue: selectedTemplateID)
         _selectedMacDeviceID = State(initialValue: selectedMacID)
         _directory = State(initialValue: initialDirectory)
         _didEditDirectory = State(initialValue: canRestoreDraftDirectory && draft?.didEditDirectory == true)
-        _submissionIdentity = State(initialValue: MobileTaskSubmissionIdentity(id: restoredOperationID ?? UUID()))
+        _submissionIdentity = State(initialValue: MobileTaskSubmissionIdentity(
+            id: initialOperationID,
+            initialRequest: initialRequest
+        ))
     }
 
     var body: some View {
@@ -356,15 +371,7 @@ struct TaskComposerSheet: View {
     }
 
     private func submit() async {
-        guard submissionPhase == .idle, let selectedTemplate else { return }
-        let snapshot = MobileTaskSubmissionSnapshot(
-            template: selectedTemplate,
-            prompt: prompt,
-            macDeviceID: selectedMacDeviceID,
-            directory: directory,
-            didEditDirectory: didEditDirectory,
-            operationID: submissionIdentity.id
-        )
+        guard submissionPhase == .idle, let snapshot = submissionSnapshot() else { return }
         guard store.persistTaskComposerDraft(
             snapshot.draft,
             ifSessionGeneration: sessionGeneration
@@ -409,9 +416,11 @@ struct TaskComposerSheet: View {
 
     private func addTemplate(_ template: MobileTaskTemplate) {
         guard !submissionPhase.disablesRequestEditing else { return }
-        store.taskTemplateStore?.addTemplate(template)
-        selectedTemplateID = template.id
-        syncSuggestedDirectory()
+        updateSubmissionRequest {
+            store.taskTemplateStore?.addTemplate(template)
+            selectedTemplateID = template.id
+            syncSuggestedDirectory()
+        }
     }
 
     private func updateTemplate(_ template: MobileTaskTemplate) {

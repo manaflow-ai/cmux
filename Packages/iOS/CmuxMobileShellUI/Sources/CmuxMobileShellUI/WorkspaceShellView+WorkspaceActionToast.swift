@@ -166,6 +166,11 @@ extension WorkspaceShellView {
                 "mobile.workspaceAction.failure.reason.invalidWorkingDirectory",
                 defaultValue: "the working directory isn't available on your Mac; choose another directory"
             )
+        case .persistenceUnavailable:
+            return L10n.string(
+                "mobile.workspaceAction.failure.reason.persistence",
+                defaultValue: "your Mac could not safely reserve the request"
+            )
         case let .unsupported(hostDisplayName):
             if let hostDisplayName = trimmedWorkspaceActionHostDisplayName(hostDisplayName) {
                 return String.localizedStringWithFormat(

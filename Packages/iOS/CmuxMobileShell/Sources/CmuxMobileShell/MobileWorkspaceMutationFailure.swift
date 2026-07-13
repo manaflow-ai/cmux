@@ -15,6 +15,8 @@ public enum MobileWorkspaceMutationFailure: Error, Equatable, Sendable {
     case rejected(hostDisplayName: String?)
     /// The requested task directory does not exist as a directory on the target Mac.
     case invalidWorkingDirectory(hostDisplayName: String?)
+    /// The target Mac could not durably reserve an idempotent task request.
+    case persistenceUnavailable(hostDisplayName: String?)
     /// The current host does not support the requested mutation.
     case unsupported(hostDisplayName: String?)
 }

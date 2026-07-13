@@ -64,6 +64,22 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
             && Self.hasEqualUTF8(trimmedDirectory, other.trimmedDirectory)
     }
 
+    /// Rebinds an already-composed request to its resolved idempotency key.
+    /// Swift value storage keeps this copy O(1); it does not trim, compose, or
+    /// scan the request strings again.
+    public func withOperationID(_ operationID: UUID) -> MobileTaskSubmissionSnapshot {
+        MobileTaskSubmissionSnapshot(
+            templateID: templateID,
+            macDeviceID: macDeviceID,
+            prompt: prompt,
+            directory: directory,
+            didEditDirectory: didEditDirectory,
+            operationID: operationID,
+            composition: composition,
+            trimmedDirectory: trimmedDirectory
+        )
+    }
+
     private static func hasEqualUTF8(_ lhs: String, _ rhs: String) -> Bool {
         lhs.utf8.elementsEqual(rhs.utf8)
     }
@@ -102,5 +118,25 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
             didEditDirectory: didEditDirectory,
             operationID: operationID
         )
+    }
+
+    private init(
+        templateID: MobileTaskTemplate.ID,
+        macDeviceID: String,
+        prompt: String,
+        directory: String,
+        didEditDirectory: Bool,
+        operationID: UUID,
+        composition: MobileTaskComposition,
+        trimmedDirectory: String
+    ) {
+        self.templateID = templateID
+        self.macDeviceID = macDeviceID
+        self.prompt = prompt
+        self.directory = directory
+        self.trimmedDirectory = trimmedDirectory
+        self.didEditDirectory = didEditDirectory
+        self.operationID = operationID
+        self.composition = composition
     }
 }

@@ -1,21 +1,17 @@
 #if os(iOS)
 import CmuxMobileShellModel
+import Foundation
 
 extension TaskComposerSheet {
     func selectTemplate(_ template: MobileTaskTemplate) {
         updateSubmissionRequest {
-            var draft = draftSnapshot()
-            draft.selectTemplate(
-                id: template.id,
-                suggestedDirectory: Self.suggestedDirectory(
+            selectedTemplateID = template.id
+            guard !didEditDirectory else { return }
+            directory = Self.suggestedDirectory(
                     template: template,
                     macDeviceID: selectedMacDeviceID,
                     templateStore: store.taskTemplateStore
-                )
             )
-            selectedTemplateID = draft.templateID
-            directory = draft.directory
-            didEditDirectory = draft.didEditDirectory
         }
     }
 
@@ -25,7 +21,7 @@ extension TaskComposerSheet {
         selectedMacDeviceID = snapshot.macDeviceID
         directory = snapshot.directory
         didEditDirectory = snapshot.didEditDirectory
-        submissionIdentity = MobileTaskSubmissionIdentity(id: snapshot.operationID)
+        submissionIdentity.adoptResolvedRequest(snapshot)
     }
 
     /// Recompute the suggested directory unless the user hand-edited it.
@@ -38,16 +34,36 @@ extension TaskComposerSheet {
         )
     }
 
-    /// Applies a composer mutation and rotates the idempotency key only when
-    /// the exact request sent to the Mac changes.
+    /// Applies a composer mutation and defers request comparison to a low-
+    /// frequency persistence or submission boundary.
     func updateSubmissionRequest(_ update: () -> Void) {
-        let before = submissionSnapshot()
         update()
-        let after = submissionSnapshot()
-        submissionIdentity.rotateIfRequestChanged(from: before, to: after)
+        submissionIdentity.markRequestDirty()
     }
 
     func submissionSnapshot() -> MobileTaskSubmissionSnapshot? {
+        let candidateID = submissionIdentity.id
+        return submissionIdentity.resolveCurrentRequest {
+            makeSubmissionSnapshot(operationID: candidateID)
+        }
+    }
+
+    func draftSnapshot() -> MobileTaskComposerDraft {
+        let candidateID = submissionIdentity.id
+        let resolved = submissionIdentity.resolveCurrentRequest {
+            makeSubmissionSnapshot(operationID: candidateID)
+        }
+        return MobileTaskComposerDraft(
+            prompt: prompt,
+            templateID: selectedTemplateID,
+            macDeviceID: selectedMacDeviceID.isEmpty ? nil : selectedMacDeviceID,
+            directory: directory,
+            didEditDirectory: didEditDirectory,
+            operationID: resolved?.operationID ?? submissionIdentity.id
+        )
+    }
+
+    private func makeSubmissionSnapshot(operationID: UUID) -> MobileTaskSubmissionSnapshot? {
         guard let selectedTemplate else { return nil }
         return MobileTaskSubmissionSnapshot(
             template: selectedTemplate,
@@ -55,18 +71,7 @@ extension TaskComposerSheet {
             macDeviceID: selectedMacDeviceID,
             directory: directory,
             didEditDirectory: didEditDirectory,
-            operationID: submissionIdentity.id
-        )
-    }
-
-    func draftSnapshot() -> MobileTaskComposerDraft {
-        MobileTaskComposerDraft(
-            prompt: prompt,
-            templateID: selectedTemplateID,
-            macDeviceID: selectedMacDeviceID.isEmpty ? nil : selectedMacDeviceID,
-            directory: directory,
-            didEditDirectory: didEditDirectory,
-            operationID: submissionIdentity.id
+            operationID: operationID
         )
     }
 }

@@ -15,10 +15,26 @@ extension MobileCoreRPCSession {
             if isCancelled { throw CancellationError() }
             return data
         case .response(.failure(let error)):
-            // Once a response or transport failure settles, preserve it even if
-            // ambient cancellation races this continuation. This prevents a
-            // definite host rejection from becoming ambiguous success upstream.
+            // Preserve only failures decoded from a host response. Local
+            // transport/protocol failures cannot prove whether a legacy,
+            // non-idempotent workspace.create reached the host, so cancellation
+            // must keep that outcome ambiguous upstream.
+            if isCancelled, !error.isDefiniteHostResponseFailure {
+                throw CancellationError()
+            }
             throw error
+        }
+    }
+}
+
+private extension MobileShellConnectionError {
+    var isDefiniteHostResponseFailure: Bool {
+        switch self {
+        case .authorizationFailed, .accountMismatch, .rpcError:
+            true
+        case .invalidResponse, .connectionClosed, .requestTimedOut,
+             .insecureManualRoute, .attachTicketExpired:
+            false
         }
     }
 }

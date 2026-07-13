@@ -57,6 +57,8 @@ extension TaskComposerSheet {
             return L10n.string("mobile.taskComposer.failure.rejected", defaultValue: "The Mac rejected the task.")
         case .invalidWorkingDirectory:
             return L10n.string("mobile.taskComposer.failure.invalidWorkingDirectory", defaultValue: "Choose an existing folder on that Mac.")
+        case .persistenceUnavailable:
+            return L10n.string("mobile.taskComposer.failure.persistence", defaultValue: "The Mac could not safely reserve this task.")
         case .unsupported:
             return L10n.string("mobile.taskComposer.failure.unsupported", defaultValue: "That Mac does not support this action.")
         }
