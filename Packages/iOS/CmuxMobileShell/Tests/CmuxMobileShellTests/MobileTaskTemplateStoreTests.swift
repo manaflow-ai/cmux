@@ -90,6 +90,29 @@ import CmuxMobileShellModel
         #expect(reloaded.lastDirectory(macDeviceID: "mac-a") == nil)
     }
 
+    @Test func recentDirectoriesAreByteExactPromotedBoundedAndMacScoped() {
+        let defaults = Self.defaults()
+        let store = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        let base = Date(timeIntervalSince1970: 1_000)
+        let composed = "~/caf\u{00E9}"
+        let decomposed = "~/cafe\u{301}"
+
+        store.recordRecentDirectory(composed, macDeviceID: "mac-a", at: base)
+        store.recordRecentDirectory(decomposed, macDeviceID: "mac-a", at: base.addingTimeInterval(1))
+        store.recordRecentDirectory(composed, macDeviceID: "mac-a", at: base.addingTimeInterval(2))
+        store.recordRecentDirectory("~/other", macDeviceID: "mac-b", at: base)
+        for index in 0..<24 {
+            store.recordRecentDirectory("~/project-\(index)", macDeviceID: "mac-a", at: base.addingTimeInterval(Double(index + 3)))
+        }
+
+        let reloaded = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        let macA = reloaded.recentDirectories(macDeviceID: "mac-a")
+        #expect(macA.count == 20)
+        #expect(macA.first?.path == "~/project-23")
+        #expect(reloaded.recentDirectories(macDeviceID: "mac-b").map(\.path) == ["~/other"])
+        #expect(macA.allSatisfy { Array($0.path.utf8) != Array(decomposed.utf8) })
+    }
+
     @Test func composerDraftRoundTripsAcrossStoreInstancesAndClears() {
         let defaults = Self.defaults()
         let store = UserDefaultsMobileTaskTemplateStore(defaults: defaults)

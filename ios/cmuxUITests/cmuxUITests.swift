@@ -158,6 +158,21 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    /// Regression: presenting the composer must not focus the prompt after the
+    /// medium sheet is already visible, which used to summon the keyboard and
+    /// promote the sheet through a blank full-screen transition.
+    @MainActor
+    func testTaskComposerOpensAtStableBaseDetentWithoutAutomaticKeyboard() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
+        XCTAssertFalse(app.keyboards.firstMatch.waitForExistence(timeout: 2))
+        XCTAssertFalse(app.buttons["Done"].exists)
+    }
+
     /// Regression: the standalone preview must not inherit editable task state
     /// from the app's production UserDefaults store.
     @MainActor
