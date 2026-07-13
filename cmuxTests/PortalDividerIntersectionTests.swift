@@ -347,12 +347,17 @@ import Testing
         let vertical = region(inner, rect: verticalDividerRect, isVertical: true)
         let start = NSPoint(x: 400, y: 150)
         let controller = PortalDividerDragController()
+        var releasedAt: NSPoint?
 
         #expect(PortalDividerDragController.drag(
             atWindowPoint: start,
             regions: [vertical]
         )?.kind == .vertical)
-        #expect(controller.begin(atWindowPoint: start, regions: [vertical]))
+        #expect(controller.begin(
+            atWindowPoint: start,
+            regions: [vertical],
+            onRelease: { releasedAt = $0 }
+        ))
         #expect(controller.cursorKind == .vertical)
         #expect(
             controller.hasCursorEventMonitorForTesting,
@@ -365,8 +370,10 @@ import Testing
         #expect(controller.cursorKind == .vertical)
         #expect(abs(inner.arrangedSubviews[0].frame.width - 450) < 1)
 
-        controller.end()
+        let dropPoint = NSPoint(x: 450, y: 280)
+        controller.end(atWindowPoint: dropPoint)
         #expect(controller.cursorKind == nil)
+        #expect(releasedAt == dropPoint)
         #expect(
             !controller.hasCursorEventMonitorForTesting,
             "The cursor owner must be released with the divider mouse-up."
@@ -443,6 +450,10 @@ import Testing
         // live, so a permanently parked zero-alpha divider must stay "live"
         // or every pointer event would recollect the whole hierarchy.
         #expect(vertical.isLive)
+
+        let cursorPlan = PortalSplitDividerRegion.cursorRectPlan(for: [horizontal, vertical])
+        #expect(cursorPlan.corners.isEmpty)
+        #expect(cursorPlan.bands.allSatisfy { !$0.isVertical })
     }
 
     @Test func clampHonorsDelegateConstraints() {

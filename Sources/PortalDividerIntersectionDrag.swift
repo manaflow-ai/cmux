@@ -49,11 +49,18 @@ final class PortalDividerDragController {
         weak var window: NSWindow?
         var isAborted = false
         var cursorEventMonitor: Any?
+        let releaseHandler: (NSPoint?) -> Void
 
-        init(axes: [AxisDrag], cursorKind: PortalDividerCursorKind, window: NSWindow) {
+        init(
+            axes: [AxisDrag],
+            cursorKind: PortalDividerCursorKind,
+            window: NSWindow,
+            releaseHandler: @escaping (NSPoint?) -> Void
+        ) {
             self.axes = axes
             self.cursorKind = cursorKind
             self.window = window
+            self.releaseHandler = releaseHandler
         }
     }
 
@@ -79,7 +86,11 @@ final class PortalDividerDragController {
     }
 #endif
 
-    func begin(atWindowPoint windowPoint: NSPoint, regions: [PortalSplitDividerRegion]) -> Bool {
+    func begin(
+        atWindowPoint windowPoint: NSPoint,
+        regions: [PortalSplitDividerRegion],
+        onRelease: @escaping (NSPoint?) -> Void = { _ in }
+    ) -> Bool {
         guard !isActive,
               let drag = Self.drag(atWindowPoint: windowPoint, regions: regions) else {
             return false
@@ -108,7 +119,12 @@ final class PortalDividerDragController {
             ))
         }
         guard let dragWindow else { return false }
-        let session = DragSession(axes: nextAxes, cursorKind: drag.kind, window: dragWindow)
+        let session = DragSession(
+            axes: nextAxes,
+            cursorKind: drag.kind,
+            window: dragWindow,
+            releaseHandler: onRelease
+        )
         phase = .dragging(session)
         TerminalWindowPortalRegistry.beginInteractiveGeometryResize()
         installCursorEventMonitor(for: session)
@@ -145,7 +161,7 @@ final class PortalDividerDragController {
         }
     }
 
-    func end() {
+    func end(atWindowPoint windowPoint: NSPoint? = nil) {
         guard let session = activeSession else { return }
         if let monitor = session.cursorEventMonitor {
             NSEvent.removeMonitor(monitor)
@@ -153,6 +169,7 @@ final class PortalDividerDragController {
         }
         phase = .idle
         TerminalWindowPortalRegistry.endInteractiveGeometryResize()
+        session.releaseHandler(windowPoint)
     }
 
     /// The claimed drag session is the sole cursor owner from mouse-down
@@ -192,8 +209,10 @@ final class PortalDividerDragController {
                 case .leftMouseUp:
                     // The session that claimed mouse-down also owns mouse-up.
                     // Consuming it prevents an underlying pane tap gesture from
-                    // changing focus after the resize has completed.
-                    self.end()
+                    // changing focus after the resize has completed. `end`
+                    // also runs the host's cursor-rect cleanup, since returning
+                    // nil means its mouseUp override will not receive this event.
+                    self.end(atWindowPoint: event.locationInWindow)
                     return nil
                 default:
                     return event

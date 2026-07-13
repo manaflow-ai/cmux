@@ -279,9 +279,13 @@ final class PortalSplitDividerRegion {
     static func cursorRectPlan(
         for regions: [PortalSplitDividerRegion]
     ) -> (bands: [(rect: NSRect, isVertical: Bool)], corners: [NSRect]) {
+        // Cached keepAllAlive content remains structurally live while parked
+        // at opacity zero. Match dividerHits' interaction filter so invisible
+        // splits cannot register cursors or cut holes in visible bands.
+        let interactableRegions = regions.filter(\.isInteractable)
         var corners: [NSRect] = []
-        let verticals = regions.filter { $0.isVertical && !$0.isInHostedContent }
-        let horizontals = regions.filter { !$0.isVertical && !$0.isInHostedContent }
+        let verticals = interactableRegions.filter { $0.isVertical && !$0.isInHostedContent }
+        let horizontals = interactableRegions.filter { !$0.isVertical && !$0.isInHostedContent }
         for vertical in verticals {
             for horizontal in horizontals where areNested(vertical, horizontal) {
                 let corner = vertical.intersectionHitRectInWindow
@@ -292,7 +296,7 @@ final class PortalSplitDividerRegion {
             }
         }
         var bands: [(rect: NSRect, isVertical: Bool)] = []
-        for region in regions {
+        for region in interactableRegions {
             let band = region.hitRectInWindow
             guard !band.isNull, band.width > 0, band.height > 0 else { continue }
             for segment in subtractingAlongAxis(corners, from: band, isVertical: region.isVertical) {

@@ -820,7 +820,7 @@ final class WindowBrowserHostView: NSView {
         return nil
     }
 
-    private func clearActiveDividerCursor(restoreArrow: Bool) {
+    func clearActiveDividerCursor(restoreArrow: Bool) {
         guard activeDividerCursorKind != nil else { return }
         window?.invalidateCursorRects(for: self)
         activeDividerCursorKind = nil

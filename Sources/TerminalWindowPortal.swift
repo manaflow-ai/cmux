@@ -134,7 +134,13 @@ final class WindowTerminalHostView: NSView {
     override var mouseDownCanMoveWindow: Bool { false }
 
     override func mouseDown(with event: NSEvent) {
-        if dividerDrag.begin(atWindowPoint: event.locationInWindow, regions: splitDividerRegions()) {
+        if dividerDrag.begin(
+            atWindowPoint: event.locationInWindow,
+            regions: splitDividerRegions(),
+            onRelease: { [weak self] windowPoint in
+                self?.restoreDividerCursorAfterDrag(atWindowPoint: windowPoint)
+            }
+        ) {
             window?.invalidateCursorRects(for: self)
             dividerDrag.cursorKind?.cursor.set()
             return
@@ -151,12 +157,18 @@ final class WindowTerminalHostView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         guard dividerDrag.isActive else { return super.mouseUp(with: event) }
-        dividerDrag.end()
+        dividerDrag.end(atWindowPoint: event.locationInWindow)
+    }
+
+    private func restoreDividerCursorAfterDrag(atWindowPoint windowPoint: NSPoint?) {
         window?.invalidateCursorRects(for: self)
-        // The drag forced the four-way cursor on every update; re-resolve from
-        // the drop point so it does not stick when the pointer ends away from
-        // any divider (AppKit sends no cursorUpdate until the next move).
-        updateDividerCursor(at: convert(event.locationInWindow, from: nil))
+        guard let windowPoint else {
+            clearActiveDividerCursor(restoreArrow: true)
+            return
+        }
+        // The drag forced the resize cursor through mouse-up. Re-resolve from
+        // the drop point even when the local event monitor consumed mouseUp.
+        updateDividerCursor(at: convert(windowPoint, from: nil))
     }
 
     // PERF: hitTest is called on EVERY event including keyboard. Keep non-pointer
