@@ -100,6 +100,12 @@ struct cmuxApp: App {
             signOutHook: Self.root.signOutHook,
             diagnosticLog: Self.root.diagnosticLog
         )
+        .environment(
+            \.dogfoodAttachPreparation,
+            DogfoodAttachPreparation {
+                await Self.root.iroh.prepareForConnection()
+            }
+        )
         #else
         CMUXMobileRootScene(
             runtime: Self.root.runtime,
@@ -112,6 +118,12 @@ struct cmuxApp: App {
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
             personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
             signOutHook: Self.root.signOutHook
+        )
+        .environment(
+            \.dogfoodAttachPreparation,
+            DogfoodAttachPreparation {
+                await Self.root.iroh.prepareForConnection()
+            }
         )
         #endif
     }

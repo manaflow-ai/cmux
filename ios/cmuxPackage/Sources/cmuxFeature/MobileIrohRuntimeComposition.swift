@@ -245,12 +245,21 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         }
     }
 
+    /// Waits for the authenticated endpoint, broker binding, and relay policy.
+    ///
+    /// Tagged attach-URL launches use this barrier before starting the shell's
+    /// bounded pairing attempt. Transport creation calls the same entrypoint,
+    /// so readiness policy cannot drift between automatic and interactive use.
+    public func prepareForConnection() async {
+        await reconcileLiveAuthIfNeeded()
+        await transitionTask?.value
+    }
+
     /// Resolves a disconnected transport from the active account runtime.
     public func transport(
         for request: CmxByteTransportRequest
     ) async throws -> any CmxByteTransport {
-        await reconcileLiveAuthIfNeeded()
-        await transitionTask?.value
+        await prepareForConnection()
         guard let runtime else { throw CmxIrohClientRuntimeError.inactive }
         return try runtime.transportFactory.makeTransport(for: request)
     }

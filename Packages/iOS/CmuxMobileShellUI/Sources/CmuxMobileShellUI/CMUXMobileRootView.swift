@@ -15,6 +15,7 @@ struct CMUXMobileRootView: View {
     @Bindable var store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AuthCoordinator.self) private var authManager
+    @Environment(\.dogfoodAttachPreparation) private var dogfoodAttachPreparation
     private let signOutHook: MobileSignOutHook
     #if os(iOS)
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
@@ -503,7 +504,9 @@ struct CMUXMobileRootView: View {
         }
         didConsumeUITestAttachURL = true
         Task {
-            await store.connectPairingURL(attachURL)
+            await dogfoodAttachPreparation.run {
+                await store.connectPairingURL(attachURL)
+            }
         }
         return true
         #else
