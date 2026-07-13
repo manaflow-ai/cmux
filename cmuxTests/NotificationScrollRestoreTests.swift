@@ -125,6 +125,7 @@ struct NotificationScrollRestoreTests {
         #expect(hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 138, totalRows: 400)
         ))
+        #expect(hostedView.sessionScrollbackReplayCompletionDeadlineTimer != nil)
         #expect(surfaceView.bindingActions.isEmpty)
         surfaceView.enqueueScrollbarUpdate(scrollbar(total: 100, offset: 56, visible: 44))
         #expect(!hostedView.completeSessionScrollbackReplay(
@@ -169,6 +170,7 @@ struct NotificationScrollRestoreTests {
         #expect(hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 138, totalRows: 400)
         ))
+        #expect(hostedView.sessionScrollbackReplayCompletionDeadlineTimer != nil)
         #expect(surfaceView.bindingActions.isEmpty)
         postRenderedFrame(to: surfaceView)
         #expect(surfaceView.bindingActions == ["scroll_to_row:156"])
@@ -186,6 +188,7 @@ struct NotificationScrollRestoreTests {
         #expect(hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 138, totalRows: 400)
         ))
+        #expect(hostedView.sessionScrollbackReplayCompletionDeadlineTimer != nil)
         #expect(surfaceView.bindingActions.isEmpty)
         postRenderedFrame(to: surfaceView)
         #expect(surfaceView.bindingActions == ["scroll_to_row:156"])
@@ -373,6 +376,25 @@ struct NotificationScrollRestoreTests {
             TerminalNotificationScrollPosition(row: 138, totalRows: 400),
             sessionScrollbackReplayCompletionMarker: marker
         ))
+    }
+
+    @Test func mutatingBindingActionAutomationCancelsPendingRestore() {
+        let workspaceID = UUID()
+        let surface = TerminalSurface(
+            tabId: workspaceID,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let panel = TerminalPanel(workspaceId: workspaceID, surface: surface)
+        let marker = completionMarker(named: "replay-binding-action")
+        panel.hostedView.beginSessionScrollbackReplay(completionMarker: marker)
+        _ = panel.hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+        )
+
+        _ = panel.performBindingAction("clear_screen")
+        #expect(panel.hostedView.notificationScrollRestorePhase == .sessionScrollbackReplayActive(marker))
     }
 
     @Test func zshReplayEmitsOrderedCompletionMarker() throws {

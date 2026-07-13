@@ -4291,8 +4291,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
-    func performBindingAction(_ action: String) -> Bool {
-        guard let surface = surface else { return false }
+    func performBindingAction(_ action: String) -> Bool { performBindingAction(action, recordsExplicitInput: true) }
+    func performBindingAction(_ action: String, recordsExplicitInput: Bool) -> Bool { if recordsExplicitInput { terminalSurface?.paneHost.noteExplicitInput() }; guard let surface = surface else { return false }
         return action.withCString { cString in
             ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
         }

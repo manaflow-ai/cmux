@@ -174,6 +174,7 @@ extension GhosttySurfaceScrollView {
 
     private func beginSessionScrollbackReplayRendererWait() {
         cancelSessionScrollbackReplayRendererWait()
+        scheduleSessionScrollbackReplayCompletionDeadline()
         releaseSessionScrollbackReplayFrameDemand = GhosttyNSView.retainRenderedFrameNotifications()
         sessionScrollbackReplayMarkerRenderedFrameGeneration = surfaceView.currentRenderedFrameSourceGeneration()
         sessionScrollbackReplayRenderedFrameObserver = NotificationCenter.default.addObserver(
@@ -205,7 +206,7 @@ extension GhosttySurfaceScrollView {
         let didRestore: Bool
         switch target {
         case .bottom:
-            didRestore = surfaceView.performBindingAction("scroll_to_bottom")
+            didRestore = surfaceView.performBindingAction("scroll_to_bottom", recordsExplicitInput: false)
             if didRestore {
                 userScrolledAwayFromBottom = false
             }
@@ -213,7 +214,7 @@ extension GhosttySurfaceScrollView {
             let currentTotalRows = Int(clamping: surfaceView.scrollbar?.total ?? 0)
             let currentVisibleRows = min(currentTotalRows, Int(clamping: surfaceView.scrollbar?.len ?? 0))
             let currentLastTopRow = currentTotalRows - currentVisibleRows
-            didRestore = surfaceView.performBindingAction("scroll_to_row:\(targetTopRow)")
+            didRestore = surfaceView.performBindingAction("scroll_to_row:\(targetTopRow)", recordsExplicitInput: false)
             if didRestore {
                 userScrolledAwayFromBottom = targetTopRow < currentLastTopRow
             }

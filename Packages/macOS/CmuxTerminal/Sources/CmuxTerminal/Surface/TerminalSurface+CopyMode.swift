@@ -9,7 +9,16 @@ extension TerminalSurface {
     ///
     /// - Returns: Whether the runtime performed the action.
     @discardableResult
+    @MainActor
     public func performBindingAction(_ action: String) -> Bool {
+        performBindingAction(action, recordsExplicitInput: true)
+    }
+
+    /// Performs a binding action while allowing internal passive operations to opt out of input cancellation.
+    @discardableResult
+    @MainActor
+    public func performBindingAction(_ action: String, recordsExplicitInput: Bool) -> Bool {
+        if recordsExplicitInput { paneHost.noteExplicitInput() }
         guard let surface = surface else { return false }
         return action.withCString { cString in
             ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
