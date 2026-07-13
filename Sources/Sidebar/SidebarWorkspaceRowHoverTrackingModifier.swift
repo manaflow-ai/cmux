@@ -6,7 +6,9 @@ struct SidebarWorkspaceRowHoverTrackingModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .overlay {
-                SidebarWorkspaceRowHoverReconciler { hovering in
+                SidebarWorkspaceRowHoverReconciler(
+                    trackedPointerHovering: rowInteractionState.trackedPointerHovering
+                ) { hovering in
                     rowInteractionState.setPointerHovering(hovering)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

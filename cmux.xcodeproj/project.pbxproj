@@ -1370,6 +1370,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C9A5760FC9A5760FC9A5760F /* SidebarWorkspaceReorderDropView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A57610C9A57610C9A57610 /* SidebarWorkspaceReorderDropView.swift */; };
 		C9A5760BC9A5760BC9A5760B /* SidebarWorkspaceReorderPendingDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A5760CC9A5760CC9A5760C /* SidebarWorkspaceReorderPendingDrop.swift */; };
 		D35450070000000000000007 /* SidebarWorkspaceRowHoverReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35450070000000000000008 /* SidebarWorkspaceRowHoverReconciler.swift */; };
+			7B482A017B482A017B482A01 /* SidebarWorkspaceRowHoverReconcilerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B482A027B482A027B482A02 /* SidebarWorkspaceRowHoverReconcilerTests.swift */; };
 		D35450070000000000000009 /* SidebarWorkspaceRowHoverReconcilerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3545007000000000000000A /* SidebarWorkspaceRowHoverReconcilerView.swift */; };
 		D3545007000000000000000B /* SidebarWorkspaceRowHoverTrackingModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3545007000000000000000C /* SidebarWorkspaceRowHoverTrackingModifier.swift */; };
 		D35450030000000000000003 /* SidebarWorkspaceRowMenuTrackingReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35450030000000000000004 /* SidebarWorkspaceRowMenuTrackingReconciler.swift */; };
@@ -3146,6 +3147,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C9A57610C9A57610C9A57610 /* SidebarWorkspaceReorderDropView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceReorderDropView.swift; sourceTree = "<group>"; };
 		C9A5760CC9A5760CC9A5760C /* SidebarWorkspaceReorderPendingDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceReorderPendingDrop.swift; sourceTree = "<group>"; };
 		D35450070000000000000008 /* SidebarWorkspaceRowHoverReconciler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarWorkspaceRowHoverReconciler.swift; sourceTree = "<group>"; };
+			7B482A027B482A027B482A02 /* SidebarWorkspaceRowHoverReconcilerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceRowHoverReconcilerTests.swift; sourceTree = "<group>"; };
 		D3545007000000000000000A /* SidebarWorkspaceRowHoverReconcilerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarWorkspaceRowHoverReconcilerView.swift; sourceTree = "<group>"; };
 		D3545007000000000000000C /* SidebarWorkspaceRowHoverTrackingModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarWorkspaceRowHoverTrackingModifier.swift; sourceTree = "<group>"; };
 		D35450030000000000000004 /* SidebarWorkspaceRowMenuTrackingReconciler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarWorkspaceRowMenuTrackingReconciler.swift; sourceTree = "<group>"; };
@@ -5195,6 +5197,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F016B5C09357B3226FA2E014 /* SidebarWorkspaceSnapshotRefreshPolicyTests.swift */,
 				A6AC73040000000000000002 /* SidebarWorkspaceSnapshotAgentActivityTests.swift */,
 				C9A57514C9A57514C9A57514 /* SidebarScrollViewConfiguratorTests.swift */,
+				7B482A027B482A027B482A02 /* SidebarWorkspaceRowHoverReconcilerTests.swift */,
 				C9A57506C9A57506C9A57506 /* SidebarWorkspaceScrollLayoutTests.swift */,
 				D41A7C02D41A7C02D41A7C02 /* SidebarLazyLayoutScaleTests.swift */,
 				C4A570030000000000000002 /* CanvasShortcutContextTests.swift */,
@@ -7489,6 +7492,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C135190000000000000000B1 /* SidebarWorkspaceGroupConfigOpenerTests.swift in Sources */,
 				C9A57303C9A57303C9A57303 /* SidebarWorkspaceGroupHeaderMetricsTests.swift in Sources */,
 				C9A57305C9A57305C9A57305 /* SidebarWorkspaceReorderDropOverlayHitTestingTests.swift in Sources */,
+				7B482A017B482A017B482A01 /* SidebarWorkspaceRowHoverReconcilerTests.swift in Sources */,
 				C9A57505C9A57505C9A57505 /* SidebarWorkspaceScrollLayoutTests.swift in Sources */,
 				C0DE56010000000000000001 /* SidebarWorkspaceSelectionAnchorPolicyTests.swift in Sources */,
 					A6AC73040000000000000001 /* SidebarWorkspaceSnapshotAgentActivityTests.swift in Sources */,

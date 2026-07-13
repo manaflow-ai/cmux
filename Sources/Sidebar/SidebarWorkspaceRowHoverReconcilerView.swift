@@ -38,16 +38,30 @@ final class SidebarWorkspaceRowHoverReconcilerView: NSView {
         reportPointerHovering(false)
     }
 
-    func reconcileCurrentPointerLocation() {
+    func reconcileCurrentPointerLocation(repairing trackedPointerHovering: Bool? = nil) {
         guard let window else {
-            reportPointerHovering(false)
+            reportPointerHovering(false, force: trackedPointerHovering == true)
             return
         }
-        reconcilePointerLocation(pointInView: convert(window.mouseLocationOutsideOfEventStream, from: nil))
+        reconcilePointerLocation(
+            pointInView: convert(window.mouseLocationOutsideOfEventStream, from: nil),
+            repairing: trackedPointerHovering
+        )
     }
 
-    func reconcilePointerLocation(pointInView: NSPoint) {
-        reportPointerHovering(bounds.contains(pointInView), force: true)
+    // Reports are deduplicated against the last reported value: AppKit runs
+    // updateTrackingAreas() for every visible row on every scroll movement,
+    // and an unconditional report there is a SwiftUI state write per row per
+    // scroll tick (the #7482 sidebar hang class). `repairing:` carries the
+    // SwiftUI-tracked hover state; a report is forced only when that state
+    // disagrees with pointer geometry, which is the row-reuse repair the
+    // force previously existed for (#7539).
+    func reconcilePointerLocation(pointInView: NSPoint, repairing trackedPointerHovering: Bool? = nil) {
+        let pointerHovering = bounds.contains(pointInView)
+        reportPointerHovering(
+            pointerHovering,
+            force: trackedPointerHovering.map { $0 != pointerHovering } ?? false
+        )
     }
 
     private func reportPointerHovering(_ hovering: Bool, force: Bool = false) {
