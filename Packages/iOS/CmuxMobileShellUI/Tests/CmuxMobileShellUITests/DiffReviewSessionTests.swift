@@ -6,6 +6,17 @@ import Testing
 
 @MainActor
 @Suite struct DiffReviewSessionTests {
+    @Test func missingCurrentFileDoesNotProjectIdleState() {
+        let state = DiffReviewFileLoadState.loading(path: "A.swift")
+
+        switch state.visible(for: nil) {
+        case .idle:
+            Issue.record("A missing current file must not project an indefinite loading state")
+        default:
+            break
+        }
+    }
+
     @Test func loadStateNeverProjectsPreviousFileUnderNewSelection() {
         let state = DiffReviewFileLoadState.loaded(path: "A.swift", hunks: [], isTruncated: false)
 
