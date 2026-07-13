@@ -4,7 +4,11 @@ import Foundation
 actor MobileCoreRPCSession {
     typealias TransportFactory = @Sendable () throws -> any CmxByteTransport
     typealias ConnectedCandidateHook = @Sendable (_ candidate: any CmxByteTransport) async -> Void
-    typealias PendingContinuation = CheckedContinuation<Result<Data, MobileShellConnectionError>, Never>
+    enum PendingRequestSettlement {
+        case response(Result<Data, MobileShellConnectionError>)
+        case cancelled
+    }
+    private typealias PendingContinuation = CheckedContinuation<PendingRequestSettlement, Never>
     typealias ConnectingTask = (id: UUID, lease: MobileRPCConnectAttemptLease?, task: Task<any CmxByteTransport, any Error>, waiters: Set<UUID>, completed: Bool)
     static let defaultAbandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000
     static let defaultLateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000
@@ -78,10 +82,10 @@ actor MobileCoreRPCSession {
         let frame = try MobileSyncFrameCodec.encodeFrame(payload)
         let responseTimeoutNanoseconds = try taskTimeout.remainingNanoseconds(until: deadlineUptimeNanoseconds)
 
-        let result: Result<Data, MobileShellConnectionError> = await withTaskCancellationHandler {
+        let settlement: PendingRequestSettlement = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 guard pending[requestID] == nil, queuedWriteIDs[requestID] == nil else {
-                    continuation.resume(returning: .failure(.invalidResponse))
+                    continuation.resume(returning: .response(.failure(.invalidResponse)))
                     return
                 }
                 let queuedWriteID = UUID()
@@ -99,7 +103,7 @@ actor MobileCoreRPCSession {
                 guard let queue = writeQueue else {
                     requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
                     pending.removeValue(forKey: requestID)
-                    continuation.resume(returning: .failure(.connectionClosed))
+                    continuation.resume(returning: .response(.failure(.connectionClosed)))
                     return
                 }
                 queuedWriteIDs[requestID] = queuedWriteID
@@ -110,13 +114,26 @@ actor MobileCoreRPCSession {
                 await self.cancelPendingRequest(requestID: requestID)
             }
         }
-        if Task.isCancelled {
+        return try Self.resolvePendingSettlement(settlement, isCancelled: Task.isCancelled)
+    }
+
+    static func resolvePendingSettlement(
+        _ settlement: PendingRequestSettlement,
+        isCancelled: Bool
+    ) throws -> Data {
+        switch settlement {
+        case .cancelled:
             throw CancellationError()
-        }
-        switch result {
-        case .success(let data):
+        case .response(.success(let data)):
+            // A decoded success followed by cancellation is still ambiguous:
+            // the host may have created a non-idempotent workspace even though
+            // the caller no longer owns the current session.
+            if isCancelled { throw CancellationError() }
             return data
-        case .failure(let error):
+        case .response(.failure(let error)):
+            // Once a response or transport failure settles, preserve it even if
+            // ambient cancellation races this continuation. This prevents a
+            // definite host rejection from becoming ambiguous success upstream.
             throw error
         }
     }
@@ -154,7 +171,7 @@ actor MobileCoreRPCSession {
             task.cancel()
         }
         for (_, cont) in pendingSnapshot {
-            cont.resume(returning: .failure(error))
+            cont.resume(returning: .response(.failure(error)))
         }
         let listenerSnapshot = listeners
         listeners.removeAll()
@@ -441,9 +458,9 @@ actor MobileCoreRPCSession {
         if (envelope["ok"] as? Bool) == true {
             let result = envelope["result"] ?? [:]
             if let data = try? JSONSerialization.data(withJSONObject: result) {
-                cont.resume(returning: .success(data))
+                cont.resume(returning: .response(.success(data)))
             } else {
-                cont.resume(returning: .failure(.invalidResponse))
+                cont.resume(returning: .response(.failure(.invalidResponse)))
             }
             return
         }
@@ -452,21 +469,21 @@ actor MobileCoreRPCSession {
         let code = errorPayload?["code"] as? String
         switch code {
         case "unauthorized":
-            cont.resume(returning: .failure(.authorizationFailed(message)))
+            cont.resume(returning: .response(.failure(.authorizationFailed(message))))
         case "account_mismatch":
             // The Mac is signed in to a different cmux account. Surface a
             // distinct error so the shell drives a re-auth flow into the owner's
             // account rather than retrying with this account's fresh token.
-            cont.resume(returning: .failure(.accountMismatch(message)))
+            cont.resume(returning: .response(.failure(.accountMismatch(message))))
         default:
-            cont.resume(returning: .failure(.rpcError(code, message)))
+            cont.resume(returning: .response(.failure(.rpcError(code, message))))
         }
     }
 
     private func failPending(requestID: String, error: MobileShellConnectionError) {
         guard let cont = pending.removeValue(forKey: requestID) else { return }
         requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
-        cont.resume(returning: .failure(error))
+        cont.resume(returning: .response(.failure(error)))
     }
     private func cancelPendingRequest(requestID: String) {
         guard let cont = pending.removeValue(forKey: requestID) else { return }
@@ -474,7 +491,7 @@ actor MobileCoreRPCSession {
         if let queuedWriteID = queuedWriteIDs.removeValue(forKey: requestID) {
             cancelledQueuedWriteIDs.insert(queuedWriteID)
         }
-        cont.resume(returning: .failure(.requestTimedOut))
+        cont.resume(returning: .cancelled)
     }
 
     private func timeoutPendingRequest(requestID: String) {
@@ -483,7 +500,7 @@ actor MobileCoreRPCSession {
         if let queuedWriteID = queuedWriteIDs.removeValue(forKey: requestID) {
             cancelledQueuedWriteIDs.insert(queuedWriteID)
         }
-        cont.resume(returning: .failure(.requestTimedOut))
+        cont.resume(returning: .response(.failure(.requestTimedOut)))
     }
 
     private func shouldSendQueuedWrite(_ write: PendingWrite) -> Bool {

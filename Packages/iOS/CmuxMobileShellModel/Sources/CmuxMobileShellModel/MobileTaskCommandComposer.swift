@@ -107,6 +107,17 @@ public struct MobileTaskCommandComposer: Sendable {
         var supportsImplicitPrompt = true
     }
 
+    private struct ShellHereDocumentDescriptor {
+        var delimiter: String
+        var stripsLeadingTabs: Bool
+        var permitsEnvironmentExpansion: Bool
+    }
+
+    private struct ShellHereDocumentBody {
+        var range: Range<String.Index>
+        var permitsEnvironmentExpansion: Bool
+    }
+
     /// Creates a command composer.
     public init() {}
 
@@ -164,8 +175,21 @@ public struct MobileTaskCommandComposer: Sendable {
         var index = command.startIndex
         var lexicalState = ShellLexicalState()
         var didReplacePrompt = false
+        let hereDocumentBodies = hereDocumentBodies(in: command)
+        var hereDocumentBodyIndex = 0
 
         while index < command.endIndex {
+            if hereDocumentBodyIndex < hereDocumentBodies.count,
+               index == hereDocumentBodies[hereDocumentBodyIndex].range.lowerBound {
+                let body = hereDocumentBodies[hereDocumentBodyIndex]
+                output.append(contentsOf: command[body.range])
+                if command[body.range].last == "\n" {
+                    lexicalState.consume("\n")
+                }
+                index = body.range.upperBound
+                hereDocumentBodyIndex += 1
+                continue
+            }
             let character = command[index]
             if lexicalState.inComment {
                 output.append(character)
@@ -308,7 +332,23 @@ public struct MobileTaskCommandComposer: Sendable {
         let bracedLengthExpansion = "${#CMUX_TASK_PROMPT}"
         var lexicalState = ShellLexicalState()
         var index = command.startIndex
+        let hereDocumentBodies = hereDocumentBodies(in: command)
+        var hereDocumentBodyIndex = 0
         while index < command.endIndex {
+            if hereDocumentBodyIndex < hereDocumentBodies.count,
+               index == hereDocumentBodies[hereDocumentBodyIndex].range.lowerBound {
+                let body = hereDocumentBodies[hereDocumentBodyIndex]
+                if body.permitsEnvironmentExpansion,
+                   hereDocumentBodyReferencesPromptEnvironment(command[body.range]) {
+                    return true
+                }
+                if command[body.range].last == "\n" {
+                    lexicalState.consume("\n")
+                }
+                index = body.range.upperBound
+                hereDocumentBodyIndex += 1
+                continue
+            }
             let character = command[index]
             if lexicalState.inComment {
                 lexicalState.consume(character)
@@ -340,6 +380,194 @@ public struct MobileTaskCommandComposer: Sendable {
             }
             lexicalState.consume(character)
             index = command.index(after: index)
+        }
+        return false
+    }
+
+    /// Returns shell here-document body and terminator lines. Those lines are
+    /// data, not shell syntax, so `{prompt}` must remain byte-for-byte literal.
+    private static func hereDocumentBodies(in command: String) -> [ShellHereDocumentBody] {
+        var bodies: [ShellHereDocumentBody] = []
+        var pending: [ShellHereDocumentDescriptor] = []
+        var lexicalState = ShellLexicalState()
+        var readingBodies = false
+        var lineStart = command.startIndex
+
+        while lineStart < command.endIndex {
+            let newline = command[lineStart...].firstIndex(of: "\n")
+            let contentEnd = newline ?? command.endIndex
+            let lineEnd = newline.map { command.index(after: $0) } ?? command.endIndex
+
+            if readingBodies, let descriptor = pending.first {
+                var candidate = String(command[lineStart..<contentEnd])
+                if candidate.last == "\r" { candidate.removeLast() }
+                if descriptor.stripsLeadingTabs {
+                    candidate.removeFirst(candidate.prefix(while: { $0 == "\t" }).count)
+                }
+                let isTerminator = candidate == descriptor.delimiter
+                bodies.append(ShellHereDocumentBody(
+                    range: lineStart..<lineEnd,
+                    permitsEnvironmentExpansion: descriptor.permitsEnvironmentExpansion && !isTerminator
+                ))
+                if isTerminator {
+                    pending.removeFirst()
+                    readingBodies = !pending.isEmpty
+                }
+            } else {
+                scanHereDocumentDescriptors(
+                    in: command,
+                    range: lineStart..<contentEnd,
+                    lexicalState: &lexicalState,
+                    pending: &pending
+                )
+                readingBodies = !pending.isEmpty
+                    && !lexicalState.escaped
+                    && lexicalState.quote == .unquoted
+            }
+
+            if newline != nil { lexicalState.consume("\n") }
+            lineStart = lineEnd
+        }
+        return bodies
+    }
+
+    private static func scanHereDocumentDescriptors(
+        in command: String,
+        range: Range<String.Index>,
+        lexicalState: inout ShellLexicalState,
+        pending: inout [ShellHereDocumentDescriptor]
+    ) {
+        var index = range.lowerBound
+        while index < range.upperBound {
+            let character = command[index]
+            if lexicalState.inComment {
+                lexicalState.consume(character)
+                index = command.index(after: index)
+                continue
+            }
+            if lexicalState.startsComment(with: character) {
+                lexicalState.beginComment()
+                index = command.index(after: index)
+                continue
+            }
+            guard lexicalState.quote == .unquoted, !lexicalState.escaped, character == "<" else {
+                lexicalState.consume(character)
+                index = command.index(after: index)
+                continue
+            }
+
+            let suffix = command[index..<range.upperBound]
+            if suffix.hasPrefix("<<<") {
+                for _ in 0..<3 {
+                    lexicalState.consume(command[index])
+                    index = command.index(after: index)
+                }
+                continue
+            }
+            guard suffix.hasPrefix("<<") else {
+                lexicalState.consume(character)
+                index = command.index(after: index)
+                continue
+            }
+
+            var cursor = command.index(index, offsetBy: 2)
+            var stripsLeadingTabs = false
+            if cursor < range.upperBound, command[cursor] == "-" {
+                stripsLeadingTabs = true
+                cursor = command.index(after: cursor)
+            }
+            while cursor < range.upperBound, command[cursor] == " " || command[cursor] == "\t" {
+                cursor = command.index(after: cursor)
+            }
+            guard let parsed = parseHereDocumentDelimiter(
+                in: command,
+                from: cursor,
+                through: range.upperBound
+            ) else {
+                lexicalState.consume(character)
+                index = command.index(after: index)
+                continue
+            }
+            pending.append(ShellHereDocumentDescriptor(
+                delimiter: parsed.delimiter,
+                stripsLeadingTabs: stripsLeadingTabs,
+                permitsEnvironmentExpansion: !parsed.wasQuoted
+            ))
+            while index < parsed.end {
+                lexicalState.consume(command[index])
+                index = command.index(after: index)
+            }
+        }
+    }
+
+    private static func parseHereDocumentDelimiter(
+        in command: String,
+        from start: String.Index,
+        through end: String.Index
+    ) -> (delimiter: String, wasQuoted: Bool, end: String.Index)? {
+        var delimiter = ""
+        var quote = ShellQuote.unquoted
+        var wasQuoted = false
+        var index = start
+        while index < end {
+            let character = command[index]
+            if quote == .unquoted,
+               character == " " || character == "\t" || ";|&<>()".contains(character) {
+                break
+            }
+            switch (quote, character) {
+            case (.unquoted, "'"), (.unquoted, "\""):
+                wasQuoted = true
+                quote = character == "'" ? .single : .double
+            case (.single, "'"):
+                quote = .unquoted
+            case (.double, "\""):
+                quote = .unquoted
+            case (.unquoted, "\\"), (.double, "\\"):
+                wasQuoted = true
+                let escaped = command.index(after: index)
+                guard escaped < end else {
+                    index = escaped
+                    continue
+                }
+                delimiter.append(command[escaped])
+                index = escaped
+            default:
+                delimiter.append(character)
+            }
+            index = command.index(after: index)
+        }
+        guard !delimiter.isEmpty else { return nil }
+        return (delimiter, wasQuoted, index)
+    }
+
+    private static func hereDocumentBodyReferencesPromptEnvironment(_ body: Substring) -> Bool {
+        let unbraced = "$CMUX_TASK_PROMPT"
+        let bracedPrefix = "${CMUX_TASK_PROMPT"
+        let bracedLengthExpansion = "${#CMUX_TASK_PROMPT}"
+        var index = body.startIndex
+        while index < body.endIndex {
+            if body[index] == "\\" {
+                index = body.index(after: index)
+                if index < body.endIndex { index = body.index(after: index) }
+                continue
+            }
+            if body[index...].hasPrefix(bracedLengthExpansion) {
+                return true
+            }
+            if body[index...].hasPrefix(bracedPrefix) {
+                let nameEnd = body.index(index, offsetBy: bracedPrefix.count)
+                if nameEnd < body.endIndex, !isShellIdentifierCharacter(body[nameEnd]) {
+                    return true
+                }
+            }
+            if body[index...].hasPrefix(unbraced) {
+                let nameEnd = body.index(index, offsetBy: unbraced.count)
+                if nameEnd == body.endIndex || !isShellIdentifierCharacter(body[nameEnd]) {
+                    return true
+                }
+            }
+            index = body.index(after: index)
         }
         return false
     }

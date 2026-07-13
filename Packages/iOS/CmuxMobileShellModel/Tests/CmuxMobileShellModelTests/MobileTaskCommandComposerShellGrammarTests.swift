@@ -120,6 +120,16 @@ import Testing
         #expect(literalResult.initialEnv.isEmpty)
     }
 
+    @Test func heredocLiteralRangeEndsAtItsTerminator() {
+        let command = "cat <<EOF\n{prompt}\nEOF\nagent {prompt}"
+        let template = MobileTaskTemplate(name: "Script", icon: "terminal", command: command)
+
+        let result = composer.compose(template: template, prompt: "ship it")
+
+        #expect(result.initialCommand == "cat <<EOF\n{prompt}\nEOF\nagent \"${CMUX_TASK_PROMPT}\"")
+        #expect(result.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
+    }
+
     @Test func compoundCommandsRequireExplicitPromptConsumer() {
         let commands = [
             "claude | tee /tmp/task.log",
