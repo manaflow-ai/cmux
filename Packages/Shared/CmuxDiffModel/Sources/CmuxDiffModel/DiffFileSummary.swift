@@ -12,6 +12,8 @@ public struct DiffFileSummary: Sendable, Codable, Equatable, Identifiable {
     public let additions: Int?
     /// Deleted-line count, when known.
     public let deletions: Int?
+    /// Opaque repository-state identity required when loading this file.
+    public let snapshotToken: String
 
     /// Creates a file-level changed-file summary.
     ///
@@ -21,11 +23,20 @@ public struct DiffFileSummary: Sendable, Codable, Equatable, Identifiable {
     ///   - status: File status.
     ///   - additions: Added-line count, when known.
     ///   - deletions: Deleted-line count, when known.
-    public init(path: String, oldPath: String?, status: DiffFileStatus, additions: Int?, deletions: Int?) {
+    ///   - snapshotToken: Opaque repository-state identity for file loading.
+    public init(
+        path: String,
+        oldPath: String?,
+        status: DiffFileStatus,
+        additions: Int?,
+        deletions: Int?,
+        snapshotToken: String = ""
+    ) {
         self.path = path
         self.oldPath = oldPath
         self.status = status
         self.additions = additions
         self.deletions = deletions
+        self.snapshotToken = snapshotToken
     }
 }

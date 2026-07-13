@@ -16,6 +16,8 @@ public struct MobileWorkspaceDiffStatusResponse: Decodable, Sendable {
         public let additions: Int?
         /// Deleted-line count, when reported by git.
         public let deletions: Int?
+        /// Opaque repository-state identity required by the file request.
+        public let snapshotToken: String
 
         private enum CodingKeys: String, CodingKey {
             case path
@@ -23,6 +25,7 @@ public struct MobileWorkspaceDiffStatusResponse: Decodable, Sendable {
             case status
             case additions
             case deletions
+            case snapshotToken = "snapshot_token"
         }
 
         /// Decodes one changed file, tolerating absent optional fields from older
@@ -35,6 +38,14 @@ public struct MobileWorkspaceDiffStatusResponse: Decodable, Sendable {
             status = try container.decode(String.self, forKey: .status)
             additions = try container.decodeIfPresent(Int.self, forKey: .additions)
             deletions = try container.decodeIfPresent(Int.self, forKey: .deletions)
+            snapshotToken = try container.decode(String.self, forKey: .snapshotToken)
+            guard !snapshotToken.isEmpty else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .snapshotToken,
+                    in: container,
+                    debugDescription: "Diff snapshot token must not be empty"
+                )
+            }
         }
     }
 

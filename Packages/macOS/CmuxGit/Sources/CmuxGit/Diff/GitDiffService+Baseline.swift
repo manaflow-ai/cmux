@@ -10,8 +10,10 @@ extension GitDiffService {
         )
         switch head.failure {
         case nil:
-            guard head.successOutput != nil else { return .failed }
-            return .success("HEAD")
+            guard let output = head.successOutput,
+                  let objectID = Self.removingGitLineTerminator(output),
+                  !objectID.isEmpty else { return .failed }
+            return .success(objectID)
         case .unsuccessfulExit:
             break
         case .timedOut:

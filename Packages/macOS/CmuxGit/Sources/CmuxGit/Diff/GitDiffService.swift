@@ -54,103 +54,6 @@ public struct GitDiffService: Sendable {
         }
     }
 
-    /// Lists changed files relative to `HEAD`, including untracked files.
-    ///
-    /// - Parameters:
-    ///   - repoRoot: Repository root.
-    ///   - maxOutputBytes: Per-listing bound on git output. When a listing
-    ///     reaches the bound its subprocess is terminated, the trailing
-    ///     partial record is dropped, and the result is marked truncated, so
-    ///     a workspace with an enormous change set (for example a large
-    ///     unignored generated tree) cannot make one status call accumulate
-    ///     unbounded memory.
-    /// - Returns: Changed-file summaries in path order with a truncation marker,
-    ///   or `nil` when any required Git command fails or times out.
-    public func changedFiles(repoRoot: String, maxOutputBytes: Int = 4 * 1024 * 1024) -> GitChangedFiles? {
-        guard case .success(let changed) = changedFilesResult(
-            repoRoot: repoRoot,
-            maxOutputBytes: maxOutputBytes
-        ) else { return nil }
-        return changed
-    }
-
-    /// Lists changed files while preserving timeout and execution failures for
-    /// callers that present actionable errors.
-    public func changedFilesResult(
-        repoRoot: String,
-        maxOutputBytes: Int = 4 * 1024 * 1024
-    ) -> GitDiffQueryResult<GitChangedFiles> {
-        guard maxOutputBytes > 0 else { return .notFound }
-        let baseline: String
-        switch diffBaselineResult(in: repoRoot) {
-        case .success(let value):
-            baseline = value
-        case .notFound:
-            return .notFound
-        case .failed:
-            return .failed
-        case .timedOut:
-            return .timedOut
-        }
-        let numstat = runGit(
-            in: repoRoot,
-            arguments: [
-                "diff", baseline, "--numstat", "-z", "--no-color", "--find-renames",
-                "--no-ext-diff", "--no-textconv",
-            ],
-            maxOutputBytes: maxOutputBytes
-        )
-        if let failure: GitDiffQueryResult<GitChangedFiles> = queryFailure(from: numstat) {
-            return failure
-        }
-        let nameStatus = runGit(
-            in: repoRoot,
-            arguments: [
-                "diff", baseline, "--name-status", "-z", "--no-color", "--find-renames",
-                "--no-ext-diff", "--no-textconv",
-            ],
-            maxOutputBytes: maxOutputBytes
-        )
-        if let failure: GitDiffQueryResult<GitChangedFiles> = queryFailure(from: nameStatus) {
-            return failure
-        }
-        let untracked = runGit(
-            in: repoRoot,
-            arguments: ["ls-files", "--others", "--exclude-standard", "-z"],
-            maxOutputBytes: maxOutputBytes
-        )
-        if let failure: GitDiffQueryResult<GitChangedFiles> = queryFailure(from: untracked) {
-            return failure
-        }
-        guard let numstatData = completeRecordData(numstat),
-              let nameStatusData = completeRecordData(nameStatus),
-              let untrackedData = completeRecordData(untracked) else { return .failed }
-        let parsed = parseChangedFiles(
-            numstatData: numstatData,
-            nameStatusData: nameStatusData,
-            untrackedData: untrackedData
-        )
-        // Git paths are byte identities, while the mobile protocol uses Swift
-        // strings. Failing the snapshot is safer than silently dropping an
-        // undecodable entry and claiming the visible list is complete.
-        guard !parsed.hasUndecodablePath else { return .failed }
-        return .success(
-            GitChangedFiles(
-                files: parsed.files,
-                truncated: numstat.capped || nameStatus.capped || untracked.capped
-            )
-        )
-    }
-
-    /// Drops the trailing partial NUL-separated record a byte cap can leave
-    /// behind, so capped listings only contribute complete records.
-    private func completeRecordData(_ result: GitProcessResult) -> Data? {
-        guard let output = result.rawOutput else { return nil }
-        guard result.capped else { return output }
-        guard let lastNul = output.lastIndex(of: 0) else { return Data() }
-        return Data(output[...lastNul])
-    }
-
     /// Reads a unified diff for one repository-relative file path.
     ///
     /// - Parameters:
@@ -159,6 +62,11 @@ public struct GitDiffService: Sendable {
     ///   - oldPath: Previous repository-relative path for a rename.
     ///   - status: Status from the selected changed-file row. This disambiguates
     ///     a deletion from an untracked replacement at the same path.
+    ///   - additions: Added-line count from the selected changed-file row.
+    ///   - deletions: Deleted-line count from the selected changed-file row.
+    ///   - snapshotToken: Opaque repository-state identity from that row. When
+    ///     supplied, the request fails if the baseline, index, or file identity
+    ///     changes before the diff finishes loading.
     ///   - maxOutputBytes: Upper bound on diff bytes read from git. When the
     ///     output reaches this bound the git process is terminated and the
     ///     bounded prefix (trimmed to a UTF-8 boundary) is returned, so a huge
@@ -171,6 +79,9 @@ public struct GitDiffService: Sendable {
         path: String,
         oldPath: String? = nil,
         status: GitDiffStatus? = nil,
+        additions: Int? = nil,
+        deletions: Int? = nil,
+        snapshotToken: String? = nil,
         maxOutputBytes: Int = 4 * 1024 * 1024
     ) -> GitFileDiff? {
         guard case .success(let diff) = fileDiffResult(
@@ -178,6 +89,9 @@ public struct GitDiffService: Sendable {
             path: path,
             oldPath: oldPath,
             status: status,
+            additions: additions,
+            deletions: deletions,
+            snapshotToken: snapshotToken,
             maxOutputBytes: maxOutputBytes
         ) else { return nil }
         return diff
@@ -190,6 +104,9 @@ public struct GitDiffService: Sendable {
         path: String,
         oldPath: String? = nil,
         status: GitDiffStatus? = nil,
+        additions: Int? = nil,
+        deletions: Int? = nil,
+        snapshotToken: String? = nil,
         maxOutputBytes: Int = 4 * 1024 * 1024
     ) -> GitDiffQueryResult<GitFileDiff> {
         guard maxOutputBytes > 0 else { return .notFound }
@@ -207,6 +124,26 @@ public struct GitDiffService: Sendable {
             return .failed
         case .timedOut:
             return .timedOut
+        }
+        let expectedSummary: GitDiffSummary?
+        if let snapshotToken {
+            guard let status, !snapshotToken.isEmpty else { return .notFound }
+            let summary = GitDiffSummary(
+                path: path,
+                oldPath: oldPath,
+                status: status,
+                additions: additions,
+                deletions: deletions
+            )
+            guard snapshotMatches(
+                snapshotToken,
+                repoRoot: repoRoot,
+                baseline: baseline,
+                summary: summary
+            ) else { return .notFound }
+            expectedSummary = summary
+        } else {
+            expectedSummary = nil
         }
         let requestedBaselineEntry: BaselineEntryKind
         switch baselineEntryKind(repoRoot: repoRoot, baseline: baseline, path: path) {
@@ -287,11 +224,18 @@ public struct GitDiffService: Sendable {
         }
         let isUntrackedReplacement = status == .modified && hasUntrackedReplacementShape
         if isUntrackedReplacement {
-            return untrackedReplacementDiffResult(
+            let result = untrackedReplacementDiffResult(
                 repoRoot: repoRoot,
                 baseline: baseline,
                 path: path,
                 maxOutputBytes: maxOutputBytes
+            )
+            guard case .success(let diff) = result else { return result }
+            return validatedSnapshotResult(
+                diff,
+                expectedToken: snapshotToken,
+                expectedSummary: expectedSummary,
+                repoRoot: repoRoot
             )
         }
         let shouldDiffAsUntracked = status == .untracked
@@ -322,7 +266,13 @@ public struct GitDiffService: Sendable {
             }
             guard let output = result.successOutput else { return .failed }
             guard Self.hasExactlyOneFileSection(output) else { return .notFound }
-            return .success(GitFileDiff(path: path, unifiedDiff: output, truncated: result.capped))
+            let diff = GitFileDiff(path: path, unifiedDiff: output, truncated: result.capped)
+            return validatedSnapshotResult(
+                diff,
+                expectedToken: snapshotToken,
+                expectedSummary: expectedSummary,
+                repoRoot: repoRoot
+            )
         }
         let diffPaths = [oldPath, path]
             .compactMap { $0 }
@@ -355,7 +305,47 @@ public struct GitDiffService: Sendable {
         if oldPath != nil, !Self.hasRenameHeaders(output) {
             return .notFound
         }
-        return .success(GitFileDiff(path: path, unifiedDiff: output, truncated: result.capped))
+        let diff = GitFileDiff(path: path, unifiedDiff: output, truncated: result.capped)
+        return validatedSnapshotResult(
+            diff,
+            expectedToken: snapshotToken,
+            expectedSummary: expectedSummary,
+            repoRoot: repoRoot
+        )
+    }
+
+    private func snapshotMatches(
+        _ expectedToken: String,
+        repoRoot: String,
+        baseline: String,
+        summary: GitDiffSummary
+    ) -> Bool {
+        guard case .success(let context) = snapshotContextResult(
+            repoRoot: repoRoot,
+            baselineObjectID: baseline
+        ), case .success(let currentToken) = snapshotTokenResult(
+            repoRoot: repoRoot,
+            context: context,
+            summary: summary
+        ) else { return false }
+        return currentToken == expectedToken
+    }
+
+    private func validatedSnapshotResult(
+        _ diff: GitFileDiff,
+        expectedToken: String?,
+        expectedSummary: GitDiffSummary?,
+        repoRoot: String
+    ) -> GitDiffQueryResult<GitFileDiff> {
+        guard let expectedToken, let expectedSummary else { return .success(diff) }
+        guard case .success(let currentBaseline) = diffBaselineResult(in: repoRoot),
+              snapshotMatches(
+                expectedToken,
+                repoRoot: repoRoot,
+                baseline: currentBaseline,
+                summary: expectedSummary
+              ) else { return .notFound }
+        return .success(diff)
     }
 
     /// Wraps a repository path in `:(literal)` pathspec magic so glob

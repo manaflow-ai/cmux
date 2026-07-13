@@ -5,7 +5,7 @@ import SwiftUI
 struct DiffReviewFilesView: View {
     let workspaceName: String
     let fetchStatus: () async throws -> DiffStatusSnapshot
-    let fetchFile: (String, String?, DiffFileStatus, String) async throws -> DiffFilePatch
+    let fetchFile: (DiffFileSummary, String) async throws -> DiffFilePatch
 
     @State private var session = DiffReviewSession()
     @State private var isLoading = false
@@ -60,11 +60,9 @@ struct DiffReviewFilesView: View {
         .navigationDestination(isPresented: $isFilePresented) {
             DiffReviewFileView(
                 session: session,
-                fetchFile: { path, oldPath, status in
+                fetchFile: { file in
                     try await fetchFileWithRepositoryRecovery(
-                        path: path,
-                        oldPath: oldPath,
-                        status: status
+                        file: file
                     )
                 }
             )
@@ -103,30 +101,23 @@ struct DiffReviewFilesView: View {
     }
 
     private func fetchFileWithRepositoryRecovery(
-        path: String,
-        oldPath: String?,
-        status: DiffFileStatus
+        file: DiffFileSummary
     ) async throws -> DiffFilePatch {
         let retry = DiffReviewRepositoryRetry(reloadStatus: reload)
         return try await retry.run { attempt in
             switch attempt {
             case .initial:
-                return try await fetchFile(path, oldPath, status, repoRoot)
+                return try await fetchFile(file, repoRoot)
             case .reloaded:
                 guard let refreshedFile = session.currentFile,
-                      refreshedFile.path == path,
-                      refreshedFile.oldPath == oldPath,
-                      refreshedFile.status == status else {
+                      refreshedFile.path == file.path,
+                      refreshedFile.oldPath == file.oldPath,
+                      refreshedFile.status == file.status else {
                     // `setFiles` changed the load request. Let the view's
                     // request-keyed task restart with that refreshed metadata.
                     throw CancellationError()
                 }
-                return try await fetchFile(
-                    refreshedFile.path,
-                    refreshedFile.oldPath,
-                    refreshedFile.status,
-                    repoRoot
-                )
+                return try await fetchFile(refreshedFile, repoRoot)
             }
         }
     }

@@ -40,8 +40,8 @@ import Testing
             {
               "repo_root": "/repo",
               "files": [
-                {"path":"Sources/New.swift","old_path":"Sources/Old.swift","status":"R","additions":4,"deletions":2},
-                {"path":"README.md","status":"M"}
+                {"path":"Sources/New.swift","old_path":"Sources/Old.swift","status":"R","additions":4,"deletions":2,"snapshot_token":"token-new"},
+                {"path":"README.md","status":"M","snapshot_token":"token-readme"}
               ]
             }
             """#.utf8
@@ -53,6 +53,7 @@ import Testing
         #expect(response.files.count == 2)
         #expect(response.files[0].oldPath == "Sources/Old.swift")
         #expect(response.files[0].additions == 4)
+        #expect(response.files[0].snapshotToken == "token-new")
         #expect(response.files[1].deletions == nil)
     }
 
@@ -82,8 +83,8 @@ import Testing
         let data = Data(
             """
             {"repo_root":"/repo","files":[
-              {"path":"b","old_path":"a","status":"R"},
-              {"path":"a->b","old_path":null,"status":"M"}
+              {"path":"b","old_path":"a","status":"R","snapshot_token":"token-b"},
+              {"path":"a->b","old_path":null,"status":"M","snapshot_token":"token-arrow"}
             ]}
             """.utf8
         )

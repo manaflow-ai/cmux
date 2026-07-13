@@ -22,7 +22,7 @@ import Testing
 
     @Test func workspaceDiffWireValuesMapIntoDomainModels() throws {
         let statusData = Data(
-            #"{"repo_root":"/tmp/repo","files":[{"path":"New.swift","old_path":"Old.swift","status":"R","additions":2,"deletions":1}],"truncated":true}"#.utf8
+            #"{"repo_root":"/tmp/repo","files":[{"path":"New.swift","old_path":"Old.swift","status":"R","additions":2,"deletions":1,"snapshot_token":"snapshot-1"}],"truncated":true}"#.utf8
         )
         let fileData = Data(
             #"{"path":"New.swift","unified_diff":"+new","truncated":true}"#.utf8
@@ -38,7 +38,8 @@ import Testing
                 oldPath: "Old.swift",
                 status: .renamed,
                 additions: 2,
-                deletions: 1
+                deletions: 1,
+                snapshotToken: "snapshot-1"
             ),
         ])
         #expect(status.isTruncated)
@@ -47,7 +48,7 @@ import Testing
 
     @Test func unknownWireStatusAndMismatchedFilePathFailClosed() {
         let statusData = Data(
-            #"{"repo_root":"/tmp/repo","files":[{"path":"A.swift","status":"future"}]}"#.utf8
+            #"{"repo_root":"/tmp/repo","files":[{"path":"A.swift","status":"future","snapshot_token":"snapshot-1"}]}"#.utf8
         )
         let fileData = Data(#"{"path":"Other.swift","unified_diff":"+new"}"#.utf8)
 

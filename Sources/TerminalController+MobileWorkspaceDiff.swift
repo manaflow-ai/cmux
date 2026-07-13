@@ -59,6 +59,10 @@ extension TerminalController {
               !expectedRepoRoot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .err(code: "invalid_params", message: "Missing or invalid path", data: nil)
         }
+        guard let snapshotToken = params["snapshot_token"] as? String,
+              !snapshotToken.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing or invalid snapshot_token", data: nil)
+        }
         let oldPath: String?
         if v2HasNonNullParam(params, "old_path") {
             guard let rawOldPath = params["old_path"] as? String,
@@ -79,6 +83,24 @@ extension TerminalController {
         } else {
             status = nil
         }
+        let additions: Int?
+        if v2HasNonNullParam(params, "additions") {
+            guard let value = params["additions"] as? Int, value >= 0 else {
+                return .err(code: "invalid_params", message: "Missing or invalid additions", data: nil)
+            }
+            additions = value
+        } else {
+            additions = nil
+        }
+        let deletions: Int?
+        if v2HasNonNullParam(params, "deletions") {
+            guard let value = params["deletions"] as? Int, value >= 0 else {
+                return .err(code: "invalid_params", message: "Missing or invalid deletions", data: nil)
+            }
+            deletions = value
+        } else {
+            deletions = nil
+        }
         switch mobileWorkspaceDiffSnapshot(params: params) {
         case .failure(let error):
             return error
@@ -88,6 +110,9 @@ extension TerminalController {
                 path: rawPath,
                 oldPath: oldPath,
                 status: status,
+                additions: additions,
+                deletions: deletions,
+                snapshotToken: snapshotToken,
                 expectedRepoRoot: expectedRepoRoot
             )
             return Self.v2MobileWorkspaceDiffResult(result)
@@ -132,6 +157,9 @@ extension TerminalController {
         path: String,
         oldPath: String?,
         status: GitDiffStatus?,
+        additions: Int?,
+        deletions: Int?,
+        snapshotToken: String,
         expectedRepoRoot: String
     ) async -> MobileWorkspaceDiffFileResult {
         await detachedCancellable {
@@ -140,6 +168,9 @@ extension TerminalController {
                 path: path,
                 oldPath: oldPath,
                 status: status,
+                additions: additions,
+                deletions: deletions,
+                snapshotToken: snapshotToken,
                 expectedRepoRoot: expectedRepoRoot
             )
         }
@@ -205,6 +236,9 @@ extension TerminalController {
         path: String,
         oldPath: String?,
         status: GitDiffStatus?,
+        additions: Int?,
+        deletions: Int?,
+        snapshotToken: String,
         expectedRepoRoot: String
     ) -> MobileWorkspaceDiffFileResult {
         let service = GitDiffService()
@@ -231,6 +265,9 @@ extension TerminalController {
             path: path,
             oldPath: oldPath,
             status: status,
+            additions: additions,
+            deletions: deletions,
+            snapshotToken: snapshotToken,
             maxOutputBytes: mobileWorkspaceDiffReadCap
         ) {
         case .success(let value):
@@ -285,6 +322,7 @@ extension TerminalController {
                     "status": summary.status.rawValue,
                     "additions": jsonOrNull(summary.additions),
                     "deletions": jsonOrNull(summary.deletions),
+                    "snapshot_token": summary.snapshotToken,
                 ] as [String: Any]
             }
             return .ok([

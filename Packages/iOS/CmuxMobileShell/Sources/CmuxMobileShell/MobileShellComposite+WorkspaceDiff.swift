@@ -49,25 +49,28 @@ extension MobileShellComposite {
     ///
     /// - Parameters:
     ///   - workspaceID: The workspace to review.
-    ///   - path: Repository-relative path.
-    ///   - oldPath: Previous repository-relative path for a rename.
-    ///   - status: Status from the selected changed-file row.
+    ///   - file: Selected changed-file row and its repository-state identity.
     ///   - repoRoot: Repository root returned by the matching status request.
     /// - Returns: One-file diff payload from the paired Mac.
     public func fetchFileDiff(
         workspaceID: MobileWorkspacePreview.ID,
-        path: String,
-        oldPath: String?,
-        status: DiffFileStatus,
+        file: DiffFileSummary,
         repoRoot: String
     ) async throws -> DiffFilePatch {
         do {
             var params = workspaceDiffParams(workspaceID: workspaceID)
-            params["path"] = path
-            if let oldPath {
+            params["path"] = file.path
+            if let oldPath = file.oldPath {
                 params["old_path"] = oldPath
             }
-            params["status"] = status.rawValue
+            params["status"] = file.status.rawValue
+            if let additions = file.additions {
+                params["additions"] = additions
+            }
+            if let deletions = file.deletions {
+                params["deletions"] = deletions
+            }
+            params["snapshot_token"] = file.snapshotToken
             params["repo_root"] = repoRoot
             let data = try await sendWorkspaceDiffRequest(
                 method: "mobile.workspace.diff_file",
@@ -75,7 +78,7 @@ extension MobileShellComposite {
                 workspaceID: workspaceID
             )
             return try await Self.decodeWorkspaceDiffResponse {
-                try Self.decodeDiffFilePatch(data, expectedPath: path)
+                try Self.decodeDiffFilePatch(data, expectedPath: file.path)
             }
         } catch is CancellationError {
             throw CancellationError()
@@ -95,7 +98,8 @@ extension MobileShellComposite {
                 oldPath: file.oldPath,
                 status: status,
                 additions: file.additions,
-                deletions: file.deletions
+                deletions: file.deletions,
+                snapshotToken: file.snapshotToken
             )
         }
         return DiffStatusSnapshot(

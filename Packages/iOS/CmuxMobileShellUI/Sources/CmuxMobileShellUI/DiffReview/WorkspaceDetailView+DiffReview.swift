@@ -20,12 +20,10 @@ extension View {
                 fetchStatus: {
                     try await store.fetchDiffStatus(workspaceID: workspace.id)
                 },
-                fetchFile: { path, oldPath, status, repoRoot in
+                fetchFile: { file, repoRoot in
                     try await store.fetchFileDiff(
                         workspaceID: workspace.id,
-                        path: path,
-                        oldPath: oldPath,
-                        status: status,
+                        file: file,
                         repoRoot: repoRoot
                     )
                 }

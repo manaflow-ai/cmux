@@ -12,6 +12,8 @@ public struct GitDiffSummary: Sendable, Codable, Equatable, Identifiable {
     public let additions: Int?
     /// Deleted-line count, when git reports one.
     public let deletions: Int?
+    /// Opaque identity of the repository state that produced this row.
+    public let snapshotToken: String
 
     /// Creates a changed-file summary.
     ///
@@ -21,11 +23,20 @@ public struct GitDiffSummary: Sendable, Codable, Equatable, Identifiable {
     ///   - status: File status.
     ///   - additions: Added-line count, when git reports one.
     ///   - deletions: Deleted-line count, when git reports one.
-    public init(path: String, oldPath: String?, status: GitDiffStatus, additions: Int?, deletions: Int?) {
+    ///   - snapshotToken: Opaque identity of the repository state for this row.
+    public init(
+        path: String,
+        oldPath: String?,
+        status: GitDiffStatus,
+        additions: Int?,
+        deletions: Int?,
+        snapshotToken: String = ""
+    ) {
         self.path = path
         self.oldPath = oldPath
         self.status = status
         self.additions = additions
         self.deletions = deletions
+        self.snapshotToken = snapshotToken
     }
 }

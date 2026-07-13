@@ -1,6 +1,20 @@
 internal import Foundation
 
 extension GitDiffService {
+    func maximumParsedPath(inNameStatusData data: Data) -> String? {
+        parseChangedFiles(
+            numstatData: nil,
+            nameStatusData: data,
+            untrackedData: nil
+        ).files.map(\.path).max { lhs, rhs in
+            Self.gitPathPrecedes(lhs, rhs)
+        }
+    }
+
+    static func gitPathPrecedes(_ lhs: String, _ rhs: String) -> Bool {
+        lhs.utf8.lexicographicallyPrecedes(rhs.utf8)
+    }
+
     func parseChangedFiles(
         numstatOutput: String?,
         nameStatusOutput: String?,
