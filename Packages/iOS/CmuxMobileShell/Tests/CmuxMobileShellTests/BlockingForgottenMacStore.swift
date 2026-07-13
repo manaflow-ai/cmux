@@ -31,4 +31,8 @@ actor BlockingForgottenMacStore: PairedMacForgottenStoring {
         loadWaiters.forEach { $0.resume() }
         loadWaiters.removeAll()
     }
+
+    func ids(scope: String) -> Set<String> {
+        idsByScope[scope] ?? []
+    }
 }

@@ -56,6 +56,22 @@ import Testing
         await remember.value
     }
 
+    @Test func explicitReconnectClearWinsAgainstSuspendedTombstoneLoad() async throws {
+        let forgottenStore = BlockingForgottenMacStore()
+        let store = MobileShellComposite(forgottenMacStore: forgottenStore)
+        let remember = Task { @MainActor in
+            await store.rememberForgottenMacDeviceID("mac-a", scopeKey: "scope-a")
+        }
+        await forgottenStore.waitUntilLoadStarted()
+
+        await store.clearForgottenMacDeviceID("mac-a", scopeKey: "scope-a")
+        await forgottenStore.releaseLoads()
+        await remember.value
+
+        #expect(await store.storedForgottenMacDeviceIDs(scopeKey: "scope-a").isEmpty)
+        #expect(await forgottenStore.ids(scope: "scope-a").isEmpty)
+    }
+
     @Test func compactTicketRollbackDoesNotRestoreAnotherTeamScope() async throws {
         let route = try reconnectRoute()
         let currentMac = storedMac(id: "mac-a", route: route, teamID: "team-a")
