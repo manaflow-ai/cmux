@@ -54,7 +54,7 @@ struct ClosedItemHistoryPendingEnrichmentTests {
         #expect(restoredSessionID == nil)
 
         release.signal()
-        _ = await capture.value
+        await capture.value
         #expect(store.canReopen)
     }
 
@@ -80,7 +80,7 @@ struct ClosedItemHistoryPendingEnrichmentTests {
 
         store.removeAll()
         release.signal()
-        _ = await capture.value
+        await capture.value
 
         #expect(!store.canReopen)
         #expect(store.menuSnapshot().totalItemCount == 0)
@@ -118,7 +118,7 @@ struct ClosedItemHistoryPendingEnrichmentTests {
         #expect(restoreCalls == 0)
 
         release.signal()
-        _ = await capture.value
+        await capture.value
         var restoredSessionID: String?
         #expect(store.restoreFirstRestorable { entry in
             restoredSessionID = Self.sessionID(from: entry)
@@ -213,7 +213,7 @@ struct ClosedItemHistoryPendingEnrichmentTests {
         store.remapPanelWorkspaceIds(from: oldWorkspaceId, to: newWorkspaceId)
 
         release.signal()
-        _ = await capture.value
+        await capture.value
         let recordID = try #require(store.menuSnapshot().items.first?.id)
         let record = try #require(store.removeRecord(id: recordID)?.record)
         guard case .panel(let panelEntry) = record.entry else {

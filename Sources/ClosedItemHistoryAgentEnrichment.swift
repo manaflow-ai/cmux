@@ -4,7 +4,7 @@ extension ClosedItemHistoryStore {
     @discardableResult
     func pushPreservingAgentMetadata(
         _ entry: ClosedItemHistoryEntry
-    ) -> Task<Bool, Never>? {
+    ) -> Task<Void, Never>? {
         pushPreservingAgentMetadata(entry, coordinatedBy: .shared)
     }
 
@@ -14,7 +14,7 @@ extension ClosedItemHistoryStore {
     func pushPreservingAgentMetadata(
         _ entry: ClosedItemHistoryEntry,
         coordinatedBy sharedIndex: SharedLiveAgentIndex
-    ) -> Task<Bool, Never>? {
+    ) -> Task<Void, Never>? {
         let record = ClosedItemHistoryRecord(entry: entry)
         guard entry.requiresAgentMetadataEnrichment else {
             push(record)
@@ -23,15 +23,15 @@ extension ClosedItemHistoryStore {
         pushPendingEnrichment(record)
         let refreshTask = sharedIndex.indexRefreshTaskForDestructiveClose()
         return Task { @MainActor [weak self] in
-            guard let self,
-                  let index = await refreshTask.value else {
-                return false
+            guard let self else { return }
+            guard let index = await refreshTask.value else {
+                self.resolvePendingEnrichment(recordID: record.id) { _ in nil }
+                return
             }
             let capturedEntry = record.entry.enrichingAgentMetadata(from: index)
             self.resolvePendingEnrichment(recordID: record.id) { currentEntry in
                 currentEntry.mergingCapturedAgentMetadata(from: capturedEntry)
             }
-            return true
         }
     }
 }
@@ -48,13 +48,13 @@ final class AgentMetadataCloseDeferrer {
     @discardableResult
     func deferClose(
         id: UUID,
-        until captureTask: Task<Bool, Never>,
+        until captureTask: Task<Void, Never>,
         close: @escaping @MainActor () -> Void
     ) -> Task<Void, Never> {
         deferredClosesByID[id]?.task.cancel()
         let task = Task { @MainActor [weak self] in
-            let isReadyToClose = await captureTask.value
-            guard isReadyToClose, !Task.isCancelled else { return }
+            await captureTask.value
+            guard !Task.isCancelled else { return }
             close()
             self?.deferredClosesByID.removeValue(forKey: id)
         }

@@ -39,6 +39,7 @@ final class SharedLiveAgentIndex {
     private static let cacheTTL: TimeInterval = 60.0
     private static let forkAvailabilityProbeTTL: TimeInterval = 15.0
     static let maximumConcurrentPhysicalLoads = 2
+    private static let destructiveCloseCaptureAttemptLimit = 2
     // Floor between event-driven reloads so chatty hook stores cannot keep the
     // measured ~350ms-1.8s loader running at near-continuous duty cycle.
     private static let minEventReloadInterval: TimeInterval = 5.0
@@ -181,7 +182,7 @@ final class SharedLiveAgentIndex {
     /// Captures agent metadata off-main before the caller performs destructive teardown.
     /// Callers retain the terminal until this bounded generation resolves.
     func indexRefreshTaskForDestructiveClose() -> Task<RestorableAgentSessionIndex?, Never> {
-        let refreshTask = requestRefresh(
+        let firstRefreshTask = requestRefresh(
             freshness: .captureAfterRequest,
             publication: .scoped,
             validating: nil
@@ -190,7 +191,23 @@ final class SharedLiveAgentIndex {
             // The returned operation owns its coordinator until the requested
             // generation resolves, including for injected non-singleton indexes.
             defer { _ = self }
-            return await refreshTask.value?.index
+            if let index = await firstRefreshTask.value?.index {
+                return index
+            }
+            // One successor generation absorbs a transient timeout without leaving
+            // an accepted close permanently pending. Each attempt retains the
+            // existing generation deadline; no additional timer or polling is added.
+            for _ in 1..<Self.destructiveCloseCaptureAttemptLimit {
+                let successor = requestRefresh(
+                    freshness: .captureAfterRequest,
+                    publication: .scoped,
+                    validating: nil
+                )
+                if let index = await successor.value?.index {
+                    return index
+                }
+            }
+            return nil
         }
     }
 

@@ -160,13 +160,13 @@ final class ClosedItemHistoryStore: ObservableObject {
     @discardableResult
     func resolvePendingEnrichment(
         recordID: UUID,
-        transform: (ClosedItemHistoryEntry) -> ClosedItemHistoryEntry
+        transform: (ClosedItemHistoryEntry) -> ClosedItemHistoryEntry?
     ) -> Bool {
         guard pendingEnrichmentRecordIDs.remove(recordID) != nil,
-              let index = records.firstIndex(where: { $0.id == recordID }) else {
-            return false
-        }
-        records[index].entry = transform(records[index].entry)
+              let index = records.firstIndex(where: { $0.id == recordID }) else { return false }
+        if let entry = transform(records[index].entry) {
+            records[index].entry = entry
+        } else { records.remove(at: index) }
         revision &+= 1
         persistRecords()
         return true

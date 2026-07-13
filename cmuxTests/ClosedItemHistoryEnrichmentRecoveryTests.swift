@@ -10,6 +10,83 @@ import Testing
 
 extension ClosedItemHistoryAgentEnrichmentTests {
     @Test
+    func timedOutCaptureUsesSuccessorBeforeClosing() async throws {
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let timeoutWaiter = ManualGenerationTimeoutWaiter()
+        let firstLoadStarted = DispatchSemaphore(value: 0)
+        let firstLoadCompleted = DispatchSemaphore(value: 0)
+        let secondLoadStarted = DispatchSemaphore(value: 0)
+        let releaseFirstLoad = DispatchSemaphore(value: 0)
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let closeCount = OSAllocatedUnfairLock(initialState: 0)
+        defer { releaseFirstLoad.signal() }
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let invocation = loadCount.withLock { count in
+                    count += 1
+                    return count
+                }
+                if invocation == 1 {
+                    firstLoadStarted.signal()
+                    releaseFirstLoad.wait()
+                    firstLoadCompleted.signal()
+                    return Self.recoveryLoadResult(index: SharedLiveAgentIndexLoadCoalescingTests.index(
+                        workspaceId: workspaceID,
+                        panelId: panelID,
+                        sessionId: "late-first-load"
+                    ))
+                }
+                secondLoadStarted.signal()
+                return Self.recoveryLoadResult(index: .empty)
+            },
+            generationTimeoutWaiter: {
+                await timeoutWaiter.wait()
+            },
+            hookStoreDirectoryProvider: {
+                FileManager.default.temporaryDirectory.path
+            }
+        )
+        let store = ClosedItemHistoryStore(capacity: 10)
+        let captureTask = try #require(store.pushPreservingAgentMetadata(
+            .panel(ClosedPanelHistoryEntry(
+                workspaceId: workspaceID,
+                paneId: UUID(),
+                tabIndex: 0,
+                snapshot: Self.panelSnapshotForRecoveryTest(panelId: panelID)
+            )),
+            coordinatedBy: sharedIndex
+        ))
+        let closeID = UUID()
+        let closeDeferrer = AgentMetadataCloseDeferrer()
+        let closeTask = closeDeferrer.deferClose(id: closeID, until: captureTask) {
+            closeCount.withLock { $0 += 1 }
+        }
+
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: firstLoadStarted))
+        await timeoutWaiter.waitUntilPendingCount(1)
+        await timeoutWaiter.fireNext()
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: secondLoadStarted))
+        await closeTask.value
+        #expect(loadCount.withLock { $0 } == 2)
+        #expect(closeCount.withLock { $0 } == 1)
+        #expect(!closeDeferrer.isDeferringClose(id: closeID))
+        #expect(store.canReopen)
+
+        releaseFirstLoad.signal()
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: firstLoadCompleted))
+        await Task.yield()
+        await timeoutWaiter.cancelAll()
+        let recordID = try #require(store.menuSnapshot().items.first?.id)
+        let record = try #require(store.removeRecord(id: recordID)?.record)
+        guard case .panel(let entry) = record.entry else {
+            Issue.record("Expected a panel history record")
+            return
+        }
+        #expect(entry.snapshot.terminal?.agent == nil)
+    }
+
+    @Test
     func repeatedUnavailableCaptureDiscardsPendingHistoryAndClosesOnce() async throws {
         let timeoutWaiter = ManualGenerationTimeoutWaiter()
         let loadStarted = DispatchSemaphore(value: 0)
@@ -97,6 +174,18 @@ extension ClosedItemHistoryAgentEnrichmentTests {
             markdown: nil,
             filePreview: nil,
             rightSidebarTool: nil
+        )
+    }
+
+    nonisolated private static func recoveryLoadResult(
+        index: RestorableAgentSessionIndex
+    ) -> SharedLiveAgentIndexLoader.LoadResult {
+        (
+            index: index,
+            surfaceResumeBindingIndex: .empty,
+            liveAgentProcessFingerprint: [],
+            processScopeFingerprint: [],
+            forkValidatedPanels: []
         )
     }
 }

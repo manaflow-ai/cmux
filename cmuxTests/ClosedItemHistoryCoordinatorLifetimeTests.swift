@@ -15,7 +15,7 @@ struct ClosedItemHistoryCoordinatorLifetimeTests {
         let releaseLoad = DispatchSemaphore(value: 0)
         defer { releaseLoad.signal() }
         let store = ClosedItemHistoryStore()
-        let captureTask: Task<Bool, Never>?
+        let captureTask: Task<Void, Never>?
         do {
             let coordinator = SharedLiveAgentIndex(
                 indexLoader: {
@@ -48,7 +48,7 @@ struct ClosedItemHistoryCoordinatorLifetimeTests {
             "The returned capture must retain its injected coordinator until loading starts."
         )
         releaseLoad.signal()
-        _ = await retainedCaptureTask.value
+        await retainedCaptureTask.value
         #expect(store.canReopen)
     }
 
