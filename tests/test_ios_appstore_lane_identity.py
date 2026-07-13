@@ -4,14 +4,18 @@
 from __future__ import annotations
 
 import base64
+import http.server
 import json
 import os
 import plistlib
+import re
 import shutil
 import stat
 import subprocess
 import sys
 import tempfile
+import threading
+import urllib.parse
 import zipfile
 from pathlib import Path
 
@@ -990,6 +994,220 @@ def test_validate_appstore_release_prepares_content_rights_and_build(
         _check(False, "submission state is prepared before canonical readiness validation")
 
 
+def test_bootstrap_appstore_availability_creates_all_territories_once(tmp: Path) -> None:
+    tmp.mkdir(parents=True, exist_ok=True)
+    requests: list[tuple[str, str, dict[str, object] | None]] = []
+    availability_created = False
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, format: str, *args: object) -> None:
+            pass
+
+        def _write_json(self, status: int, body: dict[str, object]) -> None:
+            payload = json.dumps(body).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def do_GET(self) -> None:
+            nonlocal availability_created
+            parsed = urllib.parse.urlsplit(self.path)
+            requests.append(("GET", self.path, None))
+            _check(
+                self.headers.get("Authorization", "").startswith("Bearer "),
+                "availability bootstrap authenticates every API request",
+            )
+            if parsed.path == f"/v1/apps/{ASC_APP_ID}/appAvailabilityV2":
+                body: dict[str, object] = {
+                    "data": (
+                        {"type": "appAvailabilities", "id": "availability-1"}
+                        if availability_created
+                        else None
+                    )
+                }
+                self._write_json(200, body)
+                return
+            if parsed.path == "/v1/territories":
+                if urllib.parse.parse_qs(parsed.query).get("cursor") == ["next"]:
+                    self._write_json(
+                        200,
+                        {
+                            "data": [{"type": "territories", "id": "JPN"}],
+                            "links": {},
+                        },
+                    )
+                    return
+                host, port = self.server.server_address
+                self._write_json(
+                    200,
+                    {
+                        "data": [
+                            {"type": "territories", "id": "USA"},
+                            {"type": "territories", "id": "CAN"},
+                        ],
+                        "links": {
+                            "next": f"http://{host}:{port}/v1/territories?cursor=next"
+                        },
+                    },
+                )
+                return
+            self._write_json(404, {"errors": [{"code": "NOT_FOUND"}]})
+
+        def do_POST(self) -> None:
+            nonlocal availability_created
+            length = int(self.headers.get("Content-Length", "0"))
+            body = json.loads(self.rfile.read(length))
+            requests.append(("POST", self.path, body))
+            if self.path != "/v2/appAvailabilities":
+                self._write_json(404, {"errors": [{"code": "NOT_FOUND"}]})
+                return
+            data = body.get("data", {})
+            relationships = data.get("relationships", {})
+            territory_relationship = relationships.get("territoryAvailabilities", {})
+            linkage = territory_relationship.get("data", [])
+            included = body.get("included", [])
+            linkage_ids = {
+                item.get("id") for item in linkage if isinstance(item, dict)
+            }
+            included_ids = {
+                item.get("id") for item in included if isinstance(item, dict)
+            }
+            if (
+                linkage_ids != included_ids
+                or not linkage_ids
+                or not all(
+                    isinstance(item_id, str)
+                    and re.fullmatch(r"\$\{local-[a-z0-9-]+\}", item_id)
+                    for item_id in linkage_ids
+                )
+            ):
+                self._write_json(
+                    409,
+                    {"errors": [{"code": "ENTITY_ERROR.INCLUDED.INVALID_ID"}]},
+                )
+                return
+            availability_created = True
+            self._write_json(
+                201,
+                {"data": {"type": "appAvailabilities", "id": "availability-1"}},
+            )
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        key_path = tmp / "AuthKey_TEST.p8"
+        openssl = shutil.which("openssl")
+        _check(openssl is not None, "availability test found OpenSSL")
+        key_result = subprocess.run(
+            [
+                openssl or "openssl",
+                "ecparam",
+                "-name",
+                "prime256v1",
+                "-genkey",
+                "-noout",
+                "-out",
+                str(key_path),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        _check(key_result.returncode == 0, "availability test generated an ES256 key")
+        env = os.environ.copy()
+        env.update(
+            {
+                "ASC_API_KEY_ID": "TESTKEY123",
+                "ASC_API_ISSUER_ID": "00000000-0000-0000-0000-000000000000",
+                "ASC_API_KEY_PATH": str(key_path),
+                "ASC_TIMEOUT_SECONDS": "120",
+                "CMUX_ASC_API_BASE_URL": f"http://127.0.0.1:{server.server_port}",
+            }
+        )
+        command = [
+            sys.executable,
+            str(ROOT / "ios" / "scripts" / "asc_bootstrap_app_availability.py"),
+            "--app",
+            ASC_APP_ID,
+        ]
+        first = subprocess.run(command, env=env, capture_output=True, text=True, check=False)
+        if first.returncode != 0:
+            print(first.stdout)
+            print(first.stderr, file=sys.stderr)
+        _check(first.returncode == 0, "availability bootstrap creates initial availability")
+
+        post_requests = [request for request in requests if request[0] == "POST"]
+        _check(len(post_requests) == 1, "availability bootstrap creates exactly one record")
+        payload = post_requests[0][2] if post_requests else {}
+        data = payload.get("data", {}) if isinstance(payload, dict) else {}
+        attributes = data.get("attributes", {}) if isinstance(data, dict) else {}
+        relationships = data.get("relationships", {}) if isinstance(data, dict) else {}
+        territory_relationship = (
+            relationships.get("territoryAvailabilities", {})
+            if isinstance(relationships, dict)
+            else {}
+        )
+        linkage = (
+            territory_relationship.get("data", [])
+            if isinstance(territory_relationship, dict)
+            else []
+        )
+        included = payload.get("included", []) if isinstance(payload, dict) else []
+        _check(
+            attributes.get("availableInNewTerritories") is True,
+            "availability includes future App Store territories",
+        )
+        _check(
+            {item.get("id") for item in linkage if isinstance(item, dict)}
+            == {"${local-usa}", "${local-can}", "${local-jpn}"},
+            "availability links every current territory",
+        )
+        _check(
+            len(included) == 3
+            and all(
+                isinstance(item, dict)
+                and item.get("attributes", {}).get("available") is True
+                and item.get("attributes", {}).get("preOrderEnabled") is False
+                for item in included
+            ),
+            "every territory is immediately available without pre-order",
+        )
+
+        second = subprocess.run(command, env=env, capture_output=True, text=True, check=False)
+        _check(second.returncode == 0, "availability bootstrap is idempotent")
+        _check(
+            len([request for request in requests if request[0] == "POST"]) == 1,
+            "existing availability is not created again",
+        )
+
+        requests_before_invalid_timeout = len(requests)
+        invalid_timeout_env = env.copy()
+        invalid_timeout_env["ASC_TIMEOUT_SECONDS"] = "invalid"
+        invalid_timeout = subprocess.run(
+            command,
+            env=invalid_timeout_env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        _check(
+            invalid_timeout.returncode != 0
+            and "ASC_TIMEOUT_SECONDS must be an integer" in invalid_timeout.stderr,
+            "availability bootstrap validates the configured API timeout",
+        )
+        _check(
+            len(requests) == requests_before_invalid_timeout,
+            "invalid timeout configuration fails before an API request",
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as temp_dir:
         tmp = Path(temp_dir)
@@ -1006,6 +1224,9 @@ def main() -> None:
         test_validate_appstore_release_requires_numeric_app_id(tmp / "validate-test", fakebin)
         test_validate_appstore_release_prepares_content_rights_and_build(
             tmp / "prepare-submission-test", fakebin
+        )
+        test_bootstrap_appstore_availability_creates_all_territories_once(
+            tmp / "availability-bootstrap-test"
         )
 
     if FAILURES:
