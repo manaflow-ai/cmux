@@ -57,7 +57,7 @@ extension PortScanner {
             workspaceIds: Set(agentRootsByWorkspace.keys)
         )
         if processScan.completeness == .incomplete {
-            for workspaceId in agentRootsByWorkspace.keys {
+            for workspaceId in postScanRootValidation.values.keys {
                 completenessByWorkspace[workspaceId] = .incomplete
             }
         }
@@ -196,6 +196,17 @@ extension PortScanner {
         ownershipByPID: [Int: Set<UUID>],
         completenessByWorkspace: [UUID: PortScanCompleteness]
     ) {
+        guard !capturedOwnershipByPID.isEmpty else {
+            let rootValidation = validateAgentRoots(rootsByWorkspace)
+            return (
+                [:],
+                combineAgentCompleteness(
+                    rootValidation.completenessByWorkspace,
+                    [:],
+                    workspaceIds: workspaceIds
+                )
+            )
+        }
         let currentProcessScan = await runAllProcesses()
         let finalRootValidation = validateAgentRoots(rootsByWorkspace)
         let finalRootOwnership = Self.agentProcessOwnership(
@@ -219,7 +230,7 @@ extension PortScanner {
             workspaceIds: workspaceIds
         )
         if currentProcessScan.completeness == .incomplete {
-            for workspaceId in workspaceIds {
+            for workspaceId in finalRootValidation.values.keys {
                 completenessByWorkspace[workspaceId] = .incomplete
             }
         }

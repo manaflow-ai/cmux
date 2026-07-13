@@ -235,6 +235,70 @@ struct PortScannerIdentityContinuityTests {
         #expect(finalized.completenessByWorkspace[workspaceID] == .complete)
     }
 
+    @Test("A failed process graph preserves confirmed-absent workspace evidence")
+    func processGraphFailureIsScopedToValidRoots() async {
+        let absentWorkspaceID = UUID()
+        let validWorkspaceID = UUID()
+        let absentIdentity = AgentPIDProcessIdentity(pid: 100, startSeconds: 10, startMicroseconds: 0)
+        let validIdentity = AgentPIDProcessIdentity(pid: 200, startSeconds: 20, startMicroseconds: 0)
+        let rootsByWorkspace = [
+            absentWorkspaceID: Set([AgentPortRootIdentity(pid: 100, processIdentity: absentIdentity)]),
+            validWorkspaceID: Set([AgentPortRootIdentity(pid: 200, processIdentity: validIdentity)]),
+        ]
+        let runner = RootReuseCommandRunner(result: CommandResult(
+            stdout: "200 1\n",
+            stderr: "",
+            exitStatus: 1,
+            timedOut: false,
+            executionError: nil
+        ))
+        let scanner = PortScanner(
+            commandRunner: runner,
+            processIdentityProvider: { pid in pid == validIdentity.pid ? validIdentity : nil },
+            processPresenceProvider: { pid in pid == absentIdentity.pid ? .absent : .present }
+        )
+
+        let expanded = await scanner.expandAgentProcessTree(agentRootsByWorkspace: rootsByWorkspace)
+
+        #expect(expanded.completenessByWorkspace[absentWorkspaceID] == .complete)
+        #expect(expanded.completenessByWorkspace[validWorkspaceID] == .incomplete)
+
+        let finalized = await scanner.finalizeAgentPIDOwnership(
+            rootsByWorkspace: rootsByWorkspace,
+            capturedOwnershipByPID: [200: [validWorkspaceID]],
+            capturedIdentitiesByPID: [200: validIdentity],
+            workspaceIds: [absentWorkspaceID, validWorkspaceID]
+        )
+
+        #expect(finalized.completenessByWorkspace[absentWorkspaceID] == .complete)
+        #expect(finalized.completenessByWorkspace[validWorkspaceID] == .incomplete)
+    }
+
+    @Test("No agent ownership skips post-capture process enumeration")
+    func noAgentOwnershipSkipsFreshProcessGraph() async {
+        let workspaceID = UUID()
+        let runner = RootReuseCommandRunner(result: CommandResult(
+            stdout: "",
+            stderr: "",
+            exitStatus: 0,
+            timedOut: false,
+            executionError: nil
+        ))
+        let scanner = PortScanner(commandRunner: runner)
+
+        let finalized = await scanner.finalizeAgentPIDOwnership(
+            rootsByWorkspace: [:],
+            capturedOwnershipByPID: [:],
+            capturedIdentitiesByPID: [:],
+            workspaceIds: [workspaceID]
+        )
+        let runCount = await runner.runCount()
+
+        #expect(finalized.ownershipByPID.isEmpty)
+        #expect(finalized.completenessByWorkspace[workspaceID] == .complete)
+        #expect(runCount == 0)
+    }
+
     @Test("Unavailable post-lsof identity is incomplete only for owning workspaces")
     func unavailableIdentityIsWorkspaceScoped() {
         let unavailableWorkspaceID = UUID()
@@ -324,5 +388,9 @@ private actor RootReuseCommandRunner: CommandRunning {
         let index = min(nextResultIndex, results.count - 1)
         nextResultIndex += 1
         return results[index]
+    }
+
+    func runCount() -> Int {
+        nextResultIndex
     }
 }
