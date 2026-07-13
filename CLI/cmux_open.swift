@@ -1,4 +1,5 @@
 import CryptoKit
+import CmuxWorktrees
 import Darwin
 import Foundation
 
@@ -2138,21 +2139,19 @@ extension CMUXCLI {
         // current worktree and any bare entry.
         var worktreeRows: [DiffBranchRefRow] = []
         if let porcelain = try? gitStdout(["worktree", "list", "--porcelain"], in: repoRoot) {
-            var currentDir: String?
-            var currentBranchRef: String?
-            var isBare = false
-            func flush() {
-                defer { currentDir = nil; currentBranchRef = nil; isBare = false }
-                guard !isBare,
-                      let dir = currentDir,
-                      let branchRef = currentBranchRef else { return }
+            let worktrees = WorktreePorcelainParser().parse(
+                porcelain,
+                host: .local,
+                fallbackRepoPath: repoRoot
+            )
+            for worktree in worktrees {
+                guard !worktree.isBare,
+                      let short = worktree.branch else { continue }
+                let dir = worktree.identity.worktreePath
                 let standardizedDir = URL(fileURLWithPath: dir).standardizedFileURL.resolvingSymlinksInPath().path
                 let standardizedRepo = URL(fileURLWithPath: repoRoot).standardizedFileURL.resolvingSymlinksInPath().path
-                guard standardizedDir != standardizedRepo else { return }
-                let short = branchRef.hasPrefix("refs/heads/")
-                    ? String(branchRef.dropFirst("refs/heads/".count))
-                    : branchRef
-                guard !suggestedSeen.contains(short) else { return }
+                guard standardizedDir != standardizedRepo,
+                      !suggestedSeen.contains(short) else { continue }
                 worktreeRows.append(
                     DiffBranchRefRow(
                         ref: short,
@@ -2165,19 +2164,6 @@ extension CMUXCLI {
                     )
                 )
             }
-            for line in porcelain.components(separatedBy: .newlines) {
-                if line.hasPrefix("worktree ") {
-                    flush()
-                    currentDir = String(line.dropFirst("worktree ".count))
-                } else if line.hasPrefix("branch ") {
-                    currentBranchRef = String(line.dropFirst("branch ".count))
-                } else if line == "bare" {
-                    isBare = true
-                } else if line.isEmpty {
-                    flush()
-                }
-            }
-            flush()
         }
         if !worktreeRows.isEmpty {
             groups.append(
