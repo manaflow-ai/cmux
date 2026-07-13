@@ -24,8 +24,7 @@ struct SocketACLReloadRegressionTests {
             "cmux.settingsFile.backups.v1",
             "cmux.settingsFile.importedManagedDefaults.v1",
         ].map { ($0, defaults.object(forKey: $0)) }
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("socket-acl-reload-\(UUID().uuidString)", isDirectory: true)
+        let directory = shortTemporaryDirectory(prefix: "salr")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let configURL = directory.appendingPathComponent("cmux.json")
         let socketPath = directory.appendingPathComponent("cmux.sock").path
@@ -58,6 +57,7 @@ struct SocketACLReloadRegressionTests {
             socketPath: socketPath,
             accessMode: .cmuxOnly
         )
+        #expect(controller.socketServer.isRunning)
         #expect(controller.socketServer.accessMode == .cmuxOnly)
 
         try writeConfig(mode: .automation, to: configURL)
@@ -71,8 +71,7 @@ struct SocketACLReloadRegressionTests {
         let controller = TerminalController.shared
         controller.stop()
 
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("socket-acl-denial-\(UUID().uuidString)", isDirectory: true)
+        let directory = shortTemporaryDirectory(prefix: "sald")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let socketPath = directory.appendingPathComponent("cmux.sock").path
         defer {
@@ -115,6 +114,12 @@ struct SocketACLReloadRegressionTests {
         }
         """
         try contents.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func shortTemporaryDirectory(prefix: String) -> URL {
+        let identifier = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
+        return FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(prefix)-\(identifier)", isDirectory: true)
     }
 
     private func makeSocketPair() throws -> (client: Int32, server: Int32) {
