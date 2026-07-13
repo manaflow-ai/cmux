@@ -59,6 +59,10 @@ export interface TerminalColors {
   cursor: ColorHex | null;
   selection_bg: ColorHex | null;
   selection_fg: ColorHex | null;
+  /** Protocol v6 additive extension. Older servers omit this field. */
+  cursor_style?: "block" | "underline" | "bar" | null;
+  /** Protocol v6 additive extension. Older servers omit this field. */
+  cursor_blink?: boolean | null;
 }
 
 /** Initial base64 VT replay for an attached PTY surface. */

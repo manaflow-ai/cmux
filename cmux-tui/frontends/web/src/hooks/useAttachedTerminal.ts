@@ -12,7 +12,7 @@ import type {
 } from "cmux/browser";
 import { debounce } from "../lib/debounce";
 import { nextFitSize } from "../lib/fit";
-import { colorsToThemePatch } from "../lib/terminalColors";
+import { colorsToCursorOptionsPatch, colorsToThemePatch } from "../lib/terminalColors";
 import { terminalTheme } from "../lib/terminalTheme";
 
 interface AttachedTerminalOptions {
@@ -33,7 +33,6 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     const stage = host.closest<HTMLElement>(".terminal-stage");
     const terminal = new Terminal({
       allowProposedApi: true,
-      cursorBlink: true,
       convertEol: false,
       fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
       fontSize: 13,
@@ -78,14 +77,17 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       void client.send(surface, { text }).catch(onError);
     });
     const applyColors = (colors: DecodedVtStateEvent["colors"] | DecodedColorsChangedEvent) => {
-      const patch = colorsToThemePatch(colors);
-      if (patch === null) return;
-      terminal.options.theme = { ...baseTheme, ...patch };
-      if (patch.background !== undefined) {
-        stage?.style.setProperty("--surface-background", patch.background);
-      } else {
-        stage?.style.removeProperty("--surface-background");
+      const themePatch = colorsToThemePatch(colors);
+      if (themePatch !== null) {
+        terminal.options.theme = { ...baseTheme, ...themePatch };
+        if (themePatch.background !== undefined) {
+          stage?.style.setProperty("--surface-background", themePatch.background);
+        } else {
+          stage?.style.removeProperty("--surface-background");
+        }
       }
+      const cursorPatch = colorsToCursorOptionsPatch(colors);
+      if (cursorPatch !== null) Object.assign(terminal.options, cursorPatch);
     };
     let stream: Awaited<ReturnType<CmuxClient["attachSurface"]>> | null = null;
 

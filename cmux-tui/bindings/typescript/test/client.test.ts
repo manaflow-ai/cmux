@@ -38,6 +38,8 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
         cursor: "#f0f0f0",
         selection_bg: null,
         selection_fg: null,
+        cursor_style: "underline",
+        cursor_blink: true,
       },
     });
     transport.emit({ id: request.id, ok: true, data: {} });
@@ -63,6 +65,8 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
       cursor: "#f0f0f0",
       selection_bg: null,
       selection_fg: null,
+      cursor_style: "underline",
+      cursor_blink: true,
     });
   }
   assert.equal(output.event, "output");
@@ -96,6 +100,8 @@ test("attachSurface routes colors-changed events without a surface field", async
       cursor: null,
       selection_bg: "#334455",
       selection_fg: "#ffffff",
+      cursor_style: "bar",
+      cursor_blink: false,
     });
   });
   const client = new CmuxClient({ transport, timeoutMs: 100 });
@@ -109,6 +115,8 @@ test("attachSurface routes colors-changed events without a surface field", async
     cursor: null,
     selection_bg: "#334455",
     selection_fg: "#ffffff",
+    cursor_style: "bar",
+    cursor_blink: false,
   });
   stream.close();
   await client.close();

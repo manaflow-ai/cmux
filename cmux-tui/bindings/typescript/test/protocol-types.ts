@@ -92,6 +92,8 @@ const colorsChanged: KnownCmuxEvent = {
   cursor: null,
   selection_bg: null,
   selection_fg: null,
+  cursor_style: "bar",
+  cursor_blink: false,
 };
 
 const futureEvent: CmuxEvent = { event: "future-event", extension: true };
