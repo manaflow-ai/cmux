@@ -131,6 +131,26 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// It is not sizing truth until a hosting window bounds it.
     @ObservationIgnored var pendingContainerSizePt: CGSize?
     @ObservationIgnored var pendingContainerScale: CGFloat?
+    /// An NSView planted inside the mirror's own view subtree (not the portal
+    /// layer), so `hostProbeView?.window` is the hosting window even while
+    /// portal-hosted panels churn, and its superview chain is the real
+    /// ancestor stack that produced the SwiftUI proposal.
+    @ObservationIgnored weak var hostProbeView: NSView?
+    /// Set when a sizing pass arrived while a divider drag session was live
+    /// and was held back; the drag-end callback consumes it.
+    @ObservationIgnored var sizingPassDeferredForDrag = false
+    /// Set when the divider sync sends a resize-pane between a drag session's
+    /// begin and end. Bonsplit delivers the final drag geometry notification
+    /// just BEFORE drag-end (the delegate contract: settled geometry is
+    /// already reported when drag-end runs), so the drag-end re-sync usually
+    /// finds the baseline already advanced and sends nothing — this flag
+    /// keeps that from reading as "the drag changed no cells".
+    @ObservationIgnored var dividerResizeSentSinceDragBegan = false
+    /// The exact point size the split tree renders at (grid + chrome), set by
+    /// the sizing pass; the view frames the tree to this, top-leading, so the
+    /// region's sub-cell remainder stays outside the tree. nil until the
+    /// first sized pass (the view fills the region as before).
+    var renderFrameSize: CGSize?
     /// Monotone minimum of `surface_px − cols·cell_px` observed per axis: the
     /// ghostty padding estimate, KEYED BY BACKING SCALE. A single sample
     /// overestimates padding by the quantization remainder (< one cell),
@@ -194,7 +214,9 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     @ObservationIgnored var pendingSizingPassIntent = SizingPassIntent.inputChange
 
     #if DEBUG
-    static var dumpedAncestorChains = Set<Int>()
+    /// The per-pane outer sizes the last imposition granted — the plan side
+    /// of the chrome-parity probe in ``handleSizingSample``.
+    @ObservationIgnored var lastPlannedOuterSizes: [Int: CGSize] = [:]
     #endif
 
     init(

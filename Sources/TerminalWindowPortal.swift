@@ -644,6 +644,7 @@ final class WindowTerminalPortal: NSObject {
     private var geometryObservers: [NSObjectProtocol] = []
 #if DEBUG
     private var lastLoggedBonsplitContainerSignature: String?
+    private var lastObservedWindowSize: NSSize?
 #endif
 
     struct Entry {
@@ -679,8 +680,29 @@ final class WindowTerminalPortal: NSObject {
             forName: NSWindow.didResizeNotification,
             object: window,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
             MainActor.assumeIsolated {
+#if DEBUG
+                // Standing tripwire for PROGRAMMATIC window growth — the
+                // ever-growing-terminal's signature. didResize posts
+                // synchronously inside setFrame, so the stack names the
+                // resizer. User-driven live resizes are skipped entirely:
+                // symbolicating a stack per tick is exactly the kind of
+                // observer-chain work that made live resizes sluggish.
+                if let self, let resized = notification.object as? NSWindow, !resized.inLiveResize {
+                    let old = self.lastObservedWindowSize
+                    let new = resized.frame.size
+                    if old == nil || abs(old!.width - new.width) > 0.5 || abs(old!.height - new.height) > 0.5 {
+                        self.lastObservedWindowSize = new
+                        if let old {
+                            let stack = Thread.callStackSymbols.dropFirst(2).prefix(8).joined(separator: " | ")
+                            cmuxDebugLog(
+                                "window.resize.tripwire \(Int(old.width))x\(Int(old.height))->\(Int(new.width))x\(Int(new.height)) live=0 \(stack)"
+                            )
+                        }
+                    }
+                }
+#endif
                 self?.scheduleExternalGeometrySynchronize()
             }
         })
@@ -1426,6 +1448,17 @@ final class WindowTerminalPortal: NSObject {
         let hostedIds = Array(entriesByHostedId.keys)
         for hostedId in hostedIds {
             if hostedId == hostedIdToSkip { continue }
+            // An already-hidden entry for a hidden tab is a no-op here by
+            // design: its frame is deliberately left alone while hidden, and
+            // becoming visible schedules its own sync (updateEntryVisibility).
+            // Skipping it matters — a session of mirrored tmux windows keeps
+            // dozens of hidden surfaces, and computing every one's
+            // ancestor-clipped frame on every geometry tick made live window
+            // resizes visibly sluggish.
+            if let entry = entriesByHostedId[hostedId],
+               !entry.visibleInUI, entry.hostedView?.isHidden == true {
+                continue
+            }
             synchronizeHostedView(withId: hostedId, syncLayout: syncLayout)
         }
     }
@@ -1772,15 +1805,21 @@ final class WindowTerminalPortal: NSObject {
         }
 
 #if DEBUG
-        cmuxDebugLog(
-            "portal.sync.result hosted=\(portalDebugToken(hostedView)) " +
-            "anchor=\(portalDebugToken(anchorView)) host=\(portalDebugToken(hostView)) " +
-            "hostWin=\(hostView.window?.windowNumber ?? -1) " +
-            "old=\(portalDebugFrame(oldFrame)) raw=\(portalDebugFrame(frameInHost)) " +
-            "target=\(portalDebugFrame(targetFrame)) hide=\(shouldHide ? 1 : 0) " +
-            "entryVisible=\(entry.visibleInUI ? 1 : 0) hostedHidden=\(hostedView.isHidden ? 1 : 0) " +
-            "hostBounds=\(portalDebugFrame(hostBounds))"
-        )
+        // Log only syncs that DID something. During a live window resize this
+        // runs per hosted view per geometry tick; unconditional logging wrote
+        // thousands of no-op lines a minute (old == target, hide unchanged)
+        // and the file I/O alone dragged on the resize.
+        if !Self.rectApproximatelyEqual(oldFrame, targetFrame) || shouldHide != hostedView.isHidden {
+            cmuxDebugLog(
+                "portal.sync.result hosted=\(portalDebugToken(hostedView)) " +
+                "anchor=\(portalDebugToken(anchorView)) host=\(portalDebugToken(hostView)) " +
+                "hostWin=\(hostView.window?.windowNumber ?? -1) " +
+                "old=\(portalDebugFrame(oldFrame)) raw=\(portalDebugFrame(frameInHost)) " +
+                "target=\(portalDebugFrame(targetFrame)) hide=\(shouldHide ? 1 : 0) " +
+                "entryVisible=\(entry.visibleInUI ? 1 : 0) hostedHidden=\(hostedView.isHidden ? 1 : 0) " +
+                "hostBounds=\(portalDebugFrame(hostBounds))"
+            )
+        }
 #endif
 
         ensureDividerOverlayOnTop()

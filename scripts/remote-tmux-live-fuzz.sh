@@ -244,7 +244,7 @@ unset COLUMNS LINES
 while :; do
   sz=$(stty size 2>/dev/null); rows=${sz%% *}; cols=${sz##* }
   [ -n "$rows" ] || rows=24; [ -n "$cols" ] || cols=80
-  base=$(printf '%0.s0123456789' $(seq 1 60))
+  base=$(printf '%0.s0123456789' $(seq 1 400))
   printf '\033[2J\033[H'
   r=1
   while [ "$r" -lt "$rows" ]; do

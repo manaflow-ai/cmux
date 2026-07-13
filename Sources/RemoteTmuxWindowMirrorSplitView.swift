@@ -48,25 +48,22 @@ struct RemoteTmuxWindowMirrorSplitView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .internalOnlyTabDrag()
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The tree renders at its exact grid-plus-chrome size; the region's
+        // sub-cell remainder stays outside it as trailing margin (painted by
+        // the background below), so no pane inherits a fraction of a cell
+        // along a split axis and rounds onto an extra row or column. nil
+        // (before the first sized pass) falls back to filling the region.
+        .frame(
+            width: mirror.renderFrameSize?.width,
+            height: mirror.renderFrameSize?.height,
+            alignment: .topLeading
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color(nsColor: appearance.backgroundColor))
+        .background(MirrorHostProbe(mirror: mirror))
         .onGeometryChange(for: CGSize.self) { proxy in
             proxy.size
         } action: { newSize in
-            #if DEBUG
-            // Tripwire for content-sized-container feedback: no real display
-            // is anywhere near this many points, so a container this large
-            // means some host is adopting layout-derived ideals again (the
-            // grep that caught a window inflating one point per layout pass).
-            if newSize.width > 4000 || newSize.height > 4000 {
-                cmuxDebugLog(
-                    "remote.container.suspect @\(mirror.windowId)"
-                        + " size=\(Int(newSize.width))x\(Int(newSize.height))"
-                        + " visibleInUI=\(isVisibleInUI ? 1 : 0)"
-                )
-                mirror.debugDumpAncestorWidths()
-            }
-            #endif
             containerSize = newSize
             pushClientSize(pointSize: newSize)
         }
@@ -95,5 +92,32 @@ struct RemoteTmuxWindowMirrorSplitView: View {
     private func becameVisible() {
         pushClientSize(pointSize: containerSize)
         mirror.setNeedsSizingPassIgnoringInputs()
+    }
+}
+
+/// Plants a zero-cost NSView inside the mirror's own view subtree so the
+/// mirror has a window handle that survives portal churn, and an ancestor
+/// chain rooted at the mirror's real position for geometry diagnostics.
+private struct MirrorHostProbe: NSViewRepresentable {
+    let mirror: RemoteTmuxWindowMirror
+
+    final class ProbeView: NSView {
+        weak var mirror: RemoteTmuxWindowMirror?
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            mirror?.hostProbeView = self
+        }
+    }
+
+    func makeNSView(context: Context) -> ProbeView {
+        let view = ProbeView()
+        view.mirror = mirror
+        mirror.hostProbeView = view
+        return view
+    }
+
+    func updateNSView(_ nsView: ProbeView, context: Context) {
+        nsView.mirror = mirror
+        mirror.hostProbeView = nsView
     }
 }

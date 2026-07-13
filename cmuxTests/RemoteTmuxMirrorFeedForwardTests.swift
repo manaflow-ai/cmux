@@ -92,6 +92,61 @@ import Testing
         connection.lastWindowSizes[0].map { (cols: $0.0, rows: $0.1) }
     }
 
+    // MARK: fresh-connect wedge (container reading resolution)
+
+    /// With a real window bounding the reading: a sane (within-bound) reading
+    /// banks as-is; an OVERSIZED one is an ancestor's content ideal, says
+    /// nothing about the true slot, and must be DROPPED — banking the bound
+    /// itself overstated the region by the window-to-mirror chrome and the
+    /// live fuzz measured plans running ~40pt wide at rest. Only a first-ever
+    /// reading clamps, so the initial claim still exists.
+    @Test func visibleWindowBanksSaneReadingsAndDropsOversizedOnes() {
+        let bound = CGSize(width: 1200, height: 800)
+        let (mirror, _) = makeMirror(
+            layout: reflow123,
+            geometry: calibratedGeometry,
+            hostingContentSizeSource: { bound }
+        )
+        mirror.isVisibleForSizing = true
+        // Sane reading within the bound: banked verbatim.
+        mirror.noteContainerSize(pointSize: CGSize(width: 1100, height: 700), scale: 2)
+        #expect(mirror.containerSizePt == CGSize(width: 1100, height: 700))
+        // Oversized with a good reading on record: dropped, not clamped, not
+        // stashed — the last good reading stays authoritative.
+        mirror.noteContainerSize(pointSize: CGSize(width: 3000, height: 2000), scale: 2)
+        #expect(mirror.containerSizePt == CGSize(width: 1100, height: 700))
+        #expect(mirror.pendingContainerSizePt == nil)
+        // One oversized axis is as pathological as two.
+        mirror.noteContainerSize(pointSize: CGSize(width: 1100, height: 2000), scale: 2)
+        #expect(mirror.containerSizePt == CGSize(width: 1100, height: 700))
+    }
+
+    /// An oversized FIRST reading clamps to the bound so the initial claim
+    /// can still be made — only later readings have a good value to keep.
+    @Test func oversizedFirstReadingClampsToTheWindowBound() {
+        let bound = CGSize(width: 1200, height: 800)
+        let (mirror, _) = makeMirror(
+            layout: reflow123,
+            geometry: calibratedGeometry,
+            hostingContentSizeSource: { bound }
+        )
+        mirror.isVisibleForSizing = true
+        mirror.noteContainerSize(pointSize: CGSize(width: 3000, height: 2000), scale: 2)
+        #expect(mirror.containerSizePt == bound)
+    }
+
+    /// A degenerate reading (portal mount/teardown 0x0 or 1x1) is never
+    /// sizing truth and must not consume the first-measurement slot.
+    @Test func degenerateFirstReadingIsSkipped() {
+        let (mirror, _) = makeMirror(
+            layout: reflow123,
+            geometry: calibratedGeometry,
+            hostingContentSizeSource: { nil }
+        )
+        mirror.noteContainerSize(pointSize: CGSize(width: 1, height: 1), scale: 2)
+        #expect(mirror.containerSizePt == nil)
+    }
+
     // MARK: structure signature
 
     @Test func signatureIgnoresGeometry() {
@@ -481,6 +536,45 @@ import Testing
         ))
         #expect(mirror.zoomed == false)
         #expect(mirror.visibleLayout == nil)
+    }
+
+    // MARK: render ownership: divider drag sessions
+
+    /// Mid-drag the user owns divider geometry: a sizing pass firing while a
+    /// drag session is live must hold — not claim, not impose — and the
+    /// session end (the deterministic mouseUp signal, delivered through the
+    /// controller delegate) must consume the deferral and re-arm the pass.
+    @Test func sizingPassDefersMidDragAndSessionEndConsumesTheDeferral() {
+        let (mirror, connection) = readyMirror(layout: reflow123)
+        mirror.isVisibleForSizing = true
+        mirror.performSizingPassNow()
+        #expect(pushed(connection) != nil)
+
+        mirror.bonsplitController.noteDividerDragSession(true)
+        #expect(mirror.bonsplitController.isDividerDragActive)
+        mirror.setNeedsSizingPassIgnoringInputs() // views no longer hold the plan
+        mirror.performSizingPassNow()
+        #expect(mirror.sizingPassDeferredForDrag, "a pass firing mid-drag must hold")
+
+        mirror.bonsplitController.noteDividerDragSession(false)
+        #expect(!mirror.bonsplitController.isDividerDragActive)
+        #expect(!mirror.sizingPassDeferredForDrag, "session end must consume the deferral")
+    }
+
+    /// The session counter is authoritative and survives imbalance: an
+    /// unmatched end clamps at zero instead of going negative, so the next
+    /// begin still reads as an active drag.
+    @Test func dividerDragSessionCounterClampsAtZero() {
+        let controller = BonsplitController()
+        #expect(!controller.isDividerDragActive)
+        controller.noteDividerDragSession(true)
+        #expect(controller.isDividerDragActive)
+        controller.noteDividerDragSession(false)
+        controller.noteDividerDragSession(false) // unmatched end
+        #expect(!controller.isDividerDragActive)
+        controller.noteDividerDragSession(true)
+        #expect(controller.isDividerDragActive, "a clamped counter must not absorb the next begin")
+        controller.noteDividerDragSession(false)
     }
 
 }

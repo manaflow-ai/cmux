@@ -25,6 +25,32 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     /// and compound across cross-axis nesting levels.
     public static let paneQuantizationSlack: CGFloat = 1
 
+    /// The grid a pane's outer point size renders to, in the shipping
+    /// surface's own arithmetic: the portal floors points→pixels exactly like
+    /// `TerminalSurface.pixelDimension`, and ghostty floors the padded pixel
+    /// budget to whole cells. Both steps FLOOR — rounding would credit a cell
+    /// the surface cannot paint (a scaled size landing in [B−0.5, B) would
+    /// pass a rounded model while wrapping on the real surface). This is the
+    /// ONE source for points→cells: the sizing tests and the DEBUG
+    /// chrome-parity check both call it, so the two cannot drift.
+    public static func renderedCells(
+        outer: CGSize,
+        tabBarHeight: CGFloat,
+        paneTitleRowHeight: CGFloat,
+        scale: CGFloat,
+        surfacePadPx: (width: Int, height: Int),
+        cellPx: (width: Int, height: Int)
+    ) -> (columns: Int, rows: Int) {
+        let widthPx = Int((outer.width * scale).rounded(.down))
+        let surfaceHeightPx = Int(
+            ((outer.height - tabBarHeight - paneTitleRowHeight) * scale).rounded(.down)
+        )
+        return (
+            columns: (widthPx - surfacePadPx.width) / cellPx.width,
+            rows: (surfaceHeightPx - surfacePadPx.height) / cellPx.height
+        )
+    }
+
     /// Creates the point-space metrics used by the remote-tmux layout planner.
     ///
     /// - Parameters:
@@ -85,8 +111,10 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         )
     }
 
-    /// Native chrome residual without optional placement slack.
-    func minimumResidual(of node: RemoteTmuxLayoutNode) -> CGSize {
+    /// Native chrome residual without optional placement slack — the
+    /// claim-side chrome (rail slack belongs to the native plan). Public so
+    /// claim-exactness tests can state the boundary without re-deriving it.
+    public func minimumResidual(of node: RemoteTmuxLayoutNode) -> CGSize {
         residual(
             of: node,
             panePlacementSlack: 0,

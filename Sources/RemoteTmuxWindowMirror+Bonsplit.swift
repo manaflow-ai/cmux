@@ -113,13 +113,28 @@ extension RemoteTmuxWindowMirror {
         let splitTree = RemoteTmuxNativeSplitTree(layout: renderedLayout)
         if let metrics = nativeLayoutMetrics() {
             let planner = RemoteTmuxNativeSplitLayoutPlanner(metrics: metrics)
+            // Plan against the exact-fit render size, not the whole region:
+            // at the exact fit every split divides precisely its children's
+            // ideals, so no pane absorbs the region's sub-cell remainder
+            // along a split axis (the remainder sits outside the tree as
+            // trailing margin — see renderFrameSize).
             let plan = planner.plan(
                 tree: RemoteTmuxNativeMeasuredSplitTree(
                     tree: splitTree,
                     metrics: metrics
                 ),
-                parentSize: containerSizePt
+                parentSize: renderFrameSize ?? containerSizePt
             )
+            #if DEBUG
+            lastPlannedOuterSizes = planner.outerSizes(of: plan)
+            let planSummary = lastPlannedOuterSizes
+                .sorted { $0.key < $1.key }
+                .map { "%\($0.key)=\(Int($0.value.width))x\(Int($0.value.height))" }
+                .joined(separator: " ")
+            cmuxDebugLog(
+                "remote.divider.plan @\(windowId) parent=\(Int((renderFrameSize ?? containerSizePt ?? .zero).width))x\(Int((renderFrameSize ?? containerSizePt ?? .zero).height)) titleRow=\(Int(metrics.paneTitleRowHeight)) outers[\(planSummary)]"
+            )
+            #endif
             applyDividerPositions(
                 plan: plan, treeNode: treeNode, retryImposedExtents: retryImposedExtents
             )
@@ -487,6 +502,40 @@ extension RemoteTmuxWindowMirror: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
         guard !isApplyingRemoteLayout else { return }
-        syncChangedDividerPositions()
+        // Mid-drag fractions are transients; the session end syncs the final
+        // one. Without this, foreign-resize notifications from sibling splits
+        // would convert the in-flight drag fraction to cells on every event.
+        guard !controller.isDividerDragActive else { return }
+        _ = syncChangedDividerPositions()
+    }
+
+    func splitTabBarDividerDragDidBegin(_ controller: BonsplitController) {
+        dividerResizeSentSinceDragBegan = false
+    }
+
+    func splitTabBarDividerDragDidEnd(_ controller: BonsplitController) {
+        guard !isApplyingRemoteLayout else { return }
+        let deferredPass = sizingPassDeferredForDrag
+        sizingPassDeferredForDrag = false
+        // Bonsplit's final drag geometry notification lands just before this
+        // callback and usually does the send; the re-sync here is the
+        // fallback for a host that suppressed it. Either path counts.
+        let sent = syncChangedDividerPositions() || dividerResizeSentSinceDragBegan
+        dividerResizeSentSinceDragBegan = false
+        #if DEBUG
+        cmuxDebugLog("remote.divider.dragEnd @\(windowId) sent=\(sent ? 1 : 0) deferredPass=\(deferredPass ? 1 : 0)")
+        #endif
+        if sent {
+            // The resize-pane is out; tmux's layout reply is the settled
+            // truth and re-imposes when it lands. Imposing the pre-drag tree
+            // now would snap the divider back for a beat. A pass deferred
+            // mid-drag still runs — its inputs changed independently.
+            if deferredPass { setNeedsSizingPass() }
+        } else {
+            // Nothing to ask tmux (the drag rounded to the same cells), but
+            // the drag cleared the split's imposition, so identical inputs no
+            // longer mean the views hold the plan — re-impose regardless.
+            setNeedsSizingPassIgnoringInputs()
+        }
     }
 }

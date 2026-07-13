@@ -43,6 +43,30 @@ extension RemoteTmuxWindowMirror {
         // the first keeps the guarded display fallback required below.
         var pointSize = pointSize
         if let bound = visibleHostingContext()?.contentSize {
+            // A reading BEYOND the bound is pathological — the mirror's
+            // region can never exceed the window's content area, so an
+            // oversized proposal means some ancestor adopted a content
+            // ideal, and it carries no information about the true slot.
+            // Clamping it would bank the bound itself, which overstates the
+            // region by however much chrome sits between window and mirror —
+            // the live fuzz measured the resulting plans running ~30-40pt
+            // wide at rest. Drop it and keep the last good reading; only a
+            // first-ever reading clamps, so the initial claim still exists.
+            if containerSizePt != nil,
+               pointSize.width > bound.width + 0.5 || pointSize.height > bound.height + 0.5 {
+                #if DEBUG
+                cmuxDebugLog(
+                    "mirror.container.note @\(windowId) proposed=\(Int(pointSize.width))x\(Int(pointSize.height)) bound=\(Int(bound.width))x\(Int(bound.height)) -> drop"
+                )
+                dumpProposalAncestors(proposedWidth: pointSize.width, boundWidth: bound.width)
+                #endif
+                return
+            }
+            #if DEBUG
+            if pointSize.width > bound.width + 0.5 {
+                dumpProposalAncestors(proposedWidth: pointSize.width, boundWidth: bound.width)
+            }
+            #endif
             pointSize.width = min(pointSize.width, bound.width)
             pointSize.height = min(pointSize.height, bound.height)
         } else if containerSizePt == nil {
@@ -88,6 +112,14 @@ extension RemoteTmuxWindowMirror {
             return (size, nil)
         }
         if hostingContentSizeSource != nil { return nil }
+        // The probe view is planted in the mirror's own subtree, so its
+        // window survives portal churn that can briefly leave every hosted
+        // pane view detached or hidden mid-sync — the pane scan below can go
+        // dark exactly when a bound is needed most.
+        if let window = hostProbeView?.window, window.isVisible {
+            let size = window.contentLayoutRect.size
+            if size.width > 1, size.height > 1 { return (size, window) }
+        }
         for panel in panelsByPaneId.values {
             let view = panel.hostedView
             guard view.isVisibleInUI, !view.isHidden, view.superview != nil,
@@ -163,6 +195,17 @@ extension RemoteTmuxWindowMirror {
     func performSizingPassNow() {
         sizingPassScheduled = false
         guard !isTornDown else { return }
+        // While the user is dragging a divider, hold the pass. Imposing now
+        // would move the divider out from under the pointer and mark the
+        // dragged split as imposed again, so its resize-pane at drag end
+        // would be skipped (see the render-ownership section of the design
+        // doc). The drag-end delegate callback runs the held pass — and this
+        // return sits BEFORE the intent reset below, so a held recovery pass
+        // keeps its `.constraintRecovery` intent for drag end.
+        if bonsplitController.isDividerDragActive {
+            sizingPassDeferredForDrag = true
+            return
+        }
         let intent = pendingSizingPassIntent
         let hostingContext = visibleHostingContext()
         let visibleHostingBound = hostingContext?.contentSize
@@ -194,7 +237,23 @@ extension RemoteTmuxWindowMirror {
         pendingSizingPassIntent = .inputChange
         lastCompletedSizingInputs = inputs
         if inputs.visible {
+            let frameBefore = renderFrameSize
+            updateRenderFrameSize()
             imposeDividerPlan(retryImposedExtents: intent == .constraintRecovery)
+            // A changed render frame applies on the NEXT SwiftUI commit —
+            // after the impositions above — and AppKit's rescale then moves
+            // every divider off the extents just applied, with nothing left
+            // to put them back (inputs unchanged, container changed). Restate
+            // the plan once, two turns out, after the frame has landed. The
+            // follow-up pass sees the same render frame, so it cannot
+            // schedule another: one bounded echo, not a loop.
+            if renderFrameSize != frameBefore {
+                DispatchQueue.main.async {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.setNeedsSizingPassIgnoringInputs()
+                    }
+                }
+            }
             // The imposition applies to bonsplit on the NEXT runloop turn
             // (coalesced), so the anchors move after this pass returns. The
             // portal syncs its hosted views from AppKit's async geometry
@@ -222,29 +281,82 @@ extension RemoteTmuxWindowMirror {
         setNeedsSizingPass()
     }
 
-    #if DEBUG
-    /// One-shot per window: at container-suspect time, walk from a pane's
-    /// view to the window logging each ancestor's class and width. The
-    /// FIRST ancestor wider than the window names the view whose sizing
-    /// rule still adopts a content-derived ideal.
-    func debugDumpAncestorWidths() {
-        guard !Self.dumpedAncestorChains.contains(windowId),
-              let view = panelsByPaneId.values.first?.hostedView else { return }
-        Self.dumpedAncestorChains.insert(windowId)
-        let windowWidth = view.window?.contentLayoutRect.width ?? -1
-        var node: NSView? = view
-        var depth = 0
-        while let current = node, depth < 60 {
-            let width = Int(current.frame.width)
-            let marker = CGFloat(width) > windowWidth + 1 ? " OVERSIZED" : ""
+    /// The point size the split tree renders at: the tmux grid it holds plus
+    /// its chrome — not the whole region. The region is rarely an exact
+    /// multiple of the cell grid; the sub-cell remainder (up to one cell per
+    /// axis) must stay OUTSIDE the tree as trailing margin, because inside it
+    /// would land in some pane along a split axis and floor to an extra row
+    /// or column there. Same answer tmux gives a too-big client: a border.
+    /// Inputs are the region, the metrics, and tmux's tree — nothing measured
+    /// from rendering — so this cannot feed back.
+    func updateRenderFrameSize() {
+        guard let container = containerSizePt,
+              let metrics = nativeLayoutMetrics(),
+              renderedLayout.width > 0, renderedLayout.height > 0 else {
+            if renderFrameSize != nil { renderFrameSize = nil }
+            return
+        }
+        let residual = metrics.residual(of: renderedLayout)
+        let exact = CGSize(
+            width: CGFloat(renderedLayout.width) * metrics.cellSize.width + residual.width,
+            height: CGFloat(renderedLayout.height) * metrics.cellSize.height + residual.height
+        )
+        let clamped = CGSize(
+            width: min(exact.width, container.width),
+            height: min(exact.height, container.height)
+        )
+        if renderFrameSize != clamped {
+            renderFrameSize = clamped
+            #if DEBUG
             cmuxDebugLog(
-                "remote.container.chain @\(windowId) [\(depth)]"
-                    + " \(String(describing: type(of: current))) w=\(width)\(marker)"
+                "mirror.renderFrame @\(windowId) grid=\(renderedLayout.width)x\(renderedLayout.height)"
+                    + " exact=\(Int(exact.width))x\(Int(exact.height))"
+                    + " region=\(Int(container.width))x\(Int(container.height))"
+                    + " -> \(Int(clamped.width))x\(Int(clamped.height))"
             )
-            node = current.superview
+            #endif
+        }
+    }
+
+    #if DEBUG
+    /// At container-suspect time, walk from the host probe to the window
+    /// logging each ancestor's class and width, then name the inflated
+    /// SUBTREE: at each ancestor wider than the bound, list its direct
+    /// children — the child that carries the width at the level where the
+    /// parent is still sane is the leak. Scroll documents are exempt
+    /// (clipped).
+    func dumpProposalAncestors(proposedWidth: CGFloat, boundWidth: CGFloat?) {
+        guard let probe = hostProbeView else {
+            cmuxDebugLog("mirror.container.ancestors @\(windowId) NO-PROBE proposed=\(Int(proposedWidth))")
+            return
+        }
+        var chain: [String] = []
+        var current: NSView? = probe
+        var depth = 0
+        while let view = current, depth < 14 {
+            let name = String(NSStringFromClass(type(of: view)).prefix(48))
+            chain.append("\(name)=\(Int(view.frame.width))")
+            current = view.superview
             depth += 1
         }
-        cmuxDebugLog("remote.container.chain @\(windowId) window=\(Int(windowWidth))")
+        cmuxDebugLog(
+            "mirror.container.ancestors @\(windowId) proposed=\(Int(proposedWidth)) bound=\(boundWidth.map { String(Int($0)) } ?? "nil") \(chain.joined(separator: " < "))"
+        )
+        guard let bound = boundWidth else { return }
+        current = probe.superview
+        depth = 0
+        while let view = current, depth < 14 {
+            if view.frame.width > bound + 0.5, !(view.superview is NSClipView) {
+                let kids = view.subviews.prefix(8).map {
+                    "\(String(NSStringFromClass(type(of: $0)).suffix(28)))=\(Int($0.frame.width))"
+                }.joined(separator: " ")
+                cmuxDebugLog(
+                    "mirror.container.kids @\(windowId) level=\(depth) \(String(NSStringFromClass(type(of: view)).suffix(28)))=\(Int(view.frame.width)) kids[\(kids)]"
+                )
+            }
+            current = view.superview
+            depth += 1
+        }
     }
     #endif
 
@@ -264,6 +376,32 @@ extension RemoteTmuxWindowMirror {
                     + " rendered=\(sample.columns)x\(sample.rows)"
                     + " assigned=\(leaf.width)x\(leaf.height)"
             )
+            // Chrome parity: the same shared points→cells model the tests
+            // use, applied to the extent the plan granted this pane. If the
+            // plan's expectation ALSO disagrees with what the surface
+            // sampled, the chrome model and the painted chrome have drifted
+            // — the drift class that otherwise rots silently.
+            if let planned = lastPlannedOuterSizes[paneId],
+               let metrics = nativeLayoutMetrics(),
+               let geometry = currentGeometry() {
+                let titledPaneIDs = tmuxTitleRowPlacement?.paneIDs(in: renderedLayout) ?? []
+                let expected = RemoteTmuxNativeLayoutMetrics.renderedCells(
+                    outer: planned,
+                    tabBarHeight: metrics.tabBarHeight,
+                    paneTitleRowHeight: titledPaneIDs.contains(paneId) ? metrics.paneTitleRowHeight : 0,
+                    scale: geometry.scale,
+                    surfacePadPx: (width: geometry.surfacePadWidthPx, height: geometry.surfacePadHeightPx),
+                    cellPx: (width: geometry.cellWidthPx, height: geometry.cellHeightPx)
+                )
+                if sample.columns != expected.columns || sample.rows != expected.rows {
+                    cmuxDebugLog(
+                        "remote.parity.mismatch @\(windowId) pane=%\(paneId)"
+                            + " sampled=\(sample.columns)x\(sample.rows)"
+                            + " expectedFromPlan=\(expected.columns)x\(expected.rows)"
+                            + " planned=\(Int(planned.width))x\(Int(planned.height))pt"
+                    )
+                }
+            }
         }
         #endif
         setNeedsSizingPass()
