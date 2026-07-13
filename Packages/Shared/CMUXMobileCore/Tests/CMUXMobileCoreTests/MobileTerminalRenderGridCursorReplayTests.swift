@@ -121,8 +121,52 @@ import Testing
     #expect(cursor.row == frame.rows - 1)
 }
 
+@Test func outsideViewportCursorRestoresExactActiveRowBeforeHybridOutput() throws {
+    let cases: [(name: String, location: String, activeRow: Int, visible: Bool)] = [
+        ("below top hidden", "below_viewport", 0, false),
+        ("below middle visible", "below_viewport", 1, true),
+        ("below bottom hidden", "below_viewport", 2, false),
+        ("above top visible", "above_viewport", 0, true),
+        ("above middle hidden", "above_viewport", 1, false),
+        ("above bottom visible", "above_viewport", 2, true),
+    ]
+
+    for testCase in cases {
+        let frame = try decodeCursorFrame(
+            row: 0,
+            activeRow: testCase.activeRow,
+            visible: testCase.visible,
+            location: testCase.location,
+            scrollForwardRows: 2
+        )
+        var bytes = frame.vtReplacementBytes()
+        bytes.append(Data("\rhybrid".utf8))
+
+        let cursor = ReplayCursorProbe.finalCursor(after: bytes, rows: frame.rows)
+
+        #expect(cursor.row == testCase.activeRow, "\(testCase.name) replay")
+    }
+}
+
+@Test func alternateCursorDecodesExactActiveRow() throws {
+    let frame = try decodeCursorFrame(
+        row: 1,
+        activeRow: 1,
+        visible: true,
+        location: "viewport",
+        activeScreen: "alternate"
+    )
+    var bytes = frame.vtReplacementBytes()
+    bytes.append(Data("\rhybrid".utf8))
+
+    let cursor = ReplayCursorProbe.finalCursor(after: bytes, rows: frame.rows)
+
+    #expect(cursor.row == 1)
+}
+
 private func decodeCursorFrame(
     row: Int,
+    activeRow: Int? = nil,
     visible: Bool,
     location: String?,
     activeScreen: String = "primary",
@@ -136,6 +180,7 @@ private func decodeCursorFrame(
         "blinking": false,
     ]
     cursor["location"] = location
+    cursor["active_row"] = activeRow
     let forwardSpans: [[String: Any]] = (0..<scrollForwardRows).map { row in
         [
             "row": row,
