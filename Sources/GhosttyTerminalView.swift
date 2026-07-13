@@ -2918,6 +2918,12 @@ class GhosttyApp {
                 )
             }
             return true
+        case GHOSTTY_ACTION_SCROLLBAR_REVISION:
+            let revision = action.action.scrollbar_revision
+            performOnMain {
+                surfaceView.terminalSurface?.hostedView.updateScrollbackRowSpaceRevision(revision)
+            }
+            return true
         case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
             guard let tabId = surfaceView.tabId else { return true }
             let surfaceId = surfaceView.terminalSurface?.id
@@ -8186,7 +8192,7 @@ final class GhosttySurfaceScrollView: NSView {
     var userScrolledAwayFromBottom = false
     private var pendingExplicitWheelScroll = false
     var allowExplicitScrollbarSync = false
-    var notificationScrollRestorePhase: TerminalNotificationScrollRestorePhase = .idle; var earlySessionScrollbackReplayCompletionDirectory: String?; var sessionScrollbackReplayGeneration: String?; var sessionScrollbackReplayCompletionScrollbar: GhosttyScrollbar?; var sessionScrollbackReplayCompletionDeadlineTimer: Timer?
+    var notificationScrollRestorePhase: TerminalNotificationScrollRestorePhase = .idle; var earlySessionScrollbackReplayCompletionDirectory: String?; var sessionScrollbackReplayGeneration: String?; var currentScrollbackRowSpaceRevision: UInt64?; var sessionScrollbackReplayCompletionScrollbar: GhosttyScrollbar?; var sessionScrollbackReplayCompletionRowSpaceRevision: UInt64?; var sessionScrollbackReplayCompletionDeadlineTimer: Timer?
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true

@@ -221,6 +221,27 @@ struct NotificationScrollRestoreTests {
         #expect(surfaceView.bindingActions == ["scroll_to_row:0"])
     }
 
+    @Test func rowSpaceRevisionInvalidatesPreReplayNotification() {
+        let surfaceView = ActionProbeView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 100, offset: 56, visible: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let marker = completionMarker(named: "replay-row-space-revision")
+        hostedView.beginSessionScrollbackReplay(completionMarker: marker)
+        #expect(completeReplay(
+            hostedView,
+            marker: marker,
+            scrollbar: scrollbar(total: 200, offset: 156, visible: 44),
+            rowSpaceRevision: 7
+        ))
+
+        hostedView.updateScrollbackRowSpaceRevision(8)
+        #expect(!hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+        ))
+        #expect(surfaceView.bindingActions.isEmpty)
+        #expect(hostedView.notificationScrollRestorePhase == .idle)
+    }
+
     @Test func postReplayNotificationUsesItsLiveGeneration() throws {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 100, offset: 56, visible: 44)
@@ -522,11 +543,13 @@ struct NotificationScrollRestoreTests {
     private func completeReplay(
         _ hostedView: GhosttySurfaceScrollView,
         marker: SessionScrollbackReplayCompletionMarker,
-        scrollbar: GhosttyScrollbar?
+        scrollbar: GhosttyScrollbar?,
+        rowSpaceRevision: UInt64 = 0
     ) -> Bool {
         hostedView.completeSessionScrollbackReplay(
             ifMatches: marker.reportedDirectory,
-            scrollbarAtMarker: scrollbar
+            scrollbarAtMarker: scrollbar,
+            scrollbarRevisionAtMarker: rowSpaceRevision
         )
     }
 

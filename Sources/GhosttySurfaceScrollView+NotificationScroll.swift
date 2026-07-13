@@ -37,6 +37,10 @@ extension GhosttySurfaceScrollView {
             return false
         }
         guard completionMarker == nil else { return true }
+        if notificationScrollRestoreHasInvalidatedReplayGeometry(position) {
+            notificationScrollRestorePhase = .idle
+            return false
+        }
         switch notificationScrollRestoreDecision(
             position,
             scrollbar: scrollbarForNotificationScrollRestore(position)
@@ -74,6 +78,7 @@ extension GhosttySurfaceScrollView {
         earlySessionScrollbackReplayCompletionDirectory = nil
         if sessionScrollbackReplayGeneration != completionMarker.reportedDirectory {
             sessionScrollbackReplayCompletionScrollbar = nil
+            sessionScrollbackReplayCompletionRowSpaceRevision = nil
         }
         sessionScrollbackReplayGeneration = completionMarker.reportedDirectory
         if completedBeforeActivation {
@@ -92,6 +97,7 @@ extension GhosttySurfaceScrollView {
             return
         }
         sessionScrollbackReplayCompletionScrollbar = nil
+        sessionScrollbackReplayCompletionRowSpaceRevision = nil
         switch notificationScrollRestorePhase {
         case .idle:
             notificationScrollRestorePhase = .sessionScrollbackReplayActive(completionMarker)
@@ -112,7 +118,8 @@ extension GhosttySurfaceScrollView {
     @discardableResult
     func completeSessionScrollbackReplay(
         ifMatches reportedDirectory: String,
-        scrollbarAtMarker: GhosttyScrollbar?
+        scrollbarAtMarker: GhosttyScrollbar?,
+        scrollbarRevisionAtMarker: UInt64 = 0
     ) -> Bool {
         if !hasSessionScrollbackReplayCompletionMarker(matching: reportedDirectory) {
             guard SessionScrollbackReplayCompletionMarker.isReservedReportedDirectory(reportedDirectory) else { return false }
@@ -141,12 +148,16 @@ extension GhosttySurfaceScrollView {
 
         guard let scrollbarAtMarker else {
             sessionScrollbackReplayCompletionScrollbar = nil
+            sessionScrollbackReplayCompletionRowSpaceRevision = nil
             cancelPendingNotificationScrollRestore()
             return true
         }
         sessionScrollbackReplayCompletionScrollbar = scrollbarAtMarker
+        sessionScrollbackReplayCompletionRowSpaceRevision = scrollbarRevisionAtMarker
+        updateScrollbackRowSpaceRevision(scrollbarRevisionAtMarker)
         guard refreshAuthoritativeScrollbar(scrollbarAtMarker) else {
             sessionScrollbackReplayCompletionScrollbar = nil
+            sessionScrollbackReplayCompletionRowSpaceRevision = nil
             cancelPendingNotificationScrollRestore()
             return true
         }
@@ -248,6 +259,22 @@ extension GhosttySurfaceScrollView {
             ))
         }
         return surfaceView.scrollbar
+    }
+
+    func updateScrollbackRowSpaceRevision(_ revision: UInt64) {
+        currentScrollbackRowSpaceRevision = max(currentScrollbackRowSpaceRevision ?? 0, revision)
+    }
+
+    private func notificationScrollRestoreHasInvalidatedReplayGeometry(
+        _ position: TerminalNotificationScrollPosition
+    ) -> Bool {
+        guard let replayGeneration = sessionScrollbackReplayGeneration,
+              position.replayGeneration != replayGeneration,
+              let markerRevision = sessionScrollbackReplayCompletionRowSpaceRevision,
+              let currentRevision = currentScrollbackRowSpaceRevision else {
+            return false
+        }
+        return currentRevision != markerRevision
     }
 
     func notificationScrollRestoreTarget(
