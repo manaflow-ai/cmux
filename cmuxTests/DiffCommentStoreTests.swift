@@ -225,4 +225,26 @@ final class DiffCommentsBridgeTokenTests: XCTestCase {
         XCTAssertTrue(DiffCommentsBridge.isTrustedDiffViewerURL(rewritten))
         XCTAssertFalse(DiffCommentsBridge.isTrustedDiffViewerURL(wrongPort))
     }
+
+    func testRegisteredLiveHTTPViewerTrustRenewsWhileSessionRemainsActive() throws {
+        let liveToken = UUID().uuidString.lowercased()
+        let url = try XCTUnwrap(URL(
+            string: "http://127.0.0.1:5050/\(liveToken)/diff.html#cmux-diff-viewer"
+        ))
+        let registeredAt = Date(timeIntervalSince1970: 1_000)
+
+        XCTAssertTrue(DiffViewerSessionTrustRegistry.shared.registerLiveHTTPURL(
+            url,
+            token: liveToken,
+            now: registeredAt
+        ))
+        XCTAssertTrue(DiffViewerSessionTrustRegistry.shared.isTrustedDiffViewerURL(
+            url,
+            now: registeredAt.addingTimeInterval(23 * 60 * 60)
+        ))
+        XCTAssertTrue(DiffViewerSessionTrustRegistry.shared.isTrustedDiffViewerURL(
+            url,
+            now: registeredAt.addingTimeInterval(46 * 60 * 60)
+        ))
+    }
 }
