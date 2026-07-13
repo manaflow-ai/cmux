@@ -6580,7 +6580,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     MobileDebugLog.anchormux("sync.liveness probe_repaired silentMs=\(Int(silent * 1000))")
                     mobileShellLog.info("liveness probe reinstalled a lost event subscription, replaying mounted surfaces")
                     for surfaceID in self.terminalByteContinuationsBySurfaceID.keys {
-                        self.requestTerminalReplay(surfaceID: surfaceID)
+                        self.requestAuthoritativeTerminalResync(
+                            surfaceID: surfaceID,
+                            reason: "liveness_probe_repaired"
+                        )
                     }
                     // The same registration carries `workspace.updated`, so
                     // workspace create/rename/delete events emitted during the
@@ -6652,6 +6655,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         surfaceIDs requestedSurfaceIDs: [String]? = nil
     ) {
         guard remoteClient != nil, connectionState == .connected else { return }
+        refreshTerminalOutputSubscription(reason: reason, restartEventStream: restartEventStream)
+
+        let surfaceIDs = requestedSurfaceIDs ?? Array(terminalByteContinuationsBySurfaceID.keys)
+        MobileDebugLog.anchormux(
+            "sync.resync reason=\(reason) restart=\(restartEventStream) surfaces=\(surfaceIDs.count)"
+        )
+        for surfaceID in surfaceIDs {
+            requestAuthoritativeTerminalResync(surfaceID: surfaceID, reason: reason)
+        }
+    }
+
+    private func refreshTerminalOutputSubscription(reason: String, restartEventStream: Bool) {
         if restartEventStream {
             stopTerminalRefreshPolling()
             startTerminalRefreshPolling()
@@ -6659,14 +6674,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             startTerminalRefreshPolling()
         } else {
             refreshTerminalEventSubscription(reason: reason)
-        }
-
-        let surfaceIDs = requestedSurfaceIDs ?? Array(terminalByteContinuationsBySurfaceID.keys)
-        MobileDebugLog.anchormux(
-            "sync.resync reason=\(reason) restart=\(restartEventStream) surfaces=\(surfaceIDs.count)"
-        )
-        for surfaceID in surfaceIDs {
-            requestTerminalReplay(surfaceID: surfaceID)
         }
     }
 
@@ -7356,11 +7363,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 if terminalReplaySurfaceIDsInFlight.contains(surfaceID) {
                     cancelTerminalReplayInFlight(surfaceID: surfaceID)
                 }
-                resyncTerminalOutput(
-                    reason: "seq_gap",
-                    restartEventStream: false,
-                    surfaceIDs: [surfaceID]
-                )
+                // The gap bytes were already accepted as the newest live
+                // state. Keep the catch-up replay nonblocking so later live
+                // bytes continue while it verifies the missing interval.
+                refreshTerminalOutputSubscription(reason: "seq_gap", restartEventStream: false)
+                requestTerminalReplay(surfaceID: surfaceID)
                 return
             }
             if endSeq <= deliveredSeq {

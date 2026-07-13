@@ -10,7 +10,7 @@ jobs:
       matrix:
         include:
           - os: macos-14-large
-            timeout: 45
+            timeout: 60
             run_unit_tests: false
             startup_smoke: true
             virtual_display: true

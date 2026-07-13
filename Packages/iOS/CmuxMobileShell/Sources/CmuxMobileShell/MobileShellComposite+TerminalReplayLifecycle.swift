@@ -99,6 +99,30 @@ extension MobileShellComposite {
         return token
     }
 
+    /// Begin a fresh authoritative-replay generation while carrying forward
+    /// any output or replay work that the new generation supersedes.
+    func beginTerminalReplayBarrierCarryingReplacedWork(surfaceID: String) -> UUID {
+        let owesReplacementReplay = !(terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle ?? true)
+            || terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+            || terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil
+        let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+        if owesReplacementReplay {
+            terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
+        }
+        return replayBarrierToken
+    }
+
+    /// Supersede every older replay and output acknowledgement for a surface,
+    /// then request one authoritative replacement owned by the new barrier.
+    func requestAuthoritativeTerminalResync(surfaceID: String, reason: String) {
+        guard hasTerminalOutputSink(surfaceID: surfaceID), remoteClient != nil else { return }
+        let replayBarrierToken = beginTerminalReplayBarrierCarryingReplacedWork(surfaceID: surfaceID)
+        MobileDebugLog.anchormux(
+            "CMUX_REPLAY authoritative_resync reason=\(reason) surface=\(surfaceID)"
+        )
+        requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+    }
+
     func requestColdAttachTerminalReplay(surfaceID: String) {
         guard remoteClient != nil else {
             terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.insert(surfaceID)

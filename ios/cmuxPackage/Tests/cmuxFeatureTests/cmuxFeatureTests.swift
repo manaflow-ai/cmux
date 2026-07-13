@@ -3331,7 +3331,8 @@ private actor RemoteCreateWorkspaceRouter: RequestAwareTransportRouter {
 private actor TerminalOutputSelfHealingRouter: RequestAwareTransportRouter {
     private let renderGrid: Bool
     private var requests: [RecordedRPCRequest] = []
-    private var replayCount = 0
+    private var nextReplayOrdinal = 0
+    private var replayOrdinalsByRequestID: [String: Int] = [:]
 
     init(renderGrid: Bool = false) {
         self.renderGrid = renderGrid
@@ -3339,6 +3340,9 @@ private actor TerminalOutputSelfHealingRouter: RequestAwareTransportRouter {
 
     func record(_ request: RecordedRPCRequest) {
         requests.append(request)
+        guard request.method == "mobile.terminal.replay", let requestID = request.id else { return }
+        nextReplayOrdinal += 1
+        replayOrdinalsByRequestID[requestID] = nextReplayOrdinal
     }
 
     func sentRequests() -> [RecordedRPCRequest] {
@@ -3358,8 +3362,12 @@ private actor TerminalOutputSelfHealingRouter: RequestAwareTransportRouter {
         case "mobile.events.subscribe":
             return try rpcResultFrame(result: ["stream_id": "events"])
         case "mobile.terminal.replay":
-            replayCount += 1
-            if replayCount == 1 {
+            guard let requestID = request.id,
+                  let replayOrdinal = replayOrdinalsByRequestID.removeValue(forKey: requestID)
+            else {
+                return try rpcErrorFrame(message: "Unrecorded mobile.terminal.replay request")
+            }
+            if replayOrdinal == 1 {
                 return try rpcTerminalReplayFrame(
                     seq: 4,
                     rawText: "stale-old-tail",
