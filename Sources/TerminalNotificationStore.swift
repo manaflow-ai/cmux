@@ -1608,7 +1608,7 @@ final class TerminalNotificationStore: ObservableObject {
         var idsToClear: [String] = []
         var supersededDrained = tabIds.flatMap { supersededPhoneDismissBuffer.flush(forKey: SupersededPhoneDismissBuffer.key(tabId: $0, surfaceId: surfaceId)) }
         for notification in notifications {
-            if tabIds.contains(notification.tabId), notification.matches(tabId: notification.tabId, surfaceId: surfaceId) {
+            if notification.matchesClear(tabId: tabId, liveTabId: liveTabId, surfaceId: surfaceId) {
                 idsToClear.append(notification.id.uuidString)
                 supersededDrained.append(contentsOf: supersededPhoneDismissBuffer.flush(
                     forKey: SupersededPhoneDismissBuffer.key(

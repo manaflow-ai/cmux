@@ -153,15 +153,8 @@ final class PhonePushClient {
 
         let hideContent = UserDefaults.standard.bool(forKey: PhonePushSettings.hideContentKey)
         let payload = PhonePushPayload(
-            kind: .notify,
-            title: notification.title,
-            subtitle: notification.subtitle,
-            body: notification.body,
-            workspaceId: notification.tabId.uuidString,
-            surfaceId: notification.surfaceId?.uuidString,
+            notification: notification,
             macDeviceId: MobileHostIdentity.deviceID(),
-            notificationId: notification.id.uuidString,
-            notificationIds: [],
             badgeCount: badgeCount,
             hideContent: hideContent
         )

@@ -20,3 +20,27 @@ struct PhonePushPayload: Sendable {
     let badgeCount: Int
     let hideContent: Bool
 }
+
+extension PhonePushPayload {
+    /// Builds the phone banner payload from the stored notification identity.
+    init(
+        notification: TerminalNotification,
+        macDeviceId: String,
+        badgeCount: Int,
+        hideContent: Bool
+    ) {
+        self.init(
+            kind: .notify,
+            title: notification.title,
+            subtitle: notification.subtitle,
+            body: notification.body,
+            workspaceId: notification.tabId.uuidString,
+            surfaceId: notification.surfaceId?.uuidString,
+            macDeviceId: macDeviceId,
+            notificationId: notification.id.uuidString,
+            notificationIds: [],
+            badgeCount: badgeCount,
+            hideContent: hideContent
+        )
+    }
+}

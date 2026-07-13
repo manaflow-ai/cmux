@@ -82,8 +82,10 @@ final class TerminalMutationBus: @unchecked Sendable {
     }
 
     nonisolated func enqueueClearNotifications(forTabId tabId: UUID) {
+        // Surface-addressed entries may have moved since enqueue. Keep them
+        // ahead of the barrier so delivery can resolve their live owner first.
         enqueueClear({ .clearNotificationsForTab(tabId, through: $0) }) { notification in
-            notification.key.tabId == tabId
+            notification.key.tabId == tabId && notification.key.surfaceId == nil
         }
     }
 

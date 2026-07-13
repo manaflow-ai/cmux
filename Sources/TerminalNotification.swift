@@ -52,4 +52,10 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         }
         return surfaceId == targetSurfaceId || panelId == targetSurfaceId
     }
+
+    /// Matches a clear without letting live-owner expansion cross a confined notification's workspace boundary.
+    func matchesClear(tabId targetTabId: UUID, liveTabId: UUID, surfaceId targetSurfaceId: UUID?) -> Bool {
+        let matchesWorkspace = tabId == targetTabId || (retargetsToLiveSurfaceOwner && tabId == liveTabId)
+        return matchesWorkspace && matches(tabId: tabId, surfaceId: targetSurfaceId)
+    }
 }
