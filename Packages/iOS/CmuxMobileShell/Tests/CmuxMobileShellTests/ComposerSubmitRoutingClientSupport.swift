@@ -39,7 +39,8 @@ func makeRoutingConnectedStore(
     pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(
         defaults: UserDefaults(suiteName: "routing-dismiss-\(UUID().uuidString)")!
     ),
-    macScopedWorkspaceMutations: Bool = false
+    macScopedWorkspaceMutations: Bool = false,
+    clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard)
 ) async throws -> MobileShellComposite {
     let runtime = RoutingTestRuntime(
         transportFactory: RoutingTransportFactory(router: router)
@@ -58,6 +59,7 @@ func makeRoutingConnectedStore(
                 terminals: terminals
             ),
         ],
+        clientIDRepository: clientIDRepository,
         pendingDismissQueue: pendingDismissQueue
     )
     let route = try CmxAttachRoute(

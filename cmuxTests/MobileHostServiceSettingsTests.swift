@@ -1,6 +1,7 @@
 import CmuxSettings
 import Foundation
 import Testing
+import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -109,6 +110,39 @@ struct MobileHostServiceSettingsTests {
         #expect(MobileHostService.syncDecision(enabled: true, listenerRunning: true, desiredPort: 9000, appliedPort: 58465) == .restart)
         // Running but the applied port is unknown: restart to reconcile.
         #expect(MobileHostService.syncDecision(enabled: true, listenerRunning: true, desiredPort: 58465, appliedPort: nil) == .restart)
+    }
+}
+
+@MainActor
+final class MobileInteractionSessionEpochXCTests: XCTestCase {
+    func testRestartedClientSessionAcceptsEpochOneWhileRejectingStaleOldSessionWork() {
+        let controller = TerminalController.shared
+        let surfaceID = UUID()
+        defer { controller.mobileInteractionEpochsBySurfaceID[surfaceID] = nil }
+
+        func params(epoch: Int, sessionID: String) -> [String: Any] {
+            [
+                "client_id": "persisted-client",
+                "interaction_session_id": sessionID,
+                "interaction_epoch": epoch,
+            ]
+        }
+
+        XCTAssertTrue(controller.recordMobileInteractionEpoch(
+            params: params(epoch: 9, sessionID: "old-session"),
+            surfaceID: surfaceID,
+            rejectOlder: true
+        ))
+        XCTAssertTrue(controller.recordMobileInteractionEpoch(
+            params: params(epoch: 1, sessionID: "new-session"),
+            surfaceID: surfaceID,
+            rejectOlder: true
+        ))
+        XCTAssertFalse(controller.recordMobileInteractionEpoch(
+            params: params(epoch: 8, sessionID: "old-session"),
+            surfaceID: surfaceID,
+            rejectOlder: true
+        ))
     }
 }
 
@@ -231,6 +265,39 @@ struct MobileTerminalScrollHandlerTests {
         #expect(accepted(staleScroll) == false)
     }
 
+    @Test func restartedClientSessionAcceptsEpochOneWhileRejectingStaleOldSessionWork() throws {
+        let harness = try makeTerminalHarness()
+        defer { harness.restore() }
+        var appliedSessions: [String] = []
+
+        let oldSession = TerminalController.shared.v2MobileTerminalMouse(
+            params: harness.params(epoch: 9, interactionSessionID: "old-session"),
+            applyClick: { _, _, _ in
+                appliedSessions.append("old")
+                return true
+            }
+        )
+        let restartedSession = TerminalController.shared.v2MobileTerminalMouse(
+            params: harness.params(epoch: 1, interactionSessionID: "new-session"),
+            applyClick: { _, _, _ in
+                appliedSessions.append("new")
+                return true
+            }
+        )
+        let staleOldSession = TerminalController.shared.v2MobileTerminalMouse(
+            params: harness.params(epoch: 8, interactionSessionID: "old-session"),
+            applyClick: { _, _, _ in
+                appliedSessions.append("stale")
+                return true
+            }
+        )
+
+        #expect(accepted(oldSession) == true)
+        #expect(accepted(restartedSession) == true)
+        #expect(accepted(staleOldSession) == false)
+        #expect(appliedSessions == ["old", "new"])
+    }
+
     @Test func replayFencingDoesNotRequireViewportGeometry() throws {
         let harness = try makeTerminalHarness()
         defer { harness.restore() }
@@ -309,6 +376,7 @@ struct MobileTerminalScrollHandlerTests {
             deltaLines: Double? = nil,
             col: Int = 0,
             row: Int = 0,
+            interactionSessionID: String? = nil,
             prefetchBeforeRows: Int? = nil,
             prefetchAfterRows: Int? = nil
         ) -> [String: Any] {
@@ -320,6 +388,9 @@ struct MobileTerminalScrollHandlerTests {
                 "col": col,
                 "row": row,
             ]
+            if let interactionSessionID {
+                params["interaction_session_id"] = interactionSessionID
+            }
             if let revision { params["client_scroll_revision"] = revision }
             if let deltaLines { params["delta_lines"] = deltaLines }
             if let prefetchBeforeRows { params["prefetch_before_rows"] = prefetchBeforeRows }

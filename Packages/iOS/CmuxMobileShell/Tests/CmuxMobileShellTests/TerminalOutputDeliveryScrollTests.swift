@@ -121,6 +121,29 @@ import Testing
 }
 
 @MainActor
+@Test func historicalReplayOffsetIncludesTheReconstructedPrimaryActiveScreen() throws {
+    let frame = try MobileTerminalRenderGridFrame.decodeJSONObject([
+        "format": MobileTerminalRenderGridFrame.currentFormat,
+        "surface_id": "terminal",
+        "state_seq": 1,
+        "columns": 12,
+        "rows": 3,
+        "full": true,
+        "styles": [["id": 0]],
+        "row_spans": [],
+        "active_screen": "primary",
+        "scrollforward_rows": 2,
+        "scrollforward_spans": [],
+        "primary_active_rows": 3,
+        "primary_active_spans": [],
+    ])
+
+    let delivery = TerminalOutputDelivery(renderGrid: frame, replaceable: true)
+
+    #expect(delivery.scrollbackOffsetFromBottomRows == 5)
+}
+
+@MainActor
 @Test func terminalOutputQueueDoesNotReplaceRenderGridSnapshotWithPolicyOnlyDelivery() throws {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)

@@ -35,6 +35,8 @@ actor RoutingHostRouter {
     struct TerminalInteractionRecord: Sendable {
         var method: String
         var surfaceID: String
+        var clientID: String?
+        var interactionSessionID: String?
         var interactionEpoch: Int?
         var clientScrollRevision: Int?
         var col: Int?
@@ -185,6 +187,7 @@ actor RoutingHostRouter {
         var text: String?
         var notificationIDs: [String]?
         var clientID: String?
+        var interactionSessionID: String?
         var groupID: String?
         var interactionEpoch: Int?
         var clientScrollRevision: Int?
@@ -303,6 +306,8 @@ actor RoutingHostRouter {
             terminalInteractions.append(TerminalInteractionRecord(
                 method: method ?? "",
                 surfaceID: info.surfaceID ?? "",
+                clientID: info.clientID,
+                interactionSessionID: info.interactionSessionID,
                 interactionEpoch: info.interactionEpoch,
                 clientScrollRevision: nil,
                 col: nil,
@@ -314,6 +319,8 @@ actor RoutingHostRouter {
             terminalInteractions.append(TerminalInteractionRecord(
                 method: method ?? "",
                 surfaceID: info.surfaceID ?? "",
+                clientID: info.clientID,
+                interactionSessionID: info.interactionSessionID,
                 interactionEpoch: info.interactionEpoch,
                 clientScrollRevision: info.clientScrollRevision,
                 col: info.col,
@@ -337,6 +344,8 @@ actor RoutingHostRouter {
             terminalInteractions.append(TerminalInteractionRecord(
                 method: method ?? "",
                 surfaceID: info.surfaceID ?? "",
+                clientID: info.clientID,
+                interactionSessionID: info.interactionSessionID,
                 interactionEpoch: info.interactionEpoch,
                 clientScrollRevision: info.clientScrollRevision,
                 col: info.col,
@@ -431,6 +440,7 @@ private actor RoutingTransport: CmxByteTransport {
                 text: params?["text"] as? String,
                 notificationIDs: params?["notification_ids"] as? [String],
                 clientID: params?["client_id"] as? String,
+                interactionSessionID: params?["interaction_session_id"] as? String,
                 groupID: params?["group_id"] as? String,
                 interactionEpoch: params?["interaction_epoch"] as? Int,
                 clientScrollRevision: params?["client_scroll_revision"] as? Int,

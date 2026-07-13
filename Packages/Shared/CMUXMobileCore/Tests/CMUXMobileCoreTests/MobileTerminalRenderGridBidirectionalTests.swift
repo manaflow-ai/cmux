@@ -47,3 +47,41 @@ import Testing
     #expect(delta.scrollbackRows == 0)
     #expect(delta.scrollForwardRows == 0)
 }
+
+@Test func deepPrimaryReplayReconstructsTheTrueActiveScreenAfterBoundedForwardHistory() throws {
+    let frame = try MobileTerminalRenderGridFrame.decodeJSONObject([
+        "format": MobileTerminalRenderGridFrame.currentFormat,
+        "surface_id": "terminal-window",
+        "state_seq": 9,
+        "columns": 12,
+        "rows": 3,
+        "full": true,
+        "styles": [["id": 0]],
+        "row_spans": [
+            ["row": 0, "column": 0, "style_id": 0, "text": "view-a"],
+            ["row": 1, "column": 0, "style_id": 0, "text": "view-b"],
+            ["row": 2, "column": 0, "style_id": 0, "text": "view-c"],
+        ],
+        "active_screen": "primary",
+        "scrollforward_rows": 2,
+        "scrollforward_spans": [
+            ["row": 0, "column": 0, "style_id": 0, "text": "next-a"],
+            ["row": 1, "column": 0, "style_id": 0, "text": "next-b"],
+        ],
+        "primary_active_rows": 3,
+        "primary_active_spans": [
+            ["row": 0, "column": 0, "style_id": 0, "text": "live-a"],
+            ["row": 1, "column": 0, "style_id": 0, "text": "live-b"],
+            ["row": 2, "column": 0, "style_id": 0, "text": "live-c"],
+        ],
+    ])
+
+    let encoded = try frame.jsonObject()
+    #expect(encoded["primary_active_rows"] as? Int == 3)
+    let replay = try #require(String(data: frame.vtReplacementBytes(), encoding: .utf8))
+    let viewport = try #require(replay.range(of: "view-c"))
+    let boundedForward = try #require(replay.range(of: "next-b"))
+    let activeScreen = try #require(replay.range(of: "live-a"))
+    #expect(viewport.lowerBound < boundedForward.lowerBound)
+    #expect(boundedForward.lowerBound < activeScreen.lowerBound)
+}

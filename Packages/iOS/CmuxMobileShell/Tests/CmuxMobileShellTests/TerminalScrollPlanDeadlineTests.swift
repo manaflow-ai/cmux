@@ -56,6 +56,44 @@ struct TerminalScrollPlanDeadlineTests {
         harness.localReceipts.removeFirst().resolve(false)
     }
 
+    @Test("legacy scalar plans roll into bounded transactions without dropping their suffix")
+    func legacyScalarPlanRollsDeadlineAfterThreeRequests() async throws {
+        let harness = ScrollPlanDeadlineHarness()
+        let session = harness.makeSession()
+        startScrollPlan([8, -5, 3, -2], in: session)
+
+        try await requireEventually {
+            harness.deadline.budgets == [.milliseconds(600)]
+                && harness.remote.pending.count == 1
+                && harness.localReceipts.count == 1
+        }
+        harness.localReceipts.removeFirst().resolve(true)
+
+        for (index, expectedLines) in [8.0, -5.0, 3.0].enumerated() {
+            let pending = try #require(harness.remote.pending.first)
+            harness.remote.pending.removeFirst()
+            #expect(pending.request.lines == expectedLines)
+            #expect(pending.request.col == index + 1)
+            #expect(pending.request.row == index + 2)
+            pending.continuation.resume(returning: harness.response(for: pending.request))
+            try await requireEventually { harness.remote.pending.count == 1 }
+        }
+
+        try await requireEventually {
+            harness.deadline.budgets == [.milliseconds(600), .milliseconds(200)]
+        }
+        let suffix = try #require(harness.remote.pending.first)
+        harness.remote.pending.removeFirst()
+        #expect(suffix.request.lines == -2)
+        #expect(suffix.request.col == 4)
+        #expect(suffix.request.row == 5)
+        suffix.continuation.resume(returning: harness.response(for: suffix.request))
+
+        try await requireEventually { !session.shouldDeferLiveRenderGrid }
+        #expect(harness.replayEpochs.isEmpty)
+        #expect(session.latestReconciledRevision == 4)
+    }
+
     private func startScrollPlan(_ lines: [Double], in session: TerminalScrollSession) {
         let runs = lines.enumerated().map { index, lines in
             MobileTerminalScrollRun(lines: lines, col: index + 1, row: index + 2)
