@@ -81,6 +81,22 @@ struct CmxIrohLibEndpointTests {
     }
 
     @Test
+    func onlineStateReplaysToLateHealthObservers() async throws {
+        let endpoint = try await makeEndpoint(managedRelayURLs: [])
+
+        let initialEvents = await endpoint.healthEvents()
+        #expect(
+            await firstHealthEvent(in: initialEvents, timeout: .seconds(2)) == .online
+        )
+        let lateEvents = await endpoint.healthEvents()
+        #expect(
+            await firstHealthEvent(in: lateEvents, timeout: .seconds(1)) == .online
+        )
+
+        await endpoint.close()
+    }
+
+    @Test
     func unmanagedRelayFailsAndManagedRelayFailoverBuildsSeparateAttempts() async throws {
         let first = "https://use1-1.relay.lawrence.cmux.iroh.link/"
         let second = "https://usw1-1.relay.lawrence.cmux.iroh.link/"
@@ -235,6 +251,29 @@ struct CmxIrohLibEndpointTests {
 
     private func currentPOSIXError() -> POSIXError {
         POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+
+    private func firstHealthEvent(
+        in events: AsyncStream<CmxIrohEndpointHealthEvent>,
+        timeout: Duration
+    ) async -> CmxIrohEndpointHealthEvent? {
+        await withTaskGroup(of: CmxIrohEndpointHealthEvent?.self) { group in
+            group.addTask {
+                var iterator = events.makeAsyncIterator()
+                return await iterator.next()
+            }
+            group.addTask {
+                do {
+                    try await ContinuousClock().sleep(for: timeout)
+                } catch {
+                    return nil
+                }
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
     }
 
     private func makeEndpoint(

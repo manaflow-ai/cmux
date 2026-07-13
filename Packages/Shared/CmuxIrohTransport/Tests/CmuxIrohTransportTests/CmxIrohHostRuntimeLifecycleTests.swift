@@ -262,6 +262,30 @@ extension CmxIrohHostRuntimeTests {
         await runtime.stop()
     }
 
+    @Test
+    func endpointOnlineRequestsImmediateReachabilityRefresh() async throws {
+        let fixture = try HostRuntimeFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let recorder = HostRuntimeLANRefreshRecorder()
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: TestIrohHostBroker(
+                registrationBinding: fixture.binding,
+                discovery: fixture.discovery
+            ),
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            handleTransport: { session, _ in await session.close() },
+            handleLANRefresh: { await recorder.record() }
+        )
+        try await runtime.start()
+
+        await endpoint.emit(.online)
+
+        #expect(await recorder.waitForRefresh(timeout: .seconds(1)))
+        await runtime.stop()
+    }
+
     @Test(arguments: [
         CmxIrohTrustBrokerClientError.rejected(
             statusCode: 408,
