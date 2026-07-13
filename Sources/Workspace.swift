@@ -6317,6 +6317,10 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceId: UUID,
         configuration: WorkspaceRemoteConfiguration
     ) {
+        if let replacement = pendingRemoteDisconnectReplacementsBySurfaceId[surfaceId],
+           case .preparing = replacement.phase {
+            return
+        }
         let reconnectCommand = effectiveRemoteTerminalStartupCommand(from: configuration)
         pendingRemoteDisconnectReplacementsBySurfaceId[surfaceId] = PendingRemoteDisconnectReplacement(
             target: configuration.displayTarget,

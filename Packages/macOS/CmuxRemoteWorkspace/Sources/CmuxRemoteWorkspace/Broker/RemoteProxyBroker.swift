@@ -4,7 +4,8 @@ internal import Foundation
 
 /// Shares one daemon proxy tunnel per remote transport across all subscribers.
 /// Each subscriber holds a ``RemoteProxyLease``; the entry restarts its tunnel
-/// with exponential backoff until the last lease is released.
+/// with exponential backoff until the last lease is released and its final
+/// in-flight ready-tunnel operation returns.
 ///
 /// The app injects one instance into each remote session controller.
 /// Isolation design: every mutable property (`entries` and the per-entry
@@ -34,6 +35,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         var restartRetryCount = 0
         var ptyLifecycleSnapshot: RemotePTYLifecycleSnapshot?
         var subscribers: [UUID: @Sendable (RemoteProxyBrokerUpdate) -> Void] = [:]
+        var activeReadyTunnelOperationCount = 0
 
         init(configuration: WorkspaceRemoteConfiguration, remotePath: String) {
             self.configuration = configuration
@@ -115,7 +117,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
 
     /// Closes a persistent PTY session through the ready tunnel.
     ///
-    /// The broker queue is used only to retain the tunnel; the potentially
+    /// The broker queue is used only to pin the tunnel; the potentially
     /// blocking cleanup runs after that queue is released.
     ///
     /// - Parameters:
@@ -127,12 +129,9 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         sessionID: String,
         deadline: DispatchTime
     ) throws {
-        let tunnel = try queue.sync {
-            let key = Self.transportKey(for: configuration)
-            guard let tunnel = entries[key]?.tunnel else { throw Self.ptyTunnelNotReadyError() }
-            return tunnel
+        try withReadyTunnel(configuration: configuration) { tunnel in
+            try tunnel.closePTY(sessionID: sessionID, deadline: deadline)
         }
-        try tunnel.closePTY(sessionID: sessionID, deadline: deadline)
     }
 
     /// Returns the shared lifecycle for one logical PTY attach generation.
@@ -283,14 +282,32 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         configuration: WorkspaceRemoteConfiguration,
         _ body: (any RemoteProxyTunneling) throws -> T
     ) throws -> T {
-        let tunnel = try queue.sync {
+        let (key, entry, tunnel) = try queue.sync {
             let key = Self.transportKey(for: configuration)
             guard let entry = entries[key], let tunnel = entry.tunnel else {
                 throw Self.ptyTunnelNotReadyError()
             }
-            return tunnel
+            entry.activeReadyTunnelOperationCount += 1
+            return (key, entry, tunnel)
+        }
+        defer {
+            queue.sync {
+                finishReadyTunnelOperationLocked(key: key, entry: entry)
+            }
         }
         return try body(tunnel)
+    }
+
+    private func finishReadyTunnelOperationLocked(key: String, entry: Entry) {
+        guard entry.activeReadyTunnelOperationCount > 0 else { return }
+        entry.activeReadyTunnelOperationCount -= 1
+        guard entry.activeReadyTunnelOperationCount == 0,
+              entry.subscribers.isEmpty,
+              let currentEntry = entries[key],
+              currentEntry === entry else {
+            return
+        }
+        teardownEntryLocked(key: key, entry: entry)
     }
 
     internal func release(key: String, subscriberID: UUID) {
@@ -298,6 +315,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             guard let self, let entry = self.entries[key] else { return }
             entry.subscribers.removeValue(forKey: subscriberID)
             guard entry.subscribers.isEmpty else { return }
+            guard entry.activeReadyTunnelOperationCount == 0 else { return }
             self.teardownEntryLocked(key: key, entry: entry)
         }
     }
