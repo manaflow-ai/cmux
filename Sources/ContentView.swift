@@ -10545,10 +10545,7 @@ struct VerticalTabsSidebar: View {
             guard let workspaceId = notification.userInfo?[WorkspaceTodoActions.workspaceIdUserInfoKey] as? UUID,
                   tabManager.tabs.contains(where: { $0.id == workspaceId }) else { return }
             // Popover style always routes the add request into the checklist
-            // popover (armed add field), including a workspace's very first
-            // item: the section anchors the popover to its ghost "Add item"
-            // row when there is no summary line yet, so there is no inline
-            // fallback to reach for.
+            // popover, even with zero items (the anchor overlay always exists).
             if WorkspaceTodoFeature.checklistStyle == .popover {
                 statusPopoverWorkspaceId = nil
                 checklistPopoverWorkspaceId = workspaceId
@@ -10652,10 +10649,8 @@ struct VerticalTabsSidebar: View {
             }
             .onChange(of: tabManager.selectedTabId) { _, _ in
                 requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
-                // A keyboard/programmatic workspace switch doesn't produce the
-                // outside click that NSPopover's `.transient` behavior relies on
-                // to auto-dismiss, so an open checklist/status popover would
-                // otherwise stay anchored to the now-deselected row indefinitely.
+                // Workspace switches produce no outside click for NSPopover's
+                // .transient auto-dismiss; close row popovers explicitly.
                 checklistPopoverWorkspaceId = nil
                 statusPopoverWorkspaceId = nil
             }
@@ -13844,11 +13839,8 @@ struct TabItemView: View, Equatable {
             }
 
             // Checklist summary line + inline expansion. Rendered whenever
-            // there is either content or a pending "Add Checklist Item…"
-            // request (which needs the add field visible on an empty
-            // checklist) — independent of whether a status glyph is shown,
-            // since workspaces now default to hidden status and must still
-            // be able to add checklist items from that state.
+            // there is content or a pending "Add Checklist Item…" request —
+            // independent of the status glyph (hidden-status default).
             if !workspaceSnapshot.checklistItems.isEmpty || checklistAddFieldActivationToken > 0 {
                 SidebarWorkspaceChecklistSection(
                     items: workspaceSnapshot.checklistItems,
