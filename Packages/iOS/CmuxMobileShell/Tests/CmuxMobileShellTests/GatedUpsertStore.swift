@@ -38,7 +38,7 @@ actor GatedUpsertStore: MobilePairedMacStoring {
 
     func upsert(
         macDeviceID: String, displayName: String?, routes: [CmxAttachRoute],
-        markActive: Bool, stackUserID: String?, teamID: String?, now: Date
+        instanceTag: String? = nil, markActive: Bool, stackUserID: String?, teamID: String?, now: Date
     ) async throws {
         if gateArmed {
             gateArmed = false
@@ -49,7 +49,8 @@ actor GatedUpsertStore: MobilePairedMacStoring {
         }
         try await inner.upsert(
             macDeviceID: macDeviceID, displayName: displayName, routes: routes,
-            markActive: markActive, stackUserID: stackUserID, teamID: teamID, now: now)
+            instanceTag: instanceTag, markActive: markActive,
+            stackUserID: stackUserID, teamID: teamID, now: now)
     }
 
     func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {

@@ -1,5 +1,8 @@
 import { getTranslations } from "next-intl/server";
-import { hasFeatureWorkflowContent } from "@/i18n/locale-availability";
+import {
+  fallbackContentLocales,
+  hasFeatureWorkflowContent,
+} from "@/i18n/locale-availability";
 import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "@/i18n/navigation";
@@ -7,7 +10,11 @@ import { Link } from "@/i18n/navigation";
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "blog.cmuxSsh" });
-  const alternates = buildAlternates(locale, "/blog/cmux-ssh");
+  const alternates = buildAlternates(
+    locale,
+    "/blog/cmux-ssh",
+    fallbackContentLocales,
+  );
   const title = t("metaTitle");
   const description = seoDescription(locale, t("metaDescription"));
   return {
