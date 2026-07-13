@@ -10451,6 +10451,7 @@ struct VerticalTabsSidebar: View {
             ScrollView(.vertical) {
                 workspaceScrollContent(renderContext: renderContext, minHeight: workspaceScrollContentMinHeight)
             }
+            .scrollIndicators(.never)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(
                 SidebarScrollViewResolver { scrollView in
@@ -10567,14 +10568,12 @@ struct VerticalTabsSidebar: View {
         withTransaction(transaction) { workspaceScrollContentMinHeight = contentMinHeight }
     }
 
-    // Applies one stable overlay/autohide scroller config and never toggles it.
-    // Toggling `hasVerticalScroller`/style from SwiftUI re-renders (constant
-    // while agents update rows) re-flashes the overlay knob so it never reaches
-    // its idle fade; a stable config lets AppKit own appear/scroll/fade and the
-    // finite empty-area height keeps it hidden when content fits (#3241).
+    // SwiftUI owns native-indicator suppression through
+    // `.scrollIndicators(.never)`. This bridge installs one cmux-owned
+    // indicator driven by actual viewport position changes (#3241).
     private func configureSidebarScrollView(_ scrollView: NSScrollView?) {
         guard let scrollView else { return }
-        scrollView.applySidebarOverlayScrollerConfiguration()
+        scrollView.applySidebarScrollIndicatorConfiguration()
     }
 
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
@@ -10704,6 +10703,7 @@ struct VerticalTabsSidebar: View {
                     )
                 }
             }
+            .scrollIndicators(.never)
             .background(
                 SidebarScrollViewResolver { scrollView in
                     configureSidebarScrollView(scrollView)
