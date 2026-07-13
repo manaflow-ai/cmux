@@ -135,7 +135,10 @@ import Testing
             lifetime: ticketLifetime
         )))
         #expect(connected, "scripted connect must succeed")
-        let resolved = try await pollUntil { await router.count(of: "mobile.host.status") >= 1 }
+        let expectedCapabilities = Set(capabilities)
+        let resolved = try await pollUntil {
+            store.supportedHostCapabilities == expectedCapabilities
+        }
         #expect(resolved, "scripted connect must resolve host capabilities")
         return (store, router, clock)
     }

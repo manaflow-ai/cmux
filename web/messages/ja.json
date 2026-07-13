@@ -341,7 +341,9 @@
   "pricing": {
     "metaTitle": "料金 — cmux",
     "metaDescription": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM、cmux Vault によるセッションバックアップ、モデルゲートウェイが使えます。Enterprise は SSO とセルフホストに対応します。",
+    "metaDescriptionShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM、Vault、モデルゲートウェイを利用でき、Enterprise では SSO とセルフホストに対応します。",
     "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM とモデルゲートウェイが使えます。Enterprise は SSO とセルフホストに対応します。",
+    "metaDescriptionNoVaultShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM とモデルゲートウェイを利用でき、Enterprise では SSO とセルフホストに対応します。",
     "title": "料金",
     "perMonth": "/月",
     "perUserMonth": "/ユーザー/月",
@@ -1549,6 +1551,7 @@
     "configuration": {
       "title": "設定",
       "metaDescription": "Ghostty設定ファイルと ~/.config/cmux/cmux.json によるcmuxの設定。ターミナル描画はGhostty設定、cmux側のアプリ設定、ショートカット、自動化、サイドバー、通知、ブラウザ動作は cmux.json で管理します。",
+      "metaDescriptionShort": "Ghostty設定と cmux.json でターミナル描画、アプリ設定、ショートカット、自動化、サイドバー、通知、ブラウザ動作を管理します。",
       "intro": "cmuxはターミナル設定をGhosttyの設定ファイルから読み込みます。cmux管理のアプリ設定も ~/.config/cmux/cmux.json で管理でき、ショートカット、自動化、サイドバー、通知、ブラウザ設定を含みます。",
       "configLocations": "設定ファイルの場所",
       "configLocationsDesc": "cmuxは以下の場所から設定を検索します（順番に）：",

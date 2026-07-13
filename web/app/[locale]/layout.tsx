@@ -11,9 +11,9 @@ import {
   buildAlternates,
   defaultOpenGraphImage,
   openGraphDefaults,
-  seoDescription,
   twitterSummary,
 } from "../../i18n/seo";
+import { homeSeoCopy } from "../../i18n/audited-seo";
 import { Providers } from "./providers";
 import { DevPanel } from "./components/spacing-control";
 import { ThemeBootstrapScript } from "./theme-bootstrap-script";
@@ -64,19 +64,17 @@ export async function generateMetadata({
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "meta" });
   const alternates = buildAlternates(locale, "");
-  const title = t("title");
-  const description = seoDescription(locale, t("description"));
-  const ogDescription = seoDescription(locale, t("ogDescription"));
+  const { title, description } = homeSeoCopy(locale, t);
   return {
     title,
     description,
     openGraph: {
       ...openGraphDefaults(locale, "website"),
       title,
-      description: ogDescription,
+      description,
       url: alternates.canonical,
     },
-    twitter: twitterSummary(locale, title, ogDescription),
+    twitter: twitterSummary(locale, title, description),
     alternates,
     metadataBase: new URL("https://cmux.com"),
   };
@@ -103,7 +101,7 @@ export default async function LocaleLayout({
 
   const messages = pruneClientMessages(await getMessages());
   const t = await getTranslations({ locale, namespace: "meta" });
-  const webSiteDescription = seoDescription(locale, t("description"));
+  const { description: webSiteDescription } = homeSeoCopy(locale, t);
 
   const organizationJsonLd = {
     "@context": "https://schema.org",
