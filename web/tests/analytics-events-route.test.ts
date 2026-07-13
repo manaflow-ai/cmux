@@ -8,6 +8,7 @@ import { accountDeletionUserHash } from "../services/account/deletionLock";
 const deletedUserID = "3241a285-8329-4d69-8f3d-316e08cf140c";
 const originalVercel = process.env.VERCEL;
 const originalRateLimitId = process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID;
+const originalAnalyticsRateLimitId = process.env.CMUX_ANALYTICS_RATE_LIMIT_ID;
 let tombstoneRows: Array<{
   readonly userIdHash: string;
   readonly status: string;
@@ -15,6 +16,7 @@ let tombstoneRows: Array<{
   readonly analyticsDeletedAt?: Date | null;
 }> = [];
 let activeLeaseRows = 0;
+let leaseInsertCalls = 0;
 let leaseDeleteCalls = 0;
 let leaseDeleteConditions: unknown[] = [];
 let leaseCleanupError: unknown = null;
@@ -27,9 +29,11 @@ const postHogFetch = mock(async (...args: unknown[]) => {
   return new Response(null, { status: 200 });
 });
 let rateLimitCalls = 0;
+let rateLimitIDs: string[] = [];
 let rateLimitResult: Awaited<ReturnType<typeof checkVercelRateLimit>> = { rateLimited: false };
-const checkRateLimit: typeof checkVercelRateLimit = async () => {
+const checkRateLimit: typeof checkVercelRateLimit = async (rateLimitID) => {
   rateLimitCalls += 1;
+  rateLimitIDs.push(rateLimitID);
   return rateLimitResult;
 };
 const verifyRequest = mock(async () => null);
@@ -56,8 +60,10 @@ const POST = makeAnalyticsEventsHandler({
 beforeEach(() => {
   delete process.env.VERCEL;
   process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID = "cmux-client-config-test";
+  process.env.CMUX_ANALYTICS_RATE_LIMIT_ID = "cmux-analytics-test";
   tombstoneRows = [];
   activeLeaseRows = 0;
+  leaseInsertCalls = 0;
   leaseDeleteCalls = 0;
   leaseDeleteConditions = [];
   leaseCleanupError = null;
@@ -65,6 +71,7 @@ beforeEach(() => {
   selectRows.mockClear();
   transaction.mockClear();
   rateLimitCalls = 0;
+  rateLimitIDs = [];
   rateLimitResult = { rateLimited: false };
   postHogFetchError = null;
   postHogRequestInit = undefined;
@@ -74,6 +81,7 @@ beforeEach(() => {
 afterAll(() => {
   restoreEnv("VERCEL", originalVercel);
   restoreEnv("CMUX_CLIENT_CONFIG_RATE_LIMIT_ID", originalRateLimitId);
+  restoreEnv("CMUX_ANALYTICS_RATE_LIMIT_ID", originalAnalyticsRateLimitId);
 });
 
 describe("iOS analytics events route", () => {
@@ -141,6 +149,15 @@ describe("iOS analytics events route", () => {
     expect(postHogFetch).not.toHaveBeenCalled();
   });
 
+  test("uses the analytics-specific Vercel rate-limit rule", async () => {
+    process.env.VERCEL = "1";
+
+    const response = await POST(analyticsRequest("new-install-id"));
+
+    expect(response.status).toBe(200);
+    expect(rateLimitIDs).toEqual(["cmux-analytics-test"]);
+  });
+
   test("forwards a legitimate anonymous install identity", async () => {
     const response = await POST(analyticsRequest("8cb40ef2-af25-49ff-88e8-3ffcc9308174"));
 
@@ -149,6 +166,13 @@ describe("iOS analytics events route", () => {
     expect(postHogFetch).toHaveBeenCalledTimes(1);
     expect(postHogRequestInit?.signal).toBeInstanceOf(AbortSignal);
     expect(activeLeaseRows).toBe(0);
+  });
+
+  test("does not reserve an account-deletion lease for an untrusted anonymous identity", async () => {
+    const response = await POST(analyticsRequest(deletedUserID));
+
+    expect(response.status).toBe(200);
+    expect(leaseInsertCalls).toBe(0);
   });
 
   test("prunes expired leases for every identity before reserving a forward", async () => {
@@ -240,6 +264,7 @@ function analyticsTransactionContext(): unknown {
     }),
     insert: () => ({
       values: async (values: readonly unknown[]) => {
+        leaseInsertCalls += 1;
         activeLeaseRows = values.length;
       },
     }),
