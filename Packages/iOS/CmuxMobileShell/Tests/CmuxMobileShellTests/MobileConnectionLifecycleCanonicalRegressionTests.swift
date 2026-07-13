@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobilePairedMac
+import CmuxMobileRPC
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -158,6 +159,49 @@ import Testing
         await pairedMacStore.release(teamID: nil)
         #expect(await reconnect.value == false)
         #expect(await switched.value == false)
+    }
+
+    @Test func eventStreamLossDoesNotRefreshStoredSecondaryMacs() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let route = try loopbackRoute(id: "foreground", port: 51_002)
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(router: router, box: TransportBox()),
+            now: { clock.now }
+        )
+        let pairedMacStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["": [storedMac(id: "mac-b", route: route)]],
+            blockedTeams: []
+        )
+        let defaults = UserDefaults(suiteName: "stream-repair-scope-\(UUID().uuidString)")!
+        defaults.set(true, forKey: "multiMacAggregation")
+        let store = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: pairedMacStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            multiMacAggregationDefaults: defaults
+        )
+        let ticket = try makeTicket(clock: clock)
+        let foregroundRoute = try #require(ticket.routes.first)
+        store.activeTicket = ticket
+        store.activeRoute = foregroundRoute
+        store.foregroundMacDeviceID = ticket.macDeviceID
+        store.remoteClient = MobileCoreRPCClient(
+            runtime: runtime,
+            route: foregroundRoute,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+
+        store.requestConnectionLifecycleRecovery(.eventStreamLost)
+
+        let refreshedSecondaries = try await pollUntil(attempts: 50) {
+            await pairedMacStore.currentLoadAllCount() > 0
+        }
+        #expect(!refreshedSecondaries)
+        store.signOut()
     }
 
     private func loopbackRoute(id: String, port: Int) throws -> CmxAttachRoute {

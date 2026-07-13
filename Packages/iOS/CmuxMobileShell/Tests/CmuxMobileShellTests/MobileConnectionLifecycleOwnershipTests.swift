@@ -238,7 +238,7 @@ import Testing
         #expect(await reconnect.value == false)
     }
 
-    @Test func retryWithoutCachedMacCompletesWithoutReplayAfterRetirement() async throws {
+    @Test func retryWithoutCachedMacReplaysAfterRetirement() async throws {
         let pairedMacStore = DelayedTeamPairedMacStore(
             recordsByTeam: [:],
             blockedTeams: [""]
@@ -254,12 +254,18 @@ import Testing
         await pairedMacStore.waitUntilLoadStarted(teamID: nil)
 
         store.retryMobileConnection()
+        #expect(try await pollUntil {
+            store.connectionLifecycle.activeEpisode == nil
+        })
+        #expect(store.connectionRecoveryFailed)
+        #expect(store.hasStoredMacReconnectDemand)
         await pairedMacStore.release(teamID: nil)
 
         let replayed = try await pollUntil(attempts: 50) {
             await pairedMacStore.currentLoadStartCount(teamID: nil) > 1
         }
-        #expect(!replayed)
+        #expect(replayed)
+        await pairedMacStore.release(teamID: nil)
         #expect(await reconnect.value == false)
         #expect(try await pollUntil {
             store.connectionResourceSnapshotForTesting().retiredLifecycleTaskCount == 0
