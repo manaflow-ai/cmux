@@ -212,7 +212,15 @@ jobs:
             --app "$ASC_APP_ID" \
             --version "$VERSION" \
             --platform IOS \
-            --dir ios/AppStoreReview/metadata
+            --dir ios/AppStoreReview/metadata \
+            --dry-run
+          asc metadata apply \
+            --app "$ASC_APP_ID" \
+            --version "$VERSION" \
+            --platform IOS \
+            --dir ios/AppStoreReview/metadata \
+            --allow-deletes \
+            --confirm
           asc screenshots validate \
             --path ios/AppStoreReview/screenshots/en-US/iphone \
             --device-type IPHONE_69
