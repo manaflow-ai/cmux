@@ -123,7 +123,7 @@
 		</dict>
 	</array>
 	<key>NSPrincipalClass</key>
-	<string>NSApplication</string>
+	<string>CEFKitApplication</string>
 	<key>NSAppleScriptEnabled</key>
 	<true/>
 	<key>OSAScriptingDefinition</key>

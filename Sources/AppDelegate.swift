@@ -1089,7 +1089,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var closeMainWindowContainingTabIdObserverForTesting: ((UUID, Bool) -> Void)?
 #endif
     // Avoid showing the quit warning twice after confirmation.
-    private var isQuitWarningConfirmed = false
+    var isQuitWarningConfirmed = false
     // One-shot guard for deferred terminate replies.
     private var didReplyToTerminate = false
     // True while remote tmux kill-before-quit owns the terminate reply.
@@ -1820,7 +1820,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Sole caller of `NSApp.reply(toApplicationShouldTerminate:)`.
-    private func replyToTerminateOnce(_ shouldTerminate: Bool) {
+    func replyToTerminateOnce(_ shouldTerminate: Bool) {
         guard !didReplyToTerminate else { return }
         didReplyToTerminate = true
         NSApp.reply(toApplicationShouldTerminate: shouldTerminate)
@@ -1860,7 +1860,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func prepareForConfirmedAppTermination() {
+    func prepareForConfirmedAppTermination() {
         isTerminatingApp = true
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
@@ -1898,8 +1898,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let shouldQuit = response == .alertFirstButtonReturn
         if shouldQuit {
-            prepareForConfirmedAppTermination()
-            isQuitWarningConfirmed = true
+            guard cefGateConfirmedQuitAndPrepare() else { return }
             closeAllWebInspectorsBeforeAppTeardown()
             StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
             if deferTerminateForMarkedRemoteTmuxKills(reason: "confirmedDialog") {
@@ -1945,7 +1944,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             hasDirtyWorkspaces: hasDirtyWorkspaces,
             isDevBuild: buildFlavor == .dev
         ) {
-            prepareForConfirmedAppTermination()
+            guard cefGateCommittedTerminationAndPrepare() else { return .terminateCancel }
             closeAllWebInspectorsBeforeAppTeardown()
             let reason: String
             if isQuitWarningConfirmed {
@@ -2014,6 +2013,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         unregisterDisplayReconfigurationCallbackIfNeeded()
         StartupBreadcrumbLog.append("appDelegate.willTerminate.complete")
         enableSuddenTerminationIfNeeded()
+        // CEF sessions end via CEFKit's atexit _exit handler, after all willTerminate observers.
     }
 
     func applicationWillResignActive(_ notification: Notification) {

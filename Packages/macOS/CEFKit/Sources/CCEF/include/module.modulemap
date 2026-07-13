@@ -1,0 +1,5 @@
+module CCEF {
+    header "cefkit-umbrella.h"
+    header "CEFKitShims.h"
+    export *
+}

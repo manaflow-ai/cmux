@@ -529,9 +529,8 @@ struct cmuxApp: App {
 
                 Divider()
                 Menu("Debug Windows") {
-                    Button("Background Debug…") {
-                        BackgroundDebugWindowController.shared.show()
-                    }
+                    Button(String(localized: "debug.menu.cefBrowser", defaultValue: "Chromium Browser (CEF)…")) { CEFBrowserDebugWindowController.shared.show() }
+                    Button("Background Debug…") { BackgroundDebugWindowController.shared.show() }
                     Button("Pro Badge Style…") {
                         ProBadgeDebugWindowController.shared.show()
                     }
@@ -1474,7 +1473,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.bonsplitTabBarDebug",
     "cmux.titlebarLayoutDebug",
     "cmux.devWindowDisplay",
-    "cmux.mobilePairingWindow",
+    "cmux.mobilePairingWindow", "cmux.cefBrowserDebug",
 ]
 
 /// Returns whether the given window should handle the standard close shortcut

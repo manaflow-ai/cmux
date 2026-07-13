@@ -7,7 +7,7 @@ extension ContentView {
             { _ in value }
         }
 
-        return [
+        var contributions: [CommandPaletteCommandContribution] = [
             CommandPaletteCommandContribution(
                 commandId: "palette.triggerFlash",
                 title: constant(String(localized: "command.triggerFlash.title", defaultValue: "Flash Focused Panel")),
@@ -27,6 +27,19 @@ extension ContentView {
                 keywords: ["sleepy", "screensaver", "caffeinate", "keep awake", "do not sleep", "lock", "pets", "night"]
             ),
         ]
+        // DEBUG-only, like the Debug menu entry: the CEF runtime is
+        // bundled only into Debug builds (scripts/copy-cef-runtime-dev.sh),
+        // so Release builds must not advertise a command that can never
+        // open a browser.
+        #if DEBUG
+        contributions.append(CommandPaletteCommandContribution(
+            commandId: "palette.openCefBrowser",
+            title: constant(String(localized: "command.openCefBrowser.title", defaultValue: "Chromium Browser (CEF)")),
+            subtitle: constant(String(localized: "command.closeWindow.subtitle", defaultValue: "Window")),
+            keywords: ["chromium", "cef", "chrome", "browser", "devtools", "extension", "profile"]
+        ))
+        #endif
+        return contributions
     }
 
     static func appendViewZoomCommandContributions(
@@ -81,5 +94,10 @@ extension ContentView {
         registry.register(commandId: "palette.sleepyMode") {
             SleepyModeController.shared.activate()
         }
+        #if DEBUG
+        registry.register(commandId: "palette.openCefBrowser") {
+            CEFBrowserDebugWindowController.shared.show()
+        }
+        #endif
     }
 }

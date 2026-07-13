@@ -1047,6 +1047,7 @@ jobs:
           # job), and their test runners link a C stub for the @_silgen_name
           # symbol instead of the GhosttyKit archive.
           PACKAGES=(
+            CEFKit
             CMUXAuthCore
             CmuxCanvasUI
             CmuxCore
