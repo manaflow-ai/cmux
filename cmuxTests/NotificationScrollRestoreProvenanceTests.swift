@@ -9,6 +9,22 @@ import Testing
 #endif
 
 extension NotificationScrollRestoreTests {
+    @Test func exactScrollbarReplacementClearsOlderPendingPacket() throws {
+        let buffer = GhosttyScrollbarUpdateBuffer()
+        #expect(buffer.enqueue(scrollbar(total: 100, offset: 56, visible: 44)))
+        #expect(!buffer.enqueue(scrollbar(total: 120, offset: 76, visible: 44)))
+
+        let exact = buffer.replaceAndTakeExact(scrollbar(total: 400, offset: 218, visible: 44))
+        #expect(exact.total == 400)
+        #expect(exact.offset == 218)
+        #expect(buffer.takePending() == nil)
+
+        #expect(buffer.enqueue(scrollbar(total: 420, offset: 238, visible: 44)))
+        let future = try #require(buffer.takePending())
+        #expect(future.total == 420)
+        #expect(future.offset == 238)
+    }
+
     @Test func rowSpaceRevisionInvalidatesPreReplayNotification() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 100, offset: 56, visible: 44)
