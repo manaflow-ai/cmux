@@ -8,6 +8,25 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func kimiHookProviderHasLifecycleRestoreAndHelpParity() throws {
+        #expect(AgentHibernationLifecycleStatusKeys.isAllowed("kimi"))
+
+        let kind = try #require(RestorableAgentKind(rawValue: "kimi"))
+        #expect(kind.customAgentID == nil)
+        #expect(RestorableAgentKind.allCases.contains { $0.rawValue == "kimi" })
+
+        let result = runProcess(
+            executablePath: try bundledCLIPath(),
+            arguments: ["hooks", "--help"],
+            environment: ["CMUX_CLI_SENTRY_DISABLED": "1"],
+            timeout: 5
+        )
+        #expect(!result.timedOut)
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout.contains("kimi"))
+        #expect(result.stdout.contains("~/.kimi-code/config.toml"))
+    }
+
     @Test func providerStopAdapterDistinguishesInterruptionsFromCompletion() throws {
         let adapter = AgentStopStateAdapter()
         let kimiInterrupt = ClaudeHookParsedInput(

@@ -16,12 +16,31 @@ struct AgentResumeArgvTests {
         ("codebuddy", "codebuddy", ["codebuddy", "--resume", "SID"]),
         ("factory", "droid", ["droid", "--resume", "SID"]),
         ("qoder", "qodercli", ["qodercli", "--resume", "SID"]),
+        ("kimi", "kimi", ["kimi", "--session", "SID"]),
     ])
     func builtInWithOptionKinds(kind: String, executable: String, expected: [String]) {
         #expect(
             AgentResumeArgv().builtInKind(
                 kind: kind, sessionId: "SID", executablePath: nil, arguments: [executable]
             ) == expected
+        )
+    }
+
+    @Test("Kimi resume removes stale session and prompt state")
+    func kimiResumeSanitizesCapturedArguments() {
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "kimi",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: [
+                    "kimi",
+                    "--session", "OLD",
+                    "--model", "kimi-k2",
+                    "--yolo",
+                    "--prompt", "do not replay this prompt",
+                ]
+            ) == ["kimi", "--session", "SID", "--model", "kimi-k2", "--yolo"]
         )
     }
 
