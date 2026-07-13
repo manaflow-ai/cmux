@@ -63,9 +63,9 @@ export default function App() {
         open={drawer === "open"}
         workspaces={connection.view}
         onClose={() => dispatchDrawer("close")}
-        onSelect={async (...args) => {
+        onSelect={(...args) => {
           dispatchDrawer("select");
-          await connection.selectScreen(...args);
+          connection.selectScreen(...args);
         }}
         onNewWorkspace={connection.mutations.newWorkspace}
         onNewScreen={connection.mutations.newScreen}
@@ -79,7 +79,7 @@ export default function App() {
         onNewTab={connection.mutations.newTab}
         onSplit={connection.mutations.split}
         onSetRatio={connection.mutations.setRatio}
-        onFocusPane={connection.mutations.focusPane}
+        onSelectPane={connection.selectPane}
         onZoomPane={connection.mutations.zoomPane}
         onClosePane={connection.mutations.closePane}
         onCloseSurface={connection.mutations.closeSurface}

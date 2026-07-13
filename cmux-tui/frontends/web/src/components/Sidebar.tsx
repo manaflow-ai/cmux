@@ -12,7 +12,7 @@ interface SidebarProps {
   open: boolean;
   workspaces: WorkspaceView[];
   onClose(): void;
-  onSelect(workspaceIndex: number, screenIndex: number, surface: Id | null): void;
+  onSelect(workspaceId: Id, screenId: Id, surface: Id | null): void;
   onNewWorkspace(): void;
   onNewScreen(workspace: Id): void;
   onCloseWorkspace(workspace: Id): void;
@@ -21,14 +21,13 @@ interface SidebarProps {
 
 interface WorkspaceRowProps {
   workspace: WorkspaceView;
-  workspaceIndex: number;
-  onSelect(workspaceIndex: number, screenIndex: number, surface: Id | null): void;
+  onSelect(workspaceId: Id, screenId: Id, surface: Id | null): void;
   onNewScreen(workspace: Id): void;
   onClose(workspace: Id): void;
   onRename(workspace: Id, name: string): void;
 }
 
-function WorkspaceRow({ workspace, workspaceIndex, onSelect, onNewScreen, onClose, onRename }: WorkspaceRowProps) {
+function WorkspaceRow({ workspace, onSelect, onNewScreen, onClose, onRename }: WorkspaceRowProps) {
   const [menu, dispatchMenu] = useReducer(contextMenuReducer, { open: false });
   const [rename, dispatchRename] = useReducer(renameReducer, null);
   const trigger = useContextTrigger((point) => dispatchMenu({ type: "open", point }));
@@ -43,7 +42,9 @@ function WorkspaceRow({ workspace, workspaceIndex, onSelect, onNewScreen, onClos
     <div
       className={`workspace-row${workspace.active ? " active" : ""}`}
       {...trigger}
-      onClick={() => onSelect(workspaceIndex, activeScreen?.screenIndex ?? 0, activeScreen?.tab?.surface ?? null)}
+      onClick={() => {
+        if (activeScreen) onSelect(...screenSelection(activeScreen));
+      }}
       role="button"
       tabIndex={0}
       onKeyDown={(event) => {
@@ -140,11 +141,10 @@ export function Sidebar({
       <nav aria-label={t("workspaces")}>
         <div className="workspace-list">
           {workspaces.length === 0 && <p className="empty-sidebar">{t("noSessions")}</p>}
-          {workspaces.map((workspace, workspaceIndex) => (
+          {workspaces.map((workspace) => (
             <WorkspaceRow
               key={workspace.id}
               workspace={workspace}
-              workspaceIndex={workspaceIndex}
               onSelect={onSelect}
               onNewScreen={onNewScreen}
               onClose={onCloseWorkspace}

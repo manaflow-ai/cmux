@@ -20,7 +20,7 @@ interface TerminalPaneProps {
   onNewTab(pane: Id): void;
   onSplit(pane: Id, dir: "right" | "down"): void;
   onSetRatio(pane: Id, dir: "right" | "down", ratio: number): Promise<boolean>;
-  onFocusPane(pane: Id): void;
+  onSelectPane(pane: Id): void;
   onZoomPane(pane: Id): void;
   onClosePane(pane: Id): void;
   onCloseSurface(surface: Id): void;
@@ -97,7 +97,7 @@ function PaneLeaf({
   onSelectTab,
   onNewTab,
   onSplit,
-  onFocusPane,
+  onSelectPane,
   onZoomPane,
   onClosePane,
   onCloseSurface,
@@ -137,7 +137,7 @@ function PaneLeaf({
       onPointerDown={(event) => {
         startLongPress(event);
         if ((event.target as HTMLElement).closest(".tab-bar, .extra-keys")) return;
-        if (!active) onFocusPane(paneId);
+        if (!active) onSelectPane(paneId);
       }}
     >
       <div className="tab-bar">

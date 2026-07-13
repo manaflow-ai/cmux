@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   CmuxClient,
   CmuxTimeoutError,
@@ -11,8 +11,13 @@ import {
   type Tree,
 } from "cmux/browser";
 import { browserClientName } from "../lib/clientName";
+import {
+  initialLocalSelectionState,
+  localSelectionReducer,
+  selectionSnapshot,
+} from "../lib/localSelection";
 import { reconnectTransition, type ReconnectState } from "../lib/reconnect";
-import { activeScreen, treeToViewModel } from "../lib/tree";
+import { activeScreen, locateSurface, treeToViewModel } from "../lib/tree";
 import { t } from "../i18n";
 
 export interface ConnectionConfig {
@@ -49,6 +54,7 @@ export function useCmuxClient() {
   const [state, setState] = useState<ConnectionState>(initialState);
   const [unread, setUnread] = useState<Set<Id>>(() => new Set());
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [selection, dispatchSelection] = useReducer(localSelectionReducer, initialLocalSelectionState);
   const refreshRef = useRef<(() => Promise<void>) | null>(null);
   const localToastId = useRef(-1);
 
@@ -61,7 +67,10 @@ export function useCmuxClient() {
     const refresh = async () => {
       if (!activeClient) return;
       const tree = await activeClient.listWorkspaces();
-      if (!cancelled) setState((current) => ({ ...current, tree }));
+      if (!cancelled) {
+        setState((current) => ({ ...current, tree }));
+        dispatchSelection({ type: "tree-updated", snapshot: selectionSnapshot(tree) });
+      }
     };
     const refreshClients = async () => {
       if (!activeClient) return;
@@ -114,6 +123,7 @@ export function useCmuxClient() {
         // starts from the first backoff step, not the cap.
         previousAttempt = 0;
         setState({ status: "connected", client, info, tree, clients, error: null, reconnect: null });
+        dispatchSelection({ type: "tree-updated", snapshot: selectionSnapshot(tree) });
 
         void (async () => {
           for (;;) {
@@ -182,6 +192,7 @@ export function useCmuxClient() {
   }, [config]);
 
   const connect = useCallback((next: ConnectionConfig) => {
+    dispatchSelection({ type: "reset" });
     setConfig({ ...next, token: next.token || undefined });
   }, []);
 
@@ -204,17 +215,18 @@ export function useCmuxClient() {
     }
   }, [state.client]);
 
-  const selectScreen = useCallback(async (workspaceIndex: number, screenIndex: number, surface: Id | null) => {
-    await runMutation(async (client) => {
-      await client.selectWorkspace({ index: workspaceIndex });
-      await client.selectScreen({ index: screenIndex });
-      if (surface !== null) setUnread((current) => {
-        const next = new Set(current);
-        next.delete(surface);
-        return next;
-      });
+  const selectScreen = useCallback((workspaceId: Id, screenId: Id, surface: Id | null) => {
+    dispatchSelection({ type: "navigate", workspaceId, screenId });
+    if (surface !== null) setUnread((current) => {
+      const next = new Set(current);
+      next.delete(surface);
+      return next;
     });
-  }, [runMutation]);
+  }, []);
+
+  const selectPane = useCallback((paneId: Id) => {
+    dispatchSelection({ type: "select-pane", paneId });
+  }, []);
 
   const selectTab = useCallback(async (pane: Id, index: number, surface: Id) => {
     await runMutation(async (client) => {
@@ -227,13 +239,30 @@ export function useCmuxClient() {
     });
   }, [runMutation]);
 
+  // Creation responses carry only the new surface id; selection is local, so
+  // follow the creation by locating that surface in a fresh tree and
+  // navigating there — only this client moves, per-client navigation intact.
+  const createAndFollow = useCallback(
+    (create: (client: CmuxClient) => Promise<{ surface: Id }>) =>
+      runMutation(async (client) => {
+        const created = await create(client);
+        const tree = await client.listWorkspaces();
+        setState((current) => ({ ...current, tree }));
+        dispatchSelection({ type: "tree-updated", snapshot: selectionSnapshot(tree) });
+        const target = locateSurface(tree, created.surface);
+        if (target) {
+          dispatchSelection({ type: "navigate", workspaceId: target.workspaceId, screenId: target.screenId });
+        }
+      }),
+    [runMutation],
+  );
+
   const mutations = useMemo(() => ({
-    newWorkspace: () => runMutation((client) => client.newWorkspace()),
-    newScreen: (workspace: Id) => runMutation((client) => client.newScreen({ workspace })),
+    newWorkspace: () => createAndFollow((client) => client.newWorkspace()),
+    newScreen: (workspace: Id) => createAndFollow((client) => client.newScreen({ workspace })),
     newTab: (pane: Id) => runMutation((client) => client.newTab({ pane })),
     newBrowserTab: (pane: Id, url: string) => runMutation((client) => client.newBrowserTab(url, { pane })),
     split: (pane: Id, dir: "right" | "down") => runMutation((client) => client.split(pane, dir)),
-    focusPane: (pane: Id) => runMutation((client) => client.focusPane(pane)),
     closeWorkspace: (workspace: Id) => runMutation((client) => client.closeWorkspace(workspace)),
     closeScreen: (screen: Id) => runMutation((client) => client.closeScreen(screen)),
     closePane: (pane: Id) => runMutation((client) => client.closePane(pane)),
@@ -254,7 +283,7 @@ export function useCmuxClient() {
         clients: current.clients.filter((item) => item.client !== clientId),
       }));
     }),
-  }), [runMutation]);
+  }), [createAndFollow, runMutation]);
 
   const refreshClients = useCallback(() => runMutation(async (client) => {
     const clients = await client.listClients();
@@ -265,7 +294,10 @@ export function useCmuxClient() {
     setToasts((current) => current.filter((toast) => toast.notification !== notification));
   }, []);
 
-  const view = useMemo(() => state.tree ? treeToViewModel(state.tree, unread) : [], [state.tree, unread]);
+  const view = useMemo(
+    () => state.tree ? treeToViewModel(state.tree, unread, selection) : [],
+    [selection, state.tree, unread],
+  );
   return {
     ...state,
     view,
@@ -273,6 +305,7 @@ export function useCmuxClient() {
     toasts,
     connect,
     selectScreen,
+    selectPane,
     selectTab,
     mutations,
     refreshClients,

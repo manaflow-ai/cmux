@@ -10,8 +10,7 @@ vi.mock("../src/hooks/useAttachedTerminal", () => ({
 function screenView(ratio: number, zoomedPane: number | null = null): ScreenView {
   return {
     id: 10,
-    workspaceIndex: 0,
-    screenIndex: 0,
+    workspaceId: 9,
     label: "test",
     active: true,
     pane: null,
@@ -37,7 +36,7 @@ function terminalPaneProps(onSetRatio: (pane: number, dir: "right" | "down", rat
     onNewTab: vi.fn(),
     onSplit: vi.fn(),
     onSetRatio,
-    onFocusPane: vi.fn(),
+    onSelectPane: vi.fn(),
     onZoomPane: vi.fn(),
     onClosePane: vi.fn(),
     onCloseSurface: vi.fn(),

@@ -61,7 +61,7 @@ interface StatusBarProps {
   workspace: WorkspaceView | null;
   session: string | null;
   clients: ClientInfo[];
-  onSelectScreen(workspaceIndex: number, screenIndex: number, surface: Id | null): void;
+  onSelectScreen(workspaceId: Id, screenId: Id, surface: Id | null): void;
   onNewScreen(workspace: Id): void;
   onCloseScreen(screen: Id): void;
   onRenameScreen(screen: Id, name: string): void;

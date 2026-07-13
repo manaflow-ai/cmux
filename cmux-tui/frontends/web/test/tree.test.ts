@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Tree } from "cmux/browser";
+import { initialLocalSelectionState } from "../src/lib/localSelection";
 import { activeScreen, screenSelection, treeToViewModel } from "../src/lib/tree";
 
 const tree: Tree = {
@@ -27,20 +28,47 @@ const tree: Tree = {
   }],
 };
 
+const localSelection = {
+  ...initialLocalSelectionState,
+  selectedWorkspaceId: 1,
+  selectedScreenId: 2,
+  selectedPaneId: 3,
+};
+
 describe("treeToViewModel", () => {
   it("maps the active pane and tab and carries unread state to its screen", () => {
-    const view = treeToViewModel(tree, new Set([4]));
+    const view = treeToViewModel(tree, new Set([4]), localSelection);
     expect(view[0]?.screens[0]).toMatchObject({ label: "logs", active: true, unread: true });
     expect(activeScreen(view)?.tab?.surface).toBe(5);
   });
 
-  it("tolerates a missing active pane", () => {
-    const missing = structuredClone(tree);
-    missing.workspaces[0]!.screens[0]!.active_pane = 99;
-    expect(treeToViewModel(missing, new Set())[0]?.screens[0]?.tab).toBeNull();
+  it("uses local pane selection instead of a changed server active pane", () => {
+    const changed = structuredClone(tree);
+    changed.workspaces[0]!.screens[0]!.active_pane = 99;
+    expect(treeToViewModel(changed, new Set(), localSelection)[0]?.screens[0]).toMatchObject({
+      activePane: 3,
+      tab: { surface: 5 },
+    });
   });
 
-  it("exposes every screen to the drawer and maps a screen to the shared selection command", () => {
+  it("derives workspace and screen highlights only from local selection", () => {
+    const changed = structuredClone(tree);
+    changed.workspaces[0]!.active = false;
+    changed.workspaces[0]!.screens[0]!.active = false;
+    const foreignActive = structuredClone(tree.workspaces[0]!);
+    foreignActive.id = 9;
+    foreignActive.active = true;
+    foreignActive.screens[0]!.id = 10;
+    foreignActive.screens[0]!.active = true;
+    changed.workspaces.push(foreignActive);
+
+    const view = treeToViewModel(changed, new Set(), localSelection);
+    expect(view.map(({ id, active }) => [id, active])).toEqual([[1, true], [9, false]]);
+    expect(view[0]?.screens[0]?.active).toBe(true);
+    expect(view[1]?.screens[0]?.active).toBe(false);
+  });
+
+  it("exposes every screen to the drawer and maps a screen to local ID selection", () => {
     const multipleScreens = structuredClone(tree);
     const secondScreen = structuredClone(multipleScreens.workspaces[0]!.screens[0]!);
     secondScreen.id = 6;
@@ -55,9 +83,30 @@ describe("treeToViewModel", () => {
     }];
     multipleScreens.workspaces[0]!.screens.push(secondScreen);
 
-    const drawerWorkspaces = treeToViewModel(multipleScreens, new Set());
+    const drawerWorkspaces = treeToViewModel(multipleScreens, new Set(), localSelection);
 
     expect(drawerWorkspaces[0]?.screens.map(({ id }) => id)).toEqual([2, 6]);
-    expect(screenSelection(drawerWorkspaces[0]!.screens[1]!)).toEqual([0, 1, 8]);
+    expect(screenSelection(drawerWorkspaces[0]!.screens[1]!)).toEqual([1, 6, 8]);
+  });
+});
+
+import { locateSurface } from "../src/lib/tree";
+
+describe("locateSurface", () => {
+  it("finds the workspace and screen containing a surface, or null", () => {
+    const tree = {
+      workspaces: [
+        {
+          id: 1, name: "a", active: false,
+          screens: [
+            { id: 10, workspace: 1, active: true, active_pane: 100, zoomed_pane: null, name: null,
+              layout: { type: "pane", pane: 100 },
+              panes: [{ id: 100, screen: 10, name: null, active_tab: 0, tabs: [{ surface: 7, pane: 100, kind: "pty", browser_source: null, name: null, title: "t", dead: false, cols: 80, rows: 24 }] }] },
+          ],
+        },
+      ],
+    } as never;
+    expect(locateSurface(tree, 7)).toEqual({ workspaceId: 1, screenId: 10 });
+    expect(locateSurface(tree, 99)).toBeNull();
   });
 });
