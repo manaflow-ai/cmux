@@ -370,7 +370,7 @@ extension MobileShellComposite {
             // unavailable/reconnect UI; a failed write to a secondary Mac must not
             // tear the foreground session down.
             if target.isForeground {
-                markMacConnectionUnavailableIfNeeded(after: error)
+                recoverMacConnectionIfNeeded(after: error)
             }
             mobileShellLog.error("workspace mutation failed action=\(actionName, privacy: .public) id=\(logID, privacy: .public) error=\(String(describing: error), privacy: .public)")
             await refreshAfterWorkspaceMutation(target)
@@ -413,7 +413,7 @@ extension MobileShellComposite {
         switch connectionError {
         case .connectionClosed:
             return .notConnected(hostDisplayName: hostDisplayName)
-        case .requestTimedOut:
+        case .requestTimedOut, .transportWriteTimedOut:
             return .requestTimedOut(hostDisplayName: hostDisplayName)
         case .attachTicketExpired, .authorizationFailed, .accountMismatch, .insecureManualRoute:
             return .authorizationFailed(hostDisplayName: hostDisplayName)

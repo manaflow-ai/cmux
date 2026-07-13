@@ -1394,10 +1394,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// True while an automatic reconnect is in progress after a network change
     /// or drop.
-    public private(set) var isRecoveringConnection: Bool = false
+    public internal(set) var isRecoveringConnection: Bool = false
     /// True when automatic recovery could not restore the connection; the UI
     /// surfaces a manual Retry control in this state.
-    public private(set) var connectionRecoveryFailed: Bool = false {
+    public internal(set) var connectionRecoveryFailed: Bool = false {
         didSet {
             // Fire once on the false→true edge ("stuck disconnected, Retry is
             // dead"): the recovery-rate denominator.
@@ -1415,7 +1415,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Retrying cannot fix this, so the UI surfaces the auth message and a
     /// Sign Out action instead of a Retry control. ``connectionError`` carries
     /// the user-facing reason.
-    public private(set) var connectionRequiresReauth: Bool = false
+    public internal(set) var connectionRequiresReauth: Bool = false
 
     private var networkPathObservationStarted = false
     private var networkPathObservationTask: Task<Void, Never>?
@@ -1424,14 +1424,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var lastReconnectStackUserID: String?
 
     enum RecoveryTrigger: CustomStringConvertible {
+        case availabilityFailure
         case networkChange
         case manual
         case presencePush
 
         var reschedulesSecondaryAggregation: Bool { self != .presencePush }
+        var resetsConnectedSession: Bool { self != .presencePush }
 
         var description: String {
             switch self {
+            case .availabilityFailure: return "availabilityFailure"
             case .networkChange: return "networkChange"
             case .manual: return "manual"
             case .presencePush: return "presencePush"
@@ -1463,20 +1466,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         recoverMobileConnection(trigger: .manual)
     }
 
-    /// Single guarded recovery entry for every trigger (network change, manual
-    /// Retry). When still connected, a network move usually only broke the event
-    /// stream while input keeps flowing over the surviving connection, so a
-    /// resync re-subscribes and requests a render-grid replay to repaint.
-    /// Otherwise the connection dropped, so reconnect once; on failure the UI
-    /// shows Retry and the next network change re-attempts automatically.
+    /// Single guarded recovery entry for availability failures, network changes,
+    /// and manual Retry. A transport failure, real path transition, or explicit
+    /// retry rotates the persistent connection; a presence refresh only repairs
+    /// the event subscription. Network.framework then owns transient waiting and
+    /// backoff for the fresh connection.
     func recoverMobileConnection(trigger: RecoveryTrigger) {
         guard remoteClient != nil || pairedMacStore != nil else { return }
-        if connectionState == .connected, remoteClient != nil {
+        if connectionState == .connected,
+           remoteClient != nil,
+           !trigger.resetsConnectedSession {
             markMacConnectionReconnecting()
             resyncTerminalOutput(reason: "networkRecovery.\(trigger)", restartEventStream: true)
-            if multiMacAggregationEnabled, trigger.reschedulesSecondaryAggregation {
-                scheduleSecondaryAggregation()
-            }
             return
         }
         guard !recoveryInFlight else { return }
@@ -1484,13 +1485,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         isRecoveringConnection = true
         connectionRecoveryFailed = false
         let stackUserID = lastReconnectStackUserID
+        let connectedClient = connectionState == .connected ? remoteClient : nil
+        let connectedGeneration = connectionGeneration
         recoveryTask?.cancel()
         recoveryTask = Task { @MainActor [weak self] in
+            var isAwaitingSubscriptionAck = false
             defer {
                 self?.recoveryInFlight = false
-                self?.isRecoveringConnection = false
+                if !isAwaitingSubscriptionAck {
+                    self?.isRecoveringConnection = false
+                }
             }
-            guard let self, self.connectionState != .connected else { return }
+            guard let self else { return }
+            if let connectedClient {
+                isAwaitingSubscriptionAck = await self.resetRemoteSessionForRecovery(
+                    client: connectedClient,
+                    expectedGeneration: connectedGeneration,
+                    reason: "networkRecovery.\(trigger)"
+                )
+                if self.multiMacAggregationEnabled, trigger.reschedulesSecondaryAggregation {
+                    self.scheduleSecondaryAggregation()
+                }
+                return
+            }
+            guard self.connectionState != .connected else { return }
             let reconnected = await self.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
             if !reconnected, !Task.isCancelled {
                 self.connectionRecoveryFailed = true
@@ -5529,42 +5547,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             && isSignedIn
     }
 
-    func markMacConnectionHealthy() {
-        guard connectionState == .connected else {
-            macConnectionStatus = .unavailable
-            return
-        }
-        macConnectionStatus = .connected
-        isRecoveringConnection = false
-        connectionRecoveryFailed = false
-        connectionRequiresReauth = false
-    }
-
-    private func markMacConnectionReconnecting() {
-        guard connectionState == .connected, remoteClient != nil else {
-            macConnectionStatus = .unavailable
-            return
-        }
-        macConnectionStatus = .reconnecting
-        isRecoveringConnection = true
-        connectionRecoveryFailed = false
-    }
-
-    private func markMacConnectionUnavailable() {
-        guard connectionState == .connected else {
-            macConnectionStatus = .unavailable
-            return
-        }
-        macConnectionStatus = .unavailable
-        isRecoveringConnection = false
-        connectionRecoveryFailed = true
-    }
-
-    func markMacConnectionUnavailableIfNeeded(after error: any Error) {
-        guard MobileShellMacAvailabilityFailureClassifier().isAvailabilityFailure(error) else { return }
-        markMacConnectionUnavailable()
-    }
-
     func syncSelectedTerminalForWorkspace() {
         guard let selectedWorkspace else {
             selectedTerminalID = nil
@@ -5742,7 +5724,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             guard generation == connectionGeneration, !Task.isCancelled else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
-            markMacConnectionUnavailableIfNeeded(after: error)
+            recoverMacConnectionIfNeeded(after: error)
             applyOperationalError(error)
         }
     }
@@ -5803,7 +5785,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             guard generation == connectionGeneration else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
-            markMacConnectionUnavailableIfNeeded(after: error)
+            recoverMacConnectionIfNeeded(after: error)
             applyOperationalError(error)
         }
     }
@@ -5887,7 +5869,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             guard generation == connectionGeneration else { return false }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return false }
-            markMacConnectionUnavailableIfNeeded(after: error)
+            recoverMacConnectionIfNeeded(after: error)
             applyOperationalError(error)
             return false
         }
@@ -5984,7 +5966,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             guard generation == connectionGeneration else { return false }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return false }
-            markMacConnectionUnavailableIfNeeded(after: error)
+            recoverMacConnectionIfNeeded(after: error)
             applyOperationalError(error)
             return false
         }
@@ -6491,12 +6473,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             MobileDebugLog.anchormux("sync.liveness re-subscribe silentMs=\(silentMs)")
             self.diagnosticLog?.record(DiagnosticEvent(.livenessResubscribe, ms: UInt32(clamping: silentMs)))
             mobileShellLog.info("render-grid stream silent for \(silentMs, privacy: .public)ms and subscription probe failed, re-subscribing")
-            // resyncTerminalOutput(restartEventStream: true) stops the wedged
-            // listener (which cancels this watchdog via stopTerminalRefreshPolling)
-            // and starts a fresh subscription + watchdog, then replays every
-            // surface so the phone catches up on the deltas it missed while the
-            // stream was dead.
-            self.resyncTerminalOutput(reason: "liveness", restartEventStream: true)
+            // Rotate the wedged transport, then start a fresh subscription and
+            // replay every surface so the phone catches up on missed deltas.
+            let generation = self.connectionGeneration
+            if !(await self.resetRemoteSessionForRecovery(
+                client: client,
+                expectedGeneration: generation,
+                reason: "liveness"
+            )) {
+                self.resyncTerminalOutput(reason: "liveness", restartEventStream: true)
+            }
         }
     }
 
@@ -7520,7 +7506,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 || normalizedMessage.contains("invalid token")
                 || normalizedMessage.contains("expired token")
                 || normalizedMessage.contains("token expired")
-        case .invalidResponse, .connectionClosed, .requestTimedOut:
+        case .invalidResponse, .connectionClosed, .requestTimedOut, .transportWriteTimedOut:
             return false
         }
     }

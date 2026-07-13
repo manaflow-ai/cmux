@@ -82,7 +82,7 @@ extension MobileShellComposite {
             if disconnectForAuthorizationFailureIfNeeded(error) {
                 return .failure(.authorizationFailed(hostDisplayName: connectedHostName))
             }
-            markMacConnectionUnavailableIfNeeded(after: error)
+            recoverMacConnectionIfNeeded(after: error)
             if appliesOperationalError {
                 applyOperationalError(error)
             }
@@ -90,7 +90,7 @@ extension MobileShellComposite {
                 switch connectionError {
                 case .connectionClosed:
                     return .failure(.notConnected(hostDisplayName: connectedHostName))
-                case .requestTimedOut:
+                case .requestTimedOut, .transportWriteTimedOut:
                     return .failure(.requestTimedOut(hostDisplayName: connectedHostName))
                 case .attachTicketExpired, .authorizationFailed, .accountMismatch, .insecureManualRoute:
                     return .failure(.authorizationFailed(hostDisplayName: connectedHostName))

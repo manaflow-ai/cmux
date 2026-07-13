@@ -19,7 +19,7 @@ actor MobileCoreRPCSession {
         let continuation: AsyncStream<MobileEventEnvelope>.Continuation
     }
 
-    private struct PendingWrite: Sendable {
+    struct PendingWrite: Sendable {
         let id: UUID
         let requestID: String
         let frame: Data
@@ -34,7 +34,7 @@ actor MobileCoreRPCSession {
     private let didReceiveConnectedCandidate: ConnectedCandidateHook?
     private var transport: (any CmxByteTransport)?
     private var connectionTask: ConnectingTask?
-    private var installedConnectionID: UUID?
+    var installedConnectionID: UUID?
     private var readerTask: Task<Void, Never>?
     private var pending: [String: PendingContinuation] = [:]
     private var requestTimeoutTasks: [String: Task<Void, Never>] = [:]
@@ -47,6 +47,11 @@ actor MobileCoreRPCSession {
     private var isTearingDown: Bool = false
     private var writeQueue: AsyncStream<PendingWrite>.Continuation?
     private var writerTask: Task<Void, Never>?
+    var activeWrite: (
+        connectionID: UUID,
+        requestID: String,
+        task: Task<Void, any Error>
+    )?
 
     init(
         connectAttemptKey: String? = nil,
@@ -163,20 +168,23 @@ actor MobileCoreRPCSession {
         }
         writeQueue?.finish()
         writeQueue = nil
+        activeWrite?.task.cancel()
+        activeWrite = nil
         writerTask?.cancel()
         writerTask = nil
         let connecting = connectionTask
         connecting?.task.cancel()
         connectionTask = nil
         installedConnectionID = nil
-        if let transport {
-            await transport.close()
-        }
+        let transportToClose = transport
         transport = nil
         readerTask?.cancel()
         readerTask = nil
-        if let connecting { await abandonConnectionTask(connecting) }
         isTearingDown = false
+        if let transportToClose {
+            await transportToClose.close()
+        }
+        if let connecting { await abandonConnectionTask(connecting) }
     }
 
     // MARK: - private
@@ -286,12 +294,19 @@ actor MobileCoreRPCSession {
         transport = candidate
         await connectAttemptRegistry.recordSuccessfulConnect(lease: connectLease)
         readerTask = Task { [weak self] in
-            await self?.readLoop(transport: candidate)
+            await self?.readLoop(
+                transport: candidate,
+                connectionID: connectionID
+            )
         }
         let (stream, continuation) = AsyncStream<PendingWrite>.makeStream(bufferingPolicy: .unbounded)
         writeQueue = continuation
         writerTask = Task { [weak self] in
-            await self?.writeLoop(transport: candidate, frames: stream)
+            await self?.writeLoop(
+                transport: candidate,
+                connectionID: connectionID,
+                frames: stream
+            )
         }
         if callerCancelled {
             throw CancellationError()
@@ -371,53 +386,7 @@ actor MobileCoreRPCSession {
         }
     }
 
-    private func writeLoop(transport: any CmxByteTransport, frames: AsyncStream<PendingWrite>) async {
-        for await write in frames {
-            if Task.isCancelled { return }
-            guard shouldSendQueuedWrite(write) else {
-                continue
-            }
-            do {
-                try await transport.send(write.frame)
-            } catch {
-                await tearDown(error: .connectionClosed)
-                return
-            }
-        }
-    }
-
-    private func readLoop(transport: any CmxByteTransport) async {
-        var buffer = Data()
-        while !Task.isCancelled {
-            let chunk: Data?
-            do {
-                chunk = try await transport.receive()
-            } catch {
-                await tearDown(error: .connectionClosed)
-                return
-            }
-            guard let chunk, !chunk.isEmpty else {
-                if chunk == nil {
-                    await tearDown(error: .connectionClosed)
-                    return
-                }
-                continue
-            }
-            buffer.append(chunk)
-            let frames: [Data]
-            do {
-                frames = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
-            } catch {
-                await tearDown(error: .invalidResponse)
-                return
-            }
-            for frame in frames {
-                dispatch(frame: frame)
-            }
-        }
-    }
-
-    private func dispatch(frame: Data) {
+    func dispatch(frame: Data) {
         let parsed = try? JSONSerialization.jsonObject(with: frame) as? [String: Any]
         guard let envelope = parsed else { return }
         if (envelope["kind"] as? String) == "event" {
@@ -477,16 +446,23 @@ actor MobileCoreRPCSession {
         cont.resume(returning: .failure(.requestTimedOut))
     }
 
-    private func timeoutPendingRequest(requestID: String) {
+    private func timeoutPendingRequest(requestID: String) async {
         guard let cont = pending.removeValue(forKey: requestID) else { return }
+        var timeoutError = MobileShellConnectionError.requestTimedOut
         requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
         if let queuedWriteID = queuedWriteIDs.removeValue(forKey: requestID) {
             cancelledQueuedWriteIDs.insert(queuedWriteID)
         }
-        cont.resume(returning: .failure(.requestTimedOut))
+        if activeWrite?.requestID == requestID {
+            timeoutError = .transportWriteTimedOut
+            activeWrite?.task.cancel()
+            activeWrite = nil
+            await tearDown(error: .connectionClosed)
+        }
+        cont.resume(returning: .failure(timeoutError))
     }
 
-    private func shouldSendQueuedWrite(_ write: PendingWrite) -> Bool {
+    func shouldSendQueuedWrite(_ write: PendingWrite) -> Bool {
         if cancelledQueuedWriteIDs.remove(write.id) != nil {
             return false
         }

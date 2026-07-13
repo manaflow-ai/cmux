@@ -26,13 +26,16 @@ actor StalledWriteTransport: CmxByteTransport {
     func close() async {
         guard !isClosed else { return }
         isClosed = true
-        sendWaiter?.resume(throwing: CancellationError())
-        sendWaiter = nil
         let waiters = receiveWaiters
         receiveWaiters = []
         for waiter in waiters {
             waiter.resume(returning: nil)
         }
+    }
+
+    func failStalledSend() {
+        sendWaiter?.resume(throwing: CancellationError())
+        sendWaiter = nil
     }
 
     func closed() -> Bool {

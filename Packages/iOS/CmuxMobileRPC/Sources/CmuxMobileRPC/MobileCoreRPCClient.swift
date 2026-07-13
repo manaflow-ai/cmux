@@ -65,6 +65,16 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         await session.tearDown(error: .connectionClosed)
     }
 
+    /// Drops the current transport while preserving this client's route and ticket.
+    ///
+    /// The next request lazily establishes a fresh transport. Call this only
+    /// after a liveness probe or availability failure proves the
+    /// persistent session is stale; ordinary response timeouts remain isolated
+    /// to their request.
+    public func resetConnectionForRecovery() async {
+        await session.tearDown(error: .connectionClosed)
+    }
+
     /// Subscribe to server-pushed events. Returns a stream of envelopes
     /// matching any of the requested topics. Cancel by terminating iteration.
     public func subscribe(to topics: Set<String>) async -> AsyncStream<MobileEventEnvelope> {

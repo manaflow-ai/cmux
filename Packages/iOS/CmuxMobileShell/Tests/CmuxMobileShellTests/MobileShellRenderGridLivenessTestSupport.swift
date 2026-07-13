@@ -408,32 +408,6 @@ actor LivenessHostRouter {
     }
 }
 
-/// Holds the live transport instance so the test can push unsolicited
-/// server-side event frames through the same receive path production uses.
-final class TransportBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var transport: LivenessTransport?
-
-    func set(_ transport: LivenessTransport) {
-        lock.withLock { self.transport = transport }
-    }
-
-    func get() -> LivenessTransport? {
-        lock.withLock { transport }
-    }
-}
-
-struct LivenessTransportFactory: CmxByteTransportFactory {
-    let router: LivenessHostRouter
-    let box: TransportBox
-
-    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
-        let transport = LivenessTransport(router: router)
-        box.set(transport)
-        return transport
-    }
-}
-
 actor LivenessTransport: CmxByteTransport {
     private let router: LivenessHostRouter
     private var pendingFrames: [Data] = []

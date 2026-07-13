@@ -48,9 +48,9 @@ import Testing
         do {
             _ = try await client.sendRequest(stalledRequest)
             Issue.record("Expected the stalled write to time out")
-        } catch MobileShellConnectionError.requestTimedOut {
+        } catch MobileShellConnectionError.transportWriteTimedOut {
         } catch {
-            Issue.record("Expected requestTimedOut, got \(error)")
+            Issue.record("Expected transportWriteTimedOut, got \(error)")
         }
 
         let retryRequest = try MobileCoreRPCClient.requestData(
@@ -74,6 +74,23 @@ import Testing
         } catch {
             Issue.record("The request after a stalled write should reconnect, got \(error)")
         }
+
+        // A cancelled send may unwind after its replacement transport is live.
+        // Its stale writer must not tear down the newer connection.
+        await stalled.failStalledSend()
+        let requestAfterLateFailure = try MobileCoreRPCClient.requestData(
+            method: "terminal.input",
+            params: [
+                "workspace_id": "workspace-main",
+                "terminal_id": "terminal-main",
+                "text": "c",
+            ],
+            id: "third-after-late-failure"
+        )
+        _ = try await client.sendRequest(
+            requestAfterLateFailure,
+            timeoutNanoseconds: 500_000_000
+        )
 
         #expect(factory.createdTransportCount() == 2)
         #expect(await stalled.closed())
