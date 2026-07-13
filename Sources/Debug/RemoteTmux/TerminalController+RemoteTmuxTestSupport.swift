@@ -193,8 +193,24 @@ extension TerminalController {
                     )
                     return planner.outerSizes(of: plan)
                 }()
+                var nativeGeometryReady = !plannedOuterSizes.isEmpty
                 for leaf in tree.paneIDsInOrder {
                     guard let node = leavesByPaneID[leaf] else { continue }
+                    if let planned = plannedOuterSizes[leaf],
+                       let hostedView = mirror.panelsByPaneId[leaf]?.hostedView {
+                        let actual = hostedView.frame.size
+                        if abs(planned.width - actual.width) > 1.5
+                            || abs(planned.height - actual.height) > 1.5 {
+                            nativeGeometryReady = false
+                            mismatches.append(
+                                "%\(leaf) native-geometry"
+                                    + " plan=\(Int(planned.width))x\(Int(planned.height))"
+                                    + " view=\(Int(actual.width))x\(Int(actual.height))"
+                            )
+                        }
+                    } else {
+                        nativeGeometryReady = false
+                    }
                     // Only a SHORTFALL is a defect: a pane one
                     // column under its span wraps every full line,
                     // while surplus is blank margin (the trailing
@@ -245,8 +261,18 @@ extension TerminalController {
                 // views whose frame drifted off their anchor draw
                 // OVER chrome (tab strips, dividers, neighbors)
                 // even when every grid is exact.
+                let mirrorHostedViewIDs = Set(
+                    mirror.panelsByPaneId.values.map { ObjectIdentifier($0.hostedView) }
+                )
+                var portalGeometryReady = true
                 if let hostWindow = mirror.visibleHostingContext()?.window {
-                    for desc in TerminalWindowPortalRegistry.misplacedHostedViewDescriptions(for: hostWindow) {
+                    let portalMismatches = TerminalWindowPortalRegistry
+                        .misplacedHostedViewDescriptions(
+                            for: hostWindow,
+                            hostedViewIDs: mirrorHostedViewIDs
+                        )
+                    portalGeometryReady = portalMismatches.isEmpty
+                    for desc in portalMismatches {
                         mismatches.append("misplaced \(desc)")
                     }
                 }
@@ -256,6 +282,8 @@ extension TerminalController {
                 )
                 let sizingReady = !mirror.sizingPassScheduled
                     && mirror.lastCompletedSizingInputs != nil
+                    && nativeGeometryReady
+                    && portalGeometryReady
                 windows.append([
                     "window": windowId,
                     "claimed": claimed.map { "\($0.0)x\($0.1)" } ?? "none",

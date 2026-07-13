@@ -6,9 +6,10 @@ extension WindowTerminalPortal {
     /// definitive "terminal drawn over chrome" detector: the portal paints
     /// hosted content above SwiftUI at the anchor's rect, so any divergence
     /// means content is covering chrome or a neighboring pane.
-    func misplacedHostedViewDescriptions() -> [String] {
+    func misplacedHostedViewDescriptions(hostedViewIDs: Set<ObjectIdentifier>? = nil) -> [String] {
         var descriptions: [String] = []
-        for entry in entriesByHostedId.values {
+        for (hostedViewID, entry) in entriesByHostedId {
+            if let hostedViewIDs, !hostedViewIDs.contains(hostedViewID) { continue }
             guard let hosted = entry.hostedView,
                   let anchor = entry.anchorView,
                   entry.visibleInUI,
@@ -33,8 +34,11 @@ extension WindowTerminalPortal {
 
     /// Logs the widest anchor's superview chain so the first view wider than
     /// its window identifies a content-derived ideal on the SwiftUI side.
-    func debugLogWidestAnchorChain() {
-        let anchors = entriesByHostedId.values.compactMap(\.anchorView)
+    func debugLogWidestAnchorChain(hostedViewIDs: Set<ObjectIdentifier>? = nil) {
+        let anchors = entriesByHostedId.compactMap { hostedViewID, entry in
+            guard hostedViewIDs?.contains(hostedViewID) != false else { return nil }
+            return entry.anchorView
+        }
             .filter { $0.window != nil }
         guard let anchor = anchors.max(by: { $0.bounds.width < $1.bounds.width }) else { return }
         var node: NSView? = anchor
@@ -51,10 +55,17 @@ extension WindowTerminalPortal {
 }
 
 extension TerminalWindowPortalRegistry {
-    static func misplacedHostedViewDescriptions(for window: NSWindow) -> [String] {
+    static func misplacedHostedViewDescriptions(
+        for window: NSWindow,
+        hostedViewIDs: Set<ObjectIdentifier>? = nil
+    ) -> [String] {
         let portal = portalsByWindowId[ObjectIdentifier(window)]
-        let descriptions = portal?.misplacedHostedViewDescriptions() ?? []
-        if !descriptions.isEmpty { portal?.debugLogWidestAnchorChain() }
+        let descriptions = portal?.misplacedHostedViewDescriptions(
+            hostedViewIDs: hostedViewIDs
+        ) ?? []
+        if !descriptions.isEmpty {
+            portal?.debugLogWidestAnchorChain(hostedViewIDs: hostedViewIDs)
+        }
         return descriptions
     }
 }

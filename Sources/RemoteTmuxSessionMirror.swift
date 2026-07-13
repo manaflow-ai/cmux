@@ -177,6 +177,10 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         if workspace?.remoteTmuxSessionMirror === self {
             workspace?.remoteTmuxSessionMirror = nil
         }
+        // Detach owns the whole mirror set, so prune the sizing ledger once.
+        // Each mirror's teardown then sees no claim and avoids rescanning the
+        // shrinking maxima table once per window.
+        connection.retainWindowSizeClaims(for: [])
         for mirror in windowMirrorByWindowId.values {
             workspace?.setRemoteTmuxWindowMirror(nil, forPanelId: mirror.panelId)
             mirror.teardown()

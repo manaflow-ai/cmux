@@ -50,12 +50,16 @@ RUN_DIR=$(mktemp -d "$LOCAL_TMP_ROOT/cmux-remote-tmux-fuzz.XXXXXXXX") || {
 RULER="$RUN_DIR/ruler.sh"
 WORKSPACE_REF=""
 CMUX_FUZZ_LOCK_OWNED=0
+FUZZ_SERVER_OWNED=0
 
 cleanup() {
   local status=$?
   trap - EXIT
   if [ "$DRY" != 1 ] && [ -n "$WORKSPACE_REF" ]; then
     "$CLI" workspace close "$WORKSPACE_REF" >/dev/null 2>&1
+  fi
+  if [ "$FUZZ_SERVER_OWNED" = 1 ]; then
+    t kill-server >/dev/null 2>&1 || true
   fi
   cmux_fuzz_lock_release
   rm -rf -- "$RUN_DIR"
@@ -75,9 +79,9 @@ rand() { state=$(( (state * 1103515245 + 12345) % 2147483648 )); R=$(( state % $
 # kill-server yanks layouts out from under the first, manufacturing
 # failures no code produced. The marathon holds the lock for its whole
 # run and passes its private directory + token to each child.
-if [ "$DRY" != 1 ] && [ "${CMUX_FUZZ_LOCK_HELD:-0}" = 1 ]; then
+if [ "${CMUX_FUZZ_LOCK_HELD:-0}" = 1 ]; then
   cmux_fuzz_lock_validate_inherited || exit $?
-elif [ "$DRY" != 1 ]; then
+else
   cmux_fuzz_lock_acquire "$LOCAL_TMP_ROOT" || exit $?
 fi
 
@@ -228,8 +232,12 @@ check_screen_oracle() {
 
 # Fresh lab: 2 windows, random pane counts, ruler panes that redraw to their
 # tty size every 2s (a wrapped ruler is visible in text comparison).
-t kill-server 2>/dev/null
 mkdir -p "$TMPDIR_REMOTE"
+if t list-sessions >/dev/null 2>&1; then
+  echo "FUZZ SETUP FAIL seed=$SEED: tmux server already exists under $TMPDIR_REMOTE; refusing to kill an unowned lab" >&2
+  exit 98
+fi
+FUZZ_SERVER_OWNED=1
 cat > "$RULER" <<'EOF'
 #!/bin/sh
 unset COLUMNS LINES
