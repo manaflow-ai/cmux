@@ -467,12 +467,19 @@ final class CmuxWebView: WKWebView {
             (() => {
               const handler = window.webkit?.messageHandlers?.['\(name)'];
               if (!handler) return;
+              const deepestActiveElement = () => {
+                let element = document.activeElement;
+                while (element?.shadowRoot?.activeElement) {
+                  element = element.shadowRoot.activeElement;
+                }
+                return element;
+              };
               const publish = () => {
                 const viewer = !!document.getElementById('cmux-diff-viewer-config');
-                const helpers = window.__cmuxPasteAsPlainTextHelpers;
-                const element = helpers?.deepestActiveElement?.(document) ?? document.activeElement;
-                const editable = viewer && (!!helpers?.editableTarget?.(element) ||
-                  !!element?.closest?.("select, [contenteditable='true']"));
+                const element = deepestActiveElement();
+                const editable = viewer && !!element?.closest?.(
+                  "input, textarea, select, [contenteditable]:not([contenteditable='false'])"
+                );
                 handler.postMessage({ viewer, editable });
               };
               document.addEventListener('DOMContentLoaded', publish, { once: true });
@@ -515,6 +522,9 @@ final class CmuxWebView: WKWebView {
             AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: event) ?? true
         }, perform: { [weak self] action in
             guard let self else { return }
+            if action == .diffViewerOpenFileSearch {
+                diffViewerFocusStateConfirmed = false
+            }
             let rawAction = action.rawValue.replacingOccurrences(of: "'", with: "\\'")
             evaluateJavaScript("window.__cmuxPerformDiffViewerNavigationAction?.('\(rawAction)')")
         })
