@@ -14,13 +14,13 @@ struct WorkspaceSidebarProcessTitleObservationTests {
         let model = WorkspaceSidebarAgentRuntimeObservationModel()
         var observations = (0..<2_000).map { _ in model.changes() }
 
-        #expect(model.debugChangeObserverCount == observations.count)
+        #expect(model.changeObservers.count == observations.count)
         observations.removeAll()
 
         model.setAgentPIDs(["codex": 42])
 
         #expect(
-            model.debugChangeObserverCount == 0,
+            model.changeObservers.count == 0,
             "A runtime change must reconcile terminated observers instead of retaining and revisiting them on every later event."
         )
     }
@@ -32,14 +32,14 @@ struct WorkspaceSidebarProcessTitleObservationTests {
         )
         var observations = (0..<2_000).map { _ in model.changes() }
 
-        #expect(model.debugChangeObserverCount == observations.count)
+        #expect(model.changeObservers.count == observations.count)
         observations.removeAll()
 
         model.processTitleDidChange()
         scheduler.fireAll()
 
         #expect(
-            model.debugChangeObserverCount == 0,
+            model.changeObservers.count == 0,
             "A settled title publish must reconcile terminated observers instead of retaining and revisiting them on every later title."
         )
     }
