@@ -4,6 +4,51 @@ import Testing
 @testable import CmuxGit
 
 @Suite struct WorktreeIncludeSafetyLimitTests {
+    @Test func createdParentDirectoriesCountTowardItemLimit() throws {
+        let (root, source, destination) = try makeRepositoryFixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let relativePath = "one/two/three/payload"
+        let sourceFile = source.appendingPathComponent(relativePath)
+        try FileManager.default.createDirectory(
+            at: sourceFile.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "value\n".write(to: sourceFile, atomically: true, encoding: .utf8)
+
+        let diagnostics = WorktreeIncludeCopyService(
+            fileManager: .default,
+            limits: WorktreeIncludeCopyLimits(
+                maximumItemCount: 3,
+                maximumByteCount: 1_024,
+                freeSpaceReserve: 0
+            ),
+            availableCapacity: { _ in 1_024 }
+        ).copy(relativePaths: [relativePath], from: source, to: destination)
+
+        #expect(diagnostics.contains { $0.localizedCaseInsensitiveContains("copy limit") })
+        #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path).isEmpty)
+    }
+
+    @Test func unavailableCapacityFailsClosed() throws {
+        let (root, source, destination) = try makeRepositoryFixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceFile = source.appendingPathComponent("payload")
+        try "value\n".write(to: sourceFile, atomically: true, encoding: .utf8)
+
+        let diagnostics = WorktreeIncludeCopyService(
+            fileManager: .default,
+            limits: WorktreeIncludeCopyLimits(
+                maximumItemCount: 10,
+                maximumByteCount: 1_024,
+                freeSpaceReserve: 0
+            ),
+            availableCapacity: { _ in nil }
+        ).copy(relativePaths: ["payload"], from: source, to: destination)
+
+        #expect(diagnostics.contains { $0.localizedCaseInsensitiveContains("available capacity") })
+        #expect(!FileManager.default.fileExists(atPath: destination.appendingPathComponent("payload").path))
+    }
+
     @Test func copiedDirectoryPreservesRestrictivePermissions() async throws {
         let (root, source, destination) = try makeRepositoryFixture()
         defer { try? FileManager.default.removeItem(at: root) }
