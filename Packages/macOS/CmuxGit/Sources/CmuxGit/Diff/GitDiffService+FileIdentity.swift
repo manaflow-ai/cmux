@@ -1,45 +1,71 @@
 import Foundation
 
 extension GitDiffService {
-    /// Rebuilds the selected row's status identity from one complete tracked
-    /// snapshot plus the already-probed exact untracked path. A path-limited
-    /// Git diff can misclassify a rename source as a deletion, so freshness
-    /// validation must retain global rename detection.
-    func currentFileSummary(
+    /// Distinguishes a deleted file plus untracked replacement (`M`) from an
+    /// untracked file at a rename source (`U`). Ordinary rows are validated by
+    /// their bounded one-file diff metadata; only this ambiguous shape needs
+    /// rename detection outside the requested pathspec. `--find-object` keeps
+    /// output scoped to the baseline object instead of scanning every changed
+    /// path into memory.
+    func statusForUntrackedBaselineReplacement(
         repoRoot: String,
         baseline: String,
         path: String,
-        isUntracked: Bool,
         maxOutputBytes: Int
-    ) -> GitDiffQueryResult<GitDiffSummary> {
+    ) -> GitDiffQueryResult<GitDiffStatus> {
+        let objectIDResult = runGit(
+            in: repoRoot,
+            arguments: ["ls-tree", "--full-tree", "-z", baseline, "--", Self.literalPathspec(path)],
+            maxOutputBytes: 64 * 1024
+        )
+        if let failure: GitDiffQueryResult<GitDiffStatus> = queryFailure(from: objectIDResult) {
+            return failure
+        }
+        guard let objectOutput = objectIDResult.successOutput, !objectIDResult.capped else {
+            return .failed
+        }
+        let objectID = objectOutput.split(separator: "\0", omittingEmptySubsequences: true).lazy
+            .compactMap { record -> String? in
+                guard let tab = record.firstIndex(of: "\t") else { return nil }
+                let metadata = record[..<tab].split(separator: " ", omittingEmptySubsequences: true)
+                let recordedPath = record[record.index(after: tab)...]
+                guard metadata.count >= 3, recordedPath == path else { return nil }
+                return String(metadata[2])
+            }
+            .first
+        guard let objectID else { return .notFound }
         let result = runGit(
             in: repoRoot,
             arguments: [
                 "diff", baseline, "--name-status", "-z", "--no-color", "--find-renames",
-                "--no-ext-diff", "--no-textconv",
+                "--find-object=\(objectID)", "--diff-filter=DR", "--no-ext-diff", "--no-textconv",
             ],
             maxOutputBytes: maxOutputBytes
         )
-        if let failure: GitDiffQueryResult<GitDiffSummary> = queryFailure(from: result) {
+        if let failure: GitDiffQueryResult<GitDiffStatus> = queryFailure(from: result) {
             return failure
         }
-        guard let nameStatusData = result.rawOutput, !result.capped else { return .failed }
-        var untrackedData: Data?
-        if isUntracked {
-            var exactPath = Data(path.utf8)
-            exactPath.append(0)
-            untrackedData = exactPath
+        guard let rawOutput = result.rawOutput else { return .failed }
+        let completeOutput: Data
+        if result.capped {
+            guard let lastNul = rawOutput.lastIndex(of: 0) else { return .failed }
+            completeOutput = Data(rawOutput[...lastNul])
+        } else {
+            completeOutput = rawOutput
         }
         let parsed = parseChangedFiles(
             numstatData: nil,
-            nameStatusData: nameStatusData,
-            untrackedData: untrackedData
+            nameStatusData: completeOutput,
+            untrackedData: nil
         )
         guard !parsed.hasUndecodablePath else { return .failed }
-        guard let summary = parsed.files.first(where: { $0.path == path }) else {
-            return .notFound
+        if parsed.files.contains(where: { $0.status == .renamed && $0.oldPath == path }) {
+            return .success(.untracked)
         }
-        return .success(summary)
+        if parsed.files.contains(where: { $0.status == .deleted && $0.path == path }) {
+            return .success(.modified)
+        }
+        return result.capped ? .failed : .notFound
     }
 
     /// Returns both halves of a staged deletion followed by an untracked file

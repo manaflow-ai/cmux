@@ -241,24 +241,6 @@ public struct GitDiffService: Sendable {
         case .timedOut:
             return .timedOut
         }
-        if let status {
-            switch currentFileSummary(
-                repoRoot: repoRoot,
-                baseline: baseline,
-                path: path,
-                isUntracked: untracked,
-                maxOutputBytes: maxOutputBytes
-            ) {
-            case .success(let current) where current.status == status && current.oldPath == oldPath:
-                break
-            case .success, .notFound:
-                return .notFound
-            case .failed:
-                return .failed
-            case .timedOut:
-                return .timedOut
-            }
-        }
         // With no exact baseline, index, or untracked entry, this is either a
         // directory-shaped pathspec or a missing path. A baseline directory is
         // accepted only when the current tree has an exact file replacement.
@@ -282,11 +264,28 @@ public struct GitDiffService: Sendable {
                 return .timedOut
             }
         }
-        let isUntrackedReplacement = status == .modified
-            && requestedBaselineEntry.isFile
+        let hasUntrackedReplacementShape = requestedBaselineEntry.isFile
             && !indexed
             && untracked
             && oldPath == nil
+        if let status, hasUntrackedReplacementShape {
+            switch statusForUntrackedBaselineReplacement(
+                repoRoot: repoRoot,
+                baseline: baseline,
+                path: path,
+                maxOutputBytes: maxOutputBytes
+            ) {
+            case .success(let current) where current == status:
+                break
+            case .success, .notFound:
+                return .notFound
+            case .failed:
+                return .failed
+            case .timedOut:
+                return .timedOut
+            }
+        }
+        let isUntrackedReplacement = status == .modified && hasUntrackedReplacementShape
         if isUntrackedReplacement {
             return untrackedReplacementDiffResult(
                 repoRoot: repoRoot,
