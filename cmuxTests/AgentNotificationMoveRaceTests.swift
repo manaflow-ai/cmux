@@ -21,7 +21,10 @@ struct AgentNotificationRegressionTests {
         let restore: () -> Void
     }
 
-    func makeFixture(policyHookCommand: String? = nil) throws -> Fixture {
+    func makeFixture(
+        policyHookCommand: String? = nil,
+        policyHookTimeoutSeconds: TimeInterval? = nil
+    ) throws -> Fixture {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
@@ -39,7 +42,8 @@ struct AgentNotificationRegressionTests {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             let configURL = root.appendingPathComponent("cmux.json")
             let encodedCommand = try String(data: JSONEncoder().encode(policyHookCommand), encoding: .utf8)
-            try #"{"notifications":{"hooks":[{"id":"move-race","command":\#(encodedCommand ?? "\"cat\"")}]}}"#
+            let timeoutJSON = policyHookTimeoutSeconds.map { ",\"timeoutSeconds\":\($0)" } ?? ""
+            try #"{"notifications":{"hooks":[{"id":"move-race","command":\#(encodedCommand ?? "\"cat\"")\#(timeoutJSON)}]}}"#
                 .write(to: configURL, atomically: true, encoding: .utf8)
             let loadedStore = CmuxConfigStore(
                 globalConfigPath: configURL.path,
@@ -108,6 +112,14 @@ struct AgentNotificationRegressionTests {
         if store.notifications.isEmpty {
             Issue.record("Timed out waiting for policy-delayed notification")
         }
+    }
+
+    func waitForMarker(at url: URL, timeout: Duration = .seconds(5)) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while !FileManager.default.fileExists(atPath: url.path), ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return FileManager.default.fileExists(atPath: url.path)
     }
 
     private func waitForFile(at url: URL) async -> Bool {

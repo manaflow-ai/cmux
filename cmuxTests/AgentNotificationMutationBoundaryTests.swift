@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import Darwin
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -130,6 +131,47 @@ extension AgentNotificationRegressionTests {
 
         await waitForNotification(in: fixture.store)
         #expect(fixture.store.notifications.map(\.body) == ["Replacement after clear"])
+    }
+
+    @Test("Clearing policy work terminates its hook subprocess")
+    func clearTerminatesInFlightPolicyHookProcess() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-policy-cancel-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let pidURL = root.appendingPathComponent("pid")
+        let terminatedURL = root.appendingPathComponent("terminated")
+        let command = "printf '%s' $$ > '\(pidURL.path)'; trap 'touch \"\(terminatedURL.path)\"; exit 0' TERM; while :; do sleep 1; done"
+        let fixture = try makeFixture(
+            policyHookCommand: command,
+            policyHookTimeoutSeconds: 60
+        )
+        defer {
+            fixture.restore()
+            if let rawPID = try? String(contentsOf: pidURL, encoding: .utf8),
+               let pid = pid_t(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                _ = Darwin.kill(-pid, SIGKILL)
+                _ = Darwin.kill(pid, SIGKILL)
+            }
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        fixture.store.addNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Cancel this hook"
+        )
+        #expect(await waitForMarker(at: pidURL))
+
+        fixture.store.clearNotifications(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId
+        )
+
+        #expect(await waitForMarker(at: terminatedURL, timeout: .seconds(2)))
     }
 
     @Test("Agent runtime mutations follow a pane that moves before queue drain")

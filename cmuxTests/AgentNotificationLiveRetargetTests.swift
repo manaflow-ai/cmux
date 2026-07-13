@@ -1,5 +1,6 @@
 import AppKit
 import CmuxControlSocket
+import Darwin
 import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -459,6 +460,68 @@ extension AgentNotificationRegressionTests {
             "A start-time-keyed live process environment must resolve nested-PTY sessions whose controlling TTY differs"
         )
         #expect(agentDeliveryTargetCombining(ttyTarget: nil, envTarget: nil) == nil)
+    }
+
+    @Test
+    func pidResolutionBypassesStaleNegativeTelemetryCacheAfterExec() async throws {
+        let fixture = try makeLiveRetargetFixture()
+        defer { fixture.restore() }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-live-pid-exec-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let initialScript = root.appendingPathComponent("initial.sh")
+        let scopedScript = root.appendingPathComponent("scoped.sh")
+        let readyMarker = root.appendingPathComponent("ready")
+        let execMarker = root.appendingPathComponent("execed")
+        try """
+        touch '\(readyMarker.path)'
+        trap 'exec /bin/sh "\(scopedScript.path)"' USR1
+        while :; do sleep 1; done
+        """.write(to: initialScript, atomically: true, encoding: .utf8)
+        try """
+        export CMUX_SURFACE_ID='\(fixture.panelId.uuidString)'
+        exec /bin/sh -c 'touch "\(execMarker.path)"; exec sleep 30'
+        """.write(to: scopedScript, atomically: true, encoding: .utf8)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [initialScript.path]
+        var environment = ProcessInfo.processInfo.environment
+        ["CMUX_WORKSPACE_ID", "CMUX_TAB_ID", "CMUX_SURFACE_ID", "CMUX_PANEL_ID"].forEach {
+            environment.removeValue(forKey: $0)
+        }
+        process.environment = environment
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        defer {
+            if process.isRunning {
+                _ = Darwin.kill(process.processIdentifier, SIGKILL)
+                process.waitUntilExit()
+            }
+            try? FileManager.default.removeItem(at: root)
+        }
+        #expect(await waitForMarker(at: readyMarker))
+
+        let identity = try #require(agentLiveProcessIdentity(pid: process.processIdentifier))
+        let cachedMiss = CmuxTopProcessSnapshot.cachedCMUXScope(
+            for: Int(process.processIdentifier),
+            cacheKey: identity.scopeCacheKey,
+            nowNanoseconds: DispatchTime.now().uptimeNanoseconds
+        )
+        #expect(cachedMiss == nil)
+        #expect(Darwin.kill(process.processIdentifier, SIGUSR1) == 0)
+        #expect(await waitForMarker(at: execMarker))
+
+        #expect(
+            fixture.appDelegate.liveAgentDeliveryTarget(forAgentPID: process.processIdentifier)
+                == AgentDeliveryTargetCandidate(
+                    workspaceId: fixture.owningWorkspace.id,
+                    surfaceId: fixture.panelId
+                )
+        )
     }
 
     @Test

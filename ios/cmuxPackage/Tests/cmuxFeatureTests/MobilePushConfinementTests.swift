@@ -36,7 +36,6 @@ import Testing
         macDeviceId: nil,
         retargetsToLiveSurfaceOwner: true
     )
-    coordinator.workspacesDidChange()
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-main"))
     #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-build"))
