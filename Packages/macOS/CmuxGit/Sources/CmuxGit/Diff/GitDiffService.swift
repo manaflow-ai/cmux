@@ -110,12 +110,21 @@ public struct GitDiffService: Sendable {
                 additions: additions,
                 deletions: deletions
             )
-            guard snapshotMatches(
+            switch snapshotMatchesResult(
                 snapshotToken,
                 repoRoot: repoRoot,
                 baseline: baseline,
                 summary: summary
-            ) else { return .notFound }
+            ) {
+            case .success(true):
+                break
+            case .success(false), .notFound:
+                return .notFound
+            case .failed:
+                return .failed
+            case .timedOut:
+                return .timedOut
+            }
             expectedSummary = summary
         } else {
             expectedSummary = nil
@@ -256,17 +265,28 @@ public struct GitDiffService: Sendable {
                     paths.append(candidate)
                 }
             }
-        var pathspecs = diffPaths.map(literalPathspec)
+        var descendantExclusions = Set<String>()
         if requestedBaselineEntry.excludesDescendants {
-            pathspecs.append(descendantExclusionPathspec(path))
+            descendantExclusions.insert(path)
         }
         if let oldPath, oldBaselineEntry?.excludesDescendants == true {
-            pathspecs.append(descendantExclusionPathspec(oldPath))
+            descendantExclusions.insert(oldPath)
         }
+        let pathspecs = exactPathspecs(
+            diffPaths,
+            excludingDescendantsOf: descendantExclusions
+        )
+        var arguments = [
+            "diff", baseline, "--no-ext-diff", "--no-textconv", "--no-color", "--find-renames",
+        ]
+        if oldPath != nil {
+            arguments.append("--diff-filter=R")
+        }
+        arguments.append("--")
+        arguments.append(contentsOf: pathspecs)
         let result = runGit(
             in: repoRoot,
-            arguments: ["diff", baseline, "--no-ext-diff", "--no-textconv", "--no-color", "--find-renames", "--"]
-                + pathspecs,
+            arguments: arguments,
             maxOutputBytes: maxOutputBytes
         )
         if let failure: GitDiffQueryResult<GitFileDiff> = queryFailure(from: result) {
@@ -287,52 +307,6 @@ public struct GitDiffService: Sendable {
             expectedSummary: expectedSummary,
             repoRoot: repoRoot
         )
-    }
-
-    private func snapshotMatches(
-        _ expectedToken: String,
-        repoRoot: String,
-        baseline: String,
-        summary: GitDiffSummary
-    ) -> Bool {
-        guard case .success(let context) = snapshotContextResult(
-            repoRoot: repoRoot,
-            baselineObjectID: baseline
-        ), case .success(true) = currentSummaryMatchesResult(
-            repoRoot: repoRoot,
-            baseline: baseline,
-            expected: summary
-        ), case .success(let identities) = snapshotFileIdentitiesResult(
-            repoRoot: repoRoot,
-            summaries: [summary]
-        ), case .success(let semanticIdentity) = rawDiffIdentityResult(
-            repoRoot: repoRoot,
-            baseline: baseline,
-            summary: summary
-        ), let currentTokens = snapshotTokens(
-            context: context,
-            summaries: [summary],
-            identities: identities,
-            semanticIdentities: [semanticIdentity]
-        ), let currentToken = currentTokens.first else { return false }
-        return currentToken == expectedToken
-    }
-
-    private func validatedSnapshotResult(
-        _ diff: GitFileDiff,
-        expectedToken: String?,
-        expectedSummary: GitDiffSummary?,
-        repoRoot: String
-    ) -> GitDiffQueryResult<GitFileDiff> {
-        guard let expectedToken, let expectedSummary else { return .success(diff) }
-        guard case .success(let currentBaseline) = diffBaselineResult(in: repoRoot),
-              snapshotMatches(
-                expectedToken,
-                repoRoot: repoRoot,
-                baseline: currentBaseline,
-                summary: expectedSummary
-              ) else { return .notFound }
-        return .success(diff)
     }
 
     /// Wraps a repository path in `:(literal)` pathspec magic so glob
@@ -356,6 +330,27 @@ public struct GitDiffService: Sendable {
             escapedPath.append(character)
         }
         return ":(top,glob,exclude)\(escapedPath)/**"
+    }
+
+    /// Builds exact endpoint pathspecs without excluding another endpoint that
+    /// is nested below it, as in a rename from `foo` to `foo/bar`.
+    func exactPathspecs(
+        _ paths: [String],
+        excludingDescendantsOf exclusionCandidates: Set<String>
+    ) -> [String] {
+        let uniquePaths = paths.reduce(into: [String]()) { result, path in
+            guard !result.contains(path) else { return }
+            result.append(path)
+        }
+        var pathspecs = uniquePaths.map(literalPathspec)
+        for path in uniquePaths where exclusionCandidates.contains(path) {
+            let prefix = path.hasSuffix("/") ? path : path + "/"
+            guard !uniquePaths.contains(where: { $0 != path && $0.hasPrefix(prefix) }) else {
+                continue
+            }
+            pathspecs.append(descendantExclusionPathspec(path))
+        }
+        return pathspecs
     }
 
     /// Whether `path` is an untracked file. The `:(literal)` pathspec keeps a

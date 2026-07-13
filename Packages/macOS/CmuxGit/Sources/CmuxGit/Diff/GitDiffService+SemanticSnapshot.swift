@@ -61,6 +61,23 @@ extension GitDiffService {
               let identities = rawDiffIdentities(output) else { return .failed }
         let identity = identities[summary.path]
         guard identity != nil || summary.status == .untracked else { return .notFound }
+        if summary.status == .untracked, identity != nil {
+            switch statusForUntrackedBaselineReplacement(
+                repoRoot: repoRoot,
+                baseline: baseline,
+                path: summary.path,
+                maxOutputBytes: 64 * 1024
+            ) {
+            case .success(.untracked):
+                return .success(nil)
+            case .success, .notFound:
+                return .notFound
+            case .failed:
+                return .failed
+            case .timedOut:
+                return .timedOut
+            }
+        }
         guard let identity else { return .success(nil) }
         guard rawIdentityNeedsWorkingTreeHead(identity) else { return .success(identity) }
         switch workingTreeHeadsResult(repoRoot: repoRoot, paths: [summary.path]) {
@@ -161,17 +178,123 @@ extension GitDiffService {
                 && current.additions == expected.additions
                 && current.deletions == expected.deletions
         }
-        return .success(matches)
+        guard !matches, expected.status == .untracked,
+              parsed.files.contains(where: {
+                $0.path == expected.path && $0.status == .modified
+              }) else { return .success(matches) }
+        switch statusForUntrackedBaselineReplacement(
+            repoRoot: repoRoot,
+            baseline: baseline,
+            path: expected.path,
+            maxOutputBytes: 64 * 1024
+        ) {
+        case .success(let status):
+            return .success(status == .untracked)
+        case .notFound:
+            return .success(false)
+        case .failed:
+            return .failed
+        case .timedOut:
+            return .timedOut
+        }
     }
 
     private func snapshotValidationPathspecs(_ summary: GitDiffSummary) -> [String] {
-        [summary.oldPath, summary.path]
-            .compactMap { $0 }
-            .reduce(into: [String]()) { result, path in
-                guard !result.contains(path) else { return }
-                result.append(literalPathspec(path))
-                result.append(descendantExclusionPathspec(path))
-            }
+        let paths = [summary.oldPath, summary.path].compactMap { $0 }
+        return exactPathspecs(paths, excludingDescendantsOf: Set(paths))
+    }
+
+    func snapshotMatchesResult(
+        _ expectedToken: String,
+        repoRoot: String,
+        baseline: String,
+        summary: GitDiffSummary
+    ) -> GitDiffQueryResult<Bool> {
+        let context: SnapshotContext
+        switch snapshotContextResult(repoRoot: repoRoot, baselineObjectID: baseline) {
+        case .success(let value):
+            context = value
+        case .notFound, .failed:
+            return .failed
+        case .timedOut:
+            return .timedOut
+        }
+        switch currentSummaryMatchesResult(
+            repoRoot: repoRoot,
+            baseline: baseline,
+            expected: summary
+        ) {
+        case .success(true):
+            break
+        case .success(false), .notFound:
+            return .success(false)
+        case .failed:
+            return .failed
+        case .timedOut:
+            return .timedOut
+        }
+        let identities: [FileSystemIdentity]
+        switch snapshotFileIdentitiesResult(repoRoot: repoRoot, summaries: [summary]) {
+        case .success(let value):
+            identities = value
+        case .notFound, .failed:
+            return .failed
+        case .timedOut:
+            return .timedOut
+        }
+        let semanticIdentity: Data?
+        switch rawDiffIdentityResult(repoRoot: repoRoot, baseline: baseline, summary: summary) {
+        case .success(let value):
+            semanticIdentity = value
+        case .notFound:
+            return .success(false)
+        case .failed:
+            return .failed
+        case .timedOut:
+            return .timedOut
+        }
+        guard let currentToken = snapshotTokens(
+            context: context,
+            summaries: [summary],
+            identities: identities,
+            semanticIdentities: [semanticIdentity]
+        )?.first else { return .failed }
+        return .success(currentToken == expectedToken)
+    }
+
+    func validatedSnapshotResult(
+        _ diff: GitFileDiff,
+        expectedToken: String?,
+        expectedSummary: GitDiffSummary?,
+        repoRoot: String
+    ) -> GitDiffQueryResult<GitFileDiff> {
+        guard let expectedToken, let expectedSummary else { return .success(diff) }
+        let currentBaseline: String
+        switch diffBaselineResult(in: repoRoot) {
+        case .success(let value):
+            currentBaseline = value
+        case .notFound:
+            return .notFound
+        case .failed:
+            return .failed
+        case .timedOut:
+            return .timedOut
+        }
+        switch snapshotMatchesResult(
+            expectedToken,
+            repoRoot: repoRoot,
+            baseline: currentBaseline,
+            summary: expectedSummary
+        ) {
+        case .success(true):
+            return .success(diff)
+        case .success(false), .notFound:
+            return .notFound
+        case .failed:
+            return .failed
+        case .timedOut:
+            return .timedOut
+        }
     }
 
     private func rawIdentityNeedsWorkingTreeHead(_ identity: Data) -> Bool {

@@ -87,25 +87,19 @@ extension GitDiffService {
         guard let numstatData = completeRecordData(numstat),
               let nameStatusData = completeRecordData(nameStatus),
               let untrackedData = completeRecordData(untracked) else { return .failed }
-        let parsed = parseChangedFiles(
+        let parsed = verifiedChangedFiles(
             numstatData: numstatData,
             nameStatusData: nameStatusData,
-            untrackedData: untrackedData
+            untrackedData: untrackedData,
+            numstatCapped: numstat.capped,
+            nameStatusCapped: nameStatus.capped
         )
         // Git paths are byte identities, while the mobile protocol uses Swift
         // strings. Failing the snapshot is safer than silently dropping an
         // undecodable entry and claiming the visible list is complete.
         guard !parsed.hasUndecodablePath else { return .failed }
-        let verifiedNameStatusPath = nameStatus.capped
-            ? maximumParsedPath(inNameStatusData: nameStatusData)
-            : nil
-        let verifiedFiles = parsed.files.filter { summary in
-            guard summary.status == .untracked, nameStatus.capped else { return true }
-            guard let verifiedNameStatusPath else { return false }
-            return !gitPathPrecedes(verifiedNameStatusPath, summary.path)
-        }
-        let boundedFiles = Array(verifiedFiles.prefix(maxFiles))
-        let reachedFileLimit = boundedFiles.count < verifiedFiles.count
+        let boundedFiles = Array(parsed.files.prefix(maxFiles))
+        let reachedFileLimit = boundedFiles.count < parsed.files.count
         guard !Task.isCancelled else { return .failed }
         let initialFileIdentities: [FileSystemIdentity]
         switch snapshotFileIdentitiesResult(repoRoot: repoRoot, summaries: boundedFiles) {

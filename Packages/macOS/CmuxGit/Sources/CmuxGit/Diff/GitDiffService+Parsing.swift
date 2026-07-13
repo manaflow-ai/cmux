@@ -1,20 +1,6 @@
 internal import Foundation
 
 extension GitDiffService {
-    func maximumParsedPath(inNameStatusData data: Data) -> String? {
-        parseChangedFiles(
-            numstatData: nil,
-            nameStatusData: data,
-            untrackedData: nil
-        ).files.map(\.path).max { lhs, rhs in
-            gitPathPrecedes(lhs, rhs)
-        }
-    }
-
-    func gitPathPrecedes(_ lhs: String, _ rhs: String) -> Bool {
-        lhs.utf8.lexicographicallyPrecedes(rhs.utf8)
-    }
-
     func parseChangedFiles(
         numstatOutput: String?,
         nameStatusOutput: String?,
@@ -48,6 +34,51 @@ extension GitDiffService {
             hasUndecodablePath: numstatTokens.contains(nil)
                 || nameStatusTokens.contains(nil)
                 || untrackedTokens.contains(nil)
+        )
+    }
+
+    /// Merges independently bounded tracked listings only where both commands
+    /// supplied the row metadata. Pure untracked rows are withheld when either
+    /// tracked listing is capped because a missing tracked half could otherwise
+    /// turn that row into a replacement or rename-source shape.
+    func verifiedChangedFiles(
+        numstatData: Data,
+        nameStatusData: Data,
+        untrackedData: Data,
+        numstatCapped: Bool,
+        nameStatusCapped: Bool
+    ) -> GitDiffParseResult {
+        let combined = parseChangedFiles(
+            numstatData: numstatData,
+            nameStatusData: nameStatusData,
+            untrackedData: untrackedData
+        )
+        let numstat = parseChangedFiles(
+            numstatData: numstatData,
+            nameStatusData: nil,
+            untrackedData: nil
+        )
+        let nameStatus = parseChangedFiles(
+            numstatData: nil,
+            nameStatusData: nameStatusData,
+            untrackedData: nil
+        )
+        let numstatByPath = Dictionary(uniqueKeysWithValues: numstat.files.map { ($0.path, $0) })
+        let nameStatusByPath = Dictionary(uniqueKeysWithValues: nameStatus.files.map { ($0.path, $0) })
+        let verified = combined.files.filter { summary in
+            let numstatSummary = numstatByPath[summary.path]
+            let nameStatusSummary = nameStatusByPath[summary.path]
+            if numstatSummary != nil || nameStatusSummary != nil {
+                guard let numstatSummary, let nameStatusSummary else { return false }
+                return numstatSummary.oldPath == nameStatusSummary.oldPath
+            }
+            return !numstatCapped && !nameStatusCapped
+        }
+        return GitDiffParseResult(
+            files: verified,
+            hasUndecodablePath: combined.hasUndecodablePath
+                || numstat.hasUndecodablePath
+                || nameStatus.hasUndecodablePath
         )
     }
 
