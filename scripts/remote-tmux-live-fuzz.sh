@@ -23,7 +23,12 @@ HOST="${1:?usage: CMUX_TAG=<tag> $0 <ssh-host> [seed] [iters]}"
 SEED="${2:-1}"
 ITERS="${3:-25}"
 : "${CMUX_TAG:?CMUX_TAG is required}"
-TMPDIR_REMOTE="${CMUX_FUZZ_TMUX_TMPDIR:-/tmp/cmux-max1}"
+FUZZ_HOST_NAME="${HOST##*@}"
+case "$FUZZ_HOST_NAME" in
+  ''|*[!A-Za-z0-9._-]*) echo "invalid fuzz host name: $FUZZ_HOST_NAME" >&2; exit 2 ;;
+esac
+DEFAULT_TMUX_TMPDIR="$HOME/Library/Caches/cmux/remote-tmux-fuzz/${FUZZ_HOST_NAME}-tmux"
+TMPDIR_REMOTE="${CMUX_FUZZ_TMUX_TMPDIR:-$DEFAULT_TMUX_TMPDIR}"
 DEBUG_LOG="${CMUX_FUZZ_DEBUG_LOG:-/tmp/cmux-debug-${CMUX_TAG}.log}"
 CLI="$(cd "$(dirname "$0")" && pwd)/cmux-debug-cli.sh"
 SETTLE="${CMUX_FUZZ_SETTLE_SECS:-6}"

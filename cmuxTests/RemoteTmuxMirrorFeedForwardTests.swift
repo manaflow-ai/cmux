@@ -173,6 +173,12 @@ import Testing
         #expect(pushed(connection)?.cols == 99)
         #expect(pushed(connection)?.rows == 34) // 620pt − the native 30pt pane tab bar
         #expect(connection.lastWindowSizes[0] != nil)
+        // A pass already queued on the main actor must not resurrect the
+        // claim after the window mirror is removed.
+        mirror.setNeedsSizingPass()
+        mirror.teardown()
+        mirror.performSizingPassNow()
+        #expect(connection.lastWindowSizes[0] == nil)
     }
 
     @Test func pushIsAPureFunctionOfPixelsAndStructureNotTheAssignment() {

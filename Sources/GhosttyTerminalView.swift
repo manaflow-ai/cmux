@@ -3667,7 +3667,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // Visibility is used for focus gating. Explicit portal visibility transitions
     // also drive Ghostty occlusion so hidden workspace/split surfaces pause and
     // queue a redraw when they become visible again.
-    fileprivate var isVisibleInUI: Bool { visibleInUI }
+    var isVisibleInUI: Bool { visibleInUI }
     fileprivate func setVisibleInUI(_ visible: Bool) {
         visibleInUI = visible
     }

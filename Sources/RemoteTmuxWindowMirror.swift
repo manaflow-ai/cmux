@@ -76,6 +76,10 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// tabs stay mounted and still receive geometry callbacks, so default-hidden
     /// prevents early surface callbacks from treating an unselected mirror as visible.
     @ObservationIgnored var isVisibleForSizing = false
+    /// Terminal teardown is final. Run-loop-coalesced sizing callbacks may
+    /// still hold this mirror until the next turn, so they must observe an
+    /// explicit lifecycle edge before touching the shared connection again.
+    @ObservationIgnored var isTornDown = false
 
     /// The flag above, cross-checked against what is actually on screen —
     /// for the settled/mismatch JUDGE, not the sizing gates. The flag alone
@@ -90,11 +94,14 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// sane size (per-window, deduped), while gating them on view state
     /// would break headless callers that never put panes in a window.
     var isEffectivelyVisibleForSizing: Bool {
-        guard isVisibleForSizing else { return false }
-        guard let window = panelsByPaneId.values.first?.hostedView.window else {
-            return false
+        guard !isTornDown, isVisibleForSizing else { return false }
+        return panelsByPaneId.values.contains { panel in
+            let hostedView = panel.hostedView
+            return hostedView.isVisibleInUI
+                && !hostedView.isHidden
+                && hostedView.superview != nil
+                && hostedView.window?.isVisible == true
         }
-        return window.isVisible
     }
 
     /// ``TerminalPanel`` per tmux pane id. Not observation-tracked: the view
@@ -399,14 +406,21 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
 
     /// Tears down every pane panel (called when the window-tab is removed).
     func teardown() {
+        guard !isTornDown else { return }
+        isTornDown = true
+        isVisibleForSizing = false
+        sizingPassScheduled = false
+        lastCompletedSizingInputs = nil
+        let activeConnection = connection
+        activeConnection?.removeWindowSizeClaim(windowId: windowId)
         workspaceBonsplitController = nil
         // Unsubscribe each pane's cwd subscription first — matching reconcile(layout:),
         // which unsubscribes per removed pane. Without this, a control connection that
         // outlives the tab keeps streaming pane_current_path updates into a dead mirror.
         for paneId in panelsByPaneId.keys {
-            connection?.unsubscribePanePath(paneId: paneId)
-            connection?.unsubscribePaneReflow(paneId: paneId)
-            connection?.unsubscribePaneHeader(paneId: paneId)
+            activeConnection?.unsubscribePanePath(paneId: paneId)
+            activeConnection?.unsubscribePaneReflow(paneId: paneId)
+            activeConnection?.unsubscribePaneHeader(paneId: paneId)
         }
         for (paneId, panel) in panelsByPaneId {
             panel.surface.onManualSizeApplied = nil
@@ -422,5 +436,6 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         cwdByPaneId.removeAll()
         lastRenderedGrids.removeAll()
         activePaneId = nil
+        connection = nil
     }
 }

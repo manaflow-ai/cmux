@@ -15,6 +15,7 @@ extension RemoteTmuxWindowMirror {
     /// lose more than the pane slack and wrap. The old ideal-over-ideal
     /// fractions were container-independent, so no trigger existed here.
     func noteContainerSize(pointSize: CGSize, scale: CGFloat) {
+        guard !isTornDown else { return }
         // Hidden tabs keep their last visible geometry. A hidden tab's
         // portal-hosted views have no window clamping them, so their
         // reported bounds are not the size anything renders at — and once
@@ -133,7 +134,7 @@ extension RemoteTmuxWindowMirror {
     /// coalesced pass drains on the next runloop turn, so a burst of events
     /// costs one pass, and an event that changes nothing costs none.
     func setNeedsSizingPass() {
-        guard !sizingPassScheduled else { return }
+        guard !isTornDown, !sizingPassScheduled else { return }
         sizingPassScheduled = true
         DispatchQueue.main.async { [weak self] in
             self?.performSizingPassNow()
@@ -150,6 +151,7 @@ extension RemoteTmuxWindowMirror {
     /// retry budgets and no event dedup anywhere.
     func performSizingPassNow() {
         sizingPassScheduled = false
+        guard !isTornDown else { return }
         // Re-clamp the stored container against the live hosting window
         // before reading inputs. A first measurement taken before the
         // window was visible (fresh connect) banks a display-width fallback
@@ -195,6 +197,7 @@ extension RemoteTmuxWindowMirror {
     /// structural edits, tab re-shows): fresh split views do not hold the
     /// previous plan even though the plan's inputs are unchanged.
     func setNeedsSizingPassIgnoringInputs() {
+        guard !isTornDown else { return }
         lastCompletedSizingInputs = nil
         setNeedsSizingPass()
     }
@@ -226,6 +229,7 @@ extension RemoteTmuxWindowMirror {
     #endif
 
     func handleSizingSample(_ sample: TerminalSurfaceRawSizingSample, paneId: Int) {
+        guard !isTornDown else { return }
         ingest(sample: sample)
         lastRenderedGrids[paneId] = (cols: sample.columns, rows: sample.rows)
         #if DEBUG
@@ -273,6 +277,7 @@ extension RemoteTmuxWindowMirror {
     /// return `true` without sending (they push on becoming visible).
     @discardableResult
     func updateClientSize() -> Bool {
+        guard !isTornDown else { return true }
         guard let connection else { return true }
         // Hidden mirrors write exactly ONCE — the initial claim. The first
         // per-window size on a connection drops every window WITHOUT one to
