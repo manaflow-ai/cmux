@@ -232,6 +232,52 @@ import Testing
         #expect(diff.unifiedDiff.components(separatedBy: "diff --git ").count == 3)
     }
 
+    @Test func emptyUntrackedFileReturnsAHeaderOnlyDiff() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        try Data().write(to: repo.appendingPathComponent(".gitkeep"))
+        let service = GitDiffService()
+        let changed = try #require(service.changedFiles(repoRoot: repo.path))
+        let summary = try #require(changed.files.first { $0.path == ".gitkeep" })
+
+        let diff = try #require(service.fileDiff(
+            repoRoot: repo.path,
+            path: summary.path,
+            status: summary.status
+        ))
+
+        #expect(summary.status == .untracked)
+        #expect(diff.unifiedDiff.contains("new file mode 100644"))
+        #expect(!diff.unifiedDiff.contains("@@"))
+        #expect(!diff.truncated)
+    }
+
+    @Test func deletedPathWithEmptyUntrackedReplacementRemainsReviewable() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let file = repo.appendingPathComponent("emptied.txt")
+        try Data("original\n".utf8).write(to: file)
+        try runTestGit(in: repo, ["add", "--", "emptied.txt"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add original"])
+        try runTestGit(in: repo, ["rm", "--cached", "--", "emptied.txt"])
+        try Data().write(to: file)
+        let service = GitDiffService()
+        let changed = try #require(service.changedFiles(repoRoot: repo.path))
+        let summary = try #require(changed.files.first { $0.path == "emptied.txt" })
+
+        let diff = try #require(service.fileDiff(
+            repoRoot: repo.path,
+            path: summary.path,
+            status: summary.status
+        ))
+
+        #expect(summary.status == .modified)
+        #expect(diff.unifiedDiff.contains("-original"))
+        #expect(diff.unifiedDiff.contains("new file mode 100644"))
+        #expect(diff.unifiedDiff.components(separatedBy: "diff --git ").count == 3)
+        #expect(!diff.truncated)
+    }
+
     @Test func staleTrackedStatusCannotReturnAReclassifiedDiff() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
