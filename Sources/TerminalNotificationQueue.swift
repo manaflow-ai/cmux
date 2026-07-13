@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 
 fileprivate struct QueuedTerminalNotificationKey: Hashable, Sendable {
@@ -25,6 +26,21 @@ fileprivate struct TerminalSocketMutationEntry {
     let mutation: TerminalSocketMutation
     let notificationGeneration: UInt64?
     let notificationCoalescingKey: TerminalNotificationCoalescingKey?
+    let performReplaceKey: TerminalMutationReplaceKey?
+}
+
+/// Identity for last-write-wins `.perform` mutations: a fresh enqueue removes
+/// the pending same-key entry, bounding `pending` at one entry per key even
+/// while the main actor is blocked and cannot drain.
+struct TerminalMutationReplaceKey: Hashable, Sendable {
+    enum Kind: Hashable, Sendable {
+        case shellActivity, gitBranch, directory
+        case portsKick(PortScanKickReason)
+    }
+
+    let tabId: UUID
+    let surfaceId: UUID
+    let kind: Kind
 }
 
 fileprivate struct TerminalNotificationCoalescingKey: Hashable {
@@ -146,7 +162,8 @@ final class TerminalMutationBus: @unchecked Sendable {
             sequence: sequence,
             mutation: .deliverNotification(notification),
             notificationGeneration: generation,
-            notificationCoalescingKey: coalescingKey
+            notificationCoalescingKey: coalescingKey,
+            performReplaceKey: nil
         ))
         shouldScheduleDrain = !drainScheduled
         if shouldScheduleDrain {
@@ -182,7 +199,8 @@ final class TerminalMutationBus: @unchecked Sendable {
             sequence: nextSequence,
             mutation: mutation,
             notificationGeneration: nil,
-            notificationCoalescingKey: nil
+            notificationCoalescingKey: nil,
+            performReplaceKey: nil
         ))
         shouldScheduleDrain = !drainScheduled
         if shouldScheduleDrain {
@@ -202,7 +220,37 @@ final class TerminalMutationBus: @unchecked Sendable {
             sequence: nextSequence,
             mutation: mutation,
             notificationGeneration: nil,
-            notificationCoalescingKey: nil
+            notificationCoalescingKey: nil,
+            performReplaceKey: nil
+        ))
+        shouldScheduleDrain = !drainScheduled
+        if shouldScheduleDrain {
+            drainScheduled = true
+        }
+        lock.unlock()
+
+        guard shouldScheduleDrain else { return }
+        scheduleDrain()
+    }
+
+    /// Last-write-wins `enqueueMainActorMutation`: drops any still-pending
+    /// mutation with the same `replaceKey` before appending, so the survivor
+    /// applies at its new enqueue position (the notification coalescing
+    /// semantics above, for `.perform` mutations).
+    nonisolated func enqueueReplacingMainActorMutation(
+        replaceKey: TerminalMutationReplaceKey,
+        _ mutation: @escaping @MainActor () -> Void
+    ) {
+        let shouldScheduleDrain: Bool
+        lock.lock()
+        pending.removeAll { $0.performReplaceKey == replaceKey }
+        nextSequence &+= 1
+        pending.append(TerminalSocketMutationEntry(
+            sequence: nextSequence,
+            mutation: .perform(mutation),
+            notificationGeneration: nil,
+            notificationCoalescingKey: nil,
+            performReplaceKey: replaceKey
         ))
         shouldScheduleDrain = !drainScheduled
         if shouldScheduleDrain {
@@ -432,5 +480,24 @@ extension TerminalNotificationStore {
         case .unknown:
             return nil
         }
+    }
+
+    /// Effects for the out-of-band fallback path, where cmux plays feedback
+    /// itself because the OS will not deliver the banner.
+    ///
+    /// A user who explicitly turned cmux notifications off (`.denied`) asked
+    /// for silence, so the direct `NSSound` fallback must not punch through
+    /// the denial (https://github.com/manaflow-ai/cmux/issues/5650). Every
+    /// other state keeps the audible fallback: fresh installs
+    /// (`.notDetermined`) have expressed no preference, and granted states
+    /// only reach the fallback when delivery itself failed.
+    nonisolated static func fallbackEffects(
+        _ effects: TerminalNotificationPolicyEffects,
+        authorizationState: NotificationAuthorizationState
+    ) -> TerminalNotificationPolicyEffects {
+        guard authorizationState == .denied else { return effects }
+        var silenced = effects
+        silenced.sound = false
+        return silenced
     }
 }
