@@ -288,6 +288,7 @@ jobs:
             --version "$VERSION" \
             --build-number "$FINAL_BUILD_NUMBER" \
             --wait-build \
+            --prepare-submission \
             --screenshot-device-type IPHONE_69 \
             --screenshot-device-type IPAD_PRO_3GEN_129 \
             --strict
