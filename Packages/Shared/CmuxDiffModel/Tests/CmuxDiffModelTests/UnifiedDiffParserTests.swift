@@ -137,6 +137,16 @@ import Testing
         #expect(result.hunks[0].lines[1].newLine == 1)
     }
 
+    @Test func parsesCRLFTerminatedRowsSeparately() throws {
+        let result = parser.parse("@@ -1 +1 @@\n-old\r\n+new\r\n")
+        let hunk = try #require(result.hunks.first)
+
+        #expect(hunk.lines.map(\.kind) == [.deletion, .addition])
+        #expect(hunk.lines.map(\.text) == ["old", "new"])
+        #expect(hunk.lines.map(\.oldLine) == [1, nil])
+        #expect(hunk.lines.map(\.newLine) == [nil, 1])
+    }
+
     @Test func preservesTruncationFlag() {
         let result = parser.parse("@@ -1 +1 @@\n-old\n+new", isTruncated: true)
 

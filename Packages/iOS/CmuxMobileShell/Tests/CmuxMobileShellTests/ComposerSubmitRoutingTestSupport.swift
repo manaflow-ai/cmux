@@ -56,6 +56,7 @@ actor RoutingHostRouter {
     private var firstWorkspaceCreateHeld = false
     private var firstWorkspaceCreateContinuation: CheckedContinuation<Void, Never>?
     private var firstWorkspaceCreateReachedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var workspaceDiffErrorCode: String?
 
     static let workspaceID = "ws-route"
     static let terminalA = "term-route-a"
@@ -115,6 +116,10 @@ actor RoutingHostRouter {
 
     func recordedWorkspaceCreateCount() -> Int { workspaceCreateCount }
     func recordedWorkspaceCreateGroupIDs() -> [String?] { workspaceCreateGroupIDs }
+
+    func setWorkspaceDiffErrorCode(_ code: String?) {
+        workspaceDiffErrorCode = code
+    }
 
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
@@ -244,6 +249,18 @@ actor RoutingHostRouter {
                 clientID: info.clientID
             ))
             return try? Self.resultFrame(id: id, result: [:])
+        case "mobile.workspace.diff_status":
+            if let workspaceDiffErrorCode {
+                return try? Self.errorFrame(
+                    id: id,
+                    code: workspaceDiffErrorCode,
+                    message: "diff status rejected"
+                )
+            }
+            return try? Self.resultFrame(id: id, result: [
+                "repo_root": "/tmp/route",
+                "files": [],
+            ])
         case "mobile.events.unsubscribe", "mobile.terminal.replay", "mobile.terminal.viewport":
             return try? Self.resultFrame(id: id, result: [:])
         default:
@@ -260,11 +277,15 @@ actor RoutingHostRouter {
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }
 
-    private static func errorFrame(id: String?, message: String) throws -> Data {
+    private static func errorFrame(id: String?, code: String? = nil, message: String) throws -> Data {
+        var error: [String: Any] = ["message": message]
+        if let code {
+            error["code"] = code
+        }
         let envelope: [String: Any] = [
             "id": id ?? UUID().uuidString,
             "ok": false,
-            "error": ["message": message],
+            "error": error,
         ]
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }

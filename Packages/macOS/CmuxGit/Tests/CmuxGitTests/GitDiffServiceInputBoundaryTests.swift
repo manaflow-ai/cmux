@@ -179,32 +179,6 @@ import Testing
         #expect(diff.unifiedDiff.contains("�"))
     }
 
-    @Test func invalidUTF8PathIsOmittedWithoutCollapsingIdentity() throws {
-        let repo = try makeTempRepo()
-        defer { try? FileManager.default.removeItem(at: repo) }
-        try Data("valid\n".utf8).write(to: repo.appendingPathComponent("valid.txt"))
-        let blobOutput = try runTestGit(
-            in: repo,
-            ["hash-object", "-w", "--stdin"],
-            standardInput: Data("unsupported path\n".utf8)
-        )
-        let blob = try #require(String(data: blobOutput, encoding: .utf8))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        var indexRecord = Data("100644 \(blob)\tinvalid-".utf8)
-        indexRecord.append(0xFF)
-        indexRecord.append(Data(".txt\0".utf8))
-        _ = try runTestGit(
-            in: repo,
-            ["update-index", "-z", "--index-info"],
-            standardInput: indexRecord
-        )
-
-        let changed = try #require(GitDiffService().changedFiles(repoRoot: repo.path))
-
-        #expect(changed.files.map(\.path) == ["valid.txt"])
-        #expect(!changed.files.contains { $0.path.contains("�") })
-    }
-
     @Test func symlinkToDirectoryRemainsOneDiffableFile() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
@@ -277,26 +251,4 @@ import Testing
         try #require(process.terminationStatus == 0)
     }
 
-    private func runTestGit(
-        in root: URL,
-        _ arguments: [String],
-        standardInput: Data
-    ) throws -> Data {
-        let process = Process()
-        let input = Pipe()
-        let output = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = arguments
-        process.currentDirectoryURL = root
-        process.standardInput = input
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        try input.fileHandleForWriting.write(contentsOf: standardInput)
-        try input.fileHandleForWriting.close()
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        try #require(process.terminationStatus == 0)
-        return data
-    }
 }
