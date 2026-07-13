@@ -728,13 +728,13 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         <html>
         <body>
         <script type="module">
-          import { marker } from "./assets/mod.mjs";
-          import { workerMarker } from "./assets/worker.js";
-          WebAssembly.compile(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]))
-            .then(() => {
+          Promise.all([import("./assets/mod.mjs"), import("./assets/worker.js"), fetch("./assets/mod.mjs").then((response) => response.text())]).then(([{ marker }, { workerMarker }, source]) => {
+            if (!source.includes('marker = "module-ok"')) throw new Error("custom-scheme fetch returned compressed module bytes");
+            return WebAssembly.compile(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0])).then(() => ({ marker, workerMarker }));
+          })
+            .then(({ marker, workerMarker }) => {
               const result = `${marker}:${workerMarker}:wasm-ok`;
-              document.body.dataset.loaded = result;
-              window.webkit.messageHandlers.moduleLoaded.postMessage(result);
+              document.body.dataset.loaded = result; window.webkit.messageHandlers.moduleLoaded.postMessage(result);
             })
             .catch((error) => {
               const result = `wasm-error:${error.message}`;
