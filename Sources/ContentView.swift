@@ -13078,8 +13078,6 @@ private struct SidebarTabItemContextMenuState {
 struct TabItemView: View, Equatable {
     private static let workspaceObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
     private static let legacyVMWebSocketDescription = "VM WebSocket PTY"
-    private static let maxNotificationSubtitleLines = 12
-    private static let maxNotificationSubtitleCharacters = 4096
 
     // Closures, Bindings, and object references are excluded from ==
     // because they're recreated every parent eval but don't affect rendering.
@@ -13536,28 +13534,18 @@ struct TabItemView: View, Equatable {
             localized: "sidebar.pinnedWorkspaceProtected.tooltip",
             defaultValue: "Pinned workspace. Closing requires confirmation."
         )
-        let closeButtonTooltip = workspaceSnapshot.isPinned
-            ? protectedWorkspaceTooltip
-            : KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip)
+        let closeButtonTooltip = workspaceSnapshot.isPinned ? protectedWorkspaceTooltip : KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip)
         let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
         let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
         let latestNotificationSubtitle = latestNotificationText
         let conversationMessageSubtitle = !settings.hidesAllDetails && settings.iMessageModeEnabled
-            ? workspaceSnapshot.latestConversationMessage?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .nilIfEmpty
+            ? workspaceSnapshot.latestConversationMessage?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
             : nil
         let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
-        let subtitleLineLimit = latestNotificationSubtitle == nil ? 2 : Self.maxNotificationSubtitleLines
-        // Notification bodies can contain entire agent handoffs. Bound the
-        // string before SwiftUI shapes it, then let the lazy, Equatable row
-        // show substantially more context without making pathological payloads
-        // expensive or allowing one workspace to consume the whole sidebar.
-        let displayedSubtitle = effectiveSubtitle?.sidebarBoundedDisplayString(
-            maxDisplayedLines: subtitleLineLimit,
-            maxDisplayedCharacters: Self.maxNotificationSubtitleCharacters
-        )
+        let subtitleLineLimit = latestNotificationSubtitle == nil ? 2 : 12
+        // Bound agent handoffs before shaping so pathological payloads stay cheap in lazy, Equatable rows.
+        let displayedSubtitle = effectiveSubtitle?.sidebarBoundedDisplayString(maxDisplayedLines: subtitleLineLimit, maxDisplayedCharacters: 4096)
         let detailVisibility = visibleAuxiliaryDetails
         let titleLineLimit = settings.wrapsWorkspaceTitles ? Self.maxWrappedTitleLines : 1
         let displayedTitle = workspaceSnapshot.title.sidebarBoundedDisplayString(
