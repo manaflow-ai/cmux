@@ -1,4 +1,5 @@
 import AppKit
+import Foundation
 import ObjectiveC
 import WebKit
 
@@ -18,8 +19,10 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
     private(set) lazy var tab = BrowserWebExtensionPopoutTab(controller: self)
     private weak var support: BrowserWebExtensionSupport?
     private(set) weak var extensionContext: WKWebExtensionContext?
+    private let popoutUIDelegate: BrowserWebExtensionPopoutUIDelegate
     private let downloadDelegate: BrowserDownloadDelegate
     private let subframeDownloadIntents = BrowserSubframeDownloadIntentTracker()
+    private var childPopupControllers: [UUID: BrowserPopupWindowController] = [:]
 
     init(
         configuration: WKWebExtension.WindowConfiguration,
@@ -28,6 +31,7 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
     ) {
         self.support = support
         self.extensionContext = context
+        popoutUIDelegate = BrowserWebExtensionPopoutUIDelegate()
         downloadDelegate = BrowserDownloadDelegate()
 
         let webViewConfiguration = context.webViewConfiguration ?? WKWebViewConfiguration()
@@ -66,8 +70,21 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
         }
 
         super.init()
+        popoutUIDelegate.closeAction = { [weak self] in
+            self?.closeFromExtensionOrUser()
+        }
+        popoutUIDelegate.newWindowAction = { [weak self] request in
+            self?.routeNewWindowRequest(request)
+        }
+        popoutUIDelegate.scriptedPopupAction = { [weak self] configuration, windowFeatures in
+            self?.createScriptedPopup(
+                configuration: configuration,
+                windowFeatures: windowFeatures
+            )
+        }
         downloadDelegate.savePanelParentWindow = { [weak window] in window }
         window.delegate = self
+        webView.uiDelegate = popoutUIDelegate
         webView.navigationDelegate = self
         window.title = context.webExtension.displayName ?? String(
             localized: "browser.webExtension.action.help",
@@ -97,6 +114,8 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
     func closeFromExtensionOrUser() {
         guard window.delegate === self else { return }
         window.delegate = nil
+        webView.uiDelegate = nil
+        closeChildPopups()
         support?.popoutDidClose(self)
         window.close()
     }
@@ -105,6 +124,8 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
 
     func windowWillClose(_ notification: Notification) {
         window.delegate = nil
+        webView.uiDelegate = nil
+        closeChildPopups()
         support?.popoutDidClose(self)
     }
 
@@ -169,6 +190,67 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
             (request.allHTTPHeaderFields?.isEmpty ?? true)
     }
 
+    private func routeNewWindowRequest(_ request: URLRequest) {
+        guard let url = request.url else { return }
+        if canLoadExtensionRequestedURL(url) {
+            webView.load(request)
+            return
+        }
+        _ = routeHTTPBrowserRequest(request)
+    }
+
+    private func createScriptedPopup(
+        configuration: WKWebViewConfiguration,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        let popupID = UUID()
+        let controller = BrowserPopupWindowController(
+            configuration: configuration,
+            windowFeatures: windowFeatures,
+            browserContext: BrowserPopupBrowserContext(
+                websiteDataStore: configuration.websiteDataStore
+            ),
+            openerPanel: nil,
+            onClose: { [weak self] in
+                self?.childPopupControllers.removeValue(forKey: popupID)
+            }
+        )
+        childPopupControllers[popupID] = controller
+        return controller.webView
+    }
+
+    private func closeChildPopups() {
+        let controllers = Array(childPopupControllers.values)
+        childPopupControllers.removeAll()
+        for controller in controllers {
+            controller.closeAllChildPopups()
+            controller.closePopup()
+        }
+    }
+
+    private func routeHTTPBrowserRequest(_ request: URLRequest) -> Bool {
+        guard let url = request.url,
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else { return false }
+        if support?.openBrowserTab(
+            url: nil,
+            initialRequest: request,
+            shouldActivate: true,
+            webViewConfiguration: nil
+        ) != nil {
+            return true
+        }
+        if Self.canFallbackToExternalBrowser(for: request), NSWorkspace.shared.open(url) {
+            return true
+        }
+        sentryCaptureWarning(
+            "browser.webExtension.popup.externalNavigationFailed",
+            category: "browser.webExtension",
+            data: ["scheme": scheme, "host": url.host ?? ""]
+        )
+        return true
+    }
+
     // MARK: - WKNavigationDelegate
 
     func webView(
@@ -210,25 +292,7 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
             return
         }
 
-        let scheme = url.scheme?.lowercased()
-        if scheme == "http" || scheme == "https" {
-            if support?.openBrowserTab(
-                url: nil,
-                initialRequest: navigationAction.request,
-                shouldActivate: true,
-                webViewConfiguration: nil
-            ) != nil {
-                decisionHandler(.cancel)
-                return
-            }
-            if !Self.canFallbackToExternalBrowser(for: navigationAction.request) ||
-                !NSWorkspace.shared.open(url) {
-                sentryCaptureWarning(
-                    "browser.webExtension.popup.externalNavigationFailed",
-                    category: "browser.webExtension",
-                    data: ["scheme": scheme ?? "", "host": url.host ?? ""]
-                )
-            }
+        if routeHTTPBrowserRequest(navigationAction.request) {
             decisionHandler(.cancel)
             return
         }

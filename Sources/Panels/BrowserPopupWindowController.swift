@@ -35,7 +35,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     private let downloadDelegate: BrowserDownloadDelegate
     private let webAuthnCoordinator: BrowserWebAuthnCoordinator
     private var sslTrustBypassMessageHandler: BrowserSSLTrustBypassMessageHandler?
-    private var globalFontObserver: GlobalFontMagnificationChangeObserver?
+    private var globalFontObserver: GlobalFontMagnificationChangeObserver?, onClose: (() -> Void)?
 
     private static var associatedObjectKey: UInt8 = 0
 
@@ -45,12 +45,12 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         browserContext: BrowserPopupBrowserContext,
         openerPanel: BrowserPanel?,
         parentPopupController: BrowserPopupWindowController? = nil,
-        nestingDepth: Int = 0
+        nestingDepth: Int = 0, onClose: (() -> Void)? = nil
     ) {
         self.browserContext = browserContext
         self.openerPanel = openerPanel
         self.parentPopupController = parentPopupController
-        self.nestingDepth = nestingDepth
+        self.nestingDepth = nestingDepth; self.onClose = onClose
 
         BrowserPanel.configureWebViewConfiguration(
             configuration,
@@ -293,7 +293,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         // Unregister from parent (opener panel or parent popup)
         openerPanel?.removePopupController(self)
-        parentPopupController?.removeChildPopup(self)
+        parentPopupController?.removeChildPopup(self); let closeAction = onClose; onClose = nil; closeAction?()
 
         // Release self-retention
         objc_setAssociatedObject(panel, &Self.associatedObjectKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)

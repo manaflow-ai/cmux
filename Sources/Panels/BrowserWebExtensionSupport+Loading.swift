@@ -5,6 +5,12 @@ import WebKit
 
 @available(macOS 15.4, *)
 extension BrowserWebExtensionSupport {
+    private static let actionManifestKeys: Set<String> = [
+        "action",
+        "browser_action",
+        "page_action",
+    ]
+
     var loadedRecordsInOrder: [BrowserWebExtensionLoadedRecord] {
         loadedEntryIDsInOrder.compactMap { loadedByEntryID[$0] }
     }
@@ -21,17 +27,21 @@ extension BrowserWebExtensionSupport {
             toolbarHiddenEntryIDs = hiddenEntryIDs
             refreshAllActionSnapshots()
         }
+        let environmentPaths = Self.environmentExtensionPaths()
         let planner = BrowserWebExtensionReconciliationPlanner()
         let plan = planner.plan(
             settingsEntries: entries,
             previousSettingsEntries: configuredSettingsEntries,
-            environmentPaths: Self.environmentExtensionPaths(),
+            environmentPaths: environmentPaths,
             loadedEntries: loadedByEntryID.values.map {
                 BrowserWebExtensionReconciliationPlanner.LoadedEntry(
                     id: $0.entryID,
                     standardizedPath: $0.standardizedPath
                 )
             }
+        )
+        pruneLoadErrors(
+            retainingEntryIDs: settingsBackedEntryIDs.union(plan.desiredEntries.map(\.id))
         )
         configuredSettingsEntries = entries
 
@@ -130,19 +140,22 @@ extension BrowserWebExtensionSupport {
     private func actionSnapshot(
         for record: BrowserWebExtensionLoadedRecord,
         tabAdapter: BrowserWebExtensionTabAdapter?
-    ) -> BrowserWebExtensionActionSnapshot {
-        let action = record.context.action(for: tabAdapter)
+    ) -> BrowserWebExtensionActionSnapshot? {
+        guard record.context.webExtension.manifest.keys.contains(where: Self.actionManifestKeys.contains) else {
+            return nil
+        }
+        guard let action = record.context.action(for: tabAdapter) else { return nil }
         return BrowserWebExtensionActionSnapshot(
             id: record.entryID,
-            displayName: action?.label ?? record.context.webExtension.displayName ?? String(
+            displayName: action.label ?? record.context.webExtension.displayName ?? String(
                 localized: "browser.webExtension.action.help",
                 defaultValue: "Extension"
             ),
-            icon: action?.icon(for: CGSize(width: 32, height: 32))
+            icon: action.icon(for: CGSize(width: 32, height: 32))
                 ?? record.context.webExtension.icon(for: CGSize(width: 32, height: 32)),
-            isEnabled: action?.isEnabled ?? true,
-            badgeText: action?.badgeText ?? "",
-            hasUnreadBadgeText: action?.hasUnreadBadgeText ?? false,
+            isEnabled: action.isEnabled,
+            badgeText: action.badgeText,
+            hasUnreadBadgeText: action.hasUnreadBadgeText,
             showsToolbarButton: !toolbarHiddenEntryIDs.contains(record.entryID),
             canToggleToolbarButton: settingsBackedEntryIDs.contains(record.entryID)
         )
@@ -363,6 +376,13 @@ extension BrowserWebExtensionSupport {
 
     private func recordLoadError(_ message: String, entryID: String) {
         loadErrorsByEntryID[entryID] = "\(entryID): \(message)"
+        refreshLoadErrors()
+    }
+
+    private func pruneLoadErrors(retainingEntryIDs: Set<String>) {
+        let retainedErrors = loadErrorsByEntryID.filter { retainingEntryIDs.contains($0.key) }
+        guard retainedErrors != loadErrorsByEntryID else { return }
+        loadErrorsByEntryID = retainedErrors
         refreshLoadErrors()
     }
 

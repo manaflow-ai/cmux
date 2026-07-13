@@ -28,6 +28,8 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     let controller: WKWebExtensionController
     @ObservationIgnored
     let permissionStateStore = BrowserWebExtensionPermissionStateStore()
+    @ObservationIgnored
+    let permissionConfirmation: ((String) -> Bool)?
 
     var actionSnapshotIDs: [String] = []
     var actionSnapshotRevision = 0
@@ -97,7 +99,12 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     @ObservationIgnored
     weak var pendingPopupAnchorView: NSView?
 
-    override init() {
+    override convenience init() {
+        self.init(permissionConfirmation: nil)
+    }
+
+    init(permissionConfirmation: ((String) -> Bool)?) {
+        self.permissionConfirmation = permissionConfirmation
         let configuration = WKWebExtensionController.Configuration(identifier: Self.controllerIdentifier)
         // Extension-owned web views (background page, action popup) get WebKit's
         // default user agent, which lacks the " Safari/" token. Extensions like

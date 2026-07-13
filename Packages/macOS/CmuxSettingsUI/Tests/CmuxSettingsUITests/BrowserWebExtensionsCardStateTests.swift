@@ -92,7 +92,7 @@ struct BrowserWebExtensionsCardStateTests {
     }
 
     @Test
-    func successfulWriteKeepsPendingStateUntilNextAuthoritativeObservationArrives() {
+    func successfulWriteUsesDivergentAuthoritativeObservation() {
         let observed = [entry(id: "existing")]
         let pending = observed + [entry(id: "new")]
         var state = BrowserWebExtensionsCardState()
@@ -103,13 +103,9 @@ struct BrowserWebExtensionsCardStateTests {
             failed: false,
             observedEntries: observed
         )
-        #expect(state.effectiveEntries(observed: observed) == pending)
-
-        let externallyUpdated = [entry(id: "external")]
-        state.reconcileObservedEntries(externallyUpdated)
         #expect(state.pendingEntries == nil)
         #expect(state.pendingWriteID == nil)
-        #expect(state.effectiveEntries(observed: externallyUpdated) == externallyUpdated)
+        #expect(state.effectiveEntries(observed: observed) == observed)
     }
 
     private func entry(id: String) -> BrowserWebExtensionEntry {

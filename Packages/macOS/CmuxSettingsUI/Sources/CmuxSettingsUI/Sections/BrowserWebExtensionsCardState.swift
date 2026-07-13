@@ -53,7 +53,9 @@ struct BrowserWebExtensionsCardState {
         if failed {
             pendingEntries = nil
             hasWriteError = true
-        } else if observedEntries == pendingEntries {
+        } else {
+            // The atomic mutation runs against the store's latest value, so
+            // its authoritative result can differ from our optimistic copy.
             pendingEntries = nil
         }
     }

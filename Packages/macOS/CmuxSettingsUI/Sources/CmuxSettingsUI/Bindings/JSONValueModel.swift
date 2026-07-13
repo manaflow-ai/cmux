@@ -130,6 +130,42 @@ public final class JSONValueModel<Value: SettingCodable> {
         return requestID
     }
 
+    /// Atomically mutates the latest stored value.
+    ///
+    /// The mutation runs inside ``JSONConfigStore`` after earlier writes from
+    /// this model complete, so read-modify-write controls do not replace
+    /// unrelated fields written through another entrypoint. As with ``set(_:)``,
+    /// the observation stream remains the single writer of ``current``.
+    ///
+    /// - Parameter mutation: A synchronous mutation applied to the latest
+    ///   value in the JSON store.
+    /// - Returns: The monotonic identifier for this write attempt.
+    @discardableResult
+    public func update(
+        _ mutation: @escaping @Sendable (inout Value) -> Void
+    ) -> UInt64 {
+        let keyID = key.id
+        let requestID = makeWriteRequestID()
+        let previousWriteTask = writeTask
+        writeTask = Task { [weak self, store, key] in
+            await previousWriteTask?.value
+            do {
+                try await store.update(key, mutation: mutation)
+                await MainActor.run {
+                    guard let self else { return }
+                    self.finishWrite(requestID: requestID, error: nil)
+                }
+            } catch {
+                await MainActor.run {
+                    guard let self else { return }
+                    self.finishWrite(requestID: requestID, error: error)
+                    self.errorLog.record(error, keyID: keyID)
+                }
+            }
+        }
+        return requestID
+    }
+
     /// Removes the JSON entry (parents that become empty are pruned).
     /// ``current`` updates when the stream observes the reset.
     @discardableResult

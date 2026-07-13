@@ -136,4 +136,42 @@ import Testing
         #expect(model.lastCompletedWriteID == secondRequestID)
         #expect(await store.value(for: key) == "second")
     }
+
+    @Test func modelAndStoreUpdatesPreserveIndependentEntryMutations() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("json-value-model-atomic-update-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let store = JSONConfigStore(fileURL: tempDir.appendingPathComponent("cmux.json"))
+        let initialEntry = BrowserWebExtensionEntry(
+            id: "com.example.extension",
+            kind: .unpackedDirectory,
+            path: "/Extensions/Example",
+            enabled: true
+        )
+        let key = JSONKey<[BrowserWebExtensionEntry]>(
+            id: "browser.webExtensions",
+            defaultValue: []
+        )
+        try await store.set([initialEntry], for: key)
+        let model = JSONValueModel(store: store, key: key, errorLog: SettingsErrorLog())
+
+        let requestID = model.update { entries in
+            entries[0].enabled = false
+        }
+        try await store.update(key) { entries in
+            entries[0].showsToolbarButton = false
+        }
+
+        var spins = 0
+        while model.lastCompletedWriteID != requestID, spins < 100_000 {
+            await Task.yield()
+            spins += 1
+        }
+
+        let storedEntry = try #require(await store.value(for: key).first)
+        #expect(!storedEntry.enabled)
+        #expect(storedEntry.showsToolbarButton == false)
+        #expect(model.lastWriteError == nil)
+    }
 }

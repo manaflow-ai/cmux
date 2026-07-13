@@ -110,7 +110,7 @@ extension TabManager {
            let panelID = focusedBrowserWebExtensionPanelID(in: selectedWorkspace) {
             return panelID
         }
-        return tabs.lazy.compactMap { focusedBrowserWebExtensionPanelID(in: $0) }.first
+        return tabs.lazy.compactMap { self.focusedBrowserWebExtensionPanelID(in: $0) }.first
     }
 
     private func focusedBrowserWebExtensionPanelID(in workspace: Workspace) -> UUID? {

@@ -385,6 +385,9 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
     }
 
     func confirmPermissionRequest(informativeText: String) -> Bool {
+        if let permissionConfirmation {
+            return permissionConfirmation(informativeText)
+        }
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = String(

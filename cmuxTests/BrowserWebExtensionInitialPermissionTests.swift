@@ -1,4 +1,3 @@
-import AppKit
 import CmuxSettings
 import Foundation
 import Testing
@@ -47,23 +46,8 @@ struct BrowserWebExtensionInitialPermissionTests {
             path: extensionDirectory.path,
             enabled: true
         )
-        let allowTitle = String(
-            localized: "browser.webExtension.permissionPrompt.allow",
-            defaultValue: "Allow"
-        )
-        let alertObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didBecomeKeyNotification,
-            object: nil,
-            queue: .main
-        ) { notification in
-            guard let window = notification.object as? NSWindow else { return }
-            MainActor.assumeIsolated {
-                Self.button(in: window.contentView, titled: allowTitle)?.performClick(nil)
-            }
-        }
-        defer { NotificationCenter.default.removeObserver(alertObserver) }
-
-        let support = BrowserWebExtensionSupport()
+        let support = BrowserWebExtensionSupport(permissionConfirmation: { _ in true })
+        defer { _ = support.unloadAllWebExtensions() }
         defer {
             support.permissionStateStore.removeState(
                 for: entry.id,
@@ -84,19 +68,50 @@ struct BrowserWebExtensionInitialPermissionTests {
         #expect(matchPatterns.allSatisfy {
             context.permissionStatus(for: $0) == .grantedExplicitly
         })
+        #expect(support.actionSnapshots(for: UUID()).isEmpty)
     }
 
     @MainActor
-    private static func button(in view: NSView?, titled title: String) -> NSButton? {
-        guard let view else { return nil }
-        if let button = view as? NSButton, button.title == title {
-            return button
+    @Test
+    @available(macOS 15.4, *)
+    func declaredActionProducesToolbarSnapshot() async throws {
+        let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+        BrowserAvailabilitySettings.setDisabled(false)
+        defer { BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled) }
+
+        let extensionDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-web-extension-action-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: extensionDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: extensionDirectory) }
+
+        let manifest = """
+        {
+          "manifest_version": 3,
+          "name": "Action Test Extension",
+          "version": "1.0",
+          "action": { "default_title": "Run Action" }
         }
-        for subview in view.subviews {
-            if let button = button(in: subview, titled: title) {
-                return button
-            }
-        }
-        return nil
+        """
+        try Data(manifest.utf8).write(
+            to: extensionDirectory.appendingPathComponent("manifest.json")
+        )
+
+        let entry = BrowserWebExtensionEntry(
+            id: "action-test-\(UUID().uuidString)",
+            kind: .unpackedDirectory,
+            path: extensionDirectory.path,
+            enabled: true
+        )
+        let support = BrowserWebExtensionSupport()
+        defer { _ = support.unloadAllWebExtensions() }
+
+        await support.apply(entries: [entry])
+
+        let snapshot = try #require(support.actionSnapshots(for: UUID()).first)
+        #expect(snapshot.id == entry.id)
     }
+
 }

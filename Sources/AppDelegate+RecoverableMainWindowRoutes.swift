@@ -32,7 +32,7 @@ final class RecoverableMainWindowRoute {
                 }
                 return !DockSplitStore.liveStores.contains(where: { $0.containsPanel(panelID) })
             }
-            browserWebExtensionHost?.discardWindowOwnership(panelIDs: orphanedPanelIDs)
+            browserWebExtensionHost?.discardWindowOwnership(panelIDs: Array(orphanedPanelIDs))
         }
     }
 }

@@ -337,6 +337,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B1CFE0080000000000000001 /* BrowserWebExtensionHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0080000000000000002 /* BrowserWebExtensionHosting.swift */; };
 		B1CFE0330000000000000001 /* BrowserWebExtensionInitialPermissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0330000000000000002 /* BrowserWebExtensionInitialPermissionTests.swift */; };
 		B1CFE00B0000000000000001 /* BrowserWebExtensionLoadedRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE00B0000000000000002 /* BrowserWebExtensionLoadedRecord.swift */; };
+		B1CFE03C0000000000000001 /* BrowserWebExtensionLoadErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE03C0000000000000002 /* BrowserWebExtensionLoadErrorTests.swift */; };
 		B1CFE00D0000000000000001 /* BrowserWebExtensionNavigationConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE00D0000000000000002 /* BrowserWebExtensionNavigationConfiguration.swift */; };
 		B1CFE0230000000000000001 /* BrowserWebExtensionNavigationPolicyTestHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0230000000000000002 /* BrowserWebExtensionNavigationPolicyTestHost.swift */; };
 		B1CFE0380000000000000001 /* BrowserWebExtensionOwnershipLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0380000000000000002 /* BrowserWebExtensionOwnershipLifecycleTests.swift */; };
@@ -346,6 +347,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B1CFE00F0000000000000001 /* BrowserWebExtensionPermissionStateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE00F0000000000000002 /* BrowserWebExtensionPermissionStateStore.swift */; };
 		B1CFE03A0000000000000001 /* BrowserWebExtensionPopoutPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE03A0000000000000002 /* BrowserWebExtensionPopoutPolicyTests.swift */; };
 		B1CFE02B0000000000000001 /* BrowserWebExtensionPopoutTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE02B0000000000000002 /* BrowserWebExtensionPopoutTab.swift */; };
+		B1CFE03B0000000000000001 /* BrowserWebExtensionPopoutUIDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE03B0000000000000002 /* BrowserWebExtensionPopoutUIDelegate.swift */; };
 		B1CFE0050000000000000001 /* BrowserWebExtensionPopoutWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0050000000000000002 /* BrowserWebExtensionPopoutWindowController.swift */; };
 		B1CFE02C0000000000000001 /* BrowserWebExtensionReconciliationLoadedEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE02C0000000000000002 /* BrowserWebExtensionReconciliationLoadedEntry.swift */; };
 		B1CFE02D0000000000000001 /* BrowserWebExtensionReconciliationPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE02D0000000000000002 /* BrowserWebExtensionReconciliationPlan.swift */; };
@@ -2200,6 +2202,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B1CFE0080000000000000002 /* BrowserWebExtensionHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionHosting.swift; sourceTree = "<group>"; };
 		B1CFE0330000000000000002 /* BrowserWebExtensionInitialPermissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionInitialPermissionTests.swift; sourceTree = "<group>"; };
 		B1CFE00B0000000000000002 /* BrowserWebExtensionLoadedRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionLoadedRecord.swift; sourceTree = "<group>"; };
+		B1CFE03C0000000000000002 /* BrowserWebExtensionLoadErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionLoadErrorTests.swift; sourceTree = "<group>"; };
 		B1CFE00D0000000000000002 /* BrowserWebExtensionNavigationConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionNavigationConfiguration.swift; sourceTree = "<group>"; };
 		B1CFE0230000000000000002 /* BrowserWebExtensionNavigationPolicyTestHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionNavigationPolicyTestHost.swift; sourceTree = "<group>"; };
 		B1CFE0380000000000000002 /* BrowserWebExtensionOwnershipLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionOwnershipLifecycleTests.swift; sourceTree = "<group>"; };
@@ -2209,6 +2212,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B1CFE00F0000000000000002 /* BrowserWebExtensionPermissionStateStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionPermissionStateStore.swift; sourceTree = "<group>"; };
 		B1CFE03A0000000000000002 /* BrowserWebExtensionPopoutPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionPopoutPolicyTests.swift; sourceTree = "<group>"; };
 		B1CFE02B0000000000000002 /* BrowserWebExtensionPopoutTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionPopoutTab.swift; sourceTree = "<group>"; };
+		B1CFE03B0000000000000002 /* BrowserWebExtensionPopoutUIDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionPopoutUIDelegate.swift; sourceTree = "<group>"; };
 		B1CFE0050000000000000002 /* BrowserWebExtensionPopoutWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionPopoutWindowController.swift; sourceTree = "<group>"; };
 		B1CFE02C0000000000000002 /* BrowserWebExtensionReconciliationLoadedEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionReconciliationLoadedEntry.swift; sourceTree = "<group>"; };
 		B1CFE02D0000000000000002 /* BrowserWebExtensionReconciliationPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionReconciliationPlan.swift; sourceTree = "<group>"; };
@@ -4535,6 +4539,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B1CFE0060000000000000002 /* BrowserWebExtensionDiscoveryService.swift */,
 				B1CFE0050000000000000002 /* BrowserWebExtensionPopoutWindowController.swift */,
 				B1CFE02B0000000000000002 /* BrowserWebExtensionPopoutTab.swift */,
+				B1CFE03B0000000000000002 /* BrowserWebExtensionPopoutUIDelegate.swift */,
 				B1CFE0080000000000000002 /* BrowserWebExtensionHosting.swift */,
 				B1CFE00A0000000000000002 /* BrowserWebExtensionActionSnapshot.swift */,
 				B1CFE0110000000000000002 /* BrowserWebExtensionActionSnapshotInvalidation.swift */,
@@ -5203,6 +5208,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B1CFE0310000000000000002 /* BrowserWebExtensionPermissionReconciliationTests.swift */,
 				B1CFE0320000000000000002 /* BrowserWebExtensionFocusedWindowTests.swift */,
 				B1CFE0330000000000000002 /* BrowserWebExtensionInitialPermissionTests.swift */,
+				B1CFE03C0000000000000002 /* BrowserWebExtensionLoadErrorTests.swift */,
 				B1CFE0370000000000000002 /* BrowserWebExtensionCreatedWindowTests.swift */,
 				B1CFE0380000000000000002 /* BrowserWebExtensionOwnershipLifecycleTests.swift */,
 				B1CFE0210000000000000002 /* BrowserWebExtensionReviewRegressionTests.swift */,
@@ -6177,6 +6183,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B1CFE0300000000000000001 /* BrowserWebExtensionPermissionStateRemoval.swift in Sources */,
 				B1CFE00F0000000000000001 /* BrowserWebExtensionPermissionStateStore.swift in Sources */,
 				B1CFE02B0000000000000001 /* BrowserWebExtensionPopoutTab.swift in Sources */,
+				B1CFE03B0000000000000001 /* BrowserWebExtensionPopoutUIDelegate.swift in Sources */,
 				B1CFE0050000000000000001 /* BrowserWebExtensionPopoutWindowController.swift in Sources */,
 				B1CFE02C0000000000000001 /* BrowserWebExtensionReconciliationLoadedEntry.swift in Sources */,
 				B1CFE02D0000000000000001 /* BrowserWebExtensionReconciliationPlan.swift in Sources */,
@@ -7279,6 +7286,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B1CFE0220000000000000001 /* BrowserWebExtensionDiscoveryServiceTests.swift in Sources */,
 				B1CFE0320000000000000001 /* BrowserWebExtensionFocusedWindowTests.swift in Sources */,
 				B1CFE0330000000000000001 /* BrowserWebExtensionInitialPermissionTests.swift in Sources */,
+				B1CFE03C0000000000000001 /* BrowserWebExtensionLoadErrorTests.swift in Sources */,
 				B1CFE0230000000000000001 /* BrowserWebExtensionNavigationPolicyTestHost.swift in Sources */,
 				B1CFE0380000000000000001 /* BrowserWebExtensionOwnershipLifecycleTests.swift in Sources */,
 				B1CFE0310000000000000001 /* BrowserWebExtensionPermissionReconciliationTests.swift in Sources */,

@@ -78,6 +78,74 @@ struct BrowserWebExtensionPopoutPolicyTests {
     @MainActor
     @Test
     @available(macOS 15.4, *)
+    func uiDelegateRoutesDOMCloseAndNewWindowRequests() throws {
+        var didClose = false
+        var routedRequest: URLRequest?
+        let delegate = BrowserWebExtensionPopoutUIDelegate(
+            closeAction: { didClose = true },
+            newWindowAction: { routedRequest = $0 }
+        )
+
+        delegate.webViewDidClose(WKWebView())
+        #expect(didClose)
+
+        let url = try #require(URL(string: "https://popup.example/submit"))
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = Data("credential=secret".utf8)
+        request.setValue("Bearer token", forHTTPHeaderField: "Authorization")
+        delegate.handleNewWindowRequest(request)
+
+        #expect(routedRequest?.url == url)
+        #expect(routedRequest?.httpMethod == "POST")
+        #expect(routedRequest?.httpBody == request.httpBody)
+        #expect(routedRequest?.value(forHTTPHeaderField: "Authorization") == "Bearer token")
+    }
+
+    @MainActor
+    @Test
+    @available(macOS 15.4, *)
+    func uiDelegateReturnsScriptedChildUsingSuppliedConfiguration() {
+        let suppliedConfiguration = WKWebViewConfiguration()
+        let windowFeatures = WKWindowFeatures()
+        let expectedWebView = WKWebView(frame: .zero, configuration: suppliedConfiguration)
+        var receivedConfiguration: WKWebViewConfiguration?
+        let delegate = BrowserWebExtensionPopoutUIDelegate(
+            scriptedPopupAction: { configuration, features in
+                receivedConfiguration = configuration
+                #expect(features === windowFeatures)
+                return expectedWebView
+            }
+        )
+
+        let returnedWebView = delegate.createScriptedPopup(
+            configuration: suppliedConfiguration,
+            windowFeatures: windowFeatures
+        )
+
+        #expect(returnedWebView === expectedWebView)
+        #expect(receivedConfiguration === suppliedConfiguration)
+    }
+
+    @MainActor
+    @Test
+    @available(macOS 15.4, *)
+    func uiDelegateAttributesDialogsToInitiatingFrameURL() throws {
+        let delegate = BrowserWebExtensionPopoutUIDelegate()
+        let topLevelURL = try #require(URL(string: "webkit-extension://trusted/popup.html"))
+        let frameURL = try #require(URL(string: "https://iframe.example/dialog"))
+
+        let topLevelTitle = delegate.javaScriptDialogTitle(for: topLevelURL)
+        let frameTitle = delegate.javaScriptDialogTitle(for: frameURL)
+
+        #expect(frameTitle.contains(frameURL.absoluteString))
+        #expect(!frameTitle.contains(topLevelURL.absoluteString))
+        #expect(frameTitle != topLevelTitle)
+    }
+
+    @MainActor
+    @Test
+    @available(macOS 15.4, *)
     func responsePolicyConvertsSafeDownloadResponses() throws {
         let attachmentURL = try #require(URL(string: "https://popup.example/report"))
         let attachmentResponse = try #require(HTTPURLResponse(
@@ -125,8 +193,9 @@ struct BrowserWebExtensionPopoutPolicyTests {
             blocksInsecureHTTP: false
         ) == .download)
 
+        let insecureURL = try #require(URL(string: "http://popup.example/report"))
         let insecureResponse = try #require(HTTPURLResponse(
-            url: try #require(URL(string: "http://popup.example/report")),
+            url: insecureURL,
             statusCode: 200,
             httpVersion: "HTTP/1.1",
             headerFields: ["Content-Disposition": "attachment"]
@@ -139,8 +208,9 @@ struct BrowserWebExtensionPopoutPolicyTests {
             blocksInsecureHTTP: true
         ) == .cancel)
 
+        let extensionURL = try #require(URL(string: "webkit-extension://example/export"))
         let extensionResponse = try #require(HTTPURLResponse(
-            url: try #require(URL(string: "webkit-extension://example/export")),
+            url: extensionURL,
             statusCode: 200,
             httpVersion: "HTTP/1.1",
             headerFields: ["Content-Disposition": "attachment"]

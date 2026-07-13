@@ -217,21 +217,20 @@ struct BrowserWebExtensionsCard: View {
 
     private func setEnabled(_ enabled: Bool, id: String) {
         updateEntries { entries in
-            guard let index = entries.firstIndex(where: { $0.id == id }) else { return false }
-            let targetPath = standardizedResourcePath(for: entries[index])
+            guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+            let targetPath = entries[index].standardizedResourceRootPath
             entries[index].enabled = enabled
             for candidateIndex in entries.indices where candidateIndex != index {
-                if standardizedResourcePath(for: entries[candidateIndex]) == targetPath {
+                if entries[candidateIndex].standardizedResourceRootPath == targetPath {
                     entries[candidateIndex].enabled = false
                 }
             }
-            return true
         }
     }
 
     private func add(_ entry: BrowserWebExtensionEntry) {
         guard model.hasObservedValue else { return }
-        var entries = effectiveEntries
+        let entries = effectiveEntries
         guard !entries.contains(where: { $0.id == entry.id }) else {
             presentDuplicateExtensionAlert(for: entry)
             return
@@ -241,27 +240,30 @@ struct BrowserWebExtensionsCard: View {
             presentDuplicateExtensionAlert(for: entry)
             return
         }
-        entries.append(entry)
-        commitEntries(entries)
+        updateEntries { entries in
+            guard !entries.contains(where: { $0.id == entry.id }),
+                  !entries.contains(where: { $0.standardizedResourceRootPath == entryResourcePath }) else {
+                return
+            }
+            entries.append(entry)
+        }
     }
 
     private func remove(id: String) {
         updateEntries { entries in
-            let originalCount = entries.count
             entries.removeAll { $0.id == id }
-            return entries.count != originalCount
         }
     }
 
-    private func updateEntries(_ update: (inout [BrowserWebExtensionEntry]) -> Bool) {
+    private func updateEntries(
+        _ update: @escaping @Sendable (inout [BrowserWebExtensionEntry]) -> Void
+    ) {
         guard model.hasObservedValue else { return }
         var entries = effectiveEntries
-        guard update(&entries) else { return }
-        commitEntries(entries)
-    }
-
-    private func commitEntries(_ entries: [BrowserWebExtensionEntry]) {
-        cardState.beginWrite(entries: entries, writeID: model.set(entries))
+        let originalEntries = entries
+        update(&entries)
+        guard entries != originalEntries else { return }
+        cardState.beginWrite(entries: entries, writeID: model.update(update))
     }
 
     private func importSafariExtension(_ candidate: SettingsDiscoveredBrowserExtension) {
