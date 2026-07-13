@@ -225,8 +225,7 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
             }
 
             @Sendable func beginCancellation() {
-                let (shouldCancel, didTerminate, processGroupID, timer, writer, readers): (
-                    Bool,
+                let (shouldCancel, processGroupID, timer, writer, readers): (
                     Bool,
                     pid_t?,
                     (any DispatchSourceTimer)?,
@@ -234,7 +233,7 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
                     [CommandOutputReader]
                 ) = state.withLock { state in
                     guard !state.resumed, !state.cancellationRequested else {
-                        return (false, state.didTerminate, state.processGroupID, nil, nil, [])
+                        return (false, state.processGroupID, nil, nil, [])
                     }
                     state.cancellationRequested = true
                     let timer = state.deadlineTimer
@@ -244,22 +243,18 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
                     let readers = [state.standardOutputReader, state.standardErrorReader].compactMap { $0 }
                     state.standardOutputReader = nil
                     state.standardErrorReader = nil
-                    return (true, state.didTerminate, state.processGroupID, timer, writer, readers)
+                    return (true, state.processGroupID, timer, writer, readers)
                 }
                 guard shouldCancel else { return }
                 timer?.cancel()
                 writer?.cancel()
                 readers.forEach { $0.cancel() }
 
-                if didTerminate, processGroupID == nil {
+                CommandProcessTreeTerminator.terminate(
+                    process,
+                    processGroupID: processGroupID
+                ) {
                     _ = claimImmediate(cancelledResult)
-                } else {
-                    CommandProcessTreeTerminator.terminate(
-                        process,
-                        processGroupID: processGroupID
-                    ) {
-                        _ = claimImmediate(cancelledResult)
-                    }
                 }
             }
 
@@ -297,6 +292,10 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
                 let childProcessGroup = getpgid(process.processIdentifier)
                 if childProcessGroup > 1, childProcessGroup != getpgrp() {
                     state.withLock { $0.processGroupID = childProcessGroup }
+                } else if childProcessGroup == -1, errno == ESRCH {
+                    // Foundation may reap a fast-exiting group leader before this lookup,
+                    // while its descendants still retain the leader PID as their group ID.
+                    state.withLock { $0.processGroupID = process.processIdentifier }
                 }
             } catch {
                 let message = String(describing: error)

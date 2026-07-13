@@ -74,11 +74,36 @@ final class WorktreeIncludeDestinationRoot {
         return true
     }
 
-    func createDirectory(at relativePath: String, permissions: mode_t) throws {
+    func createDirectory(
+        at relativePath: String,
+        permissions: mode_t
+    ) throws -> (device: dev_t, inode: ino_t) {
         let (parent, name) = try openParent(of: relativePath)
         defer { Darwin.close(parent) }
-        let result = name.withCString { mkdirat(parent, $0, permissions) }
-        guard result == 0 else { throw posixError() }
+        let temporaryName = ".cmux-worktreeinclude-\(UUID().uuidString)"
+        let createResult = temporaryName.withCString { mkdirat(parent, $0, permissions) }
+        guard createResult == 0 else { throw posixError() }
+        var installed = false
+        defer {
+            if !installed {
+                _ = temporaryName.withCString { unlinkat(parent, $0, AT_REMOVEDIR) }
+            }
+        }
+        let temporaryDescriptor = temporaryName.withCString {
+            openat(parent, $0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+        }
+        guard temporaryDescriptor >= 0 else { throw posixError() }
+        defer { Darwin.close(temporaryDescriptor) }
+        var status = stat()
+        guard fstat(temporaryDescriptor, &status) == 0 else { throw posixError() }
+        let installResult = temporaryName.withCString { temporaryPointer in
+            name.withCString { namePointer in
+                renameatx_np(parent, temporaryPointer, parent, namePointer, UInt32(RENAME_EXCL))
+            }
+        }
+        guard installResult == 0 else { throw posixError() }
+        installed = true
+        return (status.st_dev, status.st_ino)
     }
 
     func createRegularFile(at relativePath: String, permissions: mode_t) throws -> Int32 {
@@ -96,42 +121,116 @@ final class WorktreeIncludeDestinationRoot {
         return fileDescriptor
     }
 
-    func createSymbolicLink(at relativePath: String, target: [UInt8]) throws {
+    func createSymbolicLink(
+        at relativePath: String,
+        target: [UInt8]
+    ) throws -> (device: dev_t, inode: ino_t) {
         let (parent, name) = try openParent(of: relativePath)
         defer { Darwin.close(parent) }
+        let temporaryName = ".cmux-worktreeinclude-\(UUID().uuidString)"
         var terminatedTarget = target
         terminatedTarget.append(0)
         let result: Int32 = terminatedTarget.withUnsafeBytes { targetBuffer in
             let targetPointer = targetBuffer.baseAddress!.assumingMemoryBound(to: CChar.self)
-            return name.withCString { namePointer in
+            return temporaryName.withCString { namePointer in
                 symlinkat(targetPointer, parent, namePointer)
             }
         }
         guard result == 0 else { throw posixError() }
+        var installed = false
+        defer {
+            if !installed {
+                _ = temporaryName.withCString { unlinkat(parent, $0, 0) }
+            }
+        }
+        var status = stat()
+        let statusResult = temporaryName.withCString {
+            fstatat(parent, $0, &status, AT_SYMLINK_NOFOLLOW)
+        }
+        guard statusResult == 0 else { throw posixError() }
+        let installResult = temporaryName.withCString { temporaryPointer in
+            name.withCString { namePointer in
+                renameatx_np(parent, temporaryPointer, parent, namePointer, UInt32(RENAME_EXCL))
+            }
+        }
+        guard installResult == 0 else { throw posixError() }
+        installed = true
+        return (status.st_dev, status.st_ino)
     }
 
-    func removeItem(at relativePath: String) throws {
+    func copySymbolicLink(
+        from source: URL,
+        to relativePath: String
+    ) throws -> (device: dev_t, inode: ino_t) {
+        guard try !itemExists(at: relativePath) else {
+            throw CocoaError(.fileWriteFileExists)
+        }
+        var status = stat()
+        guard lstat(source.path, &status) == 0 else { throw posixError() }
+        guard status.st_mode & S_IFMT == S_IFLNK else {
+            throw CocoaError(.fileReadUnsupportedScheme)
+        }
+        let capacity = max(1, Int(status.st_size) + 1)
+        var bytes = [UInt8](repeating: 0, count: capacity)
+        let count = bytes.withUnsafeMutableBytes { buffer in
+            source.path.withCString { pathPointer in
+                readlink(pathPointer, buffer.baseAddress, buffer.count)
+            }
+        }
+        guard count >= 0 else { throw posixError() }
+        guard count < capacity else { throw posixError(EOVERFLOW) }
+        return try createSymbolicLink(
+            at: relativePath,
+            target: Array(bytes.prefix(count))
+        )
+    }
+
+    func removeItemIfUnchanged(
+        at relativePath: String,
+        device: dev_t,
+        inode: ino_t,
+        isDirectory: Bool
+    ) throws {
         guard !relativePath.isEmpty else { return }
         let (parent, name) = try openParent(of: relativePath)
         defer { Darwin.close(parent) }
-        try removeItem(named: name, from: parent)
+        var status = stat()
+        let statusResult = name.withCString {
+            fstatat(parent, $0, &status, AT_SYMLINK_NOFOLLOW)
+        }
+        if statusResult == -1, errno == ENOENT { return }
+        guard statusResult == 0 else { throw posixError() }
+        guard status.st_dev == device,
+              status.st_ino == inode,
+              (status.st_mode & S_IFMT == S_IFDIR) == isDirectory else { return }
+        let flags = isDirectory ? AT_REMOVEDIR : 0
+        let result = name.withCString { unlinkat(parent, $0, flags) }
+        if result == 0 || errno == ENOENT { return }
+        throw posixError()
     }
 
     func applySecurityMetadata(
         from source: URL,
         to relativePath: String,
-        isDirectory: Bool
+        expectedDevice: dev_t,
+        expectedInode: ino_t
     ) throws {
-        let sourceFlags = O_RDONLY | O_CLOEXEC | O_NOFOLLOW | (isDirectory ? O_DIRECTORY : 0)
+        let sourceFlags = O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_DIRECTORY
         let sourceDescriptor = Darwin.open(source.path, sourceFlags)
         guard sourceDescriptor >= 0 else { throw posixError() }
         defer { Darwin.close(sourceDescriptor) }
 
         let destinationDescriptor = try openItem(
             at: relativePath,
-            flags: (isDirectory ? O_RDONLY | O_DIRECTORY : O_WRONLY) | O_CLOEXEC | O_NOFOLLOW
+            flags: O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
         )
         defer { Darwin.close(destinationDescriptor) }
+        var destinationStatus = stat()
+        guard fstat(destinationDescriptor, &destinationStatus) == 0 else { throw posixError() }
+        guard destinationStatus.st_dev == expectedDevice,
+              destinationStatus.st_ino == expectedInode else {
+            throw posixError(ESTALE)
+        }
         guard fcopyfile(
             sourceDescriptor,
             destinationDescriptor,
@@ -153,47 +252,67 @@ final class WorktreeIncludeDestinationRoot {
         }
     }
 
+    func copyRegularFileContents(
+        sourceDescriptor: Int32,
+        destinationDescriptor: Int32,
+        itemCount: Int,
+        byteCount: Int64,
+        maximumByteCount: Int64,
+        availableByteBudget: Int64
+    ) throws -> Int64 {
+        var byteCount = byteCount
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while true {
+            if Task.isCancelled { throw CancellationError() }
+            let readCount = buffer.withUnsafeMutableBytes {
+                Darwin.read(sourceDescriptor, $0.baseAddress, $0.count)
+            }
+            if readCount == -1, errno == EINTR { continue }
+            guard readCount >= 0 else { throw posixError() }
+            if readCount == 0 { break }
+            let nextByteCount = byteCount + Int64(readCount)
+            guard nextByteCount <= maximumByteCount else {
+                throw WorktreeIncludeCopyLimitError(
+                    itemCount: itemCount,
+                    byteCount: nextByteCount,
+                    reason: .resourceLimit
+                )
+            }
+            guard nextByteCount <= availableByteBudget else {
+                throw WorktreeIncludeCopyLimitError(
+                    itemCount: itemCount,
+                    byteCount: nextByteCount,
+                    reason: .capacity
+                )
+            }
+            var written = 0
+            while written < readCount {
+                let writeCount = buffer.withUnsafeBytes {
+                    Darwin.write(
+                        destinationDescriptor,
+                        $0.baseAddress?.advanced(by: written),
+                        readCount - written
+                    )
+                }
+                if writeCount == -1, errno == EINTR { continue }
+                guard writeCount > 0 else { throw posixError() }
+                written += writeCount
+            }
+            byteCount = nextByteCount
+        }
+        try applySecurityMetadata(
+            sourceDescriptor: sourceDescriptor,
+            destinationDescriptor: destinationDescriptor
+        )
+        return byteCount
+    }
+
     private func openItem(at relativePath: String, flags: Int32) throws -> Int32 {
         let (parent, name) = try openParent(of: relativePath)
         defer { Darwin.close(parent) }
         let itemDescriptor = name.withCString { openat(parent, $0, flags) }
         guard itemDescriptor >= 0 else { throw posixError() }
         return itemDescriptor
-    }
-
-    private func removeItem(named name: String, from parent: Int32) throws {
-        var status = stat()
-        let statusResult = name.withCString {
-            fstatat(parent, $0, &status, AT_SYMLINK_NOFOLLOW)
-        }
-        if statusResult == -1, errno == ENOENT { return }
-        guard statusResult == 0 else { throw posixError() }
-
-        if status.st_mode & S_IFMT == S_IFDIR {
-            let child = name.withCString {
-                openat(parent, $0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
-            }
-            guard child >= 0 else { throw posixError() }
-            guard let directory = fdopendir(child) else {
-                Darwin.close(child)
-                throw posixError()
-            }
-            defer { closedir(directory) }
-            while let entry = readdir(directory) {
-                let childName = withUnsafeBytes(of: entry.pointee.d_name) {
-                    String(cString: $0.baseAddress!.assumingMemoryBound(to: CChar.self))
-                }
-                guard childName != ".", childName != ".." else { continue }
-                try removeItem(named: childName, from: child)
-            }
-            let result = name.withCString { unlinkat(parent, $0, AT_REMOVEDIR) }
-            if result == 0 || errno == ENOENT { return }
-            throw posixError()
-        }
-
-        let result = name.withCString { unlinkat(parent, $0, 0) }
-        if result == 0 || errno == ENOENT { return }
-        throw posixError()
     }
 
     private func openParent(of relativePath: String) throws -> (descriptor: Int32, name: String) {

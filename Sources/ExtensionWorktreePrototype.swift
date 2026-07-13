@@ -1,5 +1,6 @@
 import CmuxFoundation
 import CmuxGit
+import Darwin
 import Foundation
 import os
 
@@ -75,9 +76,11 @@ enum CmuxExtensionWorktreePrototype {
                 worktreeCreationStarted = true
                 try await run("git", ["-C", projectRoot.path, "worktree", "add", "-b", branchName, worktree.path, "HEAD"])
                 try Task.checkCancellation()
+                try writeSampleDevServerFiles(in: worktree, projectName: projectRoot.lastPathComponent)
                 let worktreeIncludeDiagnostics = await WorktreeIncludeSyncService().sync(
                     from: projectRoot,
-                    to: worktree
+                    to: worktree,
+                    excludingRelativePaths: ["cmux-sample-dev"]
                 )
                 for diagnostic in worktreeIncludeDiagnostics {
                     extensionWorktreeLogger.warning(
@@ -85,7 +88,6 @@ enum CmuxExtensionWorktreePrototype {
                     )
                 }
                 try Task.checkCancellation()
-                try writeSampleDevServerFiles(in: worktree, projectName: projectRoot.lastPathComponent)
 
                 let port = 4_100 + abs(branchName.hashValue % 800)
                 let samplePath = shellEscaped(worktree.appendingPathComponent("cmux-sample-dev", isDirectory: true).path)
@@ -179,8 +181,6 @@ enum CmuxExtensionWorktreePrototype {
     }
 
     private static func writeSampleDevServerFiles(in worktree: URL, projectName: String) throws {
-        let sample = worktree.appendingPathComponent("cmux-sample-dev", isDirectory: true)
-        try FileManager.default.createDirectory(at: sample, withIntermediateDirectories: true)
         let escapedProject = projectName
             .replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
@@ -195,7 +195,67 @@ enum CmuxExtensionWorktreePrototype {
           </body>
         </html>
         """
-        try html.write(to: sample.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+        let worktreeDescriptor = Darwin.open(
+            worktree.path,
+            O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
+        )
+        guard worktreeDescriptor >= 0 else { throw posixError() }
+        defer { Darwin.close(worktreeDescriptor) }
+
+        let sampleName = "cmux-sample-dev"
+        let createDirectoryResult = sampleName.withCString {
+            mkdirat(worktreeDescriptor, $0, 0o700)
+        }
+        guard createDirectoryResult == 0 || errno == EEXIST else { throw posixError() }
+        let sampleDescriptor = sampleName.withCString {
+            openat(worktreeDescriptor, $0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+        }
+        guard sampleDescriptor >= 0 else { throw posixError() }
+        defer { Darwin.close(sampleDescriptor) }
+
+        let temporaryName = ".cmux-index-\(UUID().uuidString)"
+        let indexDescriptor = temporaryName.withCString {
+            openat(
+                sampleDescriptor,
+                $0,
+                O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+                0o600
+            )
+        }
+        guard indexDescriptor >= 0 else { throw posixError() }
+        var installed = false
+        defer {
+            Darwin.close(indexDescriptor)
+            if !installed {
+                _ = temporaryName.withCString { unlinkat(sampleDescriptor, $0, 0) }
+            }
+        }
+
+        let htmlData = Data(html.utf8)
+        var written = 0
+        while written < htmlData.count {
+            let writeCount = htmlData.withUnsafeBytes {
+                Darwin.write(
+                    indexDescriptor,
+                    $0.baseAddress?.advanced(by: written),
+                    $0.count - written
+                )
+            }
+            if writeCount == -1, errno == EINTR { continue }
+            guard writeCount > 0 else { throw posixError() }
+            written += writeCount
+        }
+        let installResult = temporaryName.withCString { temporaryPointer in
+            "index.html".withCString { indexPointer in
+                renameat(sampleDescriptor, temporaryPointer, sampleDescriptor, indexPointer)
+            }
+        }
+        guard installResult == 0 else { throw posixError() }
+        installed = true
+    }
+
+    private static func posixError(_ code: Int32 = errno) -> NSError {
+        NSError(domain: NSPOSIXErrorDomain, code: Int(code))
     }
 
     private static func run(_ executable: String, _ arguments: [String]) async throws {

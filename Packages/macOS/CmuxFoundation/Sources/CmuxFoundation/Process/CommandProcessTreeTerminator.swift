@@ -12,8 +12,18 @@ enum CommandProcessTreeTerminator {
         processGroupID: pid_t?,
         completion: (@Sendable () -> Void)? = nil
     ) {
-        if let processGroupID {
-            _ = kill(-processGroupID, SIGTERM)
+        let terminationGroupID: pid_t? = if let processGroupID {
+            processGroupID
+        } else if !process.isRunning,
+                  process.processIdentifier > 1,
+                  process.processIdentifier != getpgrp() {
+            process.processIdentifier
+        } else {
+            nil
+        }
+
+        if let terminationGroupID {
+            _ = kill(-terminationGroupID, SIGTERM)
         } else if process.isRunning {
             process.terminate()
         } else {
@@ -24,9 +34,9 @@ enum CommandProcessTreeTerminator {
         let escalationTimer = DispatchSource.makeTimerSource(queue: queue)
         escalationTimer.schedule(deadline: .now() + sigkillGraceSeconds)
         escalationTimer.setEventHandler {
-            if let processGroupID {
-                if processGroupExists(processGroupID) {
-                    _ = kill(-processGroupID, SIGKILL)
+            if let terminationGroupID {
+                if processGroupExists(terminationGroupID) {
+                    _ = kill(-terminationGroupID, SIGKILL)
                 }
             } else if process.isRunning {
                 _ = kill(process.processIdentifier, SIGKILL)
@@ -36,7 +46,7 @@ enum CommandProcessTreeTerminator {
             if let completion {
                 completeWhenProcessTreeIsGone(
                     process,
-                    processGroupID: processGroupID,
+                    processGroupID: terminationGroupID,
                     completion: completion
                 )
             }

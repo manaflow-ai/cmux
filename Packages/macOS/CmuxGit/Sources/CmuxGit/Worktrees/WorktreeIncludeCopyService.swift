@@ -47,7 +47,7 @@ struct WorktreeIncludeCopyService: Sendable {
         var byteCount: Int64 = 0
         var copiedItemCount = 0
         var copiedByteCount: Int64 = 0
-        var copiedDirectories: [(source: URL, relativePath: String)] = []
+        var createdItems: [WorktreeIncludeCreatedItem] = []
 
         for relativePath in relativePaths {
             if Task.isCancelled {
@@ -77,7 +77,13 @@ struct WorktreeIncludeCopyService: Sendable {
             )
             return diagnostics
         }
-        let availableByteBudget = max(0, availableCapacity - limits.freeSpaceReserve)
+        guard availableCapacity > limits.freeSpaceReserve else {
+            diagnostics.append(
+                "Skipped .worktreeinclude copy because the destination volume lacks sufficient free space."
+            )
+            return diagnostics
+        }
+        let availableByteBudget = availableCapacity - limits.freeSpaceReserve
         if byteCount > availableByteBudget {
             diagnostics.append(
                 "Skipped .worktreeinclude copy because the destination volume lacks sufficient free space."
@@ -110,8 +116,7 @@ struct WorktreeIncludeCopyService: Sendable {
                 )
                 continue copyLoop
             }
-            let destinationExisted = (try? destinationRoot.itemExists(at: destinationRelativePath)) ?? true
-            let copiedDirectoryStartIndex = copiedDirectories.count
+            let createdItemStartIndex = createdItems.count
             do {
                 try copyItem(
                     source.appendingPathComponent(relativePath).standardizedFileURL,
@@ -121,56 +126,54 @@ struct WorktreeIncludeCopyService: Sendable {
                     byteCount: &copiedByteCount,
                     availableByteBudget: availableByteBudget,
                     destinationRoot: destinationRoot,
-                    copiedDirectories: &copiedDirectories
+                    createdItems: &createdItems
                 )
             } catch is CancellationError {
-                if !destinationExisted { try? destinationRoot.removeItem(at: destinationRelativePath) }
-                removeCopiedDirectories(
-                    since: copiedDirectoryStartIndex,
+                removeCreatedItems(
+                    since: createdItemStartIndex,
                     destinationRoot: destinationRoot,
-                    copiedDirectories: &copiedDirectories
+                    createdItems: &createdItems
                 )
                 diagnostics.append("Cancelled .worktreeinclude copy before it completed.")
                 break copyLoop
             } catch let limitError as WorktreeIncludeCopyLimitError {
-                if !destinationExisted { try? destinationRoot.removeItem(at: destinationRelativePath) }
-                removeCopiedDirectories(
-                    since: copiedDirectoryStartIndex,
+                removeCreatedItems(
+                    since: createdItemStartIndex,
                     destinationRoot: destinationRoot,
-                    copiedDirectories: &copiedDirectories
+                    createdItems: &createdItems
                 )
                 diagnostics.append(limitError.localizedDescription)
                 break copyLoop
             } catch {
-                if !destinationExisted { try? destinationRoot.removeItem(at: destinationRelativePath) }
-                removeCopiedDirectories(
-                    since: copiedDirectoryStartIndex,
+                removeCreatedItems(
+                    since: createdItemStartIndex,
                     destinationRoot: destinationRoot,
-                    copiedDirectories: &copiedDirectories
+                    createdItems: &createdItems
                 )
                 diagnostics.append(
                     "Could not copy .worktreeinclude path \(relativePath): \(error.localizedDescription)"
                 )
             }
         }
-        for directory in copiedDirectories.reversed() {
+        for directory in createdItems.reversed() {
             if Task.isCancelled {
                 if !diagnostics.contains(where: { $0.localizedCaseInsensitiveContains("cancelled") }) {
                     diagnostics.append("Cancelled .worktreeinclude copy before it completed.")
                 }
                 break
             }
-            guard (try? destinationRoot.itemExists(at: directory.relativePath)) == true else { continue }
+            guard let source = directory.directoryMetadataSource,
+                  (try? destinationRoot.itemExists(at: directory.relativePath)) == true else { continue }
             do {
                 try destinationRoot.applySecurityMetadata(
-                    from: directory.source,
+                    from: source,
                     to: directory.relativePath,
-                    isDirectory: true
+                    expectedDevice: directory.device,
+                    expectedInode: directory.inode
                 )
             } catch {
-                try? destinationRoot.removeItem(at: directory.relativePath)
                 diagnostics.append(
-                    "Could not preserve .worktreeinclude directory metadata for \(directory.source.lastPathComponent): \(error.localizedDescription)"
+                    "Could not preserve .worktreeinclude directory metadata for \(source.lastPathComponent): \(error.localizedDescription)"
                 )
             }
         }
@@ -220,7 +223,7 @@ struct WorktreeIncludeCopyService: Sendable {
         byteCount: inout Int64,
         availableByteBudget: Int64,
         destinationRoot: WorktreeIncludeDestinationRoot,
-        copiedDirectories: inout [(source: URL, relativePath: String)]
+        createdItems: inout [WorktreeIncludeCreatedItem]
     ) throws {
         let rootValues = try sourceItem.resourceValues(forKeys: Self.resourceKeys)
         sourceItemInspected(sourceItem)
@@ -231,9 +234,13 @@ struct WorktreeIncludeCopyService: Sendable {
                 destinationRoot: destinationRoot,
                 itemCount: &itemCount,
                 byteCount: byteCount,
-                copiedDirectories: &copiedDirectories
+                createdItems: &createdItems
             )
-            try accountCopiedItem(itemCount: &itemCount, byteCount: byteCount)
+            try accountCopiedItem(
+                itemCount: &itemCount,
+                byteCount: byteCount,
+                destinationRoot: destinationRoot
+            )
             if rootValues.isRegularFile == true, rootValues.isSymbolicLink != true {
                 try copyRegularFile(
                     sourceItem,
@@ -241,13 +248,15 @@ struct WorktreeIncludeCopyService: Sendable {
                     itemCount: itemCount,
                     byteCount: &byteCount,
                     availableByteBudget: availableByteBudget,
-                    destinationRoot: destinationRoot
+                    destinationRoot: destinationRoot,
+                    createdItems: &createdItems
                 )
             } else if rootValues.isSymbolicLink == true {
                 try copySymbolicLink(
                     sourceItem,
                     to: destinationRelativePath,
-                    destinationRoot: destinationRoot
+                    destinationRoot: destinationRoot,
+                    createdItems: &createdItems
                 )
             } else {
                 throw CocoaError(.fileReadUnsupportedScheme)
@@ -261,7 +270,7 @@ struct WorktreeIncludeCopyService: Sendable {
             destinationRoot: destinationRoot,
             itemCount: &itemCount,
             byteCount: byteCount,
-            copiedDirectories: &copiedDirectories
+            createdItems: &createdItems
         )
         guard let enumerator = fileManager.enumerator(atPath: sourceItem.path) else {
             throw CocoaError(.fileReadUnknown)
@@ -278,7 +287,7 @@ struct WorktreeIncludeCopyService: Sendable {
                     destinationRoot: destinationRoot,
                     itemCount: &itemCount,
                     byteCount: byteCount,
-                    copiedDirectories: &copiedDirectories
+                    createdItems: &createdItems
                 )
             } else {
                 try createDirectoryIfNeeded(
@@ -287,9 +296,13 @@ struct WorktreeIncludeCopyService: Sendable {
                     destinationRoot: destinationRoot,
                     itemCount: &itemCount,
                     byteCount: byteCount,
-                    copiedDirectories: &copiedDirectories
+                    createdItems: &createdItems
                 )
-                try accountCopiedItem(itemCount: &itemCount, byteCount: byteCount)
+                try accountCopiedItem(
+                    itemCount: &itemCount,
+                    byteCount: byteCount,
+                    destinationRoot: destinationRoot
+                )
                 if values.isRegularFile == true, values.isSymbolicLink != true {
                     let destinationChildRelativePath = try destinationRoot.relativePath(for: destinationChild)
                     try copyRegularFile(
@@ -298,13 +311,15 @@ struct WorktreeIncludeCopyService: Sendable {
                         itemCount: itemCount,
                         byteCount: &byteCount,
                         availableByteBudget: availableByteBudget,
-                        destinationRoot: destinationRoot
+                        destinationRoot: destinationRoot,
+                        createdItems: &createdItems
                     )
                 } else if values.isSymbolicLink == true {
                     try copySymbolicLink(
                         child,
                         to: try destinationRoot.relativePath(for: destinationChild),
-                        destinationRoot: destinationRoot
+                        destinationRoot: destinationRoot,
+                        createdItems: &createdItems
                     )
                 } else {
                     throw CocoaError(.fileReadUnsupportedScheme)
@@ -319,7 +334,7 @@ struct WorktreeIncludeCopyService: Sendable {
         destinationRoot: WorktreeIncludeDestinationRoot,
         itemCount: inout Int,
         byteCount: Int64,
-        copiedDirectories: inout [(source: URL, relativePath: String)]
+        createdItems: inout [WorktreeIncludeCreatedItem]
     ) throws {
         let destinationDirectory = destinationDirectory.standardizedFileURL
         let relativePath = try destinationRoot.relativePath(for: destinationDirectory)
@@ -331,28 +346,44 @@ struct WorktreeIncludeCopyService: Sendable {
             destinationRoot: destinationRoot,
             itemCount: &itemCount,
             byteCount: byteCount,
-            copiedDirectories: &copiedDirectories
+            createdItems: &createdItems
         )
-        try accountCopiedItem(itemCount: &itemCount, byteCount: byteCount)
-        try destinationRoot.createDirectory(at: relativePath, permissions: 0o700)
-        copiedDirectories.append((sourceDirectory, relativePath))
+        try accountCopiedItem(
+            itemCount: &itemCount,
+            byteCount: byteCount,
+            destinationRoot: destinationRoot
+        )
+        let identity = try destinationRoot.createDirectory(at: relativePath, permissions: 0o700)
+        createdItems.append(WorktreeIncludeCreatedItem(
+            relativePath: relativePath,
+            device: identity.device,
+            inode: identity.inode,
+            isDirectory: true,
+            directoryMetadataSource: sourceDirectory
+        ))
     }
 
-    private func removeCopiedDirectories(
+    private func removeCreatedItems(
         since startIndex: Int,
         destinationRoot: WorktreeIncludeDestinationRoot,
-        copiedDirectories: inout [(source: URL, relativePath: String)]
+        createdItems: inout [WorktreeIncludeCreatedItem]
     ) {
-        guard startIndex < copiedDirectories.count else { return }
-        for directory in copiedDirectories[startIndex...].reversed() {
-            try? destinationRoot.removeItem(at: directory.relativePath)
+        guard startIndex < createdItems.count else { return }
+        for item in createdItems[startIndex...].reversed() {
+            try? destinationRoot.removeItemIfUnchanged(
+                at: item.relativePath,
+                device: item.device,
+                inode: item.inode,
+                isDirectory: item.isDirectory
+            )
         }
-        copiedDirectories.removeSubrange(startIndex...)
+        createdItems.removeSubrange(startIndex...)
     }
 
     private func accountCopiedItem(
         itemCount: inout Int,
-        byteCount: Int64
+        byteCount: Int64,
+        destinationRoot: WorktreeIncludeDestinationRoot
     ) throws {
         itemCount += 1
         guard itemCount <= limits.maximumItemCount else {
@@ -360,6 +391,14 @@ struct WorktreeIncludeCopyService: Sendable {
                 itemCount: itemCount,
                 byteCount: byteCount,
                 reason: .resourceLimit
+            )
+        }
+        guard let currentCapacity = availableCapacity(destinationRoot.rootURL),
+              currentCapacity > limits.freeSpaceReserve else {
+            throw WorktreeIncludeCopyLimitError(
+                itemCount: itemCount,
+                byteCount: byteCount,
+                reason: .capacity
             )
         }
     }
@@ -370,7 +409,8 @@ struct WorktreeIncludeCopyService: Sendable {
         itemCount: Int,
         byteCount: inout Int64,
         availableByteBudget: Int64,
-        destinationRoot: WorktreeIncludeDestinationRoot
+        destinationRoot: WorktreeIncludeDestinationRoot,
+        createdItems: inout [WorktreeIncludeCreatedItem]
     ) throws {
         guard try !destinationRoot.itemExists(at: destinationRelativePath) else {
             throw CocoaError(.fileWriteFileExists)
@@ -389,93 +429,50 @@ struct WorktreeIncludeCopyService: Sendable {
             at: destinationRelativePath,
             permissions: 0o600
         )
+        var destinationStatus = stat()
+        guard fstat(destinationDescriptor, &destinationStatus) == 0 else {
+            Darwin.close(destinationDescriptor)
+            throw posixError()
+        }
+        createdItems.append(WorktreeIncludeCreatedItem(
+            relativePath: destinationRelativePath,
+            device: destinationStatus.st_dev,
+            inode: destinationStatus.st_ino,
+            isDirectory: false,
+            directoryMetadataSource: nil
+        ))
         destinationFileCreated(
             destinationRoot.rootURL.appendingPathComponent(destinationRelativePath)
         )
 
-        do {
-            defer { Darwin.close(destinationDescriptor) }
-            var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-            while true {
-                if Task.isCancelled { throw CancellationError() }
-                let readCount = buffer.withUnsafeMutableBytes {
-                    Darwin.read(sourceDescriptor, $0.baseAddress, $0.count)
-                }
-                if readCount == -1, errno == EINTR { continue }
-                guard readCount >= 0 else { throw posixError() }
-                if readCount == 0 { break }
-                let nextByteCount = byteCount + Int64(readCount)
-                guard nextByteCount <= limits.maximumByteCount else {
-                    throw WorktreeIncludeCopyLimitError(
-                        itemCount: itemCount,
-                        byteCount: nextByteCount,
-                        reason: .resourceLimit
-                    )
-                }
-                if nextByteCount > availableByteBudget {
-                    throw WorktreeIncludeCopyLimitError(
-                        itemCount: itemCount,
-                        byteCount: nextByteCount,
-                        reason: .capacity
-                    )
-                }
-                var written = 0
-                while written < readCount {
-                    let writeCount = buffer.withUnsafeBytes {
-                        Darwin.write(
-                            destinationDescriptor,
-                            $0.baseAddress?.advanced(by: written),
-                            readCount - written
-                        )
-                    }
-                    if writeCount == -1, errno == EINTR { continue }
-                    guard writeCount > 0 else { throw posixError() }
-                    written += writeCount
-                }
-                byteCount = nextByteCount
-            }
-
-            try destinationRoot.applySecurityMetadata(
-                sourceDescriptor: sourceDescriptor,
-                destinationDescriptor: destinationDescriptor
-            )
-        } catch {
-            try? destinationRoot.removeItem(at: destinationRelativePath)
-            throw error
-        }
+        defer { Darwin.close(destinationDescriptor) }
+        byteCount = try destinationRoot.copyRegularFileContents(
+            sourceDescriptor: sourceDescriptor,
+            destinationDescriptor: destinationDescriptor,
+            itemCount: itemCount,
+            byteCount: byteCount,
+            maximumByteCount: limits.maximumByteCount,
+            availableByteBudget: availableByteBudget
+        )
     }
 
     private func copySymbolicLink(
         _ sourceItem: URL,
         to destinationRelativePath: String,
-        destinationRoot: WorktreeIncludeDestinationRoot
+        destinationRoot: WorktreeIncludeDestinationRoot,
+        createdItems: inout [WorktreeIncludeCreatedItem]
     ) throws {
-        guard try !destinationRoot.itemExists(at: destinationRelativePath) else {
-            throw CocoaError(.fileWriteFileExists)
-        }
-        let target = try symbolicLinkTarget(at: sourceItem)
-        try destinationRoot.createSymbolicLink(
-            at: destinationRelativePath,
-            target: target
+        let identity = try destinationRoot.copySymbolicLink(
+            from: sourceItem,
+            to: destinationRelativePath
         )
-    }
-
-    private func symbolicLinkTarget(at sourceItem: URL) throws -> [UInt8] {
-        var status = stat()
-        guard lstat(sourceItem.path, &status) == 0 else { throw posixError() }
-        guard status.st_mode & S_IFMT == S_IFLNK else {
-            throw CocoaError(.fileReadUnsupportedScheme)
-        }
-        let capacity = max(1, Int(status.st_size) + 1)
-        var bytes = [UInt8](repeating: 0, count: capacity)
-        let count = bytes.withUnsafeMutableBytes { buffer in
-            sourceItem.path.withCString { pathPointer in
-                readlink(pathPointer, buffer.baseAddress, buffer.count)
-            }
-        }
-        guard count >= 0 else { throw posixError() }
-        guard count < capacity else { throw posixError(EOVERFLOW) }
-        return Array(bytes.prefix(count))
+        createdItems.append(WorktreeIncludeCreatedItem(
+            relativePath: destinationRelativePath,
+            device: identity.device,
+            inode: identity.inode,
+            isDirectory: false,
+            directoryMetadataSource: nil
+        ))
     }
 
     private func posixError(_ code: Int32 = errno) -> NSError {

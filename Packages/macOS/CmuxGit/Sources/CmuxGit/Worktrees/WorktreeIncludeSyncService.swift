@@ -74,10 +74,12 @@ public struct WorktreeIncludeSyncService: Sendable {
     /// - Parameters:
     ///   - sourceRoot: The root of the source Git checkout.
     ///   - destinationRoot: The root of the newly created Git worktree.
+    ///   - excludedRelativePaths: Destination subtrees reserved by the caller and excluded from copying.
     /// - Returns: Non-fatal diagnostics produced while matching or copying paths.
     public nonisolated func sync(
         from sourceRoot: URL,
-        to destinationRoot: URL
+        to destinationRoot: URL,
+        excludingRelativePaths excludedRelativePaths: Set<String> = []
     ) async -> [String] {
         let source = sourceRoot.standardizedFileURL
         let destination = destinationRoot.standardizedFileURL
@@ -179,6 +181,15 @@ public struct WorktreeIncludeSyncService: Sendable {
 
         var safeCandidates: [String] = []
         for relativePath in candidates {
+            let normalizedPath = relativePath.hasSuffix("/")
+                ? String(relativePath.dropLast())
+                : relativePath
+            if excludedRelativePaths.contains(where: {
+                normalizedPath == $0 || normalizedPath.hasPrefix($0 + "/")
+            }) {
+                diagnostics.append("Skipped reserved .worktreeinclude path: \(relativePath)")
+                continue
+            }
             guard isSafe(
                 relativePath: relativePath,
                 source: source,
