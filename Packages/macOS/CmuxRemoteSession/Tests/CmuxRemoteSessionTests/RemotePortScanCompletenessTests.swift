@@ -37,10 +37,10 @@ struct RemotePortScanCompletenessTests {
         coordinator.stop()
     }
 
-    @Test("Incomplete host positives retain seen fallback and expire its unseen sibling")
-    func incompleteHostPositiveReconcilesFallbackPortsIndependently() {
+    @Test("TTY-positive port stays published while incomplete handoff expires fallback")
+    func ttyOwnedPortStaysPublishedDuringIncompleteFallbackExpiry() {
         let panel = UUID()
-        let output = "\(RemoteSessionCoordinator.remoteTTYHostWidePortMarker)\t8080\n"
+        let output = "ttys010\t8080\n"
         let runner = SpyProcessRunner(
             result: RemoteCommandResult(status: 0, stdout: output, stderr: "")
         )
@@ -50,20 +50,25 @@ struct RemotePortScanCompletenessTests {
         coordinator.queue.sync {
             coordinator.daemonReady = true
             coordinator.remotePortPollState.apply(
-                observedPorts: [8080, 9090],
+                observedPorts: [8080],
                 mode: .hostWide,
                 completeness: .complete
             )
             coordinator.updateRemotePortScanTTYsLocked([panel: "ttys010"])
-            for _ in 0..<5 {
-                coordinator.performRemotePortScanLocked()
-            }
         }
 
-        #expect(host.detectedPorts == [8080])
-        #expect(coordinator.queue.sync { coordinator.keepPolledRemotePortsUntilTTYScan })
-        let generatedCommands = runner.requests.flatMap(\.arguments)
-        #expect(generatedCommands.contains(where: { $0.contains("ttys010:") }) == false)
+        for attempt in 0..<3 {
+            coordinator.queue.sync {
+                coordinator.performRemotePortScanLocked()
+            }
+            #expect(host.detectedPorts == [8080])
+            #expect(host.detectedPortsByPanel[panel] == [8080])
+            #expect(
+                coordinator.queue.sync { coordinator.keepPolledRemotePortsUntilTTYScan }
+                    == (attempt < 2)
+            )
+        }
+
         coordinator.stop()
     }
 
@@ -71,8 +76,6 @@ struct RemotePortScanCompletenessTests {
     func fallbackTransitionDoesNotFabricateTTYOwnership() {
         let panel = UUID()
         let completeOutput = """
-        \(RemoteSessionCoordinator.remoteTTYHostWidePortMarker)\t8080
-        \(RemoteSessionCoordinator.remoteTTYHostWideCompleteMarker)
         \(RemoteSessionCoordinator.remoteTTYPortScanCompleteMarker)\tttys010
         """
         let runner = SpyProcessRunner(
@@ -108,8 +111,6 @@ struct RemotePortScanCompletenessTests {
         let completeOutput = """
         ttys010\t8080
         \(RemoteSessionCoordinator.remoteTTYPortScanCompleteMarker)\tttys010
-        \(RemoteSessionCoordinator.remoteTTYHostWidePortMarker)\t8080
-        \(RemoteSessionCoordinator.remoteTTYHostWideCompleteMarker)
         """
         let runner = SpyProcessRunner(
             result: RemoteCommandResult(status: 0, stdout: completeOutput, stderr: "")

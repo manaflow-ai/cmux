@@ -8,8 +8,6 @@ extension RemoteSessionCoordinator {
     static let remotePortScanCoalesceDelayMilliseconds = 200
     static let remotePortScanCompleteMarker = "__cmux_port_scan_complete__"
     static let remoteTTYPortScanCompleteMarker = "__cmux_port_scan_complete_tty__"
-    static let remoteTTYHostWidePortMarker = "__cmux_port_scan_host_port__"
-    static let remoteTTYHostWideCompleteMarker = "__cmux_port_scan_host_complete__"
 
     /// Replaces the tracked panel-to-TTY map (from shell integration) on the
     /// coordinator queue; panels whose TTY changed lose their scanned ports.
@@ -233,8 +231,7 @@ extension RemoteSessionCoordinator {
             let wasRetainingFallback = keepPolledRemotePortsUntilTTYScan
             if keepPolledRemotePortsUntilTTYScan {
                 keepPolledRemotePortsUntilTTYScan = !remotePortPollState.advanceTTYTransition(
-                    observedPorts: allTTYsComplete ? [] : scan.hostWidePorts,
-                    completeness: allTTYsComplete ? .complete : scan.hostWideCompleteness
+                    completeness: allTTYsComplete ? .complete : .incomplete
                 )
             }
             if !keepPolledRemotePortsUntilTTYScan && (wasRetainingFallback || allTTYsComplete) {
@@ -250,12 +247,10 @@ extension RemoteSessionCoordinator {
         ttyNamesByPanel: [UUID: String]
     ) throws -> (
         portsByPanel: [UUID: [Int]],
-        completenessByPanel: [UUID: PortScanCompleteness],
-        hostWidePorts: Set<Int>,
-        hostWideCompleteness: PortScanCompleteness
+        completenessByPanel: [UUID: PortScanCompleteness]
     ) {
         let ttyNames = Array(Set(ttyNamesByPanel.values)).sorted()
-        guard !ttyNames.isEmpty else { return ([:], [:], [], .incomplete) }
+        guard !ttyNames.isEmpty else { return ([:], [:]) }
 
         var protectedPortsByTTY: [String: Set<Int>] = [:]
         for (panelId, ports) in remotePortScanSnapshot.snapshot {
@@ -282,9 +277,7 @@ extension RemoteSessionCoordinator {
         let scanOutput = RemoteTTYPortScanOutput(
             output: result.stdout,
             trackedTTYNames: Set(ttyNames),
-            completionMarker: Self.remoteTTYPortScanCompleteMarker,
-            hostWidePortMarker: Self.remoteTTYHostWidePortMarker,
-            hostWideCompletionMarker: Self.remoteTTYHostWideCompleteMarker
+            completionMarker: Self.remoteTTYPortScanCompleteMarker
         )
 
         let portsByPanel = ttyNamesByPanel.reduce(into: [UUID: [Int]]()) { result, entry in
@@ -297,12 +290,7 @@ extension RemoteSessionCoordinator {
                 ? .complete
                 : .incomplete
         }
-        return (
-            portsByPanel,
-            completenessByPanel,
-            scanOutput.hostWidePorts,
-            scanOutput.hostWideCompleteness
-        )
+        return (portsByPanel, completenessByPanel)
     }
 
     // DispatchSourceTimer stays for the poll cadence as part of the faithful

@@ -10,8 +10,6 @@ struct RemoteTTYPortScanScriptTests {
 
         #expect(result.status == 0)
         #expect(result.output.split(whereSeparator: \.isNewline).contains("ttys010\t4300"))
-        #expect(hostWidePortRows(in: result.output) == ["4200", "4300"])
-        #expect(hasHostWideCompletionMarker(result.output))
         #expect(hasCompletionMarker(result.output, for: "ttys010") == false)
     }
 
@@ -21,8 +19,6 @@ struct RemoteTTYPortScanScriptTests {
 
         #expect(result.status == 0)
         #expect(result.output.split(whereSeparator: \.isNewline).contains("ttys010\t4300"))
-        #expect(hostWidePortRows(in: result.output) == ["4200", "4300"])
-        #expect(hasHostWideCompletionMarker(result.output))
         #expect(hasCompletionMarker(result.output, for: "ttys010"))
     }
 
@@ -32,8 +28,6 @@ struct RemoteTTYPortScanScriptTests {
 
         #expect(result.status == 0)
         #expect(result.output.split(whereSeparator: \.isNewline).contains("ttys010\t4300"))
-        #expect(hostWidePortRows(in: result.output) == ["4200", "4300"])
-        #expect(hasHostWideCompletionMarker(result.output) == false)
         #expect(hasCompletionMarker(result.output, for: "ttys010") == false)
     }
 
@@ -43,8 +37,6 @@ struct RemoteTTYPortScanScriptTests {
 
         #expect(result.status == 0)
         #expect(result.output.split(whereSeparator: \.isNewline).contains("ttys010\t4200"))
-        #expect(hostWidePortRows(in: result.output).isEmpty)
-        #expect(hasHostWideCompletionMarker(result.output) == false)
         #expect(hasCompletionMarker(result.output, for: "ttys010"))
     }
 
@@ -83,8 +75,6 @@ struct RemoteTTYPortScanScriptTests {
 
         #expect(result.status == 0)
         #expect(result.output.split(whereSeparator: \.isNewline).contains("ttys010\t4300"))
-        #expect(hostWidePortRows(in: result.output) == ["4200", "4300", "5173"])
-        #expect(hasHostWideCompletionMarker(result.output))
         #expect(hasCompletionMarker(result.output, for: "ttys010"))
         #expect(hasCompletionMarker(result.output, for: "ttys011") == false)
         #expect(hasCompletionMarker(result.output, for: "ttys012") == false)
@@ -193,20 +183,6 @@ struct RemoteTTYPortScanScriptTests {
 
     private func hasCompletionMarker(_ output: String, for ttyName: String) -> Bool {
         output.split(whereSeparator: \.isNewline).contains(Substring(completionMarker(for: ttyName)))
-    }
-
-    private func hostWidePortRows(in output: String) -> [Substring] {
-        let prefix = "\(RemoteSessionCoordinator.remoteTTYHostWidePortMarker)\t"
-        return output.split(whereSeparator: \.isNewline)
-            .filter { $0.hasPrefix(prefix) }
-            .map { $0.dropFirst(prefix.count) }
-            .sorted()
-    }
-
-    private func hasHostWideCompletionMarker(_ output: String) -> Bool {
-        output.split(whereSeparator: \.isNewline).contains(
-            Substring(RemoteSessionCoordinator.remoteTTYHostWideCompleteMarker)
-        )
     }
 
     private func writeExecutable(_ url: URL, body: String) throws {
