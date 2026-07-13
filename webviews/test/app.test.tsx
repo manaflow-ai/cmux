@@ -235,7 +235,8 @@ test("native viewer navigation remains installed after an unrelated render", asy
   dom.window.document.getElementById("layout-toggle")?.click();
   await waitFor(() => dom?.window.document.documentElement.dataset.layout === "split");
   expect(dom.window.__cmuxPerformDiffViewerNavigationAction).toBe(action);
-  action?.("diffViewerOpenFileSearch");
+  expect(action?.("diffViewerOpenFileSearch")).toBe(true);
+  expect(action?.("unknown")).toBe(false);
   await waitFor(() => dom?.window.document.getElementById("file-search-toggle")?.getAttribute("aria-pressed") === "true");
 });
 

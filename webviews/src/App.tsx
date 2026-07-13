@@ -1333,7 +1333,13 @@ function usePierreFileTreeSearch(
 ): void {
   useEffect(() => {
     if (fileSearchOpen) {
-      model.openSearch("");
+      const wasOpen = model.isSearchOpen();
+      model.openSearch(wasOpen ? model.getSearchValue() : "");
+      if (wasOpen) {
+        const container = model.getFileTreeContainer();
+        const root = container?.shadowRoot ?? container?.getRootNode();
+        (root as ParentNode | undefined)?.querySelector<HTMLInputElement>("[data-file-tree-search-input]")?.focus();
+      }
     } else {
       model.closeSearch();
     }
@@ -1508,21 +1514,22 @@ function useNativeViewerNavigation(
     window.__cmuxPerformDiffViewerNavigationAction = (action: string) => {
       const viewer = viewerRef.current;
       if (viewer && CmuxViewerNavigation.performAction(action, viewer)) {
-        return;
+        return true;
       }
       switch (action) {
         case "diffViewerOpenFileSearch":
           dispatch({ type: "request-file-search" });
-          break;
+          return true;
         case "diffViewerNextFile":
           if (viewer) CmuxViewerNavigation.resetSmoothTarget(viewer);
           onJumpAdjacentFile(1);
-          break;
+          return true;
         case "diffViewerPreviousFile":
           if (viewer) CmuxViewerNavigation.resetSmoothTarget(viewer);
           onJumpAdjacentFile(-1);
-          break;
+          return true;
       }
+      return false;
     };
     const disposeManualInputReset = CmuxViewerNavigation.installManualInputReset({
       target: document,

@@ -404,11 +404,13 @@ final class CmuxWebView: WKWebView {
         }, perform: { [weak self] action in
             guard let self else { return }
             let rawAction = action.rawValue.replacingOccurrences(of: "'", with: "\\'")
-            let script = "window.__cmuxPerformDiffViewerNavigationAction?.('\(rawAction)')"
+            let script = "window.__cmuxPerformDiffViewerNavigationAction?.('\(rawAction)') === true"
             if action == .diffViewerOpenFileSearch {
                 diffViewerDocumentState.beginEditableFocusTransition()
-                evaluateJavaScript(script) { [weak self] _, error in
-                    if error != nil { self?.diffViewerDocumentState.editableFocusTransitionDidFail() }
+                evaluateJavaScript(script) { [weak self] result, error in
+                    if error != nil || result as? Bool != true {
+                        self?.diffViewerDocumentState.editableFocusTransitionDidFail()
+                    }
                 }
             } else {
                 evaluateJavaScript(script)
