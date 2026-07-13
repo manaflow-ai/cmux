@@ -470,12 +470,13 @@ final class CmuxWebView: WKWebView {
                   !!element?.closest?.("select, [contenteditable='true']"));
                 handler.postMessage({ viewer, editable });
               };
+              document.addEventListener('DOMContentLoaded', publish, { once: true });
               document.addEventListener('focusin', publish, true);
               document.addEventListener('focusout', () => queueMicrotask(publish), true);
               publish();
             })();
             """,
-            injectionTime: .atDocumentEnd,
+            injectionTime: .atDocumentStart,
             forMainFrameOnly: true
         ))
         objc_setAssociatedObject(
