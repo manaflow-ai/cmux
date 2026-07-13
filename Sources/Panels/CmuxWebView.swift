@@ -479,8 +479,10 @@ final class CmuxWebView: WKWebView {
               const handler = window.webkit?.messageHandlers?.['\(name)'];
               if (!handler) return;
               const publish = () => {
-                const element = document.activeElement;
-                const editable = !!element?.closest?.("input, textarea, select, [contenteditable='true']");
+                const helpers = window.__cmuxPasteAsPlainTextHelpers;
+                const element = helpers?.deepestActiveElement?.(document) ?? document.activeElement;
+                const editable = !!helpers?.editableTarget?.(element) ||
+                  !!element?.closest?.("select, [contenteditable='true']");
                 handler.postMessage({ editable });
               };
               document.addEventListener('focusin', publish, true);

@@ -5,11 +5,27 @@ import WebKit
 @MainActor
 final class ViewerNavigationKeyRouter {
     private let actions: [KeyboardShortcutSettings.Action]
+    private var bindings: [(action: KeyboardShortcutSettings.Action, shortcut: StoredShortcut)] = []
+    private var settingsObserver: NSObjectProtocol?
     private var pendingChord: (prefix: ShortcutStroke, expiresAt: TimeInterval)?
     private static let chordTimeout: TimeInterval = 0.7
 
     init(actions: [KeyboardShortcutSettings.Action]) {
         self.actions = actions
+        reloadBindings()
+        settingsObserver = NotificationCenter.default.addObserver(
+            forName: KeyboardShortcutSettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.reloadBindings()
+        }
+    }
+
+    deinit {
+        if let settingsObserver {
+            NotificationCenter.default.removeObserver(settingsObserver)
+        }
     }
 
     func reset() {
@@ -21,13 +37,10 @@ final class ViewerNavigationKeyRouter {
         isAllowed: (KeyboardShortcutSettings.Action, NSEvent) -> Bool,
         perform: (KeyboardShortcutSettings.Action) -> Void
     ) -> Bool {
-        let candidates = actions.map { action in
-            (action, KeyboardShortcutSettings.shortcut(for: action))
-        }
         if let pendingChord {
             self.pendingChord = nil
             if event.timestamp <= pendingChord.expiresAt {
-                for (action, shortcut) in candidates {
+                for (action, shortcut) in bindings {
                     guard shortcut.firstStroke == pendingChord.prefix,
                           let secondStroke = shortcut.secondStroke,
                           secondStroke.matches(event: event),
@@ -38,7 +51,7 @@ final class ViewerNavigationKeyRouter {
             }
         }
 
-        for (action, shortcut) in candidates where !shortcut.isUnbound {
+        for (action, shortcut) in bindings where !shortcut.isUnbound {
             guard isAllowed(action, event) else { continue }
             if shortcut.secondStroke != nil {
                 if shortcut.firstStroke.matches(event: event) {
@@ -54,6 +67,13 @@ final class ViewerNavigationKeyRouter {
             }
         }
         return false
+    }
+
+    private func reloadBindings() {
+        bindings = actions.map { action in
+            (action, KeyboardShortcutSettings.shortcut(for: action))
+        }
+        reset()
     }
 }
 
