@@ -163,8 +163,102 @@ struct RemoteReconnectPolicyTests {
         #expect(coordinator.queue.sync { coordinator.proxyEndpoint } == nil)
     }
 
-    private func makeCoordinator(broker: RemoteProxyBroker) -> RemoteSessionCoordinator {
+    @Test("Wake reset cancels transport-dependent scan work")
+    func wakeResetCancelsTransportDependentWork() {
+        let provider = IntentionalCleanupTestTunnelProvider()
+        let coordinator = makeCoordinator(
+            broker: RemoteProxyBroker(tunnelProvider: provider)
+        )
+        defer {
+            coordinator.stop()
+            coordinator.queue.sync {}
+            provider.tunnel.stop()
+        }
+        let panelID = UUID()
+        coordinator.queue.sync {
+            coordinator.isSystemSleeping = true
+            coordinator.reconnectSuspended = true
+            coordinator.remotePortScanGeneration = 7
+            coordinator.remotePortScanBurstActive = true
+            coordinator.remotePortScanActiveReason = .command
+            coordinator.remotePortScanPendingReason = .refresh
+            coordinator.remoteScannedPortsByPanel[panelID] = [22]
+            coordinator.bootstrapRemoteTTYRetryCount = 4
+            coordinator.bootstrapRemoteTTYFetchInFlight = true
+        }
+
+        coordinator.resetReconnectPolicyAndReconnect(reason: "test wake")
+        coordinator.queue.sync {}
+
+        let state = coordinator.queue.sync {
+            (
+                coordinator.remotePortScanGeneration,
+                coordinator.remotePortScanBurstActive,
+                coordinator.remotePortScanActiveReason,
+                coordinator.remotePortScanPendingReason,
+                coordinator.remoteScannedPortsByPanel,
+                coordinator.bootstrapRemoteTTYRetryCount,
+                coordinator.bootstrapRemoteTTYFetchInFlight
+            )
+        }
+        #expect(state.0 == 8)
+        #expect(!state.1)
+        #expect(state.2 == nil)
+        #expect(state.3 == nil)
+        #expect(state.4.isEmpty)
+        #expect(state.5 == 0)
+        #expect(!state.6)
+    }
+
+    @Test("Wake leaves a healthy proxy-less Cloud fallback connected")
+    func wakeLeavesProxylessCloudFallbackConnected() {
+        let provider = IntentionalCleanupTestTunnelProvider()
         let configuration = WorkspaceRemoteConfiguration(
+            destination: "vm+cmux@vm-ssh.freestyle.sh",
+            port: 22,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil,
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+            skipDaemonBootstrap: true
+        )
+        let coordinator = makeCoordinator(
+            broker: RemoteProxyBroker(tunnelProvider: provider),
+            configuration: configuration
+        )
+        defer {
+            coordinator.stop()
+            coordinator.queue.sync {}
+            provider.tunnel.stop()
+        }
+        coordinator.queue.sync {
+            coordinator.isSystemSleeping = true
+            coordinator.daemonReady = true
+            coordinator.proxyEndpoint = nil
+        }
+
+        coordinator.resetReconnectPolicyAndReconnect(reason: "test wake")
+        coordinator.queue.sync {}
+
+        let state = coordinator.queue.sync {
+            (coordinator.reconnectRetryCount, coordinator.reconnectToken, coordinator.daemonReady)
+        }
+        #expect(state.0 == 0)
+        #expect(state.1 == nil)
+        #expect(state.2)
+    }
+
+    private func makeCoordinator(
+        broker: RemoteProxyBroker,
+        configuration: WorkspaceRemoteConfiguration? = nil
+    ) -> RemoteSessionCoordinator {
+        let configuration = configuration ?? WorkspaceRemoteConfiguration(
             destination: "user@example.test",
             port: nil,
             identityFile: nil,

@@ -223,6 +223,21 @@ struct SSHDeepSleepReattachTests {
         #expect(try String(contentsOf: sleepLog, encoding: .utf8) == "2\n")
     }
 
+    @Test func foregroundAuthenticatedAttachHasFiniteRetryEscapeHatch() {
+        let command = SSHPTYAttachStartupCommandBuilder.command(
+            sessionID: "ssh-test-session",
+            foregroundAuth: SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
+                destination: "user@example.test",
+                port: 22,
+                identityFile: nil,
+                sshOptions: [],
+                token: "test-auth-token"
+            )
+        )
+
+        #expect(command.contains("CMUX_SSH_RECONNECT_LIMIT:-20"))
+    }
+
     private static func persistentConfiguration() -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "cmux-macmini", port: nil, identityFile: nil, sshOptions: [],
