@@ -123,7 +123,7 @@ struct SSHDeepSleepReattachTests {
             workspace.sessionSnapshot(includeScrollback: false).panels
                 .first { $0.id == panel.id }?.terminal
         )
-        #expect(!terminal.isRemoteTerminal)
+        #expect(terminal.isRemoteTerminal == false)
         #expect(terminal.remotePTYSessionID == nil)
     }
 
