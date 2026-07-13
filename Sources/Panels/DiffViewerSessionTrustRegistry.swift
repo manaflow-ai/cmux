@@ -4,14 +4,7 @@ import Foundation
 final class DiffViewerSessionTrustRegistry {
     static let shared = DiffViewerSessionTrustRegistry()
 
-    private struct LiveHTTPSession {
-        let scheme: String
-        let host: String
-        let port: Int
-        var lastAuthenticatedActivityAt: Date
-    }
-
-    private var liveHTTPSessions: [String: LiveHTTPSession] = [:]
+    private var liveHTTPSessions: [String: DiffViewerLiveHTTPSession] = [:]
     private let maxSessionAge: TimeInterval = 24 * 60 * 60
 
     func registerLiveHTTPURL(_ url: URL, token: String, now: Date = Date()) -> Bool {
@@ -46,12 +39,12 @@ final class DiffViewerSessionTrustRegistry {
         return true
     }
 
-    private static func liveHTTPSession(from url: URL, now: Date) -> LiveHTTPSession? {
+    private static func liveHTTPSession(from url: URL, now: Date) -> DiffViewerLiveHTTPSession? {
         guard let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https",
               url.host == "127.0.0.1",
               let port = url.port else { return nil }
-        return LiveHTTPSession(
+        return DiffViewerLiveHTTPSession(
             scheme: scheme,
             host: "127.0.0.1",
             port: port,

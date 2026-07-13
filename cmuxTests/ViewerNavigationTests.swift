@@ -57,6 +57,58 @@ struct ViewerNavigationTests {
     }
 
     @Test
+    func tokenShapedURLWithoutActiveSessionIsNotTrusted() throws {
+        let inactiveToken = UUID().uuidString.lowercased()
+        let url = try #require(URL(
+            string: "http://127.0.0.1:5050/\(inactiveToken)/diff.html#cmux-diff-viewer"
+        ))
+
+        #expect(DiffCommentsBridge.diffViewerToken(from: url) != nil)
+        #expect(!DiffCommentsBridge.isTrustedDiffViewerURL(url))
+    }
+
+    @Test
+    func registeredLiveHTTPViewerIsTrustedOnlyOnItsOrigin() throws {
+        let liveToken = UUID().uuidString.lowercased()
+        let original = try #require(URL(
+            string: "http://127.0.0.1:5050/\(liveToken)/diff.html#cmux-diff-viewer"
+        ))
+        let rewritten = try #require(URL(
+            string: "http://127.0.0.1:5050/\(liveToken)/diff.html#/cmux-diff-viewer"
+        ))
+        let wrongPort = try #require(URL(
+            string: "http://127.0.0.1:5051/\(liveToken)/diff.html#/cmux-diff-viewer"
+        ))
+
+        #expect(DiffViewerSessionTrustRegistry.shared.registerLiveHTTPURL(original, token: liveToken))
+        #expect(DiffCommentsBridge.isTrustedDiffViewerURL(rewritten))
+        #expect(!DiffCommentsBridge.isTrustedDiffViewerURL(wrongPort))
+    }
+
+    @Test
+    func registeredLiveHTTPViewerTrustRenewsWhileSessionRemainsActive() throws {
+        let liveToken = UUID().uuidString.lowercased()
+        let url = try #require(URL(
+            string: "http://127.0.0.1:5050/\(liveToken)/diff.html#cmux-diff-viewer"
+        ))
+        let registeredAt = Date(timeIntervalSince1970: 1_000)
+
+        #expect(DiffViewerSessionTrustRegistry.shared.registerLiveHTTPURL(
+            url,
+            token: liveToken,
+            now: registeredAt
+        ))
+        #expect(DiffViewerSessionTrustRegistry.shared.isTrustedDiffViewerURL(
+            url,
+            now: registeredAt.addingTimeInterval(23 * 60 * 60)
+        ))
+        #expect(DiffViewerSessionTrustRegistry.shared.isTrustedDiffViewerURL(
+            url,
+            now: registeredAt.addingTimeInterval(46 * 60 * 60)
+        ))
+    }
+
+    @Test
     func viewerEmacsBindingsDoNotConflictWithCommandPaletteNavigation() {
         let next = KeyboardShortcutSettings.Action.commandPaletteNext.defaultShortcut
         let previous = KeyboardShortcutSettings.Action.commandPalettePrevious.defaultShortcut

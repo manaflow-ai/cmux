@@ -1,17 +1,10 @@
 @MainActor
 final class DiffViewerNavigationDocumentState {
-    private struct Snapshot {
-        let documentConfirmed: Bool
-        let focusConfirmed: Bool
-        let editableFocused: Bool
-        let rendererReady: Bool
-    }
-
     private(set) var documentConfirmed = false
     private var focusConfirmed = false
     private var editableFocused = false
     private var rendererReady = false
-    private var provisionalNavigation: (id: ObjectIdentifier?, snapshot: Snapshot)?
+    private var provisionalNavigation: (id: ObjectIdentifier?, snapshot: DiffViewerNavigationDocumentSnapshot)?
     private var focusConfirmationBeforeEditableTransition: Bool?
 
     var canHandleNavigation: Bool {
@@ -44,7 +37,7 @@ final class DiffViewerNavigationDocumentState {
     }
 
     func navigationDidStart(id: ObjectIdentifier?) {
-        let snapshot = provisionalNavigation?.snapshot ?? Snapshot(
+        let snapshot = provisionalNavigation?.snapshot ?? DiffViewerNavigationDocumentSnapshot(
                 documentConfirmed: documentConfirmed,
                 focusConfirmed: focusConfirmed,
                 editableFocused: editableFocused,
