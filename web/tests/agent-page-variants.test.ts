@@ -6,6 +6,11 @@ import {
 } from "../app/lib/agent-page-paths";
 import sitemap from "../app/sitemap";
 import {
+  featureWorkflowContentLocales,
+  featureWorkflowDocPathForRequest,
+} from "../i18n/locale-availability";
+import { buildAlternateLinkHeader } from "../i18n/seo";
+import {
   extractReadableHtml,
   headersForAgentPage,
   markdownFromHtml,
@@ -347,8 +352,79 @@ describe("agent page variants", () => {
 
     expect(llms).toContain("[Getting Started](https://cmux.com/docs/getting-started.md)");
     expect(llms).toContain("[Skills](https://cmux.com/docs/skills.md)");
+    expect(llms).toContain("[Remote tmux](https://cmux.com/docs/remote-tmux.md)");
+    expect(llms).toContain("Remote tmux: attach to existing tmux sessions over SSH");
     expect(llms).toContain("Text: https://cmux.com/docs/getting-started.txt");
     expect(variantPathForPage("/", "md")).toBe("/index.md");
+  });
+
+  test("uses the current origin for llms compare links", () => {
+    const llms = buildLlmsText("https://preview.example");
+
+    expect(llms).toContain(
+      "[cmux vs Herdr](https://preview.example/compare/cmux-vs-herdr)",
+    );
+    expect(llms).toContain(
+      "[How to run multiple Claude Code agents in parallel](https://preview.example/compare/multiple-claude-code-agents-parallel)",
+    );
+    expect(llms).not.toContain("https://cmux.com/compare/");
+  });
+
+  test("limits en-ja docs variants to translated locales", () => {
+    expect(resolveAgentPageVariant("/docs/vault.md")).not.toBeNull();
+    expect(resolveAgentPageVariant("/ja/docs/vault.md")).not.toBeNull();
+    expect(resolveAgentPageVariant("/de/docs/vault.md")).toBeNull();
+    expect(resolveAgentPageVariant("/docs/task-manager.txt")).not.toBeNull();
+    expect(resolveAgentPageVariant("/ja/docs/task-manager.txt")).not.toBeNull();
+    expect(resolveAgentPageVariant("/de/docs/task-manager.txt")).toBeNull();
+    expect(resolveAgentPageVariant("/docs/remote-tmux.md")).not.toBeNull();
+    expect(resolveAgentPageVariant("/ja/docs/remote-tmux.md")).not.toBeNull();
+    expect(resolveAgentPageVariant("/de/docs/remote-tmux.md")).toBeNull();
+
+    const sitemapPaths = sitemap().map((entry) => new URL(String(entry.url)).pathname);
+    expect(sitemapPaths).toContain("/docs/vault");
+    expect(sitemapPaths).toContain("/ja/docs/vault");
+    expect(sitemapPaths).not.toContain("/de/docs/vault");
+    expect(sitemapPaths).toContain("/docs/task-manager");
+    expect(sitemapPaths).toContain("/ja/docs/task-manager");
+    expect(sitemapPaths).not.toContain("/de/docs/task-manager");
+    expect(sitemapPaths).toContain("/docs/remote-tmux");
+    expect(sitemapPaths).toContain("/ja/docs/remote-tmux");
+    expect(sitemapPaths).not.toContain("/de/docs/remote-tmux");
+  });
+
+  test("limits English-only blog variants to their canonical routes", () => {
+    for (const path of [
+      "/blog/cmux-claude-teams",
+      "/blog/cmux-omo",
+      "/blog/gpl",
+    ]) {
+      expect(resolveAgentPageVariant(`${path}.md`)).not.toBeNull();
+      expect(resolveAgentPageVariant(`/ja${path}.md`)).toBeNull();
+      expect(resolveAgentPageVariant(`/de${path}.txt`)).toBeNull();
+    }
+  });
+
+  test("limits partially translated blog variants to authored locales", () => {
+    const path = "/blog/cmux-ssh";
+    expect(resolveAgentPageVariant(`${path}.md`)).not.toBeNull();
+    expect(resolveAgentPageVariant(`/ja${path}.md`)).not.toBeNull();
+    expect(resolveAgentPageVariant(`/de${path}.txt`)).toBeNull();
+  });
+
+  test("limits en-ja docs alternate links to live localized routes", () => {
+    const path = featureWorkflowDocPathForRequest("/de/docs/vault");
+    expect(path).toBe("/docs/vault");
+
+    const header = buildAlternateLinkHeader(
+      "https://cmux.com",
+      path!,
+      featureWorkflowContentLocales,
+    );
+    expect(header).toContain("<https://cmux.com/docs/vault>; rel=\"alternate\"; hreflang=\"en\"");
+    expect(header).toContain("<https://cmux.com/ja/docs/vault>; rel=\"alternate\"; hreflang=\"ja\"");
+    expect(header).toContain("<https://cmux.com/docs/vault>; rel=\"alternate\"; hreflang=\"x-default\"");
+    expect(header).not.toContain("/de/docs/vault");
   });
 
   test("supports Markdown and text variants for sitemap pages", () => {

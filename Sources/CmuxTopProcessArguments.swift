@@ -34,11 +34,10 @@ extension CmuxTopProcessSnapshot {
             guard index < bytes.count else { return nil }
             let start = index
             skipString(in: bytes, index: &index)
-            if start < index,
-               let argument = String(bytes: bytes[start..<index], encoding: .utf8) {
+            if let argument = String(bytes: bytes[start..<index], encoding: .utf8) {
                 arguments.append(argument)
             }
-            skipNulls(in: bytes, index: &index)
+            consumeTerminatingNull(in: bytes, index: &index)
         }
 
         var environment: [String: String] = [:]
@@ -84,6 +83,12 @@ extension CmuxTopProcessSnapshot {
 
     private static func skipNulls(in bytes: [UInt8], index: inout Int) {
         while index < bytes.count, bytes[index] == 0 {
+            index += 1
+        }
+    }
+
+    private static func consumeTerminatingNull(in bytes: [UInt8], index: inout Int) {
+        if index < bytes.count, bytes[index] == 0 {
             index += 1
         }
     }
