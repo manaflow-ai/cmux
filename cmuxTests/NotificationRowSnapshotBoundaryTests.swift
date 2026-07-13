@@ -286,18 +286,18 @@ struct NotificationRowSnapshotBoundaryTests {
         #expect(restoredNotification.scrollPosition?.totalRows == 100)
     }
 
-    @Test func notificationScrollTargetUsesGhosttyAbsoluteRow() {
+    @Test func notificationScrollRestoreTargetUsesGhosttyAbsoluteRow() {
         let surfaceView = GhosttyNSView(frame: .zero)
         surfaceView.scrollbar = GhosttyScrollbar(
             c: ghostty_action_scrollbar_s(total: 400, offset: 218, len: 44)
         )
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
 
-        let targetRow = hostedView.notificationScrollTargetRow(
+        let target = hostedView.notificationScrollRestoreTarget(
             TerminalNotificationScrollPosition(row: 138, totalRows: 400)
         )
 
-        #expect(targetRow == 218)
+        #expect(target == .absoluteRow(218))
     }
 
     @Test func notificationScrollTargetFollowsLiveBottomWhenCapturedAtBottom() {
@@ -307,11 +307,11 @@ struct NotificationRowSnapshotBoundaryTests {
         )
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
 
-        let targetRow = hostedView.notificationScrollTargetRow(
+        let target = hostedView.notificationScrollRestoreTarget(
             TerminalNotificationScrollPosition(row: 0, totalRows: 400)
         )
 
-        #expect(targetRow == 456)
+        #expect(target == .bottom)
     }
 
     @Test func notificationScrollTargetRequiresCaptureTotalAndVisibleRows() {
@@ -321,14 +321,14 @@ struct NotificationRowSnapshotBoundaryTests {
         )
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
 
-        #expect(hostedView.notificationScrollTargetRow(
+        #expect(hostedView.notificationScrollRestoreTarget(
             TerminalNotificationScrollPosition(row: 138, totalRows: nil)
         ) == nil)
 
         surfaceView.scrollbar = GhosttyScrollbar(
             c: ghostty_action_scrollbar_s(total: 400, offset: 218, len: 0)
         )
-        #expect(hostedView.notificationScrollTargetRow(
+        #expect(hostedView.notificationScrollRestoreTarget(
             TerminalNotificationScrollPosition(row: 138, totalRows: 400)
         ) == nil)
     }

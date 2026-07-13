@@ -1,5 +1,10 @@
 import Foundation
 
+enum TerminalNotificationScrollRestoreTarget: Equatable {
+    case bottom
+    case absoluteRow(Int)
+}
+
 @MainActor
 extension GhosttySurfaceScrollView {
     var notificationScrollPosition: TerminalNotificationScrollPosition? {
@@ -13,22 +18,34 @@ extension GhosttySurfaceScrollView {
 
     @discardableResult
     func restoreNotificationScrollPosition(_ position: TerminalNotificationScrollPosition?) -> Bool {
-        guard let targetTopRow = notificationScrollTargetRow(position) else { return false }
-        let currentTotalRows = Int(clamping: surfaceView.scrollbar?.total ?? 0)
-        let currentVisibleRows = min(currentTotalRows, Int(clamping: surfaceView.scrollbar?.len ?? 0))
-        let currentLastTopRow = currentTotalRows - currentVisibleRows
+        guard let target = notificationScrollRestoreTarget(position) else { return false }
         allowExplicitScrollbarSync = true
-        userScrolledAwayFromBottom = targetTopRow < currentLastTopRow
-        let didRestore = surfaceView.performBindingAction("scroll_to_row:\(targetTopRow)")
+        let didRestore: Bool
+        switch target {
+        case .bottom:
+            userScrolledAwayFromBottom = false
+            didRestore = surfaceView.performBindingAction("scroll_to_bottom")
+        case .absoluteRow(let targetTopRow):
+            let currentTotalRows = Int(clamping: surfaceView.scrollbar?.total ?? 0)
+            let currentVisibleRows = min(currentTotalRows, Int(clamping: surfaceView.scrollbar?.len ?? 0))
+            let currentLastTopRow = currentTotalRows - currentVisibleRows
+            userScrolledAwayFromBottom = targetTopRow < currentLastTopRow
+            didRestore = surfaceView.performBindingAction("scroll_to_row:\(targetTopRow)")
+        }
         if !didRestore {
             allowExplicitScrollbarSync = false
         }
         return didRestore
     }
 
-    func notificationScrollTargetRow(_ position: TerminalNotificationScrollPosition?) -> Int? {
+    func notificationScrollRestoreTarget(
+        _ position: TerminalNotificationScrollPosition?
+    ) -> TerminalNotificationScrollRestoreTarget? {
         guard let position else { return nil }
         guard let capturedTotalRows = position.totalRows else { return nil }
+        if position.row <= 0 {
+            return .bottom
+        }
         guard let scrollbar = surfaceView.scrollbar else { return nil }
         let currentTotalRows = Int(clamping: scrollbar.total)
         let currentVisibleRows = min(currentTotalRows, Int(clamping: scrollbar.len))
@@ -36,15 +53,12 @@ extension GhosttySurfaceScrollView {
         let currentLastTopRow = currentTotalRows - currentVisibleRows
         let normalizedCapturedTotalRows = max(0, capturedTotalRows)
         let capturedRowsBelowViewport = min(normalizedCapturedTotalRows, max(0, position.row))
-        if capturedRowsBelowViewport == 0 {
-            return currentLastTopRow
-        }
         let capturedViewportBottomRow = normalizedCapturedTotalRows - capturedRowsBelowViewport
 
-        // A bottom-pinned capture follows live output. Explicitly scrolled captures
-        // retain their historical viewport. Ghostty's scroll_to_row action takes
-        // the absolute first visible row, with zero at the top of history.
+        // Explicitly scrolled captures retain their historical viewport. Ghostty's
+        // scroll_to_row action takes the absolute first visible row, with zero at
+        // the top of history.
         let unclampedTopRow = max(0, capturedViewportBottomRow - currentVisibleRows)
-        return min(currentLastTopRow, unclampedTopRow)
+        return .absoluteRow(min(currentLastTopRow, unclampedTopRow))
     }
 }
