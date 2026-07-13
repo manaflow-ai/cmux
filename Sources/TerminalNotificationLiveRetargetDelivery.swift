@@ -16,20 +16,33 @@ extension TerminalController {
         body: String,
         retargetsToLiveSurfaceOwner: Bool = true
     ) {
-        // Retarget to the surface's CURRENT workspace at delivery time so a
-        // stale caller-supplied workspace id (spawn-time env, moved pane —
-        // issues #7939/#5781) cannot misfile the notification. Undeliverable
-        // targets fall back to the claimed address, preserving prior behavior.
-        let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
-            claimedTabId: tabId,
-            surfaceId: surfaceId
-        ) ?? (tabId: tabId, surfaceId: surfaceId)
-        // Supersede pending notifications by canonical identity: stale-keyed
-        // entries for this surface would retarget to this same pane at drain.
-        if let liveSurfaceId = target.surfaceId {
+        let target: (tabId: UUID, surfaceId: UUID?)
+        if retargetsToLiveSurfaceOwner {
+            // Trusted local delivery follows the surface's CURRENT workspace.
+            // A missing live target fails closed instead of filing under a
+            // stale claimed address.
+            guard let liveTarget = AppDelegate.shared?.agentNotificationDeliveryTarget(
+                claimedTabId: tabId,
+                surfaceId: surfaceId
+            ) else { return }
+            target = liveTarget
+        } else {
+            // `notification.create_for_target` is relay-reachable and already
+            // validated membership in its authorized workspace. Never global-
+            // rehome that source-confined claim from an untrusted surface UUID.
+            target = (tabId, surfaceId)
+        }
+        if retargetsToLiveSurfaceOwner, let liveSurfaceId = target.surfaceId {
+            // Supersede by canonical surface identity: stale-keyed local
+            // entries would retarget to this same pane at drain.
             TerminalMutationBus.shared.discardPendingNotifications(forSurfaceId: liveSurfaceId)
         } else {
-            TerminalMutationBus.shared.discardPendingNotifications(forTabId: target.tabId, surfaceId: nil)
+            // Source-confined relay delivery may supersede only its authorized
+            // enqueue key, not another workspace's entry for the same UUID.
+            TerminalMutationBus.shared.discardPendingNotifications(
+                forTabId: target.tabId,
+                surfaceId: target.surfaceId
+            )
         }
 #if DEBUG
         cmuxDebugLog(

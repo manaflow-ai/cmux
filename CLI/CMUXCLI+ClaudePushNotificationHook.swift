@@ -39,7 +39,7 @@ extension CMUXCLI {
         ) else {
             markFeedTelemetryHandled()
             telemetry.breadcrumb("claude-hook.push-notification.unresolved")
-            print(String(localized: "common.ok", defaultValue: "OK"))
+            print("OK")
             return
         }
         let workspaceId = resolvedTarget.workspaceId

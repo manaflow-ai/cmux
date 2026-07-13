@@ -162,18 +162,36 @@ extension TerminalController {
         let claimedWorkspaceId = v2UUID(params, "workspace_id")
         let claimedSurfaceId = v2UUID(params, "surface_id")
         guard let appDelegate = AppDelegate.shared else {
-            return .err(code: "unavailable", message: "AppDelegate not available", data: nil)
+            return .err(
+                code: "unavailable",
+                message: String(
+                    localized: "agent.deliveryTarget.error.unavailable",
+                    defaultValue: "Delivery target resolution is unavailable; retry after cmux finishes starting."
+                ),
+                data: nil
+            )
         }
-        // `pid_t(exactly:)` rejects out-of-range values (a socket caller can
-        // pass any 64-bit integer) instead of trapping; they fall through to
-        // the surface/workspace probes like any unresolvable pid.
-        if let pid = v2Int(params, "pid"), pid > 0, let agentPid = pid_t(exactly: pid),
-           let target = appDelegate.liveAgentDeliveryTarget(forAgentPID: agentPid) {
-            return .ok([
-                "workspace_id": target.workspaceId.uuidString,
-                "surface_id": target.surfaceId.uuidString,
-                "source": "pid",
-            ])
+        if params.keys.contains("pid") {
+            // A socket caller controls both the value and its JSON type. Do
+            // not coerce fractional/lossy NSNumber values, trap while
+            // narrowing, or let an invalid pid fall through to a different
+            // surface/workspace claim in the same request.
+            guard let pid = v2StrictInt(params, "pid"),
+                  pid > 0,
+                  let agentPid = pid_t(exactly: pid) else {
+                return .err(
+                    code: "invalid_params",
+                    message: "pid must be a positive integer representable as pid_t",
+                    data: nil
+                )
+            }
+            if let target = appDelegate.liveAgentDeliveryTarget(forAgentPID: agentPid) {
+                return .ok([
+                    "workspace_id": target.workspaceId.uuidString,
+                    "surface_id": target.surfaceId.uuidString,
+                    "source": "pid",
+                ])
+            }
         }
         if let claimedSurfaceId,
            let owner = appDelegate.workspaceContainingPanel(
