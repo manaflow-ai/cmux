@@ -25,6 +25,8 @@ https://github.com/manaflow-ai/ghostty/pull/104 and
 https://github.com/manaflow-ai/ghostty/pull/105 and
 https://github.com/manaflow-ai/ghostty/pull/106, with the scrollbar export on
 https://github.com/manaflow-ai/ghostty/tree/task-notification-scrollbar-snapshot.
+Its prebuilt framework is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-096622763d4cc299b8308b28a47b38d3b39c71fd-crashsubdir-cmux-crash-v1.
 
 ### Upstream TLDR (`d560c645..7e02af879`)
 
@@ -91,8 +93,10 @@ https://github.com/manaflow-ai/ghostty/tree/task-notification-scrollbar-snapshot
     marker, instead of inferring replay completion from the Swift backing layer
     that Ghostty replaces with an `IOSurfaceLayer` at runtime.
 
-Verified with Zig 0.15.2: an embedded build, compression, formatter, selection activity, and
-libghostty-vt compression tests,
+Verified with Zig 0.15.2: the scrollbar export passed embedded and universal
+GhosttyKit builds, and every macOS/iOS archive contains the C symbol. The
+existing fork was also verified with compression, formatter, selection
+activity, and libghostty-vt compression tests,
 the cmux link-click regression test, the `wasm32-freestanding` libghostty-vt
 build, a clean universal GhosttyKit build, tagged cmux reloads `gcmp` and
 `gsel2`, and live accessibility reads across select-all, endpoint adjustment,
