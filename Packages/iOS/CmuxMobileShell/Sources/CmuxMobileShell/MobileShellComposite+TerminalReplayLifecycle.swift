@@ -99,6 +99,17 @@ extension MobileShellComposite {
         return token
     }
 
+    /// Records work that arrived after the active barrier replay was captured.
+    /// The processing acknowledgement compares this version with the request's
+    /// covered version and owns the bounded follow-up replay when they differ.
+    @discardableResult
+    func recordTerminalReplayBarrierFollowUpWork(surfaceID: String) -> UInt64 {
+        terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
+        let version = (terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] ?? 0) &+ 1
+        terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] = version
+        return version
+    }
+
     func requestColdAttachTerminalReplay(surfaceID: String) {
         guard remoteClient != nil else {
             terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.insert(surfaceID)

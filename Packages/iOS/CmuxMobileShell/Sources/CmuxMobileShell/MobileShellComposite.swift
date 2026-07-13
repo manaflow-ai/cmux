@@ -6937,8 +6937,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
         if let replayBarrierTokenForRequest {
             guard terminalReplayBarrierTokensInFlightBySurfaceID[surfaceID] != replayBarrierTokenForRequest else {
+                recordTerminalReplayBarrierFollowUpWork(surfaceID: surfaceID)
                 #if DEBUG
-                mobileShellLog.info("CMUX_REPLAY skip surface=\(surfaceID, privacy: .public) reason=barrier_in_flight")
+                mobileShellLog.info("CMUX_REPLAY followup_owed surface=\(surfaceID, privacy: .public) reason=barrier_in_flight")
                 #endif
                 return
             }

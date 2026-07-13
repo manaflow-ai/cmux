@@ -241,9 +241,7 @@ extension MobileShellComposite {
               let streamToken = terminalOutputStreamTokensBySurfaceID[surfaceID] else { return false }
         if let replayBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID],
            !bypassReplayBarrier {
-            terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
-            let droppedOutputCount = (terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] ?? 0) &+ 1
-            terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] = droppedOutputCount
+            let droppedOutputCount = recordTerminalReplayBarrierFollowUpWork(surfaceID: surfaceID)
             if droppedOutputCount == 1 || droppedOutputCount.isMultiple(of: 32) {
                 MobileDebugLog.anchormux(
                     "terminal.output.drop_replay_barrier surface=\(surfaceID) count=\(droppedOutputCount)"
