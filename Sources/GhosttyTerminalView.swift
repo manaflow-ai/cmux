@@ -6112,7 +6112,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
     override func keyUp(with event: NSEvent) {
-        terminalSurface?.paneHost.noteExplicitInput(); guard let surface = ensureSurfaceReadyForInput() else {
+        guard let surface = ensureSurfaceReadyForInput() else {
             super.keyUp(with: event)
             return
         }
@@ -6145,7 +6145,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func flagsChanged(with event: NSEvent) {
-        terminalSurface?.paneHost.noteExplicitInput(); guard let surface = ensureSurfaceReadyForInput() else {
+        guard let surface = ensureSurfaceReadyForInput() else {
             super.flagsChanged(with: event)
             return
         }

@@ -289,6 +289,58 @@ struct NotificationScrollRestoreTests {
         #expect(panel.hostedView.notificationScrollRestorePhase == .sessionScrollbackReplayActive(marker))
     }
 
+    @Test func notificationNavigationShortcutReleaseDoesNotCancelPendingRestore() throws {
+        let workspaceID = UUID()
+        let surface = TerminalSurface(
+            tabId: workspaceID,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let panel = TerminalPanel(workspaceId: workspaceID, surface: surface)
+        let marker = completionMarker(named: "replay-shortcut-release")
+        panel.hostedView.beginSessionScrollbackReplay(completionMarker: marker)
+        _ = panel.hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+        )
+
+        let shortcutKeyUp = try #require(NSEvent.keyEvent(
+            with: .keyUp,
+            location: .zero,
+            modifierFlags: [.command, .shift],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "u",
+            charactersIgnoringModifiers: "u",
+            isARepeat: false,
+            keyCode: 32
+        ))
+        panel.hostedView.surfaceView.keyUp(with: shortcutKeyUp)
+        #expect(panel.hostedView.notificationScrollRestorePhase == .pending(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400),
+            sessionScrollbackReplayCompletionMarker: marker
+        ))
+
+        let commandRelease = try #require(NSEvent.keyEvent(
+            with: .flagsChanged,
+            location: .zero,
+            modifierFlags: [.shift],
+            timestamp: 0.001,
+            windowNumber: 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: 55
+        ))
+        panel.hostedView.surfaceView.flagsChanged(with: commandRelease)
+        #expect(panel.hostedView.notificationScrollRestorePhase == .pending(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400),
+            sessionScrollbackReplayCompletionMarker: marker
+        ))
+    }
+
     @Test func zshReplayEmitsOrderedCompletionMarker() throws {
         try expectIntegrationReplay(
             shell: URL(fileURLWithPath: "/bin/zsh"),
