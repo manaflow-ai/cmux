@@ -293,9 +293,14 @@ import Testing
             path: visible.path,
             oldPath: visible.oldPath,
             status: visible.status,
+            additions: visible.additions,
+            deletions: visible.deletions,
             snapshotToken: visible.snapshotToken
         )
-        #expect(result == .notFound)
+        guard case .notFound = result else {
+            Issue.record("Expected stale snapshot rejection, got \(result)")
+            return
+        }
     }
 
     @Test func cappedStatusDropsUnverifiedUntrackedReplacement() throws {
@@ -309,7 +314,7 @@ import Testing
         try Data("original\n".utf8).write(to: repo.appendingPathComponent(replacementPath))
         try runTestGit(in: repo, ["add", "--", "."])
         try runTestGit(in: repo, ["commit", "--quiet", "-m", "add capped fixtures"])
-        try runTestGit(in: repo, ["rm", "--quiet", "--", "."])
+        try runTestGit(in: repo, ["rm", "--quiet", "-r", "--", "."])
         try Data("replacement\n".utf8).write(to: repo.appendingPathComponent(replacementPath))
 
         let service = GitDiffService()
