@@ -31,6 +31,135 @@ import Testing
     )
 }
 
+@Test func hiddenViewportCursorRestoresItsCapturedRowWithForwardHistory() throws {
+    let frame = try decodeCursorFrame(
+        row: 0,
+        visible: false,
+        location: "viewport",
+        scrollForwardRows: 2
+    )
+    var bytes = frame.vtReplacementBytes()
+    bytes.append(Data("\rhybrid".utf8))
+
+    let cursor = ReplayCursorProbe.finalCursor(after: bytes, rows: frame.rows)
+
+    #expect(cursor.row == 0)
+}
+
+@Test func visibleViewportCursorRestoresItsCapturedRowWithForwardHistory() throws {
+    let frame = try decodeCursorFrame(
+        row: 1,
+        visible: true,
+        location: "viewport",
+        scrollForwardRows: 2
+    )
+
+    let cursor = ReplayCursorProbe.finalCursor(after: frame.vtReplacementBytes(), rows: frame.rows)
+
+    #expect(cursor.row == 1)
+}
+
+@Test func belowViewportCursorPreservesReconstructedActiveRow() throws {
+    let frame = try decodeCursorFrame(
+        row: 0,
+        visible: false,
+        location: "below_viewport",
+        scrollForwardRows: 2
+    )
+    var bytes = frame.vtReplacementBytes()
+    bytes.append(Data("\rhybrid".utf8))
+
+    let cursor = ReplayCursorProbe.finalCursor(after: bytes, rows: frame.rows)
+
+    #expect(cursor.row == frame.rows - 1)
+}
+
+@Test func aboveViewportCursorPreservesReconstructedActiveRow() throws {
+    let frame = try decodeCursorFrame(
+        row: 0,
+        visible: false,
+        location: "above_viewport",
+        scrollForwardRows: 2
+    )
+    var bytes = frame.vtReplacementBytes()
+    bytes.append(Data("\rhybrid".utf8))
+
+    let cursor = ReplayCursorProbe.finalCursor(after: bytes, rows: frame.rows)
+
+    #expect(cursor.row == frame.rows - 1)
+}
+
+@Test func hiddenAlternateScreenCursorRestoresItsCapturedRow() throws {
+    let frame = try decodeCursorFrame(
+        row: 1,
+        visible: false,
+        location: "viewport",
+        activeScreen: "alternate"
+    )
+
+    let cursor = ReplayCursorProbe.finalCursor(after: frame.vtReplacementBytes(), rows: frame.rows)
+
+    #expect(cursor.row == 1)
+}
+
+@Test func previousCursorPayloadWithoutLocationKeepsLegacyForwardReplayBehavior() throws {
+    let frame = try decodeCursorFrame(
+        row: 0,
+        visible: false,
+        location: nil,
+        scrollForwardRows: 2
+    )
+    var bytes = frame.vtReplacementBytes()
+    bytes.append(Data("\rhybrid".utf8))
+
+    let cursor = ReplayCursorProbe.finalCursor(after: bytes, rows: frame.rows)
+
+    #expect(cursor.row == frame.rows - 1)
+}
+
+private func decodeCursorFrame(
+    row: Int,
+    visible: Bool,
+    location: String?,
+    activeScreen: String = "primary",
+    scrollForwardRows: Int = 0
+) throws -> MobileTerminalRenderGridFrame {
+    var cursor: [String: Any] = [
+        "row": row,
+        "column": 4,
+        "visible": visible,
+        "style": "block",
+        "blinking": false,
+    ]
+    cursor["location"] = location
+    let forwardSpans: [[String: Any]] = (0..<scrollForwardRows).map { row in
+        [
+            "row": row,
+            "column": 0,
+            "style_id": 0,
+            "text": "new-\(row)",
+        ]
+    }
+    return try MobileTerminalRenderGridFrame.decodeJSONObject([
+        "format": MobileTerminalRenderGridFrame.currentFormat,
+        "surface_id": "terminal-window",
+        "state_seq": 9,
+        "columns": 12,
+        "rows": 3,
+        "cursor": cursor,
+        "full": true,
+        "styles": [["id": 0]],
+        "row_spans": [
+            ["row": 0, "column": 0, "style_id": 0, "text": "old-1"],
+            ["row": 1, "column": 0, "style_id": 0, "text": "old-2"],
+            ["row": 2, "column": 0, "style_id": 0, "text": "old-3"],
+        ],
+        "active_screen": activeScreen,
+        "scrollforward_rows": scrollForwardRows,
+        "scrollforward_spans": forwardSpans,
+    ])
+}
+
 private struct ReplayCursorProbe {
     private(set) var row = 0
     private(set) var column = 0
