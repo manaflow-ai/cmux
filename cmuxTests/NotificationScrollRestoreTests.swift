@@ -133,6 +133,22 @@ struct NotificationScrollRestoreTests {
         #expect(surfaceView.bindingActions.isEmpty)
         surfaceView.enqueueScrollbarUpdate(scrollbar(total: 200, offset: 156, visible: 44))
         #expect(surfaceView.flushPendingScrollbarIfAvailable())
+        postRenderedFrame(to: surfaceView)
+        #expect(surfaceView.bindingActions == ["scroll_to_row:156"])
+    }
+
+    @Test func restoreUsesFinalScrollbarWhenMarkerFrameDoesNotChangeIt() {
+        let surfaceView = ActionProbeView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let marker = completionMarker(named: "replay-unchanged-scrollbar")
+        hostedView.beginSessionScrollbackReplay(completionMarker: marker)
+
+        #expect(hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+        ))
+        #expect(hostedView.completeSessionScrollbackReplay(ifMatches: marker.reportedDirectory))
+        postRenderedFrame(to: surfaceView)
         #expect(surfaceView.bindingActions == ["scroll_to_row:156"])
     }
 
@@ -176,7 +192,7 @@ struct NotificationScrollRestoreTests {
         #expect(SessionScrollbackReplayCompletionMarker.isReservedReportedDirectory(marker.reportedDirectory))
     }
 
-    @Test func pasteAndTextBoxInputCancelPendingRestore() {
+    @Test func pasteTextBoxAndPointerInputCancelPendingRestore() throws {
         let workspaceID = UUID()
         let surface = TerminalSurface(
             tabId: workspaceID,
@@ -198,6 +214,23 @@ struct NotificationScrollRestoreTests {
             TerminalNotificationScrollPosition(row: 138, totalRows: 400)
         )
         _ = surface.sendText("textbox submission")
+        #expect(panel.hostedView.notificationScrollRestorePhase == .sessionScrollbackReplayActive(marker))
+
+        _ = panel.hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+        )
+        let pointerEvent = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 0
+        ))
+        panel.hostedView.surfaceView.mouseDown(with: pointerEvent)
         #expect(panel.hostedView.notificationScrollRestorePhase == .sessionScrollbackReplayActive(marker))
     }
 
@@ -256,6 +289,14 @@ struct NotificationScrollRestoreTests {
             name: .ghosttyDidUpdateScrollbar,
             object: view,
             userInfo: [GhosttyNotificationKey.scrollbar: value]
+        )
+    }
+
+    private func postRenderedFrame(to view: GhosttyNSView) {
+        NotificationCenter.default.post(
+            name: .ghosttyDidRenderFrame,
+            object: view,
+            userInfo: [GhosttyNotificationKey.renderedFrameGeneration: view.currentRenderedFrameEnqueueGeneration() + 1]
         )
     }
 

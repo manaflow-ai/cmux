@@ -3421,10 +3421,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Pending scrollbar written from the action callback and read/cleared by `flushPendingScrollbar()`.
     /// Access is guarded by `_scrollbarLock` because the action callback
     /// fires on Ghostty's I/O thread while the flush runs on main.
-    private var _pendingScrollbar: GhosttyScrollbar?; private var _pendingScrollbarGeneration: UInt64 = 0
-    private var _scrollbarFlushScheduled = false; private var _scrollbarEnqueueGeneration: UInt64 = 0
+    private var _pendingScrollbar: GhosttyScrollbar?
+    private var _scrollbarFlushScheduled = false
     private let _scrollbarLock = NSLock()
-    private var _renderedFrameFlushScheduled = false
+    private var _renderedFrameFlushScheduled = false; private var _renderedFrameEnqueueGeneration: UInt64 = 0; private var _pendingRenderedFrameGeneration: UInt64 = 0
     private let _renderedFrameLock = NSLock()
     nonisolated let selectionAccessibilitySignal = TerminalSelectionAccessibilitySignal()
     private var selectionAccessibilityNotifier: TerminalSelectionAccessibilityNotifier?
@@ -3491,7 +3491,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _scrollbarLock.lock()
         defer { _scrollbarLock.unlock() }
         // Store the latest value (always overwrites — only the newest matters).
-        _scrollbarEnqueueGeneration &+= 1; _pendingScrollbarGeneration = _scrollbarEnqueueGeneration; _pendingScrollbar = newValue
+        _pendingScrollbar = newValue
         let needsSchedule = !_scrollbarFlushScheduled
         if needsSchedule { _scrollbarFlushScheduled = true }
 
@@ -3506,8 +3506,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func flushPendingScrollbar() {
         _scrollbarLock.lock()
         _scrollbarFlushScheduled = false
-        let pending = _pendingScrollbar; let pendingGeneration = _pendingScrollbarGeneration
-        _pendingScrollbar = nil; _pendingScrollbarGeneration = 0
+        let pending = _pendingScrollbar
+        _pendingScrollbar = nil
         _scrollbarLock.unlock()
 
         guard let pending else { return }
@@ -3522,11 +3522,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         NotificationCenter.default.post(
             name: .ghosttyDidUpdateScrollbar,
             object: self,
-            userInfo: [GhosttyNotificationKey.scrollbar: pending, GhosttyNotificationKey.scrollbarGeneration: pendingGeneration]
+            userInfo: [GhosttyNotificationKey.scrollbar: pending]
         )
     }
-    func currentScrollbarEnqueueGeneration() -> UInt64 { _scrollbarLock.lock(); defer { _scrollbarLock.unlock() }; return _scrollbarEnqueueGeneration }
-
     func flushPendingScrollbarIfAvailable() -> Bool {
         _scrollbarLock.lock()
         let hasPending = _pendingScrollbar != nil
@@ -3540,7 +3538,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     func enqueueRenderedFrameUpdate() {
         guard GhosttyApp.renderedFrameNotificationDemand.isActive else { return }
 
-        _renderedFrameLock.lock()
+        _renderedFrameLock.lock(); _renderedFrameEnqueueGeneration &+= 1; _pendingRenderedFrameGeneration = _renderedFrameEnqueueGeneration
         let needsSchedule = !_renderedFrameFlushScheduled
         if needsSchedule {
             _renderedFrameFlushScheduled = true
@@ -3555,15 +3553,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func flushRenderedFrameUpdate() {
         _renderedFrameLock.lock()
-        _renderedFrameFlushScheduled = false
+        _renderedFrameFlushScheduled = false; let generation = _pendingRenderedFrameGeneration; _pendingRenderedFrameGeneration = 0
         _renderedFrameLock.unlock()
 
         guard GhosttyApp.renderedFrameNotificationDemand.isActive else { return }
         NotificationCenter.default.post(
             name: .ghosttyDidRenderFrame,
-            object: self
+            object: self, userInfo: [GhosttyNotificationKey.renderedFrameGeneration: generation]
         )
     }
+    func currentRenderedFrameEnqueueGeneration() -> UInt64 { _renderedFrameLock.lock(); defer { _renderedFrameLock.unlock() }; return _renderedFrameEnqueueGeneration }
 
     var desiredFocus: Bool = false
     var suppressingReparentFocus: Bool = false
@@ -6113,7 +6112,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
     override func keyUp(with event: NSEvent) {
-        guard let surface = ensureSurfaceReadyForInput() else {
+        terminalSurface?.paneHost.noteExplicitInput(); guard let surface = ensureSurfaceReadyForInput() else {
             super.keyUp(with: event)
             return
         }
@@ -6146,7 +6145,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func flagsChanged(with event: NSEvent) {
-        guard let surface = ensureSurfaceReadyForInput() else {
+        terminalSurface?.paneHost.noteExplicitInput(); guard let surface = ensureSurfaceReadyForInput() else {
             super.flagsChanged(with: event)
             return
         }
@@ -6451,7 +6450,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         onFocus?()
     }
 
-    override func mouseDown(with event: NSEvent) {
+    override func mouseDown(with event: NSEvent) { terminalSurface?.paneHost.noteExplicitInput()
         #if DEBUG
         let debugPoint = convert(event.locationInWindow, from: nil)
         cmuxDebugLog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
@@ -7150,7 +7149,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
     override func rightMouseDown(with event: NSEvent) {
-        guard let surface = surface else { return }
+        terminalSurface?.paneHost.noteExplicitInput(); guard let surface = surface else { return }
         if !ghostty_surface_mouse_captured(surface) {
             requestPointerFocusRecovery()
             super.rightMouseDown(with: event)
@@ -7175,7 +7174,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func otherMouseDown(with event: NSEvent) {
-        guard event.buttonNumber == 2 else {
+        terminalSurface?.paneHost.noteExplicitInput(); guard event.buttonNumber == 2 else {
             super.otherMouseDown(with: event)
             return
         }
@@ -8190,7 +8189,7 @@ final class GhosttySurfaceScrollView: NSView {
     var userScrolledAwayFromBottom = false
     private var pendingExplicitWheelScroll = false
     var allowExplicitScrollbarSync = false
-    var notificationScrollRestorePhase: TerminalNotificationScrollRestorePhase = .idle; var sessionScrollbackReplayCompletionDeadlineTimer: Timer?; var sessionScrollbackReplayMarkerScrollbarGeneration: UInt64?
+    var notificationScrollRestorePhase: TerminalNotificationScrollRestorePhase = .idle; var sessionScrollbackReplayCompletionDeadlineTimer: Timer?; var sessionScrollbackReplayMarkerRenderedFrameGeneration: UInt64?; var sessionScrollbackReplayRenderedFrameObserver: NSObjectProtocol?; var releaseSessionScrollbackReplayFrameDemand: (() -> Void)?
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
@@ -11430,7 +11429,7 @@ final class GhosttySurfaceScrollView: NSView {
         } else {
             synchronizeScrollView()
         }
-        _ = retryPendingNotificationScrollRestore(rendererScrollbarGeneration: notification.userInfo?[GhosttyNotificationKey.scrollbarGeneration] as? UInt64)
+        _ = retryPendingNotificationScrollRestore()
     }
 
     @discardableResult
