@@ -23,7 +23,6 @@ import Testing
             idempotencyCache: cache
         )
         let createdID = try #require(UUID(uuidString: try Self.decode(initial).createdWorkspaceID ?? ""))
-        #expect(cache.completionProvenance(for: operationID) == .currentProcess)
         manager.closeWorkspace(try #require(manager.tabs.first { $0.id == createdID }))
 
         let retry = await TerminalController.shared.v2MobileWorkspaceCreate(
@@ -41,7 +40,7 @@ import Testing
         #expect(Self.containsInitialCommand("must-not-launch", in: manager) == false)
     }
 
-    @Test func crashBeforeWorkspaceSnapshotDoesNotLetRestoredTombstoneLoseTask() async throws {
+    @Test func mobileRestartRetryWithoutWorkspaceDoesNotRerunAcceptedTask() async throws {
         let defaults = Self.makeDefaults()
         defer { defaults.removePersistentDomain(forName: Self.defaultsSuiteName(defaults)) }
         let operationID = UUID()
@@ -57,7 +56,6 @@ import Testing
         manager.closeWorkspace(try #require(manager.tabs.first { $0.id == createdID }))
 
         let restoredCache = Self.cache(defaults: defaults)
-        #expect(restoredCache.completionProvenance(for: operationID) == .restored)
         let baselineIDs = Set(manager.tabs.map(\.id))
         let retry = await TerminalController.shared.v2MobileWorkspaceCreate(
             params: [
@@ -68,11 +66,40 @@ import Testing
             idempotencyCache: restoredCache
         )
 
-        let retriedID = try #require(try Self.decode(retry).createdWorkspaceID)
-        #expect(UUID(uuidString: retriedID).map { !baselineIDs.contains($0) } == true)
-        #expect(Set(manager.tabs.map(\.id)).subtracting(baselineIDs).count == 1)
-        #expect(Self.containsInitialCommand("must-not-launch-after-restart", in: manager))
-        #expect(restoredCache.completionProvenance(for: operationID) == .currentProcess)
+        // A crash before the session snapshot can leave no workspace to recover.
+        // At-most-once startup work is stricter: the accepted operation stays complete.
+        #expect(try Self.decode(retry).createdWorkspaceID == nil)
+        #expect(Set(manager.tabs.map(\.id)) == baselineIDs)
+        #expect(Self.containsInitialCommand("must-not-launch-after-restart", in: manager) == false)
+    }
+
+    @Test func synchronousRestartRetryWithoutWorkspaceReturnsCompletedWithoutRerun() throws {
+        let defaults = Self.makeDefaults()
+        defer { defaults.removePersistentDomain(forName: Self.defaultsSuiteName(defaults)) }
+        let operationID = UUID()
+        let manager = TabManager()
+
+        let initial = TerminalController.shared.v2WorkspaceCreate(
+            params: ["operation_id": operationID.uuidString],
+            tabManager: manager,
+            idempotencyCache: Self.cache(defaults: defaults)
+        )
+        let createdID = try #require(Self.workspaceID(initial))
+        manager.closeWorkspace(try #require(manager.tabs.first { $0.id == createdID }))
+        let baselineIDs = Set(manager.tabs.map(\.id))
+
+        let retry = TerminalController.shared.v2WorkspaceCreate(
+            params: [
+                "operation_id": operationID.uuidString,
+                "initial_command": "must-not-launch-sync-after-restart",
+            ],
+            tabManager: manager,
+            idempotencyCache: Self.cache(defaults: defaults)
+        )
+
+        #expect(Self.errorCode(retry) == "already_completed")
+        #expect(Set(manager.tabs.map(\.id)) == baselineIDs)
+        #expect(Self.containsInitialCommand("must-not-launch-sync-after-restart", in: manager) == false)
     }
 
     @Test func synchronousRetryAfterClosedWorkspaceReturnsStableCompletedError() throws {
@@ -104,7 +131,7 @@ import Testing
         #expect(Self.containsInitialCommand("must-not-launch", in: manager) == false)
     }
 
-    @Test func restoredWorkspaceReconcilesStartupTombstoneBeforeRetry() async throws {
+    @Test func restoredLiveWorkspaceResolvesBeforeDurableTombstone() async throws {
         let defaults = Self.makeDefaults()
         defer { defaults.removePersistentDomain(forName: Self.defaultsSuiteName(defaults)) }
         let operationID = UUID()
@@ -118,7 +145,6 @@ import Testing
         )
         let snapshot = sourceManager.sessionSnapshot(includeScrollback: false)
         let restoredCache = Self.cache(defaults: defaults)
-        #expect(restoredCache.completionProvenance(for: operationID) == .restored)
         let restoredManager = TabManager()
         restoredManager.restoreSessionSnapshot(
             snapshot,
@@ -127,9 +153,23 @@ import Testing
         let restoredWorkspace = try #require(
             restoredManager.tabs.first { $0.taskCreateOperationID == operationID }
         )
-        #expect(restoredCache.completionProvenance(for: operationID) == .currentProcess)
-        restoredManager.closeWorkspace(restoredWorkspace)
         let baselineIDs = Set(restoredManager.tabs.map(\.id))
+
+        let liveRetry = await TerminalController.shared.v2MobileWorkspaceCreate(
+            params: [
+                "operation_id": operationID.uuidString,
+                "initial_command": "must-not-launch-over-restored-workspace",
+            ],
+            tabManager: restoredManager,
+            idempotencyCache: restoredCache
+        )
+
+        #expect(try Self.decode(liveRetry).createdWorkspaceID == restoredWorkspace.id.uuidString)
+        #expect(Set(restoredManager.tabs.map(\.id)) == baselineIDs)
+        #expect(Self.containsInitialCommand("must-not-launch-over-restored-workspace", in: restoredManager) == false)
+
+        restoredManager.closeWorkspace(restoredWorkspace)
+        let postCloseIDs = Set(restoredManager.tabs.map(\.id))
 
         let retry = await TerminalController.shared.v2MobileWorkspaceCreate(
             params: [
@@ -141,9 +181,8 @@ import Testing
         )
 
         #expect(try Self.decode(retry).createdWorkspaceID == nil)
-        #expect(Set(restoredManager.tabs.map(\.id)) == baselineIDs)
+        #expect(Set(restoredManager.tabs.map(\.id)) == postCloseIDs)
         #expect(Self.containsInitialCommand("must-not-launch-after-restore", in: restoredManager) == false)
-        #expect(restoredCache.completionProvenance(for: operationID) == .currentProcess)
     }
 
     @Test func tombstoneFIFOIsBoundedAndPersistsAcrossCacheInstances() {
@@ -166,8 +205,6 @@ import Testing
         #expect(cache.containsCompletedOperation(first) == false)
         #expect(cache.containsCompletedOperation(second))
         #expect(cache.containsCompletedOperation(third))
-        #expect(cache.completionProvenance(for: second) == .currentProcess)
-        #expect(cache.completionProvenance(for: third) == .currentProcess)
         let restored = TerminalController.WorkspaceCreateIdempotencyCache(
             capacity: 2,
             defaults: defaults,
@@ -176,8 +213,18 @@ import Testing
         #expect(restored.containsCompletedOperation(first) == false)
         #expect(restored.containsCompletedOperation(second))
         #expect(restored.containsCompletedOperation(third))
-        #expect(restored.completionProvenance(for: second) == .restored)
-        #expect(restored.completionProvenance(for: third) == .restored)
+
+        let manager = TabManager()
+        let forgottenRetry = TerminalController.shared.v2WorkspaceCreate(
+            params: [
+                "operation_id": first.uuidString,
+                "initial_command": "launch-after-bounded-eviction",
+            ],
+            tabManager: manager,
+            idempotencyCache: restored
+        )
+        #expect(Self.workspaceID(forgottenRetry) != nil)
+        #expect(Self.containsInitialCommand("launch-after-bounded-eviction", in: manager))
     }
 
     private static func makeDefaults() -> UserDefaults {
