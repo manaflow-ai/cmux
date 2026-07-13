@@ -172,6 +172,114 @@ import Testing
         #expect(Set(manager.tabs.map(\.id)).subtracting(baselineIDs).count == 1)
     }
 
+    @Test func mobileCreateAcceptsExistingLegacyCwdAlias() async throws {
+        let manager = TabManager()
+        let baselineIDs = Set(manager.tabs.map(\.id))
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mobile-task-cwd-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let result = await TerminalController.shared.v2MobileWorkspaceCreate(
+            params: ["cwd": directory.path],
+            tabManager: manager
+        )
+
+        let created = try #require(manager.tabs.first { !baselineIDs.contains($0.id) })
+        #expect(Self.errorCode(from: result) == nil)
+        #expect(created.currentDirectory == directory.path)
+    }
+
+    @Test func mobileCreateRejectsDotComponentInLegacyCwdAlias() async {
+        let manager = TabManager()
+        let baselineIDs = Set(manager.tabs.map(\.id))
+
+        let result = await TerminalController.shared.v2MobileWorkspaceCreate(
+            params: ["cwd": "/tmp/../tmp"],
+            tabManager: manager
+        )
+
+        #expect(Self.errorCode(from: result) == "invalid_working_directory")
+        #expect(Set(manager.tabs.map(\.id)) == baselineIDs)
+    }
+
+    @Test func mobileCreateRoutesLegacyCwdSymlinkThroughValidator() async throws {
+        let manager = TabManager()
+        let baselineIDs = Set(manager.tabs.map(\.id))
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mobile-task-cwd-link-\(UUID().uuidString)", isDirectory: true)
+        let target = root.appendingPathComponent("target", isDirectory: true)
+        let link = root.appendingPathComponent("link", isDirectory: true)
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let result = await TerminalController.shared.v2MobileWorkspaceCreate(
+            params: ["cwd": link.path],
+            workingDirectoryValidator: { rawValue, isProvided in
+                guard isProvided, rawValue == link.path else { return .notProvided }
+                return .invalid
+            },
+            tabManager: manager
+        )
+
+        #expect(Self.errorCode(from: result) == "invalid_working_directory")
+        #expect(Set(manager.tabs.map(\.id)) == baselineIDs)
+    }
+
+    @Test func mobileCreatePropagatesLegacyCwdValidationTimeout() async {
+        let manager = TabManager()
+        let baselineIDs = Set(manager.tabs.map(\.id))
+        let cwd = "/external/wedged-cwd"
+
+        let result = await TerminalController.shared.v2MobileWorkspaceCreate(
+            params: ["cwd": cwd],
+            workingDirectoryValidator: { rawValue, isProvided in
+                guard isProvided, rawValue == cwd else { return .notProvided }
+                return .timedOut
+            },
+            tabManager: manager
+        )
+
+        #expect(Self.errorCode(from: result) == "request_timeout")
+        #expect(Set(manager.tabs.map(\.id)) == baselineIDs)
+    }
+
+    @Test func mobileWorkingDirectoryTakesPrecedenceOverInvalidCwdAlias() async throws {
+        let manager = TabManager()
+        let baselineIDs = Set(manager.tabs.map(\.id))
+        let preferred = "/validated/preferred"
+
+        let result = await TerminalController.shared.v2MobileWorkspaceCreate(
+            params: [
+                "working_directory": preferred,
+                "cwd": 42,
+            ],
+            workingDirectoryValidator: { rawValue, isProvided in
+                guard isProvided, rawValue == preferred else { return .invalid }
+                return .valid(preferred)
+            },
+            tabManager: manager
+        )
+
+        let created = try #require(manager.tabs.first { !baselineIDs.contains($0.id) })
+        #expect(Self.errorCode(from: result) == nil)
+        #expect(created.currentDirectory == preferred)
+    }
+
+    @Test func mobileCreatePreservesNonStringCwdTypeError() async {
+        let manager = TabManager()
+        let baselineIDs = Set(manager.tabs.map(\.id))
+
+        let result = await TerminalController.shared.v2MobileWorkspaceCreate(
+            params: ["cwd": 42],
+            tabManager: manager
+        )
+
+        #expect(Self.errorCode(from: result) == "invalid_params")
+        #expect(Set(manager.tabs.map(\.id)) == baselineIDs)
+    }
+
     @Test func mobileHandlerRejectsRelativeFileAndMissingWorkingDirectories() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let manager = TabManager()
