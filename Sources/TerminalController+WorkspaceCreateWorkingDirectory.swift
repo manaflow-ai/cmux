@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 extension TerminalController {
@@ -15,8 +16,19 @@ extension TerminalController {
     ) async -> WorkspaceCreateWorkingDirectoryValidation
 
     actor WorkspaceCreateWorkingDirectoryValidationService {
+        enum ProbeLane: Equatable, Sendable {
+            case local
+            case external
+        }
+
         typealias Probe = @Sendable (_ path: String) async -> Bool
+        typealias LaneClassifier = @Sendable (_ path: String) -> ProbeLane
         typealias DeadlineSleep = @Sendable (_ timeout: Duration) async -> Void
+
+        private struct QueuedProbe {
+            let path: String
+            let lane: ProbeLane
+        }
 
         private struct Waiter {
             let path: String
@@ -25,24 +37,30 @@ extension TerminalController {
         }
 
         private let timeout: Duration
-        private let maxConcurrentProbes: Int
+        private let localCapacity: Int
+        private let externalCapacity: Int
+        private let laneClassifier: LaneClassifier
         private let probe: Probe
         private let sleepUntilDeadline: DeadlineSleep
-        private var activePaths: Set<String> = []
-        private var queuedPaths: [String] = []
+        private var activeLanesByPath: [String: ProbeLane] = [:]
+        private var queuedProbes: [QueuedProbe] = []
         private var waiterIDsByPath: [String: Set<UUID>] = [:]
         private var waiters: [UUID: Waiter] = [:]
         private var idleWaiters: [CheckedContinuation<Void, Never>] = []
 
         init(
             timeout: Duration,
-            maxConcurrentProbes: Int,
+            localCapacity: Int,
+            externalCapacity: Int,
+            laneClassifier: @escaping LaneClassifier,
             probe: @escaping Probe,
             sleepUntilDeadline: @escaping DeadlineSleep
         ) {
-            precondition(maxConcurrentProbes > 0)
+            precondition(localCapacity > 0 && externalCapacity > 0)
             self.timeout = timeout
-            self.maxConcurrentProbes = maxConcurrentProbes
+            self.localCapacity = localCapacity
+            self.externalCapacity = externalCapacity
+            self.laneClassifier = laneClassifier
             self.probe = probe
             self.sleepUntilDeadline = sleepUntilDeadline
         }
@@ -73,7 +91,7 @@ extension TerminalController {
         }
 
         func waitUntilIdleForTesting() async {
-            guard !activePaths.isEmpty || !queuedPaths.isEmpty else { return }
+            guard !activeLanesByPath.isEmpty || !queuedProbes.isEmpty else { return }
             await withCheckedContinuation { idleWaiters.append($0) }
         }
 
@@ -93,8 +111,8 @@ extension TerminalController {
                 deadlineTask: deadlineTask
             )
             waiterIDsByPath[path, default: []].insert(waiterID)
-            if !activePaths.contains(path), !queuedPaths.contains(path) {
-                queuedPaths.append(path)
+            if activeLanesByPath[path] == nil, !queuedProbes.contains(where: { $0.path == path }) {
+                queuedProbes.append(QueuedProbe(path: path, lane: laneClassifier(path)))
             }
             startProbesUpToLimit()
         }
@@ -118,18 +136,19 @@ extension TerminalController {
             waiterIDsByPath[path]?.remove(waiterID)
             if waiterIDsByPath[path]?.isEmpty == true {
                 waiterIDsByPath.removeValue(forKey: path)
-                if !activePaths.contains(path) {
-                    queuedPaths.removeAll { $0 == path }
+                if activeLanesByPath[path] == nil {
+                    queuedProbes.removeAll { $0.path == path }
                 }
             }
             waiter.continuation.resume(returning: result)
         }
 
         private func startProbesUpToLimit() {
-            while activePaths.count < maxConcurrentProbes, !queuedPaths.isEmpty {
-                let path = queuedPaths.removeFirst()
+            while let index = queuedProbes.firstIndex(where: { hasCapacity(for: $0.lane) }) {
+                let queued = queuedProbes.remove(at: index)
+                let path = queued.path
                 guard waiterIDsByPath[path]?.isEmpty == false else { continue }
-                activePaths.insert(path)
+                activeLanesByPath[path] = queued.lane
                 Task { [weak self, probe] in
                     let isDirectory = await probe(path)
                     await self?.completeProbe(path: path, isDirectory: isDirectory)
@@ -139,7 +158,7 @@ extension TerminalController {
         }
 
         private func completeProbe(path: String, isDirectory: Bool) {
-            guard activePaths.remove(path) != nil else { return }
+            guard activeLanesByPath.removeValue(forKey: path) != nil else { return }
             let waiterIDs = Array(waiterIDsByPath[path] ?? [])
             let result: WorkspaceCreateWorkingDirectoryValidation = isDirectory ? .valid(path) : .invalid
             for waiterID in waiterIDs {
@@ -149,17 +168,31 @@ extension TerminalController {
         }
 
         private func resumeIdleWaiters() {
-            guard activePaths.isEmpty, queuedPaths.isEmpty else { return }
+            guard activeLanesByPath.isEmpty, queuedProbes.isEmpty else { return }
             let continuations = idleWaiters
             idleWaiters = []
             for continuation in continuations { continuation.resume() }
+        }
+
+        private func hasCapacity(for lane: ProbeLane) -> Bool {
+            let activeCount = activeLanesByPath.values.reduce(into: 0) { count, activeLane in
+                if activeLane == lane { count += 1 }
+            }
+            switch lane {
+            case .local:
+                return activeCount < localCapacity
+            case .external:
+                return activeCount < externalCapacity
+            }
         }
     }
 
     nonisolated static let v2MobileWorkingDirectoryValidationService =
         WorkspaceCreateWorkingDirectoryValidationService(
             timeout: .seconds(3),
-            maxConcurrentProbes: 2,
+            localCapacity: 1,
+            externalCapacity: 2,
+            laneClassifier: v2WorkingDirectoryProbeLane,
             probe: { path in
                 await Task.detached(priority: .utility) {
                     var isDirectory: ObjCBool = false
@@ -171,6 +204,31 @@ extension TerminalController {
                 try? await ContinuousClock().sleep(for: timeout)
             }
         )
+
+    nonisolated static func v2WorkingDirectoryProbeLane(
+        _ path: String
+    ) -> WorkspaceCreateWorkingDirectoryValidationService.ProbeLane {
+        var mounts: UnsafeMutablePointer<statfs>?
+        let mountCount = getmntinfo(&mounts, MNT_NOWAIT)
+        guard mountCount > 0, let mounts else { return .external }
+        let normalizedPath = (path as NSString).standardizingPath
+        var longestMatchLength = -1
+        var longestMatchIsLocal = false
+        for index in 0..<Int(mountCount) {
+            let fileSystem = mounts[index]
+            let mountPath = withUnsafePointer(to: fileSystem.f_mntonname) { pointer in
+                pointer.withMemoryRebound(to: CChar.self, capacity: 1) {
+                    String(cString: $0)
+                }
+            }
+            let matches = normalizedPath == mountPath
+                || normalizedPath.hasPrefix(mountPath == "/" ? "/" : "\(mountPath)/")
+            guard matches, mountPath.count > longestMatchLength else { continue }
+            longestMatchLength = mountPath.count
+            longestMatchIsLocal = (fileSystem.f_flags & UInt32(MNT_LOCAL)) != 0
+        }
+        return longestMatchIsLocal ? .local : .external
+    }
 
     nonisolated static var v2InvalidWorkingDirectoryResult: V2CallResult {
         .err(

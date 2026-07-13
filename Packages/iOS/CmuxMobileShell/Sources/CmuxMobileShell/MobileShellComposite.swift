@@ -733,6 +733,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
     private var pullToRefreshTask: Task<Void, Never>?
     var createWorkspaceTaskID: UUID?
+    @ObservationIgnored var taskComposerBeforeCreateDispatchForTesting: (@MainActor () async throws -> Void)?
     private var createTerminalTaskID: UUID?
     var connectionGeneration: UUID
     var connectionAttemptGeneration: UUID

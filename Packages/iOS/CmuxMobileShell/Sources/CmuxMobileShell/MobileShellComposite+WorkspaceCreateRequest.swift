@@ -3,6 +3,14 @@ public import CmuxMobileShellModel
 internal import Foundation
 
 extension MobileShellComposite {
+    struct WorkspaceCreatePinnedContext {
+        let macDeviceID: String?
+        let client: MobileCoreRPCClient
+        let generation: UUID
+        let supportedHostCapabilities: Set<String>
+        let hostDisplayName: String
+    }
+
     /// Create a workspace and surface success/failure to the caller.
     /// - Parameter groupID: Optional destination group for the new workspace.
     /// - Parameter spec: Optional workspace-create parameters for task creation.
@@ -13,15 +21,28 @@ extension MobileShellComposite {
         inGroup groupID: MobileWorkspaceGroupPreview.ID? = nil,
         spec: MobileWorkspaceCreateSpec? = nil
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
-        guard remoteClient != nil else {
+        guard let context = captureWorkspaceCreateContext() else {
             return .failure(.notConnected(hostDisplayName: connectedHostName))
         }
-        guard groupID == nil || allowsMacScopedWorkspaceMutations(targetClient: remoteClient) else {
-            return .failure(.authorizationFailed(hostDisplayName: connectedHostName))
+        return await createWorkspaceRequest(
+            inGroup: groupID,
+            spec: spec,
+            pinnedContext: context
+        )
+    }
+
+    func createWorkspaceRequest(
+        inGroup groupID: MobileWorkspaceGroupPreview.ID? = nil,
+        spec: MobileWorkspaceCreateSpec? = nil,
+        pinnedContext context: WorkspaceCreatePinnedContext,
+        runsTaskComposerPreDispatchHook: Bool = false
+    ) async -> Result<Void, MobileWorkspaceMutationFailure> {
+        guard groupID == nil || allowsMacScopedWorkspaceMutations(targetClient: context.client) else {
+            return .failure(.authorizationFailed(hostDisplayName: context.hostDisplayName))
         }
         if let createWorkspaceTask {
             guard spec == nil, createWorkspaceTaskSpec == nil, createWorkspaceTaskGroupID == groupID else {
-                return .failure(.busy(hostDisplayName: connectedHostName))
+                return .failure(.busy(hostDisplayName: context.hostDisplayName))
             }
             return await createWorkspaceTask.value
         }
@@ -33,7 +54,9 @@ extension MobileShellComposite {
             return await self.createRemoteWorkspace(
                 inGroup: groupID,
                 appliesOperationalError: false,
-                spec: spec
+                spec: spec,
+                pinnedContext: context,
+                runsTaskComposerPreDispatchHook: runsTaskComposerPreDispatchHook
             )
         }
         createWorkspaceTask = task
@@ -45,15 +68,17 @@ extension MobileShellComposite {
     func createRemoteWorkspace(
         inGroup groupID: MobileWorkspaceGroupPreview.ID? = nil,
         appliesOperationalError: Bool = true,
-        spec: MobileWorkspaceCreateSpec? = nil
+        spec: MobileWorkspaceCreateSpec? = nil,
+        pinnedContext suppliedContext: WorkspaceCreatePinnedContext? = nil,
+        runsTaskComposerPreDispatchHook: Bool = false
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
-        guard let client = remoteClient else {
+        guard let context = suppliedContext ?? captureWorkspaceCreateContext() else {
             return .failure(.notConnected(hostDisplayName: connectedHostName))
         }
+        let client = context.client
         guard groupID == nil || allowsMacScopedWorkspaceMutations(targetClient: client) else {
-            return .failure(.authorizationFailed(hostDisplayName: connectedHostName))
+            return .failure(.authorizationFailed(hostDisplayName: context.hostDisplayName))
         }
-        let generation = connectionGeneration
         do {
             var params: [String: Any] = [:]
             if let groupID {
@@ -76,12 +101,18 @@ extension MobileShellComposite {
             if let operationID = spec?.operationID {
                 params["operation_id"] = operationID.uuidString
             }
+            if runsTaskComposerPreDispatchHook {
+                try await taskComposerBeforeCreateDispatchForTesting?()
+            }
+            guard isCurrentWorkspaceCreateContext(context), !Task.isCancelled else {
+                return .failure(.notConnected(hostDisplayName: context.hostDisplayName))
+            }
             let resultData = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(method: "workspace.create", params: params)
             )
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
-            guard isCurrentRemoteOperation(client: client, generation: generation), !Task.isCancelled else {
-                return .failure(.notConnected(hostDisplayName: connectedHostName))
+            guard isCurrentWorkspaceCreateContext(context), !Task.isCancelled else {
+                return .failure(.notConnected(hostDisplayName: context.hostDisplayName))
             }
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
             let createdWorkspace = response.createdWorkspaceID.map(MobileWorkspacePreview.ID.init(rawValue:))
@@ -89,7 +120,7 @@ extension MobileShellComposite {
                 setSelectedWorkspaceID(
                     rowWorkspaceID(
                         forRemoteWorkspaceID: createdWorkspace,
-                        macDeviceID: foregroundMacDeviceID
+                        macDeviceID: context.macDeviceID
                     ) ?? createdWorkspace
                 )
             }
@@ -101,22 +132,38 @@ extension MobileShellComposite {
             return .success(())
         } catch {
             if Task.isCancelled {
-                return .failure(.notConnected(hostDisplayName: connectedHostName))
+                return .failure(.notConnected(hostDisplayName: context.hostDisplayName))
             }
             // A stale operation (connection replaced mid-flight) must not mutate
             // the NEW connection's state, but it must still report failure:
             // mapping it to success lets the task composer dismiss and persist
             // last-used defaults for a workspace that was never created.
-            if generation == connectionGeneration {
+            if isCurrentWorkspaceCreateContext(context) {
                 if disconnectForAuthorizationFailureIfNeeded(error) {
-                    return .failure(.authorizationFailed(hostDisplayName: connectedHostName))
+                    return .failure(.authorizationFailed(hostDisplayName: context.hostDisplayName))
                 }
                 markMacConnectionUnavailableIfNeeded(after: error)
                 if appliesOperationalError {
                     applyOperationalError(error)
                 }
             }
-            return .failure(workspaceMutationFailure(error, hostDisplayName: connectedHostName))
+            return .failure(workspaceMutationFailure(error, hostDisplayName: context.hostDisplayName))
         }
+    }
+
+    func captureWorkspaceCreateContext() -> WorkspaceCreatePinnedContext? {
+        guard connectionState == .connected, let remoteClient else { return nil }
+        return WorkspaceCreatePinnedContext(
+            macDeviceID: foregroundMacDeviceID,
+            client: remoteClient,
+            generation: connectionGeneration,
+            supportedHostCapabilities: supportedHostCapabilities,
+            hostDisplayName: connectedHostName
+        )
+    }
+
+    private func isCurrentWorkspaceCreateContext(_ context: WorkspaceCreatePinnedContext) -> Bool {
+        context.macDeviceID == foregroundMacDeviceID
+            && isCurrentRemoteOperation(client: context.client, generation: context.generation)
     }
 }

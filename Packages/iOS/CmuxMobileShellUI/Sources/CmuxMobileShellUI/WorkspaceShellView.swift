@@ -103,7 +103,10 @@ struct WorkspaceShellView: View {
         }
         #if os(iOS)
         .sheet(isPresented: $isTaskComposerPresented) {
-            TaskComposerSheet(store: store)
+            TaskComposerSheet(
+                store: store,
+                submitTaskComposer: submitTaskComposerFromShell
+            )
         }
         #endif
         .accessibilityIdentifier("MobileWorkspaceShell")
@@ -283,6 +286,29 @@ struct WorkspaceShellView: View {
     }
 
     #if os(iOS)
+    private var submitTaskComposerFromShell: @MainActor (
+        String,
+        MobileWorkspaceCreateSpec
+    ) async -> Result<Void, MobileWorkspaceMutationFailure> {
+        let store = store
+        return { macDeviceID, spec in
+            let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
+            pendingCompactCreateNavigationWorkspaceIDs = usesCompactStack
+                ? existingWorkspaceIDs
+                : nil
+            let result = await store.submitTaskComposer(macDeviceID: macDeviceID, spec: spec)
+            if usesCompactStack {
+                settlePendingCompactCreateNavigation(
+                    result: result,
+                    existingWorkspaceIDs: existingWorkspaceIDs
+                )
+            } else {
+                pendingCompactCreateNavigationWorkspaceIDs = nil
+            }
+            return result
+        }
+    }
+
     private var taskComposerButtonOverlay: some View {
         TaskComposerButton {
             isTaskComposerPresented = true

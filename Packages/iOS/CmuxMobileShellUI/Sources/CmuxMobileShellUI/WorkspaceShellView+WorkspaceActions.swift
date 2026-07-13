@@ -158,7 +158,10 @@ extension WorkspaceShellView {
         pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
         if store.usesLocalWorkspaceCreationFallback {
             store.createWorkspace(inGroup: groupID)
-            clearPendingCompactCreateNavigationIfSettled(existingWorkspaceIDs: existingWorkspaceIDs)
+            settlePendingCompactCreateNavigation(
+                result: .success(()),
+                existingWorkspaceIDs: existingWorkspaceIDs
+            )
             return
         }
         Task { @MainActor in
@@ -167,11 +170,10 @@ extension WorkspaceShellView {
                 result,
                 action: groupID == nil ? .createWorkspace : .createWorkspaceInGroup
             )
-            if case .failure = result {
-                pendingCompactCreateNavigationWorkspaceIDs = nil
-                return
-            }
-            clearPendingCompactCreateNavigationIfSettled(existingWorkspaceIDs: existingWorkspaceIDs)
+            settlePendingCompactCreateNavigation(
+                result: result,
+                existingWorkspaceIDs: existingWorkspaceIDs
+            )
         }
     }
 
@@ -202,13 +204,16 @@ extension WorkspaceShellView {
         }
     }
 
-    private func clearPendingCompactCreateNavigationIfSettled(
+    func settlePendingCompactCreateNavigation(
+        result: Result<Void, MobileWorkspaceMutationFailure>,
         existingWorkspaceIDs: Set<MobileWorkspacePreview.ID>
     ) {
-        if let createdPath = compactNavigationPolicy.pathForCreatedWorkspaceSelection(
+        let succeeded = if case .success = result { true } else { false }
+        if let createdPath = compactNavigationPolicy.pathForCompletedCreate(
             currentPath: compactNavigationPath,
             selectedWorkspaceID: store.selectedWorkspaceID,
-            existingWorkspaceIDs: existingWorkspaceIDs
+            existingWorkspaceIDs: existingWorkspaceIDs,
+            succeeded: succeeded
         ) {
             pendingCompactCreateNavigationWorkspaceIDs = nil
             compactNavigationPath = createdPath

@@ -32,10 +32,23 @@ struct TaskComposerSheet: View {
 
     private let composer = MobileTaskCommandComposer()
     private let sessionGeneration: Int
+    private let submitTaskComposer: @MainActor (
+        _ macDeviceID: String,
+        _ spec: MobileWorkspaceCreateSpec
+    ) async -> Result<Void, MobileWorkspaceMutationFailure>
 
-    init(store: CMUXMobileShellStore) {
+    init(
+        store: CMUXMobileShellStore,
+        submitTaskComposer: (@MainActor (
+            _ macDeviceID: String,
+            _ spec: MobileWorkspaceCreateSpec
+        ) async -> Result<Void, MobileWorkspaceMutationFailure>)? = nil
+    ) {
         self.store = store
         self.sessionGeneration = store.currentSessionGeneration
+        self.submitTaskComposer = submitTaskComposer ?? { macDeviceID, spec in
+            await store.submitTaskComposer(macDeviceID: macDeviceID, spec: spec)
+        }
         let loadedTemplates = store.taskTemplateStore?.listTemplates() ?? []
         let templates = loadedTemplates
         let draft = store.taskTemplateStore?.composerDraft()
@@ -366,7 +379,7 @@ struct TaskComposerSheet: View {
             initialEnv: composition.initialEnv.isEmpty ? nil : composition.initialEnv,
             operationID: submissionIdentity.id
         )
-        let result = await store.submitTaskComposer(macDeviceID: selectedMacDeviceID, spec: spec)
+        let result = await submitTaskComposer(selectedMacDeviceID, spec)
         isSubmitting = false
         // The user dismissed the sheet mid-flight: drop the result instead of
         // persisting last-used defaults or re-dismissing a gone sheet.
