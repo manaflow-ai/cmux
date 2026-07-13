@@ -312,7 +312,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public internal(set) var supportedHostCapabilities: Set<String> = []
     /// A truthful released-Mac-update recommendation for the connected host.
     public internal(set) var macUpdateHint: MobileMacUpdateHint?
-    @ObservationIgnored var macUpdateHintMacDeviceID: String?, macUpdateHintShownSignatures: Set<String> = []
+    @ObservationIgnored var macUpdateHintSessionState = MacUpdateHintSessionState()
     /// Whether the Mac supports workspace close requests.
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
     /// Whether the Mac supports workspace move/reorder requests.

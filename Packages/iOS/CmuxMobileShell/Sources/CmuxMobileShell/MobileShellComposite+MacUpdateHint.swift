@@ -2,6 +2,16 @@ internal import CMUXMobileCore
 internal import CmuxMobileDiagnostics
 internal import CmuxMobileRPC
 
+/// Session-scoped bookkeeping for the Mac-update hint: which Mac the visible
+/// hint belongs to, and which (mac, gap) pairs already emitted the eligible
+/// analytics event this session. A reference type so the composite can hold it
+/// behind one `@ObservationIgnored` stored property (views observe only
+/// `macUpdateHint` itself).
+final class MacUpdateHintSessionState {
+    var macDeviceID: String?
+    var shownSignatures: Set<String> = []
+}
+
 extension MobileShellComposite {
     /// Whether the Mac supports workspace group sections and collapse/expand RPCs.
     public var supportsWorkspaceGroups: Bool { supportedHostCapabilities.contains(Self.workspaceGroupsCapability) }
@@ -52,13 +62,13 @@ extension MobileShellComposite {
         }
 
         macUpdateHint = hint
-        macUpdateHintMacDeviceID = macDeviceID
+        macUpdateHintSessionState.macDeviceID = macDeviceID
         // Keyed per Mac so two hosts sharing one gap signature each emit an
         // event, while reconnects to the same host stay deduplicated. Named
         // "eligible" deliberately: this fires when the model computes a
         // visible hint, not when the toolbar indicator actually renders
         // (chrome, navigation state, or backgrounding can defer that).
-        guard macUpdateHintShownSignatures.insert("\(macDeviceID)|\(hint.dismissalSignature)").inserted else { return }
+        guard macUpdateHintSessionState.shownSignatures.insert("\(macDeviceID)|\(hint.dismissalSignature)").inserted else { return }
         analytics.capture("ios_mac_update_hint_eligible", analyticsProperties(for: hint))
     }
 
@@ -76,7 +86,7 @@ extension MobileShellComposite {
 
     /// Permanently dismisses the currently visible gap for this Mac and version target.
     public func dismissMacUpdateHint() {
-        guard let hint = macUpdateHint, let macDeviceID = macUpdateHintMacDeviceID else { return }
+        guard let hint = macUpdateHint, let macDeviceID = macUpdateHintSessionState.macDeviceID else { return }
         MobileMacUpdateHintDismissalStore().dismiss(
             macDeviceID: macDeviceID,
             signature: hint.dismissalSignature
@@ -88,7 +98,7 @@ extension MobileShellComposite {
     /// Clears connection-scoped hint state without resetting the session analytics gate.
     func clearMacUpdateHint() {
         macUpdateHint = nil
-        macUpdateHintMacDeviceID = nil
+        macUpdateHintSessionState.macDeviceID = nil
     }
 
     private func analyticsProperties(for hint: MobileMacUpdateHint) -> [String: AnalyticsValue] {
