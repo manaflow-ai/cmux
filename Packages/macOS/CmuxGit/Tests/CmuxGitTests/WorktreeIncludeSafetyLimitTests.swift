@@ -4,6 +4,35 @@ import Testing
 @testable import CmuxGit
 
 @Suite struct WorktreeIncludeSafetyLimitTests {
+    @Test func copiedCredentialFileIsPrivateFromCreation() throws {
+        let (root, source, destination) = try makeRepositoryFixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceFile = source.appendingPathComponent(".env")
+        try "secret\n".write(to: sourceFile, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: sourceFile.path
+        )
+        let observer = DestinationFileCreationPermissionObserver(destinationRoot: destination)
+
+        let diagnostics = WorktreeIncludeCopyService(
+            fileManager: observer,
+            limits: WorktreeIncludeCopyLimits(
+                maximumItemCount: 10,
+                maximumByteCount: 1_024,
+                freeSpaceReserve: 0
+            ),
+            availableCapacity: { _ in 1_024 }
+        ).copy(relativePaths: [".env"], from: source, to: destination)
+
+        let finalAttributes = try FileManager.default.attributesOfItem(
+            atPath: destination.appendingPathComponent(".env").path
+        )
+        #expect(diagnostics.isEmpty)
+        #expect(observer.observedPermissions == [0o600])
+        #expect(finalAttributes[.posixPermissions] as? Int == 0o600)
+    }
+
     @Test func createdParentDirectoriesCountTowardItemLimit() throws {
         let (root, source, destination) = try makeRepositoryFixture()
         defer { try? FileManager.default.removeItem(at: root) }
