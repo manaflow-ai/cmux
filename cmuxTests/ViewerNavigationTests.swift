@@ -164,6 +164,22 @@ struct ViewerNavigationTests {
         )
         #expect(expiredChordCalls.count == 1)
         #expect((expiredChordCalls[0]["top"] as? NSNumber)?.doubleValue == 0)
+
+        _ = try await webView.evaluateJavaScript(
+            """
+            (() => {
+              const editor = document.createElement('div');
+              editor.contentEditable = 'true';
+              document.body.appendChild(editor);
+              editor.focus();
+            })();
+            """
+        )
+        for _ in 0..<20 where !webView.isViewerNavigationEditableElementFocused {
+            await Task.yield()
+        }
+        #expect(webView.isViewerNavigationEditableElementFocused)
+        #expect(!webView.handleViewerNavigationKey(Self.keyEvent("j")))
     }
 
     @Test
