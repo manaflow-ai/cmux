@@ -4,6 +4,72 @@ import Testing
 @testable import CmuxGit
 
 @Suite struct WorktreeIncludeSafetyLimitTests {
+    @Test func destinationSymlinkAncestorCannotEscapeWorktree() throws {
+        let (root, source, destination) = try makeRepositoryFixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceDirectory = source.appendingPathComponent("linked", isDirectory: true)
+        let outsideDirectory = root.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outsideDirectory, withIntermediateDirectories: true)
+        try "secret\n".write(
+            to: sourceDirectory.appendingPathComponent("payload"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.createSymbolicLink(
+            at: destination.appendingPathComponent("linked"),
+            withDestinationURL: outsideDirectory
+        )
+
+        let diagnostics = WorktreeIncludeCopyService(
+            fileManager: .default,
+            limits: WorktreeIncludeCopyLimits(
+                maximumItemCount: 10,
+                maximumByteCount: 1_024,
+                freeSpaceReserve: 0
+            ),
+            availableCapacity: { _ in 1_024 }
+        ).copy(relativePaths: ["linked/payload"], from: source, to: destination)
+
+        #expect(!FileManager.default.fileExists(
+            atPath: outsideDirectory.appendingPathComponent("payload").path
+        ))
+        #expect(!diagnostics.isEmpty)
+    }
+
+    @Test func sourceTypeChangeCannotBypassCopyBudget() throws {
+        let (root, source, destination) = try makeRepositoryFixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceDirectory = source.appendingPathComponent("nested", isDirectory: true)
+        let destinationDirectory = destination.appendingPathComponent("nested", isDirectory: true)
+        let sourceItem = sourceDirectory.appendingPathComponent("payload")
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: sourceItem,
+            withDestinationURL: sourceDirectory.appendingPathComponent("missing")
+        )
+        let fileManager = SourceTypeSwappingWorktreeIncludeFileManager(
+            sourceItem: sourceItem,
+            triggerDirectory: destinationDirectory,
+            replacementByteCount: 2_048
+        )
+
+        _ = WorktreeIncludeCopyService(
+            fileManager: fileManager,
+            limits: WorktreeIncludeCopyLimits(
+                maximumItemCount: 10,
+                maximumByteCount: 1_024,
+                freeSpaceReserve: 0
+            ),
+            availableCapacity: { _ in 1_024 }
+        ).copy(relativePaths: ["nested/payload"], from: source, to: destination)
+
+        let copied = destinationDirectory.appendingPathComponent("payload")
+        let copiedValues = try? copied.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+        #expect(copiedValues?.isRegularFile != true || (copiedValues?.fileSize ?? 0) <= 1_024)
+    }
+
     @Test func copiedCredentialFileIsPrivateFromCreation() throws {
         let (root, source, destination) = try makeRepositoryFixture()
         defer { try? FileManager.default.removeItem(at: root) }

@@ -1,4 +1,5 @@
 import CmuxFoundation
+import Darwin
 import Foundation
 import Testing
 
@@ -65,6 +66,7 @@ struct WorktreeIncludeIntegrationTests {
             .appendingPathComponent("cmux-worktree-cancellation-integration-\(UUID().uuidString)", isDirectory: true)
         let projectRoot = root.appendingPathComponent("Project", isDirectory: true)
         let marker = root.appendingPathComponent("post-checkout-started")
+        let hookPIDFile = root.appendingPathComponent("post-checkout-pid")
         let releasePipe = root.appendingPathComponent("post-checkout-release")
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -86,6 +88,8 @@ struct WorktreeIncludeIntegrationTests {
         let hook = hooks.appendingPathComponent("post-checkout")
         let hookScript = """
         #!/bin/sh
+        trap '' TERM HUP
+        echo $$ > \(shellEscaped(hookPIDFile.path))
         touch \(shellEscaped(marker.path))
         IFS= read -r _ < \(shellEscaped(releasePipe.path))
         """
@@ -107,6 +111,15 @@ struct WorktreeIncludeIntegrationTests {
             if FileManager.default.fileExists(atPath: marker.path) { break }
         }
         await watcher.stop()
+        let hookPID = try #require(pid_t(
+            String(contentsOf: hookPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        defer {
+            if Darwin.kill(hookPID, 0) == 0 {
+                _ = Darwin.kill(hookPID, SIGKILL)
+            }
+        }
 
         let fallbackRelease = Task.detached {
             // Bounds the pre-fix failure so the test reports instead of leaking the blocked hook.
@@ -132,6 +145,8 @@ struct WorktreeIncludeIntegrationTests {
         let worktreeList = try runGit(["worktree", "list", "--porcelain"], in: projectRoot)
         let branches = try runGit(["branch", "--list", "cmux-sidebar-*"], in: projectRoot)
         #expect(cancellationDuration < .seconds(5))
+        #expect(Darwin.kill(hookPID, 0) == -1)
+        #expect(errno == ESRCH)
         #expect(!worktreeList.contains("/.cmux/worktrees/"))
         #expect(branches.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
