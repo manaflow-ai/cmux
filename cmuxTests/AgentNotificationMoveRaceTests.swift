@@ -109,6 +109,14 @@ struct AgentNotificationMoveRaceTests {
         }
     }
 
+    private func waitForFile(at url: URL) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !FileManager.default.fileExists(atPath: url.path), ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
     @Test("Moving a pane preserves its pending notification")
     func paneMovePreservesPendingNotification() throws {
         let fixture = try makeFixture()
@@ -213,8 +221,12 @@ struct AgentNotificationMoveRaceTests {
 
     @Test("A clear invalidates policy-delayed delivery that has not applied")
     func clearInvalidatesInFlightPolicyDelivery() async throws {
-        let fixture = try makeFixture(policyHookCommand: "sleep 0.2; cat")
+        let completionURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-policy-clear-finished-\(UUID().uuidString)"
+        )
+        let fixture = try makeFixture(policyHookCommand: "cat; touch '\(completionURL.path)'")
         defer { fixture.restore() }
+        defer { try? FileManager.default.removeItem(at: completionURL) }
 
         TerminalController.shared.deliverNotificationSynchronously(
             tabId: fixture.source.id,
@@ -229,9 +241,8 @@ struct AgentNotificationMoveRaceTests {
             surfaceId: fixture.panelId
         )
 
-        // The deliberate test hook delay is bounded and longer than the clear
-        // race above; wait for it to finish and prove final apply stayed canceled.
-        try await Task.sleep(for: .seconds(1))
+        #expect(await waitForFile(at: completionURL))
+        for _ in 0..<100 { await Task.yield() }
         #expect(fixture.store.notifications.isEmpty)
     }
 

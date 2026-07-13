@@ -436,10 +436,9 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
             tty,
             "A corroborating env surface keeps the tty answer"
         )
-        XCTAssertEqual(
+        XCTAssertNil(
             agentDeliveryTargetCombining(ttyTarget: tty, envTarget: otherEnv),
-            tty,
-            "Leaked spawn-time environment must not veto the unique live controlling-TTY match"
+            "Disagreement between two individually stale-able signals must fail closed"
         )
         XCTAssertNil(
             agentDeliveryTargetCombining(ttyTarget: nil, envTarget: otherEnv),
