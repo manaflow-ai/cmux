@@ -19,6 +19,10 @@ extension TerminalSurface {
     /// The managed `COLORTERM` value exported to spawned shells.
     public static let managedColorTerm = "truecolor"
 
+    /// One opaque identifier per cmux app process. Agent hooks persist it so
+    /// default CLI queries can exclude history from other running builds.
+    public static let managedCmuxRuntimeId = UUID().uuidString
+
     private static let inheritedClaudeAuthSelectionEnvironmentKeys: Set<String> = [
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_MODEL",
@@ -47,13 +51,16 @@ extension TerminalSurface {
         to environment: inout [String: String],
         protectedKeys: inout Set<String>
     ) {
-        let values = [
+        var values = [
             "CMUX_SURFACE_ID": context.surfaceId.uuidString,
             "CMUX_WORKSPACE_ID": context.workspaceId.uuidString,
             "CMUX_PANEL_ID": context.surfaceId.uuidString,
             "CMUX_TAB_ID": context.workspaceId.uuidString,
             "CMUX_SOCKET_PATH": context.socketPath
         ]
+        if let runtimeId = context.runtimeId, !runtimeId.isEmpty {
+            values["CMUX_RUNTIME_ID"] = runtimeId
+        }
 
         for (key, value) in values {
             environment[key] = value

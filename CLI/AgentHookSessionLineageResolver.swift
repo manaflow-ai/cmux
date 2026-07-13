@@ -25,10 +25,12 @@ struct AgentHookSessionLineageResolver: Sendable {
         let explicitParentRunId = Self.normalized(environment["CMUX_CODEX_TEAMS_PARENT_THREAD_ID"])
 
         let identity = pid.flatMap(processIdentity)
+        let cmuxRuntime = AgentCmuxRuntimeIdentity(environment: environment)
         let ancestorResolution = identity.map { agentAncestor(startingAt: $0.parentPID) } ?? .unknown
         let ancestor = ancestorResolution.identity
         let runId = explicitRunId
             ?? identity.map(Self.runId)
+            ?? cmuxRuntime.map { "runtime:\($0.id):session:\(agentName):\(sessionId)" }
             ?? "session:\(agentName):\(sessionId)"
         let parentRunId = explicitParentRunId ?? ancestor.map(Self.runId)
         // Fork metadata is inherited like every other environment variable. It
@@ -54,6 +56,7 @@ struct AgentHookSessionLineageResolver: Sendable {
             runId: runId,
             pid: pid,
             processStartedAt: identity?.startedAt,
+            cmuxRuntime: cmuxRuntime,
             parentRunId: parentRunId,
             parentSessionId: parentSessionId,
             relationship: relationship,

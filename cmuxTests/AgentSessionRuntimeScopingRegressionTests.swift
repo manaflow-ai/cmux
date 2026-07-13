@@ -2,6 +2,66 @@ import Foundation
 import Testing
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func hibernationMovesTheSessionIntoTheCurrentCmuxRuntime() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-runtime-hibernation-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 2,
+            "sessions": [
+                "session": [
+                    "sessionId": "session",
+                    "workspaceId": "workspace",
+                    "surfaceId": "surface",
+                    "runId": "run",
+                    "activeRunId": "run",
+                    "restoreAuthority": true,
+                    "cmuxRuntime": ["id": "old-runtime"],
+                    "runs": [[
+                        "runId": "run",
+                        "restoreAuthority": true,
+                        "cmuxRuntime": ["id": "old-runtime"],
+                        "startedAt": 100.0,
+                        "updatedAt": 100.0,
+                    ]],
+                    "startedAt": 100.0,
+                    "updatedAt": 100.0,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
+            .write(to: stateURL, options: .atomic)
+
+        AgentHookSessionStateWriter(
+            homeDirectory: root.path,
+            environment: [
+                "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
+                "CMUX_RUNTIME_ID": "current-runtime",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-current.sock",
+                "CMUX_BUNDLE_ID": "com.cmuxterm.current",
+            ]
+        ).setLifecycleSynchronously(
+            kind: .codex,
+            sessionId: "session",
+            state: .hibernated,
+            now: 200
+        )
+
+        let saved = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any]
+        )
+        let sessions = try #require(saved["sessions"] as? [String: Any])
+        let record = try #require(sessions["session"] as? [String: Any])
+        #expect(record["sessionState"] as? String == "hibernated")
+        let recordRuntime = try #require(record["cmuxRuntime"] as? [String: Any])
+        #expect(recordRuntime["id"] as? String == "current-runtime")
+        let runs = try #require(record["runs"] as? [[String: Any]])
+        let runRuntime = try #require(runs.first?["cmuxRuntime"] as? [String: Any])
+        #expect(runRuntime["id"] as? String == "current-runtime")
+    }
+
     @Test func agentsTreeDefaultsToTheCallingCmuxRuntimeWhileAllIncludesHistory() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory

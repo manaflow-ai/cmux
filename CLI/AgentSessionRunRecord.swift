@@ -5,6 +5,7 @@ struct AgentSessionRunRecord: Codable, Sendable, Equatable {
     var runId: String
     var pid: Int?
     var processStartedAt: TimeInterval?
+    var cmuxRuntime: AgentCmuxRuntimeIdentity? = nil
     var parentRunId: String?
     var parentSessionId: String?
     var relationship: AgentSessionRelationship?
@@ -56,6 +57,7 @@ struct AgentSessionRunReconciler: Sendable {
         }
         run.pid = lineage.pid ?? run.pid
         run.processStartedAt = lineage.processStartedAt ?? run.processStartedAt
+        run.cmuxRuntime = run.cmuxRuntime ?? lineage.cmuxRuntime
         run.parentRunId = lineage.parentRunId ?? run.parentRunId
         run.parentSessionId = lineage.parentSessionId ?? run.parentSessionId
         run.relationship = lineage.relationship == .spawned ? .spawned : (run.relationship ?? lineage.relationship)
@@ -75,6 +77,7 @@ struct AgentSessionRunReconciler: Sendable {
             runId: lineage.runId,
             pid: lineage.pid,
             processStartedAt: lineage.processStartedAt,
+            cmuxRuntime: lineage.cmuxRuntime,
             parentRunId: lineage.parentRunId,
             parentSessionId: lineage.parentSessionId,
             relationship: lineage.relationship,

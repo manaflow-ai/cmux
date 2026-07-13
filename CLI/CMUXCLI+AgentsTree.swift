@@ -56,6 +56,7 @@ extension CMUXCLI {
         let normalizedState = agentsTreeNormalized(stateFilter)?.lowercased()
         let normalizedActivity = agentsTreeNormalized(activityFilter)?.lowercased()
         let normalizedWorkKind = agentsTreeNormalized(workKindFilter)?.lowercased()
+        let queryScope = AgentSessionQueryScope(includeHistory: includeAll, environment: processEnv)
         if let normalizedRelationship,
            normalizedRelationship != "all",
            AgentSessionRelationship(rawValue: normalizedRelationship) == nil {
@@ -109,16 +110,17 @@ extension CMUXCLI {
                 if let normalizedSession, record.sessionId.lowercased() != normalizedSession { continue }
                 if let normalizedWorkspace, record.workspaceId.lowercased() != normalizedWorkspace { continue }
                 if let normalizedSurface, record.surfaceId.lowercased() != normalizedSurface { continue }
-                if !includeAll,
-                   !activeSessionIds.contains(record.sessionId),
-                   record.isRestorable != true,
-                   record.transcriptPath == nil,
-                   record.launchCommand == nil {
-                    continue
-                }
-
                 let runs = agentsTreeRuns(record: record, provider: specification.name)
                 for run in runs {
+                    let legacyVisible = activeSessionIds.contains(record.sessionId)
+                        || record.isRestorable == true
+                        || record.transcriptPath != nil
+                        || record.launchCommand != nil
+                    guard queryScope.includes(
+                        recordRuntime: record.cmuxRuntime,
+                        runRuntime: run.cmuxRuntime,
+                        legacyVisible: legacyVisible
+                    ) else { continue }
                     let projection = AgentSessionStateProjection(record: record, run: run)
                     if let normalizedState, projection.effective.rawValue != normalizedState { continue }
                     if let normalizedActivity, projection.activity.state.rawValue != normalizedActivity { continue }
@@ -132,6 +134,7 @@ extension CMUXCLI {
                         runId: run.runId,
                         pid: run.pid,
                         processStartedAt: run.processStartedAt,
+                        cmuxRuntime: run.cmuxRuntime ?? record.cmuxRuntime,
                         workspaceId: record.workspaceId,
                         surfaceId: record.surfaceId,
                         processState: projection.process,
@@ -189,6 +192,7 @@ extension CMUXCLI {
             runId: record.runId ?? "session:\(provider):\(record.sessionId)",
             pid: record.pid,
             processStartedAt: nil,
+            cmuxRuntime: record.cmuxRuntime,
             parentRunId: record.parentRunId,
             parentSessionId: record.parentSessionId,
             relationship: record.relationship,

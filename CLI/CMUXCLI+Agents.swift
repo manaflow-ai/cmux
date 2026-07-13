@@ -32,9 +32,9 @@ extension CMUXCLI {
                cmux agents [options]
 
         Print saved agent state from ~/.cmuxterm/*-hook-sessions.json.
-        This command does not require a running cmux socket.
-        By default, broad output shows active, restorable, or transcript-backed records.
-        Pass --all to inspect every saved hook record.
+        This command reads files directly and never waits on a cmux socket.
+        Inside cmux, default output is scoped to that running app process.
+        Pass --all to inspect cross-runtime history.
 
         `agents tree` renders process-spawn and conversation-fork relationships.
         Add --json for a flat, versioned nodes-and-edges graph.

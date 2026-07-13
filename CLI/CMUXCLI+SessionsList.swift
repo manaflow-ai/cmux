@@ -138,6 +138,7 @@ extension CMUXCLI {
         }
         let hasRecordFilter = sessionFilter != nil || workspaceFilter != nil || surfaceFilter != nil
             || cwdFilter != nil || stateFilter != nil || activityFilter != nil || workKindFilter != nil
+        let queryScope = AgentSessionQueryScope(includeHistory: includeAll, environment: processEnv)
         var codexIndexes: [String: CodexSessionListIndex] = [:]
         let claudeTranscriptLookup = SessionsListClaudeTranscriptLookupCache(homeDirectory: homeDirectory)
         var entries: [SessionListEntry] = []
@@ -207,6 +208,7 @@ extension CMUXCLI {
                         runId: record.runId ?? "session:\(spec.name):\(record.sessionId)",
                         pid: record.pid,
                         processStartedAt: nil,
+                        cmuxRuntime: record.cmuxRuntime,
                         parentRunId: record.parentRunId,
                         parentSessionId: record.parentSessionId,
                         relationship: record.relationship,
@@ -215,6 +217,11 @@ extension CMUXCLI {
                         updatedAt: record.updatedAt,
                         endedAt: record.completedAt
                     )
+                guard hasRecordFilter || queryScope.includes(
+                    recordRuntime: record.cmuxRuntime,
+                    runRuntime: projectedRun.cmuxRuntime,
+                    legacyVisible: true
+                ) else { continue }
                 let projection = AgentSessionStateProjection(record: record, run: projectedRun)
                 if let stateFilter, projection.effective.rawValue != stateFilter { continue }
                 if let activityFilter, projection.activity.state.rawValue != activityFilter { continue }
@@ -232,6 +239,8 @@ extension CMUXCLI {
                     (record.workloads ?? []).map(AgentWorkloadSnapshot.init)
                 )
                 payload["restore_authority"] = projectedRun.restoreAuthority
+                payload["cmux_runtime"] = (projectedRun.cmuxRuntime ?? record.cmuxRuntime)
+                    .map { sessionsListEncodableJSONObject($0) } ?? NSNull()
                 payload["last_prompt_turn_id"] = record.lastPromptTurnId ?? NSNull()
                 payload["active_prompt_turn_id"] = record.activePromptTurnId ?? NSNull()
                 payload["launch_working_directory"] = record.launchCommand?.workingDirectory ?? NSNull()
@@ -300,11 +309,16 @@ extension CMUXCLI {
                 )
                 payload["launch_backed"] = launchBacked
 
-                let defaultVisible = activeForWorkspace
+                let legacyDefaultVisible = activeForWorkspace
                     || activeForSurface
                     || record.isRestorable == true
                     || launchBacked
                     || transcriptBacked
+                let defaultVisible = queryScope.includes(
+                    recordRuntime: record.cmuxRuntime,
+                    runRuntime: projectedRun.cmuxRuntime,
+                    legacyVisible: legacyDefaultVisible
+                )
                 payload["default_visible"] = defaultVisible
                 guard includeAll || hasRecordFilter || defaultVisible else {
                     continue

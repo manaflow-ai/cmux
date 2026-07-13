@@ -76,6 +76,8 @@ struct ClaudeHookSessionRecord: Codable {
     var parentSessionId: String? = nil
     var relationship: AgentSessionRelationship? = nil
     var completedAt: TimeInterval? = nil
+    /// The cmux app process that most recently owned the active run.
+    var cmuxRuntime: AgentCmuxRuntimeIdentity? = nil
 }
 
 struct ClaudeHookActiveSessionRecord: Codable {

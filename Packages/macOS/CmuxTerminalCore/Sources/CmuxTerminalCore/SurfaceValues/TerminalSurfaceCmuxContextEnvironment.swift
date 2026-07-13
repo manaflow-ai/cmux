@@ -14,15 +14,19 @@ public struct TerminalSurfaceCmuxContextEnvironment: Equatable, Sendable {
     /// The control socket path (exported as `CMUX_SOCKET_PATH`).
     public let socketPath: String
 
+    /// The unique app-process id exported as `CMUX_RUNTIME_ID`.
+    public let runtimeId: String?
+
     /// Creates the managed context identity.
     ///
     /// - Parameters:
     ///   - workspaceId: The owning workspace id.
     ///   - surfaceId: The surface id.
     ///   - socketPath: The control socket path.
-    public init(workspaceId: UUID, surfaceId: UUID, socketPath: String) {
+    public init(workspaceId: UUID, surfaceId: UUID, socketPath: String, runtimeId: String? = nil) {
         self.workspaceId = workspaceId
         self.surfaceId = surfaceId
         self.socketPath = socketPath
+        self.runtimeId = runtimeId
     }
 }

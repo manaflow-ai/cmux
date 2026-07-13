@@ -336,7 +336,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         CmuxContextEnvironment(
             workspaceId: workspaceId,
             surfaceId: surfaceId,
-            socketPath: socketPath
+            socketPath: socketPath,
+            runtimeId: managedCmuxRuntimeId
         )
     }
 

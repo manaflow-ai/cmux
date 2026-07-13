@@ -177,6 +177,14 @@ struct AgentHookSessionStateWriter: Sendable {
               var record = sessions[sessionId] as? [String: Any] else { return }
         record["sessionState"] = lifecycle.rawValue
         record["updatedAt"] = now
+        if let runtime = runtimePayload() {
+            record["cmuxRuntime"] = runtime
+            record["runs"] = assigningRuntime(
+                runtime,
+                to: record["runs"],
+                activeRunId: record["activeRunId"] as? String
+            )
+        }
         sessions[sessionId] = record
         root["sessions"] = sessions
         guard let encoded = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]) else {
@@ -195,6 +203,33 @@ struct AgentHookSessionStateWriter: Sendable {
                 run["restoreAuthority"] = false
             }
             return run
+        }
+    }
+
+    private func runtimePayload() -> [String: Any]? {
+        guard let id = environment["CMUX_RUNTIME_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !id.isEmpty else { return nil }
+        var payload: [String: Any] = ["id": id]
+        if let socketPath = environment["CMUX_SOCKET_PATH"], !socketPath.isEmpty {
+            payload["socketPath"] = socketPath
+        }
+        if let bundleIdentifier = environment["CMUX_BUNDLE_ID"], !bundleIdentifier.isEmpty {
+            payload["bundleIdentifier"] = bundleIdentifier
+        }
+        return payload
+    }
+
+    private func assigningRuntime(
+        _ runtime: [String: Any],
+        to value: Any?,
+        activeRunId: String?
+    ) -> [[String: Any]] {
+        guard let runs = value as? [[String: Any]], let activeRunId else { return value as? [[String: Any]] ?? [] }
+        return runs.map { run in
+            guard run["runId"] as? String == activeRunId else { return run }
+            var updated = run
+            updated["cmuxRuntime"] = runtime
+            return updated
         }
     }
 

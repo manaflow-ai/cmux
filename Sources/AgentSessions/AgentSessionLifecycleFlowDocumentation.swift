@@ -31,4 +31,17 @@ import Foundation
 /// ACTIVE ──root process exit───────────────▶ ENDED + owned workloads cancelled
 /// turn interrupted + root alive────────────▶ ACTIVE + INTERRUPTED (restorable)
 /// ```
+///
+/// Observability is file-backed and does not wait on the app socket. Each cmux
+/// app process exports one opaque runtime id to local and remote terminals:
+///
+/// ```text
+/// cmux app launch ─▶ CMUX_RUNTIME_ID ─▶ terminal ─▶ agent hook ─▶ session run
+///                                                               │
+/// cmux agents ───────────────── current runtime id ──────────────┤──▶ current tree
+/// cmux agents --all ─────────────────────────────────────────────┘──▶ retained history
+/// ```
+///
+/// Runtime filtering is one string comparison per run. PID start-time checks
+/// validate liveness only for displayed runs and never scan the process table.
 enum AgentSessionLifecycleFlowDocumentation {}

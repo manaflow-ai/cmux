@@ -7,6 +7,7 @@ struct AgentSessionGraphNode: Codable, Sendable, Equatable {
     var runId: String
     var pid: Int?
     var processStartedAt: TimeInterval?
+    var cmuxRuntime: AgentCmuxRuntimeIdentity?
     var workspaceId: String
     var surfaceId: String
     var processState: AgentProcessState
@@ -28,6 +29,7 @@ struct AgentSessionGraphNode: Codable, Sendable, Equatable {
         case runId = "run_id"
         case pid
         case processStartedAt = "process_started_at"
+        case cmuxRuntime = "cmux_runtime"
         case workspaceId = "workspace_id"
         case surfaceId = "surface_id"
         case processState = "process_state"
