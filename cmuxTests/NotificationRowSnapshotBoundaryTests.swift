@@ -300,6 +300,20 @@ struct NotificationRowSnapshotBoundaryTests {
         #expect(targetRow == 218)
     }
 
+    @Test func notificationScrollTargetFollowsLiveBottomWhenCapturedAtBottom() {
+        let surfaceView = GhosttyNSView(frame: .zero)
+        surfaceView.scrollbar = GhosttyScrollbar(
+            c: ghostty_action_scrollbar_s(total: 500, offset: 456, len: 44)
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+
+        let targetRow = hostedView.notificationScrollTargetRow(
+            TerminalNotificationScrollPosition(row: 0, totalRows: 400)
+        )
+
+        #expect(targetRow == 456)
+    }
+
     @Test func notificationScrollTargetRequiresCaptureTotalAndVisibleRows() {
         let surfaceView = GhosttyNSView(frame: .zero)
         surfaceView.scrollbar = GhosttyScrollbar(
