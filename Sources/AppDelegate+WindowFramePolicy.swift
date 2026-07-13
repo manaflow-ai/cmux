@@ -11,8 +11,8 @@ extension AppDelegate {
         minWidth: CGFloat,
         minHeight: CGFloat
     ) -> CGRect {
-        let visibleUnion = availableDisplays.map(\.visibleFrame).reduce(CGRect.null) { $0.union($1) }
-        let maximumFrame = visibleUnion.isNull ? targetDisplay.visibleFrame : visibleUnion
+        let displayUnion = availableDisplays.map(\.frame).reduce(CGRect.null) { $0.union($1) }
+        let maximumFrame = displayUnion.isNull ? targetDisplay.frame : displayUnion
         guard frame.width > maximumFrame.width + 1
                 || frame.height > maximumFrame.height + 1 else {
             return frame

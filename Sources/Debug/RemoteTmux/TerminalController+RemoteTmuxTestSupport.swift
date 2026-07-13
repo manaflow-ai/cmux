@@ -252,13 +252,19 @@ extension TerminalController {
                     }
                 }
                 let windowGrid = session.connection.windowsByID[windowId]
+                let publicationReady = !session.connection.hasPendingSizingSettlementWork(
+                    windowId: windowId
+                )
+                let sizingReady = !mirror.sizingPassScheduled
+                    && mirror.lastCompletedSizingInputs != nil
                 windows.append([
                     "window": windowId,
                     "claimed": claimed.map { "\($0.0)x\($0.1)" } ?? "none",
                     "layout": "\(mirror.layout.width)x\(mirror.layout.height)",
                     "settled": claimed.map {
                         guard let windowGrid else { return false }
-                        return connected && $0.0 == windowGrid.width && $0.1 == windowGrid.height
+                        return connected && publicationReady && sizingReady
+                            && $0.0 == windowGrid.width && $0.1 == windowGrid.height
                     } ?? false,
                     "mismatches": mismatches,
                 ])
