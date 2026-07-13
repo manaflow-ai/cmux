@@ -8175,10 +8175,12 @@ final class GhosttySurfaceScrollView: NSView {
     private var pendingExplicitWheelScroll = false
     var allowExplicitScrollbarSync = false
     var notificationScrollRestorePhase: TerminalNotificationScrollRestorePhase = .idle; var earlySessionScrollbackReplayCompletionDirectory: String?; var sessionScrollbackReplayGeneration: String?; var currentScrollbackRowSpaceRevision: UInt64?; var sessionScrollbackReplayCompletionScrollbar: GhosttyScrollbar?; var sessionScrollbackReplayCompletionRowSpaceRevision: UInt64?; var sessionScrollbackReplayCompletionDeadlineTimer: Timer?
-    var hasUsableNotificationScrollRestoreViewport: Bool {
-        surfaceView.cellSize.height > 0 &&
-            bounds.height > 0 &&
-            scrollView.contentView.bounds.height > 0
+    var notificationScrollRestoreExpectedVisibleRows: UInt64? {
+        let cellHeight = surfaceView.cellSize.height
+        let viewportHeight = scrollView.contentView.bounds.height
+        guard cellHeight > 0, bounds.height > 0, viewportHeight > 0 else { return nil }
+        let rows = UInt64(viewportHeight / cellHeight)
+        return rows > 0 ? rows : nil
     }
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0

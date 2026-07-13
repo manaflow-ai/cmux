@@ -3,40 +3,6 @@ import CmuxTerminalCore
 import Foundation
 import GhosttyKit
 
-final class GhosttyScrollbarUpdateBuffer: @unchecked Sendable {
-    private let lock = NSLock()
-    private var pending: GhosttyScrollbar?
-    private var flushScheduled = false
-
-    /// Returns true only when the caller must schedule a main-thread flush.
-    func enqueue(_ value: GhosttyScrollbar) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        pending = value
-        let needsSchedule = !flushScheduled
-        if needsSchedule { flushScheduled = true }
-        return needsSchedule
-    }
-
-    func takePending() -> GhosttyScrollbar? {
-        lock.lock()
-        defer { lock.unlock() }
-        flushScheduled = false
-        defer { pending = nil }
-        return pending
-    }
-
-    func replaceAndTakeExact(_ value: GhosttyScrollbar) -> GhosttyScrollbar {
-        lock.lock()
-        defer { lock.unlock() }
-        pending = value
-        let exact = pending!
-        pending = nil
-        flushScheduled = false
-        return exact
-    }
-}
-
 @MainActor
 extension GhosttySurfaceScrollView {
     var notificationScrollPosition: TerminalNotificationScrollPosition? {
@@ -95,7 +61,11 @@ extension GhosttySurfaceScrollView {
             return true
         case .perform(let target):
             notificationScrollRestorePhase = .idle
-            guard performNotificationScrollRestore(target, scrollbar: restoreScrollbar) else {
+            guard performNotificationScrollRestore(
+                target,
+                scrollbar: restoreScrollbar,
+                expectedRowSpaceRevision: authoritativeSnapshot?.rowSpaceRevision
+            ) else {
                 notificationScrollRestorePhase = .pending(
                     position,
                     sessionScrollbackReplayCompletionMarker: nil
@@ -251,7 +221,8 @@ extension GhosttySurfaceScrollView {
 
     func performNotificationScrollRestore(
         _ target: TerminalNotificationScrollRestoreTarget,
-        scrollbar: GhosttyScrollbar?
+        scrollbar: GhosttyScrollbar?,
+        expectedRowSpaceRevision: UInt64? = nil
     ) -> Bool {
         allowExplicitScrollbarSync = true
         let didRestore: Bool
@@ -266,26 +237,49 @@ extension GhosttySurfaceScrollView {
                 allowExplicitScrollbarSync = false
                 return false
             }
-            let currentTotalRows = Int(clamping: scrollbar.total)
-            let currentVisibleRows = min(currentTotalRows, Int(clamping: scrollbar.len))
-            let currentLastTopRow = currentTotalRows - currentVisibleRows
-            let actionRestored = surfaceView.performBindingAction(
-                "scroll_to_row:\(targetTopRow)",
-                recordsExplicitInput: false
-            )
-            let targetScrollbar = GhosttyScrollbar(c: ghostty_action_scrollbar_s(
-                total: scrollbar.total,
-                offset: UInt64(clamping: targetTopRow),
-                len: scrollbar.len
-            ))
-            didRestore = actionRestored && publishScrollbarSynchronously(targetScrollbar)
-            if didRestore {
-                userScrolledAwayFromBottom = targetTopRow < currentLastTopRow
+            let restoredScrollbar: GhosttyScrollbar
+            let actionRestored: Bool
+            if let surface = surfaceView.terminalSurface?.surface {
+                guard let expectedRowSpaceRevision else {
+                    allowExplicitScrollbarSync = false
+                    return false
+                }
+                var result = ghostty_surface_scrollbar_s(
+                    total: 0,
+                    offset: 0,
+                    len: 0,
+                    row_space_revision: 0
+                )
+                actionRestored = ghostty_surface_scroll_to_row_if_revision(
+                    surface,
+                    UInt64(clamping: targetTopRow),
+                    expectedRowSpaceRevision,
+                    &result
+                )
+                restoredScrollbar = GhosttyScrollbar(c: ghostty_action_scrollbar_s(
+                    total: result.total,
+                    offset: result.offset,
+                    len: result.len
+                ))
+                if actionRestored { updateScrollbackRowSpaceRevision(result.row_space_revision) }
+            } else {
+                actionRestored = surfaceView.performBindingAction(
+                    "scroll_to_row:\(targetTopRow)",
+                    recordsExplicitInput: false
+                )
+                restoredScrollbar = GhosttyScrollbar(c: ghostty_action_scrollbar_s(
+                    total: scrollbar.total,
+                    offset: UInt64(clamping: targetTopRow),
+                    len: scrollbar.len
+                ))
             }
+            let currentTotalRows = Int(clamping: restoredScrollbar.total)
+            let currentVisibleRows = min(currentTotalRows, Int(clamping: restoredScrollbar.len))
+            let currentLastTopRow = currentTotalRows - currentVisibleRows
+            didRestore = actionRestored && publishScrollbarSynchronously(restoredScrollbar)
+            if didRestore { userScrolledAwayFromBottom = targetTopRow < currentLastTopRow }
         }
-        if !didRestore {
-            allowExplicitScrollbarSync = false
-        }
+        if !didRestore { allowExplicitScrollbarSync = false }
         return didRestore
     }
 
@@ -300,7 +294,8 @@ extension GhosttySurfaceScrollView {
         let currentTotalRows = Int(clamping: scrollbar.total)
         let currentVisibleRows = min(currentTotalRows, Int(clamping: scrollbar.len))
         guard currentVisibleRows > 0 else { return .waitForViewport }
-        guard hasUsableNotificationScrollRestoreViewport else { return .waitForViewport }
+        guard let expectedVisibleRows = notificationScrollRestoreExpectedVisibleRows,
+              scrollbar.len == expectedVisibleRows else { return .waitForViewport }
 
         guard let target = notificationScrollRestoreTarget(position, scrollbar: scrollbar) else {
             return .waitForViewport
@@ -394,8 +389,7 @@ extension GhosttySurfaceScrollView {
         let discardedPrefixRows = max(0, normalizedCapturedTotalRows - currentTotalRows)
         let retainedViewportBottomRow = max(0, capturedViewportBottomRow - discardedPrefixRows)
 
-        // Session persistence retains a suffix of scrollback. Translate the
-        // captured viewport into that suffix before using Ghostty's absolute row.
+        // Translate a captured viewport into the persisted scrollback suffix.
         let unclampedTopRow = max(0, retainedViewportBottomRow - currentVisibleRows)
         return .absoluteRow(min(currentLastTopRow, unclampedTopRow))
     }
