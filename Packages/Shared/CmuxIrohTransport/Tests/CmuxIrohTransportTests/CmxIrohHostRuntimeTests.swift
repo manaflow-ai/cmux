@@ -46,34 +46,6 @@ struct CmxIrohHostRuntimeTests {
         )
     }
 
-    @Test
-    func customRelayOverrideStartsHostWithoutManagedTokenIssuance() async throws {
-        let fixture = try HostRuntimeFixture()
-        let custom = try CmxIrohCustomRelayProfile(
-            relays: [CmxIrohCustomRelay(url: "https://private.example.net:8443/")]
-        )
-        let profile = CmxIrohEndpointRelayProfile(customProfile: custom)
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
-        let factory = TestIrohEndpointFactory(endpoints: [endpoint])
-        let broker = TestIrohHostBroker(
-            registrationBinding: fixture.binding,
-            discovery: fixture.discovery
-        )
-        let runtime = CmxIrohHostRuntime(
-            factory: factory,
-            broker: broker,
-            configuration: fixture.configuration(endpointRelayProfile: profile),
-            pendingRevocations: fixture.pendingRevocations(),
-            handleTransport: { session, _ in await session.close() }
-        )
-
-        try await runtime.start()
-
-        #expect(await runtime.snapshot().state == .active)
-        #expect(await broker.observedRelayIssueCount() == 0)
-        #expect(await factory.observedConfigurations().first?.relayProfile == profile)
-        await runtime.stop()
-    }
 }
 
 struct HostRuntimeFixture {

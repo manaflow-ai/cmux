@@ -1,5 +1,5 @@
 import CMUXMobileCore
-public import Foundation
+import Foundation
 
 extension CmxIrohHostRuntime {
     func resolvePolicy(
@@ -296,4 +296,13 @@ extension CmxIrohHostRuntime {
         }
     }
 
+    static func seconds(_ date: Date) -> Int64? {
+        let value = date.timeIntervalSince1970
+        guard value.isFinite,
+              value >= TimeInterval(Int64.min),
+              value <= TimeInterval(Int64.max) else {
+            return nil
+        }
+        return Int64(value.rounded(.down))
+    }
 }

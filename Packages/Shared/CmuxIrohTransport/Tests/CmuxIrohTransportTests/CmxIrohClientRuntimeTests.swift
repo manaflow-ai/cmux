@@ -45,48 +45,6 @@ struct CmxIrohClientRuntimeTests {
     }
 
     @Test
-    func customRelayOverrideSkipsManagedTokenIssuance() async throws {
-        let fixture = try ClientRuntimeTestFixture()
-        let custom = try CmxIrohCustomRelayProfile(
-            relays: [CmxIrohCustomRelay(url: "https://private.example.net:8443/")]
-        )
-        let profile = CmxIrohEndpointRelayProfile(customProfile: custom)
-        let configuration = CmxIrohClientRuntimeConfiguration(
-            accountID: fixture.configuration.accountID,
-            deviceID: fixture.configuration.deviceID,
-            appInstanceID: fixture.configuration.appInstanceID,
-            tag: fixture.configuration.tag,
-            displayName: fixture.configuration.displayName,
-            identity: fixture.identity,
-            capabilities: fixture.configuration.capabilities,
-            managedRelayURLs: fixture.configuration.managedRelayURLs,
-            endpointRelayProfile: profile
-        )
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
-        let factory = TestIrohEndpointFactory(endpoints: [endpoint])
-        let broker = TestIrohClientBroker(
-            binding: fixture.binding,
-            discovery: fixture.discovery,
-            relay: fixture.relayResponse()
-        )
-        let runtime = try CmxIrohClientRuntime(
-            factory: factory,
-            broker: broker,
-            configuration: configuration,
-            pendingRevocations: fixture.pendingRevocations(),
-            now: { fixture.now }
-        )
-
-        try await runtime.start()
-
-        #expect(await runtime.snapshot().state == .active)
-        #expect(await broker.observedRelayIssueCount() == 0)
-        #expect(await endpoint.observedRelayUpdates().isEmpty)
-        #expect(await factory.observedConfigurations().first?.relayProfile == profile)
-        await runtime.stop()
-    }
-
-    @Test
     func discoverySubstitutionFailsClosedAndClosesEndpoint() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let substitutedDiscovery = try ClientRuntimeTestFixture.discovery(

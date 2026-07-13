@@ -252,9 +252,9 @@ public actor CmxIrohHostRuntime {
             if let relayCoordinator {
                 do {
                     try await relayCoordinator.activate(
-                    bindingID: policy.binding.bindingID,
-                    endpointIdentity: endpointID,
-                    bootstrap: policy.relayBootstrap
+                        bindingID: policy.binding.bindingID,
+                        endpointIdentity: endpointID,
+                        bootstrap: policy.relayBootstrap
                     )
                 } catch {
                     // The coordinator schedules a bounded broker retry. Direct paths
@@ -487,14 +487,5 @@ public actor CmxIrohHostRuntime {
             return false
         }
         return brokerError == .connectivity
-    }
-    static func seconds(_ date: Date) -> Int64? {
-        let value = date.timeIntervalSince1970
-        guard value.isFinite,
-              value >= TimeInterval(Int64.min),
-              value <= TimeInterval(Int64.max) else {
-            return nil
-        }
-        return Int64(value.rounded(.down))
     }
 }
