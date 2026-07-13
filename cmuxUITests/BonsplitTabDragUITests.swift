@@ -179,12 +179,12 @@ final class BonsplitTabDragUITests: XCTestCase {
         }
     }
 
-    func testRightSidebarCloseButtonLivesInsideSidebarChrome() {
+    func testRightSidebarTitlebarToggleStaysAvailableAcrossVisibilityChanges() {
         let (app, dataPath) = launchConfiguredApp(showRightSidebar: true, alwaysShowShortcutHints: true)
 
         XCTAssertTrue(
             ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
-            "Expected app to launch for right-sidebar close button UI test. state=\(app.state.rawValue)"
+            "Expected app to launch for right-sidebar titlebar toggle UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
         guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
@@ -198,16 +198,13 @@ final class BonsplitTabDragUITests: XCTestCase {
         }
 
         let titlebarToggle = app.descendants(matching: .any).matching(identifier: "titlebarControl.toggleRightSidebar").firstMatch
-        XCTAssertFalse(
-            titlebarToggle.waitForExistence(timeout: 1.0),
-            "Expected right sidebar toggle to be removed from the global titlebar."
-        )
-
-        let closeButton = app.buttons["RightSidebar.closeButton"]
-        XCTAssertTrue(closeButton.waitForExistence(timeout: 5.0), "Expected close button inside the right sidebar chrome.")
         XCTAssertTrue(
-            waitForCondition(timeout: 3.0) { closeButton.isHittable },
-            "Expected right sidebar close button to be hittable. button=\(closeButton.debugDescription)"
+            titlebarToggle.waitForExistence(timeout: 5.0),
+            "Expected the right sidebar toggle at the trailing edge of the titlebar."
+        )
+        XCTAssertTrue(
+            waitForCondition(timeout: 3.0) { titlebarToggle.isHittable },
+            "Expected the trailing titlebar toggle to be hittable. button=\(titlebarToggle.debugDescription)"
         )
         let openAsPaneButton = app.buttons["RightSidebar.openAsPaneButton"]
         XCTAssertTrue(openAsPaneButton.waitForExistence(timeout: 5.0), "Expected open-as-pane button inside the right sidebar chrome.")
@@ -215,85 +212,18 @@ final class BonsplitTabDragUITests: XCTestCase {
             waitForCondition(timeout: 3.0) { openAsPaneButton.isHittable },
             "Expected right sidebar open-as-pane button to be hittable. button=\(openAsPaneButton.debugDescription)"
         )
-        XCTAssertEqual(openAsPaneButton.frame.width, closeButton.frame.width, accuracy: 1)
-        XCTAssertEqual(openAsPaneButton.frame.height, closeButton.frame.height, accuracy: 1)
-        XCTAssertEqual(openAsPaneButton.frame.minY, closeButton.frame.minY, accuracy: 1)
-        XCTAssertEqual(openAsPaneButton.frame.maxY, closeButton.frame.maxY, accuracy: 1)
-        let headerGeometryKeys = [
-            "rightSidebarHeaderCloseMinX",
-            "rightSidebarHeaderCloseMaxX",
-            "rightSidebarHeaderCloseMinY",
-            "rightSidebarHeaderCloseMaxY",
-            "rightSidebarHeaderCloseWidth",
-            "rightSidebarHeaderCloseHeight",
-            "rightSidebarHeaderOpenAsPaneMinX",
-            "rightSidebarHeaderOpenAsPaneMaxX",
-            "rightSidebarHeaderOpenAsPaneMinY",
-            "rightSidebarHeaderOpenAsPaneMaxY",
-            "rightSidebarHeaderOpenAsPaneWidth",
-            "rightSidebarHeaderOpenAsPaneHeight",
-        ]
-        guard let headerGeometry = waitForJSONNumbers(
-            headerGeometryKeys,
-            atPath: dataPath,
-            timeout: 5.0
-        ),
-              let closeMinX = Double(headerGeometry["rightSidebarHeaderCloseMinX"] ?? ""),
-              let closeMaxX = Double(headerGeometry["rightSidebarHeaderCloseMaxX"] ?? ""),
-              let closeWidth = Double(headerGeometry["rightSidebarHeaderCloseWidth"] ?? ""),
-              let closeHeight = Double(headerGeometry["rightSidebarHeaderCloseHeight"] ?? ""),
-              let closeMinY = Double(headerGeometry["rightSidebarHeaderCloseMinY"] ?? ""),
-              let closeMaxY = Double(headerGeometry["rightSidebarHeaderCloseMaxY"] ?? ""),
-              let openMinX = Double(headerGeometry["rightSidebarHeaderOpenAsPaneMinX"] ?? ""),
-              let openMaxX = Double(headerGeometry["rightSidebarHeaderOpenAsPaneMaxX"] ?? ""),
-              let openWidth = Double(headerGeometry["rightSidebarHeaderOpenAsPaneWidth"] ?? ""),
-              let openHeight = Double(headerGeometry["rightSidebarHeaderOpenAsPaneHeight"] ?? ""),
-              let openMinY = Double(headerGeometry["rightSidebarHeaderOpenAsPaneMinY"] ?? ""),
-              let openMaxY = Double(headerGeometry["rightSidebarHeaderOpenAsPaneMaxY"] ?? "") else {
-            XCTFail("Timed out waiting for right sidebar header control geometry. data=\(loadJSON(atPath: dataPath) ?? [:])")
-            return
-        }
-        XCTAssertEqual(closeMaxX - closeMinX, closeWidth, accuracy: 0.5, "Expected close x bounds to match width. geometry=\(headerGeometry)")
-        XCTAssertEqual(openMaxX - openMinX, openWidth, accuracy: 0.5, "Expected open-as-pane x bounds to match width. geometry=\(headerGeometry)")
-        XCTAssertLessThan(openMaxX, closeMinX, "Expected open-as-pane control to remain left of close. geometry=\(headerGeometry)")
-        XCTAssertEqual(openWidth, closeWidth, accuracy: 0.5, "Expected header accessory controls to share width. geometry=\(headerGeometry)")
-        XCTAssertEqual(openHeight, closeHeight, accuracy: 0.5, "Expected header accessory controls to share height. geometry=\(headerGeometry)")
-        XCTAssertEqual(openMinY, closeMinY, accuracy: 0.5, "Expected header accessory controls to share top edge. geometry=\(headerGeometry)")
-        XCTAssertEqual(openMaxY, closeMaxY, accuracy: 0.5, "Expected header accessory controls to share bottom edge. geometry=\(headerGeometry)")
-
-        let shortcutHint = app.staticTexts["rightSidebarCloseShortcutHint"]
-        XCTAssertTrue(shortcutHint.waitForExistence(timeout: 5.0), "Expected Cmd+Option+B hint over the close button.")
-        let focusShortcutHint = app.staticTexts["rightSidebarFocusShortcutHint"]
-        XCTAssertTrue(focusShortcutHint.waitForExistence(timeout: 5.0), "Expected Cmd+Shift+E hint inside the right sidebar.")
-        let window = app.windows.element(boundBy: 0)
-        XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist.")
-        XCTAssertGreaterThanOrEqual(
-            shortcutHint.frame.minY,
-            window.frame.minY - 1,
-            "Expected close shortcut hint to stay inside the visible window bounds. hint=\(shortcutHint.frame) window=\(window.frame)"
-        )
-        XCTAssertGreaterThanOrEqual(
-            focusShortcutHint.frame.minY,
-            window.frame.minY - 1,
-            "Expected focus shortcut hint to stay inside the visible window bounds. hint=\(focusShortcutHint.frame) window=\(window.frame)"
-        )
-        XCTAssertLessThanOrEqual(
-            abs(shortcutHint.frame.midX - closeButton.frame.midX),
-            40,
-            "Expected close shortcut hint to stay attached to the close button. hint=\(shortcutHint.frame) button=\(closeButton.frame)"
-        )
         XCTAssertLessThan(
-            shortcutHint.frame.midY,
-            closeButton.frame.midY,
-            "Expected close shortcut hint to render above the close button so it does not shift titlebar controls. hint=\(shortcutHint.frame) button=\(closeButton.frame)"
+            openAsPaneButton.frame.maxX,
+            titlebarToggle.frame.minX,
+            "Expected the sidebar header action to remain left of the titlebar toggle."
         )
 
-        closeButton.click()
+        titlebarToggle.click()
         XCTAssertTrue(
             waitForCondition(timeout: 3.0) {
-                !closeButton.exists || !closeButton.isHittable
+                titlebarToggle.exists && titlebarToggle.isHittable && !openAsPaneButton.isHittable
             },
-            "Expected clicking the right sidebar close button to hide the sidebar."
+            "Expected the titlebar toggle to stay available after hiding the right sidebar."
         )
 
         XCTAssertTrue(
@@ -303,17 +233,17 @@ final class BonsplitTabDragUITests: XCTestCase {
         app.typeKey("b", modifierFlags: [.command, .option])
         XCTAssertTrue(
             waitForCondition(timeout: 3.0) {
-                closeButton.exists && closeButton.isHittable
+                titlebarToggle.exists && titlebarToggle.isHittable && openAsPaneButton.isHittable
             },
             "Expected Cmd+Option+B to reopen the right sidebar."
         )
 
-        app.typeKey("b", modifierFlags: [.command, .option])
+        titlebarToggle.click()
         XCTAssertTrue(
             waitForCondition(timeout: 3.0) {
-                !closeButton.exists || !closeButton.isHittable
+                titlebarToggle.exists && titlebarToggle.isHittable && !openAsPaneButton.isHittable
             },
-            "Expected Cmd+Option+B to hide the right sidebar when it is open."
+            "Expected the titlebar toggle to hide the reopened right sidebar."
         )
     }
 
