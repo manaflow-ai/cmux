@@ -56,7 +56,14 @@ extension TerminalController {
                 socketServer.reconfigure(accessMode: configuration.accessMode)
             }
         } else if wasRunning {
-            socketServer.reconfigure(accessMode: configuration.accessMode)
+            let reconfigured = socketServer.reconfigure(accessMode: configuration.accessMode)
+            if !reconfigured, let tabManager = preferredTabManager ?? tabManager {
+                start(
+                    tabManager: tabManager,
+                    socketPath: configuration.preferredSocketPath,
+                    accessMode: configuration.accessMode
+                )
+            }
         } else if let tabManager = preferredTabManager ?? tabManager {
             start(
                 tabManager: tabManager,
