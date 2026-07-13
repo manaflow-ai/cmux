@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 import Testing
 
@@ -97,5 +98,22 @@ import Testing
 
         #expect(connection.lastWindowSizes[4]?.0 == 100)
         #expect(connection.windowSizeDebounceTasks[4] == nil)
+    }
+
+    @Test func pendingPaneRectPublicationIsSizingSettlementWork() {
+        let connection = makeConnection()
+        connection.pendingLayouts[4] = RemoteTmuxPendingLayout(
+            node: RemoteTmuxLayoutNode(
+                width: 80, height: 24, x: 0, y: 0, content: .pane(7)
+            ),
+            visibleNode: nil,
+            zoomed: false,
+            name: "main",
+            generation: 2,
+            inFlight: true
+        )
+
+        #expect(connection.hasPendingSizingSettlementWork(windowId: 4))
+        #expect(!connection.hasPendingSizingSettlementWork(windowId: 5))
     }
 }

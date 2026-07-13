@@ -221,88 +221,43 @@ import Testing
         #expect(mirror.lastDividerPositions[splitID] == dragged)
     }
 
-    @Test func settlementWaitsForPendingPaneRectPublication() throws {
-        let manager = TabManager()
-        let workspace = manager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
-        workspace.isRemoteTmuxMirror = true
-        let originalManager = TerminalController.shared.tabManager
-        TerminalController.shared.tabManager = manager
-        let host = RemoteTmuxHost(destination: "user@host")
-        let connection = RemoteTmuxControlConnection(host: host, sessionName: "work")
-        let pipe = Pipe()
-        let writer = RemoteTmuxControlPipeWriter(
-            handle: pipe.fileHandleForWriting,
-            label: "remote-tmux-settlement-pending-layout-test",
-            maxPendingBytes: 1 << 16,
-            onFailure: {}
+    @Test func logicallyVisibleDetachedPassWaitsForAHostBeforeCompleting() throws {
+        var hostingBound: CGSize?
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"), sessionName: "work"
         )
-        connection.installStdinWriterForTesting(writer)
-        connection.handleMessageForTesting(.enter)
-        connection.handleMessageForTesting(.commandResult(
-            commandNumber: 0, lines: [], isError: false
-        ))
-        let layout = Self.twoPaneLayout(left: 4, right: 5)
-        connection.windowsByID[1] = RemoteTmuxWindow(
-            id: 1, name: "main", width: layout.width, height: layout.height, layout: layout
-        )
-        connection.windowOrder = [1]
-        let sessionMirror = RemoteTmuxSessionMirror(
-            host: host,
-            sessionName: "work",
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 1,
+            panelId: UUID(),
             connection: connection,
-            tabManager: manager,
-            workspace: workspace
+            layout: Self.twoPaneLayout(left: 4, right: 5),
+            geometrySource: {
+                RemoteTmuxMirrorGeometry(
+                    cellWidthPx: 16, cellHeightPx: 34,
+                    surfacePadWidthPx: 8, surfacePadHeightPx: 0, scale: 2
+                )
+            },
+            hostingContentSizeSource: { hostingBound },
+            makePanel: { _ in nil }
         )
-        let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 800, height: 620),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        defer {
-            TerminalController.shared.tabManager = originalManager
-            sessionMirror.detachObserver()
-            window.orderOut(nil)
-            window.close()
-            writer.close()
-            try? pipe.fileHandleForReading.close()
-        }
-        let mirror = try #require(sessionMirror.windowMirrorByWindowId[1])
-        for (index, panel) in mirror.panelsByPaneId.values.enumerated() {
-            panel.hostedView.frame = CGRect(x: index * 400, y: 0, width: 400, height: 620)
-            window.contentView?.addSubview(panel.hostedView)
-            panel.hostedView.setVisibleInUI(true)
-        }
-        window.orderFront(nil)
+        mirror.noteContainerSize(pointSize: CGSize(width: 800, height: 620), scale: 2)
         mirror.isVisibleForSizing = true
-        mirror.containerSizePt = CGSize(width: 800, height: 620)
-        mirror.containerScale = 2
-        mirror.geometrySnapshot = RemoteTmuxMirrorGeometry(
-            cellWidthPx: 16,
-            cellHeightPx: 34,
-            surfacePadWidthPx: 8,
-            surfacePadHeightPx: 0,
-            scale: 2
-        )
-        mirror.performSizingPassNow()
-        let claimed = try #require(connection.lastWindowSizes[1])
-        connection.windowsByID[1] = RemoteTmuxWindow(
-            id: 1, name: "main", width: claimed.0, height: claimed.1, layout: layout
-        )
-        mirror.lastRenderedGrids = layout.leavesByPaneID.mapValues { ($0.width, $0.height) }
-        connection.pendingLayouts[1] = RemoteTmuxPendingLayout(
-            node: layout,
-            visibleNode: nil,
-            zoomed: false,
-            name: "main",
-            generation: 2,
-            inFlight: true
-        )
 
-        let payload = TerminalController.shared.remoteTmuxSizingSettlementPayload()
-        let windows = try #require(payload["windows"] as? [[String: Any]])
-        let result = try #require(windows.first { ($0["window"] as? Int) == 1 })
-        #expect(result["settled"] as? Bool == false)
+        mirror.performSizingPassNow()
+
+        #expect(connection.lastWindowSizes[1] != nil)
+        #expect(mirror.lastCompletedSizingInputs == nil)
+
+        hostingBound = CGSize(width: 800, height: 620)
+        mirror.performSizingPassNow()
+
+        #expect(mirror.lastCompletedSizingInputs != nil)
+        let tree = mirror.bonsplitController.treeSnapshot()
+        guard case .split(let split) = tree else {
+            Issue.record("Expected one planned divider")
+            return
+        }
+        #expect(split.imposedFirstExtent != nil)
     }
 
     private static func twoPaneLayout(left: Int, right: Int) -> RemoteTmuxLayoutNode {

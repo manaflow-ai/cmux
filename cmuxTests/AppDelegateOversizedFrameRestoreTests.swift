@@ -114,6 +114,21 @@ struct AppDelegateOversizedFrameRestoreTests {
     }
 
     @Test
+    func runtimeCapKeepsTheTitlebarBelowTheMenuBar() {
+        let physical = CGRect(x: 0, y: 0, width: 1_512, height: 982)
+        let visible = CGRect(x: 0, y: 0, width: 1_512, height: 944)
+        let runaway = CGRect(x: 100, y: 500, width: 900, height: 9_500)
+
+        let capped = CmuxMainWindow.frameByCappingOversizedDimensions(
+            runaway,
+            displayFrames: [physical]
+        )
+
+        #expect(capped.height == physical.height)
+        #expect(CmuxMainWindow.isTitlebarReachable(frame: capped, visibleFrame: visible))
+    }
+
+    @Test
     func runtimeCapPreservesLegitimatePartialAndSpanningFrames() {
         let displays = [
             CGRect(x: 0, y: 0, width: 1_512, height: 982),
