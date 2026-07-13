@@ -46,7 +46,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
                     TaskComposerSheet(
                         store: store,
                         availableMachines: [Self.previewMac],
-                        submitTaskComposer: { _, _ in
+                        submitTaskComposer: { _, _, willStartCreate in
                             draftWasPersistedAtSubmit = store.taskTemplateStore?.composerDraft() != nil
                             if holdsSubmissionInPreparation {
                                 do {
@@ -55,6 +55,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
                                     return .failure(.notConnected(hostDisplayName: "Preview Mac"))
                                 }
                             }
+                            willStartCreate()
                             if returnsSubmissionFailure {
                                 return .failure(.invalidWorkingDirectory(hostDisplayName: "Preview Mac"))
                             }

@@ -193,6 +193,12 @@ extension TerminalController {
                 )
             }
         }
+        if let operationID {
+            // Acceptance must be durable before addWorkspace constructs a
+            // terminal and can execute the task command. A crash in between
+            // intentionally favors at-most-once startup over workspace recovery.
+            preparation.idempotencyCache.accept(operationID: operationID)
+        }
         v2MainSync {
             let ws = tabManager.addWorkspace(
                 title: title,
@@ -224,7 +230,7 @@ extension TerminalController {
             return .err(code: "internal_error", message: "Failed to create workspace", data: nil)
         }
         if let operationID {
-            preparation.idempotencyCache.record(operationID: operationID, workspaceID: newWorkspace.id)
+            preparation.idempotencyCache.associate(operationID: operationID, workspaceID: newWorkspace.id)
         }
         return workspaceCreateResult(
             workspace: newWorkspace,

@@ -6,16 +6,18 @@ extension WorkspaceShellView {
     #if os(iOS)
     var submitTaskComposerFromShell: @MainActor (
         String,
-        MobileWorkspaceCreateSpec
+        MobileWorkspaceCreateSpec,
+        @escaping @MainActor () -> Void
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         let store = store
-        return { macDeviceID, spec in
+        return { macDeviceID, spec, composerWillStartCreate in
             pendingCompactCreateNavigationWorkspaceIDs = nil
             var existingWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
             let result = await store.submitTaskComposer(
                 macDeviceID: macDeviceID,
                 spec: spec,
                 willStartCreate: {
+                    composerWillStartCreate()
                     guard usesCompactStack else { return }
                     let targetWorkspaceIDs = Set(store.workspaces.map(\.id))
                     existingWorkspaceIDs = targetWorkspaceIDs

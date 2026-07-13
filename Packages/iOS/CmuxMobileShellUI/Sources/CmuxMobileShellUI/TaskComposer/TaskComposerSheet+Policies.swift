@@ -3,6 +3,24 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 
+enum TaskComposerSubmissionPhase: Equatable {
+    case idle
+    case preparing
+    case committed
+
+    var disablesRequestEditing: Bool {
+        self != .idle
+    }
+
+    var showsProgress: Bool {
+        self != .idle
+    }
+
+    var locksDismissal: Bool {
+        self == .committed
+    }
+}
+
 extension TaskComposerSheet {
     static var createAccessibilityHint: String {
         L10n.string(

@@ -57,11 +57,39 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     /// receives only the selected Mac, composed title/command/environment, and
     /// trimmed effective working directory.
     public func isRequestEquivalent(to other: MobileTaskSubmissionSnapshot) -> Bool {
-        macDeviceID == other.macDeviceID
-            && composition.initialCommand == other.composition.initialCommand
-            && composition.initialEnv == other.composition.initialEnv
-            && composition.title == other.composition.title
-            && trimmedDirectory == other.trimmedDirectory
+        Self.hasEqualUTF8(macDeviceID, other.macDeviceID)
+            && Self.hasEqualUTF8(composition.initialCommand, other.composition.initialCommand)
+            && Self.hasEqualUTF8(composition.initialEnv, other.composition.initialEnv)
+            && Self.hasEqualUTF8(composition.title, other.composition.title)
+            && Self.hasEqualUTF8(trimmedDirectory, other.trimmedDirectory)
+    }
+
+    private static func hasEqualUTF8(_ lhs: String, _ rhs: String) -> Bool {
+        lhs.utf8.elementsEqual(rhs.utf8)
+    }
+
+    private static func hasEqualUTF8(_ lhs: String?, _ rhs: String?) -> Bool {
+        switch (lhs, rhs) {
+        case let (.some(lhs), .some(rhs)):
+            hasEqualUTF8(lhs, rhs)
+        case (nil, nil):
+            true
+        default:
+            false
+        }
+    }
+
+    private static func hasEqualUTF8(
+        _ lhs: [String: String],
+        _ rhs: [String: String]
+    ) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        return lhs.allSatisfy { lhsEntry in
+            rhs.contains { rhsEntry in
+                hasEqualUTF8(lhsEntry.key, rhsEntry.key)
+                    && hasEqualUTF8(lhsEntry.value, rhsEntry.value)
+            }
+        }
     }
 
     /// Draft restored after interruption or a failed submission.

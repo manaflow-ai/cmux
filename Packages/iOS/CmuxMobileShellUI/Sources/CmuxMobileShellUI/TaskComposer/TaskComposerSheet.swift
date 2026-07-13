@@ -23,7 +23,7 @@ struct TaskComposerSheet: View {
     @State var selectedMacDeviceID: String
     @State var directory: String
     @State var didEditDirectory = false
-    @State private var isSubmitting = false
+    @State private var submissionPhase: TaskComposerSubmissionPhase = .idle
     @State private var submitTask: Task<Void, Never>?
     @State private var failureText: String?
     @State private var isEditorPresented = false
@@ -35,7 +35,8 @@ struct TaskComposerSheet: View {
     private let availableMachines: [MobilePairedMac]?
     private let submitTaskComposer: @MainActor (
         _ macDeviceID: String,
-        _ spec: MobileWorkspaceCreateSpec
+        _ spec: MobileWorkspaceCreateSpec,
+        _ willStartCreate: @escaping @MainActor () -> Void
     ) async -> Result<Void, MobileWorkspaceMutationFailure>
 
     init(
@@ -43,14 +44,19 @@ struct TaskComposerSheet: View {
         availableMachines: [MobilePairedMac]? = nil,
         submitTaskComposer: (@MainActor (
             _ macDeviceID: String,
-            _ spec: MobileWorkspaceCreateSpec
+            _ spec: MobileWorkspaceCreateSpec,
+            _ willStartCreate: @escaping @MainActor () -> Void
         ) async -> Result<Void, MobileWorkspaceMutationFailure>)? = nil
     ) {
         self.store = store
         self.availableMachines = availableMachines
         self.sessionGeneration = store.currentSessionGeneration
-        self.submitTaskComposer = submitTaskComposer ?? { macDeviceID, spec in
-            await store.submitTaskComposer(macDeviceID: macDeviceID, spec: spec)
+        self.submitTaskComposer = submitTaskComposer ?? { macDeviceID, spec, willStartCreate in
+            await store.submitTaskComposer(
+                macDeviceID: macDeviceID,
+                spec: spec,
+                willStartCreate: willStartCreate
+            )
         }
         let loadedTemplates = store.taskTemplateStore?.listTemplates() ?? []
         let templates = loadedTemplates
@@ -111,7 +117,7 @@ struct TaskComposerSheet: View {
                     )
                     .lineLimit(3...8)
                     .focused($focusedField, equals: .prompt)
-                    .disabled(isSubmitting)
+                    .disabled(submissionPhase.disablesRequestEditing)
                     .accessibilityIdentifier("MobileTaskComposerPrompt")
                 }
 
@@ -126,7 +132,7 @@ struct TaskComposerSheet: View {
                         )
                     }
                 }
-                .disabled(isSubmitting)
+                .disabled(submissionPhase.disablesRequestEditing)
 
                 Section(L10n.string("mobile.taskComposer.machine", defaultValue: "Machine")) {
                     machineMenu
@@ -139,7 +145,7 @@ struct TaskComposerSheet: View {
                         )
                     }
                 }
-                .disabled(isSubmitting)
+                .disabled(submissionPhase.disablesRequestEditing)
 
                 Section(L10n.string("mobile.taskComposer.directory", defaultValue: "Directory")) {
                     TextField("~", text: directoryBinding)
@@ -149,14 +155,14 @@ struct TaskComposerSheet: View {
                         .submitLabel(.done)
                         .onSubmit { focusedField = nil }
                         .focused($focusedField, equals: .directory)
-                        .disabled(isSubmitting)
+                        .disabled(submissionPhase.disablesRequestEditing)
                         .accessibilityLabel(L10n.string("mobile.taskComposer.directory", defaultValue: "Directory"))
                         .accessibilityIdentifier("MobileTaskComposerDirectory")
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 TaskComposerPrimaryAction(
-                    isSubmitting: isSubmitting,
+                    isSubmitting: submissionPhase.showsProgress,
                     isEnabled: selectedTemplate != nil && selectedMachine != nil,
                     failureText: failureText,
                     action: startSubmission
@@ -172,8 +178,9 @@ struct TaskComposerSheet: View {
                         store.clearTaskComposerDraft(ifSessionGeneration: sessionGeneration)
                         dismiss()
                     }
-                    // Keep the sheet up until the sent RPC finishes.
-                    .disabled(isSubmitting)
+                    // Cancellation remains safe while routing and capability
+                    // checks run. Lock only once the create boundary commits.
+                    .disabled(submissionPhase.locksDismissal)
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
@@ -211,7 +218,7 @@ struct TaskComposerSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
-        .interactiveDismissDisabled(isSubmitting)
+        .interactiveDismissDisabled(submissionPhase.locksDismissal)
     }
 
     var selectedTemplate: MobileTaskTemplate? {
@@ -235,7 +242,7 @@ struct TaskComposerSheet: View {
         Binding(
             get: { directory },
             set: { newValue in
-                guard !isSubmitting else { return }
+                guard !submissionPhase.disablesRequestEditing else { return }
                 updateSubmissionRequest {
                     directory = newValue
                     didEditDirectory = true
@@ -249,7 +256,7 @@ struct TaskComposerSheet: View {
         Binding(
             get: { prompt },
             set: { newValue in
-                guard !isSubmitting else { return }
+                guard !submissionPhase.disablesRequestEditing else { return }
                 updateSubmissionRequest {
                     prompt = newValue
                 }
@@ -287,7 +294,7 @@ struct TaskComposerSheet: View {
             Menu {
                 ForEach(machines) { mac in
                     Button {
-                        guard !isSubmitting else { return }
+                        guard !submissionPhase.disablesRequestEditing else { return }
                         updateSubmissionRequest {
                             selectedMacDeviceID = mac.macDeviceID
                             syncSuggestedDirectory()
@@ -323,7 +330,7 @@ struct TaskComposerSheet: View {
     private func templateChip(_ template: MobileTaskTemplate) -> some View {
         let isSelected = template.id == selectedTemplateID
         return Button {
-            guard !isSubmitting else { return }
+            guard !submissionPhase.disablesRequestEditing else { return }
             selectTemplate(template)
             failureText = nil
         } label: {
@@ -349,7 +356,7 @@ struct TaskComposerSheet: View {
     }
 
     private func submit() async {
-        guard !isSubmitting, let selectedTemplate else { return }
+        guard submissionPhase == .idle, let selectedTemplate else { return }
         let snapshot = MobileTaskSubmissionSnapshot(
             template: selectedTemplate,
             prompt: prompt,
@@ -358,7 +365,11 @@ struct TaskComposerSheet: View {
             didEditDirectory: didEditDirectory,
             operationID: submissionIdentity.id
         )
-        isSubmitting = true
+        guard store.persistTaskComposerDraft(
+            snapshot.draft,
+            ifSessionGeneration: sessionGeneration
+        ) else { return }
+        submissionPhase = .preparing
         activeSubmissionSnapshot = snapshot
         failureText = nil
         let spec = MobileWorkspaceCreateSpec(
@@ -368,8 +379,10 @@ struct TaskComposerSheet: View {
             initialEnv: snapshot.composition.initialEnv.isEmpty ? nil : snapshot.composition.initialEnv,
             operationID: snapshot.operationID
         )
-        let result = await submitTaskComposer(snapshot.macDeviceID, spec)
-        isSubmitting = false
+        let result = await submitTaskComposer(snapshot.macDeviceID, spec) {
+            submissionPhase = .committed
+        }
+        submissionPhase = .idle
         activeSubmissionSnapshot = nil
         // The user dismissed the sheet mid-flight: drop the result instead of
         // persisting last-used defaults or re-dismissing a gone sheet.
@@ -395,26 +408,26 @@ struct TaskComposerSheet: View {
     }
 
     private func addTemplate(_ template: MobileTaskTemplate) {
-        guard !isSubmitting else { return }
+        guard !submissionPhase.disablesRequestEditing else { return }
         store.taskTemplateStore?.addTemplate(template)
         selectedTemplateID = template.id
         syncSuggestedDirectory()
     }
 
     private func updateTemplate(_ template: MobileTaskTemplate) {
-        guard !isSubmitting else { return }
+        guard !submissionPhase.disablesRequestEditing else { return }
         store.taskTemplateStore?.updateTemplate(template)
     }
 
     private func deleteTemplates(_ offsets: IndexSet) {
-        guard !isSubmitting else { return }
+        guard !submissionPhase.disablesRequestEditing else { return }
         for index in offsets {
             store.taskTemplateStore?.deleteTemplate(id: templates[index].id)
         }
     }
 
     private func refreshTemplates() {
-        guard !isSubmitting else { return }
+        guard !submissionPhase.disablesRequestEditing else { return }
         updateSubmissionRequest {
             templates = store.taskTemplateStore?.listTemplates() ?? []
             if let selectedTemplateID, !templates.contains(where: { $0.id == selectedTemplateID }) {
@@ -427,7 +440,7 @@ struct TaskComposerSheet: View {
     }
 
     private func validateMacSelection() {
-        guard !isSubmitting else { return }
+        guard !submissionPhase.disablesRequestEditing else { return }
         guard selectedMachine == nil else { return }
         updateSubmissionRequest {
             selectedMacDeviceID = machines.first?.macDeviceID ?? ""

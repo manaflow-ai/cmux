@@ -38,6 +38,9 @@ extension MobileShellComposite {
             }
             return await createWorkspaceTask.value
         }
+        guard !Task.isCancelled else {
+            return .failure(.notConnected(hostDisplayName: context.hostDisplayName))
+        }
         willStartCreate?()
         let taskID = UUID()
         createWorkspaceTaskID = taskID

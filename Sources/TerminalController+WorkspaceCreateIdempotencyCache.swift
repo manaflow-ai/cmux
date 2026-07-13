@@ -33,8 +33,10 @@ extension TerminalController {
             completedOperationIDs.contains(operationID)
         }
 
-        func record(operationID: UUID, workspaceID: UUID) {
-            workspaceIDs[operationID] = workspaceID
+        /// Durably reserves an accepted operation before workspace startup can
+        /// execute. If the process stops after this write, retrying completes
+        /// without running arbitrary startup work twice.
+        func accept(operationID: UUID) {
             guard completedOperationIDs.insert(operationID).inserted else { return }
             if insertionOrder.count == capacity {
                 let evictedID = insertionOrder.removeFirst()
@@ -43,6 +45,17 @@ extension TerminalController {
             }
             insertionOrder.append(operationID)
             defaults.set(insertionOrder.map(\.uuidString), forKey: persistenceKey)
+        }
+
+        /// Associates a live workspace after construction. This mapping is an
+        /// in-memory convenience; durable acceptance remains authoritative.
+        func associate(operationID: UUID, workspaceID: UUID) {
+            workspaceIDs[operationID] = workspaceID
+        }
+
+        func record(operationID: UUID, workspaceID: UUID) {
+            accept(operationID: operationID)
+            associate(operationID: operationID, workspaceID: workspaceID)
         }
     }
 }

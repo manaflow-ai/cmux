@@ -93,12 +93,18 @@ extension MobileShellComposite {
                 return .failure(.notConnected(hostDisplayName: taskComposerTargetName(macDeviceID: macDeviceID)))
             }
         }
+        guard !Task.isCancelled else {
+            return .failure(.notConnected(hostDisplayName: taskComposerTargetName(macDeviceID: macDeviceID)))
+        }
         guard let pinnedContext = captureWorkspaceCreateContext(),
               pinnedContext.macDeviceID == macDeviceID else {
             return .failure(.notConnected(hostDisplayName: taskComposerTargetName(macDeviceID: macDeviceID)))
         }
         guard pinnedContext.supportedHostCapabilities.contains(Self.taskCreateCapability) else {
             return .failure(.unsupported(hostDisplayName: taskComposerTargetName(macDeviceID: macDeviceID)))
+        }
+        guard !Task.isCancelled else {
+            return .failure(.notConnected(hostDisplayName: pinnedContext.hostDisplayName))
         }
         return await createWorkspaceRequest(
             spec: spec,
