@@ -103,8 +103,24 @@ struct DiffReviewFilesView: View {
         oldPath: String?
     ) async throws -> MobileWorkspaceDiffFileResponse {
         let retry = DiffReviewRepositoryRetry(reloadStatus: reload)
-        return try await retry.run {
-            try await fetchFile(path, oldPath, repoRoot)
+        return try await retry.run { attempt in
+            switch attempt {
+            case .initial:
+                return try await fetchFile(path, oldPath, repoRoot)
+            case .reloaded:
+                guard let refreshedFile = session.currentFile,
+                      refreshedFile.path == path,
+                      refreshedFile.oldPath == oldPath else {
+                    // `setFiles` changed the load request. Let the view's
+                    // request-keyed task restart with that refreshed metadata.
+                    throw CancellationError()
+                }
+                return try await fetchFile(
+                    refreshedFile.path,
+                    refreshedFile.oldPath,
+                    repoRoot
+                )
+            }
         }
     }
 }

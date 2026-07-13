@@ -13,7 +13,7 @@ import Testing
             return true
         }
 
-        let value: String = try await retry.run {
+        let value: String = try await retry.run { _ in
             attempts += 1
             if attempts == 1 {
                 throw MobileShellConnectionError.rpcError("stale_repository", "stale")

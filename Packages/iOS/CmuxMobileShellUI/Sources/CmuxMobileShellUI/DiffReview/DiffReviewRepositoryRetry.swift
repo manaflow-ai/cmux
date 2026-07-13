@@ -2,16 +2,22 @@ import CmuxMobileRPC
 
 @MainActor
 struct DiffReviewRepositoryRetry {
+    enum Attempt {
+        case initial
+        case reloaded
+    }
+
     let reloadStatus: () async -> Bool
 
-    func run<Response>(_ operation: () async throws -> Response) async throws -> Response {
+    func run<Response>(_ operation: (Attempt) async throws -> Response) async throws -> Response {
         do {
-            return try await operation()
+            return try await operation(.initial)
         } catch {
             guard Self.isStaleRepository(error), await reloadStatus() else {
                 throw error
             }
-            return try await operation()
+            try Task.checkCancellation()
+            return try await operation(.reloaded)
         }
     }
 

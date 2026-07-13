@@ -159,7 +159,7 @@ private struct GitDiffNameStatusToken {
         switch first {
         case "A":
             status = .added
-        case "M", "T":
+        case "M", "T", "U":
             status = .modified
         case "D":
             status = .deleted

@@ -205,9 +205,9 @@ extension TerminalController {
         case .timedOut:
             return .gitTimedOut
         }
-        // `expectedRepoRoot` is the exact opaque token returned by the status
+        // `expectedRepoRoot` identifies the repository returned by the status
         // request. Comparing it directly avoids unsupervised filesystem probes
-        // and detects any repository change between status and file requests.
+        // and detects when the workspace starts pointing at another repository.
         guard repoRoot == expectedRepoRoot else {
             return .repositoryChanged
         }
@@ -221,7 +221,10 @@ extension TerminalController {
         case .success(let value):
             diff = value
         case .notFound:
-            return .fileNotFound(path: path)
+            // The path and optional rename source came from the previous status
+            // snapshot. If that exact pair is no longer diffable, make the
+            // client refresh status instead of retrying stale row metadata.
+            return .repositoryChanged
         case .failed:
             return .gitFailed
         case .timedOut:
@@ -281,8 +284,6 @@ extension TerminalController {
         switch result {
         case .repositoryNotFound:
             return .err(code: "not_found", message: "Git repository not found", data: nil)
-        case .fileNotFound(let path):
-            return .err(code: "not_found", message: "File diff not found", data: ["path": path])
         case .repositoryChanged:
             return .err(code: "stale_repository", message: "Workspace repository changed", data: nil)
         case .gitFailed:
@@ -322,7 +323,6 @@ private enum MobileWorkspaceDiffStatusResult: Sendable {
 private enum MobileWorkspaceDiffFileResult: Sendable {
     case repositoryNotFound
     case repositoryChanged
-    case fileNotFound(path: String)
     case gitFailed
     case gitTimedOut
     case ok(path: String, unifiedDiff: String, truncated: Bool)
