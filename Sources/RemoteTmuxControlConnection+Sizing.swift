@@ -235,10 +235,9 @@ extension RemoteTmuxControlConnection {
         // Not ready yet (no grid computed / topology not drained): keep the one-shot
         // armed for the next size apply instead of consuming it uselessly.
         guard connectionState == .connected, !windowsByID.isEmpty else { return }
-        // The size the attach applied: the session-wide client size, or — on
-        // the per-window path, which never sets lastClientSize — the pushed
-        // size of a window that already matches it (the no-op-push case this
-        // kick exists for).
+        // The size the attach applied. Per-window sizing also maintains a
+        // session-wide envelope, so capability — not `lastClientSize` presence —
+        // decides which kick can remain effective through tmux coalescing.
         let sessionSize = lastClientSize
         let perWindowNoOps: [(windowId: Int, columns: Int, rows: Int)] = lastWindowSizes
             .compactMap { id, size -> (windowId: Int, columns: Int, rows: Int)? in
@@ -248,12 +247,10 @@ extension RemoteTmuxControlConnection {
             }
             .sorted { $0.windowId < $1.windowId }
         guard sessionSize != nil || !perWindowNoOps.isEmpty else { return }
-        if let size = sessionSize {
+        if !supportsPerWindowSize, let size = sessionSize {
             if size.rows <= 2 {
-                if perWindowNoOps.isEmpty {
-                    pendingAttachRedrawKick = false
-                    return
-                }
+                pendingAttachRedrawKick = false
+                return
             } else {
                 // Only kick when some mirrored window ALREADY has the target size — i.e. the
                 // size apply above cannot produce a SIGWINCH for it. (window-size latest makes
@@ -265,7 +262,8 @@ extension RemoteTmuxControlConnection {
                     #if DEBUG
                     cmuxDebugLog("remote.size.kick skip=windowSizeDiffers target=\(size.columns)x\(size.rows)")
                     #endif
-                    if perWindowNoOps.isEmpty { pendingAttachRedrawKick = false }
+                    pendingAttachRedrawKick = false
+                    return
                 } else {
                     pendingAttachRedrawKick = false
                     #if DEBUG
@@ -296,6 +294,10 @@ extension RemoteTmuxControlConnection {
                     return
                 }
             }
+        }
+        guard supportsPerWindowSize else {
+            pendingAttachRedrawKick = false
+            return
         }
         let kicks = perWindowNoOps.filter { $0.rows > 2 }
         guard !kicks.isEmpty else {

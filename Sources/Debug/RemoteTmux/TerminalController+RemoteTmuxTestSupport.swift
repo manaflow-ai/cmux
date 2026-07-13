@@ -251,13 +251,15 @@ extension TerminalController {
                         mismatches.append("misplaced \(desc)")
                     }
                 }
+                let windowGrid = session.connection.windowsByID[windowId]
                 windows.append([
                     "window": windowId,
                     "claimed": claimed.map { "\($0.0)x\($0.1)" } ?? "none",
                     "layout": "\(mirror.layout.width)x\(mirror.layout.height)",
-                        "settled": claimed.map {
-                            connected && $0.0 == mirror.layout.width && $0.1 == mirror.layout.height
-                        } ?? false,
+                    "settled": claimed.map {
+                        guard let windowGrid else { return false }
+                        return connected && $0.0 == windowGrid.width && $0.1 == windowGrid.height
+                    } ?? false,
                     "mismatches": mismatches,
                 ])
             }
