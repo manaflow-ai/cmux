@@ -133,6 +133,35 @@ final class TerminalNotificationBackpressureTests: XCTestCase {
         XCTAssertEqual(bus.notificationQueueStateForTesting().0, 0)
         XCTAssertFalse(bus.notificationQueueStateForTesting().1.contains("Timed out"))
     }
+
+    func testSharedAgentDeliveryReportsSaturationBeforeAcceptance() {
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer {
+            bus.discardPendingNotifications()
+            bus.drainForTesting()
+            bus.setDrainsSuspendedForTesting(false)
+        }
+        for index in 0..<TerminalMutationBus.maximumPendingMutationCount {
+            XCTAssertTrue(bus.enqueueNotification(
+                tabId: UUID(), surfaceId: nil, title: "Seed \(index)", subtitle: "", body: ""
+            ))
+        }
+
+        let result = AgentNotificationDelivery().enqueue(
+            workspaceID: UUID(),
+            surfaceID: UUID(),
+            title: "Rejected by shared delivery",
+            subtitle: "",
+            body: "",
+            category: nil,
+            pending: false
+        )
+
+        XCTAssertEqual(result, .saturated)
+        XCTAssertFalse(bus.notificationQueueStateForTesting().1.contains("Rejected by shared delivery"))
+    }
 }
 
 @MainActor

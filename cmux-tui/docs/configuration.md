@@ -36,8 +36,11 @@ Tabs are numbered by default. A recognized agent program can appear after the nu
 
 ## Sidebar
 
+The built-in sidebar defaults to the workspace list. Set `"sidebar": {"view": "files"}` for the yazi-style file browser. `Tab` toggles the built-in view while the sidebar is focused, and the configurable `toggle-sidebar-view` action toggles it from anywhere. A configured `sidebar.plugin` still replaces either built-in view.
+
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
+| `sidebar.view` | `"files"` or `"workspaces"` | `"workspaces"` | Built-in sidebar view when `sidebar.plugin` is unset |
 | `sidebar.width` | integer | `22` | Sidebar width, clamped to 10 through 60 on load |
 | `sidebar.max_width` | integer | `0` | Maximum live drag width; `0` means no configured maximum |
 | `sidebar.plugin.command` | array of strings | unset | External sidebar plugin argv; when set, the sidebar hosts this program in a PTY instead of the built-in list |
@@ -74,21 +77,35 @@ cmux-tui plugin disable
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
 | `browser.chrome_binary` | string | `null` | Chrome/Chromium binary to launch when no external CDP endpoint is used |
+| `browser.mode` | `"headful"` or `"headless"` | `"headful"` | Whether launched Chrome shows a visible window or uses `--headless=new` |
 | `browser.cdp_url` | string | `null` | External CDP endpoint, accepted as `http://host:port` or `ws://...` |
-| `browser.discover` | boolean | `true` | Probe discovery ports before launching Chrome |
+| `browser.discover` | boolean | `false` | Probe discovery ports before launching Chrome |
 | `browser.discover_ports` | integer array | `[9222]` | Local ports to probe for `/json/version` |
 | `browser.user_data_dir` | string | `null` | Persistent profile directory for launched Chrome |
 | `browser.ephemeral` | boolean | `false` | Use a temporary launched Chrome profile and delete it on shutdown |
+| `browser.max_capture_megapixels` | number | `2.0` | Maximum browser capture size before downscaling |
+| `browser.capture_scale` | number or null | `null` | Fixed capture scale from 0.0 through 1.0 |
 
 When `browser.ephemeral` is true, it takes precedence over `browser.user_data_dir`: launched Chrome uses a fresh temporary profile, and the configured directory is not deleted.
 
-The default launched profile is `~/Library/Application Support/cmux-tui/chrome-profile` on macOS. On non-macOS targets it is `$XDG_DATA_HOME/cmux-tui/chrome-profile` when `XDG_DATA_HOME` is set, then `~/.local/share/cmux-tui/chrome-profile`.
+The default launched profile is scoped by session under `~/Library/Application Support/cmux-tui/chrome-profile/<session>` on macOS. On non-macOS targets it is scoped by session under `$XDG_DATA_HOME/cmux-tui/chrome-profile/<session>` when `XDG_DATA_HOME` is set, then `~/.local/share/cmux-tui/chrome-profile/<session>`.
+
+Chrome 136 and newer reject CDP remote debugging on the OS-default profile directory, and a running normal Chrome owns its profile `SingletonLock`. Use the cmux-tui profile, point `browser.user_data_dir` at a copy or dedicated profile directory after quitting normal Chrome, or attach to a Chrome you launched with `--remote-debugging-port`. Agent Browser can be attached by running `agent-browser get cdp-url` and using the returned `ws://` URL as `browser.cdp_url`. Only `ws://` and `http://` endpoints are supported in this build; `wss://` is not supported.
 
 ## Scrollbar
 
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
 | `scrollbar.position` | `"column"` or `"border"` | `"column"` | Dedicated scrollbar column or right-border overlay |
+
+## Server
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `server.ws` | socket address string | unset | Enables the WebSocket control listener, for example `127.0.0.1:7681` |
+| `server.ws_token` | string | unset | Requires the first WebSocket text frame to be `{"auth":{"token":"..."}}` |
+
+WebSocket binds must be loopback unless cmux-tui is started with `--ws-insecure-bind`. The listener has no TLS; use an authenticated TLS reverse proxy for remote access. See the [transport contract](../spec/transports.md#websocket).
 
 ## Keys
 
@@ -119,7 +136,8 @@ The default launched profile is `~/Library/Application Support/cmux-tui/chrome-p
 | `keys.next-workspace` | chord string or array or `"none"` | `"w"` | Next workspace |
 | `keys.new-workspace` | chord string or array or `"none"` | `"W"` | New workspace |
 | `keys.toggle-sidebar` | chord string or array or `"none"` | `"s"` | Toggle sidebar |
-| `keys.focus-sidebar` | chord string or array or `"none"` | `"S"` | Focus the sidebar plugin (keys forward to it; prefix returns) |
+| `keys.toggle-sidebar-view` | chord string or array or `"none"` | `"e"` | Toggle the built-in files/workspaces view; a plugin still takes precedence |
+| `keys.focus-sidebar` | chord string or array or `"none"` | `"S"` | Focus the built-in sidebar or sidebar plugin; a prefixed command returns focus to the pane |
 | `keys.focus-next-pane` | chord string or array or `"none"` | `"o"` | Cycle to the next pane in the current screen |
 | `keys.focus-left` | chord string or array or `"none"` | `["h","left","alt+h","alt+left"]` | Focus left |
 | `keys.focus-right` | chord string or array or `"none"` | `["l","right","alt+l","alt+right"]` | Focus right |
@@ -171,19 +189,27 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
     "agents": ["claude", "codex", "opencode", "pi"]
   },
   "sidebar": {
+    "view": "files",
     "width": 24,
     "max_width": 40
   },
   "browser": {
     "chrome_binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "mode": "headful",
     "cdp_url": "http://127.0.0.1:9222",
-    "discover": true,
+    "discover": false,
     "discover_ports": [9222, 9223],
     "user_data_dir": "/Users/me/Library/Application Support/cmux-tui/chrome-profile",
-    "ephemeral": false
+    "ephemeral": false,
+    "max_capture_megapixels": 2.0,
+    "capture_scale": null
   },
   "scrollbar": {
     "position": "column"
+  },
+  "server": {
+    "ws": "127.0.0.1:7681",
+    "ws_token": "replace-with-a-secret"
   },
   "keys": {
     "prefix": "ctrl+a",
@@ -199,6 +225,7 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
     "prev-screen": ["p", "alt+["],
     "rename-tab": "r",
     "rename-screen": ",",
+    "toggle-sidebar-view": "e",
     "focus-left": ["h", "left", "alt+h", "alt+left"],
     "focus-right": ["l", "right", "alt+l", "alt+right"],
     "close-pane": "x",

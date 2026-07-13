@@ -1,8 +1,9 @@
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
+import { blogIndexSeoCopy } from "@/i18n/audited-seo";
 import { Link } from "@/i18n/navigation";
-import { blogPosts } from "@/app/[locale]/components/blog-posts";
+import { blogPostsForLocale } from "@/app/[locale]/components/blog-posts";
 
 export async function generateMetadata({
   params,
@@ -11,11 +12,11 @@ export async function generateMetadata({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "blog" });
+  const siteMeta = await getTranslations({ locale, namespace: "meta" });
   const alternates = buildAlternates(locale, "/blog");
-  const title = t("metaTitle");
-  const description = seoDescription(locale, t("metaDescription"));
+  const { title, description } = blogIndexSeoCopy(locale, t, siteMeta);
   return {
-    title,
+    title: { absolute: title },
     description,
     alternates,
     openGraph: {
@@ -30,6 +31,8 @@ export async function generateMetadata({
 
 export default function BlogPage() {
   const t = useTranslations("blog");
+  const locale = useLocale();
+  const blogPosts = blogPostsForLocale(locale);
 
   return (
     <>
