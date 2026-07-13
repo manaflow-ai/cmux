@@ -26,6 +26,13 @@ final class InteractiveSwipeBackGestureHostController: UIViewController, UIGestu
         }
     }
 
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        if navigationController == nil {
+            restoreGestureDelegate()
+        }
+    }
+
     private func restoreGestureDelegate() {
         guard let installedGestureRecognizer else { return }
         if installedGestureRecognizer.delegate === self {

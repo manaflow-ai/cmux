@@ -106,6 +106,16 @@ public final class BrowserSurfacePersistenceCoordinator {
         enqueueAggregateWrite(scope: scope)
     }
 
+    /// Removes a closed scene's contribution so it cannot resurrect snapshots
+    /// deleted by the remaining scenes. When the final scene closes, the durable
+    /// archive remains untouched and seeds the next scene that registers.
+    func unregister(clientID: UUID) {
+        guard contributionsByClient.removeValue(forKey: clientID) != nil,
+              let persistenceScope,
+              !contributionsByClient.isEmpty else { return }
+        enqueueAggregateWrite(scope: persistenceScope)
+    }
+
     #if canImport(WebKit)
     /// Returns the account-and-team-isolated shared WebKit storage container.
     func websiteDataStore(for scope: BrowserPersistenceScope?) -> WKWebsiteDataStore {

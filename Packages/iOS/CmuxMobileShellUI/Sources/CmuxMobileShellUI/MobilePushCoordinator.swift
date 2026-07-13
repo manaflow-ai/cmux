@@ -47,7 +47,7 @@ public final class MobilePushCoordinator {
     public static let dismissSyncCategoryIdentifier = "cmux.terminal"
 
     @ObservationIgnored private weak var store: CMUXMobileShellStore?
-    @ObservationIgnored private var browserStore: BrowserSurfaceStore?
+    @ObservationIgnored private weak var browserStore: BrowserSurfaceStore?
 
     /// A tap whose navigation could not complete yet. On a cold launch the
     /// notification-center delegate delivers the tap before the root view has

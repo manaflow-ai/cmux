@@ -5,15 +5,18 @@ struct BrowserArchiveGenerationState {
     private(set) var current: String
     private(set) var allowsLegacyRestore: Bool
     private let defaultsKey: String
+    private let legacyMigrationKey: String
 
     init(defaults: UserDefaults?, archiveKey: String) {
         defaultsKey = "\(archiveKey).generation"
+        legacyMigrationKey = "\(archiveKey).generation.legacyMigration"
         if let persisted = defaults?.string(forKey: defaultsKey) {
             current = persisted
-            allowsLegacyRestore = false
+            allowsLegacyRestore = defaults?.string(forKey: legacyMigrationKey) == persisted
         } else {
             current = UUID().uuidString
             allowsLegacyRestore = defaults != nil
+            defaults?.set(current, forKey: legacyMigrationKey)
             defaults?.set(current, forKey: defaultsKey)
         }
     }
@@ -30,5 +33,6 @@ struct BrowserArchiveGenerationState {
         current = UUID().uuidString
         allowsLegacyRestore = false
         defaults?.set(current, forKey: defaultsKey)
+        defaults?.removeObject(forKey: legacyMigrationKey)
     }
 }

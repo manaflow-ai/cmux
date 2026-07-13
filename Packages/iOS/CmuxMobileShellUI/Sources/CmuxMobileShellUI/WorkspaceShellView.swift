@@ -24,7 +24,7 @@ struct WorkspaceShellView: View {
     @Environment(MobileDisplaySettings.self) var displaySettings
     @Environment(BrowserSurfaceStore.self) var browserStore
     @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
-    @State private var compactLocalBrowserWorkspaceID: MobileWorkspacePreview.ID?
+    @State var compactLocalBrowserWorkspaceID: MobileWorkspacePreview.ID?
     @State var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic

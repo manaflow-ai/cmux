@@ -105,6 +105,11 @@ public final class BrowserSurfaceStore {
         #endif
     }
 
+    isolated deinit {
+        scheduledPersistenceTask?.cancel()
+        persistenceCoordinator.unregister(clientID: persistenceClientID)
+    }
+
     /// Moves durable browser state to a new authenticated account and team.
     ///
     /// Every real transition clears live browser references synchronously. The

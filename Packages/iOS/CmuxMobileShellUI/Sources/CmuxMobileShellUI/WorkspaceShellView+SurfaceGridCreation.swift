@@ -18,6 +18,7 @@ extension WorkspaceShellView {
                   store.createTerminal(in: resolvedWorkspaceID)
             else { return }
             guard let workspace = store.workspaces.first(where: { $0.id == resolvedWorkspaceID }) else { return }
+            compactLocalBrowserWorkspaceID = nil
             browserStore.showNonBrowserSurface(for: workspace.browserSurfaceIdentity)
             compactNavigationPath = [resolvedWorkspaceID]
         }

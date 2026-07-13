@@ -6,8 +6,8 @@ extension MobileShellComposite {
     /// Applies one complete secondary aggregation result unless its owner task
     /// was cancelled by a newer refresh or an authentication-scope transition.
     func completeSecondaryWorkspaceRefresh(isAuthoritative: Bool) {
-        guard !Task.isCancelled else { return }
-        browserWorkspaceListIsAuthoritative = isAuthoritative
+        guard !Task.isCancelled, isAuthoritative else { return }
+        browserWorkspaceListIsAuthoritative = true
     }
 
     /// Marks a complete foreground list ready for browser reconciliation after
