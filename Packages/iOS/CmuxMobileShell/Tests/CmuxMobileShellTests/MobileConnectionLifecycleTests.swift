@@ -153,6 +153,31 @@ import Testing
         #expect(store.connectionState == .connected)
         #expect(store.macConnectionStatus == .connected)
     }
+
+    @Test func replayOnlyRuntimeCompletesStreamRepairWithoutPushListener() async throws {
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let clock = TestClock()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(router: router, box: box),
+            now: { clock.now },
+            supportsServerPushEvents: false
+        )
+        let store = MobileShellComposite.preview(runtime: runtime)
+        store.signIn()
+        let connected = await store.connectPairingURL(
+            try attachURL(for: makeTicket(clock: clock))
+        )
+        #expect(connected)
+        #expect(store.terminalEventListenerTask == nil)
+
+        store.requestConnectionLifecycleRecovery(.eventStreamLost)
+        await Task.yield()
+
+        #expect(store.connectionLifecycle.activeEpisode == nil)
+        #expect(!store.connectionRecoveryFailed)
+        #expect(store.macConnectionStatus == .connected)
+    }
 }
 
 @MainActor
