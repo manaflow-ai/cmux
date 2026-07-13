@@ -51,36 +51,6 @@ import Testing
         #expect(chrome(connectionStatus: .connected) == .none)
     }
 
-    @Test func healthyConnectionShowsMacUpdateHint() {
-        #expect(chrome(
-            connectionStatus: .connected,
-            hasMacUpdateHint: true
-        ) == .macUpdateHint)
-    }
-
-    @Test func reauthSuppressesMacUpdateHint() {
-        #expect(chrome(
-            connectionRequiresReauth: true,
-            connectionStatus: .connected,
-            hasMacUpdateHint: true
-        ) == .recoveryBanner)
-    }
-
-    @Test func offlineStatusSuppressesMacUpdateHint() {
-        #expect(chrome(
-            connectionStatus: .unavailable,
-            hasMacUpdateHint: true
-        ) == .macStatusRow)
-    }
-
-    @Test func recoverySuppressesMacUpdateHint() {
-        #expect(chrome(
-            isRecoveringConnection: true,
-            connectionStatus: .connected,
-            hasMacUpdateHint: true
-        ) == .recoveryBanner)
-    }
-
     @Test func noStoreConnectedStatusShowsNoChromeEvenWithStoreFlags() {
         #expect(chrome(
             hasStore: false,
@@ -122,16 +92,14 @@ import Testing
         connectionRequiresReauth: Bool = false,
         connectionRecoveryFailed: Bool = false,
         isRecoveringConnection: Bool = false,
-        connectionStatus: MobileMacConnectionStatus,
-        hasMacUpdateHint: Bool = false
+        connectionStatus: MobileMacConnectionStatus
     ) -> WorkspaceListConnectionChrome {
         WorkspaceListConnectionChrome(
             hasStore: hasStore,
             connectionRequiresReauth: connectionRequiresReauth,
             connectionRecoveryFailed: connectionRecoveryFailed,
             isRecoveringConnection: isRecoveringConnection,
-            connectionStatus: connectionStatus,
-            hasMacUpdateHint: hasMacUpdateHint
+            connectionStatus: connectionStatus
         )
     }
 

@@ -1,5 +1,6 @@
 import CmuxMobileShell
 import CmuxMobileSupport
+import Foundation
 
 struct MobileMacUpdateFeatureDisplay {
     static func name(for feature: MobileMacUpdateFeature) -> String {
@@ -21,5 +22,29 @@ struct MobileMacUpdateFeatureDisplay {
         case .workspaceGroupCreate:
             L10n.string("mobile.macUpdateHint.feature.workspaceGroupCreate", defaultValue: "Create workspace groups")
         }
+    }
+
+    static func bodyText(hint: MobileMacUpdateHint, macName: String?) -> String {
+        let displayName = macName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedName: String
+        if let displayName, !displayName.isEmpty {
+            resolvedName = displayName
+        } else {
+            resolvedName = L10n.string("mobile.macUpdateHint.genericMacName", defaultValue: "Your Mac")
+        }
+        let featureList = ListFormatter.localizedString(
+            byJoining: hint.features.map(MobileMacUpdateFeatureDisplay.name(for:))
+        )
+        let format = L10n.string(
+            "mobile.macUpdateHint.bodyFormat",
+            defaultValue: "%1$@ is on cmux %2$@. Updating to %3$@ or later adds: %4$@."
+        )
+        return String(
+            format: format,
+            resolvedName,
+            hint.macAppVersion.description,
+            hint.minimumMacVersion.description,
+            featureList
+        )
     }
 }

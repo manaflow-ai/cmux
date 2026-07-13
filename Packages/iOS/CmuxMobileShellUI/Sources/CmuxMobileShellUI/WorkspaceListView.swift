@@ -269,18 +269,6 @@ struct WorkspaceListView: View {
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                         .listRowSeparator(.hidden)
                 }
-            case .macUpdateHint:
-                if let macUpdateHint {
-                    Section {
-                        MobileMacUpdateHintBanner(
-                            hint: macUpdateHint,
-                            macDisplayName: macUpdateHintMacName,
-                            dismiss: dismissMacUpdateHint ?? {}
-                        )
-                        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
-                        .listRowSeparator(.hidden)
-                    }
-                }
             case .none:
                 EmptyView()
             }
@@ -501,8 +489,7 @@ struct WorkspaceListView: View {
             connectionRequiresReauth: store?.connectionRequiresReauth ?? false,
             connectionRecoveryFailed: store?.connectionRecoveryFailed ?? false,
             isRecoveringConnection: store?.isRecoveringConnection ?? false,
-            connectionStatus: connectionStatus,
-            hasMacUpdateHint: macUpdateHint != nil
+            connectionStatus: connectionStatus
         )
     }
 

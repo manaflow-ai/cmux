@@ -23,6 +23,13 @@ extension WorkspaceListView {
                             }
                         }
                         ToolbarItemGroup(placement: .topBarTrailing) {
+                            if let macUpdateHint, let dismissMacUpdateHint {
+                                MacUpdateHintIndicatorButton(
+                                    hint: macUpdateHint,
+                                    macDisplayName: macUpdateHintMacName,
+                                    dismiss: dismissMacUpdateHint
+                                )
+                            }
                             WorkspaceListFilterMenu(filter: $filter, machines: filterMachines)
                             if canCreateWorkspace {
                                 newWorkspaceButton

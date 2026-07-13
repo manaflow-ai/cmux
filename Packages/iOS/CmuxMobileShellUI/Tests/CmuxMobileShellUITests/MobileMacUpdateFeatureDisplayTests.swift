@@ -24,7 +24,7 @@ import Testing
             requirements: requirements
         ))
 
-        let body = MobileMacUpdateHintBanner.bodyText(hint: hint, macName: "Studio Mac")
+        let body = MobileMacUpdateFeatureDisplay.bodyText(hint: hint, macName: "Studio Mac")
 
         #expect(body.contains("Studio Mac"))
         #expect(body.contains("0.64.15"))

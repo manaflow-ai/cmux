@@ -3860,6 +3860,23 @@
         }
       }
     },
+    "mobile.macUpdateHint.button.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show what a Mac update adds"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macの更新で追加される機能を表示"
+          }
+        }
+      }
+    },
     "mobile.macUpdateHint.dismiss": {
       "extractionState": "manual",
       "localizations": {
