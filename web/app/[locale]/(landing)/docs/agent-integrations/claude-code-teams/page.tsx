@@ -52,6 +52,18 @@ cmux claude-teams --continue
 cmux claude-teams --model sonnet`}</CodeBlock>
       <p>{t("usageDesc")}</p>
 
+      <DocsHeading level={2} id="authentication">{t("authTitle")}</DocsHeading>
+      <p>{t("authProblem")}</p>
+      <p>{t("authFix")}</p>
+      <CodeBlock lang="bash">{`claude setup-token
+echo 'export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-…' >> ~/.zshenv`}</CodeBlock>
+      <p>{t("authRestart")}</p>
+      <ul>
+        <li>{t("authNoteShell")}</li>
+        <li>{t("authNoteSecret")}</li>
+        <li>{t("authNoteExpiry")}</li>
+      </ul>
+
       <DocsHeading level={2} id="how-it-works">{t("howItWorks")}</DocsHeading>
       <p>{t("howItWorksDesc")}</p>
       <ul>
