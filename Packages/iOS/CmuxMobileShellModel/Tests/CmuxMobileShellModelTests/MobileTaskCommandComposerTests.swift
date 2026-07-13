@@ -183,6 +183,48 @@ import Testing
         #expect(result.initialCommand == "echo ready; # {prompt}\nclaude \"${CMUX_TASK_PROMPT}\"")
     }
 
+    @Test func implicitAppendInsertsBeforeTrailingCommentLine() {
+        let template = MobileTaskTemplate(
+            name: "Comment",
+            icon: "terminal",
+            command: "agent\n# keep this note\n"
+        )
+
+        let result = composer.compose(template: template, prompt: "ship it")
+
+        #expect(result.initialCommand == "agent -- \"${CMUX_TASK_PROMPT}\"\n# keep this note\n")
+        #expect(result.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
+    }
+
+    @Test func implicitAppendInsertsBeforeInlineTrailingComment() {
+        let template = MobileTaskTemplate(
+            name: "Comment",
+            icon: "terminal",
+            command: "agent # keep this note"
+        )
+
+        let result = composer.compose(template: template, prompt: "ship it")
+
+        #expect(result.initialCommand == "agent -- \"${CMUX_TASK_PROMPT}\" # keep this note")
+        #expect(result.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
+    }
+
+    @Test func promptTokensInsideTrailingCommentDoNotSwallowFallbackArgument() {
+        let template = MobileTaskTemplate(
+            name: "Comment",
+            icon: "terminal",
+            command: "agent\n# {prompt} and $CMUX_TASK_PROMPT stay documentation"
+        )
+
+        let result = composer.compose(template: template, prompt: "ship it")
+
+        #expect(
+            result.initialCommand
+                == "agent -- \"${CMUX_TASK_PROMPT}\"\n# {prompt} and $CMUX_TASK_PROMPT stay documentation"
+        )
+        #expect(result.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
+    }
+
     @Test func appendModeLeavesCommandUnchangedForEmptyPrompt() {
         let template = MobileTaskTemplate(name: "Codex", icon: "sparkles", command: "codex")
 
