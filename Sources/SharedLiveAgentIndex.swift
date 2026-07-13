@@ -345,10 +345,14 @@ final class SharedLiveAgentIndex {
         validatedMissingForkPanels.removeAll()
     }
 
-    func invalidateAllCachedResults() {
-        let hadCachedResult = latestCompletedLoadResult != nil || index != nil
+    func invalidateCachedResumeIndexes() {
         latestCompletedLoadResult = nil
         latestCompletedAt = nil
+    }
+
+    func invalidateAllCachedResults() {
+        let hadCachedResult = latestCompletedLoadResult != nil || index != nil
+        invalidateCachedResumeIndexes()
         index = nil
         loadedAt = nil
         liveAgentProcessFingerprint.removeAll()
@@ -438,6 +442,7 @@ final class SharedLiveAgentIndex {
     }
 
     func handleHookStoreChange() {
+        invalidateCachedResumeIndexes()
         if refreshTailID != nil {
             changePending = true
             drainPendingHookStoreChangeIfPossible()

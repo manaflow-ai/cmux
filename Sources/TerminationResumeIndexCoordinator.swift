@@ -56,12 +56,13 @@ final class TerminationResumeIndexCoordinator {
         }
 
         let result = await pending.task.value
-        if pendingLoad?.id == pending.id {
-            completed = result
-            didComplete = true
-            pendingLoad = nil
+        guard pendingLoad?.id == pending.id else {
+            return current()
         }
-        return completed ?? result
+        completed = result
+        didComplete = true
+        pendingLoad = nil
+        return result
     }
 
     func current() -> ProcessDetectedResumeIndexes? {
