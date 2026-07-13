@@ -1009,7 +1009,7 @@ html { scroll-behavior: smooth; }
     pedantic: false,
     renderer: {
       codespan(code) {
-        var raw = code || '';
+        var raw = decodeHTML(code || '');
         return '<code>' + escapeHtml(raw) + '</code>';
       },
       code(code, infostring, escaped) {
