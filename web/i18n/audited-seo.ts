@@ -12,6 +12,36 @@ import {
 
 export type SeoMessageLookup = (key: string) => string;
 
+export type AuditedBlogPostKey =
+  | "cmuxOmo"
+  | "gpl"
+  | "showHnLaunch"
+  | "sessionRestore"
+  | "cmuxHome"
+  | "introducingCmux"
+  | "claudeCodeBestWorktreeManager"
+  | "zenOfCmux"
+  | "cmdShiftU"
+  | "unreadShortcuts"
+  | "passkeyAuth";
+
+const blogDescriptionCandidateKeys: Record<
+  AuditedBlogPostKey,
+  readonly string[]
+> = {
+  cmuxOmo: ["summary"],
+  gpl: ["summary", "p1"],
+  showHnLaunch: ["summary"],
+  sessionRestore: ["summary", "p1", "p2", "agentP2", "limitsP"],
+  cmuxHome: ["summary", "p2", "p3", "p4"],
+  introducingCmux: ["summary", "p1", "whyP"],
+  claudeCodeBestWorktreeManager: ["summary", "p1"],
+  zenOfCmux: ["summary", "p1", "p2", "p3", "p4"],
+  cmdShiftU: ["summary", "p1"],
+  unreadShortcuts: ["summary", "p1", "p2", "p3", "p4", "p5"],
+  passkeyAuth: ["summary", "p1", "p3"],
+};
+
 export type AuditedDocsPageKey =
   | "ohMyOpenCode"
   | "api"
@@ -91,9 +121,7 @@ function selectTitle(
   });
   return seoTitle(locale, original, {
     minLength: conciseTitleLocales.has(locale) ? 0 : undefined,
-    fallbackCandidates: [
-      ...contextualCandidates,
-    ],
+    fallbackCandidates: [...contextualCandidates],
   });
 }
 
@@ -225,10 +253,7 @@ export function assetsSeoCopy(
     title: selectTitle(locale, t("metaTitle"), siteMeta, [t("title")]),
     description: selectDescription(locale, t("metaDescription"), {
       completeCandidates: [t("description")],
-      contextFragments: [
-        `${t("title")} — ${t("iconSection")}`,
-        t("title"),
-      ],
+      contextFragments: [`${t("title")} — ${t("iconSection")}`, t("title")],
     }),
   };
 }
@@ -243,6 +268,49 @@ export function blogIndexSeoCopy(
     description: selectDescription(locale, t("metaDescription"), {
       completeCandidates: [t("description")],
       contextFragments: [t("title")],
+    }),
+  };
+}
+
+export function blogPostSeoCopy(
+  locale: string,
+  postKey: AuditedBlogPostKey,
+  metadata: SeoMessageLookup,
+  post: SeoMessageLookup,
+  siteMeta: SeoMessageLookup,
+) {
+  const title = post("title");
+  const authoredDescriptions = blogDescriptionCandidateKeys[postKey].map(
+    (key) => post(key),
+  );
+  return {
+    title: selectTitle(locale, metadata("metaTitle"), siteMeta, [title]),
+    description: selectDescription(locale, metadata("metaDescription"), {
+      completeCandidates: authoredDescriptions,
+      contextFragments: [title],
+    }),
+  };
+}
+
+export function landingPageSeoCopy(
+  locale: string,
+  t: SeoMessageLookup,
+  siteMeta: SeoMessageLookup,
+  candidateKeys: {
+    complete: readonly string[];
+    context: readonly string[];
+  },
+) {
+  const completeCandidates = candidateKeys.complete.map((key) => t(key));
+  const contextFragments = candidateKeys.context.map((key) => t(key));
+  return {
+    title: selectTitle(locale, t("metaTitle"), siteMeta, [
+      ...contextFragments,
+      ...completeCandidates,
+    ]),
+    description: selectDescription(locale, t("metaDescription"), {
+      completeCandidates,
+      contextFragments,
     }),
   };
 }
@@ -270,13 +338,7 @@ export function docsPageSeoCopy(
   const compactTitle =
     pageKey === "ohMyOpenCode" ? "oh-my-opencode" : undefined;
   return {
-    title: selectDocsTitle(
-      locale,
-      metaTitle,
-      title,
-      layoutTitle,
-      compactTitle,
-    ),
+    title: selectDocsTitle(locale, metaTitle, title, layoutTitle, compactTitle),
     socialTitle: selectDocsSocialTitle(
       locale,
       metaTitle,

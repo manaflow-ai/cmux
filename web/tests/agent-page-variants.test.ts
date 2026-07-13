@@ -393,6 +393,25 @@ describe("agent page variants", () => {
     expect(sitemapPaths).not.toContain("/de/docs/remote-tmux");
   });
 
+  test("limits English-only blog variants to their canonical routes", () => {
+    for (const path of [
+      "/blog/cmux-claude-teams",
+      "/blog/cmux-omo",
+      "/blog/gpl",
+    ]) {
+      expect(resolveAgentPageVariant(`${path}.md`)).not.toBeNull();
+      expect(resolveAgentPageVariant(`/ja${path}.md`)).toBeNull();
+      expect(resolveAgentPageVariant(`/de${path}.txt`)).toBeNull();
+    }
+  });
+
+  test("limits partially translated blog variants to authored locales", () => {
+    const path = "/blog/cmux-ssh";
+    expect(resolveAgentPageVariant(`${path}.md`)).not.toBeNull();
+    expect(resolveAgentPageVariant(`/ja${path}.md`)).not.toBeNull();
+    expect(resolveAgentPageVariant(`/de${path}.txt`)).toBeNull();
+  });
+
   test("limits en-ja docs alternate links to live localized routes", () => {
     const path = featureWorkflowDocPathForRequest("/de/docs/vault");
     expect(path).toBe("/docs/vault");
