@@ -227,14 +227,23 @@ extension CMUXCLIErrorOutputRegressionTests {
                     "runId": "root-run",
                     "activeRunId": "root-run",
                     "restoreAuthority": true,
+                    "foregroundState": "interrupted",
                     "startedAt": now - 10,
                     "updatedAt": now,
-                    "runs": [[
-                        "runId": "root-run",
-                        "restoreAuthority": true,
-                        "startedAt": now - 10,
-                        "updatedAt": now,
-                    ]],
+                    "runs": [
+                        [
+                            "runId": "orphan-open-run",
+                            "restoreAuthority": true,
+                            "startedAt": now - 10,
+                            "updatedAt": now - 5,
+                        ],
+                        [
+                            "runId": "root-run",
+                            "restoreAuthority": true,
+                            "startedAt": now - 5,
+                            "updatedAt": now,
+                        ],
+                    ],
                     "workloads": [
                         [
                             "id": "terminal-1",
@@ -273,10 +282,12 @@ extension CMUXCLIErrorOutputRegressionTests {
         let record = try #require(sessions["root-session"] as? [String: Any])
         #expect(record["completedAt"] as? Double != nil)
         #expect(record["restoreAuthority"] as? Bool == false)
+        #expect(record["foregroundState"] as? String == "interrupted")
         #expect(record["activeRunId"] == nil)
         let runs = try #require(record["runs"] as? [[String: Any]])
-        #expect(runs.first?["restoreAuthority"] as? Bool == false)
-        #expect(runs.first?["endedAt"] as? Double != nil)
+        #expect(runs.count == 2)
+        #expect(runs.allSatisfy { $0["restoreAuthority"] as? Bool == false })
+        #expect(runs.allSatisfy { $0["endedAt"] as? Double != nil })
         let workloads = try #require(record["workloads"] as? [[String: Any]])
         #expect(workloads.count == 2)
         #expect(workloads.allSatisfy { $0["phase"] as? String == "cancelled" })

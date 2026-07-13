@@ -146,4 +146,59 @@ extension CMUXCLIErrorOutputRegressionTests {
         let filteredNodes = try #require(filteredOutput["nodes"] as? [[String: Any]])
         #expect(filteredNodes.compactMap { $0["run_id"] as? String } == ["current-run"])
     }
+
+    @Test func verifiedForkRootRecoversOnlyFromProvisionalChildEvidence() throws {
+        func storedRun(evidence: String, processStartedAt: TimeInterval) throws -> AgentSessionRunRecord {
+            let data = try JSONSerialization.data(withJSONObject: [
+                "runId": "fork-run",
+                "pid": 101,
+                "processStartedAt": processStartedAt,
+                "relationship": "spawned",
+                "restoreAuthority": false,
+                "authorityEvidence": evidence,
+                "startedAt": 100.0,
+                "updatedAt": 110.0,
+            ])
+            return try JSONDecoder().decode(AgentSessionRunRecord.self, from: data)
+        }
+
+        let verifiedFork = AgentHookSessionLineage(
+            runId: "fork-run",
+            pid: 202,
+            processStartedAt: 200,
+            parentRunId: nil,
+            parentSessionId: nil,
+            relationship: .forked,
+            restoreAuthority: true
+        )
+        let reconciler = AgentSessionRunReconciler(maximumRecords: 128)
+        for processStartedAt in [100.0, 200.0] {
+            let provisional = try storedRun(
+                evidence: "provisional_ambiguous_child",
+                processStartedAt: processStartedAt
+            )
+            let recovered = reconciler.reconciling(
+                [provisional],
+                activeRunId: provisional.runId,
+                lineage: verifiedFork,
+                now: 210
+            )
+            let recoveredRun = try #require(recovered.first)
+            #expect(recoveredRun.relationship == .forked)
+            #expect(recoveredRun.restoreAuthority)
+        }
+
+        for evidence in ["managed_child", "explicit_spawned_child", "verified_ancestor_child"] {
+            let durable = try storedRun(evidence: evidence, processStartedAt: 100)
+            let runs = reconciler.reconciling(
+                [durable],
+                activeRunId: durable.runId,
+                lineage: verifiedFork,
+                now: 210
+            )
+            let run = try #require(runs.first)
+            #expect(run.relationship == .spawned, Comment(rawValue: evidence))
+            #expect(!run.restoreAuthority, Comment(rawValue: evidence))
+        }
+    }
 }
