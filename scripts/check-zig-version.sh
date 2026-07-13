@@ -54,8 +54,8 @@ fi
 read -r REQUIRED_MAJOR REQUIRED_MINOR REQUIRED_PATCH < <(parse_semver_core "$REQUIRED_ZIG_VERSION" "required")
 
 if ! command -v zig >/dev/null 2>&1; then
-  echo "Error: GhosttyKit requires Zig $REQUIRED_MAJOR.$REQUIRED_MINOR.x with patch >= $REQUIRED_PATCH, but zig is not installed." >&2
-  echo "Install a compatible Zig and put it earlier in PATH, or see CONTRIBUTING.md for setup instructions." >&2
+  echo "Error: cmux requires Zig $REQUIRED_MAJOR.$REQUIRED_MINOR.x with patch >= $REQUIRED_PATCH, but zig is not installed." >&2
+  echo "Install a compatible Zig, or see CONTRIBUTING.md for setup instructions." >&2
   exit 1
 fi
 
@@ -68,8 +68,8 @@ fi
 read -r INSTALLED_MAJOR INSTALLED_MINOR INSTALLED_PATCH < <(parse_semver_core "$INSTALLED_ZIG_VERSION" "installed")
 
 if (( INSTALLED_MAJOR != REQUIRED_MAJOR || INSTALLED_MINOR != REQUIRED_MINOR || INSTALLED_PATCH < REQUIRED_PATCH )); then
-  echo "Error: GhosttyKit requires Zig $REQUIRED_MAJOR.$REQUIRED_MINOR.x with patch >= $REQUIRED_PATCH; found $INSTALLED_ZIG_VERSION at $(command -v zig)." >&2
-  echo "Install a compatible Zig and put it earlier in PATH, or see CONTRIBUTING.md for setup instructions." >&2
+  echo "Error: cmux requires Zig $REQUIRED_MAJOR.$REQUIRED_MINOR.x with patch >= $REQUIRED_PATCH; found $INSTALLED_ZIG_VERSION." >&2
+  echo "Install a compatible Zig, or see CONTRIBUTING.md for setup instructions." >&2
   exit 1
 fi
 

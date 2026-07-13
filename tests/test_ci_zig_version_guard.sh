@@ -62,7 +62,7 @@ if run_guard "0.15.1" "0.15.2" "$TMP_DIR/old-patch.out"; then
   echo "FAIL: guard accepted an older patch than Ghostty requires"
   exit 1
 fi
-if ! grep -Fq "requires Zig 0.15.x with patch >= 2" "$TMP_DIR/old-patch.out"; then
+if ! grep -Fq "cmux requires Zig 0.15.x with patch >= 2" "$TMP_DIR/old-patch.out"; then
   cat "$TMP_DIR/old-patch.out"
   echo "FAIL: older-patch error did not explain the required Zig range"
   exit 1
@@ -85,7 +85,7 @@ if PATH="$NO_ZIG_BIN" /bin/bash "$SCRIPT" "0.15.2" >"$TMP_DIR/missing.out" 2>&1;
   echo "FAIL: guard accepted a missing zig binary"
   exit 1
 fi
-if ! grep -Fq "requires Zig 0.15.x with patch >= 2, but zig is not installed" "$TMP_DIR/missing.out"; then
+if ! grep -Fq "cmux requires Zig 0.15.x with patch >= 2, but zig is not installed" "$TMP_DIR/missing.out"; then
   cat "$TMP_DIR/missing.out"
   echo "FAIL: missing-zig error did not include the required version"
   exit 1
