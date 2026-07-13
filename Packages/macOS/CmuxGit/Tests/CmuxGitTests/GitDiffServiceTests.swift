@@ -241,6 +241,35 @@ import Testing
         #expect(bounded.files.allSatisfy { $0.path.hasSuffix(".txt") })
     }
 
+    @Test func visibleTrackedFileRemainsDiffableWhenStatusSnapshotIsTruncated() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        for index in 0..<200 {
+            let path = "tracked-change-with-long-name-\(1000 + index).txt"
+            try Data("original\n".utf8).write(to: repo.appendingPathComponent(path))
+        }
+        try runTestGit(in: repo, ["add", "--", "."])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add tracked files"])
+        for index in 0..<200 {
+            let path = "tracked-change-with-long-name-\(1000 + index).txt"
+            try Data("changed\n".utf8).write(to: repo.appendingPathComponent(path))
+        }
+
+        let service = GitDiffService()
+        let changed = try #require(service.changedFiles(repoRoot: repo.path, maxOutputBytes: 512))
+        let visible = try #require(changed.files.first)
+        let diff = try #require(service.fileDiff(
+            repoRoot: repo.path,
+            path: visible.path,
+            oldPath: visible.oldPath,
+            status: visible.status,
+            maxOutputBytes: 1024
+        ))
+
+        #expect(changed.truncated)
+        #expect(diff.unifiedDiff.contains("+changed"))
+    }
+
     @Test func unbornRepositoryIncludesStagedFileAndDiff() throws {
         let repo = try makeUnbornTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
