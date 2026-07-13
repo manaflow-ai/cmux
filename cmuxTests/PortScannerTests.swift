@@ -88,6 +88,65 @@ struct PortScannerProcessCaptureTests {
     }
 }
 
+@Suite("Port scan coordination")
+struct PortScanCoordinationTests {
+    @Test("Panel scans stay single-flight and coalesce one pending pass")
+    func panelScansAreBoundedAndCoalesced() {
+        var coordination = PortScanCoordination()
+
+        #expect(coordination.beginPanelScan())
+        #expect(coordination.beginPanelScan() == false)
+        #expect(coordination.beginPanelScan() == false)
+        #expect(coordination.finishPanelScan())
+        #expect(coordination.beginPanelScan())
+        #expect(coordination.finishPanelScan() == false)
+    }
+
+    @Test("Agent scans merge pending workspace inputs behind one in-flight pass")
+    func agentScansAreBoundedAndMerged() throws {
+        var coordination = PortScanCoordination()
+        let firstWorkspace = UUID()
+        let secondWorkspace = UUID()
+        let first = AgentPortScanRequest(
+            workspaceIds: [firstWorkspace],
+            agentPIDsByWorkspace: [firstWorkspace: [100]],
+            agentRevisions: [firstWorkspace: 1],
+            requestID: coordination.makeRequestID()
+        )
+        let newer = AgentPortScanRequest(
+            workspaceIds: [firstWorkspace, secondWorkspace],
+            agentPIDsByWorkspace: [firstWorkspace: [101], secondWorkspace: [200]],
+            agentRevisions: [firstWorkspace: 2, secondWorkspace: 1],
+            requestID: coordination.makeRequestID()
+        )
+
+        #expect(coordination.enqueueAgentScan(first) == first)
+        #expect(coordination.enqueueAgentScan(newer) == nil)
+        let pending = try #require(coordination.finishAgentScan())
+        #expect(pending.workspaceIds == [firstWorkspace, secondWorkspace])
+        #expect(pending.agentPIDsByWorkspace[firstWorkspace] == [101])
+        #expect(pending.agentPIDsByWorkspace[secondWorkspace] == [200])
+        #expect(pending.requestID == newer.requestID)
+
+        #expect(coordination.enqueueAgentScan(first) == nil)
+        #expect(coordination.finishAgentScan()?.requestID == first.requestID)
+    }
+
+    @Test("Older asynchronous results are rejected after a newer result applies")
+    func staleResultsAreRejected() {
+        var coordination = PortScanCoordination()
+        let workspaceID = UUID()
+        let older = coordination.makeRequestID()
+        let newer = coordination.makeRequestID()
+
+        #expect(coordination.shouldApplyPanelResult(requestID: newer))
+        #expect(coordination.shouldApplyPanelResult(requestID: older) == false)
+        #expect(coordination.newAgentWorkspaces([workspaceID], requestID: newer) == [workspaceID])
+        #expect(coordination.newAgentWorkspaces([workspaceID], requestID: older).isEmpty)
+        #expect(coordination.isLatestAgentResult(workspaceId: workspaceID, requestID: newer))
+    }
+}
+
 @Suite("Process termination gate")
 struct ProcessTerminationGateTests {
     @Test("A prelaunch termination request is deferred until launch")
