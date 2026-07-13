@@ -339,15 +339,20 @@ import Testing
         #expect(connection.lastWindowSizes.count == 1)
     }
 
-    @Test func hiddenMirrorNeverImposesAndFreezesItsContainer() {
-        // While hidden, the tree lives in a portal host that no window
+    @Test func hiddenOrDetachedMirrorNeverImposesAndFreezesItsContainer() {
+        // While hidden or detached, the tree lives in a portal host that no window
         // clamps, so imposing an absolute extent there grows the host
         // instead of shrinking the second child — and the grown bounds come
         // back through noteContainerSize, compounding every pass (observed
         // live: a hidden window's host at 224k points claiming 27,984
         // columns). Hidden mirrors therefore neither impose nor record
-        // container sizes; showing the tab does both against real bounds.
-        let (mirror, connection) = readyMirror(layout: reflow123)
+        // container sizes; logical visibility alone is not a trustworthy bound.
+        let (mirror, connection) = makeMirror(
+            layout: reflow123,
+            geometry: calibratedGeometry,
+            hostingContentSizeSource: { nil }
+        )
+        mirror.noteContainerSize(pointSize: CGSize(width: 800, height: 620), scale: 2)
         mirror.isVisibleForSizing = false
         mirror.reconcile(layout: reflow123)
         mirror.performSizingPassNow()
@@ -356,7 +361,7 @@ import Testing
         mirror.noteContainerSize(pointSize: CGSize(width: 224_000, height: 620), scale: 2)
         mirror.isVisibleForSizing = true
         mirror.performSizingPassNow()
-        #expect(!Self.imposedExtents(of: mirror.bonsplitController.treeSnapshot()).isEmpty)
+        #expect(Self.imposedExtents(of: mirror.bonsplitController.treeSnapshot()).isEmpty)
         #expect(mirror.updateClientSize())
         // The claim reflects the frozen 800pt container, not limbo bounds.
         #expect(pushed(connection)?.cols == 100)
