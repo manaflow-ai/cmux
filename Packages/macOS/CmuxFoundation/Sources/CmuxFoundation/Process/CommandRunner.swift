@@ -25,16 +25,14 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
         "/opt/local/bin",
     ]
 
-    /// Seconds to wait after `SIGTERM` (on timeout) before sending `SIGKILL`.
-    private static let sigkillGraceSeconds: Double = 0.2
-
-    // Hosts the one-shot deadline/SIGKILL timers. A queue is used only for timer
+    // Hosts the one-shot deadline timers. A queue is used only for timer
     // event delivery, never to serialize mutable state.
     private static let timerQueue = DispatchQueue(label: "com.cmuxterm.CmuxProcess.timer")
 
     // Environment is Apple-documented value-like once copied; stored as an immutable
     // dictionary so the struct stays Sendable.
     let commandPathResolver: CommandPathResolver
+    private let standardInputWriterFactory: @Sendable (FileHandle, Data) -> CommandStandardInputWriter?
 
     /// Creates a command runner.
     /// - Parameters:
@@ -49,12 +47,29 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
         fallbackSearchDirectories: [String] = CommandRunner.defaultFallbackSearchDirectories,
         fileManager: FileManager = .default
     ) {
+        self.init(
+            environment: environment,
+            bundledBinPath: bundledBinPath,
+            fallbackSearchDirectories: fallbackSearchDirectories,
+            fileManager: fileManager,
+            standardInputWriterFactory: CommandStandardInputWriter.init
+        )
+    }
+
+    init(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundledBinPath: String? = Bundle.main.resourceURL?.appendingPathComponent("bin").path,
+        fallbackSearchDirectories: [String] = CommandRunner.defaultFallbackSearchDirectories,
+        fileManager: FileManager = .default,
+        standardInputWriterFactory: @escaping @Sendable (FileHandle, Data) -> CommandStandardInputWriter?
+    ) {
         commandPathResolver = CommandPathResolver(
             environment: environment,
             bundledBinPath: bundledBinPath,
             fallbackSearchDirectories: fallbackSearchDirectories,
             fileManager: fileManager
         )
+        self.standardInputWriterFactory = standardInputWriterFactory
     }
 
     /// Runs `executable` with optional stdin data and an optional per-stream output limit.
@@ -210,15 +225,16 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
             }
 
             @Sendable func beginCancellation() {
-                let (shouldCancel, didTerminate, timer, writer, readers): (
+                let (shouldCancel, didTerminate, processGroupID, timer, writer, readers): (
                     Bool,
                     Bool,
+                    pid_t?,
                     (any DispatchSourceTimer)?,
                     CommandStandardInputWriter?,
                     [CommandOutputReader]
                 ) = state.withLock { state in
                     guard !state.resumed, !state.cancellationRequested else {
-                        return (false, state.didTerminate, nil, nil, [])
+                        return (false, state.didTerminate, state.processGroupID, nil, nil, [])
                     }
                     state.cancellationRequested = true
                     let timer = state.deadlineTimer
@@ -228,25 +244,29 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
                     let readers = [state.standardOutputReader, state.standardErrorReader].compactMap { $0 }
                     state.standardOutputReader = nil
                     state.standardErrorReader = nil
-                    return (true, state.didTerminate, timer, writer, readers)
+                    return (true, state.didTerminate, state.processGroupID, timer, writer, readers)
                 }
                 guard shouldCancel else { return }
                 timer?.cancel()
                 writer?.cancel()
                 readers.forEach { $0.cancel() }
 
-                if didTerminate || !process.isRunning {
+                if didTerminate, processGroupID == nil {
                     _ = claimImmediate(cancelledResult)
                 } else {
-                    process.terminate()
-                    Self.scheduleSigkill(process)
+                    CommandProcessTreeTerminator.terminate(
+                        process,
+                        processGroupID: processGroupID
+                    ) {
+                        _ = claimImmediate(cancelledResult)
+                    }
                 }
             }
 
             @Sendable func terminateAfterClaim(_ result: CommandResult) {
-                if claimImmediate(result), process.isRunning {
-                    process.terminate()
-                    Self.scheduleSigkill(process)
+                if claimImmediate(result) {
+                    let processGroupID = state.withLock { $0.processGroupID }
+                    CommandProcessTreeTerminator.terminate(process, processGroupID: processGroupID)
                 }
             }
 
@@ -264,7 +284,6 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
                         $0.didTerminate = true
                         $0.exitStatus = status
                     }
-                    _ = claimImmediate(cancelledResult)
                 } else {
                     recordAndCompleteIfReady {
                         $0.didTerminate = true
@@ -275,6 +294,10 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
 
             do {
                 try process.run()
+                let childProcessGroup = getpgid(process.processIdentifier)
+                if childProcessGroup > 1, childProcessGroup != getpgrp() {
+                    state.withLock { $0.processGroupID = childProcessGroup }
+                }
             } catch {
                 let message = String(describing: error)
                 try? stdinPipe?.fileHandleForReading.close()
@@ -371,18 +394,27 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
 
             if let stdinPipe, let standardInput {
                 try? stdinPipe.fileHandleForReading.close()
-                if let writer = CommandStandardInputWriter(
-                    fileHandle: stdinPipe.fileHandleForWriting,
-                    data: standardInput
-                ) {
-                    let cancelImmediately = state.withLock { s -> Bool in
-                        guard !s.didTerminate, !s.resumed else { return true }
-                        s.standardInputWriter = writer
-                        return false
-                    }
-                    if cancelImmediately {
-                        writer.cancel()
-                    }
+                guard let writer = standardInputWriterFactory(
+                    stdinPipe.fileHandleForWriting,
+                    standardInput
+                ) else {
+                    try? stdinPipe.fileHandleForWriting.close()
+                    terminateAfterClaim(CommandResult(
+                        stdout: nil,
+                        stderr: nil,
+                        exitStatus: nil,
+                        timedOut: false,
+                        executionError: "Could not create the process stdin writer."
+                    ))
+                    return
+                }
+                let cancelImmediately = state.withLock { s -> Bool in
+                    guard !s.didTerminate, !s.resumed else { return true }
+                    s.standardInputWriter = writer
+                    return false
+                }
+                if cancelImmediately {
+                    writer.cancel()
                 }
             }
 
@@ -401,9 +433,9 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
                     let timedOut = CommandResult(
                         stdout: nil, stderr: nil, exitStatus: nil, timedOut: true, executionError: nil
                     )
-                    if claimImmediate(timedOut), process.isRunning {
-                        process.terminate()
-                        Self.scheduleSigkill(process)
+                    if claimImmediate(timedOut) {
+                        let processGroupID = state.withLock { $0.processGroupID }
+                        CommandProcessTreeTerminator.terminate(process, processGroupID: processGroupID)
                     }
                     timer.cancel()
                 }
@@ -435,6 +467,7 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
         var stderr: Data?
         var didTerminate = false
         var exitStatus: Int32?
+        var processGroupID: pid_t?
         var resumed = false
         var cancellationRequested = false
         // The command deadline timer, cancelled when the continuation resumes (any path).
@@ -442,21 +475,6 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
         var standardInputWriter: CommandStandardInputWriter?
         var standardOutputReader: CommandOutputReader?
         var standardErrorReader: CommandOutputReader?
-    }
-
-    private static func scheduleSigkill(_ process: Process) {
-        let timer = DispatchSource.makeTimerSource(queue: timerQueue)
-        timer.schedule(deadline: .now() + sigkillGraceSeconds)
-        timer.setEventHandler {
-            // Only SIGKILL if the Process is still running. If it already exited during
-            // the grace window, sending to the bare pid could hit an unrelated process
-            // that reused it; Foundation's `isRunning` confirms the pid is still ours.
-            if process.isRunning {
-                kill(process.processIdentifier, SIGKILL)
-            }
-            timer.cancel()
-        }
-        timer.resume()
     }
 
 }

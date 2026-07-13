@@ -90,7 +90,6 @@ import Testing
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let watcher = FileWatcher(path: pidFile.path)
         let command = Task {
             await runner.run(
                 directory: root.path,
@@ -99,11 +98,13 @@ import Testing
                 timeout: nil
             )
         }
-        for await _ in watcher.events {
-            let size = try? pidFile.resourceValues(forKeys: [.fileSizeKey]).fileSize
-            if (size ?? 0) > 0 { break }
+        for _ in 0..<500 {
+            if (try? pidFile.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) ?? 0 > 0 {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(10))
         }
-        await watcher.stop()
+        _ = try #require(String(contentsOf: pidFile, encoding: .utf8).first)
 
         let cancellationStarted = ContinuousClock.now
         command.cancel()

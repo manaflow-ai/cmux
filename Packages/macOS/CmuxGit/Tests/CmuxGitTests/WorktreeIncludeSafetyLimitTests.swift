@@ -41,31 +41,29 @@ import Testing
         let (root, source, destination) = try makeRepositoryFixture()
         defer { try? FileManager.default.removeItem(at: root) }
         let sourceDirectory = source.appendingPathComponent("nested", isDirectory: true)
-        let destinationDirectory = destination.appendingPathComponent("nested", isDirectory: true)
         let sourceItem = sourceDirectory.appendingPathComponent("payload")
         try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(
             at: sourceItem,
             withDestinationURL: sourceDirectory.appendingPathComponent("missing")
         )
-        let fileManager = SourceTypeSwappingWorktreeIncludeFileManager(
+        let sourceSwapper = SourceTypeSwappingWorktreeIncludeFileManager(
             sourceItem: sourceItem,
-            triggerDirectory: destinationDirectory,
             replacementByteCount: 2_048
         )
 
         _ = WorktreeIncludeCopyService(
-            fileManager: fileManager,
+            fileManager: .default,
             limits: WorktreeIncludeCopyLimits(
                 maximumItemCount: 10,
                 maximumByteCount: 1_024,
                 freeSpaceReserve: 0
             ),
-            availableCapacity: { _ in 1_024 }
+            availableCapacity: { _ in 1_024 },
+            sourceItemInspected: sourceSwapper.swapIfMatching
         ).copy(relativePaths: ["nested/payload"], from: source, to: destination)
 
-        let copied = destinationDirectory.appendingPathComponent("payload")
+        let copied = destination.appendingPathComponent("nested/payload")
         let copiedValues = try? copied.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
         #expect(copiedValues?.isRegularFile != true || (copiedValues?.fileSize ?? 0) <= 1_024)
     }
@@ -79,16 +77,17 @@ import Testing
             [.posixPermissions: 0o600],
             ofItemAtPath: sourceFile.path
         )
-        let observer = DestinationFileCreationPermissionObserver(destinationRoot: destination)
+        let observer = DestinationFileCreationPermissionObserver()
 
         let diagnostics = WorktreeIncludeCopyService(
-            fileManager: observer,
+            fileManager: .default,
             limits: WorktreeIncludeCopyLimits(
                 maximumItemCount: 10,
                 maximumByteCount: 1_024,
                 freeSpaceReserve: 0
             ),
-            availableCapacity: { _ in 1_024 }
+            availableCapacity: { _ in 1_024 },
+            destinationFileCreated: observer.observe
         ).copy(relativePaths: [".env"], from: source, to: destination)
 
         let finalAttributes = try FileManager.default.attributesOfItem(

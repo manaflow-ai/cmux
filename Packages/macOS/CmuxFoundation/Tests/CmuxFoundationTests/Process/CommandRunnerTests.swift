@@ -151,6 +151,26 @@ import Testing
         #expect(result.stdout == String(data: payload, encoding: .utf8))
     }
 
+    @Test func standardInputWriterInitializationFailureIsReported() async {
+        let runner = CommandRunner(
+            standardInputWriterFactory: { fileHandle, _ in
+                try? fileHandle.close()
+                return nil
+            }
+        )
+
+        let result = await runner.run(
+            directory: tempDir,
+            executable: "cat",
+            arguments: [],
+            standardInput: Data("payload".utf8),
+            timeout: 10
+        )
+
+        #expect(result.executionError == "Could not create the process stdin writer.")
+        #expect(result.exitStatus == nil)
+    }
+
     @Test func timeoutDoesNotWaitForBlockedStandardInputWriter() async throws {
         // The child never reads stdin, so this payload fills the pipe and blocks
         // the detached writer until timeout closes the child's read end.
