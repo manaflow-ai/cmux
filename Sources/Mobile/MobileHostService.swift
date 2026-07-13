@@ -390,12 +390,7 @@ final class MobileHostService {
     /// restart. `nil` while stopped.
     private var appliedPreferredPort: Int?
     private var activeConnections: [UUID: MobileHostConnection] = [:]
-    private var clientIDsByConnectionID: [UUID: Set<String>] = [:]
-    private struct MobileInteractionIdentity: Hashable {
-        var clientID: String
-        var sessionID: String
-    }
-    private var interactionIdentitiesByConnectionID: [UUID: Set<MobileInteractionIdentity>] = [:]
+    private var connectionOwnership = MobileHostConnectionOwnership()
     private var lastErrorDescription: String?
     /// Watches for network path changes while the listener is bound, so the
     /// advertised route set (and the team device registry that
@@ -709,7 +704,8 @@ final class MobileHostService {
             Task { await connection.close(reason: "pairing port changed") }
         }
         activeConnections.removeAll()
-        clientIDsByConnectionID.removeAll()
+        connectionOwnership.reset()
+        TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.portChanged")
 
         listener = candidate
         listenerGeneration = generation
@@ -842,8 +838,7 @@ final class MobileHostService {
             Task { await connection.close(reason: "service stopped") }
         }
         activeConnections.removeAll()
-        clientIDsByConnectionID.removeAll()
-        interactionIdentitiesByConnectionID.removeAll()
+        connectionOwnership.reset()
         MobileHostEventSubscriptionTracker.reset()
         MobileHostPublicStatusCache.update(routes: [])
         TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
@@ -1203,66 +1198,12 @@ final class MobileHostService {
     private func removeConnection(id: UUID) {
         MobileHostConnectionRegistry.shared.remove(id: id)
         activeConnections.removeValue(forKey: id)
-        // Retire state only when no replacement connection still owns the client ID.
-        let clientIDs = clientIDsByConnectionID.removeValue(forKey: id) ?? []
-        let retiredClientIDs = clientIDs.subtracting(
-            clientIDsByConnectionID.values.reduce(into: Set<String>()) { $0.formUnion($1) }
-        )
-        if !retiredClientIDs.isEmpty {
-            TerminalController.shared.clearMobileViewportReports(
-                clientIDs: retiredClientIDs,
-                reason: "mobile.connection.closed"
-            )
-        }
-        let identities = interactionIdentitiesByConnectionID.removeValue(forKey: id) ?? []
-        let retiredIdentities = identities.subtracting(
-            interactionIdentitiesByConnectionID.values.reduce(into: Set<MobileInteractionIdentity>()) {
-                $0.formUnion($1)
-            }
-        )
-        TerminalController.shared.clearMobileInteractionEpochs(
-            clientSessions: retiredIdentities.map { ($0.clientID, $0.sessionID) }
-        )
+        connectionOwnership.retireConnection(id)
         MobileHostRequestActivity.endConnection()
     }
 
     private func recordRequestOwnership(params: [String: Any], for connectionID: UUID) {
-        if let clientID = Self.clientID(from: params) {
-            recordClientID(clientID, for: connectionID)
-        }
-        guard let identity = Self.interactionIdentity(from: params) else { return }
-        var identities = interactionIdentitiesByConnectionID[connectionID] ?? []
-        guard identities.contains(identity) || identities.count < 64 else { return }
-        identities.insert(identity)
-        interactionIdentitiesByConnectionID[connectionID] = identities
-    }
-
-    private func recordClientID(_ clientID: String, for connectionID: UUID) {
-        var clientIDs = clientIDsByConnectionID[connectionID] ?? []
-        clientIDs.insert(clientID)
-        clientIDsByConnectionID[connectionID] = clientIDs
-    }
-
-    private nonisolated static func clientID(from params: [String: Any]) -> String? {
-        let trimmed = (params["client_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
-    }
-
-    private nonisolated static func interactionIdentity(
-        from params: [String: Any]
-    ) -> MobileInteractionIdentity? {
-        guard let clientID = clientID(from: params) else { return nil }
-        let explicitSession = (params["interaction_session_id"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let sessionID: String
-        if let explicitSession, !explicitSession.isEmpty {
-            guard explicitSession.utf8.count <= 128 else { return nil }
-            sessionID = explicitSession
-        } else {
-            guard params["interaction_epoch"] is NSNumber else { return nil }
-            sessionID = ""
-        }
-        return MobileInteractionIdentity(clientID: clientID, sessionID: sessionID)
+        connectionOwnership.recordRequest(params: params, connectionID: connectionID)
     }
 
     func debugAuthorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
@@ -1709,14 +1650,13 @@ extension MobileHostService {
         listenerUsesEphemeralFallback = false
         listenerPort = nil
         activeConnections.removeAll()
-        clientIDsByConnectionID.removeAll()
-        interactionIdentitiesByConnectionID.removeAll()
+        connectionOwnership.reset()
         MobileHostRequestActivity.resetForTesting()
         MobileHostEventSubscriptionTracker.resetForTesting()
     }
 
     func debugRecordClientIDForTesting(_ clientID: String, connectionID: UUID) {
-        recordClientID(clientID, for: connectionID)
+        connectionOwnership.recordClientID(clientID, connectionID: connectionID)
     }
 
     func debugRecordInteractionIdentityForTesting(
@@ -1738,7 +1678,7 @@ extension MobileHostService {
     }
 
     func debugTrackedClientIDsForTesting(connectionID: UUID) -> Set<String>? {
-        clientIDsByConnectionID[connectionID]
+        connectionOwnership.clientIDs(connectionID: connectionID)
     }
 
     func debugSetListenerStateForTesting(
