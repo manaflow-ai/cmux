@@ -1,5 +1,5 @@
 import { useCallback, useReducer, useRef, useState } from "react";
-import type { CmuxClient, Id, LivePane, Tab } from "cmux/browser";
+import type { ClientInfo, CmuxClient, Id, LivePane, Tab } from "cmux/browser";
 import { t } from "../i18n";
 import type { PaneLayoutView } from "../lib/layout";
 import { layoutToViewModel } from "../lib/layout";
@@ -15,6 +15,7 @@ import { InlineRename } from "./InlineRename";
 
 interface TerminalPaneProps {
   client: CmuxClient | null;
+  clients: ClientInfo[];
   screen: ScreenView | null;
   onSelectTab(pane: Id, index: number, surface: Id): void;
   onNewTab(pane: Id): void;
@@ -90,6 +91,7 @@ interface PaneLeafProps extends Omit<TerminalPaneProps, "screen" | "onSetRatio">
 
 function PaneLeaf({
   client,
+  clients,
   pane,
   paneId,
   active,
@@ -119,10 +121,29 @@ function PaneLeaf({
     (error: Error) => setErrorState({ client, surface, message: error.message }),
     [client, surface],
   );
-  const { terminalRef, focused } = useAttachedTerminal({ client, surface, onError: reportError });
+  const { terminalRef, focused, foreignSize } = useAttachedTerminal({ client, surface, onError: reportError });
   const terminalError = errorState !== null && errorState.client === client && errorState.surface === surface
     ? errorState.message
     : null;
+  const matchingClients = foreignSize === null || surface === null
+    ? []
+    : clients.filter((candidate) => (
+      !candidate.self
+      && candidate.sizes.some((size) => (
+        size.surface === surface
+        && size.cols === foreignSize.cols
+        && size.rows === foreignSize.rows
+      ))
+    ));
+  const foreignSizeHint = foreignSize === null
+    ? null
+    : matchingClients.length === 1
+      ? t("foreignSizeNamed", {
+          name: matchingClients[0]!.name || t("unnamed"),
+          cols: foreignSize.cols,
+          rows: foreignSize.rows,
+        })
+      : t("foreignSizeGeneric", { cols: foreignSize.cols, rows: foreignSize.rows });
   const commitPaneRename = () => {
     if (!renameCanCommit(rename)) return;
     onRenamePane(paneId, rename.value.trim());
@@ -164,7 +185,10 @@ function PaneLeaf({
         <button className="new-tab" aria-label={t("newTab")} onClick={() => onNewTab(paneId)} type="button">+</button>
       </div>
       <div className="terminal-stage">
-        {surface !== null && <div className="terminal-host" ref={terminalRef} />}
+        {surface !== null && (
+          <div className={`terminal-host${foreignSize === null ? "" : " foreign-sized"}`} ref={terminalRef} />
+        )}
+        {foreignSizeHint !== null && <div className="foreign-size-hint">{foreignSizeHint}</div>}
         {!tab && <div className="terminal-empty">{t("noSurface")}</div>}
         {tab?.kind === "browser" && <div className="terminal-empty">{t("browserSurface")}</div>}
         {terminalError && <div className="terminal-error" role="alert">{terminalError}</div>}

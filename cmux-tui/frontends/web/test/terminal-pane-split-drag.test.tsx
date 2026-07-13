@@ -1,11 +1,24 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ClientInfo } from "cmux/browser";
 import { TerminalPane } from "../src/components/TerminalPane";
 import type { ScreenView } from "../src/lib/tree";
 
-vi.mock("../src/hooks/useAttachedTerminal", () => ({
-  useAttachedTerminal: () => ({ terminalRef: () => undefined, focused: false }),
+const attachedTerminal = vi.hoisted(() => ({
+  foreignSize: null as { cols: number; rows: number } | null,
 }));
+
+vi.mock("../src/hooks/useAttachedTerminal", () => ({
+  useAttachedTerminal: () => ({
+    terminalRef: () => undefined,
+    focused: false,
+    foreignSize: attachedTerminal.foreignSize,
+  }),
+}));
+
+beforeEach(() => {
+  attachedTerminal.foreignSize = null;
+});
 
 function screenView(ratio: number, zoomedPane: number | null = null): ScreenView {
   return {
@@ -32,6 +45,7 @@ function screenView(ratio: number, zoomedPane: number | null = null): ScreenView
 function terminalPaneProps(onSetRatio: (pane: number, dir: "right" | "down", ratio: number) => Promise<boolean>) {
   return {
     client: null,
+    clients: [] as ClientInfo[],
     onSelectTab: vi.fn(),
     onNewTab: vi.fn(),
     onSplit: vi.fn(),
@@ -42,6 +56,27 @@ function terminalPaneProps(onSetRatio: (pane: number, dir: "right" | "down", rat
     onCloseSurface: vi.fn(),
     onRenamePane: vi.fn(),
     onRenameSurface: vi.fn(),
+  };
+}
+
+function terminalScreenView(): ScreenView {
+  return {
+    ...screenView(0.5),
+    layout: { type: "leaf", pane: 1 },
+    panes: [{
+      id: 1,
+      name: null,
+      active_tab: 0,
+      tabs: [{
+        surface: 7,
+        kind: "pty",
+        browser_source: null,
+        name: null,
+        title: "shell",
+        size: { cols: 126, rows: 38 },
+        dead: false,
+      }],
+    }],
   };
 }
 
@@ -121,5 +156,63 @@ describe("TerminalPane split dividers", () => {
       expect(onSetRatio).toHaveBeenCalledTimes(1);
       expect(container.querySelector<HTMLElement>(".pane-leaf")?.style.flex).toContain("50%");
     });
+  });
+});
+
+describe("TerminalPane foreign-size indicator", () => {
+  it("renders the true-size marker and names one matching foreign client", () => {
+    attachedTerminal.foreignSize = { cols: 126, rows: 38 };
+    const props = terminalPaneProps(vi.fn(async () => true));
+    props.clients = [
+      {
+        client: 1,
+        transport: "ws",
+        name: "This browser",
+        kind: "web",
+        connected_seconds: 10,
+        attached: [7],
+        sizes: [{ surface: 7, cols: 126, rows: 38 }],
+        self: true,
+      },
+      {
+        client: 2,
+        transport: "unix",
+        name: "office tmux",
+        kind: "tui",
+        connected_seconds: 20,
+        attached: [7],
+        sizes: [{ surface: 7, cols: 126, rows: 38 }],
+        self: false,
+      },
+    ];
+
+    const { container, getByText, rerender } = render(<TerminalPane {...props} screen={terminalScreenView()} />);
+
+    expect(container.querySelector(".terminal-host.foreign-sized")).toBeInTheDocument();
+    expect(getByText("sized by office tmux (126x38)")).toHaveClass("foreign-size-hint");
+
+    attachedTerminal.foreignSize = null;
+    rerender(<TerminalPane {...props} screen={terminalScreenView()} />);
+    expect(container.querySelector(".terminal-host.foreign-sized")).not.toBeInTheDocument();
+    expect(container.querySelector(".foreign-size-hint")).not.toBeInTheDocument();
+  });
+
+  it("uses the takeover hint when more than one foreign client matches", () => {
+    attachedTerminal.foreignSize = { cols: 126, rows: 38 };
+    const props = terminalPaneProps(vi.fn(async () => true));
+    props.clients = [2, 3].map((client) => ({
+      client,
+      transport: "ws" as const,
+      name: `browser ${client}`,
+      kind: "web",
+      connected_seconds: 10,
+      attached: [7],
+      sizes: [{ surface: 7, cols: 126, rows: 38 }],
+      self: false,
+    }));
+
+    const { getByText } = render(<TerminalPane {...props} screen={terminalScreenView()} />);
+
+    expect(getByText("sized by another client (126x38), type to take over")).toBeInTheDocument();
   });
 });

@@ -11,7 +11,7 @@ import type {
   Id,
 } from "cmux/browser";
 import { debounce } from "../lib/debounce";
-import { nextFitSize } from "../lib/fit";
+import { isForeignSmaller, nextFitSize, type TerminalSize } from "../lib/fit";
 import { colorsToCursorOptionsPatch, colorsToThemePatch } from "../lib/terminalColors";
 import { terminalTheme } from "../lib/terminalTheme";
 
@@ -24,6 +24,11 @@ interface AttachedTerminalOptions {
 export function useAttachedTerminal({ client, surface, onError }: AttachedTerminalOptions) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [focused, setFocused] = useState(false);
+  const [foreignSizeState, setForeignSizeState] = useState<{
+    client: CmuxClient;
+    surface: Id;
+    size: TerminalSize;
+  } | null>(null);
   const terminalRef = useCallback((node: HTMLDivElement | null) => setHost(node), []);
 
   useEffect(() => {
@@ -58,10 +63,30 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     // next local keystroke claims the surface back to this pane's fit. The
     // flag makes the claim one applyFit per divergence, not one per key.
     let sizeClaimed = true;
+    const publishForeignSize = (size: TerminalSize | null) => {
+      setForeignSizeState((current) => {
+        if (size === null) return current === null ? current : null;
+        if (
+          current?.client === client
+          && current.surface === surface
+          && current.size.cols === size.cols
+          && current.size.rows === size.rows
+        ) return current;
+        return { client, surface, size };
+      });
+    };
+    const updateForeignSize = (current: TerminalSize, proposed: TerminalSize | undefined) => {
+      publishForeignSize(isForeignSmaller(current, proposed) ? current : null);
+    };
     const applyFit = () => {
       if (cancelled) return;
       sizeClaimed = true;
-      const next = nextFitSize({ cols: terminal.cols, rows: terminal.rows }, fit.proposeDimensions());
+      const current = { cols: terminal.cols, rows: terminal.rows };
+      const proposed = fit.proposeDimensions();
+      const next = nextFitSize(current, proposed);
+      // A local fit is the size claim, including a no-op when the current
+      // terminal already matches the pane.
+      publishForeignSize(null);
       if (!next) return;
       terminal.resize(next.cols, next.rows);
       void client.resizeSurface(surface, next.cols, next.rows).catch(onError);
@@ -114,6 +139,7 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
             applyColors(replay.colors);
             terminal.resize(replay.cols, replay.rows);
             terminal.write(replay.data);
+            updateForeignSize({ cols: replay.cols, rows: replay.rows }, fit.proposeDimensions());
             // Attaching is our interaction: fit the replayed surface to this
             // pane and push it (latest-interaction-wins). Foreign `resized`
             // events below are accepted as-is — the pane clips them — so the
@@ -126,6 +152,7 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
             terminal.reset();
             terminal.resize(resized.cols, resized.rows);
             terminal.write(resized.data);
+            updateForeignSize({ cols: resized.cols, rows: resized.rows }, fit.proposeDimensions());
             // Could be our own echo; applyFit no-ops in that case.
             sizeClaimed = false;
           } else if (event.event === "colors-changed") {
@@ -153,8 +180,12 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       terminal.dispose();
       stage?.style.removeProperty("--surface-background");
       setFocused(false);
+      publishForeignSize(null);
     };
   }, [client, host, onError, surface]);
 
-  return { terminalRef, focused };
+  const foreignSize = host !== null && foreignSizeState?.client === client && foreignSizeState.surface === surface
+    ? foreignSizeState.size
+    : null;
+  return { terminalRef, focused, foreignSize };
 }

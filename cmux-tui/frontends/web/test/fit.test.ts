@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { nextFitSize } from "../src/lib/fit";
+import { isForeignSmaller, nextFitSize } from "../src/lib/fit";
+
+describe("isForeignSmaller", () => {
+  it("detects a foreign size that is smaller on either pane axis", () => {
+    expect(isForeignSmaller({ cols: 80, rows: 30 }, { cols: 100, rows: 30 })).toBe(true);
+    expect(isForeignSmaller({ cols: 100, rows: 24 }, { cols: 100, rows: 30 })).toBe(true);
+    expect(isForeignSmaller({ cols: 80, rows: 40 }, { cols: 100, rows: 30 })).toBe(true);
+  });
+
+  it("does not mark matching, larger, missing, or invalid sizes as foreign-smaller", () => {
+    expect(isForeignSmaller({ cols: 100, rows: 30 }, { cols: 100, rows: 30 })).toBe(false);
+    expect(isForeignSmaller({ cols: 120, rows: 40 }, { cols: 100, rows: 30 })).toBe(false);
+    expect(isForeignSmaller({ cols: 100, rows: 30 }, undefined)).toBe(false);
+    expect(isForeignSmaller({ cols: 100, rows: 30 }, { cols: Number.NaN, rows: 30 })).toBe(false);
+  });
+});
 
 describe("nextFitSize", () => {
   it("refits a wide server replay to the pane size", () => {

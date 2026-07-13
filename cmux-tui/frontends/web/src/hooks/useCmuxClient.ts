@@ -150,7 +150,13 @@ export function useCmuxClient() {
             if (["tree-changed", "layout-changed", "surface-resized", "surface-exited", "title-changed"].includes(event.event)) {
               await refresh();
             }
-            if (event.event === "client-attached" || event.event === "client-changed") {
+            if (
+              event.event === "client-attached"
+              || event.event === "client-changed"
+              // Presence sizes feed the foreign-size hint; refresh them when
+              // a surface is resized so the owning client is named correctly.
+              || event.event === "surface-resized"
+            ) {
               await refreshClients();
             }
             if (event.event === "client-detached") {
