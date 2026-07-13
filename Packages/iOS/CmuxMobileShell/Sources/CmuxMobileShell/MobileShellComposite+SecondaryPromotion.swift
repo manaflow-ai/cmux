@@ -67,6 +67,16 @@ extension MobileShellComposite {
         replaceRemoteClient(with: sub.client)
         foregroundMacDeviceID = macID
         supportedHostCapabilities = sub.supportedHostCapabilities
+        // Promotion reuses the live client without a fresh `mobile.host.status`
+        // probe, so the previous foreground Mac's update hint would otherwise
+        // survive the switch. Recompute against this Mac's capabilities; the
+        // version comes from the just-assigned ticket (nil hides the hint
+        // rather than showing the wrong Mac's).
+        refreshMacUpdateHint(
+            capabilities: sub.supportedHostCapabilities,
+            statusMacAppVersion: nil,
+            macDeviceID: macID
+        )
         workspacesByMac[macID] = MacWorkspaceState(
             macDeviceID: macID,
             displayName: displayName,

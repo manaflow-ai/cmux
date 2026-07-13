@@ -110,10 +110,11 @@ export default function middleware(request: NextRequest) {
     return NextResponse.redirect(url, 301);
   }
 
-  // Legal pages are English-only. Redirect /<locale>/legal-page to /legal-page,
-  // and skip next-intl for /legal-page so locale detection can't redirect back.
+  // The remaining legal pages are English-only. Redirect
+  // /<locale>/legal-page to /legal-page, and skip next-intl for /legal-page so
+  // locale detection can't redirect back. The privacy policy has complete
+  // localized content and follows the normal next-intl path.
   const englishOnlyPages = new Set([
-    "/privacy-policy",
     "/terms-of-service",
     "/eula",
   ]);
