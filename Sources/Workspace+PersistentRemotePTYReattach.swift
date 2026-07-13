@@ -25,12 +25,13 @@ extension Workspace {
         cancelPendingRemoteDisconnectReplacement(surfaceId: surfaceId)
         transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: surfaceId)
         surfaceTTYNames.removeValue(forKey: surfaceId)
-        let removedTrustedDirectory = remoteDirectoryReportPanelIds.remove(surfaceId) != nil
-        if removedTrustedDirectory { clearPanelGitBranch(panelId: surfaceId) }
+        let removedTrustedDirectory = clearRemoteDirectoryReportForPersistentPTYFailure(surfaceId: surfaceId)
         if !sessionEnded { trackRemoteTerminalSurface(surfaceId) }
         syncRemotePortScanTTYs()
-        applyBrowserRemoteWorkspaceStatusToPanels()
-        notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: removedTrustedDirectory)
+        refreshPersistentPTYFailurePresentation(
+            previousDirectory: previousPresentedDirectory,
+            removedTrustedDirectory: removedTrustedDirectory
+        )
     }
 
     /// Replaces dead persistent-PTY panels with require-existing attach wrappers.
