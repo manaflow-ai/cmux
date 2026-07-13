@@ -82,7 +82,8 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var reverseRelayControlMasterForwardSpec: String?
     var cliRelayServer: RemoteCLIRelayServer?
     var remotePortScanTTYNames: [UUID: String] = [:]
-    var remoteScannedPortsByPanel: [UUID: [Int]] = [:]
+    /// Stable publication state for best-effort remote TTY attribution scans.
+    var remotePortScanSnapshot = PortScanSnapshotReconciler<UUID>()
     var remotePortScanBurstActive = false
     var remotePortScanActiveReason: PortScanKickReason?
     var remotePortScanPendingReason: PortScanKickReason?
@@ -92,8 +93,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var remotePortScanBurstTask: Task<Void, Never>?
     var remotePortPollTimer: (any DispatchSourceTimer)?
     var remotePortPollMode: RemotePortPollingMode?
-    var polledRemotePorts: [Int] = []
-    var remotePortPollBaselinePorts: Set<Int>?
+    var remotePortPollState = RemotePortPollState()
     var keepPolledRemotePortsUntilTTYScan = false
     /// Whether remote listening-port discovery (TTY-scoped scan bursts and the
     /// host-wide/delta poll fallback) may spawn ssh. The app derives this from
@@ -254,10 +254,9 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         remotePortScanActiveReason = nil
         remotePortScanPendingReason = nil
         remotePortScanTTYNames.removeAll()
-        remoteScannedPortsByPanel.removeAll()
+        remotePortScanSnapshot.reset()
         stopRemotePortPollingLocked()
-        polledRemotePorts = []
-        remotePortPollBaselinePorts = nil
+        remotePortPollState.reset()
         keepPolledRemotePortsUntilTTYScan = false
         bootstrapRemoteTTYResolved = false
         cancelBootstrapRemoteTTYRetryLocked()
@@ -457,9 +456,9 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             remotePortScanActiveReason = nil
             remotePortScanPendingReason = nil
             cancelRemotePortScanCoalesceLocked()
-            remoteScannedPortsByPanel.removeAll()
+            remotePortScanSnapshot.reset()
             stopRemotePortPollingLocked()
-            polledRemotePorts = []
+            remotePortPollState.reset()
             keepPolledRemotePortsUntilTTYScan = false
             proxyEndpoint = nil
             publishProxyEndpoint(nil)
@@ -513,10 +512,10 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
 
     func publishPortsSnapshotLocked() {
         let detectedByPanel = remotePortScanTTYNames.keys.reduce(into: [UUID: [Int]]()) { result, panelId in
-            result[panelId] = remoteScannedPortsByPanel[panelId] ?? []
+            result[panelId] = remotePortScanSnapshot.snapshot[panelId] ?? []
         }
         let detected = Array(
-            Set(polledRemotePorts)
+            Set(remotePortPollState.publishedPorts)
                 .union(detectedByPanel.values.flatMap { $0 })
         ).sorted()
         host.publishPortsSnapshot(detectedByPanel: detectedByPanel, detected: detected)
