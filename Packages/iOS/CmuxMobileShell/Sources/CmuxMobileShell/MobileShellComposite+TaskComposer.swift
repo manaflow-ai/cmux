@@ -1,4 +1,4 @@
-public import CmuxMobilePairedMac
+internal import CmuxMobilePairedMac
 public import CmuxMobileShellModel
 internal import Foundation
 
