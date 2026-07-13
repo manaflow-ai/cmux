@@ -3,8 +3,6 @@ import Foundation
 
 @MainActor
 extension GhosttySurfaceScrollView {
-    private static let maxPostReplayUnaddressableGeometryUpdates = 32
-
     var notificationScrollPosition: TerminalNotificationScrollPosition? {
         guard let scrollbar = surfaceView.scrollbar else { return nil }
         guard let anchor = TerminalScrollbackViewportAnchor(scrollbar: scrollbar) else { return nil }
@@ -39,7 +37,7 @@ extension GhosttySurfaceScrollView {
             notificationScrollRestoreState = .awaitingPostReplayGeometry(
                 position: position,
                 attemptsRemaining: 2,
-                unaddressableGeometryUpdatesRemaining: Self.maxPostReplayUnaddressableGeometryUpdates
+                provisionalTopRow: nil
             )
             return false
         case .inactive, .awaitingInitialGeometry:
@@ -53,39 +51,29 @@ extension GhosttySurfaceScrollView {
 
     @discardableResult
     func restorePendingNotificationScrollPositionIfReady(
-        consumeUnaddressableGeometryUpdate: Bool = false
+        isPostReplayGeometryUpdate: Bool = false
     ) -> Bool {
         let position: TerminalNotificationScrollPosition
         let attemptsRemaining: Int
         let isPostReplayGeometry: Bool
-        let unaddressableGeometryUpdatesRemaining: Int?
-        let armedBoundaries: (start: String, end: String)?
+        let provisionalTopRow: Int?
         switch notificationScrollRestoreState {
-        case .inactive, .replaying:
+        case .inactive, .armed, .replaying:
             return false
-        case .armed(let expectedStartBoundary, let expectedEndBoundary, let pendingPosition, let pendingAttempts):
-            guard let pendingPosition else { return false }
-            position = pendingPosition
-            attemptsRemaining = pendingAttempts
-            isPostReplayGeometry = false
-            unaddressableGeometryUpdatesRemaining = nil
-            armedBoundaries = (expectedStartBoundary, expectedEndBoundary)
         case .awaitingInitialGeometry(let pendingPosition, let pendingAttempts):
             position = pendingPosition
             attemptsRemaining = pendingAttempts
             isPostReplayGeometry = false
-            unaddressableGeometryUpdatesRemaining = nil
-            armedBoundaries = nil
+            provisionalTopRow = nil
         case .awaitingPostReplayGeometry(
             let pendingPosition,
             let pendingAttempts,
-            let pendingUnaddressableGeometryUpdates
+            let pendingProvisionalTopRow
         ):
             position = pendingPosition
             attemptsRemaining = pendingAttempts
             isPostReplayGeometry = true
-            unaddressableGeometryUpdatesRemaining = pendingUnaddressableGeometryUpdates
-            armedBoundaries = nil
+            provisionalTopRow = pendingProvisionalTopRow
         }
 
         guard attemptsRemaining > 0 else {
@@ -95,29 +83,31 @@ extension GhosttySurfaceScrollView {
         guard let scrollbar = surfaceView.scrollbar else { return false }
         let visibleRows = min(scrollbar.total, scrollbar.len)
         guard visibleRows > 0 else { return false }
+        // Legacy anchors have no captured total, so stale boundary-time geometry
+        // cannot distinguish the saved viewport from a partial replay snapshot.
+        if isPostReplayGeometry,
+           position.totalRows == nil,
+           !isPostReplayGeometryUpdate {
+            return false
+        }
         let capturedTotalRows = position.totalRows ?? Int(clamping: scrollbar.total)
         let anchor = TerminalScrollbackViewportAnchor(
             rowsBelowViewport: position.row,
             capturedTotalRows: capturedTotalRows
         )
         guard let targetTopRow = anchor.topRow(in: scrollbar) else {
-            if !isPostReplayGeometry, armedBoundaries == nil {
+            if !isPostReplayGeometry {
                 clearPendingNotificationScrollRestore()
-            } else if isPostReplayGeometry,
-               consumeUnaddressableGeometryUpdate,
-               let unaddressableGeometryUpdatesRemaining {
-                let remainingAfterUpdate = unaddressableGeometryUpdatesRemaining - 1
-                if remainingAfterUpdate <= 0 {
-                    clearPendingNotificationScrollRestore()
-                } else {
-                    notificationScrollRestoreState = .awaitingPostReplayGeometry(
-                        position: position,
-                        attemptsRemaining: attemptsRemaining,
-                        unaddressableGeometryUpdatesRemaining: remainingAfterUpdate
-                    )
-                }
             }
             return false
+        }
+        // The end boundary is ordered with PTY bytes, but renderer geometry can
+        // arrive later. A matching update confirms the successful provisional
+        // action without issuing the same binding a second time.
+        if isPostReplayGeometryUpdate,
+           provisionalTopRow == targetTopRow {
+            clearPendingNotificationScrollRestore()
+            return true
         }
         let currentLastTopRow = Int(clamping: scrollbar.total - min(scrollbar.total, scrollbar.len))
         let previousUserScrolledAwayFromBottom = userScrolledAwayFromBottom
@@ -129,25 +119,25 @@ extension GhosttySurfaceScrollView {
         let remainingAfterAttempt = attemptsRemaining - 1
         let didRestore = surfaceView.performBindingAction(bindingAction)
         if didRestore {
-            clearPendingNotificationScrollRestore()
+            if isPostReplayGeometry, !isPostReplayGeometryUpdate {
+                notificationScrollRestoreState = .awaitingPostReplayGeometry(
+                    position: position,
+                    attemptsRemaining: attemptsRemaining,
+                    provisionalTopRow: targetTopRow
+                )
+            } else {
+                clearPendingNotificationScrollRestore()
+            }
         } else {
             allowExplicitScrollbarSync = false
             userScrolledAwayFromBottom = previousUserScrolledAwayFromBottom
             if remainingAfterAttempt == 0 {
                 clearPendingNotificationScrollRestore()
-            } else if let armedBoundaries {
-                notificationScrollRestoreState = .armed(
-                    expectedStartBoundary: armedBoundaries.start,
-                    expectedEndBoundary: armedBoundaries.end,
-                    pendingPosition: position,
-                    attemptsRemaining: remainingAfterAttempt
-                )
             } else if isPostReplayGeometry {
                 notificationScrollRestoreState = .awaitingPostReplayGeometry(
                     position: position,
                     attemptsRemaining: remainingAfterAttempt,
-                    unaddressableGeometryUpdatesRemaining: unaddressableGeometryUpdatesRemaining
-                        ?? Self.maxPostReplayUnaddressableGeometryUpdates
+                    provisionalTopRow: provisionalTopRow
                 )
             } else {
                 notificationScrollRestoreState = .awaitingInitialGeometry(
@@ -222,7 +212,7 @@ extension GhosttySurfaceScrollView {
         notificationScrollRestoreState = .awaitingPostReplayGeometry(
             position: pendingPosition,
             attemptsRemaining: 2,
-            unaddressableGeometryUpdatesRemaining: Self.maxPostReplayUnaddressableGeometryUpdates
+            provisionalTopRow: nil
         )
         _ = restorePendingNotificationScrollPositionIfReady()
         return true

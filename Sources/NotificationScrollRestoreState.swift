@@ -15,10 +15,11 @@ enum NotificationScrollRestoreState {
         position: TerminalNotificationScrollPosition,
         attemptsRemaining: Int
     )
+    /// Waits for renderer geometry that confirms or corrects the boundary-time restore.
     case awaitingPostReplayGeometry(
         position: TerminalNotificationScrollPosition,
         attemptsRemaining: Int,
-        unaddressableGeometryUpdatesRemaining: Int
+        provisionalTopRow: Int?
     )
 
     var pendingPosition: TerminalNotificationScrollPosition? {

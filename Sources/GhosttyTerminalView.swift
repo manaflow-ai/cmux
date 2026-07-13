@@ -11424,11 +11424,11 @@ final class GhosttySurfaceScrollView: NSView {
         let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
             _ = synchronizeGeometryAndContent()
-            _ = restorePendingNotificationScrollPositionIfReady(consumeUnaddressableGeometryUpdate: true)
+            _ = restorePendingNotificationScrollPositionIfReady(isPostReplayGeometryUpdate: true)
             return
         }
         synchronizeScrollView()
-        _ = restorePendingNotificationScrollPositionIfReady(consumeUnaddressableGeometryUpdate: true)
+        _ = restorePendingNotificationScrollPositionIfReady(isPostReplayGeometryUpdate: true)
     }
 
     @discardableResult
