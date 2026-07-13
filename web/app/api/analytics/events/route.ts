@@ -204,7 +204,10 @@ async function forwardToPostHog(
   // cannot collide with an account id. The same transform is applied to an
   // `$anon_distinct_id` alias so authenticated identify calls join that funnel.
   const batch = events.map((event) => {
-    const properties = { ...event.properties };
+    // An unauthenticated queued event may contain stale account fields from a
+    // session that was deleted after the tombstone preflight. Preserve only its
+    // event name and namespaced anonymous id so it cannot recreate account data.
+    const properties = userId ? { ...event.properties } : {};
     const anonymousAlias = properties.$anon_distinct_id;
     if (typeof anonymousAlias === "string") {
       properties.$anon_distinct_id = anonymousPostHogDistinctID(anonymousAlias);

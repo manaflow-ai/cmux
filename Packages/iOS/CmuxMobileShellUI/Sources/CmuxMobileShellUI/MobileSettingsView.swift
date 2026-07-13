@@ -244,8 +244,12 @@ struct MobileSettingsView: View {
                 Section {
                     Toggle(isOn: $sendAnonymousTelemetry) {
                         Text(L10n.string(
-                            "mobile.settings.telemetry",
-                            defaultValue: "Share Analytics and Crash Reports"
+                            Self.crashReportingEnabled
+                                ? "mobile.settings.telemetry"
+                                : "mobile.settings.telemetryAnalyticsOnly",
+                            defaultValue: Self.crashReportingEnabled
+                                ? "Share Analytics and Crash Reports"
+                                : "Share Anonymous Analytics"
                         ))
                     }
                     .accessibilityIdentifier("MobileSettingsTelemetryToggle")
@@ -253,8 +257,12 @@ struct MobileSettingsView: View {
                     Text(L10n.string("mobile.settings.privacy", defaultValue: "Privacy"))
                 } footer: {
                     Text(L10n.string(
-                        "mobile.settings.telemetryFooter",
-                        defaultValue: "When off, cmux does not send iPhone or iPad product analytics or crash reports."
+                        Self.crashReportingEnabled
+                            ? "mobile.settings.telemetryFooter"
+                            : "mobile.settings.telemetryAnalyticsOnlyFooter",
+                        defaultValue: Self.crashReportingEnabled
+                            ? "When off, cmux does not send iPhone or iPad product analytics or crash reports."
+                            : "When off, cmux does not send iPhone or iPad product analytics."
                     ))
                 }
 
@@ -320,6 +328,17 @@ struct MobileSettingsView: View {
             }
         }
         .accessibilityIdentifier("MobileSettingsView")
+    }
+
+    private static var crashReportingEnabled: Bool {
+        switch Bundle.main.object(forInfoDictionaryKey: "CMUXCrashReportingEnabled") {
+        case let enabled as Bool:
+            enabled
+        case let enabled as String:
+            enabled.caseInsensitiveCompare("NO") != .orderedSame
+        default:
+            true
+        }
     }
 
     /// Which setup gate to mark as the user's current blocker. Settings is reached

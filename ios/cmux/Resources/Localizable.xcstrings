@@ -4676,6 +4676,40 @@
         }
       }
     },
+    "mobile.settings.telemetryAnalyticsOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share Anonymous Analytics"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匿名の分析情報を共有"
+          }
+        }
+      }
+    },
+    "mobile.settings.telemetryAnalyticsOnlyFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, cmux does not send iPhone or iPad product analytics."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフの場合、cmux は iPhone または iPad の製品分析を送信しません。"
+          }
+        }
+      }
+    },
     "mobile.settings.telemetryFooter": {
       "extractionState": "manual",
       "localizations": {
