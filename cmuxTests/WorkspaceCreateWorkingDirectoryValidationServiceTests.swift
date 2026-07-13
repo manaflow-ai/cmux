@@ -158,7 +158,7 @@ import Testing
                     : TerminalController.v2WorkingDirectoryProbeLane(path)
             },
             probe: { path, lane in await probe.run(path: path, lane: lane) },
-            sleepUntilDeadline: { _ in await deadlines.sleep() }
+            sleepUntilDeadline: { _ in await deadlines.suspendUntilFired() }
         )
         let linked = Task { await service.validate(rawValue: linkedPath, isProvided: true) }
         let external = Task { await service.validate(rawValue: externalPath, isProvided: true) }
@@ -207,7 +207,7 @@ import Testing
                 await lanes.record(lane)
                 return await TerminalController.v2ProbeWorkingDirectory(path, lane: lane)
             },
-            sleepUntilDeadline: { _ in await deadlines.sleep() }
+            sleepUntilDeadline: { _ in await deadlines.suspendUntilFired() }
         )
 
         let result = await service.validate(rawValue: candidate.path, isProvided: true)
@@ -269,7 +269,7 @@ import Testing
             externalCapacity: 2,
             laneClassifier: { path in path.hasPrefix("/external/") ? .external : .local },
             probe: { path, lane in await probe.run(path: path, lane: lane) },
-            sleepUntilDeadline: { _ in await deadlines.sleep() }
+            sleepUntilDeadline: { _ in await deadlines.suspendUntilFired() }
         )
     }
 
@@ -338,15 +338,15 @@ private actor ChosenProbeLaneRecorder {
 
 private actor ControlledValidationDeadlines {
     private var totalCount = 0
-    private var sleepers: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var suspended: [UUID: CheckedContinuation<Void, Never>] = [:]
     private var countWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
-    func sleep() async {
+    func suspendUntilFired() async {
         let id = UUID()
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 totalCount += 1
-                sleepers[id] = continuation
+                suspended[id] = continuation
                 resumeCountWaiters()
             }
         } onCancel: {
@@ -360,13 +360,13 @@ private actor ControlledValidationDeadlines {
     }
 
     func fireAll() {
-        let continuations = Array(sleepers.values)
-        sleepers.removeAll()
+        let continuations = Array(suspended.values)
+        suspended.removeAll()
         for continuation in continuations { continuation.resume() }
     }
 
     private func cancel(id: UUID) {
-        sleepers.removeValue(forKey: id)?.resume()
+        suspended.removeValue(forKey: id)?.resume()
     }
 
     private func resumeCountWaiters() {
