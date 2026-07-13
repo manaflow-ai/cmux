@@ -10,7 +10,10 @@ import Testing
 #endif
 
 extension AgentNotificationRegressionTests {
-    func waitForMarker(at url: URL, timeout: Duration = .seconds(5)) async -> Bool {
+    // Generous for loaded CI runners: subprocess spawn, signal propagation,
+    // and marker writes can take multiple seconds there. A long timeout only
+    // slows the failure path.
+    func waitForMarker(at url: URL, timeout: Duration = .seconds(15)) async -> Bool {
         let deadline = ContinuousClock.now + timeout
         while !FileManager.default.fileExists(atPath: url.path), ContinuousClock.now < deadline {
             try? await Task.sleep(for: .milliseconds(10))
@@ -264,7 +267,7 @@ extension AgentNotificationRegressionTests {
             surfaceId: fixture.panelId
         )
 
-        #expect(await waitForMarker(at: terminatedURL, timeout: .seconds(2)))
+        #expect(await waitForMarker(at: terminatedURL))
     }
 
     @Test("Agent runtime mutations follow a pane that moves before queue drain")

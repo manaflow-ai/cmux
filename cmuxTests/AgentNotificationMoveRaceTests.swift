@@ -105,7 +105,8 @@ struct AgentNotificationRegressionTests {
     }
 
     func waitForNotification(in store: TerminalNotificationStore) async {
-        let deadline = ContinuousClock.now + .seconds(5)
+        // Generous for loaded CI runners; only slows the failure path.
+        let deadline = ContinuousClock.now + .seconds(15)
         while store.notifications.isEmpty, ContinuousClock.now < deadline {
             await Task.yield()
         }
@@ -115,7 +116,8 @@ struct AgentNotificationRegressionTests {
     }
 
     private func waitForFile(at url: URL) async -> Bool {
-        let deadline = ContinuousClock.now + .seconds(5)
+        // Generous for loaded CI runners; only slows the failure path.
+        let deadline = ContinuousClock.now + .seconds(15)
         while !FileManager.default.fileExists(atPath: url.path), ContinuousClock.now < deadline {
             try? await Task.sleep(for: .milliseconds(10))
         }
