@@ -180,16 +180,8 @@ final class BonsplitTabDragUITests: XCTestCase {
     }
 
     func testRightSidebarTitlebarToggleStaysAvailableAcrossVisibilityChanges() {
-        for presentationMode in [WorkspacePresentationMode.minimal, .standard] {
-            assertRightSidebarTitlebarToggleFlow(presentationMode: presentationMode)
-        }
-    }
-
-    private func assertRightSidebarTitlebarToggleFlow(
-        presentationMode: WorkspacePresentationMode
-    ) {
         let (app, dataPath) = launchConfiguredApp(
-            presentationMode: presentationMode,
+            presentationMode: .standard,
             showRightSidebar: true,
             alwaysShowShortcutHints: true
         )
@@ -197,7 +189,7 @@ final class BonsplitTabDragUITests: XCTestCase {
 
         XCTAssertTrue(
             ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
-            "Expected app to launch for \(presentationMode.rawValue)-mode right-sidebar titlebar toggle UI test. state=\(app.state.rawValue)"
+            "Expected app to launch for right-sidebar titlebar toggle UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
         guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
@@ -226,27 +218,25 @@ final class BonsplitTabDragUITests: XCTestCase {
             waitForCondition(timeout: 3.0) { openAsPaneButton.isHittable },
             "Expected right sidebar open-as-pane button to be hittable. button=\(openAsPaneButton.debugDescription)"
         )
-        if presentationMode == .standard {
-            let mobileConnectButton = app.buttons["TitlebarMobileConnectButton"]
-            XCTAssertTrue(
-                mobileConnectButton.waitForExistence(timeout: 5.0),
-                "Expected the default-enabled Mobile Connect control in the standard titlebar."
-            )
-            let proBadgeButton = app.buttons["ProBadgeButton"]
-            let leftmostTrailingControl = proBadgeButton.waitForExistence(timeout: 1.0)
-                ? proBadgeButton
-                : mobileConnectButton
-            XCTAssertLessThan(
-                openAsPaneButton.frame.maxX,
-                leftmostTrailingControl.frame.minX,
-                "Expected the sidebar header action to remain left of the native trailing controls."
-            )
-            XCTAssertLessThan(
-                mobileConnectButton.frame.maxX,
-                titlebarToggle.frame.minX,
-                "Expected the right sidebar toggle to remain the far-right titlebar control."
-            )
-        }
+        let mobileConnectButton = app.buttons["TitlebarMobileConnectButton"]
+        XCTAssertTrue(
+            mobileConnectButton.waitForExistence(timeout: 5.0),
+            "Expected the default-enabled Mobile Connect control in the standard titlebar."
+        )
+        let proBadgeButton = app.buttons["ProBadgeButton"]
+        let leftmostTrailingControl = proBadgeButton.waitForExistence(timeout: 1.0)
+            ? proBadgeButton
+            : mobileConnectButton
+        XCTAssertLessThan(
+            openAsPaneButton.frame.maxX,
+            leftmostTrailingControl.frame.minX,
+            "Expected the sidebar header action to remain left of the native trailing controls."
+        )
+        XCTAssertLessThan(
+            mobileConnectButton.frame.maxX,
+            titlebarToggle.frame.minX,
+            "Expected the right sidebar toggle to remain the far-right titlebar control."
+        )
 
         titlebarToggle.click()
         XCTAssertTrue(
@@ -277,6 +267,40 @@ final class BonsplitTabDragUITests: XCTestCase {
                     && !titlebarToggle.isSelected && !openAsPaneButton.isHittable
             },
             "Expected the titlebar toggle to hide the reopened right sidebar."
+        )
+
+        setMinimalMode(true, app: app)
+        XCTAssertTrue(
+            waitForCondition(timeout: 5.0) {
+                titlebarToggle.exists && titlebarToggle.isHittable && !titlebarToggle.isSelected
+            },
+            "Expected the dynamic toggle query to follow the custom minimal-mode host."
+        )
+
+        setMinimalMode(false, app: app)
+        XCTAssertTrue(
+            waitForCondition(timeout: 5.0) {
+                titlebarToggle.exists && titlebarToggle.isHittable && !titlebarToggle.isSelected
+            },
+            "Expected the dynamic toggle query to return to the native standard-mode host."
+        )
+    }
+
+    private func setMinimalMode(_ enabled: Bool, app: XCUIApplication) {
+        app.typeKey("p", modifierFlags: [.command, .shift])
+        let searchField = app.textFields["CommandPaletteSearchField"].firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5.0), "Expected command palette search field.")
+        searchField.click()
+        searchField.typeText(enabled ? "Enable Minimal Mode" : "Disable Minimal Mode")
+
+        let firstResult = app.descendants(matching: .any)
+            .matching(identifier: "CommandPaletteResultRow.0")
+            .firstMatch
+        XCTAssertTrue(firstResult.waitForExistence(timeout: 5.0), "Expected minimal-mode command result.")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+        XCTAssertTrue(
+            waitForCondition(timeout: 5.0) { !searchField.exists },
+            "Expected the minimal-mode command to dismiss the command palette."
         )
     }
 

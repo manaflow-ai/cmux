@@ -2,11 +2,18 @@ import SwiftUI
 
 /// Hosts the right-sidebar toggle in custom title-bar modes.
 struct RightSidebarTitlebarToggleOverlay: View {
-    let isPresented: Bool
+    let isFullScreen: Bool
     let config: TitlebarControlsStyleConfig
     let isVisible: Bool
     let colorScheme: ColorScheme
     let action: () -> Void
+    @AppStorage(WorkspacePresentationModeSettings.modeKey)
+    private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
+
+    private var isPresented: Bool {
+        isFullScreen
+            || WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
+    }
 
     @ViewBuilder
     var body: some View {

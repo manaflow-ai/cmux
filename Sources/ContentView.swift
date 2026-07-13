@@ -2407,7 +2407,7 @@ struct ContentView: View {
             }
                 .overlay(alignment: .topTrailing) {
                     RightSidebarTitlebarToggleOverlay(
-                        isPresented: currentIsMinimalMode || isFullScreen,
+                        isFullScreen: isFullScreen,
                         config: TitlebarControlsStyle.stored(rawValue: titlebarControlsStyleRawValue).config,
                         isVisible: rightSidebarVisible,
                         colorScheme: rightSidebarVisible

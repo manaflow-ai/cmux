@@ -6,8 +6,10 @@ struct RightSidebarTitlebarToggleButton: View {
     let isVisible: Bool
     let foregroundColor: Color
     let action: () -> Void
+    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
 
     var body: some View {
+        let _ = keyboardShortcutSettingsObserver.revision
         TitlebarControlButton(
             config: config,
             foregroundColor: foregroundColor,
