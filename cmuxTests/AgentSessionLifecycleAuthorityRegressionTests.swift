@@ -220,6 +220,42 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(runs.first?["restoreAuthority"] as? Bool == false)
     }
 
+    @Test func childRunCannotGainRestoreAuthorityAfterProcessGenerationChanges() throws {
+        let existing = AgentSessionRunRecord(
+            runId: "stable-child-run",
+            pid: 101,
+            processStartedAt: 100,
+            parentRunId: "root-run",
+            parentSessionId: "root-session",
+            relationship: .spawned,
+            restoreAuthority: false,
+            startedAt: 100,
+            updatedAt: 110,
+            endedAt: nil
+        )
+        let replacement = AgentHookSessionLineage(
+            runId: "stable-child-run",
+            pid: 202,
+            processStartedAt: 200,
+            parentRunId: nil,
+            parentSessionId: nil,
+            relationship: nil,
+            restoreAuthority: true
+        )
+
+        let runs = AgentSessionRunReconciler(maximumRecords: 128).reconciling(
+            [existing],
+            activeRunId: existing.runId,
+            lineage: replacement,
+            now: 210
+        )
+        let run = try #require(runs.first)
+
+        #expect(run.processStartedAt == 200)
+        #expect(run.relationship == .spawned)
+        #expect(run.restoreAuthority == false)
+    }
+
     @Test func agentsTreeReportsMalformedProviderStore() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
