@@ -167,8 +167,12 @@ extension MobileShellComposite {
         guard case .start(let episode) = effect else { return }
         if episode.kind == .reconnect, connectionLifecycleRetiredTask != nil {
             // A cancellation-insensitive reconnect still owns the underlying
-            // dependency. Fail replacement demand instead of stacking another
-            // task behind the same wedged store or transport.
+            // dependency. Coalesce explicit Retry demand for replay after the
+            // retired slot drains instead of stacking another task behind the
+            // same wedged store or transport.
+            if episode.triggers.contains(.manualRetry) {
+                connectionLifecycleReconnectPendingAfterRetirement = true
+            }
             finishConnectionLifecycleEpisode(id: episode.id, succeeded: false)
             return
         }

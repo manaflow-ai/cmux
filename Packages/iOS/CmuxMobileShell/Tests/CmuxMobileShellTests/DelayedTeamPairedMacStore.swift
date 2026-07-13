@@ -35,7 +35,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws {
-        if gatedUpsertIDs.contains(macDeviceID) {
+        if gatedUpsertIDs.remove(macDeviceID) != nil {
             markUpsertStarted(macDeviceID)
             await withCheckedContinuation { continuation in
                 upsertBlockers[macDeviceID] = continuation

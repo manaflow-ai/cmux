@@ -78,6 +78,7 @@ extension MobileShellComposite {
     func persistPairedMacFromTicket(
         _ ticket: CmxAttachTicket,
         clearsForgottenMac: Bool = true,
+        reconnectSourceMacDeviceID: String? = nil,
         ifStillCurrent: (() -> Bool)? = nil
     ) async {
         guard let pairedMacStore else { return }
@@ -95,23 +96,31 @@ extension MobileShellComposite {
             }
             var displayName = ticketDisplayName
             var storedRoutes: [CmxAttachRoute] = []
+            let previousPersistedMac: MobilePairedMac?
             if displayName == nil {
                 let knownMacs = (try? await pairedMacStore.loadAll(
                     stackUserID: nil,
                     teamID: scope?.teamID
                 )) ?? []
                 let matches = knownMacs.filter { $0.macDeviceID == ticket.macDeviceID }
-                displayName = (matches.first { $0.stackUserID == stackUserID } ?? matches.first)?
-                    .displayName
-                storedRoutes = (matches.first { $0.stackUserID == stackUserID } ?? matches.first)?
-                    .routes ?? []
+                previousPersistedMac = matches.first { $0.stackUserID == stackUserID }
+                    ?? matches.first
+                displayName = previousPersistedMac?.displayName
+                storedRoutes = previousPersistedMac?.routes ?? []
             } else {
                 let scopedMacs = (try? await pairedMacStore.loadAll(
                     stackUserID: stackUserID,
                     teamID: scope?.teamID
                 )) ?? []
-                storedRoutes = scopedMacs.first { $0.macDeviceID == ticket.macDeviceID }?.routes ?? []
+                previousPersistedMac = scopedMacs.first {
+                    $0.macDeviceID == ticket.macDeviceID
+                }
+                storedRoutes = previousPersistedMac?.routes ?? []
             }
+            let previousActiveMac = try? await pairedMacStore.activeMac(
+                stackUserID: stackUserID,
+                teamID: scope?.teamID
+            )
             guard ifStillCurrent?() ?? true else {
                 await self.removePersistedMacIfForgotten(
                     ticket.macDeviceID,
@@ -137,8 +146,11 @@ extension MobileShellComposite {
                     now: Date()
                 )
                 guard ifStillCurrent?() ?? true else {
-                    await self.removePersistedMacIfForgotten(
-                        ticket.macDeviceID,
+                    await self.rollbackStaleReconnectPersistenceIfNeeded(
+                        persistedMacDeviceID: ticket.macDeviceID,
+                        reconnectSourceMacDeviceID: reconnectSourceMacDeviceID,
+                        previousPersistedMac: previousPersistedMac,
+                        previousActiveMac: previousActiveMac,
                         scope: scope,
                         store: pairedMacStore
                     )
@@ -155,6 +167,62 @@ extension MobileShellComposite {
             } catch {
                 mobileShellLog.error("paired mac store upsert failed: \(String(describing: error), privacy: .public)")
             }
+        }
+    }
+
+    /// Rolls back a cancellation-insensitive upsert when Forget revoked the
+    /// stored route that produced a ticket for a different real Mac identity.
+    func rollbackStaleReconnectPersistenceIfNeeded(
+        persistedMacDeviceID: String,
+        reconnectSourceMacDeviceID: String?,
+        previousPersistedMac: MobilePairedMac?,
+        previousActiveMac: MobilePairedMac?,
+        scope: MobileShellScopeSnapshot?,
+        store: any MobilePairedMacStoring
+    ) async {
+        guard let scope else { return }
+        if await isForgottenMacDeviceID(persistedMacDeviceID, scope: scope) {
+            await removePersistedMacIfForgotten(
+                persistedMacDeviceID,
+                scope: scope,
+                store: store
+            )
+            return
+        }
+        guard let reconnectSourceMacDeviceID,
+              reconnectSourceMacDeviceID != persistedMacDeviceID,
+              await isForgottenMacDeviceID(reconnectSourceMacDeviceID, scope: scope) else {
+            return
+        }
+        do {
+            if let previousPersistedMac {
+                try await store.upsert(
+                    macDeviceID: previousPersistedMac.macDeviceID,
+                    displayName: previousPersistedMac.displayName,
+                    routes: previousPersistedMac.routes,
+                    markActive: previousPersistedMac.isActive,
+                    stackUserID: previousPersistedMac.stackUserID,
+                    teamID: previousPersistedMac.teamID,
+                    now: previousPersistedMac.lastSeenAt
+                )
+            } else {
+                try await store.remove(
+                    macDeviceID: persistedMacDeviceID,
+                    stackUserID: scope.userID,
+                    teamID: scope.teamID
+                )
+            }
+            if let previousActiveMac,
+               previousActiveMac.macDeviceID != persistedMacDeviceID,
+               !(await isForgottenMacDeviceID(previousActiveMac.macDeviceID, scope: scope)) {
+                try await store.setActive(
+                    macDeviceID: previousActiveMac.macDeviceID,
+                    stackUserID: scope.userID,
+                    teamID: scope.teamID
+                )
+            }
+        } catch {
+            mobileShellLog.error("stale reconnect persistence rollback failed mac=\(persistedMacDeviceID, privacy: .private) error=\(String(describing: error), privacy: .public)")
         }
     }
 

@@ -1516,7 +1516,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         connectPreviewHost()
     }
-
     /// Connect to a manually-entered Mac host and optionally associate the
     /// resulting session with an existing paired-Mac device id.
     public func connectManualHost(
@@ -1525,6 +1524,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         port: Int,
         pairedMacDeviceID: String? = nil
     ) async {
+        prepareForManualPairing()
         await connectManualHost(
             name: name,
             host: host,
@@ -1533,7 +1533,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             recordsPairingAttempt: true
         )
     }
-
     private func connectStoredMacHost(
         name: String,
         host: String,
@@ -4897,6 +4896,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     await persistPairedMacFromTicket(
                         ticket,
                         clearsForgottenMac: clearsForgottenMac,
+                        reconnectSourceMacDeviceID: pairedMacDeviceID,
                         ifStillCurrent: isConnectCurrent
                     )
                     guard isConnectCurrent() else { return nil }

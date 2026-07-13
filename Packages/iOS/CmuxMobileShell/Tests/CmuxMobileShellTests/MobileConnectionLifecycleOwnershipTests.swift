@@ -93,7 +93,16 @@ import Testing
         await pairedMacStore.release(teamID: nil)
         _ = await reconnect.value
         #expect(try await pollUntil {
+            await pairedMacStore.currentLoadStartCount(teamID: nil) == 2
+        })
+        let startedThird = try await pollUntil(attempts: 50) {
+            await pairedMacStore.currentLoadStartCount(teamID: nil) > 2
+        }
+        #expect(!startedThird)
+        await pairedMacStore.release(teamID: nil)
+        #expect(try await pollUntil {
             store.connectionResourceSnapshotForTesting().retiredLifecycleTaskCount == 0
+                && store.connectionLifecycle.activeEpisode == nil
         })
         let resources = store.connectionResourceSnapshotForTesting()
         #expect(resources.activeEpisodeCount == 0)
@@ -303,19 +312,74 @@ import Testing
         let remaining = try await pairedMacStore.loadAll(stackUserID: "user-1", teamID: nil)
         #expect(remaining.isEmpty)
     }
+
+    @Test func mismatchedTicketRollbackPreservesPreviouslySavedDestination() async throws {
+        let router = LivenessHostRouter()
+        await router.setAttachTicketMacDeviceID("mac-b")
+        let box = TransportBox()
+        let clock = TestClock()
+        let route = try CmxAttachRoute(
+            id: "debug_loopback",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        let pairedMacStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "": [
+                    storedReconnectMac(id: "mac-a", route: route),
+                    storedReconnectMac(
+                        id: "mac-b",
+                        displayName: "Saved B",
+                        route: route,
+                        isActive: false
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        await pairedMacStore.gateUpsert(macDeviceID: "mac-b")
+        let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: LivenessTransportFactory(router: router, box: box),
+                now: { clock.now }
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedMacStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1")
+        )
+        let reconnect = Task { @MainActor in
+            await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        await pairedMacStore.waitUntilUpsertStarted(macDeviceID: "mac-b")
+
+        await store.forgetStoredMac(macDeviceID: "mac-a")
+        await pairedMacStore.releaseUpsert(macDeviceID: "mac-b")
+
+        #expect(await reconnect.value == false)
+        #expect(try await pollUntil {
+            store.connectionResourceSnapshotForTesting().retiredLifecycleTaskCount == 0
+        })
+        let remaining = try await pairedMacStore.loadAll(stackUserID: "user-1", teamID: nil)
+        #expect(remaining.count == 1)
+        #expect(remaining.first?.macDeviceID == "mac-b")
+        #expect(remaining.first?.displayName == "Saved B")
+        #expect(remaining.first?.isActive == false)
+    }
 }
 
 private func storedReconnectMac(
     id: String = "test-mac",
-    route: CmxAttachRoute
+    displayName: String = "Test Mac",
+    route: CmxAttachRoute,
+    isActive: Bool = true
 ) -> MobilePairedMac {
     MobilePairedMac(
         macDeviceID: id,
-        displayName: "Test Mac",
+        displayName: displayName,
         routes: [route],
         createdAt: Date(),
         lastSeenAt: Date(),
-        isActive: true,
+        isActive: isActive,
         stackUserID: "user-1"
     )
 }
