@@ -225,6 +225,21 @@ import Testing
         #expect(result.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
     }
 
+    @Test func implicitAppendKeepsQuotedEscapedAndEmbeddedHashesAsTokens() {
+        let commands = [
+            "agent '#'",
+            "agent \"#\"",
+            "agent \\#",
+            "agent word#suffix",
+        ]
+
+        for command in commands {
+            let template = MobileTaskTemplate(name: "Hash", icon: "terminal", command: command)
+            let result = composer.compose(template: template, prompt: "ship it")
+            #expect(result.initialCommand == command + " -- \"${CMUX_TASK_PROMPT}\"")
+        }
+    }
+
     @Test func appendModeLeavesCommandUnchangedForEmptyPrompt() {
         let template = MobileTaskTemplate(name: "Codex", icon: "sparkles", command: "codex")
 
