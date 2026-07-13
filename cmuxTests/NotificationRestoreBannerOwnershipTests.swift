@@ -10,6 +10,46 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct NotificationRestoreBannerOwnershipTests {
+    @Test func duplicateIdentityDegradesToFirstRowInUnreadNavigation() {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let duplicateId = UUID()
+        let first = notification(
+            id: duplicateId, tabId: tabId, surfaceId: surfaceId,
+            title: "First canonical row", createdAt: Date(timeIntervalSince1970: 20)
+        )
+        let duplicate = notification(
+            id: duplicateId, tabId: tabId, surfaceId: surfaceId,
+            title: "Corrupt duplicate", createdAt: Date(timeIntervalSince1970: 10)
+        )
+        defer { store.replaceNotificationsForTesting(previousNotifications) }
+
+        store.replaceNotificationsForTesting([first, duplicate])
+        #expect(store.markLatestNotificationAsOldestUnread(forTabId: tabId, surfaceId: surfaceId) == duplicateId)
+        #expect(store.notificationsForUnreadNavigation.map(\.title) == ["First canonical row"])
+    }
+
+    @Test func duplicateIdentityDegradesToFirstRowDuringBannerReconcile() {
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let duplicateId = UUID()
+        let first = notification(
+            id: duplicateId, tabId: tabId, surfaceId: surfaceId,
+            title: "First canonical row", createdAt: Date(timeIntervalSince1970: 20)
+        )
+        let duplicate = notification(
+            id: duplicateId, tabId: tabId, surfaceId: surfaceId,
+            title: "Corrupt duplicate", createdAt: Date(timeIntervalSince1970: 10)
+        )
+        var ownership = ExternalNotificationBannerOwnership()
+
+        ownership.reconcile(previous: [], merged: [first, duplicate])
+
+        #expect(ownership.owner(tabId: tabId, surfaceId: surfaceId)?.title == "First canonical row")
+    }
+
     @Test func restoredNewerRowDoesNotOwnLiveBannerRowActions() {
         let store = TerminalNotificationStore.shared
         let previousNotifications = store.notifications
