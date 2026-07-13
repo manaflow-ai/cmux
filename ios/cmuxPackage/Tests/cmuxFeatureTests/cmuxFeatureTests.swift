@@ -2407,10 +2407,22 @@ struct TerminalStreamTests {
     let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
 
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
+    // Anchor on the cold replay's DELIVERY, not just its request: submitting
+    // input while the first replay's response is still in flight races the
+    // input-triggered resync against the in-flight replay's barrier state,
+    // and one interleaving legitimately skips the second replay (the flaky
+    // iPad failure in https://github.com/manaflow-ai/cmux/issues/7820). The
+    // scenario under test is a phone SETTLED at stale content learning from
+    // an input ack that the mac is ahead.
+    for _ in 0..<4000 where !collector.lines.contains(oldGridText) {
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+    #expect(collector.lines.last == oldGridText)
 
     await store.submitTerminalRawInput(Data("x".utf8), surfaceID: "live-terminal")
 
-    _ = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
+    let replayRequests = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
+    #expect(replayRequests.count >= 2)
     _ = try await waitForRequestCount("mobile.events.subscribe", count: 2, router: router)
     // The request-count waits only prove the second replay was REQUESTED; its
     // response still has to round-trip and deliver. The slower CI iPad leg
