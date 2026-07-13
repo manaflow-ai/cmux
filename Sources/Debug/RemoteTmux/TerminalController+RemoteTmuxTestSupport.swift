@@ -61,7 +61,7 @@ extension TerminalController {
             var env = environment
             env["TMUX_TMPDIR"] = tmpdir
             env.removeValue(forKey: "TMUX")
-            let result = try await runBoundedRemoteTmuxTestCommand(
+            let result = try await self.runBoundedRemoteTmuxTestCommand(
                 executable: bin,
                 arguments: ["-f", "/dev/null"] + args,
                 environment: env
@@ -158,8 +158,8 @@ extension TerminalController {
 
         return try await withTaskCancellationHandler {
             try Task.checkCancellation()
-            async let stdout = readBoundedRemoteTmuxTestOutput(stdoutHandle)
-            async let stderr = readBoundedRemoteTmuxTestOutput(stderrHandle)
+            async let stdout = self.readBoundedRemoteTmuxTestOutput(stdoutHandle)
+            async let stderr = self.readBoundedRemoteTmuxTestOutput(stderrHandle)
             do {
                 try process.run()
             } catch {
