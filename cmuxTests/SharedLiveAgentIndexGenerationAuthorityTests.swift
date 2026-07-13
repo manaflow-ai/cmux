@@ -117,6 +117,60 @@ struct SharedLiveAgentIndexGenerationAuthorityTests {
         await timeoutWaiter.cancelAll()
     }
 
+    @Test
+    func timedOutFingerprintValidationDoesNotStartFullLoadOrRetainCapacity() async throws {
+        let timeoutWaiter = ManualGenerationTimeoutWaiter()
+        let fingerprintStarted = DispatchSemaphore(value: 0)
+        let releaseFingerprint = DispatchSemaphore(value: 0)
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        defer { releaseFingerprint.signal() }
+        let now = Date()
+        let hookDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-timed-out-validation-work-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: hookDirectory) }
+        let cachedResult: SharedLiveAgentIndex.LoadResult = (
+            index: .empty,
+            surfaceResumeBindingIndex: .empty,
+            liveAgentProcessFingerprint: [],
+            processScopeFingerprint: ["scope"],
+            forkValidatedPanels: []
+        )
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                loadCount.withLock { $0 += 1 }
+                return cachedResult
+            },
+            processScopeFingerprintProvider: {
+                fingerprintStarted.signal()
+                releaseFingerprint.wait()
+                return ["scope"]
+            },
+            generationTimeoutWaiter: { await timeoutWaiter.wait() },
+            hookStoreDirectoryProvider: { hookDirectory.path },
+            dateProvider: { now }
+        )
+        sharedIndex.latestCompletedLoadResult = cachedResult
+        sharedIndex.latestCompletedAt = now
+
+        let read = Task { @MainActor in
+            await sharedIndex.resumeIndexesRefreshingIfNeeded(maximumAge: 60)
+        }
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: fingerprintStarted))
+        await timeoutWaiter.waitUntilPendingCount(1)
+        let generationID = try #require(sharedIndex.refreshTailID)
+        let workTask = try #require(sharedIndex.refreshWorkTasksByID[generationID])
+        await timeoutWaiter.fireNext()
+        #expect(await read.value == nil)
+
+        releaseFingerprint.signal()
+        await workTask.value
+
+        #expect(loadCount.withLock { $0 } == 0)
+        #expect(sharedIndex.refreshGenerationsByID[generationID] == nil)
+        #expect(!sharedIndex.capturingGenerationIDs.contains(generationID))
+        #expect(sharedIndex.refreshTailID == nil)
+    }
+
     private static func sessionId(
         in indexes: ProcessDetectedResumeIndexes?,
         workspaceId: UUID,

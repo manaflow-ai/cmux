@@ -291,6 +291,147 @@ extension AgentHibernationPlannerSwiftTests {
         )
     }
 
+    @MainActor
+    @Test
+    func unavailablePostQuiescenceIndexRetainsRecoveryWithoutStalePIDMonitor() async throws {
+        let controller = AgentHibernationController.shared
+        let wasEnabled = AgentHibernationTrackingGate.isEnabled()
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = previousAppDelegate ?? AppDelegate()
+        let sessionId = "post-quiescence-unavailable-\(UUID().uuidString)"
+        let snapshotDirectory = try #require(
+            FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        )
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("agent-transcript-teardown-snapshots", isDirectory: true)
+        let retainedSnapshot = snapshotDirectory
+            .appendingPathComponent("\(sessionId)-retained.jsonl", isDirectory: false)
+        try? FileManager.default.removeItem(at: retainedSnapshot)
+        defer {
+            try? FileManager.default.removeItem(at: retainedSnapshot)
+            if previousAppDelegate == nil, AppDelegate.shared === appDelegate {
+                AppDelegate.shared = nil
+            }
+            AgentHibernationTrackingGate.setEnabled(wasEnabled)
+            resetSharedHibernationState(controller)
+        }
+
+        let testDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-post-quiescence-unavailable-\(UUID().uuidString)", isDirectory: true)
+        let configRoot = testDirectory.appendingPathComponent("claude-config", isDirectory: true)
+        let workingDirectory = "/tmp/cmux-post-quiescence-unavailable-\(UUID().uuidString)"
+        let transcriptURL = configRoot
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(
+                RestorableAgentSessionIndex.encodeClaudeProjectDir(workingDirectory),
+                isDirectory: true
+            )
+            .appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try #"{"type":"user","message":{"role":"user","content":"retain this turn"}}"#.write(
+            to: transcriptURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: testDirectory) }
+
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
+        let panelKey = AgentHibernationPanelKey(workspaceId: workspace.id, panelId: panelId)
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: sessionId,
+            workingDirectory: workingDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/usr/local/bin/claude",
+                arguments: ["/usr/local/bin/claude"],
+                workingDirectory: workingDirectory,
+                environment: ["CLAUDE_CONFIG_DIR": configRoot.path],
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        workspace.setRestoredAgentSnapshotForTesting(agent, panelId: panelId)
+        workspace.setAgentLifecycle(key: "claude.post-quiescence-unavailable", panelId: panelId, lifecycle: .idle)
+
+        let priorMonitorRequestID = UUID()
+        let priorMonitor = Task.detached {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+            }
+        }
+        #expect(controller.storePostTeardownRestoreTask(
+            priorMonitor,
+            transcriptPath: transcriptURL.path,
+            requestID: priorMonitorRequestID,
+            cancellationState: AgentHibernationController.PostTeardownRestoreCancellationState()
+        ))
+
+        AgentHibernationTrackingGate.setEnabled(true)
+        let confirmationFingerprint = "headless-runtime-fingerprint"
+        let record = AgentHibernationRecord(
+            key: panelKey,
+            workspace: workspace,
+            terminalPanel: panel,
+            agent: agent,
+            lifecycle: .idle,
+            hasUnconfirmedTerminalInput: false,
+            lastActivityAt: 0,
+            isProtected: false,
+            hasLiveProcess: false,
+            processIDs: [Int(ProcessInfo.processInfo.processIdentifier)]
+        )
+        let request = AgentHibernationController.ConfirmedTeardownRequest(
+            record: record,
+            confirmationFingerprint: confirmationFingerprint,
+            effectiveLastActivityAt: Date().timeIntervalSince1970 + 60,
+            requestID: UUID(),
+            epoch: controller.teardownValidationEpochByPanel[panelKey] ?? 0,
+            generation: controller.teardownValidationGeneration
+        )
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+
+        let teardownTask = controller.beginConfirmedTeardowns(
+            [request],
+            postSnapshotIndexLoader: {
+                let invocation = loadCount.withLock { count in
+                    count += 1
+                    return count
+                }
+                return invocation == 1 ? .empty : nil
+            },
+            runtimeObservationProvider: { _ in
+                AgentHibernationController.ConfirmedTeardownRuntimeObservation(
+                    hasLiveSurface: true,
+                    fingerprint: confirmationFingerprint
+                )
+            }
+        )
+        await teardownTask.value
+
+        let monitorKey = AgentHibernationController.postTeardownRestoreTaskKey(
+            transcriptPath: transcriptURL.path
+        )
+        #expect(loadCount.withLock { $0 } == 2)
+        #expect(!panel.isAgentHibernated)
+        #expect(controller.postTeardownRestoreTasksByTranscriptPath[monitorKey] == nil)
+        #expect(FileManager.default.fileExists(atPath: retainedSnapshot.path))
+        #expect(
+            try String(contentsOf: retainedSnapshot, encoding: .utf8).contains("retain this turn")
+        )
+
+        if let monitor = controller.postTeardownRestoreTasksByTranscriptPath.removeValue(forKey: monitorKey) {
+            monitor.cancellationState.restoresSnapshotOnCancellation = false
+            monitor.task.cancel()
+            await monitor.task.value
+        }
+    }
+
     nonisolated private static func indexWithLiveProcess(
         workspaceId: UUID,
         panelId: UUID,

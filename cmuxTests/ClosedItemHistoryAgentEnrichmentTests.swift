@@ -310,6 +310,8 @@ struct ClosedItemHistoryAgentEnrichmentTests {
             },
             hookStoreDirectoryProvider: { Self.temporaryDirectory.path }
         )
+        sharedIndex.latestCompletedLoadResult = Self.emptyLoadResult
+        sharedIndex.latestCompletedAt = Date()
         let store = ClosedItemHistoryStore(capacity: 10)
         var ordinaryTerminal = Self.panelSnapshot(panelId: UUID())
         ordinaryTerminal.terminal?.resumeBinding = nil

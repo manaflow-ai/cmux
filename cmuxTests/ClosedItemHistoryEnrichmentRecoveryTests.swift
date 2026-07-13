@@ -87,7 +87,7 @@ extension ClosedItemHistoryAgentEnrichmentTests {
     }
 
     @Test
-    func repeatedUnavailableCapturePreservesCoreHistoryAndClosesOnce() async throws {
+    func repeatedUnavailableCapturePreservesCoreHistoryAndHonorsExplicitCloseOnce() async throws {
         let timeoutWaiter = ManualGenerationTimeoutWaiter()
         let loadStarted = DispatchSemaphore(value: 0)
         let releaseLoads = DispatchSemaphore(value: 0)
@@ -160,6 +160,38 @@ extension ClosedItemHistoryAgentEnrichmentTests {
         await timeoutWaiter.cancelAll()
         timeoutDriver.cancel()
         _ = await timeoutDriver.value
+    }
+
+    @Test
+    func coldCacheForOrdinaryTerminalCapturesBeforeDecidingNoEnrichmentIsNeeded() async throws {
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                loadCount.withLock { $0 += 1 }
+                return Self.recoveryLoadResult(index: .empty)
+            },
+            hookStoreDirectoryProvider: {
+                FileManager.default.temporaryDirectory.path
+            }
+        )
+        let store = ClosedItemHistoryStore(capacity: 10)
+        var ordinaryTerminal = Self.panelSnapshotForRecoveryTest(panelId: UUID())
+        ordinaryTerminal.terminal?.resumeBinding = nil
+
+        let capture = try #require(store.pushPreservingAgentMetadata(
+            .panel(ClosedPanelHistoryEntry(
+                workspaceId: UUID(),
+                paneId: UUID(),
+                tabIndex: 0,
+                snapshot: ordinaryTerminal
+            )),
+            coordinatedBy: sharedIndex
+        ))
+        await capture.value
+
+        #expect(loadCount.withLock { $0 } == 1)
+        #expect(store.canReopen)
+        #expect(store.menuSnapshot().totalItemCount == 1)
     }
 
     private static func panelSnapshotForRecoveryTest(panelId: UUID) -> SessionPanelSnapshot {
