@@ -94,7 +94,7 @@ extension MobileShellComposite {
                 timeoutNanoseconds: runtime?.rpcRequestTimeoutNanoseconds
             )
         } catch {
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else {
+            guard !disconnectForAuthorizationFailureIfNeeded(error, target: target) else {
                 throw error
             }
             if target.isForeground, !Self.isWorkspaceDiffOperationTimeout(error) {

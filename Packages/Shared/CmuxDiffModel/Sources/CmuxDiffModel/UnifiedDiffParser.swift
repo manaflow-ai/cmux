@@ -32,7 +32,7 @@ public struct UnifiedDiffParser: Sendable {
         var totalLineCount = 0
         var parserTruncated = false
 
-        for rawLineSlice in UnifiedDiffLineSequence(unifiedDiff) {
+        for rawLine in UnifiedDiffLineSequence(unifiedDiff) {
             // Cooperative cancellation: callers discard the result of a
             // cancelled load, so bail out of a stale multi-MB parse early
             // instead of allocating the rest of its lines.
@@ -40,7 +40,6 @@ public struct UnifiedDiffParser: Sendable {
             if iteration % 4096 == 0, Task.isCancelled {
                 break
             }
-            let rawLine = String(rawLineSlice)
             if rawLine.hasPrefix("diff --git ") {
                 if let completedHunk = current {
                     hunks.append(completedHunk.build())
@@ -162,24 +161,27 @@ public struct UnifiedDiffParser: Sendable {
     }
 }
 
-/// Iterates slices without first allocating an array proportional to the
-/// source line count. The parser independently bounds retained rows and hunks.
+/// Iterates UTF-8 lines without first allocating an array proportional to the
+/// source line count. Byte scanning keeps CRLF from becoming one Swift grapheme.
 private struct UnifiedDiffLineSequence: Sequence, IteratorProtocol {
-    private var remaining: Substring
+    private var remaining: Substring.UTF8View
 
     init(_ source: String) {
-        remaining = source[...]
+        remaining = source[...].utf8
     }
 
-    mutating func next() -> Substring? {
+    mutating func next() -> String? {
         guard !remaining.isEmpty else { return nil }
-        guard let newline = remaining.firstIndex(of: "\n") else {
+        guard let newline = remaining.firstIndex(of: 0x0A) else {
             defer { remaining = remaining[remaining.endIndex...] }
-            return remaining
+            return String(decoding: remaining, as: UTF8.self)
         }
-        let line = remaining[..<newline]
+        let bytes = remaining[..<newline]
         remaining = remaining[remaining.index(after: newline)...]
-        return line
+        if bytes.last == 0x0D {
+            return String(decoding: bytes.dropLast(), as: UTF8.self)
+        }
+        return String(decoding: bytes, as: UTF8.self)
     }
 }
 
