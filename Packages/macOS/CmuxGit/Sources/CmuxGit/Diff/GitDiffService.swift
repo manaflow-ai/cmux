@@ -236,10 +236,30 @@ public struct GitDiffService: Sendable {
         // directory-shaped pathspec or a missing path. A baseline directory is
         // accepted only when the current tree has an exact file replacement.
         // Fail closed before a diff command can expand the request to children.
-        guard requestedBaselineEntry == .file || indexed || untracked else {
+        guard requestedBaselineEntry.isFile || indexed || untracked else {
             return .notFound
         }
-        if untracked, requestedBaselineEntry != .file {
+        var oldBaselineEntry: BaselineEntryKind?
+        if let oldPath {
+            guard !oldPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return .notFound
+            }
+            switch baselineEntryKind(repoRoot: repoRoot, baseline: baseline, path: oldPath) {
+            case .success(let entry) where entry.isFile:
+                oldBaselineEntry = entry
+            case .success, .notFound:
+                return .notFound
+            case .failed:
+                return .failed
+            case .timedOut:
+                return .timedOut
+            }
+        }
+        if untracked, !requestedBaselineEntry.isFile {
+            // An untracked destination cannot be the second half of a tracked
+            // rename. Fail closed instead of silently ignoring `oldPath` and
+            // returning an unrelated new-file diff.
+            guard oldPath == nil else { return .notFound }
             // In `--no-index` mode a bare `-` names stdin even after `--`.
             // Prefix only the git-side spelling while preserving the API path.
             let gitPath = path == "-" ? "./-" : path
@@ -257,22 +277,8 @@ public struct GitDiffService: Sendable {
                 return failure
             }
             guard let output = result.successOutput else { return .failed }
+            guard Self.hasExactlyOneFileSection(output) else { return .notFound }
             return .success(GitFileDiff(path: path, unifiedDiff: output, truncated: result.capped))
-        }
-        if let oldPath {
-            guard !oldPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                return .notFound
-            }
-            switch baselineEntryKind(repoRoot: repoRoot, baseline: baseline, path: oldPath) {
-            case .success(.file):
-                break
-            case .success, .notFound:
-                return .notFound
-            case .failed:
-                return .failed
-            case .timedOut:
-                return .timedOut
-            }
         }
         let diffPaths = [oldPath, path]
             .compactMap { $0 }
@@ -282,8 +288,11 @@ public struct GitDiffService: Sendable {
                 }
             }
         var pathspecs = diffPaths.map(Self.literalPathspec)
-        if requestedBaselineEntry == .directory {
+        if requestedBaselineEntry.excludesDescendants {
             pathspecs.append(Self.descendantExclusionPathspec(path))
+        }
+        if let oldPath, oldBaselineEntry?.excludesDescendants == true {
+            pathspecs.append(Self.descendantExclusionPathspec(oldPath))
         }
         let result = runGit(
             in: repoRoot,
@@ -295,7 +304,36 @@ public struct GitDiffService: Sendable {
             return failure
         }
         guard let output = result.successOutput else { return .failed }
+        guard Self.hasExactlyOneFileSection(output) else { return .notFound }
+        if oldPath != nil, !Self.hasRenameHeaders(output) {
+            return .notFound
+        }
         return .success(GitFileDiff(path: path, unifiedDiff: output, truncated: result.capped))
+    }
+
+    /// A single-file RPC must never return multiple `diff --git` sections,
+    /// even when a stale rename source and destination are both independently
+    /// changed. Diff content lines always carry a unified-diff marker, so only
+    /// an actual file-section header can start with this prefix.
+    private static func hasExactlyOneFileSection(_ output: String) -> Bool {
+        var sectionCount = 0
+        for line in output.split(whereSeparator: \.isNewline) where line.hasPrefix("diff --git ") {
+            sectionCount += 1
+            if sectionCount > 1 { return false }
+        }
+        return sectionCount == 1
+    }
+
+    /// Supplying `oldPath` asserts a rename. Requiring Git's rename metadata
+    /// prevents two unrelated changes from masquerading as that one rename.
+    private static func hasRenameHeaders(_ output: String) -> Bool {
+        var hasRenameFrom = false
+        var hasRenameTo = false
+        for line in output.split(whereSeparator: \.isNewline) {
+            hasRenameFrom = hasRenameFrom || line.hasPrefix("rename from ")
+            hasRenameTo = hasRenameTo || line.hasPrefix("rename to ")
+        }
+        return hasRenameFrom && hasRenameTo
     }
 
     /// Wraps a repository path in `:(literal)` pathspec magic so glob
@@ -384,8 +422,11 @@ public struct GitDiffService: Sendable {
             let metadata = record[..<tab].split(separator: " ", omittingEmptySubsequences: true)
             let recordedPath = record[record.index(after: tab)...]
             guard metadata.count >= 2, recordedPath == path else { continue }
-            if metadata[1] == "blob" || metadata[1] == "commit" {
+            if metadata[1] == "blob" {
                 return .success(.file)
+            }
+            if metadata[1] == "commit" {
+                return .success(.gitlink)
             }
             if metadata[1] == "tree" {
                 return .success(.directory)
@@ -463,5 +504,14 @@ public struct GitDiffService: Sendable {
 private enum BaselineEntryKind: Equatable {
     case missing
     case file
+    case gitlink
     case directory
+
+    var isFile: Bool {
+        self == .file || self == .gitlink
+    }
+
+    var excludesDescendants: Bool {
+        self == .file || self == .directory
+    }
 }
