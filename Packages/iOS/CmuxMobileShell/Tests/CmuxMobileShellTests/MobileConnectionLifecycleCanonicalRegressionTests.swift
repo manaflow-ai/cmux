@@ -305,7 +305,7 @@ import Testing
         )
         let router = LivenessHostRouter()
         await router.setAttachTicketMacDeviceID("mac-b")
-        await router.setHostIdentity(deviceID: nil, instanceTag: nil)
+        await router.setHostIdentity(deviceID: "mac-b", instanceTag: "default")
         let store = MobileShellComposite(
             runtime: LivenessTestRuntime(
                 transportFactory: LivenessTransportFactory(
