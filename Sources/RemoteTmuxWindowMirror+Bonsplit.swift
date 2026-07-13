@@ -123,11 +123,6 @@ extension RemoteTmuxWindowMirror {
             applyDividerPositions(
                 plan: plan, treeNode: treeNode, retryImposedExtents: retryImposedExtents
             )
-            // Re-baseline the drag detector on what the tree ACTUALLY holds:
-            // bonsplit may clamp a requested fraction (minimum pane sizes),
-            // and a stale requested-vs-actual gap would read as a user drag
-            // on the next geometry event and echo a spurious resize to tmux.
-            recordActualDividerPositions(treeNode: bonsplitController.treeSnapshot())
         } else {
             applyFallbackDividerPositions(tmuxTree: splitTree, treeNode: treeNode)
         }
@@ -193,17 +188,6 @@ extension RemoteTmuxWindowMirror {
         applyDividerPositions(
             plan: secondPlan, treeNode: split.second, retryImposedExtents: retryImposedExtents
         )
-    }
-
-    /// Overwrites the drag-detection baseline with the fractions the
-    /// bonsplit tree actually holds after an imposition pass.
-    private func recordActualDividerPositions(treeNode: ExternalTreeNode) {
-        guard case .split(let split) = treeNode else { return }
-        if let splitId = UUID(uuidString: split.id) {
-            lastDividerPositions[splitId] = CGFloat(split.dividerPosition)
-        }
-        recordActualDividerPositions(treeNode: split.first)
-        recordActualDividerPositions(treeNode: split.second)
     }
 
     func applyFallbackDividerPositions(

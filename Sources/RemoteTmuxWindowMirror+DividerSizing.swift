@@ -34,10 +34,14 @@ extension RemoteTmuxWindowMirror {
         let first = firstTree.layout
         let position = CGFloat(split.dividerPosition)
         let previous = lastDividerPositions[splitID] ?? position
-        // A split holding an imposed extent cannot be mid-drag — a user
-        // drag clears the imposition — so any fraction delta on it is
-        // imposition churn, never a gesture to sync back to tmux.
-        if split.imposedFirstExtent == nil, abs(position - previous) > 0.005 {
+        // Bonsplit applies imposed extents on its next layout turn, then
+        // mirrors the ACTUAL (possibly minimum-clamped) fraction into the
+        // model. Rebaseline from that post-layout geometry while the
+        // imposition still owns the split; recording during the plan pass
+        // snapshots the old fraction before the apply lands.
+        if split.imposedFirstExtent != nil {
+            lastDividerPositions[splitID] = position
+        } else if abs(position - previous) > 0.005 {
             lastDividerPositions[splitID] = position
             let parentExtent = orientation == .horizontal
                 ? parentSize.width

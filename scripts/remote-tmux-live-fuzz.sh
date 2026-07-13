@@ -32,6 +32,11 @@ TMPDIR_REMOTE="${CMUX_FUZZ_TMUX_TMPDIR:-$DEFAULT_TMUX_TMPDIR}"
 DEBUG_LOG="${CMUX_FUZZ_DEBUG_LOG:-/tmp/cmux-debug-${CMUX_TAG}.log}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CLI="$HERE/cmux-debug-cli.sh"
+TIMEOUT_BIN="$(command -v timeout || command -v gtimeout || true)"
+[ -n "$TIMEOUT_BIN" ] || {
+  echo "ERROR: neither 'timeout' nor 'gtimeout' found; install GNU coreutils (brew install coreutils)" >&2
+  exit 2
+}
 . "$HERE/remote-tmux-fuzz-lock.sh"
 SETTLE="${CMUX_FUZZ_SETTLE_SECS:-6}"
 SESSION=fuzz
@@ -144,7 +149,7 @@ capture_remote_screen() {
 
 capture_mirror_screen() {
   local raw
-  raw=$(timeout 8 "$CLI" read-screen --window "$WINDOW_ID" 2>/dev/null) || return 1
+  raw=$("$TIMEOUT_BIN" 8 "$CLI" read-screen --window "$WINDOW_ID" 2>/dev/null) || return 1
   MIRROR_SCREEN=$(printf '%s\n' "$raw" | normalize_screen)
 }
 
@@ -282,7 +287,7 @@ if [ "$DRY" != 1 ]; then
   attach_start=$SECONDS
   tries=0
   while [ "$tries" -lt 30 ]; do
-    aj=$(timeout 8 "$CLI" rpc remote.tmux.sizing_settled 2>/dev/null)
+    aj=$("$TIMEOUT_BIN" 8 "$CLI" rpc remote.tmux.sizing_settled 2>/dev/null)
     if settlement_ready "$aj"; then
       break
     fi
@@ -297,7 +302,7 @@ check_iter() {
   # Hang detector: if the app stops answering the socket, that IS the bug.
   # Exit with a distinct code so a marathon wrapper can sample the process,
   # keep the evidence, and restart.
-  if ! timeout 8 "$CLI" ping >/dev/null 2>&1; then
+  if ! "$TIMEOUT_BIN" 8 "$CLI" ping >/dev/null 2>&1; then
     echo "FUZZ HANG seed=$SEED iter=$iter: app socket unresponsive"
     exit 99
   fi
@@ -307,7 +312,7 @@ check_iter() {
   # real rendering bug — no transition ambiguity.
   local settled_json="" tries=0
   while [ "$tries" -lt 10 ]; do
-    settled_json=$(timeout 8 "$CLI" rpc remote.tmux.sizing_settled 2>/dev/null)
+    settled_json=$("$TIMEOUT_BIN" 8 "$CLI" rpc remote.tmux.sizing_settled 2>/dev/null)
     # A failed or timed-out RPC has no windows KEY at all — that is absence
     # of evidence, not settledness. Keep polling; exhausting the loop
     # reports it as never settled with whatever came back.
@@ -355,7 +360,7 @@ check_iter() {
     rc_tries=0
     while [ "$rc_tries" -lt 15 ]; do
       sleep 2
-      settled_json=$(timeout 8 "$CLI" rpc remote.tmux.sizing_settled 2>/dev/null)
+      settled_json=$("$TIMEOUT_BIN" 8 "$CLI" rpc remote.tmux.sizing_settled 2>/dev/null)
       if settlement_clean "$settled_json"; then
         echo "  reconfirm: converged after $(( (rc_tries + 1) * 2 ))s extra (iter $iter)"
         reconfirm_needed=0
