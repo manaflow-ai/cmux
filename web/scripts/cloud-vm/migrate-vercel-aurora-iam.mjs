@@ -52,6 +52,10 @@ try {
     password: authToken,
     ssl: { rejectUnauthorized: parseBoolean(env.CMUX_DB_SSL_REJECT_UNAUTHORIZED, true) },
     max: 1,
+    connectionTimeoutMillis: 10_000,
+    lock_timeout: 5_000,
+    statement_timeout: 300_000,
+    query_timeout: 310_000,
   });
 
   try {
