@@ -32,10 +32,9 @@ public struct MobileWorkspaceDiffFileResponse: Decodable, Sendable, Equatable {
         truncated = try container.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
     }
 
-    /// Decode a one-file diff response from raw JSON data.
+    /// Creates a one-file diff response from raw JSON data.
     /// - Parameter data: The RPC result payload.
-    /// - Returns: The decoded response.
-    public static func decode(_ data: Data) throws -> MobileWorkspaceDiffFileResponse {
-        try JSONDecoder().decode(Self.self, from: data)
+    public init(data: Data) throws {
+        self = try JSONDecoder().decode(Self.self, from: data)
     }
 }

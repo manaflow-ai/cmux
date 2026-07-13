@@ -7478,7 +7478,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func disconnectForAuthorizationFailureIfNeeded(_ error: any Error) -> Bool {
-        guard Self.shouldDisconnectForAuthorizationFailure(error) else {
+        guard shouldDisconnectForAuthorizationFailure(error) else {
             return false
         }
         let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute)
@@ -7501,7 +7501,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return true
     }
 
-    static func shouldDisconnectForAuthorizationFailure(_ error: any Error) -> Bool {
+    func shouldDisconnectForAuthorizationFailure(_ error: any Error) -> Bool {
         guard let connectionError = error as? MobileShellConnectionError else {
             return false
         }

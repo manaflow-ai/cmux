@@ -356,27 +356,3 @@ extension TerminalController {
         value ?? NSNull()
     }
 }
-
-private struct MobileWorkspaceDiffSnapshot {
-    let directory: String
-}
-
-private enum MobileWorkspaceDiffSnapshotResult {
-    case success(MobileWorkspaceDiffSnapshot)
-    case failure(TerminalController.V2CallResult)
-}
-
-private enum MobileWorkspaceDiffStatusResult: Sendable {
-    case repositoryNotFound
-    case gitFailed
-    case gitTimedOut
-    case ok(repoRoot: String, files: [GitDiffSummary], truncated: Bool)
-}
-
-private enum MobileWorkspaceDiffFileResult: Sendable {
-    case repositoryNotFound
-    case repositoryChanged
-    case gitFailed
-    case gitTimedOut
-    case ok(path: String, unifiedDiff: String, truncated: Bool)
-}

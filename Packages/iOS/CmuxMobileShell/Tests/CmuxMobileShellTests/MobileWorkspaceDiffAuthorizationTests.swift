@@ -8,12 +8,13 @@ import Testing
 @MainActor
 @Suite struct MobileWorkspaceDiffAuthorizationTests {
     @Test func workspaceDiffResponseDecodingLeavesMainThread() async throws {
+        let decoder = MobileShellComposite()
         let statusData = Data(#"{"repo_root":"/tmp/repo","files":[]}"#.utf8)
         let fileData = Data(#"{"path":"A.swift","unified_diff":"+new"}"#.utf8)
 
-        let ranOnMainThread = try await MobileShellComposite.decodeWorkspaceDiffResponse {
-            _ = try MobileShellComposite.decodeDiffStatusSnapshot(statusData)
-            _ = try MobileShellComposite.decodeDiffFilePatch(fileData, expectedPath: "A.swift")
+        let ranOnMainThread = try await decoder.decodeWorkspaceDiffResponse {
+            _ = try decoder.decodeDiffStatusSnapshot(statusData)
+            _ = try decoder.decodeDiffFilePatch(fileData, expectedPath: "A.swift")
             return Thread.isMainThread
         }
 
@@ -21,6 +22,7 @@ import Testing
     }
 
     @Test func workspaceDiffWireValuesMapIntoDomainModels() throws {
+        let decoder = MobileShellComposite()
         let statusData = Data(
             #"{"repo_root":"/tmp/repo","files":[{"path":"New.swift","old_path":"Old.swift","status":"R","additions":2,"deletions":1,"snapshot_token":"snapshot-1"}],"truncated":true}"#.utf8
         )
@@ -28,8 +30,8 @@ import Testing
             #"{"path":"New.swift","unified_diff":"+new","truncated":true}"#.utf8
         )
 
-        let status = try MobileShellComposite.decodeDiffStatusSnapshot(statusData)
-        let file = try MobileShellComposite.decodeDiffFilePatch(fileData, expectedPath: "New.swift")
+        let status = try decoder.decodeDiffStatusSnapshot(statusData)
+        let file = try decoder.decodeDiffFilePatch(fileData, expectedPath: "New.swift")
 
         #expect(status.repoRoot == "/tmp/repo")
         #expect(status.files == [
@@ -47,33 +49,35 @@ import Testing
     }
 
     @Test func unknownWireStatusAndMismatchedFilePathFailClosed() {
+        let decoder = MobileShellComposite()
         let statusData = Data(
             #"{"repo_root":"/tmp/repo","files":[{"path":"A.swift","status":"future","snapshot_token":"snapshot-1"}]}"#.utf8
         )
         let fileData = Data(#"{"path":"Other.swift","unified_diff":"+new"}"#.utf8)
 
         #expect(throws: WorkspaceDiffError.self) {
-            try MobileShellComposite.decodeDiffStatusSnapshot(statusData)
+            try decoder.decodeDiffStatusSnapshot(statusData)
         }
         #expect(throws: WorkspaceDiffError.self) {
-            try MobileShellComposite.decodeDiffFilePatch(fileData, expectedPath: "A.swift")
+            try decoder.decodeDiffFilePatch(fileData, expectedPath: "A.swift")
         }
     }
 
     @Test func transportErrorsMapIntoDiffDomain() {
-        #expect(MobileShellComposite.workspaceDiffError(
+        let decoder = MobileShellComposite()
+        #expect(decoder.workspaceDiffError(
             from: MobileShellConnectionError.rpcError("not_found", "server")
         ) == .notFound)
-        #expect(MobileShellComposite.workspaceDiffError(
+        #expect(decoder.workspaceDiffError(
             from: MobileShellConnectionError.rpcError("git_failed", "server")
         ) == .gitFailed)
-        #expect(MobileShellComposite.workspaceDiffError(
+        #expect(decoder.workspaceDiffError(
             from: MobileShellConnectionError.requestTimedOut
         ) == .timedOut)
-        #expect(MobileShellComposite.workspaceDiffError(
+        #expect(decoder.workspaceDiffError(
             from: MobileShellConnectionError.rpcError("stale_repository", "server")
         ) == .staleRepository)
-        #expect(MobileShellComposite.workspaceDiffError(
+        #expect(decoder.workspaceDiffError(
             from: MobileShellConnectionError.connectionClosed
         ) == .unavailable)
     }

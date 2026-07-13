@@ -4,13 +4,8 @@ import Foundation
 /// The newest request cancels older work, then waits for it to stop before
 /// starting, so abandoned phone requests cannot fan out concurrent Git jobs.
 actor MobileWorkspaceDiffRequestCoordinator {
-    private struct ActiveRequest {
-        let id: UUID
-        let task: Task<MobileHostRPCResult, Never>
-    }
-
     private var latestRequestID: UUID?
-    private var activeRequest: ActiveRequest?
+    private var activeRequest: MobileWorkspaceDiffActiveRequest?
 
     func perform(
         _ operation: @escaping @Sendable () async -> MobileHostRPCResult
@@ -27,7 +22,7 @@ actor MobileWorkspaceDiffRequestCoordinator {
         }
 
         let task = Task { await operation() }
-        activeRequest = ActiveRequest(id: requestID, task: task)
+        activeRequest = MobileWorkspaceDiffActiveRequest(id: requestID, task: task)
         let result = await withTaskCancellationHandler {
             await task.value
         } onCancel: {

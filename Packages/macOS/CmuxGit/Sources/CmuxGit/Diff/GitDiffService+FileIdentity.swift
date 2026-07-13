@@ -15,7 +15,7 @@ extension GitDiffService {
     ) -> GitDiffQueryResult<GitDiffStatus> {
         let objectIDResult = runGit(
             in: repoRoot,
-            arguments: ["ls-tree", "--full-tree", "-z", baseline, "--", Self.literalPathspec(path)],
+            arguments: ["ls-tree", "--full-tree", "-z", baseline, "--", literalPathspec(path)],
             maxOutputBytes: 64 * 1024
         )
         if let failure: GitDiffQueryResult<GitDiffStatus> = queryFailure(from: objectIDResult) {
@@ -85,7 +85,7 @@ extension GitDiffService {
             in: repoRoot,
             arguments: [
                 "diff", baseline, "--no-ext-diff", "--no-textconv", "--no-color", "--find-renames", "--",
-                Self.literalPathspec(path), Self.descendantExclusionPathspec(path),
+                literalPathspec(path), descendantExclusionPathspec(path),
             ],
             maxOutputBytes: trackedOutputBytes
         )
@@ -107,8 +107,8 @@ extension GitDiffService {
         }
         guard let trackedOutput = trackedResult.successOutput,
               let replacementOutput = replacementResult.successOutput else { return .failed }
-        guard Self.fileSectionStatus(trackedOutput) == .deleted,
-              Self.fileSectionStatus(replacementOutput) == .added else { return .notFound }
+        guard fileSectionStatus(trackedOutput) == .deleted,
+              fileSectionStatus(replacementOutput) == .added else { return .notFound }
         let separator = trackedOutput.hasSuffix("\n") ? "" : "\n"
         return .success(
             GitFileDiff(

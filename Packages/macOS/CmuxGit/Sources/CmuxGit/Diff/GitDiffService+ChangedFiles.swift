@@ -88,7 +88,7 @@ extension GitDiffService {
         let verifiedFiles = parsed.files.filter { summary in
             guard summary.status == .untracked, nameStatus.capped else { return true }
             guard let verifiedNameStatusPath else { return false }
-            return !Self.gitPathPrecedes(verifiedNameStatusPath, summary.path)
+            return !gitPathPrecedes(verifiedNameStatusPath, summary.path)
         }
         let boundedFiles = Array(verifiedFiles.prefix(maxFiles))
         let reachedFileLimit = boundedFiles.count < verifiedFiles.count
@@ -136,7 +136,7 @@ extension GitDiffService {
             return .timedOut
         }
         guard finalFileIdentities == initialFileIdentities,
-              let snapshotTokens = Self.snapshotTokens(
+              let snapshotTokens = snapshotTokens(
             context: finalContext,
             summaries: boundedFiles,
             identities: finalFileIdentities

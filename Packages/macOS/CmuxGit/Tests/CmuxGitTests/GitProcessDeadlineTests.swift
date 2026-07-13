@@ -178,7 +178,3 @@ import Testing
         return state?.hasPrefix("Z") == false
     }
 }
-
-private final class DeadlineRootBox: @unchecked Sendable {
-    var value: String?
-}

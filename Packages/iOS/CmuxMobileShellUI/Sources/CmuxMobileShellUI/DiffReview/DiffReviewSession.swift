@@ -5,15 +5,10 @@ import Observation
 @MainActor
 @Observable
 final class DiffReviewSession {
-    struct Bookmark: Equatable {
-        let filePath: String
-        let hunkIndex: Int
-    }
-
     private(set) var files: [DiffFileSummary]
     private(set) var currentFileIndex: Int
     private(set) var currentHunkIndex: Int
-    private(set) var bookmark: Bookmark?
+    private(set) var bookmark: DiffReviewBookmark?
     private(set) var navigationGeneration: Int
     private var hunkCountsByPath: [String: Int]
     /// Set when backward navigation crossed into a file whose hunk count is not
@@ -107,7 +102,7 @@ final class DiffReviewSession {
         if let bookmark,
            bookmark.filePath == path,
            bookmark.hunkIndex >= count {
-            self.bookmark = Bookmark(filePath: path, hunkIndex: max(0, count - 1))
+            self.bookmark = DiffReviewBookmark(filePath: path, hunkIndex: max(0, count - 1))
         }
         guard currentFile?.path == path else { return }
         if pendingSeekToLastHunk {
@@ -152,7 +147,7 @@ final class DiffReviewSession {
 
     func markBookmark() {
         guard let currentFile else { return }
-        bookmark = Bookmark(filePath: currentFile.path, hunkIndex: currentHunkIndex)
+        bookmark = DiffReviewBookmark(filePath: currentFile.path, hunkIndex: currentHunkIndex)
     }
 
     func jumpToBookmark() {

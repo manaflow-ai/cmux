@@ -47,7 +47,7 @@ import Testing
             """#.utf8
         )
 
-        let response = try MobileWorkspaceDiffStatusResponse.decode(data)
+        let response = try MobileWorkspaceDiffStatusResponse(data: data)
 
         #expect(response.repoRoot == "/repo")
         #expect(response.files.count == 2)
@@ -59,14 +59,14 @@ import Testing
 
     @Test func diffStatusRejectsMissingRequiredFields() {
         #expect(throws: DecodingError.self) {
-            try MobileWorkspaceDiffStatusResponse.decode(Data("{}".utf8))
+            try MobileWorkspaceDiffStatusResponse(data: Data("{}".utf8))
         }
     }
 
     @Test func diffFileDecodesUnifiedDiffAndTruncationFlag() throws {
         let data = Data(#"{"path":"File.swift","unified_diff":"@@ -1 +1 @@\n-old\n+new","truncated":true}"#.utf8)
 
-        let response = try MobileWorkspaceDiffFileResponse.decode(data)
+        let response = try MobileWorkspaceDiffFileResponse(data: data)
 
         #expect(response.path == "File.swift")
         #expect(response.unifiedDiff.contains("+new"))
@@ -75,7 +75,7 @@ import Testing
 
     @Test func diffFileRejectsMissingRequiredIdentityAndContent() {
         #expect(throws: DecodingError.self) {
-            try MobileWorkspaceDiffFileResponse.decode(Data("{}".utf8))
+            try MobileWorkspaceDiffFileResponse(data: Data("{}".utf8))
         }
     }
 
@@ -88,7 +88,7 @@ import Testing
             ]}
             """.utf8
         )
-        let response = try MobileWorkspaceDiffStatusResponse.decode(data)
+        let response = try MobileWorkspaceDiffStatusResponse(data: data)
 
         #expect(response.files.map(\.id) == ["b", "a->b"])
         #expect(Set(response.files.map(\.id)).count == 2)

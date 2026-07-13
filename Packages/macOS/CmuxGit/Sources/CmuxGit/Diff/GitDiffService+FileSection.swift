@@ -5,7 +5,7 @@ extension GitDiffService {
     /// even when a stale rename source and destination are both independently
     /// changed. Diff content lines always carry a unified-diff marker, so only
     /// an actual file-section header can start with this prefix.
-    static func hasExactlyOneFileSection(_ output: String) -> Bool {
+    func hasExactlyOneFileSection(_ output: String) -> Bool {
         var sectionCount = 0
         for line in GitProtocolLineSequence(output) where line.hasPrefix("diff --git ") {
             sectionCount += 1
@@ -16,7 +16,7 @@ extension GitDiffService {
 
     /// Supplying `oldPath` asserts a rename. Requiring Git's rename metadata
     /// prevents two unrelated changes from masquerading as that one rename.
-    static func hasRenameHeaders(_ output: String) -> Bool {
+    func hasRenameHeaders(_ output: String) -> Bool {
         var hasRenameFrom = false
         var hasRenameTo = false
         for line in GitProtocolLineSequence(output) {
@@ -28,7 +28,7 @@ extension GitDiffService {
 
     /// Classifies one tracked diff from Git's protocol metadata. Content lines
     /// retain their unified-diff prefix, so they cannot spoof these headers.
-    static func fileSectionStatus(_ output: String) -> GitDiffStatus? {
+    func fileSectionStatus(_ output: String) -> GitDiffStatus? {
         guard hasExactlyOneFileSection(output) else { return nil }
         var isAdded = false
         var isDeleted = false
@@ -65,14 +65,14 @@ private struct GitProtocolLineSequence: Sequence, IteratorProtocol {
         guard !remaining.isEmpty else { return nil }
         guard let newline = remaining.firstIndex(of: 0x0A) else {
             defer { remaining = remaining[remaining.endIndex...] }
-            return Self.decodeLine(remaining)
+            return decodeLine(remaining)
         }
         let line = remaining[..<newline]
         remaining = remaining[remaining.index(after: newline)...]
-        return Self.decodeLine(line)
+        return decodeLine(line)
     }
 
-    private static func decodeLine(_ bytes: Substring.UTF8View.SubSequence) -> String {
+    private func decodeLine(_ bytes: Substring.UTF8View.SubSequence) -> String {
         let content = bytes.last == 0x0D ? bytes.dropLast() : bytes
         return String(decoding: content, as: UTF8.self)
     }

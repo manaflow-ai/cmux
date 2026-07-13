@@ -4,86 +4,105 @@ import Foundation
 /// Enforces a hard return bound for one git process group. SIGKILL escalation
 /// handles a descendant that ignores SIGTERM, then closing the reader unblocks
 /// the synchronous pipe drain even after the supervising shell has exited.
+/// Concurrent callbacks touch only `lifecycle`, whose storage is accessed with
+/// barriered compare-and-swap operations supported by the macOS 14 target.
 final class GitProcessWatchdog: @unchecked Sendable {
     private static let sigkillGraceSeconds = 0.2
     private static let timerQueue = DispatchQueue(label: "com.cmuxterm.CmuxGit.process-watchdog")
 
-    private let lock = NSLock()
-    private var fired = false
-    private var completed = false
-    private var escalationGeneration = 0
-    private var escalationTimer: (any DispatchSourceTimer)?
+    private let lifecycle: UnsafeMutablePointer<Int32>
     private let process: Process
     private let processGroupIdentifier: pid_t
     private let outputHandle: FileHandle
 
     init(process: Process, processGroupIdentifier: pid_t, outputHandle: FileHandle) {
+        lifecycle = .allocate(capacity: 1)
+        lifecycle.initialize(to: GitProcessWatchdogLifecycle.idle.rawValue)
         self.process = process
         self.processGroupIdentifier = processGroupIdentifier
         self.outputHandle = outputHandle
     }
 
+    deinit {
+        lifecycle.deinitialize(count: 1)
+        lifecycle.deallocate()
+    }
+
     func fire() {
-        let groupSignalFailed: Bool? = lock.withLock {
-            guard !fired, !completed else { return nil }
-            fired = true
-            scheduleSigkillLocked()
-            // Completion and the first signal share one critical section, so
-            // a reaped process group can never be signalled after cancellation.
-            return kill(-processGroupIdentifier, SIGTERM) != 0
-        }
-        guard let groupSignalFailed else { return }
+        let claimed = transition(from: .idle, to: .terminating)
+        guard claimed else { return }
+        let groupSignalFailed = kill(-processGroupIdentifier, SIGTERM) != 0
         if groupSignalFailed {
-            cancelEscalation()
+            _ = transition(from: .terminating, to: .completedAfterFire)
             try? outputHandle.close()
             if process.isRunning {
                 process.terminate()
             }
+            return
         }
+        _ = transition(from: .terminating, to: .armed)
+        scheduleSigkill()
     }
 
     var didFire: Bool {
-        lock.withLock { fired }
+        switch currentLifecycle {
+        case .idle, .completedWithoutFire, nil:
+            return false
+        case .terminating, .armed, .escalating, .completedAfterFire, .escalated:
+            return true
+        }
     }
 
     /// Invalidates a pending SIGKILL as soon as the wrapper has reaped git.
     /// Without this cancellation, a delayed signal could target an unrelated
     /// process group that reused git's numeric identifier after exit.
     func cancelEscalation() {
-        let timer = lock.withLock {
-            completed = true
-            escalationGeneration &+= 1
-            let timer = escalationTimer
-            escalationTimer = nil
-            return timer
+        while true {
+            let current = currentLifecycle ?? .idle
+            switch current {
+            case .idle:
+                if transition(from: current, to: .completedWithoutFire) { return }
+            case .armed:
+                if transition(from: current, to: .completedAfterFire) { return }
+            case .terminating, .escalating:
+                // The signal syscall is bounded. Waiting for its state publish
+                // prevents returning while a reaped process-group ID could be reused.
+                sched_yield()
+            case .completedWithoutFire, .completedAfterFire, .escalated:
+                return
+            }
         }
-        timer?.setEventHandler {}
-        timer?.cancel()
     }
 
-    /// Schedules escalation while the caller owns `lock`.
-    private func scheduleSigkillLocked() {
-        escalationGeneration &+= 1
-        let generation = escalationGeneration
+    private func scheduleSigkill() {
         let timer = DispatchSource.makeTimerSource(queue: Self.timerQueue)
-        escalationTimer = timer
         timer.schedule(deadline: .now() + Self.sigkillGraceSeconds)
         timer.setEventHandler { [weak self] in
             defer { timer.cancel() }
-            guard let self else { return }
-            self.lock.withLock {
-                guard !self.completed,
-                      self.escalationGeneration == generation else { return }
-                // Keep the generation check and signal atomic with respect
-                // to cancellation after `waitUntilExit`.
-                let groupSignalFailed = kill(-self.processGroupIdentifier, SIGKILL) != 0
-                if groupSignalFailed, self.process.isRunning {
-                    self.process.terminate()
-                }
-                try? self.outputHandle.close()
-                self.escalationTimer = nil
-            }
+            self?.escalate()
         }
         timer.resume()
+    }
+
+    private func escalate() {
+        let claimed = transition(from: .armed, to: .escalating)
+        guard claimed else { return }
+        let groupSignalFailed = kill(-processGroupIdentifier, SIGKILL) != 0
+        if groupSignalFailed, process.isRunning {
+            process.terminate()
+        }
+        try? outputHandle.close()
+        _ = transition(from: .escalating, to: .escalated)
+    }
+
+    private var currentLifecycle: GitProcessWatchdogLifecycle? {
+        GitProcessWatchdogLifecycle(rawValue: OSAtomicAdd32Barrier(0, lifecycle))
+    }
+
+    private func transition(
+        from expected: GitProcessWatchdogLifecycle,
+        to desired: GitProcessWatchdogLifecycle
+    ) -> Bool {
+        OSAtomicCompareAndSwap32Barrier(expected.rawValue, desired.rawValue, lifecycle)
     }
 }

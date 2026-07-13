@@ -6,7 +6,7 @@ extension MobileShellComposite {
         _ error: any Error,
         target: WorkspaceMutationTarget
     ) -> Bool {
-        guard Self.shouldDisconnectForAuthorizationFailure(error) else {
+        guard shouldDisconnectForAuthorizationFailure(error) else {
             return false
         }
         guard isCurrentWorkspaceMutationTarget(target) else {

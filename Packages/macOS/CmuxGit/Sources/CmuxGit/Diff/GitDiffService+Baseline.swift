@@ -11,7 +11,7 @@ extension GitDiffService {
         switch head.failure {
         case nil:
             guard let output = head.successOutput,
-                  let objectID = Self.removingGitLineTerminator(output),
+                  let objectID = removingGitLineTerminator(output),
                   !objectID.isEmpty else { return .failed }
             return .success(objectID)
         case .unsuccessfulExit:
@@ -27,7 +27,7 @@ extension GitDiffService {
         )
         guard symbolicHead.failure == nil,
               let symbolicOutput = symbolicHead.successOutput,
-              let headRef = Self.removingGitLineTerminator(symbolicOutput),
+              let headRef = removingGitLineTerminator(symbolicOutput),
               headRef.hasPrefix("refs/heads/"),
               headRef != "refs/heads/" else { return .failed }
         // `show-ref` without a pattern validates every branch ref. Exit 1 is
@@ -56,14 +56,14 @@ extension GitDiffService {
             return failure
         }
         guard let output = emptyTree.successOutput,
-              let baseline = Self.removingGitLineTerminator(output),
+              let baseline = removingGitLineTerminator(output),
               !baseline.isEmpty else { return .failed }
         return .success(baseline)
     }
 
     /// Git terminates one scalar result with a line ending. Remove only that
     /// protocol terminator, preserving valid spaces and newlines in paths.
-    static func removingGitLineTerminator(_ output: String) -> String? {
+    func removingGitLineTerminator(_ output: String) -> String? {
         if output.hasSuffix("\r\n") {
             return String(output.dropLast(2))
         }

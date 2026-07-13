@@ -7,15 +7,6 @@ extension GitDiffService {
         let indexIdentity: FileSystemIdentity
     }
 
-    struct FileSystemIdentity: Equatable, Sendable {
-        let device: UInt64
-        let inode: UInt64
-        let mode: UInt32
-        let size: Int64
-        let modificationTime: String
-        let changeTime: String
-    }
-
     func snapshotContextResult(
         repoRoot: String,
         baselineObjectID: String
@@ -30,7 +21,7 @@ extension GitDiffService {
         }
         guard let output = indexPathResult.successOutput,
               !indexPathResult.capped,
-              let rawPath = Self.removingGitLineTerminator(output),
+              let rawPath = removingGitLineTerminator(output),
               !rawPath.isEmpty else { return .failed }
         let indexPath: String
         if rawPath.hasPrefix("/") {
@@ -72,7 +63,7 @@ extension GitDiffService {
         case .timedOut:
             return .timedOut
         }
-        guard let tokens = Self.snapshotTokens(
+        guard let tokens = snapshotTokens(
             context: context,
             summaries: summaries,
             identities: identities
@@ -132,7 +123,7 @@ extension GitDiffService {
         return .success(identities)
     }
 
-    static func snapshotTokens(
+    func snapshotTokens(
         context: SnapshotContext,
         summaries: [GitDiffSummary],
         identities: [FileSystemIdentity]
@@ -143,21 +134,21 @@ extension GitDiffService {
         }
     }
 
-    private static func snapshotToken(
+    private func snapshotToken(
         context: SnapshotContext,
         summary: GitDiffSummary,
         currentIdentity: FileSystemIdentity
     ) -> String {
         var payload = Data()
-        Self.append(context.baselineObjectID, to: &payload)
-        Self.append(context.indexIdentity, to: &payload)
-        Self.append(summary.path, to: &payload)
-        Self.append(summary.oldPath, to: &payload)
-        Self.append(summary.status.rawValue, to: &payload)
-        Self.append(summary.additions, to: &payload)
-        Self.append(summary.deletions, to: &payload)
-        Self.append(currentIdentity, to: &payload)
-        return Self.hexEncoded(SHA256.hash(data: payload))
+        append(context.baselineObjectID, to: &payload)
+        append(context.indexIdentity, to: &payload)
+        append(summary.path, to: &payload)
+        append(summary.oldPath, to: &payload)
+        append(summary.status.rawValue, to: &payload)
+        append(summary.additions, to: &payload)
+        append(summary.deletions, to: &payload)
+        append(currentIdentity, to: &payload)
+        return hexEncoded(SHA256.hash(data: payload))
     }
 
     private static let missingFileSystemIdentity = FileSystemIdentity(
@@ -194,13 +185,13 @@ extension GitDiffService {
                 identities.append(Self.missingFileSystemIdentity)
                 continue
             }
-            guard let identity = Self.parseFileSystemIdentity(line) else { return .failed }
+            guard let identity = parseFileSystemIdentity(line) else { return .failed }
             identities.append(identity)
         }
         return .success(identities)
     }
 
-    private static func parseFileSystemIdentity(_ line: Substring) -> FileSystemIdentity? {
+    private func parseFileSystemIdentity(_ line: Substring) -> FileSystemIdentity? {
         let fields = line.split(separator: "|", omittingEmptySubsequences: false)
         guard fields.count == 6,
               let device = UInt64(fields[0]),
@@ -217,7 +208,7 @@ extension GitDiffService {
         )
     }
 
-    private static func append(_ value: String?, to data: inout Data) {
+    private func append(_ value: String?, to data: inout Data) {
         guard let value else {
             data.append(0)
             return
@@ -227,7 +218,7 @@ extension GitDiffService {
         data.append(contentsOf: value.utf8)
     }
 
-    private static func append(_ value: Int?, to data: inout Data) {
+    private func append(_ value: Int?, to data: inout Data) {
         guard let value else {
             data.append(0)
             return
@@ -236,7 +227,7 @@ extension GitDiffService {
         append(UInt64(bitPattern: Int64(value)), to: &data)
     }
 
-    private static func append(_ value: FileSystemIdentity, to data: inout Data) {
+    private func append(_ value: FileSystemIdentity, to data: inout Data) {
         append(value.device, to: &data)
         append(value.inode, to: &data)
         append(UInt64(value.mode), to: &data)
@@ -245,7 +236,7 @@ extension GitDiffService {
         append(value.changeTime, to: &data)
     }
 
-    private static func append(_ value: UInt64, to data: inout Data) {
+    private func append(_ value: UInt64, to data: inout Data) {
         data.append(UInt8((value >> 56) & 0xff))
         data.append(UInt8((value >> 48) & 0xff))
         data.append(UInt8((value >> 40) & 0xff))
@@ -256,7 +247,7 @@ extension GitDiffService {
         data.append(UInt8(value & 0xff))
     }
 
-    private static func hexEncoded<D: Sequence>(_ digest: D) -> String where D.Element == UInt8 {
+    private func hexEncoded<D: Sequence>(_ digest: D) -> String where D.Element == UInt8 {
         let alphabet = Array("0123456789abcdef".utf8)
         var encoded: [UInt8] = []
         encoded.reserveCapacity(digest.underestimatedCount * 2)

@@ -53,7 +53,7 @@ struct GitProcessRunner: Sendable {
         }
         let deadline = ProcessInfo.processInfo.systemUptime + processDeadlineSeconds
         var accumulatedOutput = Data()
-        for batch in Self.fileSystemPathBatches(paths) {
+        for batch in fileSystemPathBatches(paths) {
             guard !Task.isCancelled else {
                 return GitProcessResult(output: nil, failure: .cancelled)
             }
@@ -75,7 +75,7 @@ struct GitProcessRunner: Sendable {
             if result.capped {
                 return GitProcessResult(
                     rawOutput: accumulatedOutput,
-                    output: Self.decodeUTF8Lossy(
+                    output: decodeUTF8Lossy(
                         accumulatedOutput,
                         maxOutputBytes: maxOutputBytes
                     ),
@@ -86,7 +86,7 @@ struct GitProcessRunner: Sendable {
         }
         return GitProcessResult(
             rawOutput: accumulatedOutput,
-            output: Self.decodeUTF8Lossy(accumulatedOutput, maxOutputBytes: nil),
+            output: decodeUTF8Lossy(accumulatedOutput, maxOutputBytes: nil),
             terminationStatus: 0
         )
     }
@@ -121,13 +121,13 @@ struct GitProcessRunner: Sendable {
         )
     }
 
-    private static func fileSystemPathBatches(_ paths: [String]) -> [[String]] {
+    private func fileSystemPathBatches(_ paths: [String]) -> [[String]] {
         var batches: [[String]] = []
         var batch: [String] = []
         var batchBytes = 0
         for path in paths {
             let pathBytes = path.utf8.count + 1
-            if !batch.isEmpty, batchBytes + pathBytes > fileSystemArgumentBytesPerBatch {
+            if !batch.isEmpty, batchBytes + pathBytes > Self.fileSystemArgumentBytesPerBatch {
                 batches.append(batch)
                 batch = []
                 batchBytes = 0
@@ -171,7 +171,7 @@ struct GitProcessRunner: Sendable {
         process.standardError = processGroupPipe
         do {
             try process.run()
-            guard let processGroupIdentifier = Self.readProcessGroupIdentifier(
+            guard let processGroupIdentifier = readProcessGroupIdentifier(
                 processGroupPipe.fileHandleForReading
             ) else {
                 process.terminate()
@@ -193,7 +193,7 @@ struct GitProcessRunner: Sendable {
             timer.setEventHandler { watchdog.fire() }
             timer.activate()
             defer { timer.cancel() }
-            let read = Self.readOutput(
+            let read = readOutput(
                 pipe.fileHandleForReading,
                 maxOutputBytes: maxOutputBytes,
                 watchdog: watchdog
@@ -206,7 +206,7 @@ struct GitProcessRunner: Sendable {
                 // the bounded partial output and mark it cut off.
                 return GitProcessResult(
                     rawOutput: read.data,
-                    output: Self.decodeUTF8Lossy(read.data, maxOutputBytes: maxOutputBytes),
+                    output: decodeUTF8Lossy(read.data, maxOutputBytes: maxOutputBytes),
                     capped: true,
                     terminationStatus: process.terminationStatus
                 )
@@ -227,7 +227,7 @@ struct GitProcessRunner: Sendable {
             }
             return GitProcessResult(
                 rawOutput: read.data,
-                output: Self.decodeUTF8Lossy(read.data, maxOutputBytes: nil),
+                output: decodeUTF8Lossy(read.data, maxOutputBytes: nil),
                 terminationStatus: process.terminationStatus
             )
         } catch {
@@ -239,7 +239,7 @@ struct GitProcessRunner: Sendable {
     /// gives it a dedicated process group, then reports that leader here over
     /// its otherwise-discarded stderr. Keeping the wrapper outside the group
     /// lets it reap the helper after the watchdog signals its descendant group.
-    private static func readProcessGroupIdentifier(_ handle: FileHandle) -> pid_t? {
+    private func readProcessGroupIdentifier(_ handle: FileHandle) -> pid_t? {
         guard let data = try? handle.read(upToCount: 64),
               let text = String(data: data, encoding: .utf8),
               let firstLine = text.split(separator: "\n", maxSplits: 1).first,
@@ -251,7 +251,7 @@ struct GitProcessRunner: Sendable {
     /// Drains process stdout, stopping (and terminating the process) once
     /// `maxOutputBytes` is reached so a huge diff never accumulates unbounded
     /// memory before response-level capping.
-    private static func readOutput(
+    private func readOutput(
         _ handle: FileHandle,
         maxOutputBytes: Int?,
         watchdog: GitProcessWatchdog
@@ -275,7 +275,7 @@ struct GitProcessRunner: Sendable {
     /// Git emits raw bytes. Replace invalid UTF-8 instead of turning a valid
     /// command into an apparent Git failure, then preserve the caller's byte
     /// bound after replacement scalars expand in UTF-8.
-    private static func decodeUTF8Lossy(_ data: Data, maxOutputBytes: Int?) -> String {
+    private func decodeUTF8Lossy(_ data: Data, maxOutputBytes: Int?) -> String {
         let text = String(decoding: data, as: UTF8.self)
         guard let maxOutputBytes, text.utf8.count > maxOutputBytes else { return text }
         let utf8 = text.utf8
@@ -324,43 +324,4 @@ struct GitProcessRunner: Sendable {
         environment[Self.nonLockingGitEnvironmentKey] = Self.nonLockingGitEnvironmentValue
         return environment
     }
-}
-
-struct GitProcessResult: Sendable {
-    /// Exact stdout bytes for protocols where byte identity matters, such as
-    /// NUL-delimited Git paths. Human-readable diff content uses `output`.
-    let rawOutput: Data?
-    let output: String?
-    /// Whether the output was cut off at the caller's byte bound.
-    let capped: Bool
-    let failure: GitProcessFailure?
-    /// Exit status when a Git subprocess launched and terminated.
-    let terminationStatus: Int32?
-
-    init(
-        rawOutput: Data? = nil,
-        output: String?,
-        capped: Bool = false,
-        failure: GitProcessFailure? = nil,
-        terminationStatus: Int32? = nil
-    ) {
-        self.rawOutput = rawOutput
-        self.output = output
-        self.capped = capped
-        self.failure = failure
-        self.terminationStatus = terminationStatus
-    }
-
-    var timedOut: Bool { failure == .timedOut }
-
-    var successOutput: String? {
-        output
-    }
-}
-
-enum GitProcessFailure: Sendable {
-    case cancelled
-    case timedOut
-    case launchFailed
-    case unsuccessfulExit
 }

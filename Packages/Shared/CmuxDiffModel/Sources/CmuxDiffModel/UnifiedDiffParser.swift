@@ -1,7 +1,7 @@
 /// Parses unified-diff text into hunk and line value models.
 public struct UnifiedDiffParser: Sendable {
     private static let maximumHunkCount = 2_000
-    fileprivate static let maximumLineCountPerHunk = 2_000
+    static let maximumLineCountPerHunk = 2_000
     private static let maximumTotalLineCount = 20_000
     private static let maximumDisplayedLineUTF8Bytes = 8 * 1024
 
@@ -64,7 +64,7 @@ public struct UnifiedDiffParser: Sendable {
                 oldLine = header.oldStart
                 newLine = header.newStart
                 currentHunkLineCount = 0
-                let displayedHeader = Self.cappedDisplayText(rawLine)
+                let displayedHeader = cappedDisplayText(rawLine)
                 parserTruncated = parserTruncated || displayedHeader.wasCapped
                 current = HunkBuilder(
                     id: hunks.count,
@@ -100,7 +100,7 @@ public struct UnifiedDiffParser: Sendable {
                 continue
             }
 
-            let displayedText = Self.cappedDisplayText(rawLine.dropFirst())
+            let displayedText = cappedDisplayText(rawLine.dropFirst())
             parserTruncated = parserTruncated || displayedText.wasCapped
             switch marker {
             case "+":
@@ -119,7 +119,7 @@ public struct UnifiedDiffParser: Sendable {
             case "\\":
                 break
             default:
-                let displayedRawLine = Self.cappedDisplayText(rawLine)
+                let displayedRawLine = cappedDisplayText(rawLine)
                 parserTruncated = parserTruncated || displayedRawLine.wasCapped
                 builder.append(
                     DiffLine(id: lineID, kind: .context, text: displayedRawLine.text, oldLine: oldLine, newLine: newLine)
@@ -142,12 +142,12 @@ public struct UnifiedDiffParser: Sendable {
 
     /// Bounds every retained row before it reaches SwiftUI text layout or an
     /// accessibility label. The cut stays on a Unicode-scalar boundary.
-    private static func cappedDisplayText<T: StringProtocol>(_ source: T) -> (text: String, wasCapped: Bool) {
+    private func cappedDisplayText<T: StringProtocol>(_ source: T) -> (text: String, wasCapped: Bool) {
         let text = String(source)
         let utf8 = text.utf8
         guard let limit = utf8.index(
             utf8.startIndex,
-            offsetBy: maximumDisplayedLineUTF8Bytes,
+            offsetBy: Self.maximumDisplayedLineUTF8Bytes,
             limitedBy: utf8.endIndex
         ), limit != utf8.endIndex else {
             return (text, false)
@@ -158,106 +158,5 @@ public struct UnifiedDiffParser: Sendable {
         }
         let stringBoundary = String.Index(scalarBoundary, within: text) ?? text.startIndex
         return (String(text[..<stringBoundary]), true)
-    }
-}
-
-/// Iterates UTF-8 lines without first allocating an array proportional to the
-/// source line count. Byte scanning keeps CRLF from becoming one Swift grapheme.
-private struct UnifiedDiffLineSequence: Sequence, IteratorProtocol {
-    private var remaining: Substring.UTF8View
-
-    init(_ source: String) {
-        remaining = source[...].utf8
-    }
-
-    mutating func next() -> String? {
-        guard !remaining.isEmpty else { return nil }
-        guard let newline = remaining.firstIndex(of: 0x0A) else {
-            defer { remaining = remaining[remaining.endIndex...] }
-            return String(decoding: remaining, as: UTF8.self)
-        }
-        let bytes = remaining[..<newline]
-        remaining = remaining[remaining.index(after: newline)...]
-        if bytes.last == 0x0D {
-            return String(decoding: bytes.dropLast(), as: UTF8.self)
-        }
-        return String(decoding: bytes, as: UTF8.self)
-    }
-}
-
-private struct HunkHeader {
-    let oldStart: Int
-    let oldCount: Int
-    let newStart: Int
-    let newCount: Int
-
-    init?(rawLine: String) {
-        guard rawLine.hasPrefix("@@ ") else { return nil }
-        let parts = rawLine.split(separator: " ", maxSplits: 3, omittingEmptySubsequences: true)
-        guard parts.count >= 3, parts[0] == "@@" else { return nil }
-        guard let oldRange = Self.parseRange(String(parts[1]), prefix: "-"),
-              let newRange = Self.parseRange(String(parts[2]), prefix: "+") else {
-            return nil
-        }
-        oldStart = oldRange.start
-        oldCount = oldRange.count
-        newStart = newRange.start
-        newCount = newRange.count
-    }
-
-    private static func parseRange(_ raw: String, prefix: String) -> (start: Int, count: Int)? {
-        guard raw.hasPrefix(prefix) else { return nil }
-        let body = raw.dropFirst(prefix.count)
-        let pieces = body.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: false)
-        guard let startRaw = pieces.first, let start = Int(startRaw) else { return nil }
-        let count = pieces.count == 2 ? Int(pieces[1]) : 1
-        guard let count,
-              start >= 0,
-              count >= 0,
-              start <= Int.max - UnifiedDiffParser.maximumLineCountPerHunk else {
-            return nil
-        }
-        if count > 0 {
-            let (_, overflow) = start.addingReportingOverflow(count - 1)
-            guard !overflow else { return nil }
-        }
-        return (start, count)
-    }
-}
-
-/// Reference semantics keep one mutable line buffer per hunk. Copying a value
-/// builder on every parsed row would repeatedly trigger Array copy-on-write.
-private final class HunkBuilder {
-    let id: Int
-    let header: String
-    let oldStart: Int
-    let oldCount: Int
-    let newStart: Int
-    let newCount: Int
-    private var lines: [DiffLine] = []
-
-    init(id: Int, header: String, oldStart: Int, oldCount: Int, newStart: Int, newCount: Int) {
-        self.id = id
-        self.header = header
-        self.oldStart = oldStart
-        self.oldCount = oldCount
-        self.newStart = newStart
-        self.newCount = newCount
-    }
-
-    func append(_ line: DiffLine) {
-        lines.append(line)
-    }
-
-    func build() -> DiffHunk {
-        DiffHunk(
-            id: id,
-            header: header,
-            oldStart: oldStart,
-            oldCount: oldCount,
-            newStart: newStart,
-            newCount: newCount,
-            lines: lines
-        )
     }
 }

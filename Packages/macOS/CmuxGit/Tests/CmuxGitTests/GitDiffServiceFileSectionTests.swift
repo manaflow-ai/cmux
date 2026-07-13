@@ -3,6 +3,8 @@ import Testing
 @testable import CmuxGit
 
 @Suite struct GitDiffServiceFileSectionTests {
+    private let service = GitDiffService()
+
     @Test func unicodeLineSeparatorInContentDoesNotStartAnotherFileSection() {
         let output = """
         diff --git a/File.swift b/File.swift
@@ -10,7 +12,7 @@ import Testing
         +before diff --git a/Other.swift b/Other.swift
         """
 
-        #expect(GitDiffService.hasExactlyOneFileSection(output))
+        #expect(service.hasExactlyOneFileSection(output))
     }
 
     @Test func unicodeLineSeparatorsInContentDoNotSatisfyRenameMetadata() {
@@ -20,7 +22,7 @@ import Testing
         +before rename from Other.swift rename to Other.swift
         """
 
-        #expect(!GitDiffService.hasRenameHeaders(output))
+        #expect(!service.hasRenameHeaders(output))
     }
 
     @Test(arguments: [
@@ -31,7 +33,7 @@ import Testing
     func classifiesTrackedFileSection(metadata: String, expected: GitDiffStatus) {
         let output = "diff --git a/File.swift b/File.swift\n\(metadata)\n"
 
-        #expect(GitDiffService.fileSectionStatus(output) == expected)
+        #expect(service.fileSectionStatus(output) == expected)
     }
 
     @Test func classifiesRenameOnlyWithPairedProtocolHeaders() {
@@ -41,7 +43,7 @@ import Testing
         rename to New.swift
         """
 
-        #expect(GitDiffService.fileSectionStatus(output) == .renamed)
+        #expect(service.fileSectionStatus(output) == .renamed)
     }
 
     @Test func contentCannotSpoofTrackedFileStatus() {
@@ -55,6 +57,6 @@ import Testing
         +rename to Other.swift
         """
 
-        #expect(GitDiffService.fileSectionStatus(output) == .modified)
+        #expect(service.fileSectionStatus(output) == .modified)
     }
 }

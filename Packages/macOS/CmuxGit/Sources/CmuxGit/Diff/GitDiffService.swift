@@ -51,7 +51,7 @@ public struct GitDiffService: Sendable {
             return .failed
         case nil:
             guard let output = result.successOutput,
-                  let root = Self.removingGitLineTerminator(output),
+                  let root = removingGitLineTerminator(output),
                   !root.isEmpty else { return .notFound }
             return .success(root)
         }
@@ -268,7 +268,7 @@ public struct GitDiffService: Sendable {
                 return failure
             }
             guard let output = result.successOutput else { return .failed }
-            guard Self.hasExactlyOneFileSection(output) else { return .notFound }
+            guard hasExactlyOneFileSection(output) else { return .notFound }
             let diff = GitFileDiff(path: path, unifiedDiff: output, truncated: result.capped)
             return validatedSnapshotResult(
                 diff,
@@ -284,12 +284,12 @@ public struct GitDiffService: Sendable {
                     paths.append(candidate)
                 }
             }
-        var pathspecs = diffPaths.map(Self.literalPathspec)
+        var pathspecs = diffPaths.map(literalPathspec)
         if requestedBaselineEntry.excludesDescendants {
-            pathspecs.append(Self.descendantExclusionPathspec(path))
+            pathspecs.append(descendantExclusionPathspec(path))
         }
         if let oldPath, oldBaselineEntry?.excludesDescendants == true {
-            pathspecs.append(Self.descendantExclusionPathspec(oldPath))
+            pathspecs.append(descendantExclusionPathspec(oldPath))
         }
         let result = runGit(
             in: repoRoot,
@@ -301,11 +301,11 @@ public struct GitDiffService: Sendable {
             return failure
         }
         guard let output = result.successOutput else { return .failed }
-        guard Self.hasExactlyOneFileSection(output) else { return .notFound }
-        if let status, Self.fileSectionStatus(output) != status {
+        guard hasExactlyOneFileSection(output) else { return .notFound }
+        if let status, fileSectionStatus(output) != status {
             return .notFound
         }
-        if oldPath != nil, !Self.hasRenameHeaders(output) {
+        if oldPath != nil, !hasRenameHeaders(output) {
             return .notFound
         }
         let diff = GitFileDiff(path: path, unifiedDiff: output, truncated: result.capped)
@@ -355,14 +355,14 @@ public struct GitDiffService: Sendable {
     /// Wraps a repository path in `:(literal)` pathspec magic so glob
     /// characters in real filenames (`*`, `?`, `[`) match the file byte-exact
     /// instead of expanding as a wildcard pattern over the whole tree.
-    static func literalPathspec(_ path: String) -> String {
+    func literalPathspec(_ path: String) -> String {
         ":(literal)\(path)"
     }
 
     /// Excludes descendants when Git compares an exact file request. This is
     /// inert for ordinary files, but prevents a baseline directory replaced by
     /// an indexed file from widening the response to deleted children.
-    static func descendantExclusionPathspec(_ path: String) -> String {
+    func descendantExclusionPathspec(_ path: String) -> String {
         ":(top,literal,exclude)\(path)/"
     }
 
@@ -378,7 +378,7 @@ public struct GitDiffService: Sendable {
     ) -> GitDiffQueryResult<Bool> {
         let result = runGit(
             in: repoRoot,
-            arguments: ["ls-files", "--others", "--exclude-standard", "-z", "--", Self.literalPathspec(path)],
+            arguments: ["ls-files", "--others", "--exclude-standard", "-z", "--", literalPathspec(path)],
             maxOutputBytes: maxOutputBytes
         )
         if let failure: GitDiffQueryResult<Bool> = queryFailure(from: result) {
@@ -401,7 +401,7 @@ public struct GitDiffService: Sendable {
         let validationOutputLimit = min(maxOutputBytes, 64 * 1024)
         let result = runGit(
             in: repoRoot,
-            arguments: ["ls-files", "--stage", "-z", "--", Self.literalPathspec(path)],
+            arguments: ["ls-files", "--stage", "-z", "--", literalPathspec(path)],
             maxOutputBytes: validationOutputLimit
         )
         if let failure: GitDiffQueryResult<Bool> = queryFailure(from: result) {
@@ -426,7 +426,7 @@ public struct GitDiffService: Sendable {
     ) -> GitDiffQueryResult<BaselineEntryKind> {
         let result = runGit(
             in: repoRoot,
-            arguments: ["ls-tree", "--full-tree", "-z", baseline, "--", Self.literalPathspec(path)],
+            arguments: ["ls-tree", "--full-tree", "-z", baseline, "--", literalPathspec(path)],
             maxOutputBytes: 64 * 1024
         )
         if let failure: GitDiffQueryResult<BaselineEntryKind> = queryFailure(from: result) {
@@ -451,19 +451,4 @@ public struct GitDiffService: Sendable {
         return .success(.missing)
     }
 
-}
-
-private enum BaselineEntryKind: Equatable {
-    case missing
-    case file
-    case gitlink
-    case directory
-
-    var isFile: Bool {
-        self == .file || self == .gitlink
-    }
-
-    var excludesDescendants: Bool {
-        self == .file || self == .directory
-    }
 }

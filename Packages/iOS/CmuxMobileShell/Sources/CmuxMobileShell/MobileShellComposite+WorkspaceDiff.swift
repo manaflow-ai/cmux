@@ -35,13 +35,13 @@ extension MobileShellComposite {
                 params: params,
                 workspaceID: workspaceID
             )
-            return try await Self.decodeWorkspaceDiffResponse {
-                try Self.decodeDiffStatusSnapshot(data)
+            return try await decodeWorkspaceDiffResponse {
+                try self.decodeDiffStatusSnapshot(data)
             }
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            throw Self.workspaceDiffError(from: error)
+            throw workspaceDiffError(from: error)
         }
     }
 
@@ -77,18 +77,18 @@ extension MobileShellComposite {
                 params: params,
                 workspaceID: workspaceID
             )
-            return try await Self.decodeWorkspaceDiffResponse {
-                try Self.decodeDiffFilePatch(data, expectedPath: file.path)
+            return try await decodeWorkspaceDiffResponse {
+                try self.decodeDiffFilePatch(data, expectedPath: file.path)
             }
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            throw Self.workspaceDiffError(from: error)
+            throw workspaceDiffError(from: error)
         }
     }
 
-    nonisolated static func decodeDiffStatusSnapshot(_ data: Data) throws -> DiffStatusSnapshot {
-        let response = try MobileWorkspaceDiffStatusResponse.decode(data)
+    nonisolated func decodeDiffStatusSnapshot(_ data: Data) throws -> DiffStatusSnapshot {
+        let response = try MobileWorkspaceDiffStatusResponse(data: data)
         let files = try response.files.map { file in
             guard let status = DiffFileStatus(rawValue: file.status) else {
                 throw WorkspaceDiffError.unavailable
@@ -109,8 +109,8 @@ extension MobileShellComposite {
         )
     }
 
-    nonisolated static func decodeDiffFilePatch(_ data: Data, expectedPath: String) throws -> DiffFilePatch {
-        let response = try MobileWorkspaceDiffFileResponse.decode(data)
+    nonisolated func decodeDiffFilePatch(_ data: Data, expectedPath: String) throws -> DiffFilePatch {
+        let response = try MobileWorkspaceDiffFileResponse(data: data)
         guard response.path == expectedPath else { throw WorkspaceDiffError.unavailable }
         return DiffFilePatch(
             path: response.path,
@@ -119,7 +119,7 @@ extension MobileShellComposite {
         )
     }
 
-    nonisolated static func workspaceDiffError(from error: any Error) -> WorkspaceDiffError {
+    nonisolated func workspaceDiffError(from error: any Error) -> WorkspaceDiffError {
         if let diffError = error as? WorkspaceDiffError {
             return diffError
         }
@@ -149,7 +149,7 @@ extension MobileShellComposite {
 
     /// Keep bounded but substantial JSON unescaping and DTO construction off
     /// the main actor. Cancellation discards a stale result at both boundaries.
-    nonisolated static func decodeWorkspaceDiffResponse<Value: Sendable>(
+    nonisolated func decodeWorkspaceDiffResponse<Value: Sendable>(
         _ operation: @escaping @Sendable () throws -> Value
     ) async throws -> Value {
         let task = Task.detached(priority: .userInitiated) {
@@ -195,7 +195,7 @@ extension MobileShellComposite {
             guard !disconnectForAuthorizationFailureIfNeeded(error, target: target) else {
                 throw error
             }
-            if !Self.isWorkspaceDiffOperationTimeout(error) {
+            if !isWorkspaceDiffOperationTimeout(error) {
                 markMacConnectionUnavailableIfNeeded(after: error, target: target)
             }
             throw error
@@ -205,7 +205,7 @@ extension MobileShellComposite {
     /// A diff can exhaust its operation deadline while the Mac and transport
     /// remain healthy. Connection-closed and network failures still flow into
     /// the normal foreground availability classifier.
-    private static func isWorkspaceDiffOperationTimeout(_ error: any Error) -> Bool {
+    private func isWorkspaceDiffOperationTimeout(_ error: any Error) -> Bool {
         guard let shellError = error as? MobileShellConnectionError else { return false }
         if case .requestTimedOut = shellError { return true }
         return false
