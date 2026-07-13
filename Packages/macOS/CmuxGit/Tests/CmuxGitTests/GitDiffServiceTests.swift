@@ -167,6 +167,40 @@ import Testing
         #expect(diff.unifiedDiff.contains("+changed"))
     }
 
+    @Test func ambientPathspecModesAreScrubbedBeforeExactFileDiff() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let fileName = "file[1].txt"
+        let fileURL = repo.appendingPathComponent(fileName)
+        try Data("original\n".utf8).write(to: fileURL)
+        try runTestGit(in: repo, ["add", "--", fileName])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add exact file"])
+        try Data("changed\n".utf8).write(to: fileURL)
+
+        let guardedGit = repo.appendingPathComponent("guarded-git.sh")
+        try Data("""
+        #!/bin/sh
+        if [ "${GIT_LITERAL_PATHSPECS+x}" = x ] || [ "${GIT_ICASE_PATHSPECS+x}" = x ]; then
+          exit 91
+        fi
+        exec /usr/bin/git "$@"
+        """.utf8).write(to: guardedGit)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: guardedGit.path
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["GIT_LITERAL_PATHSPECS"] = "1"
+        environment["GIT_ICASE_PATHSPECS"] = "1"
+
+        let service = GitDiffService(
+            gitExecutableURL: guardedGit,
+            environment: environment
+        )
+        let diff = try #require(service.fileDiff(repoRoot: repo.path, path: fileName))
+
+        #expect(diff.unifiedDiff.contains("+changed"))
+    }
+
     @Test func externalDiffDriverIsBypassedForMachineReadableOutput() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
