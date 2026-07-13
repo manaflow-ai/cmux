@@ -192,6 +192,23 @@ struct RemoteDisconnectLifecycleTests {
         #expect(!FileManager.default.fileExists(atPath: replayPath))
     }
 
+    @Test func closingLastDisconnectedPlaceholderCreatesAnotherPlaceholder() async throws {
+        let workspace = Workspace()
+        workspace.configureRemoteConnection(Self.remoteConfiguration(), autoConnect: false)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panel.id, relayPort: 64007)
+        #expect(workspace.transitionRemoteTerminalToDisconnectedPlaceholder(surfaceId: panel.id))
+        await workspace.waitForRemoteDisconnectTransition(surfaceId: panel.id)
+
+        #expect(workspace.closePanel(panel.id, force: true))
+
+        let replacement = try #require(workspace.focusedTerminalPanel)
+        defer { Self.removeTransitionArtifacts(workspace: workspace, panelIds: [replacement.id]) }
+        #expect(replacement.id != panel.id)
+        #expect(workspace.remoteDisconnectPlaceholderPanelIds == Set([replacement.id]))
+        #expect(replacement.surface.initialCommand != nil)
+    }
+
     @Test func staleChildExitCannotReplaceNewRuntimeWithSameSurfaceID() async throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
