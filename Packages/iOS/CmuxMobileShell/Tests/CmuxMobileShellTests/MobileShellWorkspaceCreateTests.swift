@@ -104,6 +104,30 @@ import Testing
         #expect(await router.recordedWorkspaceCreateCount() == 1)
     }
 
+    @Test func specLessDecodedSuccessSurvivesCancellation() {
+        let spec: MobileWorkspaceCreateSpec? = nil
+
+        let disposition = MobileShellComposite.WorkspaceCreatePinnedContext.postResponseDisposition(
+            operationID: spec?.operationID,
+            isCancelled: true,
+            isCurrent: true
+        )
+
+        #expect(disposition == .preserveSuccess)
+    }
+
+    @Test func nonIdempotentSpecDecodedSuccessSurvivesCancellation() {
+        let spec = MobileWorkspaceCreateSpec(title: "Legacy titled create")
+
+        let disposition = MobileShellComposite.WorkspaceCreatePinnedContext.postResponseDisposition(
+            operationID: spec.operationID,
+            isCancelled: true,
+            isCurrent: true
+        )
+
+        #expect(disposition == .preserveSuccess)
+    }
+
     @Test func differentGroupCreateWorkspaceRequestDoesNotJoinInFlightResult() async throws {
         let router = RoutingHostRouter()
         await router.setHoldFirstWorkspaceCreate(true)

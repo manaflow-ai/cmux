@@ -204,22 +204,16 @@ import Testing
         #expect(await router.recordedWorkspaceCreateCount() == 1)
     }
 
-    @Test func connectionDrivenCancellationNeverReportsCreateSuccess() async throws {
-        let router = RoutingHostRouter()
-        await router.setHoldFirstWorkspaceCreate(true)
-        let store = try await makeRoutingConnectedStore(router: router)
+    @Test func idempotentDecodedSuccessFailsClosedAfterCancellation() {
+        let spec = MobileWorkspaceCreateSpec(title: "Task", operationID: UUID())
 
-        let create = Task { @MainActor in
-            await store.createWorkspaceRequest(spec: MobileWorkspaceCreateSpec(title: "Task"))
-        }
-        await router.awaitFirstWorkspaceCreateReached()
-        store.signOut()
-        await router.releaseFirstWorkspaceCreate()
-        let result = await create.value
+        let disposition = MobileShellComposite.WorkspaceCreatePinnedContext.postResponseDisposition(
+            operationID: spec.operationID,
+            isCancelled: true,
+            isCurrent: true
+        )
 
-        guard case .failure = result else {
-            return #expect(Bool(false), "a connection-cancelled create must never report success")
-        }
+        #expect(disposition == .failClosed)
     }
 
     @Test func specCreateDoesNotCoalesceWithInFlightCreate() async throws {

@@ -43,6 +43,28 @@ import Testing
         #expect(result.initialEnv == ["CMUX_TASK_PROMPT": "fix 'quote'"])
     }
 
+    @Test func appendModeTrimsTrailingNewlineBeforePromptArgument() {
+        let template = MobileTaskTemplate(
+            name: "Script",
+            icon: "terminal",
+            command: "printf ready\nagent\n"
+        )
+
+        let result = composer.compose(template: template, prompt: "ship it")
+
+        #expect(result.initialCommand == "printf ready\nagent -- \"${CMUX_TASK_PROMPT}\"")
+        #expect(result.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
+    }
+
+    @Test func appendModeTrimsTrailingSpacesBeforePromptArgument() {
+        let template = MobileTaskTemplate(name: "Agent", icon: "terminal", command: "agent   ")
+
+        let result = composer.compose(template: template, prompt: "ship it")
+
+        #expect(result.initialCommand == "agent -- \"${CMUX_TASK_PROMPT}\"")
+        #expect(result.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
+    }
+
     @Test func appendModeCannotInterpretLeadingDashPromptAsAnOption() {
         let template = MobileTaskTemplate(name: "Agent", icon: "terminal", command: "agent")
 
@@ -170,6 +192,34 @@ import Testing
         #expect(bracedResult.initialCommand == "agent \"${CMUX_TASK_PROMPT}\"")
         #expect(unbracedResult.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
         #expect(bracedResult.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
+    }
+
+    @Test func blankPromptStillDefinesExplicitUnbracedEnvironmentReference() {
+        let template = MobileTaskTemplate(
+            name: "Custom",
+            icon: "terminal",
+            command: "agent \"$CMUX_TASK_PROMPT\""
+        )
+
+        let result = composer.compose(template: template, prompt: " \n ")
+
+        #expect(result.initialCommand == "agent \"$CMUX_TASK_PROMPT\"")
+        #expect(result.initialEnv == ["CMUX_TASK_PROMPT": ""])
+        #expect(result.title == nil)
+    }
+
+    @Test func blankPromptStillDefinesExplicitBracedEnvironmentReference() {
+        let template = MobileTaskTemplate(
+            name: "Custom",
+            icon: "terminal",
+            command: "agent \"${CMUX_TASK_PROMPT}\""
+        )
+
+        let result = composer.compose(template: template, prompt: " \n ")
+
+        #expect(result.initialCommand == "agent \"${CMUX_TASK_PROMPT}\"")
+        #expect(result.initialEnv == ["CMUX_TASK_PROMPT": ""])
+        #expect(result.title == nil)
     }
 
     @Test func promptEnvironmentReferenceInsideCommentDoesNotSuppressImplicitArgument() {

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -111,6 +112,111 @@ import Testing
         await probe.complete(path: "/external/second-wedge", isDirectory: true)
     }
 
+    @Test func anySymlinkedComponentUsesExternalProbeLane() throws {
+        let root = Self.nonSymlinkedTemporaryDirectory
+            .appendingPathComponent("cmux-symlink-lane-\(UUID().uuidString)", isDirectory: true)
+        let target = root.appendingPathComponent("target", isDirectory: true)
+        let link = root.appendingPathComponent("link", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+
+        let linkedChild = link.appendingPathComponent("child", isDirectory: true).path
+
+        #expect(TerminalController.v2WorkingDirectoryProbeLane(linkedChild) == .external)
+    }
+
+    @Test func symlinkAndExternalWedgesCannotOccupyReservedLocalLane() async throws {
+        let root = Self.nonSymlinkedTemporaryDirectory
+            .appendingPathComponent("cmux-symlink-capacity-\(UUID().uuidString)", isDirectory: true)
+        let target = root.appendingPathComponent("target", isDirectory: true)
+        let local = root.appendingPathComponent("local", isDirectory: true)
+        let link = root.appendingPathComponent("link", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        let linkedPath = link.appendingPathComponent("wedged", isDirectory: true).path
+        let externalPath = "/external/second-wedge"
+        let linkedLane = TerminalController.v2WorkingDirectoryProbeLane(linkedPath)
+        guard linkedLane == .external else {
+            return #expect(Bool(false), "a symlinked component must not enter the local lane")
+        }
+        guard TerminalController.v2WorkingDirectoryProbeLane(local.path) == .local else {
+            return #expect(Bool(false), "the real local fixture must use the reserved local lane")
+        }
+
+        let probe = ControlledDirectoryProbe()
+        let deadlines = ControlledValidationDeadlines()
+        let service = TerminalController.WorkspaceCreateWorkingDirectoryValidationService(
+            timeout: .seconds(1),
+            localCapacity: 1,
+            externalCapacity: 2,
+            laneClassifier: { path in
+                path == externalPath
+                    ? .external
+                    : TerminalController.v2WorkingDirectoryProbeLane(path)
+            },
+            probe: { path, lane in await probe.run(path: path, lane: lane) },
+            sleepUntilDeadline: { _ in await deadlines.sleep() }
+        )
+        let linked = Task { await service.validate(rawValue: linkedPath, isProvided: true) }
+        let external = Task { await service.validate(rawValue: externalPath, isProvided: true) }
+        await probe.waitForCount(2)
+        await deadlines.waitForCount(2)
+        await deadlines.fireAll()
+        #expect(await linked.value == .timedOut)
+        #expect(await external.value == .timedOut)
+
+        let localValidation = Task { await service.validate(rawValue: local.path, isProvided: true) }
+        await probe.waitForCount(3)
+        #expect(await probe.lane(for: linkedPath) == .external)
+        #expect(await probe.lane(for: externalPath) == .external)
+        #expect(await probe.lane(for: local.path) == .local)
+        await probe.complete(path: local.path, isDirectory: true)
+        #expect(await localValidation.value == .valid(local.path))
+        await probe.complete(path: linkedPath, isDirectory: true)
+        await probe.complete(path: externalPath, isDirectory: true)
+    }
+
+    @Test func localProbeDoesNotFollowSymlinkCreatedAfterClassification() async throws {
+        let root = Self.nonSymlinkedTemporaryDirectory
+            .appendingPathComponent("cmux-symlink-race-\(UUID().uuidString)", isDirectory: true)
+        let candidate = root.appendingPathComponent("candidate", isDirectory: true)
+        let target = root.appendingPathComponent("target", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: candidate, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        #expect(TerminalController.v2WorkingDirectoryProbeLane(candidate.path) == .local)
+
+        let deadlines = ControlledValidationDeadlines()
+        let lanes = ChosenProbeLaneRecorder()
+        let service = TerminalController.WorkspaceCreateWorkingDirectoryValidationService(
+            timeout: .seconds(1),
+            localCapacity: 1,
+            externalCapacity: 2,
+            laneClassifier: { path in
+                let lane = TerminalController.v2WorkingDirectoryProbeLane(path)
+                _ = path.withCString { Darwin.rmdir($0) }
+                _ = target.path.withCString { destination in
+                    path.withCString { Darwin.symlink(destination, $0) }
+                }
+                return lane
+            },
+            probe: { path, lane in
+                await lanes.record(lane)
+                return await TerminalController.v2ProbeWorkingDirectory(path, lane: lane)
+            },
+            sleepUntilDeadline: { _ in await deadlines.sleep() }
+        )
+
+        let result = await service.validate(rawValue: candidate.path, isProvided: true)
+
+        #expect(result == .invalid)
+        #expect(await lanes.values == [.local])
+        #expect(TerminalController.v2WorkingDirectoryProbeLane(candidate.path) == .external)
+    }
+
     @Test func cancellingOneCoalescedWaiterDoesNotCancelProbeOrOtherWaiter() async {
         let probe = ControlledDirectoryProbe()
         let deadlines = ControlledValidationDeadlines()
@@ -162,9 +268,20 @@ import Testing
             localCapacity: 1,
             externalCapacity: 2,
             laneClassifier: { path in path.hasPrefix("/external/") ? .external : .local },
-            probe: { path in await probe.run(path: path) },
+            probe: { path, lane in await probe.run(path: path, lane: lane) },
             sleepUntilDeadline: { _ in await deadlines.sleep() }
         )
+    }
+
+    private static var nonSymlinkedTemporaryDirectory: URL {
+        let temporaryPath = FileManager.default.temporaryDirectory.path
+        if temporaryPath == "/var" || temporaryPath.hasPrefix("/var/") {
+            return URL(fileURLWithPath: "/private\(temporaryPath)", isDirectory: true)
+        }
+        if temporaryPath == "/tmp" || temporaryPath.hasPrefix("/tmp/") {
+            return URL(fileURLWithPath: "/private\(temporaryPath)", isDirectory: true)
+        }
+        return URL(fileURLWithPath: temporaryPath, isDirectory: true)
     }
 
     private static func errorCode(from result: TerminalController.V2CallResult) -> String? {
@@ -175,13 +292,24 @@ import Testing
 
 private actor ControlledDirectoryProbe {
     private(set) var count = 0
+    private var lanesByPath: [String: TerminalController.WorkspaceCreateWorkingDirectoryValidationService.ProbeLane] = [:]
     private var activeContinuations: [String: CheckedContinuation<Bool, Never>] = [:]
     private var countWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
-    func run(path: String) async -> Bool {
+    func run(
+        path: String,
+        lane: TerminalController.WorkspaceCreateWorkingDirectoryValidationService.ProbeLane
+    ) async -> Bool {
         count += 1
+        lanesByPath[path] = lane
         resumeCountWaiters()
         return await withCheckedContinuation { activeContinuations[path] = $0 }
+    }
+
+    func lane(
+        for path: String
+    ) -> TerminalController.WorkspaceCreateWorkingDirectoryValidationService.ProbeLane? {
+        lanesByPath[path]
     }
 
     func waitForCount(_ expected: Int) async {
@@ -197,6 +325,14 @@ private actor ControlledDirectoryProbe {
         let ready = countWaiters.filter { count >= $0.count }
         countWaiters.removeAll { count >= $0.count }
         for waiter in ready { waiter.continuation.resume() }
+    }
+}
+
+private actor ChosenProbeLaneRecorder {
+    private(set) var values: [TerminalController.WorkspaceCreateWorkingDirectoryValidationService.ProbeLane] = []
+
+    func record(_ lane: TerminalController.WorkspaceCreateWorkingDirectoryValidationService.ProbeLane) {
+        values.append(lane)
     }
 }
 
