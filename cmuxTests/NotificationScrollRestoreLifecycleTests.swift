@@ -16,7 +16,7 @@ struct NotificationScrollRestoreLifecycleTests {
         let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 0, offset: 0, len: 0)
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
-        hostedView.sessionScrollbackReplayDidBegin(expectedBoundary: boundary)
+        beginReplay(on: hostedView, endBoundary: boundary)
 
         #expect(!hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 100, totalRows: 400)
@@ -36,7 +36,7 @@ struct NotificationScrollRestoreLifecycleTests {
         let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 0, offset: 0, len: 0)
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
-        hostedView.sessionScrollbackReplayDidBegin(expectedBoundary: boundary)
+        beginReplay(on: hostedView, endBoundary: boundary)
 
         #expect(!hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 100, totalRows: 400)
@@ -54,7 +54,7 @@ struct NotificationScrollRestoreLifecycleTests {
         let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 400, offset: 356, len: 44)
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
-        hostedView.sessionScrollbackReplayDidBegin(expectedBoundary: boundary)
+        beginReplay(on: hostedView, endBoundary: boundary)
 
         #expect(!hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 100, totalRows: 400)
@@ -71,7 +71,7 @@ struct NotificationScrollRestoreLifecycleTests {
         defer { panel.surface.releaseSurfaceForTesting() }
         let hostedView = panel.hostedView
         hostedView.surfaceView.scrollbar = scrollbar(total: 0, offset: 0, len: 0)
-        hostedView.sessionScrollbackReplayDidBegin(expectedBoundary: boundary)
+        beginReplay(on: hostedView, endBoundary: boundary)
 
         #expect(!hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 100, totalRows: 400)
@@ -95,7 +95,7 @@ struct NotificationScrollRestoreLifecycleTests {
         let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 0, offset: 0, len: 0)
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
-        hostedView.sessionScrollbackReplayDidBegin(expectedBoundary: "expected")
+        beginReplay(on: hostedView, endBoundary: "expected")
 
         #expect(!hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 100, totalRows: 400)
@@ -120,16 +120,46 @@ struct NotificationScrollRestoreLifecycleTests {
         ))
         defer { panel.surface.releaseSurfaceForTesting() }
 
-        guard case .replaying(let expectedBoundary, let pendingPosition) =
+        guard case .armed(let expectedStartBoundary, let expectedEndBoundary, let pendingPosition, _) =
             panel.hostedView.notificationScrollRestoreState else {
             Issue.record("Replay environment did not arm the in-band boundary")
             return
         }
 
-        #expect(expectedBoundary == SessionScrollbackReplayStore.boundaryValue(
+        #expect(expectedStartBoundary == SessionScrollbackReplayStore.startBoundaryValue(
+            forReplayFilePath: replayFilePath
+        ))
+        #expect(expectedEndBoundary == SessionScrollbackReplayStore.endBoundaryValue(
             forReplayFilePath: replayFilePath
         ))
         #expect(pendingPosition == nil)
+    }
+
+    @Test func missingReplayStartMarkerDoesNotDeferNormalGeometryRestore() {
+        let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 0, offset: 0, len: 0)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.armSessionScrollbackReplay(
+            expectedStartBoundary: "expected-start",
+            expectedEndBoundary: "expected-end"
+        )
+
+        #expect(!hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 100, totalRows: 400)
+        ))
+        postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
+
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
+    }
+
+    private func beginReplay(on hostedView: GhosttySurfaceScrollView, endBoundary: String) {
+        let startBoundary = endBoundary + "-start"
+        hostedView.armSessionScrollbackReplay(
+            expectedStartBoundary: startBoundary,
+            expectedEndBoundary: endBoundary
+        )
+        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(startBoundary))
     }
 
     private func scrollbar(total: UInt64, offset: UInt64, len: UInt64) -> GhosttyScrollbar {

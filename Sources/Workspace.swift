@@ -7415,13 +7415,7 @@ final class Workspace: Identifiable, ObservableObject {
             additionalEnvironment: effectiveStartupEnvironment,
             runtimeSpawnPolicy: runtimeSpawnPolicy
         )
-        if let replayFilePath = effectiveStartupEnvironment[SessionScrollbackReplayStore.environmentKey] {
-            newPanel.hostedView.sessionScrollbackReplayDidBegin(
-                expectedBoundary: SessionScrollbackReplayStore.boundaryValue(
-                    forReplayFilePath: replayFilePath
-                )
-            )
-        }
+        newPanel.hostedView.armSessionScrollbackReplay(from: effectiveStartupEnvironment)
         configureNewTerminalPanel(
             newPanel,
             allowTextBoxFocusDefault: shouldFocusNewTab && allowTextBoxFocusDefault
@@ -7437,7 +7431,6 @@ final class Workspace: Identifiable, ObservableObject {
             trackRemoteTerminalSurface(newPanel.id)
         }
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
-
         // Create tab in bonsplit
         guard let newTabId = bonsplitController.createTab(
             title: newPanel.displayTitle,

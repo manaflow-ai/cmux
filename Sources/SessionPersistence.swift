@@ -1841,11 +1841,10 @@ extension AppSessionSnapshot: SessionSnapshotRepresenting {
 
 enum SessionScrollbackReplayStore {
     static let environmentKey = "CMUX_RESTORE_SCROLLBACK_FILE"
-    static let boundaryPrefix = "cmux-session-scrollback-replay:"
+    static let boundaryPrefix = "/.cmux/session-scrollback-replay/"
     private static let directoryName = "cmux-session-scrollback"
     private static let ansiEscape = "\u{001B}"
     private static let ansiReset = "\u{001B}[0m"
-
     static func replayEnvironment(
         for scrollback: String?,
         tempDirectory: URL = FileManager.default.temporaryDirectory
@@ -1859,11 +1858,12 @@ enum SessionScrollbackReplayStore {
         }
         return [environmentKey: replayFileURL.path]
     }
-
-    static func boundaryValue(forReplayFilePath path: String) -> String {
-        boundaryPrefix + path
+    static func startBoundaryValue(forReplayFilePath path: String) -> String {
+        boundaryPrefix + URL(fileURLWithPath: path).lastPathComponent + "/start"
     }
-
+    static func endBoundaryValue(forReplayFilePath path: String) -> String {
+        boundaryPrefix + URL(fileURLWithPath: path).lastPathComponent + "/end"
+    }
     private static func normalizedScrollback(_ scrollback: String?) -> String? {
         guard let scrollback else { return nil }
         guard scrollback.contains(where: { !$0.isWhitespace }) else { return nil }
@@ -1877,7 +1877,6 @@ enum SessionScrollbackReplayStore {
         guard let truncated = SessionPersistencePolicy.truncatedScrollback(themePortable) else { return nil }
         return ansiSafeReplayText(truncated)
     }
-
     /// Preserve ANSI color state safely across replay boundaries.
     private static func ansiSafeReplayText(_ text: String) -> String {
         guard text.contains(ansiEscape) else { return text }
@@ -1890,7 +1889,6 @@ enum SessionScrollbackReplayStore {
         }
         return output
     }
-
     /// Removes terminal-color OSC sequences (palette entries and the dynamic
     /// foreground/background/cursor/highlight colors plus their resets) from
     /// captured scrollback so the restored history does not reconfigure the live
@@ -1910,10 +1908,8 @@ enum SessionScrollbackReplayStore {
         let backslash: UInt8 = 0x5C
         let zero: UInt8 = 0x30
         let nine: UInt8 = 0x39
-
         let bytes = Array(text.utf8)
         guard bytes.contains(escByte) else { return text }
-
         var output = [UInt8]()
         output.reserveCapacity(bytes.count)
         let count = bytes.count
@@ -1927,7 +1923,6 @@ enum SessionScrollbackReplayStore {
                 index += 1
                 continue
             }
-
             // Parse the OSC numeric command (Ps) following `ESC ]`.
             var cursor = index + 2
             var code = 0

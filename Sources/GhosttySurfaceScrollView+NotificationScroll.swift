@@ -20,6 +20,13 @@ extension GhosttySurfaceScrollView {
         }
 
         switch notificationScrollRestoreState {
+        case .armed(let expectedStartBoundary, let expectedEndBoundary, _, _):
+            notificationScrollRestoreState = .armed(
+                expectedStartBoundary: expectedStartBoundary,
+                expectedEndBoundary: expectedEndBoundary,
+                pendingPosition: position,
+                attemptsRemaining: 2
+            )
         case .replaying(let expectedBoundary, _):
             notificationScrollRestoreState = .replaying(
                 expectedBoundary: expectedBoundary,
@@ -46,17 +53,26 @@ extension GhosttySurfaceScrollView {
         let position: TerminalNotificationScrollPosition
         let attemptsRemaining: Int
         let isPostReplayGeometry: Bool
+        let armedBoundaries: (start: String, end: String)?
         switch notificationScrollRestoreState {
         case .inactive, .replaying:
             return false
+        case .armed(let expectedStartBoundary, let expectedEndBoundary, let pendingPosition, let pendingAttempts):
+            guard let pendingPosition else { return false }
+            position = pendingPosition
+            attemptsRemaining = pendingAttempts
+            isPostReplayGeometry = false
+            armedBoundaries = (expectedStartBoundary, expectedEndBoundary)
         case .awaitingInitialGeometry(let pendingPosition, let pendingAttempts):
             position = pendingPosition
             attemptsRemaining = pendingAttempts
             isPostReplayGeometry = false
+            armedBoundaries = nil
         case .awaitingPostReplayGeometry(let pendingPosition, let pendingAttempts):
             position = pendingPosition
             attemptsRemaining = pendingAttempts
             isPostReplayGeometry = true
+            armedBoundaries = nil
         }
 
         guard attemptsRemaining > 0 else {
@@ -72,7 +88,6 @@ extension GhosttySurfaceScrollView {
             capturedTotalRows: capturedTotalRows
         )
         guard let targetTopRow = anchor.topRow(in: scrollbar) else {
-            clearPendingNotificationScrollRestore()
             return false
         }
         let currentLastTopRow = Int(clamping: scrollbar.total - min(scrollbar.total, scrollbar.len))
@@ -91,6 +106,13 @@ extension GhosttySurfaceScrollView {
             userScrolledAwayFromBottom = previousUserScrolledAwayFromBottom
             if remainingAfterAttempt == 0 {
                 clearPendingNotificationScrollRestore()
+            } else if let armedBoundaries {
+                notificationScrollRestoreState = .armed(
+                    expectedStartBoundary: armedBoundaries.start,
+                    expectedEndBoundary: armedBoundaries.end,
+                    pendingPosition: position,
+                    attemptsRemaining: remainingAfterAttempt
+                )
             } else if isPostReplayGeometry {
                 notificationScrollRestoreState = .awaitingPostReplayGeometry(
                     position: position,
@@ -107,7 +129,15 @@ extension GhosttySurfaceScrollView {
     }
 
     func clearPendingNotificationScrollRestore() {
-        if case .replaying(let expectedBoundary, _) = notificationScrollRestoreState {
+        if case .armed(let expectedStartBoundary, let expectedEndBoundary, _, _) =
+            notificationScrollRestoreState {
+            notificationScrollRestoreState = .armed(
+                expectedStartBoundary: expectedStartBoundary,
+                expectedEndBoundary: expectedEndBoundary,
+                pendingPosition: nil,
+                attemptsRemaining: 2
+            )
+        } else if case .replaying(let expectedBoundary, _) = notificationScrollRestoreState {
             notificationScrollRestoreState = .replaying(
                 expectedBoundary: expectedBoundary,
                 pendingPosition: nil
@@ -122,17 +152,36 @@ extension GhosttySurfaceScrollView {
         clearPendingNotificationScrollRestore()
     }
 
-    func sessionScrollbackReplayDidBegin(expectedBoundary: String) {
-        notificationScrollRestoreState = .replaying(
-            expectedBoundary: expectedBoundary,
-            pendingPosition: notificationScrollRestoreState.pendingPosition
+    func armSessionScrollbackReplay(expectedStartBoundary: String, expectedEndBoundary: String) {
+        notificationScrollRestoreState = .armed(
+            expectedStartBoundary: expectedStartBoundary,
+            expectedEndBoundary: expectedEndBoundary,
+            pendingPosition: notificationScrollRestoreState.pendingPosition,
+            attemptsRemaining: 2
+        )
+    }
+
+    func armSessionScrollbackReplay(from environment: [String: String]) {
+        guard let path = environment[SessionScrollbackReplayStore.environmentKey] else { return }
+        armSessionScrollbackReplay(
+            expectedStartBoundary: SessionScrollbackReplayStore.startBoundaryValue(forReplayFilePath: path),
+            expectedEndBoundary: SessionScrollbackReplayStore.endBoundaryValue(forReplayFilePath: path)
         )
     }
 
     @discardableResult
     func sessionScrollbackReplayDidReceiveBoundary(_ boundary: String) -> Bool {
-        guard case .replaying(let expectedBoundary, let pendingPosition) = notificationScrollRestoreState,
-              boundary == expectedBoundary else {
+        if case .armed(let expectedStartBoundary, let expectedEndBoundary, let pendingPosition, _) =
+            notificationScrollRestoreState,
+            boundary == expectedStartBoundary {
+            notificationScrollRestoreState = .replaying(
+                expectedBoundary: expectedEndBoundary,
+                pendingPosition: pendingPosition
+            )
+            return true
+        }
+        guard case .replaying(let expectedEndBoundary, let pendingPosition) = notificationScrollRestoreState,
+              boundary == expectedEndBoundary else {
             return false
         }
         guard let pendingPosition else {
@@ -143,6 +192,7 @@ extension GhosttySurfaceScrollView {
             position: pendingPosition,
             attemptsRemaining: 2
         )
+        _ = restorePendingNotificationScrollPositionIfReady()
         return true
     }
 

@@ -28,6 +28,11 @@ def main() -> int:
             ["/bin/bash", "--noprofile", "--norc", "-c"],
             root / "Resources" / "shell-integration" / "cmux-bash-integration.bash",
         ),
+        (
+            "fish",
+            [shutil.which("fish") or "/usr/local/bin/fish", "--no-config", "-c"],
+            root / "Resources" / "shell-integration" / "fish" / "config.fish",
+        ),
     ]
 
     base = Path("/tmp") / f"cmux_scrollback_restore_{os.getpid()}"
@@ -39,6 +44,9 @@ def main() -> int:
             if not integration_script.exists():
                 print(f"SKIP: missing {shell} integration script at {integration_script}")
                 continue
+            if not Path(command[0]).exists():
+                print(f"SKIP: missing {shell} executable at {command[0]}")
+                continue
 
             replay_file = base / f"replay-{shell}.txt"
             replay_file.write_text("scrollback-line-1\nscrollback-line-2\n", encoding="utf-8")
@@ -47,6 +55,7 @@ def main() -> int:
             env["PATH"] = str(base / "empty-bin")
             env["CMUX_RESTORE_SCROLLBACK_FILE"] = str(replay_file)
             env["CMUX_TEST_INTEGRATION_SCRIPT"] = str(integration_script)
+            env["CMUX_FISH_USER_CONFIG_ALREADY_LOADED"] = "1"
 
             result = subprocess.run(
                 [*command, 'source "$CMUX_TEST_INTEGRATION_SCRIPT"'],
@@ -66,12 +75,22 @@ def main() -> int:
                 print(f"FAIL: {shell} did not print replay text during integration startup")
                 return 1
 
-            expected_boundary = (
-                "\x1b]1337;CurrentDir=cmux-session-scrollback-replay:"
-                f"{replay_file}\x07"
+            hostname = subprocess.check_output(["/bin/hostname"], text=True).strip()
+            boundary_root = (
+                "\x1b]1337;CurrentDir=kitty-shell-cwd://"
+                f"{hostname}/.cmux/session-scrollback-replay/{replay_file.name}"
             )
-            if expected_boundary not in output:
-                print(f"FAIL: {shell} did not emit the in-band replay boundary")
+            expected_start = boundary_root + "/start\x07"
+            expected_end = boundary_root + "/end\x07"
+            if expected_start not in output or expected_end not in output:
+                print(f"FAIL: {shell} did not emit valid in-band replay boundaries")
+                return 1
+            if not (
+                output.index(expected_start)
+                < output.index("scrollback-line-1")
+                < output.index(expected_end)
+            ):
+                print(f"FAIL: {shell} replay boundaries were not ordered around replay output")
                 return 1
 
             if replay_file.exists():

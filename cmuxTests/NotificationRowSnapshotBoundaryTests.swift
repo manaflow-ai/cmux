@@ -406,26 +406,6 @@ struct NotificationRowSnapshotBoundaryTests {
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
-    @Test func deferredHistoricalRestoreWaitsForTargetPacket() {
-        let surfaceView = NotificationScrollRecordingSurfaceView(frame: .zero)
-        surfaceView.scrollbar = notificationScrollbar(total: 0, offset: 0, len: 0)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
-        let position = TerminalNotificationScrollPosition(row: 100, totalRows: 400)
-        let boundary = "test-replay-boundary"
-        hostedView.sessionScrollbackReplayDidBegin(expectedBoundary: boundary)
-        #expect(!hostedView.restoreNotificationScrollPosition(position))
-
-        postScrollbar(notificationScrollbar(total: 100, offset: 56, len: 44), to: surfaceView)
-        #expect(surfaceView.performedBindingActions.isEmpty)
-        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(boundary))
-        postScrollbar(notificationScrollbar(total: 400, offset: 0, len: 44), to: surfaceView)
-        #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
-        #expect(hostedView.allowExplicitScrollbarSync)
-
-        postScrollbar(notificationScrollbar(total: 400, offset: 256, len: 44), to: surfaceView)
-        #expect(!hostedView.allowExplicitScrollbarSync)
-    }
-
     @Test func newerAnchorlessActivationCancelsPendingRestore() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
