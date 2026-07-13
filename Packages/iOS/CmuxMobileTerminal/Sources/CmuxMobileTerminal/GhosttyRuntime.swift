@@ -54,10 +54,12 @@ public final class GhosttyRuntime {
     /// Updating only the target surface prevents another scene or terminal from
     /// inheriting the selected surface's palette.
     public static func applyTheme(_ theme: TerminalTheme, to surfaceView: GhosttySurfaceView) {
-        guard let surface = surfaceView.surface else { return }
+        guard let surface = surfaceView.surface,
+              let runtime = try? Self.shared(),
+              let baseConfig = runtime.config,
+              let newConfig = ghostty_config_clone(baseConfig) else { return }
         let theme = theme.validatedOrDefault()
-        guard let newConfig = ghostty_config_new() else { return }
-        Self.loadConfig(newConfig, theme: theme)
+        Self.applyiOSTheme(theme, to: newConfig)
         ghostty_config_finalize(newConfig)
         ghostty_surface_update_config(surface, newConfig)
         surfaceView.applyThemeConfig(newConfig)
@@ -218,21 +220,37 @@ public final class GhosttyRuntime {
         cursor-style-blink = true
         \(theme.ghosttyColorDirectives)
         """
-        let tmpFile = FileManager.default.temporaryDirectory.appendingPathComponent("ghostty-ios-config-\(ProcessInfo.processInfo.processIdentifier)")
-        do {
-            try defaults.write(to: tmpFile, atomically: true, encoding: .utf8)
-            tmpFile.path.withCString { path in
-                ghostty_config_load_file(config, path)
-            }
-            try FileManager.default.removeItem(at: tmpFile)
-        } catch {
-            log.error("applyiOSDefaults: failed to write config: \(error.localizedDescription, privacy: .public)")
-        }
+        Self.loadInlineiOSConfig(defaults, path: "/__cmux_ios__/defaults.conf", into: config)
 
         var bgColor = ghostty_config_color_s()
         let bgKey2 = "background"
         let hasBg = ghostty_config_get(config, &bgColor, bgKey2, UInt(bgKey2.lengthOfBytes(using: .utf8)))
         log.debug("applyiOSDefaults: bg get=\(hasBg, privacy: .public) r=\(bgColor.r, privacy: .public) g=\(bgColor.g, privacy: .public) b=\(bgColor.b, privacy: .public)")
+    }
+
+    private static func applyiOSTheme(_ theme: TerminalTheme, to config: ghostty_config_t) {
+        Self.loadInlineiOSConfig(
+            theme.ghosttyColorDirectives,
+            path: "/__cmux_ios__/theme.conf",
+            into: config
+        )
+    }
+
+    private static func loadInlineiOSConfig(
+        _ contents: String,
+        path syntheticPath: String,
+        into config: ghostty_config_t
+    ) {
+        contents.withCString { contentsPointer in
+            syntheticPath.withCString { path in
+                ghostty_config_load_string(
+                    config,
+                    contentsPointer,
+                    UInt(contents.lengthOfBytes(using: .utf8)),
+                    path
+                )
+            }
+        }
     }
 
     private static func ensureDefaultiOSConfig(theme: TerminalTheme) {

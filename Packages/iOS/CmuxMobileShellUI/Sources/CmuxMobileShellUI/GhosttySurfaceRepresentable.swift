@@ -85,7 +85,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // math reads this flag, so it must never depend on that ordering contract.
         view.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
-        context.coordinator.lastAppliedThemeGeneration = themeGeneration
+        context.coordinator.themeApplicationScheduler.seed(generation: themeGeneration)
         return view
     }
 
@@ -103,10 +103,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         context.coordinator.setComposerMounted(isComposerActive)
         // Live theme change: apply a config only to this surface so other mounted
         // terminals keep their own palettes.
-        if themeGeneration != context.coordinator.lastAppliedThemeGeneration {
-            context.coordinator.lastAppliedThemeGeneration = themeGeneration
-            GhosttyRuntime.applyTheme(terminalTheme, to: surfaceView)
-        }
+        context.coordinator.themeApplicationScheduler.schedule(
+            terminalTheme,
+            generation: themeGeneration,
+            to: surfaceView
+        )
         // A width change (rotation) is not a text change, so the field-content trigger
         // misses it. Re-measure the open composer here so the band height tracks the new
         // width's wrapping. No-op when closed or when the height is unchanged.
@@ -125,14 +126,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         weak var surfaceView: GhosttySurfaceView?
         private var outputTask: Task<Void, Never>?
         private var liveFontTask: Task<Void, Never>?
+        let themeApplicationScheduler = TerminalThemeApplicationScheduler()
         /// Hosts the SwiftUI ``TerminalComposerView`` so it can be installed into the
         /// surface's composer band. Built lazily on first open and torn down on
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.
         private var composerController: UIHostingController<TerminalComposerView>?
         private var composerMounted = false
-        /// The theme generation already pushed to the live runtime, so a repeated
-        /// `updateUIView` for the same generation does not rebuild the config again.
-        var lastAppliedThemeGeneration: UInt64 = 0
         private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
         /// Serializes the natural-grid viewport reports and their echoes. One
         /// detached Task per report (the previous shape) let Task scheduling
@@ -267,6 +266,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             outputTask = nil
             liveFontTask?.cancel()
             liveFontTask = nil
+            themeApplicationScheduler.cancel()
             viewportReportScheduler?.cancel()
             viewportReportScheduler = nil
         }
