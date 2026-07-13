@@ -46,6 +46,10 @@ final class TerminalThemeParityUITests: XCTestCase {
             XCTAssertEqual(actual.green, expectedBackground.green, accuracy: 8, "green at \(point)")
             XCTAssertEqual(actual.blue, expectedBackground.blue, accuracy: 8, "blue at \(point)")
         }
+        assertStatusBarContrast(
+            pixels,
+            expectsDarkGlyphs: statusBarUsesDarkGlyphs(on: expectedBackground)
+        )
         let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = name
         attachment.lifetime = .keepAlways
@@ -53,6 +57,31 @@ final class TerminalThemeParityUITests: XCTestCase {
         guard let directory = ProcessInfo.processInfo.environment["CMUX_THEME_EVIDENCE_DIR"] else { return }
         try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
         try screenshot.pngRepresentation.write(to: URL(fileURLWithPath: directory).appendingPathComponent("\(name).png"))
+    }
+
+    private func assertStatusBarContrast(
+        _ pixels: ScreenshotPixels,
+        expectsDarkGlyphs: Bool
+    ) {
+        let luminanceRange = pixels.luminanceRange(
+            xUnits: 0.1 ... 0.27,
+            yUnits: 0.025 ... 0.055
+        )
+        if expectsDarkGlyphs {
+            XCTAssertLessThan(luminanceRange.minimum, 0.25, "Status-bar glyphs should be dark.")
+        } else {
+            XCTAssertGreaterThan(luminanceRange.maximum, 0.75, "Status-bar glyphs should be light.")
+        }
+    }
+
+    private func statusBarUsesDarkGlyphs(
+        on background: (red: Int, green: Int, blue: Int)
+    ) -> Bool {
+        let channels = [background.red, background.green, background.blue].map { component -> Double in
+            let value = Double(component) / 255
+            return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2] > 0.5
     }
 }
 
@@ -89,5 +118,26 @@ private struct ScreenshotPixels {
         let y = min(height - 1, max(0, Int(yUnit * Double(height))))
         let offset = (y * width + x) * 4
         return (Int(bytes[offset]), Int(bytes[offset + 1]), Int(bytes[offset + 2]))
+    }
+
+    func luminanceRange(
+        xUnits: ClosedRange<Double>,
+        yUnits: ClosedRange<Double>
+    ) -> (minimum: Double, maximum: Double) {
+        let xRange = Int(xUnits.lowerBound * Double(width)) ... Int(xUnits.upperBound * Double(width))
+        let yRange = Int(yUnits.lowerBound * Double(height)) ... Int(yUnits.upperBound * Double(height))
+        var minimum = 1.0
+        var maximum = 0.0
+        for y in yRange {
+            for x in xRange {
+                let offset = (min(y, height - 1) * width + min(x, width - 1)) * 4
+                let luminance = 0.2126 * Double(bytes[offset]) / 255
+                    + 0.7152 * Double(bytes[offset + 1]) / 255
+                    + 0.0722 * Double(bytes[offset + 2]) / 255
+                minimum = min(minimum, luminance)
+                maximum = max(maximum, luminance)
+            }
+        }
+        return (minimum, maximum)
     }
 }
