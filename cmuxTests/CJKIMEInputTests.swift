@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import ObjectiveC.runtime
+import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -1476,6 +1477,7 @@ final class AccessibilityInsertTextRegressionTests: XCTestCase {
     }
 }
 
+@MainActor
 final class GhosttyBackquoteRegressionTests: XCTestCase {
     func testShiftBackquoteEscFallbackSendsLiteralTilde() {
         _ = NSApplication.shared

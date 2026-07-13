@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxFoundation
 import SwiftUI
 
 enum FeedButtonDebugVisualStyle: String, CaseIterable, Identifiable {
@@ -777,10 +778,10 @@ extension FeedButton.Kind: CaseIterable, Identifiable {
     }
 }
 
-final class FeedButtonStyleDebugWindowController: NSWindowController, NSWindowDelegate {
+final class FeedButtonStyleDebugWindowController: ReleasingWindowController {
     static let shared = FeedButtonStyleDebugWindowController()
 
-    private init() {
+    override func makeWindow() -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 560, height: 650),
             styleMask: [.titled, .closable, .resizable, .utilityWindow],
@@ -794,22 +795,16 @@ final class FeedButtonStyleDebugWindowController: NSWindowController, NSWindowDe
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.isMovableByWindowBackground = true
-        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.feedButtonStyleDebug")
         window.minSize = NSSize(width: 460, height: 520)
         window.center()
         window.contentView = NSHostingView(rootView: FeedButtonStyleDebugView())
         AppDelegate.shared?.applyWindowDecorations(to: window)
-        super.init(window: window)
-        window.delegate = self
+        return window
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
-
     func show() {
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
+        showManagedWindow()
     }
 }
 
@@ -915,14 +910,14 @@ private struct FeedButtonStyleDebugView: View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(String(localized: "feed.buttonDebug.title", defaultValue: "Feed Buttons"))
-                    .font(.system(size: 17, weight: .semibold))
+                    .cmuxFont(size: 17, weight: .semibold)
                 Text(
                     String(
                         localized: "feed.buttonDebug.subtitle",
                         defaultValue: "Tune every Feed button kind live."
                     )
                 )
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
                 .foregroundStyle(.secondary)
             }
             Spacer()
@@ -980,10 +975,10 @@ private struct FeedButtonStyleDebugView: View {
         } label: {
             HStack(spacing: 7) {
                 Image(systemName: palette == activePalette ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
                 paletteSwatches(palette)
                 Text(palette.label)
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
             }
@@ -1044,7 +1039,7 @@ private struct FeedButtonStyleDebugView: View {
     ) -> some View {
         HStack(spacing: 8) {
             Text(label)
-                .font(.system(size: 10, weight: .semibold))
+                .cmuxFont(size: 10, weight: .semibold)
                 .foregroundStyle(previewColorScheme == .dark ? Color.white.opacity(0.70) : Color.black.opacity(0.58))
                 .frame(width: 34, alignment: .leading)
             ForEach([FeedButton.Kind.primary, .success, .warning, .destructive]) { kind in
@@ -1117,13 +1112,13 @@ private struct FeedButtonStyleDebugView: View {
                 .pickerStyle(.menu)
 
                 Text(String(localized: "feed.buttonDebug.variations", defaultValue: "Variations"))
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
                     .foregroundStyle(.secondary)
 
                 ForEach(FeedButtonDebugPresetSection.all) { section in
                     VStack(alignment: .leading, spacing: 6) {
                         Text(section.label)
-                            .font(.system(size: 10, weight: .semibold))
+                            .cmuxFont(size: 10, weight: .semibold)
                             .foregroundStyle(.secondary)
                         LazyVGrid(
                             columns: [
@@ -1198,9 +1193,9 @@ private struct FeedButtonStyleDebugView: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: preset == activePreset ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
                 Text(preset.label)
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
             }
@@ -1235,7 +1230,7 @@ private struct FeedButtonStyleDebugView: View {
                             .foregroundStyle(selectedKind == kind ? Color.accentColor : Color.secondary)
                             .frame(width: 15)
                         Text(kind.debugLabel)
-                            .font(.system(size: 12, weight: .medium))
+                            .cmuxFont(size: 12, weight: .medium)
                         Spacer()
                         FeedButton(label: kind.debugLabel, kind: kind, size: .compact) {
                             selectedKind = kind
@@ -1269,7 +1264,7 @@ private struct FeedButtonStyleDebugView: View {
                 )
                 HStack {
                     Text(String(localized: "feed.buttonDebug.preview", defaultValue: "Preview"))
-                        .font(.system(size: 11, weight: .medium))
+                        .cmuxFont(size: 11, weight: .medium)
                         .foregroundStyle(.secondary)
                     Spacer()
                     FeedButton(label: selectedKind.debugLabel, kind: selectedKind, size: .medium) {}
@@ -1345,11 +1340,11 @@ private struct FeedButtonStyleDebugView: View {
     ) -> some View {
         HStack(spacing: 8) {
             Text(title)
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
                 .frame(width: 150, alignment: .leading)
             Slider(value: value, in: range)
             Text(sliderValue(value.wrappedValue, suffix: suffix))
-                .font(.system(size: 10).monospacedDigit())
+                .cmuxFont(size: 10, monospacedDigit: true)
                 .foregroundStyle(.secondary)
                 .frame(width: 44, alignment: .trailing)
         }
