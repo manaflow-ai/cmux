@@ -387,11 +387,13 @@ extension RemoteTmuxWindowMirror {
             if let planned = lastPlannedOuterSizes[paneId],
                let metrics = nativeLayoutMetrics(),
                let geometry = currentGeometry() {
-                let titledPaneIDs = tmuxTitleRowPlacement?.paneIDs(in: renderedLayout) ?? []
+                // Planned outers carry no native title-row points (tmux's
+                // title rows live in the tree's coordinates and cost the
+                // native render nothing), so the probe subtracts none.
                 let expected = RemoteTmuxNativeLayoutMetrics.renderedCells(
                     outer: planned,
                     tabBarHeight: metrics.tabBarHeight,
-                    paneTitleRowHeight: titledPaneIDs.contains(paneId) ? metrics.paneTitleRowHeight : 0,
+                    paneTitleRowHeight: 0,
                     scale: geometry.scale,
                     surfacePadPx: (width: geometry.surfacePadWidthPx, height: geometry.surfacePadHeightPx),
                     cellPx: (width: geometry.cellWidthPx, height: geometry.cellHeightPx)

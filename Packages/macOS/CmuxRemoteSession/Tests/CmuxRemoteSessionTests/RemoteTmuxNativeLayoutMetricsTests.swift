@@ -100,18 +100,24 @@ import Testing
             ])
         )
 
-        #expect(metrics.residual(of: topTitleLayout).height == 72)
-        #expect(metrics.residual(of: bottomTitleLayout).height == 72)
+        // Title rows live in the tree's COORDINATES — the interior gap and
+        // the window-edge row — and cost the native render nothing: the fold
+        // credits the actual gap cells (21 span − 19 pane rows = 2) instead
+        // of charging any pane a native title row nothing renders. Chrome is
+        // 2×(tabBar 30 + pad 4 + slack 1) + divider 2 − 2 gap cells ×10 = 52.
+        #expect(metrics.residual(of: topTitleLayout).height == 52)
+        #expect(metrics.residual(of: bottomTitleLayout).height == 52)
         #expect(RemoteTmuxPaneTitleRowPlacement.top.paneIDs(in: topTitleLayout) == [1])
         #expect(RemoteTmuxPaneTitleRowPlacement.bottom.paneIDs(in: bottomTitleLayout) == [2])
+        // The binary measured fold must agree with the n-ary fold exactly.
         #expect(RemoteTmuxNativeMeasuredSplitTree(
             tree: RemoteTmuxNativeSplitTree(layout: topTitleLayout),
             metrics: metrics
-        ).residual.height == 72)
+        ).residual.height == metrics.residual(of: topTitleLayout).height)
         #expect(RemoteTmuxNativeMeasuredSplitTree(
             tree: RemoteTmuxNativeSplitTree(layout: bottomTitleLayout),
             metrics: metrics
-        ).residual.height == 72)
+        ).residual.height == metrics.residual(of: bottomTitleLayout).height)
     }
 
     @Test func dragConversionsSubtractChromeButNotPlacementSlack() {
@@ -145,12 +151,15 @@ import Testing
             orientation: .horizontal,
             outerExtent: 97
         ) == 10)
+        // Vertical chrome for a lone pane is tabBar + pad only — tmux's
+        // title row costs the native render nothing, so 141 − 2 divider
+        // leaves 139 − 34 = 105pt of grid → 10.5 → 11 cells requested.
         #expect(metrics.requestedTmuxSpan(
             first: measured,
             orientation: .vertical,
             parentExtent: 141,
             dividerPosition: 1
-        ) == 10)
+        ) == 11)
     }
 
     @Test func plannerDoesNotSpendAssignedCellsOnPlacementSlack() throws {

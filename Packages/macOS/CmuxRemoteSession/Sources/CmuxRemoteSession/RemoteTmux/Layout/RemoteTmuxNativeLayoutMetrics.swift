@@ -132,12 +132,15 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         paneTitleRowPaneIDs: Set<Int>
     ) -> CGSize {
         switch node.content {
-        case .pane(let paneID):
+        case .pane:
+            // No per-pane title charge: tmux's title rows live in the tree's
+            // COORDINATES (the gaps between siblings and the window-edge row),
+            // and the fold below credits those actual gap cells directly. A
+            // native charge here granted the pane points nothing native
+            // renders — the surface floored them into a phantom grid row.
             return CGSize(
                 width: surfacePadding.width + panePlacementSlack,
-                height: tabBarHeight + surfacePadding.height
-                    + (paneTitleRowPaneIDs.contains(paneID) ? paneTitleRowHeight : 0)
-                    + panePlacementSlack
+                height: tabBarHeight + surfacePadding.height + panePlacementSlack
             )
         case .horizontal(let children):
             let childResiduals = children.map {
@@ -149,10 +152,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
             }
             return CGSize(
                 width: childResiduals.reduce(0) { $0 + $1.width }
-                    + separatorResidual(
-                        count: children.count,
-                        cellExtent: cellSize.width
-                    ),
+                    + separatorResidual(parent: node, children: children, axis: .horizontal),
                 height: childResiduals.map(\.height).max() ?? 0
             )
         case .vertical(let children):
@@ -166,10 +166,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
             return CGSize(
                 width: childResiduals.map(\.width).max() ?? 0,
                 height: childResiduals.reduce(0) { $0 + $1.height }
-                    + separatorResidual(
-                        count: children.count,
-                        cellExtent: cellSize.height
-                    )
+                    + separatorResidual(parent: node, children: children, axis: .vertical)
             )
         }
     }
@@ -422,20 +419,29 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         )
     }
 
+    /// Binary form of ``residual(of:)``'s fold, used by the measured tree.
+    /// The two MUST apply the same gap rule: this fold feeds the plan's
+    /// ideals and the drag-end cell conversion, while the n-ary fold feeds
+    /// the claim and the render frame — a disagreement is misallocated by
+    /// exactly its size. `gapCells` is the ACTUAL coordinate cells between
+    /// (and around) the joined spans, read off the assignment.
     func joinedResidual(
         first: CGSize,
         second: CGSize,
-        orientation: RemoteTmuxSplitOrientation
+        orientation: RemoteTmuxSplitOrientation,
+        gapCells: Int = 1
     ) -> CGSize {
         if orientation == .horizontal {
             return CGSize(
-                width: first.width + second.width + dividerThickness - cellSize.width,
+                width: first.width + second.width + dividerThickness
+                    - CGFloat(gapCells) * cellSize.width,
                 height: max(first.height, second.height)
             )
         }
         return CGSize(
             width: max(first.width, second.width),
-            height: first.height + second.height + dividerThickness - cellSize.height
+            height: first.height + second.height + dividerThickness
+                - CGFloat(gapCells) * cellSize.height
         )
     }
 
@@ -470,7 +476,30 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         orientation == .horizontal ? cellSize.width : cellSize.height
     }
 
-    private func separatorResidual(count: Int, cellExtent: CGFloat) -> CGFloat {
-        CGFloat(max(0, count - 1)) * (dividerThickness - cellExtent)
+    /// Native points a split spends on the chrome BETWEEN and AROUND its
+    /// children along the split axis: one native divider per boundary, minus
+    /// the ACTUAL coordinate cells the assignment holds outside the children
+    /// (separator columns/rows, or the title rows that replace them, plus a
+    /// window-edge title row when one is inside this node's span). Reading
+    /// the gaps off the assigned spans — parent minus children — makes a
+    /// node's extent equal its children's sum by construction, titled or
+    /// not; assuming one cell per boundary charged titled trees for rows
+    /// they spend elsewhere. Degenerate spans (structure-only placeholders)
+    /// fall back to the one-cell-per-boundary reading.
+    private func separatorResidual(
+        parent: RemoteTmuxLayoutNode,
+        children: [RemoteTmuxLayoutNode],
+        axis: RemoteTmuxSplitOrientation
+    ) -> CGFloat {
+        let boundaries = max(0, children.count - 1)
+        let parentSpan = axis == .horizontal ? parent.width : parent.height
+        let childSpanSum = children.reduce(0) {
+            $0 + (axis == .horizontal ? $1.width : $1.height)
+        }
+        let spansUsable = parentSpan > 0 && childSpanSum > 0 && parentSpan >= childSpanSum
+            && children.allSatisfy { (axis == .horizontal ? $0.width : $0.height) > 0 }
+        let gapCells = spansUsable ? parentSpan - childSpanSum : boundaries
+        let cell = axis == .horizontal ? cellSize.width : cellSize.height
+        return CGFloat(boundaries) * dividerThickness - CGFloat(gapCells) * cell
     }
 }
