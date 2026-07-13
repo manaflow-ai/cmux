@@ -213,6 +213,8 @@ jobs:
             --version "$VERSION" \
             --platform IOS \
             --dir ios/AppStoreReview/metadata \
+            --allow-deletes \
+            --confirm \
             --dry-run
           asc metadata apply \
             --app "$ASC_APP_ID" \
