@@ -2480,7 +2480,7 @@ class GhosttyApp {
         }
     }
 
-    private func performOnMain<T>(_ work: @MainActor () -> T) -> T {
+    func performOnMain<T>(_ work: @MainActor () -> T) -> T {
         if Thread.isMainThread {
             return MainActor.assumeIsolated { work() }
         }
@@ -2907,20 +2907,7 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_PWD:
-            let pwd = action.action.pwd.pwd.flatMap { String(cString: $0) } ?? ""
-            let terminalSurface = surfaceView.terminalSurface
-            if performOnMain({
-                terminalSurface?.hostedView.sessionScrollbackReplayDidReceiveBoundary(pwd) == true
-            }) { return true }
-            DispatchQueue.main.async {
-                guard let tabId = surfaceView.tabId,
-                      let surfaceId = terminalSurface?.id else { return }
-                AppDelegate.shared?.tabManagerFor(tabId: tabId)?.updateReportedSurfaceDirectory(
-                    tabId: tabId,
-                    surfaceId: surfaceId,
-                    directory: pwd
-                )
-            }
+            handleCurrentDirectoryAction(action.action.pwd.pwd.flatMap { String(cString: $0) } ?? "", surfaceView: surfaceView)
             return true
         case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
             guard let tabId = surfaceView.tabId else { return true }
@@ -3544,7 +3531,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     func enqueueRenderedFrameUpdate(generation: UInt64) {
         guard GhosttyApp.renderedFrameNotificationDemand.isActive else { return }
-
         _renderedFrameLock.lock()
         _pendingRenderedFrameGeneration = max(_pendingRenderedFrameGeneration, generation)
         let needsSchedule = !_renderedFrameFlushScheduled
@@ -3572,10 +3558,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             object: self,
             userInfo: [GhosttyNotificationKey.renderedFrameGeneration: generation]
         )
-    }
-
-    func currentRenderedFrameSourceGeneration() -> UInt64 {
-        (layer as? GhosttyMetalLayer)?.currentFrameGeneration() ?? 0
     }
 
     var desiredFocus: Bool = false
