@@ -180,15 +180,24 @@ final class BonsplitTabDragUITests: XCTestCase {
     }
 
     func testRightSidebarTitlebarToggleStaysAvailableAcrossVisibilityChanges() {
+        for presentationMode in [WorkspacePresentationMode.minimal, .standard] {
+            assertRightSidebarTitlebarToggleFlow(presentationMode: presentationMode)
+        }
+    }
+
+    private func assertRightSidebarTitlebarToggleFlow(
+        presentationMode: WorkspacePresentationMode
+    ) {
         let (app, dataPath) = launchConfiguredApp(
-            presentationMode: .standard,
+            presentationMode: presentationMode,
             showRightSidebar: true,
             alwaysShowShortcutHints: true
         )
+        defer { app.terminate() }
 
         XCTAssertTrue(
             ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
-            "Expected app to launch for right-sidebar titlebar toggle UI test. state=\(app.state.rawValue)"
+            "Expected app to launch for \(presentationMode.rawValue)-mode right-sidebar titlebar toggle UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
         guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
@@ -211,31 +220,33 @@ final class BonsplitTabDragUITests: XCTestCase {
             "Expected the trailing titlebar toggle to be hittable. button=\(titlebarToggle.debugDescription)"
         )
         XCTAssertTrue(titlebarToggle.isSelected, "Expected the toggle to reflect the visible sidebar state.")
-        let mobileConnectButton = app.buttons["TitlebarMobileConnectButton"]
-        XCTAssertTrue(
-            mobileConnectButton.waitForExistence(timeout: 5.0),
-            "Expected the default-enabled Mobile Connect control in the standard titlebar."
-        )
-        let proBadgeButton = app.buttons["ProBadgeButton"]
-        let leftmostTrailingControl = proBadgeButton.waitForExistence(timeout: 1.0)
-            ? proBadgeButton
-            : mobileConnectButton
         let openAsPaneButton = app.buttons["RightSidebar.openAsPaneButton"]
         XCTAssertTrue(openAsPaneButton.waitForExistence(timeout: 5.0), "Expected open-as-pane button inside the right sidebar chrome.")
         XCTAssertTrue(
             waitForCondition(timeout: 3.0) { openAsPaneButton.isHittable },
             "Expected right sidebar open-as-pane button to be hittable. button=\(openAsPaneButton.debugDescription)"
         )
-        XCTAssertLessThan(
-            openAsPaneButton.frame.maxX,
-            leftmostTrailingControl.frame.minX,
-            "Expected the sidebar header action to remain left of the native trailing controls."
-        )
-        XCTAssertLessThan(
-            mobileConnectButton.frame.maxX,
-            titlebarToggle.frame.minX,
-            "Expected the right sidebar toggle to remain the far-right titlebar control."
-        )
+        if presentationMode == .standard {
+            let mobileConnectButton = app.buttons["TitlebarMobileConnectButton"]
+            XCTAssertTrue(
+                mobileConnectButton.waitForExistence(timeout: 5.0),
+                "Expected the default-enabled Mobile Connect control in the standard titlebar."
+            )
+            let proBadgeButton = app.buttons["ProBadgeButton"]
+            let leftmostTrailingControl = proBadgeButton.waitForExistence(timeout: 1.0)
+                ? proBadgeButton
+                : mobileConnectButton
+            XCTAssertLessThan(
+                openAsPaneButton.frame.maxX,
+                leftmostTrailingControl.frame.minX,
+                "Expected the sidebar header action to remain left of the native trailing controls."
+            )
+            XCTAssertLessThan(
+                mobileConnectButton.frame.maxX,
+                titlebarToggle.frame.minX,
+                "Expected the right sidebar toggle to remain the far-right titlebar control."
+            )
+        }
 
         titlebarToggle.click()
         XCTAssertTrue(

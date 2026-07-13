@@ -2069,21 +2069,6 @@ struct ContentView: View {
                         .padding(.leading, placement.leadingPadding)
                 }
             }
-            .overlay(alignment: .topTrailing) {
-                RightSidebarTitlebarToggleOverlay(
-                    isPresented: currentIsMinimalMode || isFullScreen,
-                    config: TitlebarControlsStyle.stored(rawValue: titlebarControlsStyleRawValue).config,
-                    isVisible: rightSidebarVisible,
-                    colorScheme: rightSidebarVisible
-                        ? appearance.sidebarContentColorScheme
-                        : appearance.chromeColorScheme,
-                    action: {
-                        _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(
-                            preferredWindow: observedWindow
-                        )
-                    }
-                )
-            }
     }
 
     private func syncTrafficLightInset(isMinimalMode: Bool? = nil) {
@@ -2420,6 +2405,21 @@ struct ContentView: View {
                         .zIndex(100)
                 }
             }
+                .overlay(alignment: .topTrailing) {
+                    RightSidebarTitlebarToggleOverlay(
+                        isPresented: currentIsMinimalMode || isFullScreen,
+                        config: TitlebarControlsStyle.stored(rawValue: titlebarControlsStyleRawValue).config,
+                        isVisible: rightSidebarVisible,
+                        colorScheme: rightSidebarVisible
+                            ? appearance.sidebarContentColorScheme
+                            : appearance.chromeColorScheme,
+                        action: {
+                            _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(
+                                preferredWindow: observedWindow
+                            )
+                        }
+                    )
+                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .frame(minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth), minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight))
                 .background(Color.clear)
