@@ -153,6 +153,43 @@ struct ControlClientLineReaderTests {
         #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
     }
 
+    @Test func preauthorizationLimitCountsMalformedUTF8Bytes() throws {
+        let pair = try SocketPairFixture()
+        pair.write([0xFF, 0xFE])
+        pair.write("ok\n")
+        pair.closeWriteEnd()
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            bufferSize: 3,
+            initialLimits: ControlClientLineReadLimits(
+                maximumPendingBytes: 4,
+                timeoutMilliseconds: 1_000
+            )
+        )
+
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func preauthorizationLimitAccumulatesAcrossBlankLines() throws {
+        let pair = try SocketPairFixture()
+        pair.write("\n\nok\n")
+        pair.closeWriteEnd()
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            bufferSize: 2,
+            initialLimits: ControlClientLineReadLimits(
+                maximumPendingBytes: 4,
+                timeoutMilliseconds: 1_000
+            )
+        )
+
+        #expect(reader.nextLine(shouldContinueReading: { true }) == "")
+        #expect(reader.nextLine(shouldContinueReading: { true }) == "")
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
     @Test func preauthorizationDeadlineExpiresWithoutReading() throws {
         let pair = try SocketPairFixture()
         let reader = ControlClientLineReader(

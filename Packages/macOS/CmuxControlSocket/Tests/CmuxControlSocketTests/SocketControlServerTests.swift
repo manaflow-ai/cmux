@@ -107,6 +107,12 @@ private func waitUntil(
     return predicate()
 }
 
+private func peerClosed(_ socket: Int32) -> Bool {
+    var descriptor = pollfd(fd: socket, events: Int16(POLLIN | POLLHUP), revents: 0)
+    guard poll(&descriptor, 1, 0) > 0 else { return false }
+    return descriptor.revents & Int16(POLLHUP) != 0
+}
+
 extension AsyncStream where Element == ControlConnection {
     /// Awaits the next yielded connection with a timeout so a broken accept
     /// path fails the test instead of hanging it.
@@ -223,6 +229,24 @@ struct SocketControlServerLifecycleTests {
         let second = try #require(await server.connections.nextConnection())
         close(second.socket)
         #expect(second.peerProcessID == getpid())
+    }
+
+    @Test func connectionStreamBoundsPendingDescriptors() async throws {
+        let harness = try ServerHarness()
+        defer { harness.shutdown() }
+        let server = harness.server
+        #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
+
+        let clients = (0..<33).map { _ in connect(to: harness.socketPath) }
+        defer { clients.filter { $0 >= 0 }.forEach { close($0) } }
+        #expect(clients.allSatisfy { $0 >= 0 })
+
+        #expect(waitUntil { peerClosed(clients[32]) })
+
+        for _ in 0..<32 {
+            let connection = try #require(await server.connections.nextConnection())
+            close(connection.socket)
+        }
     }
 
     @Test func stopUnlinksSocketAndClearsState() throws {
