@@ -34,11 +34,21 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
         if let foregroundAuth {
             lines += foregroundAuthLines(foregroundAuth)
         }
+        lines.append("cmux_ssh_attach_lifecycle_id=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || exit 1")
+        lines += [
+            "cmux_ssh_attach_lifecycle_ended=0",
+            "cmux_ssh_attach_lifecycle_end() { if [ \"$cmux_ssh_attach_lifecycle_ended\" = 1 ]; then return; fi; cmux_ssh_attach_lifecycle_ended=1; \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-session-end --lifecycle-only --workspace \"$CMUX_WORKSPACE_ID\" --surface \"${CMUX_SURFACE_ID:-}\" --session-id \"$cmux_ssh_attach_session_id\" --lifecycle-id \"$cmux_ssh_attach_lifecycle_id\" >/dev/null 2>&1 || true; }",
+            "cmux_ssh_attach_signal_exit() { cmux_ssh_attach_signal_status=\"$1\"; trap - EXIT HUP INT TERM; cmux_ssh_attach_lifecycle_end; exit \"$cmux_ssh_attach_signal_status\"; }",
+            "trap 'cmux_ssh_attach_lifecycle_end' EXIT",
+            "trap 'cmux_ssh_attach_signal_exit 129' HUP",
+            "trap 'cmux_ssh_attach_signal_exit 130' INT",
+            "trap 'cmux_ssh_attach_signal_exit 143' TERM",
+        ]
         let requireExistingFlag = requireExisting ? " --require-existing" : ""
         let commandB64Flag = normalized(remoteCommand).map {
             " --command-b64 \(shellQuote(Data($0.utf8).base64EncodedString()))"
         } ?? ""
-        let attachCommand = "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait\(requireExistingFlag) --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_ssh_attach_session_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\"\(commandB64Flag)"
+        let attachCommand = "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait\(requireExistingFlag) --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_ssh_attach_session_id\" --lifecycle-id \"$cmux_ssh_attach_lifecycle_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\"\(commandB64Flag)"
         lines += retryingAttachLines(command: attachCommand)
         return "/bin/sh -c \(shellQuote(lines.joined(separator: "\n")))"
     }
@@ -54,6 +64,7 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
     }
 
     private static func retryingAttachLines(command: String) -> [String] {
+        // Retryable 254|255 is owned by SSHPTYAttachExitCode in the CLI target; keep in sync with CMUXCLI.sshPTYAttachRetryLoopLines.
         [
             "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\"",
             "case \"$cmux_ssh_attach_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_limit=20 ;; esac",
@@ -61,7 +72,8 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
             "case \"$cmux_ssh_attach_reconnect_delay\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_delay=2 ;; esac",
             "cmux_ssh_attach_retry=0",
             "while :; do",
-            "  \(command)",
+            "  if [ \"$cmux_ssh_attach_retry\" -lt \"$cmux_ssh_attach_reconnect_limit\" ]; then cmux_ssh_attach_can_retry=1; else cmux_ssh_attach_can_retry=0; fi",
+            "  CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=\"$cmux_ssh_attach_can_retry\" \(command)",
             "  cmux_ssh_attach_status=$?",
             "  case \"$cmux_ssh_attach_status\" in 254|255) ;; *) exit \"$cmux_ssh_attach_status\" ;; esac",
             "  if [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
@@ -107,6 +119,9 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
         for option in options {
             arguments += ["-o", option]
         }
+        // The command-line `true` below conflicts with a host-configured
+        // RemoteCommand unless overridden (issue #7246).
+        arguments += SSHHostConfiguredRemoteCommand().overrideArguments
         arguments += ["-T", auth.destination, "true"]
         return arguments.map(shellQuote).joined(separator: " ")
     }

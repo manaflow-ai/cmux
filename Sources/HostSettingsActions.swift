@@ -1,6 +1,7 @@
 import AppKit
 import CMUXMobileCore
 import CmuxWorkspaces
+import CmuxSettings
 import CmuxSettingsUI
 import CmuxFoundation
 import Foundation
@@ -85,6 +86,15 @@ final class HostSettingsActions: SettingsHostActions {
         SleepyModeController.shared.store
     }
 
+    func resetAllSettingsSideEffects() {
+        LanguageSettingsStore(defaults: .standard).applyLanguageOverride(.system)
+        PaneChromeSettings.notifyDidChange()
+    }
+
+    func applyLanguageOverride(_ language: AppLanguage) {
+        LanguageSettingsStore(defaults: .standard).applyLanguageOverride(language)
+    }
+
     func openConfigInExternalEditor() {
         // Honor the user's configured editor (`preferredEditorCommand`),
         // falling back to the OS default. Opening the config file directly
@@ -156,6 +166,14 @@ final class HostSettingsActions: SettingsHostActions {
         }
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
+    }
+
+    func customizeWorkspaceLayouts() {
+        guard let appDelegate = AppDelegate.shared else {
+            SidebarWorkspaceGroupConfigOpener.openCmuxConfigInEditor()
+            return
+        }
+        appDelegate.openWorkspaceLayoutsCustomization()
     }
 
     func setMenuBarOnly(_ enabled: Bool) -> Bool {

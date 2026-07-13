@@ -42,6 +42,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     let id: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .terminal
 
     /// The underlying terminal surface
@@ -50,6 +51,7 @@ final class TerminalPanel: Panel, ObservableObject {
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
 
+    var ownedSessionScrollbackReplayFileURL: URL? = nil
     /// The workspace-env key/value pairs this panel inherited from its workspace's
     /// `workspaceEnvironment` at creation. The same panel travels when a surface is
     /// moved between workspaces, so a respawn uses these to drop the (possibly
@@ -173,7 +175,6 @@ final class TerminalPanel: Panel, ObservableObject {
         self.id = surface.id
         self.workspaceId = workspaceId
         self.surface = surface
-
         // Subscribe to surface's search state changes
         surface.$searchState
             .sink { [weak self] state in
@@ -308,7 +309,6 @@ final class TerminalPanel: Panel, ObservableObject {
         applyPendingDebugTextBoxInlineFixtureIfNeeded()
 #endif
     }
-
 
     @discardableResult
     func toggleTextBoxInput() -> Bool {
@@ -659,7 +659,7 @@ final class TerminalPanel: Panel, ObservableObject {
     func close() {
         isClosingPanel = true
         discardTextBoxContentForClose()
-        // The surface will be cleaned up by its deinit
+        removeOwnedSessionScrollbackReplayArtifact()
         // Detach from the window portal on real close so stale hosted views
         // cannot remain above browser panes after split close.
         surface.beginPortalCloseLifecycle(reason: "panel.close")

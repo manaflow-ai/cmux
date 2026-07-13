@@ -173,54 +173,6 @@ enum TerminalNotificationClickAction: Codable, Hashable, Sendable {
     }
 }
 
-struct TerminalNotification: Identifiable, Hashable, Sendable {
-    let id: UUID
-    let tabId: UUID
-    let surfaceId: UUID?
-    let panelId: UUID?
-    let title: String
-    let subtitle: String
-    let body: String
-    let createdAt: Date
-    var isRead: Bool
-    var paneFlash: Bool = true
-    var clickAction: TerminalNotificationClickAction?
-
-    init(
-        id: UUID,
-        tabId: UUID,
-        surfaceId: UUID?,
-        panelId: UUID? = nil,
-        title: String,
-        subtitle: String,
-        body: String,
-        createdAt: Date,
-        isRead: Bool,
-        paneFlash: Bool = true,
-        clickAction: TerminalNotificationClickAction? = nil
-    ) {
-        self.id = id
-        self.tabId = tabId
-        self.surfaceId = surfaceId
-        self.panelId = panelId
-        self.title = title
-        self.subtitle = subtitle
-        self.body = body
-        self.createdAt = createdAt
-        self.isRead = isRead
-        self.paneFlash = paneFlash
-        self.clickAction = clickAction
-    }
-
-    func matches(tabId targetTabId: UUID, surfaceId targetSurfaceId: UUID?) -> Bool {
-        guard tabId == targetTabId else { return false }
-        guard let targetSurfaceId else {
-            return surfaceId == nil && panelId == nil
-        }
-        return surfaceId == targetSurfaceId || panelId == targetSurfaceId
-    }
-}
-
 @MainActor
 final class TerminalNotificationStore: ObservableObject {
     private struct TabSurfaceKey: Hashable {
@@ -502,14 +454,14 @@ final class TerminalNotificationStore: ObservableObject {
         effects in
         store.playSuppressedNotificationFeedback(for: notification, effects: effects)
     }
-    private struct NotificationHookFailureThrottleKey: Hashable {
+    struct NotificationHookFailureThrottleKey: Hashable {
         let hookId: String
         let sourcePath: String?
     }
 
     private static let notificationHookFailureThrottle: TimeInterval = 300
-    private var lastNotificationDateByCooldownKey: [String: Date] = [:]
-    private var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
+    var lastNotificationDateByCooldownKey: [String: Date] = [:]
+    var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
     private var indexes = NotificationIndexes()
 
     private init() {
@@ -928,6 +880,7 @@ final class TerminalNotificationStore: ObservableObject {
                 effects: TerminalNotificationPolicyEffects(),
                 now: now,
                 cooldownReservation: cooldownReservation,
+                scrollPosition: policyContext.scrollPosition,
                 clickAction: clickAction
             )
             return
@@ -945,6 +898,7 @@ final class TerminalNotificationStore: ObservableObject {
                     effects: TerminalNotificationPolicyEffects(),
                     now: Date(),
                     cooldownReservation: cooldownReservation,
+                    scrollPosition: policyContext.scrollPosition,
                     clickAction: clickAction
                 )
                 return
@@ -961,6 +915,7 @@ final class TerminalNotificationStore: ObservableObject {
                     envelope: envelope,
                     now: Date(),
                     cooldownReservation: cooldownReservation,
+                    scrollPosition: policyContext.scrollPosition,
                     clickAction: clickAction
                 )
             case .failure(let failure):
@@ -969,6 +924,7 @@ final class TerminalNotificationStore: ObservableObject {
                     effects: TerminalNotificationPolicyEffects(),
                     now: Date(),
                     cooldownReservation: cooldownReservation,
+                    scrollPosition: policyContext.scrollPosition,
                     clickAction: clickAction
                 )
                 self.reportNotificationHookFailure(failure)
@@ -983,6 +939,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     private struct NotificationPolicyContext: Sendable {
         let request: TerminalNotificationPolicyRequest
+        let scrollPosition: TerminalNotificationScrollPosition?
         let hooks: [CmuxResolvedNotificationHook]
         let globalConfigPath: String?
     }
@@ -1041,6 +998,16 @@ final class TerminalNotificationStore: ObservableObject {
             }
             return workspace?.panelIdFromSurfaceId(TabID(uuid: surfaceId))
         }
+        let scrollPosition: TerminalNotificationScrollPosition?
+        if surfaceId != nil {
+            scrollPosition = appDelegate?.terminalNotificationScrollPosition(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                panelId: panelId
+            )
+        } else {
+            scrollPosition = nil
+        }
 
         return NotificationPolicyContext(
             request: TerminalNotificationPolicyRequest(
@@ -1054,6 +1021,7 @@ final class TerminalNotificationStore: ObservableObject {
                 isAppFocused: isAppFocused,
                 isFocusedPanel: isFocusedPanel
             ),
+            scrollPosition: scrollPosition,
             hooks: cmuxConfigStore?.notificationHooks(startingFrom: workspace?.isRemoteWorkspace == true ? nil : cwd) ?? [],
             globalConfigPath: cmuxConfigStore?.globalConfigPath
         )
@@ -1064,6 +1032,7 @@ final class TerminalNotificationStore: ObservableObject {
         envelope: TerminalNotificationPolicyEnvelope,
         now: Date,
         cooldownReservation: NotificationCooldownReservation?,
+        scrollPosition: TerminalNotificationScrollPosition?,
         clickAction: TerminalNotificationClickAction?
     ) {
         let payload = envelope.notification
@@ -1082,6 +1051,7 @@ final class TerminalNotificationStore: ObservableObject {
             effects: envelope.effects,
             now: now,
             cooldownReservation: cooldownReservation,
+            scrollPosition: scrollPosition,
             clickAction: clickAction
         )
     }
@@ -1091,6 +1061,7 @@ final class TerminalNotificationStore: ObservableObject {
         effects: TerminalNotificationPolicyEffects,
         now: Date,
         cooldownReservation: NotificationCooldownReservation?,
+        scrollPosition: TerminalNotificationScrollPosition?,
         clickAction: TerminalNotificationClickAction?
     ) {
         let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
@@ -1108,6 +1079,7 @@ final class TerminalNotificationStore: ObservableObject {
             createdAt: now,
             isRead: !effects.markUnread,
             paneFlash: effects.paneFlash,
+            scrollPosition: scrollPosition,
             clickAction: clickAction
         )
 
@@ -1591,6 +1563,7 @@ final class TerminalNotificationStore: ObservableObject {
             createdAt: notification.createdAt,
             isRead: notification.isRead,
             paneFlash: notification.paneFlash,
+            scrollPosition: notification.scrollPosition,
             clickAction: notification.clickAction
         )
     }
@@ -1682,6 +1655,7 @@ final class TerminalNotificationStore: ObservableObject {
                 createdAt: notification.createdAt,
                 isRead: notification.isRead,
                 paneFlash: notification.paneFlash,
+                scrollPosition: notification.scrollPosition,
                 clickAction: notification.clickAction
             )
         }
@@ -2042,7 +2016,7 @@ final class TerminalNotificationStore: ObservableObject {
         return indexes
     }
 
-    private static func notificationSortPrecedes(_ lhs: TerminalNotification, _ rhs: TerminalNotification) -> Bool {
+    static func notificationSortPrecedes(_ lhs: TerminalNotification, _ rhs: TerminalNotification) -> Bool {
         if lhs.createdAt != rhs.createdAt {
             return lhs.createdAt > rhs.createdAt
         }

@@ -18,7 +18,11 @@ extension MobileShellComposite {
     }
 
     func recordTerminalRenderGridDelivery(_ renderGrid: MobileTerminalRenderGridFrame) {
-        terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = renderGrid.activeScreen
+        // The toolbar observes this dictionary via `isAlternateScreen`; same-value
+        // writes would re-fire observers for every delivered render-grid frame.
+        if terminalActiveScreenBySurfaceID[renderGrid.surfaceID] != renderGrid.activeScreen {
+            terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = renderGrid.activeScreen
+        }
         if renderGrid.activeScreen == .alternate, renderGrid.full {
             terminalAlternateRenderGridBaselineSurfaceIDs.insert(renderGrid.surfaceID)
         } else if renderGrid.activeScreen == .primary {
@@ -102,7 +106,9 @@ extension MobileShellComposite {
             )
         if source == "event", needsRenderGridBaseline, !establishesRenderGridBaseline {
             if renderGrid.activeScreen == .alternate {
-                terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = .alternate
+                if terminalActiveScreenBySurfaceID[renderGrid.surfaceID] != .alternate {
+                    terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = .alternate
+                }
                 deliverTerminalViewportPolicy(renderGrid.mobileViewportPolicy, surfaceID: renderGrid.surfaceID)
             }
             MobileDebugLog.anchormux("sync.render_grid_waiting_for_baseline source=\(source) surface=\(renderGrid.surfaceID) seq=\(renderGrid.stateSeq)")
@@ -123,7 +129,9 @@ extension MobileShellComposite {
                 )
             }
             if deliveryDecision.updateTrackedScreen {
-                terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = renderGrid.activeScreen
+                if terminalActiveScreenBySurfaceID[renderGrid.surfaceID] != renderGrid.activeScreen {
+                    terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = renderGrid.activeScreen
+                }
                 if renderGrid.activeScreen == .primary {
                     terminalAlternateRenderGridBaselineSurfaceIDs.remove(renderGrid.surfaceID)
                 }
@@ -241,8 +249,17 @@ extension MobileShellComposite {
                     "terminal.output.drop_replay_barrier surface=\(surfaceID) count=\(droppedOutputCount)"
                 )
             }
+            if droppedOutputCount >= Self.maxTerminalReplayBarrierDroppedOutputBeforeFailOpen {
+                failOpenTerminalReplayBarrier(
+                    surfaceID: surfaceID,
+                    token: replayBarrierToken,
+                    reason: "dropped_output_cap"
+                )
+                return deliverTerminalOutput(delivery, surfaceID: surfaceID, bypassReplayBarrier: true)
+            }
             if remoteClient != nil,
                terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == nil,
+               terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID] == nil,
                !terminalReplaySurfaceIDsInFlight.contains(surfaceID),
                !terminalReplayFailureRetryExhausted(surfaceID: surfaceID) {
                 MobileDebugLog.anchormux("terminal.output.replay_retry_after_drop surface=\(surfaceID)")
@@ -300,40 +317,54 @@ extension MobileShellComposite {
             let needsFollowUpReplay = coveredDroppedOutputCount.map {
                 currentDroppedOutputCount > $0
             } ?? true
-            terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
-            terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
-            terminalColdAttachReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
-            terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
-            MobileDebugLog.anchormux("terminal.output.replay_barrier_cleared surface=\(surfaceID)")
-            let droppedOutputDuringBarrier = terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID) != nil
-            terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
-            if droppedOutputDuringBarrier,
-               needsFollowUpReplay,
-               claimTerminalReplayBarrierFollowUp(surfaceID: surfaceID) {
-                let baselineReplayRequestCount = missingBaselineReplayBarrier
-                    ? terminalRenderGridBaselineReplayRequestCountsBySurfaceID[surfaceID]
-                    : nil
-                let replayBarrierToken = beginTerminalReplayBarrier(
-                    surfaceID: surfaceID,
-                    preservingFollowUpCount: true
-                )
-                if coldAttachReplayBarrier {
-                    terminalColdAttachReplayBarrierTokensBySurfaceID[surfaceID] = replayBarrierToken
-                }
-                if missingBaselineReplayBarrier {
-                    if let baselineReplayRequestCount {
-                        terminalRenderGridBaselineReplayRequestCountsBySurfaceID[surfaceID] = baselineReplayRequestCount
+            let droppedOutputDuringBarrier = terminalReplayBarrierDroppedOutputSurfaceIDs.contains(surfaceID)
+            if droppedOutputDuringBarrier, needsFollowUpReplay {
+                if claimTerminalReplayBarrierFollowUp(surfaceID: surfaceID) {
+                    let baselineReplayRequestCount = missingBaselineReplayBarrier
+                        ? terminalRenderGridBaselineReplayRequestCountsBySurfaceID[surfaceID]
+                        : nil
+                    terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
+                    terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
+                    terminalColdAttachReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
+                    terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
+                    MobileDebugLog.anchormux("terminal.output.replay_barrier_cleared surface=\(surfaceID)")
+                    terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
+                    terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+                    let replayBarrierToken = beginTerminalReplayBarrier(
+                        surfaceID: surfaceID,
+                        preservingFollowUpCount: true
+                    )
+                    if coldAttachReplayBarrier {
+                        terminalColdAttachReplayBarrierTokensBySurfaceID[surfaceID] = replayBarrierToken
                     }
-                    terminalRenderGridBaselineReplayBarrierTokensBySurfaceID[surfaceID] = replayBarrierToken
+                    if missingBaselineReplayBarrier {
+                        if let baselineReplayRequestCount {
+                            terminalRenderGridBaselineReplayRequestCountsBySurfaceID[surfaceID] = baselineReplayRequestCount
+                        }
+                        terminalRenderGridBaselineReplayBarrierTokensBySurfaceID[surfaceID] = replayBarrierToken
+                    }
+                    MobileDebugLog.anchormux("terminal.output.replay_followup surface=\(surfaceID)")
+                    requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+                    return
                 }
-                MobileDebugLog.anchormux("terminal.output.replay_followup surface=\(surfaceID)")
-                requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
-                return
+                _ = failOpenTerminalReplayBarrier(
+                    surfaceID: surfaceID,
+                    token: replayBarrierToken,
+                    reason: "followup_cap"
+                )
+            } else {
+                terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
+                terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
+                terminalColdAttachReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
+                terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
+                MobileDebugLog.anchormux("terminal.output.replay_barrier_cleared surface=\(surfaceID)")
+                terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
+                terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+                // Fully resolved: a seq-less raw tail leaves no delivered sequence,
+                // so the floor restore is the truthful baseline hand-back.
+                restoreTerminalPreBarrierBaselineIfNeeded(surfaceID: surfaceID)
+                terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
             }
-            // Fully resolved: a seq-less raw tail leaves no delivered sequence,
-            // so the floor restore is the truthful baseline hand-back.
-            restoreTerminalPreBarrierBaselineIfNeeded(surfaceID: surfaceID)
-            terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
         }
         guard let next,
               let continuation = terminalByteContinuationsBySurfaceID[surfaceID],
@@ -358,6 +389,7 @@ extension MobileShellComposite {
               terminalOutputQueuesBySurfaceID[surfaceID] != nil else { return }
         if let replayBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID] {
             guard terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken else {
+                terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
                 MobileDebugLog.anchormux("terminal.output.reset_barrier_active surface=\(surfaceID)")
                 return
             }
@@ -399,7 +431,7 @@ extension MobileShellComposite {
             surfaceID: surfaceID,
             replayBarrierToken: replayBarrierToken
         ) else {
-            preserveTerminalReplayBarrierIfCurrent(
+            failOpenTerminalReplayBarrier(
                 surfaceID: surfaceID,
                 token: replayBarrierToken,
                 reason: "reset_replay_ack"
@@ -420,6 +452,17 @@ extension MobileShellComposite {
     /// so (like ``terminalOutputDidReset``) no pre-barrier baseline survives.
     public func terminalOutputNeedsReplay(surfaceID: String) {
         guard terminalByteContinuationsBySurfaceID[surfaceID] != nil else { return }
+        if let pendingAckToken = terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID],
+           terminalReplayBarrierTokensBySurfaceID[surfaceID] == pendingAckToken {
+            // A pending viewport acknowledgement owns the next replay
+            // decision. Beginning a fresh barrier here would drop the pending
+            // token and let the acknowledgement dedupe its post-resize replay
+            // against this pre-resize request; record the reset as owed
+            // output so the acknowledgement's resolution replays instead.
+            terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
+            MobileDebugLog.anchormux("terminal.output.replay_deferred_viewport_ack surface=\(surfaceID)")
+            return
+        }
         let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
         rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)

@@ -76,10 +76,10 @@ import Testing
         .init(row: 1, column: 0, text: "changed"),
     ])
     #expect(String(data: frame.vtPatchBytes(), encoding: .utf8) ==
-        "\u{1B}[0m\u{1B}[2;1H\u{1B}[2K" +
+        "\u{1B}[s\u{1B}[?6l\u{1B}[?7l\u{1B}[0m\u{1B}[2;1H\u{1B}[2K" +
         "\u{1B}[0m\u{1B}[3;1H\u{1B}[2K" +
         "\u{1B}[2;1H\u{1B}[0mchanged" +
-        "\u{1B}[0m"
+        "\u{1B}[0m\u{1B}[?7h\u{1B}[u"
     )
 }
 
@@ -183,10 +183,64 @@ import Testing
         .contains("\u{1B}[0;38;2;0;255;0;48;2;0;0;0mgreen"))
 }
 
-@Test func renderGridSpanCellWidthSupportsWideCells() throws {
+@Test func renderGridFilteredDeltaKeepsOnlyReplayRestoredModeState() throws {
     let frame = try MobileTerminalRenderGridFrame(
         surfaceID: "terminal-a",
         stateSeq: 47,
+        columns: 8,
+        rows: 1,
+        styles: [.default],
+        rowSpans: [
+            .init(row: 0, column: 0, text: "line"),
+        ],
+        modes: [
+            .init(code: 6, ansi: false, on: true),
+            .init(code: 7, ansi: false, on: false),
+            .init(code: 1000, ansi: false, on: true),
+            .init(code: 4, ansi: true, on: true),
+        ]
+    )
+
+    let delta = try frame.filteredRows([0], full: false)
+
+    #expect(delta.modes == [.init(code: 7, ansi: false, on: false)])
+    let vt = try #require(String(data: delta.vtPatchBytes(), encoding: .utf8))
+    #expect(vt.hasPrefix("\u{1B}[s\u{1B}[?6l\u{1B}[?7l"))
+    #expect(vt.hasSuffix("\u{1B}[0m\u{1B}[?7l\u{1B}[u"))
+    #expect(!vt.contains("\u{1B}[?6h"))
+    #expect(!vt.contains("\u{1B}[?1000h"))
+    #expect(!vt.contains("\u{1B}[4h"))
+}
+
+@Test func renderGridDeltaRestoresHiddenCursorWithoutOriginMode() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 48,
+        columns: 8,
+        rows: 4,
+        cursor: .init(row: 2, column: 3, visible: false),
+        full: false,
+        clearedRows: [0],
+        styles: [.default],
+        rowSpans: [
+            .init(row: 0, column: 0, text: "line"),
+        ],
+        modes: [
+            .init(code: 6, ansi: false, on: true),
+            .init(code: 7, ansi: false, on: true),
+        ]
+    )
+
+    let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
+    #expect(vt.hasPrefix("\u{1B}[?6l\u{1B}[?7l"))
+    #expect(vt.hasSuffix("\u{1B}[0m\u{1B}[?7h\u{1B}[2 q\u{1B}[?25l\u{1B}[3;4H"))
+    #expect(!vt.contains("\u{1B}[?6h"))
+}
+
+@Test func renderGridSpanCellWidthSupportsWideCells() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 48,
         columns: 2,
         rows: 1,
         rowSpans: [
@@ -200,7 +254,7 @@ import Testing
 @Test func renderGridPlainRowsClipWideFallbackByGridColumns() throws {
     let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
         surfaceID: "terminal-a",
-        stateSeq: 48,
+        stateSeq: 49,
         columns: 2,
         rows: 1,
         text: "界A"
@@ -219,7 +273,7 @@ import Testing
     for (offset, text) in [tangut, meltingFace].enumerated() {
         let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
             surfaceID: "terminal-a",
-            stateSeq: UInt64(49 + offset),
+            stateSeq: UInt64(50 + offset),
             columns: 2,
             rows: 1,
             text: text + "A"
@@ -434,7 +488,8 @@ import Testing
     )
 
     // A delta frame carries no scrollback and does not enter the alt screen or
-    // replay modes; it only clears and repaints its changed rows.
+    // replay unrelated modes; it normalizes coordinates, then clears and
+    // repaints its changed rows.
     #expect(frame.scrollbackRows == 0)
     #expect(frame.scrollbackSpans.isEmpty)
     let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))

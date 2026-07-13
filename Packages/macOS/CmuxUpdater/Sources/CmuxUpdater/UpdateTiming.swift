@@ -17,4 +17,11 @@ public enum UpdateTiming {
     /// How long a check may stay in the "checking" state before it is treated as a
     /// silent "no updates" result (covers a Sparkle check that never calls back).
     public static let checkTimeoutDuration: TimeInterval = 10.0
+
 }
+
+/// How long after the user asks to install an update the flow may stay in a non-progressing
+/// state (still checking or still merely "update available") before the updater surfaces a
+/// visible "Update Didn't Start" error instead of silently doing nothing. Kept internal because
+/// this is controller policy, not public timing API.
+let installWatchdogTimeout: TimeInterval = 25.0

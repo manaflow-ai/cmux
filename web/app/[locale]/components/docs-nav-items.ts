@@ -1,14 +1,20 @@
 import type { Locale } from "../../../i18n/routing";
+import {
+  fallbackContentLocales,
+  featureWorkflowContentLocales,
+  remoteTmuxDocsLocales,
+} from "../../../i18n/locale-availability";
 
 export type NavLink = {
   titleKey: string;
   href: string;
   locales?: readonly Locale[];
+  contentLocales?: readonly Locale[];
 };
 export type NavSection = { sectionKey: string; children: NavLink[] };
 export type NavEntry = NavLink | NavSection;
 
-export const remoteTmuxDocsLocales = ["en", "ja"] as const satisfies readonly Locale[];
+export const baseDocsLocales = ["en"] as const satisfies readonly Locale[];
 
 export function isSection(entry: NavEntry): entry is NavSection {
   return "sectionKey" in entry;
@@ -38,13 +44,28 @@ export function navItemsForLocale(locale: string): NavEntry[] {
   return entries;
 }
 
+export function navItemContentLocale(item: NavLink, locale: string): Locale {
+  const requestedLocale = locale as Locale;
+  if (!item.contentLocales || item.contentLocales.includes(requestedLocale)) {
+    return requestedLocale;
+  }
+  return item.contentLocales[0];
+}
+
+export function hasNavItemContent(item: NavLink, locale: string): boolean {
+  return navItemContentLocale(item, locale) === locale;
+}
+
 export const navItems: NavEntry[] = [
   { titleKey: "gettingStarted", href: "/docs/getting-started" },
   { titleKey: "concepts", href: "/docs/concepts" },
+  { titleKey: "base", href: "/docs/base", locales: baseDocsLocales },
   { titleKey: "workspaceGroups", href: "/docs/workspace-groups" },
   { titleKey: "configuration", href: "/docs/configuration" },
   { titleKey: "textBox", href: "/docs/textbox" },
   { titleKey: "sessionRestore", href: "/docs/session-restore" },
+  { titleKey: "vault", href: "/docs/vault", locales: featureWorkflowContentLocales },
+  { titleKey: "taskManager", href: "/docs/task-manager", locales: featureWorkflowContentLocales },
   { titleKey: "customCommands", href: "/docs/custom-commands" },
   { titleKey: "dock", href: "/docs/dock" },
   { titleKey: "keyboardShortcuts", href: "/docs/keyboard-shortcuts" },
@@ -61,6 +82,11 @@ export const navItems: NavEntry[] = [
       { titleKey: "claudeCodeTeams", href: "/docs/agent-integrations/claude-code-teams" },
       { titleKey: "ohMyOpenCode", href: "/docs/agent-integrations/oh-my-opencode" },
       { titleKey: "ohMyCodex", href: "/docs/agent-integrations/oh-my-codex" },
+      {
+        titleKey: "ohMyPi",
+        href: "/docs/agent-integrations/oh-my-pi",
+        contentLocales: fallbackContentLocales,
+      },
       { titleKey: "ohMyClaudeCode", href: "/docs/agent-integrations/oh-my-claudecode" },
     ],
   },

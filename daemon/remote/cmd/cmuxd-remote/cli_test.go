@@ -377,26 +377,31 @@ func TestDialSocketFailsFastWhenTCPAddressStaysStale(t *testing.T) {
 	}
 }
 
-func TestCLIPingV1(t *testing.T) {
-	sockPath := startMockSocket(t, "pong")
+func TestCLIPing(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	code := runCLI([]string{"--socket", sockPath, "ping"})
 	if code != 0 {
 		t.Fatalf("ping should return 0, got %d", code)
 	}
+	req := receiveRequest(t, requests)
+	if req["method"] != "system.ping" {
+		t.Fatalf("expected method system.ping, got %v", req["method"])
+	}
 }
 
-func TestCLIPingV1OverTCP(t *testing.T) {
-	addr := startMockTCPSocket(t, "pong")
+func TestCLIPingOverTCP(t *testing.T) {
+	addr := startMockV2TCPSocketWithResult(t, map[string]any{})
 	code := runCLI([]string{"--socket", addr, "ping"})
 	if code != 0 {
 		t.Fatalf("ping over TCP should return 0, got %d", code)
 	}
 }
 
-func TestCLIPingV1OverAuthenticatedTCPWithEnv(t *testing.T) {
+func TestCLIPingOverAuthenticatedTCPWithEnv(t *testing.T) {
 	relayID := "relay-1"
 	relayToken := strings.Repeat("a1", 32)
-	addr := startMockAuthenticatedTCPSocket(t, relayID, relayToken, "pong")
+	pingResp, _ := json.Marshal(map[string]any{"id": 1, "ok": true, "result": map[string]any{}})
+	addr := startMockAuthenticatedTCPSocket(t, relayID, relayToken, string(pingResp))
 	t.Setenv("CMUX_RELAY_ID", relayID)
 	t.Setenv("CMUX_RELAY_TOKEN", relayToken)
 
@@ -406,10 +411,11 @@ func TestCLIPingV1OverAuthenticatedTCPWithEnv(t *testing.T) {
 	}
 }
 
-func TestCLIPingV1OverAuthenticatedTCPWithRelayFile(t *testing.T) {
+func TestCLIPingOverAuthenticatedTCPWithRelayFile(t *testing.T) {
 	relayID := "relay-2"
 	relayToken := strings.Repeat("b2", 32)
-	addr := startMockAuthenticatedTCPSocket(t, relayID, relayToken, "pong")
+	pingResp, _ := json.Marshal(map[string]any{"id": 1, "ok": true, "result": map[string]any{}})
+	addr := startMockAuthenticatedTCPSocket(t, relayID, relayToken, string(pingResp))
 	_, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		t.Fatalf("split host port: %v", err)
@@ -468,61 +474,51 @@ func TestDialSocketDetection(t *testing.T) {
 	conn.Close()
 }
 
-func TestCLINewWindowV1(t *testing.T) {
-	sockPath := startMockSocket(t, "OK window_id=abc123")
+func TestCLINewWindow(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	code := runCLI([]string{"--socket", sockPath, "new-window"})
 	if code != 0 {
 		t.Fatalf("new-window should return 0, got %d", code)
 	}
-}
-
-func TestSocketRoundTripReadsFullMultilineV1Response(t *testing.T) {
-	addr := startMockTCPSocket(t, "window:alpha\nwindow:beta\nwindow:gamma")
-	resp, err := socketRoundTrip(addr, "list_windows", nil)
-	if err != nil {
-		t.Fatalf("socketRoundTrip should succeed, got error: %v", err)
-	}
-	want := "window:alpha\nwindow:beta\nwindow:gamma"
-	if resp != want {
-		t.Fatalf("socketRoundTrip truncated v1 response: got %q want %q", resp, want)
+	req := receiveRequest(t, requests)
+	if req["method"] != "window.create" {
+		t.Fatalf("new-window: expected method window.create, got %v", req["method"])
 	}
 }
 
-func TestCLICloseWindowV1(t *testing.T) {
-	// Verify that the flag value is appended to the v1 command
-	dir := t.TempDir()
-	sockPath := filepath.Join(dir, "cmux.sock")
-
-	receivedCh := make(chan string, 1)
-	ln, err := net.Listen("unix", sockPath)
-	if err != nil {
-		t.Fatalf("listen: %v", err)
+func TestSocketRoundTripV2ListResult(t *testing.T) {
+	windows := []any{
+		map[string]any{"id": "alpha", "ref": "@1"},
+		map[string]any{"id": "beta", "ref": "@2"},
+		map[string]any{"id": "gamma", "ref": "@3"},
 	}
-	t.Cleanup(func() { ln.Close() })
+	addr := startMockV2TCPSocketWithResult(t, map[string]any{"windows": windows})
+	resp, err := socketRoundTripV2(addr, "window.list", nil, nil)
+	if err != nil {
+		t.Fatalf("socketRoundTripV2 should succeed, got error: %v", err)
+	}
+	if !strings.Contains(resp, "alpha") || !strings.Contains(resp, "beta") || !strings.Contains(resp, "gamma") {
+		t.Fatalf("socketRoundTripV2 response missing window IDs: %q", resp)
+	}
+}
 
-	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
-			return
-		}
-		buf := make([]byte, 4096)
-		n, _ := conn.Read(buf)
-		receivedCh <- strings.TrimSpace(string(buf[:n]))
-		conn.Write([]byte("OK\n"))
-		conn.Close()
-	}()
-
+func TestCLICloseWindow(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	code := runCLI([]string{"--socket", sockPath, "close-window", "--window", "win-42"})
 	if code != 0 {
 		t.Fatalf("close-window should return 0, got %d", code)
 	}
 	select {
-	case received := <-receivedCh:
-		if received != "close_window win-42" {
-			t.Fatalf("expected 'close_window win-42', got %q", received)
+	case req := <-requests:
+		if req["method"] != "window.close" {
+			t.Fatalf("expected method window.close, got %v", req["method"])
+		}
+		p, _ := req["params"].(map[string]any)
+		if p["window_id"] != "win-42" {
+			t.Fatalf("expected window_id='win-42', got %v", p["window_id"])
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for close-window payload")
+		t.Fatal("timed out waiting for close-window request")
 	}
 }
 
@@ -593,13 +589,16 @@ func TestCLINoSocket(t *testing.T) {
 }
 
 func TestCLISocketEnvVar(t *testing.T) {
-	sockPath := startMockSocket(t, "pong")
-	os.Setenv("CMUX_SOCKET_PATH", sockPath)
-	defer os.Unsetenv("CMUX_SOCKET_PATH")
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_SOCKET_PATH", sockPath)
 
 	code := runCLI([]string{"ping"})
 	if code != 0 {
 		t.Fatalf("ping with env socket should return 0, got %d", code)
+	}
+	req := receiveRequest(t, requests)
+	if req["method"] != "system.ping" {
+		t.Fatalf("expected method system.ping, got %v", req["method"])
 	}
 }
 
@@ -1303,5 +1302,27 @@ func TestCLIWorkspaceGroupRemoveStillRequiresExplicitWorkspaceWithEnv(t *testing
 	t.Setenv("CMUX_WORKSPACE_ID", "env-ws")
 	if code := runCLI([]string{"--socket", sockPath, "workspace", "group", "remove"}); code != 2 {
 		t.Fatalf("remove without --workspace should return 2 even with env set, got %d", code)
+	}
+}
+
+func TestCLINotifyUsesCallerEnvForCloudBridge(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_WORKSPACE_ID", "env-ws")
+	t.Setenv("CMUX_SURFACE_ID", "env-sf")
+
+	code := runCLI([]string{"--socket", sockPath, "--json", "notify", "--title", "Done", "--body", "Build finished"})
+	if code != 0 {
+		t.Fatalf("notify should return 0, got %d", code)
+	}
+
+	params := expectGroupRequest(t, requests, "notification.create_for_caller")
+	if params["preferred_workspace_id"] != "env-ws" || params["preferred_surface_id"] != "env-sf" {
+		t.Fatalf("expected caller env target, got %v", params)
+	}
+	if _, exists := params["workspace_id"]; exists {
+		t.Fatalf("workspace_id should be rewritten to preferred_workspace_id, got %v", params)
+	}
+	if _, exists := params["surface_id"]; exists {
+		t.Fatalf("surface_id should be rewritten to preferred_surface_id, got %v", params)
 	}
 }

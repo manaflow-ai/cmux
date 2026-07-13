@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 import Testing
 
@@ -29,6 +30,79 @@ import Testing
         let response = try MobileHostStatusResponse.decode(Data("{}".utf8))
         #expect(response.capabilities.isEmpty)
         #expect(response.terminalFidelity == nil)
+        #expect(response.macInstanceTag == nil)
+        #expect(response.theme == nil)
+    }
+
+    @Test func hostStatusDecodesMacInstanceTag() throws {
+        let data = Data(#"{"mac_instance_tag":"future-one"}"#.utf8)
+        let response = try MobileHostStatusResponse.decode(data)
+        #expect(response.macInstanceTag == "future-one")
+    }
+
+    /// A theme nested in the host-status payload, serialized with the Mac
+    /// producer's `[String: Any]` key shape, round-trips back into the exact
+    /// `TerminalTheme` the Mac sent. This pins the producer/consumer wire
+    /// contract: the keys the producer writes must match `TerminalTheme`'s
+    /// `Codable` keys the consumer decodes.
+    @Test func hostStatusDecodesNestedTheme() throws {
+        let expected = TerminalTheme(
+            background: "#1e1e2e",
+            foreground: "#cdd6f4",
+            cursor: "#f5e0dc",
+            cursorText: "#11111b",
+            selectionBackground: "#585b70",
+            selectionForeground: "#cdd6f4",
+            palette: (0...15).map { String(format: "#%06x", $0 * 0x111111) }
+        )
+        // Mirror the Mac producer's `[String: Any]` serialization exactly.
+        var themeObject: [String: Any] = [
+            "background": expected.background,
+            "foreground": expected.foreground,
+            "cursor": expected.cursor,
+            "cursorText": expected.cursorText as Any,
+            "selectionBackground": expected.selectionBackground,
+            "selectionForeground": expected.selectionForeground,
+            "palette": expected.palette,
+        ]
+        let payload: [String: Any] = [
+            "capabilities": ["terminal.render_grid.v1"],
+            "terminal_fidelity": "render_grid",
+            "theme": themeObject,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        let response = try MobileHostStatusResponse.decode(data)
+        #expect(response.theme == expected)
+
+        // A theme without a cursorText decodes that field as nil.
+        themeObject.removeValue(forKey: "cursorText")
+        let dataNoCursorText = try JSONSerialization.data(
+            withJSONObject: ["theme": themeObject]
+        )
+        let responseNoCursorText = try MobileHostStatusResponse.decode(dataNoCursorText)
+        #expect(responseNoCursorText.theme?.cursorText == nil)
+        #expect(responseNoCursorText.theme?.background == expected.background)
+    }
+
+    /// A present-but-malformed `theme` (wrong types / truncated palette) must
+    /// not fail the whole host-status decode. The status payload also drives
+    /// transport negotiation and Mac-identity adoption, so a throw here would
+    /// force raw-bytes transport and skip identity follow-ups over a cosmetic
+    /// field. The bad theme decodes to nil; every other field still parses.
+    @Test func hostStatusToleratesMalformedTheme() throws {
+        let payload: [String: Any] = [
+            "capabilities": ["terminal.render_grid.v1"],
+            "terminal_fidelity": "render_grid",
+            "mac_display_name": "Studio",
+            // `palette` should be an array of strings; a number is invalid.
+            "theme": ["background": 1234, "palette": "not-an-array"],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        let response = try MobileHostStatusResponse.decode(data)
+        #expect(response.theme == nil)
+        #expect(response.capabilities == ["terminal.render_grid.v1"])
+        #expect(response.terminalFidelity == "render_grid")
+        #expect(response.macDisplayName == "Studio")
     }
 
     @Test func inputResponseDecodesTerminalSeq() throws {

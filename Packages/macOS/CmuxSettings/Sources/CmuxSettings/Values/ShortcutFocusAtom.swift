@@ -14,6 +14,8 @@ public enum ShortcutFocusAtom: String, CaseIterable, Sendable {
     case browserFocus
     /// A markdown preview viewer owns focus.
     case markdownFocus
+    /// A file-preview text editor owns focus.
+    case filePreviewTextEditorFocus
     /// A terminal owns focus — i.e. none of the other focus atoms hold.
     case terminalFocus
 }

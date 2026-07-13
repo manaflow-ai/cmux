@@ -272,7 +272,15 @@ public final class NotificationDeliveryCoordinator {
                 }
                 return
             }
-            _ = terminalNavigation.open(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+            if let notificationId {
+                _ = terminalNavigation.openNotification(
+                    id: notificationId,
+                    fallbackTabId: tabId,
+                    fallbackSurfaceId: surfaceId
+                )
+            } else {
+                _ = terminalNavigation.open(tabId: tabId, surfaceId: surfaceId, notificationId: nil)
+            }
         case UNNotificationDismissActionIdentifier:
             if let notificationId = notificationId(response) {
                 terminalNavigation.markNotificationRead(id: notificationId)

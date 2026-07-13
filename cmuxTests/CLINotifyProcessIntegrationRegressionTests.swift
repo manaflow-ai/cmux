@@ -3666,10 +3666,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let terminalStartupCommand = try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
         let initialScript = try XCTUnwrap(decodedReusableStartupScript(from: initialCommand))
         let terminalStartupScript = try XCTUnwrap(decodedReusableStartupScript(from: terminalStartupCommand))
-
         XCTAssertTrue(initialScript.contains("ssh-pty-attach"), initialScript)
         XCTAssertTrue(initialScript.contains("--wait"), initialScript)
-        XCTAssertTrue(initialScript.contains("ssh-session-end"), initialScript)
+        XCTAssertTrue(initialScript.contains("ssh-session-end") && initialScript.contains("--lifecycle-only"), initialScript)
         XCTAssertTrue(initialScript.contains("CMUX_WORKSPACE_ID"), initialScript)
         XCTAssertTrue(initialScript.contains("CMUX_SURFACE_ID"), initialScript)
         XCTAssertTrue(
@@ -3681,22 +3680,21 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             initialScript
         )
         XCTAssertTrue(
-            initialScript.contains("ssh-$cmux_ssh_pty_workspace_id-$cmux_ssh_pty_surface_id"),
+            initialScript.contains("CMUX_SSH_PTY_SESSION_ID=\"ssh-${CMUX_WORKSPACE_ID:-}-${CMUX_SURFACE_ID:-}\"") && initialScript.contains("cmux_ssh_pty_session_id=\"$CMUX_SSH_PTY_SESSION_ID\""),
             initialScript
         )
+        XCTAssertEqual(initialScript.components(separatedBy: "/usr/bin/uuidgen").count - 1, 1, initialScript)
+        XCTAssertTrue(initialScript.contains("--session-id \"${CMUX_SSH_PTY_SESSION_ID:-}\""), initialScript)
+        XCTAssertTrue(initialScript.contains("--lifecycle-id \"${CMUX_SSH_PTY_LIFECYCLE_ID:-}\""), initialScript)
         XCTAssertTrue(initialScript.contains("254|255"), initialScript)
         assertSSHPTYAttachOmitsSurfaceArgument(initialScript)
         XCTAssertTrue(
             initialScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
             initialScript
         )
-        XCTAssertEqual(
-            initialScript.components(separatedBy: "workspace.remote.foreground_auth_ready").count - 1,
-            1,
-            initialScript
-        )
+        XCTAssertEqual(initialScript.components(separatedBy: "workspace.remote.foreground_auth_ready").count - 1, 1, initialScript)
         XCTAssertTrue(terminalStartupScript.contains("ssh-pty-attach"), terminalStartupScript)
-        XCTAssertTrue(terminalStartupScript.contains("ssh-session-end"), terminalStartupScript)
+        XCTAssertTrue(terminalStartupScript.contains("ssh-session-end") && terminalStartupScript.contains("--lifecycle-only"), terminalStartupScript)
         XCTAssertTrue(terminalStartupScript.contains("CMUX_WORKSPACE_ID"), terminalStartupScript)
         XCTAssertTrue(terminalStartupScript.contains("CMUX_SURFACE_ID"), terminalStartupScript)
         XCTAssertTrue(
@@ -3708,20 +3706,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             terminalStartupScript
         )
         XCTAssertTrue(
-            terminalStartupScript.contains("ssh-$cmux_ssh_pty_workspace_id-$cmux_ssh_pty_surface_id"),
+            terminalStartupScript.contains("CMUX_SSH_PTY_SESSION_ID=\"ssh-${CMUX_WORKSPACE_ID:-}-${CMUX_SURFACE_ID:-}\"") && terminalStartupScript.contains("cmux_ssh_pty_session_id=\"$CMUX_SSH_PTY_SESSION_ID\""),
             terminalStartupScript
         )
+        XCTAssertEqual(terminalStartupScript.components(separatedBy: "/usr/bin/uuidgen").count - 1, 1, terminalStartupScript)
+        XCTAssertTrue(terminalStartupScript.contains("--session-id \"${CMUX_SSH_PTY_SESSION_ID:-}\""), terminalStartupScript)
+        XCTAssertTrue(terminalStartupScript.contains("--lifecycle-id \"${CMUX_SSH_PTY_LIFECYCLE_ID:-}\""), terminalStartupScript)
         XCTAssertTrue(terminalStartupScript.contains("254|255"), terminalStartupScript)
         assertSSHPTYAttachOmitsSurfaceArgument(terminalStartupScript)
         XCTAssertTrue(
             terminalStartupScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
             terminalStartupScript
         )
-        XCTAssertEqual(
-            terminalStartupScript.components(separatedBy: "workspace.remote.foreground_auth_ready").count - 1,
-            1,
-            terminalStartupScript
-        )
+        XCTAssertEqual(terminalStartupScript.components(separatedBy: "workspace.remote.foreground_auth_ready").count - 1, 1, terminalStartupScript)
         XCTAssertEqual(configureParams["auto_connect"] as? Bool, false)
         XCTAssertNotNil(configureParams["foreground_auth_token"] as? String)
         XCTAssertEqual(configureParams["preserve_after_terminal_exit"] as? Bool, true)
@@ -3854,10 +3851,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.isEmpty, result.stdout)
         XCTAssertTrue(result.stderr.contains("ssh-pty-attach: remote PTY start failed"), result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_attach_end"])
+        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_sessions", "workspace.remote.pty_attach_end"])
     }
 
-    func testSSHPTYAttachBridgeEOFWhileSessionRunsExitsWithoutSSHRetryStatus() throws {
+    func testSSHPTYAttachBridgeEOFWhileSessionRunsPreservesLifecycleForRetry() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptyeof")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -3941,6 +3938,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -4635,6 +4633,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertTrue(initialCommand.contains("CMUX_WORKSPACE_ID"), initialCommand)
             XCTAssertTrue(initialCommand.contains("CMUX_SURFACE_ID"), initialCommand)
             XCTAssertTrue(initialCommand.contains("254|255"), initialCommand)
+            XCTAssertEqual(initialCommand.components(separatedBy: "/usr/bin/uuidgen").count - 1, 1, initialCommand)
+            XCTAssertTrue(initialCommand.contains("ssh-session-end --lifecycle-only"), initialCommand)
             return self.v2Response(
                 id: id,
                 ok: true,
@@ -4760,7 +4760,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 1, result.stderr)
         XCTAssertTrue(result.stderr.contains("ssh-pty-attach: missing session"), result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_attach_end"])
+        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_sessions", "workspace.remote.pty_attach_end"])
     }
 
     func testSSHPTYAttachRequireExistingSessionNotFoundFailsWithoutWaitRetry() throws {
@@ -4844,7 +4844,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 1, result.stderr)
         XCTAssertTrue(result.stderr.contains("persistent SSH PTY session is no longer running"), result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_attach_end"])
+        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_sessions", "workspace.remote.pty_attach_end"])
     }
 
     func testSSHSessionListAllWorkspacesReportsQueryErrors() throws {
@@ -7899,7 +7899,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["auto_resume"] as? Bool, true)
         XCTAssertEqual(
             request["command"] as? String,
-            "cd -- '\(root.path)' 2>/dev/null || [ ! -d '\(root.path)' ] && '/usr/local/bin/cmux' 'codex-teams' 'resume' '\(sessionId)' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
+            "cd -- '\(root.path)' 2>/dev/null || [ ! -d '\(root.path)' ] && '/usr/local/bin/cmux' 'codex-teams' 'resume' '\(sessionId)' '-c' 'check_for_update_on_startup=false' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
         )
     }
 

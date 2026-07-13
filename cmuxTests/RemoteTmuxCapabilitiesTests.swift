@@ -22,21 +22,15 @@ import Testing
             "remote.tmux.attach",
             "remote.tmux.detach",
             "remote.tmux.state",
-            "remote.tmux.attach_here",
             "remote.tmux.mirror",
             "remote.tmux.window",
         ].allSatisfy { advertisedMethods.contains($0) })
     }
 
-    /// Regression guard for `remote.tmux.attach_here`: sending a request with no
-    /// `host` param must fail one of the two network-free guards in
-    /// `v2RemoteTmuxAttachHere` (beta-gate or param validation) - never dispatch
-    /// as an unknown method, and never touch the network. This proves the method
-    /// stays registered/dispatched and keeps validating before SSH regardless of
-    /// which way the `remoteTmux.beta.enabled` flag happens to be set in the test
-    /// environment.
-    @Test(arguments: ["remote.tmux.attach_here", "remote.tmux.mirror"])
-    func attachHereWithoutHostReturnsStructuredErrorBeforeNetwork(method: String) throws {
+    /// Requests without a host must fail a network-free guard, never dispatch as
+    /// unknown methods or touch SSH. This covers both placement entry points.
+    @Test(arguments: ["remote.tmux.mirror", "remote.tmux.window"])
+    func mirrorWithoutHostReturnsStructuredErrorBeforeNetwork(method: String) throws {
         let request = #"{"jsonrpc":"2.0","id":1,"method":"\#(method)","params":{}}"#
         let responseText = TerminalController.shared.handleSocketLine(request)
         let responseData = try #require(responseText.data(using: .utf8))

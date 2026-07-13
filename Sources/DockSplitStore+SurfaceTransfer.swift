@@ -136,6 +136,10 @@ extension DockSplitStore {
         let transferTitle = trimmedCustomTitle?.isEmpty == false
             ? preservedTransfer?.customTitle
             : panel.displayTitle
+        let panelShellActivityState = (panel as? TerminalPanel)?.shellActivity.state
+        let transferredShellActivityState = panelShellActivityState == .unknown
+            ? preservedTransfer?.shellActivityState
+            : panelShellActivityState
 
         // Drop our ownership first: once the tab close fires `reconcilePanels`,
         // a still-tracked panel would be `panel.close()`d (killing the process).
@@ -168,6 +172,9 @@ extension DockSplitStore {
             isLoading: isLoading,
             isPinned: false,
             directory: detachedDirectory,
+            directoryIsTrustedRemoteReport: detachedDirectory != nil &&
+                detachedDirectory == preservedTransfer?.directory &&
+                preservedTransfer?.directoryIsTrustedRemoteReport == true,
             directoryDisplayLabel: detachedDirectory == preservedTransfer?.directory
                 ? preservedTransfer?.directoryDisplayLabel
                 : nil,
@@ -179,6 +186,10 @@ extension DockSplitStore {
             restoredUnreadIndicator: preservedTransfer?.restoredUnreadIndicator,
             restorableAgent: agentProvenExited ? nil : preservedTransfer?.restorableAgent,
             restorableAgentResumeState: agentProvenExited ? nil : preservedTransfer?.restorableAgentResumeState,
+            restoredAgentCompletedGeneration: agentProvenExited
+                ? nil
+                : preservedTransfer?.restoredAgentCompletedGeneration,
+            shellActivityState: transferredShellActivityState,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
             agentRuntime: agentProvenExited ? nil : preservedTransfer?.agentRuntime,
@@ -219,10 +230,11 @@ extension DockSplitStore {
         // read is unavailable.
         detachedSurfaceTransfersByPanelId[detached.panelId] = detached
         let kind = detached.kind ?? ((panel.panelType == .browser) ? "browser" : "terminal")
+        let restoredIconImageData = detached.panel is TerminalPanel ? nil : detached.iconImageData
         guard let newTabId = bonsplitController.createTab(
             title: detached.title,
             icon: detached.icon,
-            iconImageData: detached.iconImageData,
+            iconImageData: restoredIconImageData,
             kind: kind,
             isDirty: panel.isDirty,
             isLoading: detached.isLoading,
@@ -252,6 +264,7 @@ extension DockSplitStore {
                 panel.focus()
             }
         }
+        scheduleDockPortalReconcile(reason: "dock.attachDetachedSurface")
         return detached.panelId
     }
 }

@@ -2,7 +2,7 @@ public import AppKit
 public import Foundation
 public import GhosttyKit
 
-// MARK: - Surface sizing, scale, and mobile viewport caps
+// MARK: - Surface sizing and scale
 
 extension TerminalSurface {
     /// Match upstream Ghostty AppKit sizing: framebuffer dimensions are derived
@@ -136,9 +136,14 @@ extension TerminalSurface {
         let rawHpx = pixelDimension(from: resolvedBackingHeight)
         lastUncappedPixelWidth = rawWpx
         lastUncappedPixelHeight = rawHpx
-        let cappedSize = cappedByMobileViewportLimit(width: rawWpx, height: rawHpx, surface: surface)
-        let wpx = cappedSize.width
-        let hpx = cappedSize.height
+        let fittedSize = mobileViewportFittedSize(
+            width: rawWpx,
+            height: rawHpx,
+            surface: surface,
+            reason: "updateSize"
+        )
+        let wpx = fittedSize.width
+        let hpx = fittedSize.height
         guard wpx > 0, hpx > 0 else { return false }
 
         let scaleChanged = !scaleApproximatelyEqual(xScale, lastXScale) || !scaleApproximatelyEqual(yScale, lastYScale)
@@ -157,7 +162,7 @@ extension TerminalSurface {
             )
         }
 
-        guard scaleChanged || sizeChanged else { return false }
+        guard scaleChanged || sizeChanged || fittedSize.fontChanged else { return false }
 
         #if DEBUG
         if sizeChanged {
@@ -207,7 +212,10 @@ extension TerminalSurface {
                     "cell=\(currentSize.cell_width_px)x\(currentSize.cell_height_px)"
                 )
                 #endif
-                return scaleChanged
+                if fittedSize.fontChanged {
+                    ghostty_surface_refresh(surface)
+                }
+                return scaleChanged || fittedSize.fontChanged
             }
 
             // Mirror (manual-I/O) surfaces must not reflow their primary screen
@@ -234,6 +242,10 @@ extension TerminalSurface {
             }
         }
 
+        if fittedSize.fontChanged && !sizeChanged {
+            ghostty_surface_refresh(surface)
+        }
+
         // Deferred from above on a DPI increase: now that set_size grew the grid,
         // applying the larger cell only shrinks it back to the final width.
         if deferScaleUntilResized {
@@ -242,165 +254,43 @@ extension TerminalSurface {
             lastYScale = yScale
         }
 
-        // Remote tmux display surfaces: keep the remote tmux client sized to
-        // the rendered grid, and report only real cell-grid changes while the
-        // surface is on screen.
-        if manualIO, let report = onManualGridResize, attachedView?.window != nil {
-            let grid = ghostty_surface_size(surface)
-            let cols = Int(grid.columns)
-            let rows = Int(grid.rows)
-            if cols > 1, rows > 1,
-               lastReportedManualGrid?.columns != cols || lastReportedManualGrid?.rows != rows {
-                lastReportedManualGrid = (cols, rows)
-                report(cols, rows)
+        // Remote tmux display surfaces: report every APPLIED resize —
+        // including same-grid re-applies, since a resize that lands on new
+        // pixels without changing cols×rows still refines the measured
+        // padding constants (surface_px − cols·cell_px). Window attachment is
+        // deliberately the ONLY visibility gate: surfaces on unselected tabs
+        // must still report, because a hidden mirror's one-time size claim
+        // (see RemoteTmuxWindowMirror.updateClientSize) is triggered by its
+        // surfaces' first applied resize — the LISTENER owns the policy of
+        // what a hidden report may do.
+        if manualIO, let report = onManualSizeApplied {
+            if let attachedView, attachedView.window != nil {
+                manualSizeReportPendingWindowAttach = false
+                let applied = ghostty_surface_size(surface)
+                let cols = Int(applied.columns)
+                let rows = Int(applied.rows)
+                if cols > 1, rows > 1 {
+                    report(TerminalSurfaceRawSizingSample(
+                        columns: cols, rows: rows,
+                        cellWidthPx: Int(applied.cell_width_px),
+                        cellHeightPx: Int(applied.cell_height_px),
+                        surfaceWidthPx: Int(applied.width_px),
+                        surfaceHeightPx: Int(applied.height_px),
+                        viewBoundsPt: attachedView.bounds.size,
+                        backingScale: attachedView.window?.backingScaleFactor
+                    ))
+                }
+            } else {
+                // Off-window apply (portal churn during attach, hidden tab
+                // setup): remember that a report is owed. If the grid is
+                // already final when the view enters a window, no further
+                // apply will fire — the attach flush is the only delivery.
+                manualSizeReportPendingWindowAttach = true
             }
         }
 
         // Let Ghostty continue rendering on its own wakeups for steady-state frames.
         return true
-    }
-
-    /// Caps the surface grid to a paired iPhone's viewport.
-    ///
-    /// - Returns: Whether the runtime surface size changed.
-    @discardableResult
-    @MainActor
-    public func applyMobileViewportLimit(columns: Int, rows: Int, reason: String) -> Bool {
-        guard let surface = liveSurfaceForGhosttyAccess(reason: "applyMobileViewportLimit") else {
-            paneHost.setMobileViewportBorder(size: nil, drawRight: false, drawBottom: false)
-            return false
-        }
-        let size = ghostty_surface_size(surface)
-        let cellWidth = max(1, Int(size.cell_width_px))
-        let cellHeight = max(1, Int(size.cell_height_px))
-        let currentColumns = max(1, Int(size.columns))
-        let currentRows = max(1, Int(size.rows))
-        let horizontalNonGridPixels = max(0, Int(size.width_px) - currentColumns * cellWidth)
-        let verticalNonGridPixels = max(0, Int(size.height_px) - currentRows * cellHeight)
-        let targetWidth = safePixelDimension(
-            cellCount: columns,
-            cellSize: cellWidth,
-            nonGridPixels: horizontalNonGridPixels
-        )
-        let targetHeight = safePixelDimension(
-            cellCount: rows,
-            cellSize: cellHeight,
-            nonGridPixels: verticalNonGridPixels
-        )
-
-        mobileViewportCellLimit = (columns: max(1, columns), rows: max(1, rows))
-        let baseWidth = lastUncappedPixelWidth > 0 ? lastUncappedPixelWidth : targetWidth
-        let baseHeight = lastUncappedPixelHeight > 0 ? lastUncappedPixelHeight : targetHeight
-        let appliedWidth = min(targetWidth, baseWidth)
-        let appliedHeight = min(targetHeight, baseHeight)
-        let sizeChanged = appliedWidth != lastPixelWidth || appliedHeight != lastPixelHeight
-        updateMobileViewportBorder(
-            appliedWidth: appliedWidth,
-            appliedHeight: appliedHeight,
-            baseWidth: baseWidth,
-            baseHeight: baseHeight
-        )
-
-        #if DEBUG
-        Self.sizeLog(
-            "mobileViewportLimit surface=\(id.uuidString.prefix(8)) cells=\(columns)x\(rows) " +
-            "capPx=\(targetWidth)x\(targetHeight) appliedPx=\(appliedWidth)x\(appliedHeight) " +
-            "basePx=\(baseWidth)x\(baseHeight) prev=\(lastPixelWidth)x\(lastPixelHeight) " +
-            "changed=\(sizeChanged ? 1 : 0) reason=\(reason)"
-        )
-        #endif
-
-        guard sizeChanged else { return false }
-        ghostty_surface_set_size(surface, appliedWidth, appliedHeight)
-        lastPixelWidth = appliedWidth
-        lastPixelHeight = appliedHeight
-        ghostty_surface_refresh(surface)
-        return true
-    }
-
-    /// Removes the mobile viewport cap and restores the uncapped size.
-    ///
-    /// - Returns: Whether the runtime surface size changed.
-    @discardableResult
-    @MainActor
-    public func clearMobileViewportLimit(reason: String) -> Bool {
-        mobileViewportCellLimit = nil
-        paneHost.setMobileViewportBorder(size: nil, drawRight: false, drawBottom: false)
-
-        let uncappedWidth = lastUncappedPixelWidth
-        let uncappedHeight = lastUncappedPixelHeight
-        guard let surface = liveSurfaceForGhosttyAccess(reason: "clearMobileViewportLimit"),
-              uncappedWidth > 0,
-              uncappedHeight > 0 else {
-            return false
-        }
-
-        let sizeChanged = uncappedWidth != lastPixelWidth || uncappedHeight != lastPixelHeight
-
-        #if DEBUG
-        Self.sizeLog(
-            "clearMobileViewportLimit surface=\(id.uuidString.prefix(8)) " +
-            "uncappedPx=\(uncappedWidth)x\(uncappedHeight) prev=\(lastPixelWidth)x\(lastPixelHeight) " +
-            "changed=\(sizeChanged ? 1 : 0) reason=\(reason)"
-        )
-        #endif
-
-        guard sizeChanged else {
-            ghostty_surface_refresh(surface)
-            return false
-        }
-        ghostty_surface_set_size(surface, uncappedWidth, uncappedHeight)
-        lastPixelWidth = uncappedWidth
-        lastPixelHeight = uncappedHeight
-        ghostty_surface_refresh(surface)
-        return true
-    }
-
-    private func cappedByMobileViewportLimit(
-        width: UInt32,
-        height: UInt32,
-        surface: ghostty_surface_t
-    ) -> (width: UInt32, height: UInt32) {
-        guard let mobileViewportPixelLimit = mobileViewportPixelLimit(for: surface) else {
-            return (width, height)
-        }
-        return (
-            width: min(width, mobileViewportPixelLimit.width),
-            height: min(height, mobileViewportPixelLimit.height)
-        )
-    }
-
-    private func mobileViewportPixelLimit(for surface: ghostty_surface_t) -> (width: UInt32, height: UInt32)? {
-        guard let mobileViewportCellLimit else {
-            return nil
-        }
-        let size = ghostty_surface_size(surface)
-        let cellWidth = max(1, Int(size.cell_width_px))
-        let cellHeight = max(1, Int(size.cell_height_px))
-        let currentColumns = max(1, Int(size.columns))
-        let currentRows = max(1, Int(size.rows))
-        let horizontalNonGridPixels = max(0, Int(size.width_px) - currentColumns * cellWidth)
-        let verticalNonGridPixels = max(0, Int(size.height_px) - currentRows * cellHeight)
-        return (
-            width: safePixelDimension(
-                cellCount: mobileViewportCellLimit.columns,
-                cellSize: cellWidth,
-                nonGridPixels: horizontalNonGridPixels
-            ),
-            height: safePixelDimension(
-                cellCount: mobileViewportCellLimit.rows,
-                cellSize: cellHeight,
-                nonGridPixels: verticalNonGridPixels
-            )
-        )
-    }
-
-    private func safePixelDimension(cellCount: Int, cellSize: Int, nonGridPixels: Int) -> UInt32 {
-        let clampedCellSize = max(1, cellSize)
-        let clampedNonGridPixels = min(max(0, nonGridPixels), Int(UInt32.max) - 1)
-        let maxCells = max(1, (Int(UInt32.max) - clampedNonGridPixels) / clampedCellSize)
-        let clampedCellCount = min(max(1, cellCount), maxCells)
-        return UInt32(clampedCellCount * clampedCellSize + clampedNonGridPixels)
     }
 
     /// The current monospace cell size in points, or nil if the runtime
@@ -417,6 +307,55 @@ extension TerminalSurface {
         )
     }
 
+    /// Raw sizing sample for calibration diagnostics: `ghostty_surface_size`'s
+    /// device-pixel fields UNCONVERTED, plus the attached view's bounds in
+    /// points and its window's backing scale. Callers separate view layout,
+    /// scale, padding, and cell quantization themselves — pre-mixed units are
+    /// how sizing bugs hide (call sites have treated the raw pixel cell size
+    /// as points in one place and as pixels in another).
+    @MainActor
+    public func rawSizingSample() -> TerminalSurfaceRawSizingSample? {
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "rawSizingSample") else { return nil }
+        let size = ghostty_surface_size(surface)
+        return TerminalSurfaceRawSizingSample(
+            columns: Int(size.columns),
+            rows: Int(size.rows),
+            cellWidthPx: Int(size.cell_width_px),
+            cellHeightPx: Int(size.cell_height_px),
+            surfaceWidthPx: Int(size.width_px),
+            surfaceHeightPx: Int(size.height_px),
+            viewBoundsPt: attachedView?.bounds.size,
+            backingScale: attachedView?.window?.backingScaleFactor
+        )
+    }
+
+    /// Delivers the manual-size report that was skipped because the view was
+    /// outside any window when the size applied (see
+    /// ``manualSizeReportPendingWindowAttach``). Called from the attach path;
+    /// a no-op unless a report is actually owed and deliverable.
+    @MainActor
+    public func flushPendingManualSizeReportIfAttached() {
+        guard manualSizeReportPendingWindowAttach,
+              let report = onManualSizeApplied,
+              attachedView?.window != nil,
+              let sample = rawSizingSample(),
+              sample.columns > 1, sample.rows > 1
+        else { return }
+        manualSizeReportPendingWindowAttach = false
+        report(sample)
+    }
+
+    /// Which of ``renderedGridCells()``'s nil conditions currently hold —
+    /// lets sizing diagnostics name the mechanism (view detached from its
+    /// window vs surface not live vs no real grid) instead of a bare nil.
+    @MainActor
+    public func renderedGridDiagnostics() -> (viewInWindow: Bool, surfaceLive: Bool) {
+        (
+            viewInWindow: attachedView?.window != nil,
+            surfaceLive: liveSurfaceForGhosttyAccess(reason: "renderedGridDiagnostics") != nil
+        )
+    }
+
     /// The on-screen rendered grid, or nil while the runtime surface is not
     /// live, is not in a window, or has no real grid yet.
     @MainActor
@@ -430,23 +369,4 @@ extension TerminalSurface {
         return (cols, rows)
     }
 
-    @MainActor
-    private func updateMobileViewportBorder(
-        appliedWidth: UInt32,
-        appliedHeight: UInt32,
-        baseWidth: UInt32,
-        baseHeight: UInt32
-    ) {
-        let drawRightBorder = appliedWidth < baseWidth
-        let drawBottomBorder = appliedHeight < baseHeight
-        let borderScale = paneHost.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
-        paneHost.setMobileViewportBorder(
-            size: CGSize(
-                width: CGFloat(appliedWidth) / max(1, borderScale),
-                height: CGFloat(appliedHeight) / max(1, borderScale)
-            ),
-            drawRight: drawRightBorder,
-            drawBottom: drawBottomBorder
-        )
-    }
 }

@@ -57,6 +57,22 @@ import Testing
         #expect(!coordinator.isMonitoring)
     }
 
+    /// Regression for #7235: dismissing the stale Sparkle prompt can emit an idle state from
+    /// Sparkle's dismissal callback and then another idle state from cmux's reset path. The second
+    /// idle is still before the fresh check starts, so it must not cancel the install attempt.
+    @Test func duplicateIdleDismissSignalsBeforeFreshCheckDoNotCancelAttempt() {
+        var coordinator = AttemptUpdateCoordinator()
+        _ = coordinator.requestInstallLatest(currentState: updateAvailable("0.64.15"))
+
+        #expect(coordinator.handleStateChange(.idle) == .none)
+        #expect(coordinator.isMonitoring)
+        #expect(coordinator.handleStateChange(.idle) == .none)
+        #expect(coordinator.isMonitoring)
+        #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
+        #expect(coordinator.handleStateChange(updateAvailable("0.64.16")) == .confirmInstall)
+        #expect(!coordinator.isMonitoring)
+    }
+
     /// A lingering repeat of the pre-request prompt (before the fresh check actually restarts) must
     /// be ignored, so we never confirm the stale version even if Sparkle re-emits it.
     @Test func ignoresStalePromptUntilCheckRestarts() {

@@ -1,5 +1,5 @@
 public import Foundation
-public import CmuxGit
+import CmuxGit
 
 // MARK: - Applying refresh results, poll-deadline math, and tracking bookkeeping.
 
@@ -57,6 +57,11 @@ extension PullRequestPollService {
         }
 
         for key in requestedKeys {
+            if host.shouldSkipLocalGitMetadata(workspaceId: key.workspaceId, panelId: key.panelId) {
+                clearWorkspacePullRequestTracking(for: key)
+                continue
+            }
+
             let rerunPending = workspacePullRequestProbeRerunPending(for: key)
             workspacePullRequestProbeStateByKey[key] = .idle
             if rerunPending {
@@ -105,6 +110,30 @@ extension PullRequestPollService {
                         isStale: false
                     )
                 )
+                let resolvedBranch = GitMetadataService.normalizedBranchName(resolvedPullRequest.branch)
+                let projectedBranch = GitMetadataService.normalizedBranchName(
+                    host.panelGitBranch(workspaceId: result.workspaceId, panelId: result.panelId)?.branch
+                )
+                // Nudge only while git metadata watching is on: with watching
+                // disabled the probe scheduler clears the panel's branch AND
+                // the badge this pass just applied (there is also no branch
+                // projection to heal).
+                if resolvedBranch != projectedBranch, host.isGitMetadataWatchEnabled {
+                    host.schedulePanelGitMetadataProbe(
+                        workspaceId: result.workspaceId,
+                        panelId: result.panelId,
+                        reason: "pullRequestBranchMismatch"
+                    )
+#if DEBUG
+                    debugLog(
+                        "workspace.prRefresh.branchProjectionMismatch " +
+                        "workspace=\(result.workspaceId.uuidString.prefix(5)) " +
+                        "panel=\(result.panelId.uuidString.prefix(5)) " +
+                        "resolved=\(resolvedPullRequest.branch) " +
+                        "projected=\(projectedBranch ?? "nil")"
+                    )
+#endif
+                }
             case .notFound:
                 workspacePullRequestTransientFailureCountByKey[key] = 0
                 workspacePullRequestLastTerminalStateRefreshAtByKey.removeValue(forKey: key)

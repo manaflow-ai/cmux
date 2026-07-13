@@ -53,6 +53,9 @@ struct DockPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             refreshAppearance(reason: "ghosttyConfigDidReload")
         }
+        .onReceive(NotificationCenter.default.publisher(for: PaneChromeSettings.didChangeNotification)) { _ in
+            refreshAppearance(reason: "paneChromeSettingsDidChange")
+        }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
             refreshAppearance(reason: "ghosttyDefaultBackgroundDidChange")
         }

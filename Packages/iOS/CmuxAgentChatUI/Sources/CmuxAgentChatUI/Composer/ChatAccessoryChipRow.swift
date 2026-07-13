@@ -7,7 +7,6 @@ import UIKit
 
 /// The horizontal shortcut row above the composer field.
 public struct ChatAccessoryChipRow: View {
-    private static let scrollLeadingHardStopWidth: CGFloat = 14
     private static let scrollTrailingFadeWidth: CGFloat = 34
 
     private let agentState: ChatAgentState
@@ -78,7 +77,6 @@ public struct ChatAccessoryChipRow: View {
             .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
                 scrollContentWidth = width
             }
-            .padding(.leading, usesLeadingHardStop ? Self.scrollLeadingHardStopWidth : 0)
             .padding(.trailing, scrollNeedsTrailingFade ? Self.scrollTrailingFadeWidth : 2)
         }
         .frame(height: 32)
@@ -90,11 +88,6 @@ public struct ChatAccessoryChipRow: View {
         .clipShape(.rect)
         .mask {
             scrollTrailingFadeMask
-        }
-        .overlay(alignment: .leading) {
-            if usesLeadingHardStop {
-                scrollLeadingHardStop
-            }
         }
     }
 
@@ -123,15 +116,7 @@ public struct ChatAccessoryChipRow: View {
     }
 
     private var scrollNeedsTrailingFade: Bool {
-        scrollContentWidth + scrollLeadingInset + 2 > scrollViewportWidth + 1
-    }
-
-    private var usesLeadingHardStop: Bool {
-        !displayedLeadingShortcuts.isEmpty
-    }
-
-    private var scrollLeadingInset: CGFloat {
-        usesLeadingHardStop ? Self.scrollLeadingHardStopWidth : 0
+        scrollContentWidth + 2 > scrollViewportWidth + 1
     }
 
     private var stopShortcut: ChatAccessoryShortcut {
@@ -203,26 +188,6 @@ public struct ChatAccessoryChipRow: View {
         } else {
             Text(shortcut.title)
         }
-    }
-
-    private var scrollLeadingHardStop: some View {
-        Rectangle()
-            .fill(scrollHardStopFill)
-            .frame(width: Self.scrollLeadingHardStopWidth)
-            .overlay(alignment: .trailing) {
-                Rectangle()
-                    .fill(Color.primary.opacity(0.16))
-                    .frame(width: 0.5)
-            }
-            .allowsHitTesting(false)
-    }
-
-    private var scrollHardStopFill: Color {
-        #if os(iOS)
-        Color(uiColor: .systemBackground)
-        #else
-        Color.black
-        #endif
     }
 
     @ViewBuilder

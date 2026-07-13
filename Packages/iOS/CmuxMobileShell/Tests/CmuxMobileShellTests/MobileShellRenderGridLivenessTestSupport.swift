@@ -9,41 +9,6 @@ import Testing
 // (MobileShellRenderGridLivenessTests.swift): injected clock, scripted
 // host router, transport mocks, and the connected-store builder.
 
-// MARK: - Injected clock
-
-final class TestClock: @unchecked Sendable {
-    private let lock = NSLock()
-    private var current: Date
-
-    init() {
-        current = Date()
-    }
-
-    var now: Date {
-        lock.withLock { current }
-    }
-
-    func advance(by interval: TimeInterval) {
-        lock.withLock { current = current.addingTimeInterval(interval) }
-    }
-}
-
-// MARK: - Runtime double
-
-struct LivenessTestRuntime: MobileSyncRuntime {
-    var transportFactory: any CmxByteTransportFactory
-    var stackAccessTokenProvider: @Sendable () async throws -> String = { "test-stack-token" }
-    var stackAccessTokenForceRefresher: @Sendable () async throws -> String = { "test-stack-token" }
-    var rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
-    var now: @Sendable () -> Date
-    var supportedRouteKinds: [CmxAttachTransportKind] = [.debugLoopback]
-    var pairingRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
-    var supportsServerPushEvents: Bool = true
-    /// Bounded deadline for the watchdog's host liveness probe. Short here so
-    /// the dead-stream test does not wait the production default.
-    var livenessProbeTimeoutNanoseconds: UInt64 = 200_000_000
-}
-
 // MARK: - Scripted host (router + transport)
 
 /// Scripts the Mac side of the persistent RPC connection: answers the
@@ -67,6 +32,8 @@ actor LivenessHostRouter {
     )] = []
     private var hostStatusRequestCount = 0
     private var heldHostStatusRequestNumbers: Set<Int> = []
+    private var workspaceListRequestCount = 0
+    private var heldWorkspaceListRequestNumbers: Set<Int> = []
     private var subscribeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
     private var holdSubscribe = false
@@ -74,13 +41,23 @@ actor LivenessHostRouter {
     private var replayResponseCount = 0
     private var heldReplayRequestNumbers: Set<Int> = []
     private var heldReplayResponsesRemaining = 0
+    private var viewportRequestCount = 0
+    private var heldViewportRequestNumbers: Set<Int> = []
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+    // This router models the current authenticated Mac host by default. Tests
+    // for legacy identity omission opt out explicitly via `setHostIdentity`.
+    // Supplying the matching instance identity also keeps unrelated liveness
+    // tests from exercising the one-shot legacy identity recovery request.
+    private var macDeviceID: String? = "test-mac"
+    private var macInstanceTag: String? = "default"
+    private var macDisplayName: String? = "Test Mac"
+    private var workspaceListResponseHook: (@Sendable () -> Void)?
     private var replayPayloads: [(text: String?, sequence: UInt64?, renderGrid: MobileTerminalRenderGridFrame?)] = []
     private var replayTexts: [String] = []
     private var replayFailuresRemaining = 0
-    private var emptyReplayResponsesRemaining = 0
+    private var emptyReplayResponsesRemaining = 0; private var viewportEffectiveGridOverride: LivenessViewportReport?; private var emptyViewportResponsesRemaining = 0
 
     func record(method: String?, topics: [String]?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
@@ -180,6 +157,16 @@ actor LivenessHostRouter {
         self.capabilities = capabilities
     }
 
+    func setHostIdentity(deviceID: String?, instanceTag: String?, displayName: String? = nil) {
+        macDeviceID = deviceID
+        macInstanceTag = instanceTag
+        macDisplayName = displayName
+    }
+
+    func setWorkspaceListResponseHook(_ hook: @escaping @Sendable () -> Void) {
+        workspaceListResponseHook = hook
+    }
+
     func enqueueReplayTexts(_ texts: [String]) {
         replayTexts.append(contentsOf: texts)
     }
@@ -217,6 +204,12 @@ actor LivenessHostRouter {
         heldHostStatusRequestNumbers.insert(number)
     }
 
+    /// Hold the Nth workspace-list response so tests can change persisted
+    /// per-Mac authority while a secondary snapshot is in flight.
+    func holdWorkspaceListRequest(number: Int) {
+        heldWorkspaceListRequestNumbers.insert(number)
+    }
+
     /// Hold the Nth `mobile.events.subscribe` request (1-based) forever,
     /// modeling a dead push path whose probe never completes.
     func holdSubscribeRequest(number: Int) {
@@ -235,6 +228,14 @@ actor LivenessHostRouter {
         heldReplayResponsesRemaining += count
     }
 
+    /// Hold the Nth `mobile.terminal.viewport` response (1-based), allowing a
+    /// later viewport report to acknowledge before an older one.
+    func holdViewportRequest(number: Int) {
+        heldViewportRequestNumbers.insert(number)
+    }
+
+    func setViewportEffectiveGrid(columns: Int, rows: Int) { viewportEffectiveGridOverride = .init(columns: columns, rows: rows) }; func emptyNextViewportResponses(count: Int = 1) { emptyViewportResponsesRemaining += count }
+
     /// Forget the host-side registration, modeling a lost subscription behind
     /// a live RPC channel: the next subscribe reports
     /// `already_subscribed: false`.
@@ -247,19 +248,26 @@ actor LivenessHostRouter {
     func releaseAllHeld() {
         holdSubscribe = false
         heldHostStatusRequestNumbers = []
+        heldWorkspaceListRequestNumbers = []
         heldSubscribeRequestNumbers = []
         heldReplayRequestNumbers = []
         heldReplayResponsesRemaining = 0
+        heldViewportRequestNumbers = []
         let continuations = heldContinuations
         heldContinuations = []
-        for continuation in continuations {
-            continuation.resume()
-        }
+        for continuation in continuations { continuation.resume() }
     }
 
-    func response(method: String?, id: String?) async -> Data? {
+    func response(method: String?, id: String?, viewportReport: LivenessViewportReport? = nil) async -> Data? {
         switch method {
+        case "mobile.attach_ticket.create":
+            return try? Self.resultFrame(id: id, result: ["ticket": Self.attachTicketObject()])
         case "workspace.list", "mobile.workspace.list":
+            workspaceListRequestCount += 1
+            if heldWorkspaceListRequestNumbers.contains(workspaceListRequestCount) {
+                await park()
+            }
+            workspaceListResponseHook?()
             return try? Self.resultFrame(id: id, result: [
                 "workspaces": [
                     [
@@ -285,10 +293,14 @@ actor LivenessHostRouter {
                 await park()
                 return nil
             }
-            return try? Self.resultFrame(id: id, result: [
+            var result: [String: Any] = [
                 "terminal_fidelity": "render_grid",
                 "capabilities": capabilities,
-            ])
+            ]
+            if let macDeviceID { result["mac_device_id"] = macDeviceID }
+            if let macInstanceTag { result["mac_instance_tag"] = macInstanceTag }
+            if let macDisplayName { result["mac_display_name"] = macDisplayName }
+            return try? Self.resultFrame(id: id, result: result)
         case "mobile.events.subscribe":
             subscribeRequestCount += 1
             if holdSubscribe || heldSubscribeRequestNumbers.contains(subscribeRequestCount) {
@@ -348,8 +360,20 @@ actor LivenessHostRouter {
             return try? Self.resultFrame(id: id, result: [
                 "data_b64": Data(text.utf8).base64EncodedString(),
             ])
-        case "mobile.events.unsubscribe", "mobile.terminal.viewport":
+        case "mobile.events.unsubscribe":
             return try? Self.resultFrame(id: id, result: [:])
+        case "mobile.terminal.viewport":
+            viewportRequestCount += 1
+            if heldViewportRequestNumbers.contains(viewportRequestCount) {
+                await park()
+            }
+            if emptyViewportResponsesRemaining > 0 { emptyViewportResponsesRemaining -= 1; return try? Self.resultFrame(id: id, result: [:]) }
+            // Mirror the Mac host: acknowledge the report with the effective
+            // shared grid. Echoing the reported viewport models a single
+            // attached device, whose report is always the effective minimum.
+            var result: [String: Any] = [:]
+            if let viewportReport = viewportEffectiveGridOverride ?? viewportReport { result["columns"] = viewportReport.columns; result["rows"] = viewportReport.rows }
+            return try? Self.resultFrame(id: id, result: result)
         case "terminal.input":
             return try? Self.resultFrame(id: id, result: [
                 "terminal_seq": 100,
@@ -441,13 +465,22 @@ actor LivenessTransport: CmxByteTransport {
             let parsed = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any]
             let method = parsed?["method"] as? String
             let id = parsed?["id"] as? String
-            let topics = (parsed?["params"] as? [String: Any])?["topics"] as? [String]
+            let params = parsed?["params"] as? [String: Any]
+            let topics = params?["topics"] as? [String]
+            let viewportReport: LivenessViewportReport? = {
+                guard method == "mobile.terminal.viewport",
+                      let columns = (params?["viewport_columns"] as? NSNumber)?.intValue,
+                      let rows = (params?["viewport_rows"] as? NSNumber)?.intValue else {
+                    return nil
+                }
+                return LivenessViewportReport(columns: columns, rows: rows)
+            }()
             await router.record(method: method, topics: topics)
             // Answer each request concurrently so one held response cannot
             // head-of-line block later RPCs, matching the Mac host's
             // per-frame response tasks.
             Task { [router, weak self] in
-                guard let response = await router.response(method: method, id: id) else {
+                guard let response = await router.response(method: method, id: id, viewportReport: viewportReport) else {
                     return
                 }
                 await self?.deliver(response)

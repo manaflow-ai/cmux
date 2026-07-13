@@ -74,6 +74,10 @@ extension TerminalController: ControlDebugContext {
 
     func controlDebugActivateApp() -> String { activateApp() }
 
+    func controlDebugShowProWelcomeChecklist() {
+        ProWelcomeChecklistPresenter.present()
+    }
+
     func controlDebugIsTerminalFocused(surfaceArgument: String) -> String {
         isTerminalFocused(surfaceArgument)
     }
@@ -426,6 +430,10 @@ extension TerminalController: ControlDebugContext {
 
     func controlDebugPortalStats() -> JSONValue? {
         JSONValue(foundationObject: TerminalWindowPortalRegistry.debugPortalStats())
+    }
+
+    func controlDebugRemoteTmuxSizingSettled() -> JSONValue? {
+        JSONValue(foundationObject: remoteTmuxSizingSettlementPayload())
     }
 #endif
 }
