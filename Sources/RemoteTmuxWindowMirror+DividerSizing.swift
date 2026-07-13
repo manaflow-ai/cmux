@@ -71,18 +71,27 @@ extension RemoteTmuxWindowMirror {
             let parentExtent = orientation == .horizontal
                 ? parentSize.width
                 : parentSize.height
-            let cells = metrics.requestedTmuxSpan(
+            let requested = metrics.requestedTmuxSpan(
                 first: firstTree,
                 orientation: orientation,
                 parentExtent: parentExtent,
                 dividerPosition: position
             )
-            // Cell-aware, not fraction-aware: a sub-cell nudge rounds to the
-            // span tmux already holds, and asking tmux for it is a no-op it
-            // never answers — counting that as "sent" would leave drag-end
-            // waiting for a reply that cannot come while the split sits
-            // off-grid. Only a real cell change goes to tmux; anything else
-            // routes drag-end to the immediate re-impose.
+            // Grid-feasible, not just cell-aware. A sub-cell nudge rounds to
+            // the span tmux already holds, and a drag past the sibling's
+            // minimum converts to a span tmux cannot assign; both produce a
+            // resize-pane that changes no layout, and a no-op command never
+            // gets the layout reply drag-end would wait for — the divider
+            // would park off-grid while later passes early-return on
+            // unchanged inputs. Clamp the request to the split's feasible
+            // range first; only a real, achievable cell change goes to tmux,
+            // and anything else routes drag-end to the immediate re-impose.
+            let cells = RemoteTmuxNativeMeasuredSplitTree.clampToFeasibleFirstSpan(
+                requested,
+                first: firstTree,
+                second: secondTree,
+                orientation: orientation
+            )
             let assigned = orientation == .horizontal ? first.width : first.height
             if cells != assigned, let targetPaneID = first.paneIDsInOrder.first {
                 sentResize = requestResizePane(

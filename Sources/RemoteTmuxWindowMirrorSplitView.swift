@@ -115,28 +115,39 @@ struct RemoteTmuxWindowMirrorSplitView: View {
     }
 }
 
-/// Plants a zero-cost NSView inside the mirror's own view subtree so the
-/// mirror has a window handle that survives portal churn, and an ancestor
-/// chain rooted at the mirror's real position for geometry diagnostics.
+/// The zero-cost NSView ``MirrorHostProbe`` plants inside the mirror's own
+/// view subtree so the mirror has a window handle that survives portal
+/// churn, and an ancestor chain rooted at the mirror's real position for
+/// geometry diagnostics.
+final class MirrorHostProbeView: NSView {
+    weak var mirror: RemoteTmuxWindowMirror?
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil else {
+            // A tab re-show can recreate the probe, and AppKit delivers the
+            // DYING probe's move-to-nil-window after the replacement already
+            // registered — claiming here would shadow the live probe's
+            // window handle with a windowless view until the next SwiftUI
+            // update. Only the currently registered probe may clear the
+            // slot; a stale probe changes nothing.
+            if mirror?.hostProbeView === self { mirror?.hostProbeView = nil }
+            return
+        }
+        mirror?.hostProbeView = self
+    }
+}
+
 private struct MirrorHostProbe: NSViewRepresentable {
     let mirror: RemoteTmuxWindowMirror
 
-    final class ProbeView: NSView {
-        weak var mirror: RemoteTmuxWindowMirror?
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            mirror?.hostProbeView = self
-        }
-    }
-
-    func makeNSView(context: Context) -> ProbeView {
-        let view = ProbeView()
+    func makeNSView(context: Context) -> MirrorHostProbeView {
+        let view = MirrorHostProbeView()
         view.mirror = mirror
         mirror.hostProbeView = view
         return view
     }
 
-    func updateNSView(_ nsView: ProbeView, context: Context) {
+    func updateNSView(_ nsView: MirrorHostProbeView, context: Context) {
         nsView.mirror = mirror
         mirror.hostProbeView = nsView
     }

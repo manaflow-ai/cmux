@@ -514,9 +514,17 @@ extension RemoteTmuxWindowMirror: BonsplitDelegate {
     }
 
     func splitTabBarDividerDragDidEnd(_ controller: BonsplitController) {
-        guard !isApplyingRemoteLayout else { return }
+        // Consume the deferral before the remote-apply guard: a drag that
+        // ends while a remote layout is being applied must not strand the
+        // pass held for it — reschedule the pass instead of running the
+        // divider sync, and clear the flag so it cannot double-fire on a
+        // later drag end.
         let deferredPass = sizingPassDeferredForDrag
         sizingPassDeferredForDrag = false
+        guard !isApplyingRemoteLayout else {
+            if deferredPass { setNeedsSizingPass() }
+            return
+        }
         // Bonsplit's final drag geometry notification lands just before this
         // callback and usually does the send; the re-sync here is the
         // fallback for a host that suppressed it. Either path counts.
