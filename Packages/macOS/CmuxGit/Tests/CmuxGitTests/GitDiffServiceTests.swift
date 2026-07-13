@@ -400,6 +400,42 @@ import Testing
         #expect(!diff.unifiedDiff.contains("two.txt"))
     }
 
+    @Test(arguments: ["diff.ignoreSubmodules", "submodule.Nested.ignore"])
+    func trackedGitlinkIgnoresConfiguredSubmoduleExclusions(configKey: String) throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let nested = repo.appendingPathComponent("Nested")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        for arguments in [
+            ["init", "--quiet"],
+            ["config", "user.email", "tests@cmux.dev"],
+            ["config", "user.name", "cmux tests"],
+            ["commit", "--allow-empty", "--quiet", "-m", "nested init"],
+        ] {
+            try runTestGit(in: nested, arguments)
+        }
+        let modules = """
+        [submodule "Nested"]
+            path = Nested
+            url = ./Nested
+
+        """
+        try Data(modules.utf8).write(to: repo.appendingPathComponent(".gitmodules"))
+        try runTestGit(in: repo, ["add", "--", ".gitmodules", "Nested"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add gitlink"])
+        try Data("changed\n".utf8).write(to: nested.appendingPathComponent("change.txt"))
+        try runTestGit(in: nested, ["add", "--", "change.txt"])
+        try runTestGit(in: nested, ["commit", "--quiet", "-m", "advance nested"])
+        try runTestGit(in: repo, ["config", configKey, "all"])
+
+        let service = GitDiffService()
+        let changed = try #require(service.changedFiles(repoRoot: repo.path))
+        let diff = try #require(service.fileDiff(repoRoot: repo.path, path: "Nested"))
+
+        #expect(changed.files.map(\.path) == ["Nested"])
+        #expect(diff.unifiedDiff.contains("Subproject commit"))
+    }
+
     private func makeTempRepo() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-git-diff-tests-\(UUID().uuidString)")
