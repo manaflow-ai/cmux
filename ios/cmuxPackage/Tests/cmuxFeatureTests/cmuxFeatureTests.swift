@@ -722,6 +722,10 @@ final class TerminalOutputCollector {
     let responses = ScriptedTransportResponses([
         try rpcErrorFrame(code: "method_not_found", message: "unknown method"),
         try rpcWorkspaceListFrame(workspaceID: "manual-workspace", title: "Manual Workspace"),
+        try rpcHostStatusFrame(
+            renderGrid: false,
+            macDeviceID: "manual-100.71.210.41:15432"
+        ),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
@@ -738,7 +742,9 @@ final class TerminalOutputCollector {
     #expect(store.connectionError == nil)
     #expect(store.connectedHostName == "Work Mac")
     let requests = try await responses.sentRequests()
-    #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
+    #expect(requests.map(\.method) == [
+        "mobile.attach_ticket.create", "workspace.list", "mobile.host.status",
+    ])
     #expect(requests.allSatisfy { $0.stackAccessToken == "stack-token-for-fallback" })
     #expect(requests.allSatisfy { $0.attachToken == nil })
 }
@@ -1338,6 +1344,7 @@ final class TerminalOutputCollector {
     )
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Fallback Workspace"),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let attempts = RouteAttemptRecorder()
     let runtime = testRuntime(
@@ -2313,6 +2320,7 @@ struct TerminalStreamTests {
             title: "Live Workspace",
             terminalID: "live-terminal"
         ),
+        try rpcHostStatusFrame(renderGrid: false),
         try rpcResultFrame(result: ["accepted": true]),
     ])
     let runtime = testRuntime(
@@ -2360,6 +2368,7 @@ struct TerminalStreamTests {
             title: "Live Workspace",
             terminalID: "live-terminal"
         ),
+        try rpcHostStatusFrame(renderGrid: false),
         try rpcResultFrame(result: ["accepted": true]),
     ])
     let runtime = testRuntime(
@@ -2763,6 +2772,7 @@ private func testRuntime(
             }
             return stackAccessToken
         },
+        stackAccessTokenForStatusProvider: { stackAccessToken },
         rpcRequestTimeoutNanoseconds: rpcRequestTimeoutNanoseconds,
         pairingRequestTimeoutNanoseconds: pairingRequestTimeoutNanoseconds,
         now: now,
@@ -2933,8 +2943,9 @@ private func terminalRenderGridStyledFrame(seq: UInt64, text: String) throws -> 
 private func rpcHostStatusFrame(
     renderGrid: Bool,
     terminalBytes: Bool = true,
-    macDeviceID: String? = nil,
-    macDisplayName: String? = nil
+    macDeviceID: String? = "test-mac",
+    macDisplayName: String? = nil,
+    macInstanceTag: String? = "default"
 ) throws -> Data {
     var capabilities = ["events.v1", "terminal.replay.v1"]
     if terminalBytes {
@@ -2952,6 +2963,9 @@ private func rpcHostStatusFrame(
     }
     if let macDisplayName {
         result["mac_display_name"] = macDisplayName
+    }
+    if let macInstanceTag {
+        result["mac_instance_tag"] = macInstanceTag
     }
     return try rpcResultFrame(result: result)
 }
