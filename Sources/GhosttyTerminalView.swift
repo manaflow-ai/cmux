@@ -398,7 +398,7 @@ class GhosttyApp {
         engine: GhosttyApp.shared,
         viewProvider: TerminalSurfaceViewFactory(),
         spawnPolicy: TerminalSurfaceSpawnPolicyBridge(),
-        byteTee: TerminalMobileByteTeeBridge(),
+        byteTee: TerminalOutputByteTeeBridge(),
         rendererRealization: RendererRealizationController.shared,
         hibernationRecorder: TerminalAgentHibernationRecorder(),
         runtimeTeardown: GhosttyApp.terminalSurfaceRuntimeTeardown,
@@ -2718,10 +2718,8 @@ class GhosttyApp {
         let callbackSurfaceId = callbackContext?.surfaceId
 
         if action.tag == GHOSTTY_ACTION_SHOW_CHILD_EXITED {
-            // The child (shell) exited. Ghostty will fall back to printing
-            // "Process exited. Press any key..." into the terminal unless the host
-            // handles this action. For cmux, the correct behavior is to close
-            // the panel immediately (no prompt).
+            // Ghostty otherwise prints "Process exited. Press any key..."; cmux closes the panel.
+            guard let callbackRuntimeSurface = callbackContext?.terminalSurface else { return true }
 #if DEBUG
             cmuxDebugLog(
                 "surface.action.showChildExited tab=\(callbackTabId?.uuidString.prefix(5) ?? "nil") " +
@@ -2737,14 +2735,14 @@ class GhosttyApp {
                 increments: ["probeShowChildExitedCount": 1]
             )
 #endif
-            // Keep host-close async to avoid re-entrant close/deinit while Ghostty is still
-            // dispatching this action callback.
+            // Avoid re-entrant close/deinit while Ghostty dispatches this callback.
             DispatchQueue.main.async {
                 guard let app = AppDelegate.shared else { return }
+                guard GhosttyApp.terminalSurfaceRegistry.surface(id: callbackRuntimeSurface.id) === callbackRuntimeSurface else { return }
                 if let callbackSurfaceId, app.closeWindowDockRuntimeSurface(surfaceId: callbackSurfaceId, force: true) { return }
                 if let callbackTabId, let callbackSurfaceId,
                    let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager {
-                    manager.closePanelAfterChildExited(tabId: callbackTabId, surfaceId: callbackSurfaceId)
+                    manager.closePanelAfterChildExited(tabId: callbackTabId, surfaceId: callbackSurfaceId, runtimeSurface: callbackRuntimeSurface)
                 }
             }
             // Always report handled so Ghostty doesn't print the fallback prompt.

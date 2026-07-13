@@ -12,13 +12,12 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `5917ad62d`. It extends `e215e78bf` with hidden
-renderer suspension, coalesced visibility transitions, reveal retries across
-mailbox backpressure and draw errors, retained recovery after mailbox-handler
-errors, and content-free renderer activity callbacks. The renderer changes are
-tracked in
-https://github.com/manaflow-ai/ghostty/pull/100. The inherited upstream,
-scrollback, and selection changes were published via
+Current cmux pinned fork head: `e215e78bf`. It combines the previous cmux pin
+`dd726a9a6`, current fork `main` (`8495e581a`), and upstream
+`ghostty-org/ghostty` `main` through `7e02af879` (2026-07-09), followed by the
+render-grid preserved-page OOM fix, lock-free selection notifications, and
+compressed-storage-preserving full scrollback reads.
+Published via
 https://github.com/manaflow-ai/ghostty/pull/96 and
 https://github.com/manaflow-ai/ghostty/pull/99 and
 https://github.com/manaflow-ai/ghostty/pull/104 and
@@ -77,43 +76,25 @@ https://github.com/manaflow-ai/ghostty/pull/106.
    and frees them after formatting, so full `read-screen` and clipboard reads
    no longer make cold history resident. Temporary decode allocation failures
    propagate as `OutOfMemory` through Zig and C formatter APIs.
-9. `src/renderer/Thread.zig` preserves the fork's external-drain ownership while
-   coalescing visibility changes. Hidden surfaces keep dirty state without
-   rebuilding frames. Reveals require a confirmed draw submission, retain
-   prepared damage across mailbox pressure and backend errors, and retry
-   without losing the next redraw. Renderer callbacks expose timing only and
-   never terminal content.
-10. Renderer visibility is reconciled after a mailbox handler throws. A
-    visibility message consumed before a later handler error therefore cannot
-    leave the logical visibility flag ahead of the renderer state and suppress
-    every subsequent reveal transition. Recovered reveals use the same forced
-    update, draw-submission, and application-mailbox retry path as ordinary
-    visibility transitions, so backpressure cannot discard the recovery frame.
+9. `ghostty_surface_read_screen_tail_vt` lets cmux preserve terminal history
+   while replacing a completed remote-command surface. Ghostty derives the
+   newest physical-row suffix from `PageList` pins and formats VT into a fixed
+   byte buffer, halving the suffix on overflow so output is never cut inside a
+   control sequence or UTF-8 codepoint. The formatter preserves SGR conceal,
+   wide/grapheme cells, and compressed-page ownership. Upstream conflicts should
+   keep this beside the existing embedded read-text APIs and retain
+   `PageListFormatter.pagePreservingState` rather than restoring cold pages.
 
-The inherited `e215e78bf` lineage was verified with Zig 0.15.2 compression,
-formatter, selection activity, libghostty-vt compression, and cmux link-click
-tests, plus the `wasm32-freestanding` libghostty-vt build and tagged cmux
-reloads `gcmp` and `gsel2`. The `5917ad62d` universal GhosttyKit archive was
-built and validated by
-https://github.com/manaflow-ai/cmux/actions/runs/29134393819; its SHA-256 is
-pinned in `scripts/ghosttykit-checksums.txt`.
+Verified with Zig 0.15.2: compression, formatter, selection activity, and
+libghostty-vt compression tests,
+the cmux link-click regression test, the `wasm32-freestanding` libghostty-vt
+build, a clean universal GhosttyKit build, tagged cmux reloads `gcmp` and
+`gsel2`, and live accessibility reads across select-all, endpoint adjustment,
+and clearing.
 Prebuilt archive:
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5917ad62dd938d04a5efc0e87b08dc435e1a1b2c-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5ae712a89479f16d47d9a75e1a802a22415a3033-crashsubdir-cmux-crash-v1
 
 ### Previous pin
-
-The previous cmux pin was `de4e06a9b`. It added renderer visibility
-reconciliation after a mailbox-handler error, but did not retain the recovered
-reveal when the GTK application mailbox was full.
-
-### Earlier pin
-
-The earlier renderer pin was `5ba4701db`. It contains the renderer suspension,
-visibility coalescing, reveal retry, and activity callback changes described
-above. Its `e215e78bf` base contains the compressed-scrollback and lock-free
-selection changes.
-
-### Earlier compression pin
 
 The previous cmux pin was `1ae98c991`. It was superseded by `e215e78bf` after
 full scrollback formatting was changed to preserve compressed storage and
@@ -125,7 +106,7 @@ public action tag values. The fork's prior `main` head was
 `cc31d54ee`, which merged upstream through `d560c645`; both histories are
 ancestors of `e215e78bf`.
 
-### Older pin
+### Earlier pin
 
 Previous cmux pinned fork head: `541e5e89d`, which merges the render-grid span
 preservation head `1b454eb99` from manaflow-ai/ghostty#89 with the

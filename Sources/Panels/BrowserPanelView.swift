@@ -6,137 +6,8 @@ import CmuxSettingsUI
 import SwiftUI
 import WebKit
 import AppKit
-import ObjectiveC
 
-private var cmuxBrowserPanelNeedsRenderingStateReattachKey: UInt8 = 0
 let browserOmnibarTextFieldIdentifier = NSUserInterfaceItemIdentifier("cmux.browserOmnibarTextField")
-
-private func browserPanelViewObjectID(_ object: AnyObject?) -> String {
-    guard let object else { return "nil" }
-    return String(describing: Unmanaged.passUnretained(object).toOpaque())
-}
-
-private func browserPanelViewRectDescription(_ rect: NSRect) -> String {
-    String(format: "%.1f,%.1f %.1fx%.1f", rect.origin.x, rect.origin.y, rect.width, rect.height)
-}
-
-private extension NSObject {
-    @discardableResult
-    func browserPanelCallVoidIfAvailable(_ rawSelector: String) -> Bool {
-        let selector = NSSelectorFromString(rawSelector)
-        guard responds(to: selector) else { return false }
-        typealias Fn = @convention(c) (AnyObject, Selector) -> Void
-        let fn = unsafeBitCast(method(for: selector), to: Fn.self)
-        fn(self, selector)
-        return true
-    }
-}
-
-private extension WKWebView {
-    private var cmuxBrowserPanelNeedsRenderingStateReattach: Bool {
-        get {
-            (objc_getAssociatedObject(self, &cmuxBrowserPanelNeedsRenderingStateReattachKey) as? NSNumber)?
-                .boolValue ?? false
-        }
-        set {
-            objc_setAssociatedObject(
-                self,
-                &cmuxBrowserPanelNeedsRenderingStateReattachKey,
-                NSNumber(value: newValue),
-                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
-            )
-        }
-    }
-
-    var cmuxBrowserPanelRequiresRenderingStateReattach: Bool {
-        cmuxBrowserPanelNeedsRenderingStateReattach
-    }
-
-    var cmuxBrowserPanelIsInspectorFrontend: Bool {
-        cmuxIsWebInspectorObject(self)
-    }
-
-    private func cmuxBrowserPanelApplyRenderingStateRefresh(
-        reason: String,
-        force: Bool
-    ) {
-        guard !cmuxBrowserPanelIsInspectorFrontend else {
-#if DEBUG
-            cmuxDebugLog(
-                "browser.localHost.webview.skipInspectorLifecycle " +
-                "web=\(browserPanelViewObjectID(self)) reason=\(reason)"
-            )
-#endif
-            return
-        }
-        guard force || cmuxBrowserPanelNeedsRenderingStateReattach else { return }
-        guard window != nil else { return }
-        cmuxBrowserPanelNeedsRenderingStateReattach = false
-
-        let firedSelectors = [
-            "viewDidUnhide",
-            "_enterInWindow",
-            "_endDeferringViewInWindowChangesSync",
-        ].filter {
-            browserPanelCallVoidIfAvailable($0)
-        }
-
-        if let scrollView = enclosingScrollView {
-            scrollView.needsLayout = true
-            scrollView.needsDisplay = true
-            scrollView.setNeedsDisplay(scrollView.bounds)
-            scrollView.contentView.needsLayout = true
-            scrollView.contentView.needsDisplay = true
-        }
-
-        needsLayout = true
-        needsDisplay = true
-        setNeedsDisplay(bounds)
-
-#if DEBUG
-        if !firedSelectors.isEmpty {
-            cmuxDebugLog(
-                "\(force ? "browser.localHost.webview.forceRefresh" : "browser.localHost.webview.reattach") " +
-                "web=\(browserPanelViewObjectID(self)) " +
-                "reason=\(reason) selectors=\(firedSelectors.joined(separator: ",")) " +
-                "frame=\(browserPanelViewRectDescription(frame))"
-            )
-        }
-#endif
-    }
-
-    func cmuxBrowserPanelNotifyHidden(reason: String) {
-        guard !cmuxBrowserPanelIsInspectorFrontend else {
-#if DEBUG
-            cmuxDebugLog(
-                "browser.localHost.webview.skipInspectorHidden " +
-                "web=\(browserPanelViewObjectID(self)) reason=\(reason)"
-            )
-#endif
-            return
-        }
-        cmuxBrowserPanelNeedsRenderingStateReattach = true
-        let firedSelectors = ["viewDidHide", "_exitInWindow"].filter {
-            browserPanelCallVoidIfAvailable($0)
-        }
-#if DEBUG
-        if !firedSelectors.isEmpty {
-            cmuxDebugLog(
-                "browser.localHost.webview.hidden web=\(browserPanelViewObjectID(self)) " +
-                "reason=\(reason) selectors=\(firedSelectors.joined(separator: ","))"
-            )
-        }
-#endif
-    }
-
-    func cmuxBrowserPanelReattachRenderingState(reason: String) {
-        cmuxBrowserPanelApplyRenderingStateRefresh(reason: reason, force: false)
-    }
-
-    func cmuxBrowserPanelForceRenderingStateRefresh(reason: String) {
-        cmuxBrowserPanelApplyRenderingStateRefresh(reason: reason, force: true)
-    }
-}
 
 enum BrowserDevToolsIconOption: String, CaseIterable, Identifiable {
     case wrenchAndScrewdriver = "wrench.and.screwdriver"
@@ -5783,7 +5654,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             seen: inout Set<ObjectIdentifier>
         ) {
             if let webView = root as? WKWebView {
-                guard !webView.cmuxBrowserPanelIsInspectorFrontend else { return }
+                guard !cmuxIsWebInspectorObject(webView) else { return }
                 let id = ObjectIdentifier(webView)
                 if seen.insert(id).inserted {
                     result.append(webView)
@@ -5800,7 +5671,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 
             func append(_ webView: WKWebView?) {
                 guard let webView else { return }
-                guard !webView.cmuxBrowserPanelIsInspectorFrontend else { return }
+                guard !cmuxIsWebInspectorObject(webView) else { return }
                 let id = ObjectIdentifier(webView)
                 guard seen.insert(id).inserted else { return }
                 result.append(webView)
@@ -5813,7 +5684,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         private func notifyHostedWebKitHidden(reason: String) {
             for webView in hostedWebKitSubviews {
-                webView.cmuxBrowserPanelNotifyHidden(reason: reason)
+                webView.browserPortalNotifyHidden(reason: reason)
             }
         }
 
@@ -5858,11 +5729,18 @@ struct WebViewRepresentable: NSViewRepresentable {
                 }
                 webView.layoutSubtreeIfNeeded()
                 if forceLifecycleRefresh {
-                    webView.cmuxBrowserPanelForceRenderingStateRefresh(reason: reason)
+                    webView.browserPortalForceRenderingStateRefresh(reason: reason)
                 } else {
-                    webView.cmuxBrowserPanelReattachRenderingState(reason: reason)
+                    webView.browserPortalReattachRenderingState(reason: reason)
                 }
                 webView.displayIfNeeded()
+            }
+            if let hostedWebView {
+                hostedWebView.browserPortalApplyFirstSizedRevealGeometryNudgeIfNeeded(
+                    reason: reason,
+                    companionSearchRoot: self,
+                    relativeTo: window
+                )
             }
 
             localInlineSlotView.displayIfNeeded()
@@ -5897,10 +5775,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         func pinHostedWebView(_ webView: WKWebView, in container: NSView) {
             guard webView.superview === container || webView.isDescendant(of: container) else { return }
 
-            let hasCompanionWKSubviews = Self.hasWebKitCompanionSubview(
-                in: container,
-                primaryWebView: webView
-            )
+            let hasCompanionWKSubviews = container.browserPortalHasVisibleWebKitCompanionSubview(for: webView)
             let needsPlainWebViewFrameReset =
                 webView.superview === container &&
                 !hasCompanionWKSubviews &&
@@ -5938,28 +5813,6 @@ struct WebViewRepresentable: NSViewRepresentable {
                 abs(frame.minY - bounds.minY) > epsilon ||
                 abs(frame.width - bounds.width) > epsilon ||
                 abs(frame.height - bounds.height) > epsilon
-        }
-
-        private static func hasWebKitCompanionSubview(in host: NSView, primaryWebView: WKWebView) -> Bool {
-            var stack = host.subviews.filter { $0 !== primaryWebView }
-            while let current = stack.popLast() {
-                if current.isDescendant(of: primaryWebView) {
-                    continue
-                }
-                if current.isHidden || current.alphaValue <= 0 {
-                    continue
-                }
-                if String(describing: type(of: current)).contains("WK") {
-                    let width = max(current.frame.width, current.bounds.width)
-                    let height = max(current.frame.height, current.bounds.height)
-                    if width > 1, height > 1 {
-                        return true
-                    }
-                    continue
-                }
-                stack.append(contentsOf: current.subviews)
-            }
-            return false
         }
 
         private func ensureHostedInspectorSideDockContainerView() -> HostedInspectorSideDockContainerView {

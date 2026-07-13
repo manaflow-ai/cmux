@@ -127,6 +127,8 @@ class TerminalController {
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     // Sendable value type; injected at construction so socket auth never reaches a global.
     private nonisolated let passwordStore: SocketControlPasswordStore
+    nonisolated let socketClientCapabilityAuthority: SocketClientCapabilityAuthority
+    private nonisolated let socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter
     /// Process-wide proxy-tunnel broker (one shared tunnel per remote transport across all
     /// windows), constructed at this app-hub composition point and injected into each
     /// `WorkspaceRemoteSessionController`; ownership moves to the composition root with the
@@ -349,11 +351,16 @@ class TerminalController {
         passwordStore: SocketControlPasswordStore = SocketControlPasswordStore(),
         transport: SocketTransport = SocketTransport(),
         listenerPolicy: SocketListenerPolicy = SocketListenerPolicy(),
+        socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter = .init(
+            maximumConcurrentClaims: 32
+        ),
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
         )
     ) {
         self.passwordStore = passwordStore
+        self.socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
+        self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
         let serverEventTarget = ServerEventTarget()
@@ -373,7 +380,7 @@ class TerminalController {
                     close(connection.socket)
                     continue
                 }
-                controller.spawnClientHandler(socket: connection.socket, peerPid: connection.peerProcessID)
+                await controller.spawnClientHandler(socket: connection.socket, peerPid: connection.peerProcessID)
             }
         }
         serverEventTarget.controller = self
@@ -1426,78 +1433,70 @@ class TerminalController {
         }
     }
 
-    private nonisolated func spawnClientHandler(socket clientSocket: Int32, peerPid: pid_t?) {
+    private nonisolated func spawnClientHandler(socket clientSocket: Int32, peerPid: pid_t?) async {
+        let initialReadLimits = socketClientInitialReadLimits(peerProcessID: peerPid)
+        let claimedPreauthorizationSlot = if initialReadLimits != nil {
+            await socketClientPreauthorizationLimiter.claim()
+        } else {
+            false
+        }
+        guard initialReadLimits == nil || claimedPreauthorizationSlot else {
+            close(clientSocket)
+            return
+        }
         Thread.detachNewThread { [weak self] in
             guard let self else {
                 close(clientSocket)
                 return
             }
-            self.handleClient(clientSocket, peerPid: peerPid)
-        }
-    }
-
-    private nonisolated func scheduleListenerRearm(
-        generation: UInt64,
-        errnoCode: Int32,
-        consecutiveFailures: Int,
-        delayMs: Int
-    ) {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            // Bounded rearm delay on the server's injected recovery clock
-            // (replaces the legacy main-queue asyncAfter); a stale fire is a
-            // no-op via the pending-rearm generation guard in the claim.
-            try? await self.socketServer.recoveryClock.sleep(forMilliseconds: delayMs)
-            guard let tabManager = self.tabManager else { return }
-            guard let restartPath = self.socketServer.claimPendingRearm(
-                generation: generation,
-                errnoCode: errnoCode,
-                consecutiveFailures: consecutiveFailures,
-                delayMs: delayMs
-            ) else { return }
-
-            let restartMode = self.socketServer.accessMode
-
-            self.stop()
-            self.start(
-                tabManager: tabManager,
-                socketPath: restartPath,
-                accessMode: restartMode,
-                preserveAcceptFailureStreak: true
+            self.handleClient(
+                clientSocket,
+                peerPid: peerPid,
+                initialReadLimits: initialReadLimits,
+                holdsPreauthorizationSlot: claimedPreauthorizationSlot
             )
         }
     }
 
-    private nonisolated func handleClient(_ socket: Int32, peerPid: pid_t? = nil) {
+    private nonisolated func handleClient(
+        _ socket: Int32,
+        peerPid: pid_t? = nil,
+        initialReadLimits: ControlClientLineReadLimits? = nil,
+        holdsPreauthorizationSlot initialSlotHeld: Bool = false
+    ) {
         defer { close(socket) }
+        let pid = peerPid ?? transport.peerProcessID(of: socket)
+        let peerHasSameUID = transport.peerHasSameUID(socket)
+        let preauthorizationLimiter = socketClientPreauthorizationLimiter
+        var holdsPreauthorizationSlot = initialSlotHeld
+        defer {
+            if holdsPreauthorizationSlot {
+                Task { await preauthorizationLimiter.release() }
+            }
+        }
+        var authenticated = false
+        let lineReader = ControlClientLineReader(socket: socket, initialLimits: initialReadLimits)
 
-        // In cmuxOnly mode, verify the connecting process is a descendant of cmux.
-        // In allowAll mode (env-var only), skip the ancestry check.
-        if socketServer.accessMode == .cmuxOnly {
-            // Use pre-captured peer PID if available (captured in accept loop before
-            // the peer can disconnect), falling back to live lookup.
-            let pid = peerPid ?? transport.peerProcessID(of: socket)
-            guard SocketClientAuthorization().isCmuxOnlyClientAllowed(
+        while let line = lineReader.nextLine(shouldContinueReading: { socketServer.isRunning }) {
+            let receivedCommand = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !receivedCommand.isEmpty else { continue }
+            guard let trimmed = authorizedSocketCommand(
+                receivedCommand,
                 peerProcessID: pid,
-                peerHasSameUID: false,
-                isDescendant: { isDescendant($0) }
+                peerHasSameUID: peerHasSameUID
             ) else {
                 _ = writeSocketResponse(
-                    pid == nil
-                        ? "ERROR: Unable to verify client process"
+                    pid == nil ? "ERROR: Unable to verify client process"
                         : "ERROR: Access denied — only processes started inside cmux can connect",
                     to: socket
                 )
                 return
             }
-        }
-
-        var authenticated = false
-        let lineReader = ControlClientLineReader(socket: socket)
-
-        while let line = lineReader.nextLine(shouldContinueReading: { socketServer.isRunning }) {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
+            lineReader.clearLimits()
+            if holdsPreauthorizationSlot {
+                holdsPreauthorizationSlot = false
+                Task { await preauthorizationLimiter.release() }
+            }
 
             var shouldCloseSocket = false
             autoreleasepool {
@@ -12272,10 +12271,16 @@ class TerminalController {
         }
         let (title, subtitle, body, meta) = parseNotificationPayload(payload)
 
-        // Agent-tagged notifications carry a category + a background-work-pending
-        // flag; gate delivery by the user's notification settings. Untagged
-        // notifications (meta == nil) always pass, preserving prior behavior.
-        guard shouldDeliverAgentNotification(meta) else {
+        // Hook and PTY-derived agent notifications share one gate + mutation-bus path.
+        guard AgentNotificationDelivery().enqueue(
+            workspaceID: tabId,
+            surfaceID: surfaceId,
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            category: meta?.category,
+            pending: meta?.pending ?? false
+        ) else {
 #if DEBUG
             if let meta {
                 cmuxDebugLog(
@@ -12290,14 +12295,6 @@ class TerminalController {
             "socket.notifyTargetAsync.enqueue workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) coalesces=0"
         )
 #endif
-        TerminalMutationBus.shared.enqueueNotification(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            title: title,
-            subtitle: subtitle,
-            body: body,
-            coalesces: false
-        )
         return "OK"
     }
 
@@ -14171,7 +14168,7 @@ class TerminalController {
 
         return .ok([
             "mac_device_id": MobileHostIdentity.deviceID(),
-            "mac_display_name": v2OrNull(MobileHostIdentity.displayName()),
+            "mac_display_name": v2OrNull(MobileHostIdentity.instanceDisplayName()),
             "host_service": status.payload,
             "workspace_count": workspaceCount,
             "terminal_fidelity": "render_grid",
@@ -14181,91 +14178,6 @@ class TerminalController {
 
     #if DEBUG
     #endif
-
-    @MainActor
-    func v2MobileAttachTicketCreate(params: [String: Any]) async -> V2CallResult {
-        let ttl = TimeInterval(max(30, min(v2Int(params, "ttl_seconds") ?? 600, 3600)))
-        let routeID = v2OptionalTrimmedRawString(params, "route_id")
-            ?? v2OptionalTrimmedRawString(params, "routeID")
-        let routeKind = v2OptionalTrimmedRawString(params, "route_kind")
-            ?? v2OptionalTrimmedRawString(params, "routeKind")
-        let scope = v2OptionalTrimmedRawString(params, "scope")
-        // scope=mac mints a Mac-wide ticket that grants access to every
-        // workspace on the host. Without this, the ticket gets pinned to
-        // the workspace selected at QR-generation time, and tapping any
-        // other workspace from the paired iPhone falls back to Stack
-        // Auth verification, which is brittle on real-world networks.
-        let isMacScope = scope?.lowercased() == "mac"
-
-        if let error = mobileWorkspaceIDValidationError(params: params) {
-            return error
-        }
-        if let error = mobileTerminalAliasValidationError(params: params) {
-            return error
-        }
-
-        let resolvedWorkspaceID: String
-        let resolvedTerminalID: String?
-        if isMacScope {
-            resolvedWorkspaceID = ""
-            resolvedTerminalID = nil
-        } else {
-            guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: false) else {
-                return .err(code: "not_found", message: "Workspace not found", data: nil)
-            }
-            let terminalPanel: TerminalPanel?
-            if let surfaceId = resolved.surfaceId {
-                guard let panel = resolved.workspace.terminalPanel(for: surfaceId) else {
-                    return .err(
-                        code: "invalid_request",
-                        message: "terminal_id does not reference a terminal",
-                        data: nil
-                    )
-                }
-                terminalPanel = panel
-            } else {
-                terminalPanel = nil
-            }
-            resolvedWorkspaceID = resolved.workspace.id.uuidString
-            resolvedTerminalID = terminalPanel?.id.uuidString
-        }
-
-        do {
-            let payload = try await MobileHostService.shared.createAttachTicket(
-                workspaceID: resolvedWorkspaceID,
-                terminalID: resolvedTerminalID,
-                ttl: ttl,
-                routeID: routeID,
-                routeKind: routeKind
-            )
-            return .ok(payload)
-        } catch MobileAttachTicketStoreError.noRoutes {
-            return .err(
-                code: "unavailable",
-                message: "Mobile host routes are not available yet",
-                data: nil
-            )
-        } catch MobileAttachTicketStoreError.routeUnavailable {
-            var data: [String: Any] = [:]
-            if let routeID {
-                data["route_id"] = routeID
-            }
-            if let routeKind {
-                data["route_kind"] = routeKind
-            }
-            return .err(
-                code: "unavailable",
-                message: "Requested mobile host route is not available",
-                data: data.isEmpty ? nil : data
-            )
-        } catch {
-            return .err(
-                code: "internal_error",
-                message: "Failed to create mobile attach ticket",
-                data: ["error": String(describing: error)]
-            )
-        }
-    }
 
     enum MobileTerminalAliasUUID {
         case missing
@@ -14296,7 +14208,7 @@ class TerminalController {
         return sawAlias ? .invalid : .missing
     }
 
-    private func mobileTerminalAliasValidationError(params: [String: Any]) -> V2CallResult? {
+    func mobileTerminalAliasValidationError(params: [String: Any]) -> V2CallResult? {
         switch mobileTerminalAliasUUID(params: params) {
         case .missing, .value:
             return nil
