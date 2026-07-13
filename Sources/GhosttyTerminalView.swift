@@ -2909,10 +2909,10 @@ class GhosttyApp {
         case GHOSTTY_ACTION_PWD:
             let pwd = action.action.pwd.pwd.flatMap { String(cString: $0) } ?? ""
             let terminalSurface = surfaceView.terminalSurface
+            if performOnMain({
+                terminalSurface?.hostedView.sessionScrollbackReplayDidReceiveBoundary(pwd) == true
+            }) { return true }
             DispatchQueue.main.async {
-                if terminalSurface?.hostedView.sessionScrollbackReplayDidReceiveBoundary(pwd) == true {
-                    return
-                }
                 guard let tabId = surfaceView.tabId,
                       let surfaceId = terminalSurface?.id else { return }
                 AppDelegate.shared?.tabManagerFor(tabId: tabId)?.updateReportedSurfaceDirectory(
@@ -11424,11 +11424,11 @@ final class GhosttySurfaceScrollView: NSView {
         let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
             _ = synchronizeGeometryAndContent()
-            _ = restorePendingNotificationScrollPositionIfReady()
+            _ = restorePendingNotificationScrollPositionIfReady(consumeUnaddressableGeometryUpdate: true)
             return
         }
         synchronizeScrollView()
-        _ = restorePendingNotificationScrollPositionIfReady()
+        _ = restorePendingNotificationScrollPositionIfReady(consumeUnaddressableGeometryUpdate: true)
     }
 
     @discardableResult

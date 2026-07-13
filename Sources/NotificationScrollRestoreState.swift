@@ -17,7 +17,8 @@ enum NotificationScrollRestoreState {
     )
     case awaitingPostReplayGeometry(
         position: TerminalNotificationScrollPosition,
-        attemptsRemaining: Int
+        attemptsRemaining: Int,
+        unaddressableGeometryUpdatesRemaining: Int
     )
 
     var pendingPosition: TerminalNotificationScrollPosition? {
@@ -29,7 +30,7 @@ enum NotificationScrollRestoreState {
         case .replaying(_, let pendingPosition):
             pendingPosition
         case .awaitingInitialGeometry(let position, _),
-             .awaitingPostReplayGeometry(let position, _):
+             .awaitingPostReplayGeometry(let position, _, _):
             position
         }
     }
