@@ -12,13 +12,14 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `1db665f66`. It combines the previous cmux pin
+Current cmux pinned fork head: `4df356ae6`. It combines the previous cmux pin
 `dd726a9a6`, current fork `main` (`8495e581a`), and upstream
 `ghostty-org/ghostty` `main` through `7e02af879` (2026-07-09), followed by the
 render-grid preserved-page OOM fix, lock-free selection notifications, and
 compressed-storage-preserving full scrollback reads. It merges the bounded
 screen-tail export `5ae712a89` with bidirectional mobile render-grid export
-`267824293`.
+`267824293`, then adds explicit cursor viewport location metadata in
+`4df356ae6`.
 Published via
 https://github.com/manaflow-ai/ghostty/pull/96 and
 https://github.com/manaflow-ai/ghostty/pull/99 and
@@ -28,7 +29,9 @@ https://github.com/manaflow-ai/ghostty/pull/106.
 
 ### Pending bidirectional mobile render-grid export
 
-- Commit: `267824293` (`render-grid: export bounded rows after viewport`)
+- Commits:
+  - `267824293` (`render-grid: export bounded rows after viewport`)
+  - `4df356ae6` (`render-grid: export cursor viewport location`)
 - PR: https://github.com/manaflow-ai/ghostty/pull/107
 - Files:
   - `include/ghostty.h`
@@ -38,21 +41,26 @@ https://github.com/manaflow-ai/ghostty/pull/106.
     counts before and after the current viewport.
   - Adds `scrollforward_rows` and `scrollforward_spans`; row zero is the first
     row after the viewport and indexes increase toward the screen bottom.
+  - Adds `cursor.location` with `viewport`, `above_viewport`, or
+    `below_viewport`, independently of DECTCEM visibility. Mobile replay can
+    therefore restore an intentionally hidden in-viewport cursor row without
+    mistaking it for the active cursor outside a scrolled viewport.
   - Traverses one bounded range and keeps at most one preserved page decode,
     so compressed scrollback remains compressed and export memory stays
     proportional to the requested 600/120 mobile prefetch window.
   - Keeps existing `scrollback_rows` and `scrollback_spans` semantics intact.
 - Conflict note: the API signature and JSON object live beside the existing
-  render-grid scrollback encoder. Rebase both bounds and the shared traversal
-  together so a future upstream encoder refactor cannot restore two scans or
-  reverse the after-viewport row order.
+  render-grid scrollback encoder. Rebase both bounds, cursor location
+  classification, and the shared traversal together so a future upstream
+  encoder refactor cannot restore two scans, reverse the after-viewport row
+  order, or recombine cursor visibility with viewport membership.
 - Verification:
   - `zig build test -Dtest-filter='render grid' -Demit-macos-app=false`
   - `zig build -Demit-macos-app=false`
   - universal ReleaseFast GhosttyKit build with the exported symbol present in
     the macOS, iOS device, and iOS simulator slices
 - Prebuilt archive:
-  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-267824293722b63a13513a923031ac1090b7de88-crashsubdir-cmux-crash-v1
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-4df356ae6490e947af917d2c2116ab30cb4bce57-crashsubdir-cmux-crash-v1
 
 ### Upstream TLDR (`d560c645..7e02af879`)
 
