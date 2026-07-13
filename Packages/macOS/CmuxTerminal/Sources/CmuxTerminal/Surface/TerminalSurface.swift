@@ -172,11 +172,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let manualIO: Bool
     let manualInputHandler: (@Sendable (Data) -> Void)?
 
-    /// For MANUAL-I/O remote tmux display surfaces: invoked on the main actor
-    /// whenever the rendered grid changes so the owner can size the remote tmux
-    /// client to match.
-    @MainActor public var onManualGridResize: (@MainActor (_ columns: Int, _ rows: Int) -> Void)?
-    var lastReportedManualGrid: (columns: Int, rows: Int)?
+    /// Remote tmux manual-I/O resize and runtime-readiness hooks.
+    @MainActor public var onManualSizeApplied: (@MainActor (TerminalSurfaceRawSizingSample) -> Void)?
+    @MainActor public var onRuntimeReady: (@MainActor () -> Void)?
+    @MainActor var manualSizeReportPendingWindowAttach = false
     /// For MANUAL-I/O remote tmux display surfaces: whether to suppress
     /// ghostty primary-screen reflow on resize.
     var manualIONoReflow = true
@@ -212,6 +211,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var lastXScale: CGFloat = 0
     var lastYScale: CGFloat = 0
     var mobileViewportCellLimit: (columns: Int, rows: Int)?
+    /// Runtime font size to restore when mobile viewport fitting clears.
+    var mobileFitBaseFontPointSize: Float?
+    /// Last runtime font size applied by mobile viewport fitting.
+    var mobileFittedFontPointSize: Float?
     // Debug metadata is read from debug/CLI paths off the main thread; the
     // lock is the sanctioned carve-out for tiny values shared with
     // synchronous off-isolation readers.

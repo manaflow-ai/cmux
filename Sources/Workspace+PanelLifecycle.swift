@@ -122,25 +122,25 @@ extension Workspace {
         }
         return didChange
     }
-
     @discardableResult
     func recordAgentPID(key: String, pid: pid_t, panelId: UUID?, refreshPorts: Bool = true) -> Bool {
-        let previousPanelId = agentPIDPanelIdsByKey[key]
+        let previous = (
+            panelId: agentPIDPanelIdsByKey[key],
+            pid: agentPIDs[key],
+            identity: agentPIDProcessIdentitiesByKey[key]
+        )
         var didClearOtherStructuredAgentRuntime = false
-        if let panelId {
-            didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key)
-        }
+        if let panelId { didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key) }
+        let processIdentity = Self.agentPIDProcessIdentity(pid: pid)
         agentPIDs[key] = pid
-        agentPIDProcessIdentitiesByKey[key] = Self.agentPIDProcessIdentity(pid: pid)
-        if let panelId {
-            recordAgentPIDOwnership(key: key, panelId: panelId)
-        } else {
-            removeAgentPIDOwnership(key: key)
+        agentPIDProcessIdentitiesByKey[key] = processIdentity
+        if let panelId { recordAgentPIDOwnership(key: key, panelId: panelId) } else { removeAgentPIDOwnership(key: key) }
+        if previous.pid != pid || previous.panelId != panelId || previous.identity != processIdentity {
+            for changedPanelId in (previous.panelId == panelId ? [panelId] : [previous.panelId, panelId]).compactMap({ $0 }) {
+                AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId)
+            }
         }
-        if refreshPorts {
-            refreshTrackedAgentPorts()
-        }
-        syncTerminalTabAgentIconAssets(forPanelIds: previousPanelId, panelId)
+        if refreshPorts { refreshTrackedAgentPorts() }
         return didClearOtherStructuredAgentRuntime
     }
 
@@ -152,8 +152,9 @@ extension Workspace {
                 didChange = true
             }
         }
-        if didChange, refreshPorts {
-            refreshTrackedAgentPorts()
+        if didChange {
+            if refreshPorts { refreshTrackedAgentPorts() }
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id)
         }
         return didChange
     }
@@ -174,8 +175,9 @@ extension Workspace {
                 didChange = true
             }
         }
-        if didChange, refreshPorts {
-            refreshTrackedAgentPorts()
+        if didChange {
+            if refreshPorts { refreshTrackedAgentPorts() }
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
         }
         return didChange
     }
@@ -186,10 +188,7 @@ extension Workspace {
         agentPIDProcessIdentitiesByKey.removeAll()
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
-        syncTerminalTabAgentIconAssetsForAllTerminalPanels()
-        if hadAgentPIDs, refreshPorts {
-            refreshTrackedAgentPorts()
-        }
+        if hadAgentPIDs, refreshPorts { refreshTrackedAgentPorts() }
     }
 
     private func isRecordedAgentPIDLive(key: String, pid: pid_t) -> Bool {
@@ -239,69 +238,6 @@ extension Workspace {
         return Self.truthyStartupEnvironmentValues.contains(rawValue)
     }
 
-    func sidebarStatusEntriesVisibleForDisplay() -> [SidebarStatusEntry] {
-        let visibleStructuredStatusKeys = visibleStructuredAgentStatusKeysByPanel()
-        return statusEntries.values.filter { entry in
-            shouldDisplaySidebarStatusEntry(entry, visibleStructuredStatusKeys: visibleStructuredStatusKeys)
-        }
-    }
-
-    private func shouldDisplaySidebarStatusEntry(
-        _ entry: SidebarStatusEntry,
-        visibleStructuredStatusKeys: Set<String>
-    ) -> Bool {
-        guard Self.structuredAgentHookStatusKeys.contains(entry.key) else {
-            return true
-        }
-        return visibleStructuredStatusKeys.contains(entry.key)
-    }
-
-    private func visibleStructuredAgentStatusKeysByPanel() -> Set<String> {
-        var statusKeysByPanelId: [UUID: Set<String>] = [:]
-        for (key, panelId) in agentPIDPanelIdsByKey
-        where panels[panelId] != nil {
-            let statusKey = agentStatusKey(forAgentPIDKey: key)
-            guard Self.structuredAgentHookStatusKeys.contains(statusKey),
-                  statusEntries[statusKey] != nil else {
-                continue
-            }
-            statusKeysByPanelId[panelId, default: []].insert(statusKey)
-        }
-        var visibleStatusKeys = Set<String>()
-        for statusKeys in statusKeysByPanelId.values {
-            let winningEntry = statusKeys.compactMap { statusEntries[$0] }.max {
-                isSidebarStatusEntryLessCurrent($0, than: $1)
-            }
-            if let winningEntry {
-                visibleStatusKeys.insert(winningEntry.key)
-            }
-        }
-
-        for key in agentPIDs.keys where agentPIDPanelIdsByKey[key] == nil {
-            let statusKey = agentStatusKey(forAgentPIDKey: key)
-            guard Self.structuredAgentHookStatusKeys.contains(statusKey),
-                  statusEntries[statusKey] != nil else {
-                continue
-            }
-            visibleStatusKeys.insert(statusKey)
-        }
-
-        return visibleStatusKeys
-    }
-
-    private func isSidebarStatusEntryLessCurrent(
-        _ lhs: SidebarStatusEntry,
-        than rhs: SidebarStatusEntry
-    ) -> Bool {
-        if lhs.timestamp != rhs.timestamp {
-            return lhs.timestamp < rhs.timestamp
-        }
-        if lhs.priority != rhs.priority {
-            return lhs.priority < rhs.priority
-        }
-        return lhs.key > rhs.key
-    }
-
     private func isStructuredAgentHookPIDKey(_ key: String) -> Bool {
         Self.structuredAgentHookStatusKeys.contains(agentStatusKey(forAgentPIDKey: key))
     }
@@ -330,6 +266,7 @@ extension Workspace {
             removeAgentPIDOwnership(key: key)
             didChange = true
         }
+        if let changedPanelId = ownedPanelId ?? panelId, didChange { AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId) }
         if let lifecyclePanelId = ownedPanelId ?? panelId {
             let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)
             if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {
@@ -344,16 +281,14 @@ extension Workspace {
         if didChange, refreshPorts {
             refreshTrackedAgentPorts()
         }
-        syncTerminalTabAgentIconAssets(forPanelIds: ownedPanelId ?? panelId)
         return didChange
     }
 
-    /// Clears a panel's restored agent snapshot and resume metadata, then refreshes the tab's agent brand mark.
+    /// Clears a panel's restored agent snapshot and resume metadata.
     func clearRestoredAgentSnapshot(panelId: UUID) {
         restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
         restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
-        syncTerminalTabAgentIconAsset(forPanelId: panelId)
     }
 
     func refreshTrackedAgentPorts() {
@@ -394,7 +329,6 @@ extension Workspace {
         for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {
             recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId)
         }
-        syncTerminalTabAgentIconAsset(forPanelId: runtimeState.panelId)
         if didAdoptAgentPID {
             refreshTrackedAgentPorts()
         }
@@ -444,9 +378,13 @@ extension Workspace {
             shouldPreserveRemoteDisconnectOnClose &&
             remoteDisconnectPlaceholderPanelIds.remove(panelId) != nil &&
             panels.count == 1
+        cancelPendingRemoteDisconnectReplacement(surfaceId: panelId)
         if shouldRefreshRemoteDisconnectPlaceholder,
            let remoteConfiguration {
-            rememberPendingRemoteDisconnectReplacement(configuration: remoteConfiguration)
+            rememberPendingRemoteDisconnectReplacement(
+                surfaceId: panelId,
+                configuration: remoteConfiguration
+            )
         }
 
         panels.removeValue(forKey: panelId)
@@ -463,6 +401,7 @@ extension Workspace {
         panelCustomTitles.removeValue(forKey: panelId)
         panelCustomTitleSources.removeValue(forKey: panelId)
         pinnedPanelIds.remove(panelId)
+        pinMutationTokensByPanelId.removeValue(forKey: panelId)
         manualUnreadPanelIds.remove(panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
@@ -477,8 +416,7 @@ extension Workspace {
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeValue(forKey: panelId)
 #endif
         discardAgentRuntimeState(closedAgentRuntimeState)
-        discardTerminalTabAgentIconState(forPanelId: panelId)
-        restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+        clearRestoredAgentSnapshot(panelId: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
         terminalInheritanceFontPointsByPanelId.removeValue(forKey: panelId)

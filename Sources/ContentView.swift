@@ -116,6 +116,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
     private let containerView = CommandPaletteOverlayContainerView(frame: .zero)
     private let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
     private let chromeComposition = AppWindowChromeComposition()
+    private let interactionMonitor = CommandPaletteInteractionMonitor()
     private var installConstraints: [NSLayoutConstraint] = []
     private weak var installedContainerView: NSView?
     private weak var installedReferenceView: NSView?
@@ -123,8 +124,6 @@ private final class WindowCommandPaletteOverlayController: NSObject {
     private var scheduledFocusWorkItem: DispatchWorkItem?
     private var isPaletteVisible = false
     private var hasMountedPaletteRootView = false
-    private var windowDidBecomeKeyObserver: NSObjectProtocol?
-    private var windowDidResignKeyObserver: NSObjectProtocol?
 
     init(window: NSWindow) {
         self.window = window
@@ -147,7 +146,6 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             hostingView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
         ])
         _ = ensureInstalled()
-        installWindowKeyObservers()
     }
 
     @discardableResult
@@ -423,28 +421,6 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         }
     }
 
-    private func installWindowKeyObservers() {
-        guard let window else { return }
-        windowDidBecomeKeyObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didBecomeKeyNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.updateFocusLockForWindowState()
-            }
-        }
-        windowDidResignKeyObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didResignKeyNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.updateFocusLockForWindowState()
-            }
-        }
-    }
-
     private func updateFocusLockForWindowState() {
         guard let window else {
             stopFocusLockTimer()
@@ -532,10 +508,13 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 
     func update(
         isVisible: Bool,
+        onDismiss: @MainActor @escaping (CommandPaletteInteractionDismissal) -> Void = { _ in },
         makeRootView: @MainActor () -> AnyView = { AnyView(EmptyView()) }
     ) {
         let wasVisible = isPaletteVisible
-        if !isVisible, !wasVisible, !hasMountedPaletteRootView, containerView.isHidden {
+        if !isVisible {
+            guard wasVisible || hasMountedPaletteRootView || !containerView.isHidden else { return }
+            hideOverlay()
             return
         }
 
@@ -555,46 +534,53 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             cmuxDebugLog("palette.overlay.update visible=\(isVisible ? 1 : 0) promote=\(shouldPromote ? 1 : 0) window=nil")
         }
 #endif
-        isPaletteVisible = isVisible
-        if isVisible {
-            hostingView.rootView = makeRootView()
-            hasMountedPaletteRootView = true
-            containerView.capturesMouseEvents = true
-            containerView.isHidden = false
-            containerView.alphaValue = 1
-            if shouldPromote {
-                promoteOverlayAboveSiblingsIfNeeded()
-            }
-            updateFocusLockForWindowState()
-        } else {
-            stopFocusLockTimer()
-            if let window, isPaletteResponder(window.firstResponder) {
-                _ = window.makeFirstResponder(nil)
-            }
-            hostingView.rootView = AnyView(EmptyView())
-            hasMountedPaletteRootView = false
-            containerView.capturesMouseEvents = false
-            containerView.alphaValue = 0
-            containerView.isHidden = true
+        isPaletteVisible = true
+        hostingView.rootView = makeRootView()
+        hasMountedPaletteRootView = true
+        containerView.capturesMouseEvents = true
+        containerView.isHidden = false
+        containerView.alphaValue = 1
+        if shouldPromote {
+            promoteOverlayAboveSiblingsIfNeeded()
         }
+        if let window {
+            interactionMonitor.activate(
+                for: window,
+                shouldDismiss: { [weak self] event in
+                    self?.shouldDismissPalette(for: event) ?? false
+                },
+                onWindowStateChange: { [weak self] in
+                    self?.updateFocusLockForWindowState()
+                },
+                onDismiss: { [weak self] dismissal in
+                    guard let self, self.isPaletteVisible else { return }
+                    self.hideOverlay()
+                    onDismiss(dismissal)
+                }
+            )
+        }
+        updateFocusLockForWindowState()
     }
 
-    func underlyingResponder(atWindowPoint windowPoint: NSPoint) -> NSResponder? {
-        guard let window,
-              let target = chromeComposition
-                .contentOverlayTargetResolver
-                .installationTarget(for: window) else {
-            return nil
-        }
+    private func shouldDismissPalette(for event: CommandPalettePointerEvent) -> Bool {
+        guard window != nil else { return true }
+        return event.shouldDismissPalette(
+            panelContainsPoint: hostingView.commandPalettePanelContains(windowPoint: event.locationInWindow)
+        )
+    }
 
-        let previousCapturesMouseEvents = containerView.capturesMouseEvents
+    private func hideOverlay() {
+        interactionMonitor.deactivate()
+        stopFocusLockTimer()
+        if let window, isPaletteResponder(window.firstResponder) {
+            _ = window.makeFirstResponder(nil)
+        }
+        isPaletteVisible = false
+        hostingView.rootView = AnyView(EmptyView())
+        hasMountedPaletteRootView = false
         containerView.capturesMouseEvents = false
-        defer {
-            containerView.capturesMouseEvents = previousCapturesMouseEvents
-        }
-
-        let pointInContainer = target.container.convert(windowPoint, from: nil)
-        return target.container.hitTest(pointInContainer)
+        containerView.alphaValue = 0
+        containerView.isHidden = true
     }
 }
 
@@ -606,40 +592,6 @@ private func commandPaletteWindowOverlayController(for window: NSWindow) -> Wind
     let controller = WindowCommandPaletteOverlayController(window: window)
     objc_setAssociatedObject(window, &commandPaletteWindowOverlayKey, controller, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     return controller
-}
-
-private func commandPaletteOwningWebView(for responder: NSResponder?) -> WKWebView? {
-    guard let responder else { return nil }
-
-    if let webView = responder as? WKWebView {
-        return webView
-    }
-
-    if let view = responder as? NSView {
-        var current: NSView? = view
-        while let candidate = current {
-            if let webView = candidate as? WKWebView {
-                return webView
-            }
-            current = candidate.superview
-        }
-    }
-
-    if let textView = responder as? NSTextView,
-       let delegateView = textView.delegate as? NSView,
-       let webView = commandPaletteOwningWebView(for: delegateView) {
-        return webView
-    }
-
-    var currentResponder = responder.nextResponder
-    while let next = currentResponder {
-        if let webView = commandPaletteOwningWebView(for: next) {
-            return webView
-        }
-        currentResponder = next.nextResponder
-    }
-
-    return nil
 }
 
 // Lifted to `CmuxFoundation.WorkspaceMountPlan` / `MountedWorkspacePresentation`
@@ -966,7 +918,7 @@ struct ContentView: View {
     @FocusState private var isCommandPaletteSearchFocused: Bool
     @FocusState private var isCommandPaletteRenameFocused: Bool
     private let windowChrome = AppWindowChromeComposition()
-
+    private let sidebarResizerOcclusionResolver = SidebarResizerOcclusionResolver()
     private struct CommandPaletteRestoreFocusTarget {
         let workspaceId: UUID
         let panelId: UUID
@@ -1411,18 +1363,6 @@ struct ContentView: View {
         }
     }
 
-    private func dividerBandContains(pointInContent point: NSPoint, contentBounds: NSRect) -> Bool {
-        guard point.y >= contentBounds.minY, point.y <= contentBounds.maxY else { return false }
-        if sidebarState.isVisible,
-           SidebarResizeInteraction.Edge.leading.hitRange(dividerX: sidebarWidth).contains(point.x) {
-            return true
-        }
-
-        let rightDividerX = contentBounds.maxX - rightSidebarWidth
-        return rightSidebarVisible &&
-            SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: rightDividerX).contains(point.x)
-    }
-
     private func updateSidebarResizerBandState(using _: NSEvent? = nil) {
         guard sidebarState.isVisible || rightSidebarVisible,
               let window = observedWindow,
@@ -1432,24 +1372,34 @@ struct ContentView: View {
             return
         }
 
-        // Use live global pointer location instead of per-event coordinates.
-        // Overlapping tracking areas (notably WKWebView) can deliver stale/jittery
-        // event locations during cursor updates, which causes visible cursor flicker.
+        // Use live pointer location; overlapping WKWebView tracking areas can report stale cursor-update locations.
         let pointInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
         let pointInContent = contentView.convert(pointInWindow, from: nil)
-        let isInDividerBand = dividerBandContains(pointInContent: pointInContent, contentBounds: contentView.bounds)
-        isResizerBandActive = isInDividerBand
+        let isInDividerBand = sidebarResizerOcclusionResolver.dividerBandContains(
+            point: pointInContent,
+            contentBounds: contentView.bounds,
+            isLeftSidebarVisible: sidebarState.isVisible,
+            leftDividerX: sidebarWidth,
+            isRightSidebarVisible: rightSidebarVisible,
+            rightDividerX: contentView.bounds.maxX - rightSidebarWidth
+        )
+        let mayActivate = sidebarResizerOcclusionResolver.bandMayActivate(
+            isDragging: isResizerDragging,
+            isInDividerBand: isInDividerBand,
+            screenPoint: NSEvent.mouseLocation,
+            observedWindowNumber: window.windowNumber
+        )
+        isResizerBandActive = mayActivate && isInDividerBand
 
-        if isInDividerBand || isResizerDragging {
+        if mayActivate {
             activateSidebarResizerCursor()
             startSidebarResizerCursorStabilizer()
-            // AppKit cursorUpdate handlers from overlapped portal/web views can run
-            // after our local monitor callback and temporarily reset the cursor.
-            // Re-assert on the next runloop turn to keep the resize cursor stable.
+            // Overlapped portal/web cursorUpdate handlers run later and can temporarily reset the cursor.
             DispatchQueue.main.async {
                 Self.fixedSidebarResizeCursor.set()
             }
         } else {
+            hoveredResizerHandles.removeAll()
             stopSidebarResizerCursorStabilizer()
             scheduleSidebarResizerCursorRelease()
         }
@@ -1536,6 +1486,8 @@ struct ContentView: View {
             .contentShape(Rectangle())
             .onHover { hovering in
                 if hovering {
+                    updateSidebarResizerBandState()
+                    guard isResizerBandActive || isResizerDragging else { return }
                     hoveredResizerHandles.insert(handle)
                     activateSidebarResizerCursor()
                 } else {
@@ -1942,7 +1894,7 @@ struct ContentView: View {
         return windowChrome.appearanceSnapshot(
             settings: WindowAppearanceUserSettingsSnapshot(
                 unifySurfaceBackdrops: sidebarMatchTerminalBackground,
-                colorScheme: AppearanceSettings.colorScheme(for: appearanceMode, fallback: colorScheme),
+                colorScheme: AppearanceSettings.effectiveColorScheme(for: appearanceMode, fallback: colorScheme),
                 sidebarMaterial: sidebarMaterial,
                 sidebarBlendMode: sidebarBlendMode,
                 sidebarState: sidebarStateSetting,
@@ -2644,7 +2596,7 @@ struct ContentView: View {
                 backgroundSource: source,
                 notificationPayloadHex: payloadHex
             )
-        })
+        }.onReceive(NotificationCenter.default.publisher(for: .systemAppearanceDidChange)) { _ in scheduleTitlebarThemeRefresh(reason: "systemAppearanceChanged") })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
             sidebarSelectionState.selection = .tabs
@@ -2971,7 +2923,12 @@ struct ContentView: View {
         view = AnyView(view.background(WindowAccessor(dedupeByWindow: false) { window in
             refreshTmuxWorkspacePaneWindowOverlay(in: window)
             let overlayController = commandPaletteWindowOverlayController(for: window)
-            overlayController.update(isVisible: isCommandPalettePresented) { AnyView(commandPaletteOverlay) }
+            overlayController.update(
+                isVisible: isCommandPalettePresented,
+                onDismiss: { dismissal in
+                    dismissCommandPalette(for: dismissal, in: window)
+                }
+            ) { AnyView(commandPaletteOverlay) }
         }))
 
         view = AnyView(view.onChange(of: bgGlassTintHex) { _ in
@@ -3196,7 +3153,12 @@ struct ContentView: View {
         if backdropResult.didChangeGlassRoot {
             refreshTmuxWorkspacePaneWindowOverlay(in: window)
             commandPaletteWindowOverlayController(for: window)
-                .update(isVisible: isCommandPalettePresented) { commandPaletteOverlayView }
+                .update(
+                    isVisible: isCommandPalettePresented,
+                    onDismiss: { dismissal in
+                        dismissCommandPalette(for: dismissal, in: window)
+                    }
+                ) { commandPaletteOverlayView }
             TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
             BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
         }
@@ -3399,13 +3361,6 @@ struct ContentView: View {
             ZStack(alignment: .top) {
                 Color.clear
                     .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onEnded { value in
-                                handleCommandPaletteBackdropClick(atContentPoint: value.location)
-                            }
-                    )
 
                 Color.clear
                     .ignoresSafeArea()
@@ -3429,6 +3384,7 @@ struct ContentView: View {
                     }
                 }
                 .frame(width: targetWidth)
+                .background(CommandPalettePanelHitRegion())
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(Color(nsColor: .windowBackgroundColor).opacity(0.98))
@@ -5687,34 +5643,6 @@ struct ContentView: View {
         cachedResultHadFallback ?? true
     }
 
-    static func commandPalettePanelHasForkableAgent(
-        workspaceId: UUID,
-        panelId: UUID,
-        supportedPanelKeys: Set<String>,
-        supportedRemoteContextsByPanelKey: [String: Bool] = [:],
-        fallbackSnapshot: SessionRestorableAgentSnapshot?,
-        isRemoteTerminal: Bool = false
-    ) -> Bool {
-        let panelKey = commandPaletteForkableAgentPanelKey(
-            workspaceId: workspaceId,
-            panelId: panelId
-        )
-        if supportedPanelKeys.contains(panelKey) {
-            if let supportedRemoteContext = supportedRemoteContextsByPanelKey[panelKey],
-               supportedRemoteContext != isRemoteTerminal {
-                return false
-            }
-            if let fallbackSnapshot {
-                return commandPaletteSnapshotForkAvailability(
-                    fallbackSnapshot,
-                    isRemoteTerminal: isRemoteTerminal
-                ) != .unsupported
-            }
-            return true
-        }
-        return false
-    }
-
     private func refreshCommandPaletteForkableAgentAvailabilityIfNeeded(scope: CommandPaletteListScope) {
         guard scope == .commands,
               let panelContext = focusedPanelContext,
@@ -5730,7 +5658,18 @@ struct ContentView: View {
         let panelKey = Self.commandPaletteForkableAgentPanelKey(workspaceId: workspaceId, panelId: panelId)
         let panelChanged = commandPaletteForkableAgentActivePanelKey != panelKey
         commandPaletteForkableAgentActivePanelKey = panelKey
-        let fallbackSnapshot = panelContext.workspace.restoredAgentSnapshotsByPanelId[panelId]
+        let allowsAgentContinuation = panelContext.workspace.allowsAgentContinuation(forPanelId: panelId)
+        if !allowsAgentContinuation {
+            cancelCommandPaletteForkableAgentAvailabilityProbe(for: panelKey)
+            commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
+            commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
+            commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
+            commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
+            commandPaletteForkableAgentResultHadFallbackByPanelKey.removeValue(forKey: panelKey)
+        }
+        let fallbackSnapshot = allowsAgentContinuation
+            ? panelContext.workspace.restoredAgentSnapshotForContinuation(panelId: panelId)
+            : nil
 
         if let fallbackSnapshot {
             let fallbackFingerprint = Self.commandPaletteForkSnapshotFingerprint(fallbackSnapshot)
@@ -5889,7 +5828,8 @@ struct ContentView: View {
         commandPaletteForkableAgentAvailabilityTasksByPanelKey[panelKey] = Task {
             let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
             guard !Task.isCancelled else { return }
-            let indexSnapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId)
+            let indexEntry = index.entry(workspaceId: workspaceId, panelId: panelId)
+            let indexSnapshot = indexEntry?.snapshot
             let snapshot = indexSnapshot ?? fallbackSnapshot
             let supportsFork: Bool
             if let snapshot {
@@ -5916,11 +5856,27 @@ struct ContentView: View {
             await MainActor.run {
                 guard commandPaletteForkableAgentProbeIDsByPanelKey[panelKey] == probeID else { return }
                 guard commandPaletteForkableAgentProbeFingerprintsByPanelKey[panelKey] == probeFingerprint else { return }
+                var acceptedIndexSnapshot = indexSnapshot
+                var acceptedSnapshot = snapshot
+                if let currentContext = focusedPanelContext,
+                   currentContext.workspace.id == workspaceId,
+                   currentContext.panelId == panelId {
+                    if let indexEntry {
+                        currentContext.workspace.reconcileCompletedRestoredAgent(
+                            panelId: panelId,
+                            observation: indexEntry
+                        )
+                    }
+                    if !currentContext.workspace.allowsAgentContinuation(forPanelId: panelId) {
+                        acceptedIndexSnapshot = nil
+                        acceptedSnapshot = nil
+                    }
+                }
                 if let fallbackFingerprint,
                    let currentContext = focusedPanelContext,
                    currentContext.workspace.id == workspaceId,
                    currentContext.panelId == panelId,
-                   let currentFallbackSnapshot = currentContext.workspace.restoredAgentSnapshotsByPanelId[panelId],
+                   let currentFallbackSnapshot = currentContext.workspace.restoredAgentSnapshotForContinuation(panelId: panelId),
                    Self.commandPaletteForkSnapshotFingerprint(currentFallbackSnapshot) != fallbackFingerprint {
                     commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
                     commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
@@ -5930,19 +5886,17 @@ struct ContentView: View {
                 let wasSupported = commandPaletteForkableAgentSupportedPanelKeys.contains(panelKey)
                 let hadCachedSnapshot = commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] != nil
                 let shouldRefreshResults: Bool
-                if supportsFork {
+                if supportsFork, let acceptedSnapshot {
                     shouldRefreshResults = !wasSupported
                     commandPaletteForkableAgentSupportedPanelKeys.insert(panelKey)
                     commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteTerminal
-                    if let snapshot {
-                        commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = snapshot
-                        commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = Self.commandPaletteForkCacheFingerprint(
-                            snapshot: snapshot,
-                            fallbackFingerprint: fallbackFingerprint
-                        )
-                        commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] =
-                            indexSnapshot == nil && fallbackSnapshot != nil
-                    }
+                    commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = acceptedSnapshot
+                    commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = Self.commandPaletteForkCacheFingerprint(
+                        snapshot: acceptedSnapshot,
+                        fallbackFingerprint: fallbackFingerprint
+                    )
+                    commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] =
+                        acceptedIndexSnapshot == nil && fallbackSnapshot != nil
                 } else {
                     shouldRefreshResults = wasSupported || hadCachedSnapshot
                     commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
@@ -6203,7 +6157,8 @@ struct ContentView: View {
             )
             snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelIsTerminal)
             snapshot.setBool(CommandPaletteContextKeys.panelHasPane, workspace.paneId(forPanelId: panelId) != nil)
-            let fallbackForkableSnapshot = workspace.restoredAgentSnapshotsByPanelId[panelId]
+            let allowsAgentContinuation = workspace.allowsAgentContinuation(forPanelId: panelId)
+            let fallbackForkableSnapshot = workspace.restoredAgentSnapshotForContinuation(panelId: panelId)
             snapshot.setBool(
                 CommandPaletteContextKeys.panelHasForkableAgent,
                 Self.commandPalettePanelHasForkableAgent(
@@ -6212,7 +6167,8 @@ struct ContentView: View {
                     supportedPanelKeys: commandPaletteForkableAgentSupportedPanelKeys,
                     supportedRemoteContextsByPanelKey: commandPaletteForkableAgentRemoteContextsByPanelKey,
                     fallbackSnapshot: fallbackForkableSnapshot,
-                    isRemoteTerminal: panelIsRemoteTerminal
+                    isRemoteTerminal: panelIsRemoteTerminal,
+                    allowsAgentContinuation: allowsAgentContinuation
                 )
             )
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)
@@ -6330,7 +6286,7 @@ struct ContentView: View {
                 when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
             )
         )
-        contributions.append(Self.commandPaletteNewAgentChatContribution())
+        contributions.append(contentsOf: Self.commandPaletteNewAgentChatContributions())
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.newWindow",
@@ -8734,6 +8690,70 @@ struct ContentView: View {
         syncCommandPaletteDebugStateForObservedWindow()
     }
 
+    private func dismissCommandPalette(
+        for dismissal: CommandPaletteInteractionDismissal,
+        in window: NSWindow
+    ) {
+        if dismissal == .mainMenuBeganTracking {
+            // Menu tracking keeps this window key. Restore the saved panel before
+            // entering the nested menu loop; a selected command can still replace it.
+            dismissCommandPalette(restoreFocus: true)
+            return
+        }
+        guard case .pointer(let event) = dismissal, event.isInObservedWindow else {
+            dismissCommandPalette(restoreFocus: false)
+            return
+        }
+
+        // Other local monitors have no ordering contract. Reconcile a clicked
+        // terminal/browser target directly after hiding the overlay; the returned
+        // mouse-down can still replace this provisional focus during dispatch.
+        let clickedFocusTarget = commandPalettePointerFocusTarget(
+            atWindowPoint: event.locationInWindow,
+            in: window
+        )
+        dismissCommandPalette(
+            restoreFocus: true,
+            preferredFocusTarget: clickedFocusTarget
+        )
+    }
+
+    private func commandPalettePointerFocusTarget(
+        atWindowPoint windowPoint: NSPoint,
+        in window: NSWindow
+    ) -> CommandPaletteRestoreFocusTarget? {
+        if let terminalView = TerminalWindowPortalRegistry.terminalViewAtWindowPoint(windowPoint, in: window),
+           let workspaceId = terminalView.tabId,
+           let panelId = terminalView.terminalSurface?.id,
+           let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) {
+            return CommandPaletteRestoreFocusTarget(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                intent: workspace.panels[panelId]?.captureFocusIntent(in: window) ?? .terminal(.surface)
+            )
+        }
+
+        guard let webView = BrowserWindowPortalRegistry.webViewAtWindowPoint(windowPoint, in: window) else {
+            return nil
+        }
+        let selectedWorkspaceId = tabManager.selectedTabId
+        let orderedWorkspaces = tabManager.tabs.filter { $0.id == selectedWorkspaceId }
+            + tabManager.tabs.filter { $0.id != selectedWorkspaceId }
+        for workspace in orderedWorkspaces {
+            for (panelId, panel) in workspace.panels {
+                guard let browserPanel = panel as? BrowserPanel, browserPanel.webView === webView else {
+                    continue
+                }
+                return CommandPaletteRestoreFocusTarget(
+                    workspaceId: workspace.id,
+                    panelId: panelId,
+                    intent: panel.captureFocusIntent(in: window)
+                )
+            }
+        }
+        return nil
+    }
+
     private func dismissCommandPalette(restoreFocus: Bool = true) {
         dismissCommandPalette(restoreFocus: restoreFocus, preferredFocusTarget: nil)
     }
@@ -8803,138 +8823,6 @@ struct ContentView: View {
 
         guard restoreFocus, let focusTarget else { return }
         requestCommandPaletteFocusRestore(target: focusTarget)
-    }
-
-    private func handleCommandPaletteBackdropClick(atContentPoint contentPoint: CGPoint) {
-        let clickedFocusTarget = commandPaletteBackdropFocusTarget(atContentPoint: contentPoint)
-#if DEBUG
-        if let clickedFocusTarget {
-            cmuxDebugLog(
-                "palette.dismiss.backdrop focusTarget panel=\(clickedFocusTarget.panelId.uuidString.prefix(5)) " +
-                "workspace=\(clickedFocusTarget.workspaceId.uuidString.prefix(5)) intent=\(debugCommandPaletteFocusIntent(clickedFocusTarget.intent))"
-            )
-        } else {
-            cmuxDebugLog("palette.dismiss.backdrop focusTarget=nil")
-        }
-#endif
-        dismissCommandPalette(restoreFocus: true, preferredFocusTarget: clickedFocusTarget)
-    }
-
-    private func commandPaletteBackdropFocusTarget(atContentPoint contentPoint: CGPoint) -> CommandPaletteRestoreFocusTarget? {
-        guard let window = observedWindow,
-              let contentView = window.contentView else {
-            return nil
-        }
-
-        let nsContentPoint = NSPoint(x: contentPoint.x, y: contentPoint.y)
-        let windowPoint = contentView.convert(nsContentPoint, to: nil)
-        return commandPaletteBackdropFocusTarget(atWindowPoint: windowPoint, in: window)
-    }
-
-    private func commandPaletteBackdropFocusTarget(
-        atWindowPoint windowPoint: NSPoint,
-        in window: NSWindow
-    ) -> CommandPaletteRestoreFocusTarget? {
-        let overlayController = commandPaletteWindowOverlayController(for: window)
-        if let responder = overlayController.underlyingResponder(atWindowPoint: windowPoint),
-           let target = commandPaletteBackdropFocusTarget(for: responder) {
-            return target
-        }
-
-        if let webView = BrowserWindowPortalRegistry.webViewAtWindowPoint(windowPoint, in: window),
-           let target = commandPaletteBrowserFocusTarget(for: webView) {
-            return target
-        }
-
-        if let terminalView = TerminalWindowPortalRegistry.terminalViewAtWindowPoint(windowPoint, in: window),
-           let workspaceId = terminalView.tabId,
-           let panelId = terminalView.terminalSurface?.id,
-           tabManager.tabs.contains(where: { $0.id == workspaceId }) {
-            return commandPaletteRestoreFocusTarget(
-                workspaceId: workspaceId,
-                panelId: panelId,
-                fallbackIntent: .terminal(.surface),
-                in: window
-            )
-        }
-
-        return nil
-    }
-
-    private func commandPaletteBackdropFocusTarget(for responder: NSResponder) -> CommandPaletteRestoreFocusTarget? {
-        if let terminalView = cmuxOwningGhosttyView(for: responder),
-           let workspaceId = terminalView.tabId,
-           let panelId = terminalView.terminalSurface?.id,
-           tabManager.tabs.contains(where: { $0.id == workspaceId }) {
-            return commandPaletteRestoreFocusTarget(
-                workspaceId: workspaceId,
-                panelId: panelId,
-                fallbackIntent: .terminal(.surface),
-                in: observedWindow
-            )
-        }
-
-        if let webView = commandPaletteOwningWebView(for: responder),
-           let target = commandPaletteBrowserFocusTarget(for: webView) {
-            return target
-        }
-
-        return nil
-    }
-
-    private func commandPaletteBrowserFocusTarget(for webView: WKWebView) -> CommandPaletteRestoreFocusTarget? {
-        if let selectedWorkspace = tabManager.selectedWorkspace,
-           let target = commandPaletteBrowserFocusTarget(in: selectedWorkspace, for: webView) {
-            return target
-        }
-
-        let selectedWorkspaceId = tabManager.selectedTabId
-        for workspace in tabManager.tabs where workspace.id != selectedWorkspaceId {
-            if let target = commandPaletteBrowserFocusTarget(in: workspace, for: webView) {
-                return target
-            }
-        }
-
-        return nil
-    }
-
-    private func commandPaletteBrowserFocusTarget(
-        in workspace: Workspace,
-        for webView: WKWebView
-    ) -> CommandPaletteRestoreFocusTarget? {
-        for (panelId, panel) in workspace.panels {
-            guard let browserPanel = panel as? BrowserPanel,
-                  browserPanel.webView === webView else {
-                continue
-            }
-
-            return commandPaletteRestoreFocusTarget(
-                workspaceId: workspace.id,
-                panelId: panelId,
-                fallbackIntent: .browser(.webView),
-                in: observedWindow
-            )
-        }
-
-        return nil
-    }
-
-    private func commandPaletteRestoreFocusTarget(
-        workspaceId: UUID,
-        panelId: UUID,
-        fallbackIntent: PanelFocusIntent,
-        in window: NSWindow?
-    ) -> CommandPaletteRestoreFocusTarget {
-        let intent = tabManager.tabs
-            .first(where: { $0.id == workspaceId })?
-            .panels[panelId]?
-            .captureFocusIntent(in: window) ?? fallbackIntent
-
-        return CommandPaletteRestoreFocusTarget(
-            workspaceId: workspaceId,
-            panelId: panelId,
-            intent: intent
-        )
     }
 
     private func requestCommandPaletteFocusRestore(target: CommandPaletteRestoreFocusTarget) {
@@ -10338,9 +10226,7 @@ struct VerticalTabsSidebar: View {
 
     struct WorkspaceListRenderContext {
         let tabs: [Workspace]
-        /// Stored snapshot of `tabs.map(\.id)` so per-row predicates that need
-        /// it (e.g. `SidebarTabDropIndicatorPredicate.topVisible`) don't pay
-        /// O(n) per row.
+        /// Stored `tabs.map(\.id)` snapshot so row predicates avoid O(n) work.
         let tabIds: [UUID]
         /// Drag-scope row ids shared by every visible row for this render pass.
         let sidebarReorderIds: [UUID]
@@ -10348,6 +10234,7 @@ struct VerticalTabsSidebar: View {
         let canCloseWorkspace: Bool
         let workspaceNumberShortcut: StoredShortcut
         let tabItemSettings: SidebarTabItemSettingsSnapshot
+        let showsAgentActivity: Bool
         let pinResolutionContext: WorkspaceActionDispatcher.PinResolutionContext
         let tabIndexById: [UUID: Int]
         let workspaceById: [UUID: Workspace]
@@ -10426,6 +10313,7 @@ struct VerticalTabsSidebar: View {
             canCloseWorkspace: canCloseWorkspace,
             workspaceNumberShortcut: workspaceNumberShortcut,
             tabItemSettings: tabItemSettings,
+            showsAgentActivity: showAgentActivity && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled,
             pinResolutionContext: pinResolutionContext,
             tabIndexById: tabIndexById,
             workspaceById: workspaceById,
@@ -10691,9 +10579,8 @@ struct VerticalTabsSidebar: View {
 
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
         extensionSidebarScrollAreaContent(renderContext: renderContext)
-            .onAppear {
-                refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs)
-            }
+            .sidebarProcessTitleObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.sidebarProcessTitleObservation)) { refreshExtensionSidebarSnapshot() }
+            .onAppear { refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs) }
             .onChange(of: renderContext.workspaceIds) { _, _ in
                 refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs)
             }
@@ -12363,7 +12250,7 @@ struct VerticalTabsSidebar: View {
             accessibilityWorkspaceCount: renderContext.workspaceCount,
             unreadCount: liveUnreadCount,
             latestNotificationText: liveLatestNotificationText,
-            showsAgentActivity: showAgentActivity,
+            showsAgentActivity: renderContext.showsAgentActivity,
             rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
             selectedTabIds: $selectedTabIds,
@@ -13283,11 +13170,20 @@ struct TabItemView: View, Equatable {
     let onContextMenuAppear: () -> Void
     let onContextMenuDisappear: () -> Void
     @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
+    // Fallback memo for the `workspaceSnapshot` getter: a plain box, not
+    // observed state, so body evaluations can fill it without invalidating the
+    // row. Before onAppear seeds workspaceSnapshotStorage, every access used to
+    // rebuild the snapshot (a full bonsplit tree walk) — several times per
+    // mounted row per scroll.
+    final class WorkspaceSnapshotScratch {
+        var value: SidebarWorkspaceSnapshotBuilder.Snapshot?
+    }
+    @State private var workspaceSnapshotScratch = WorkspaceSnapshotScratch()
     // Row-local selection projection: selectedTabId changes update only rows whose boolean flips.
     @State private var observedIsActive: Bool?
     @State private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
-    @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
+    @State var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
     @State private var isEditing = false
     @State private var renameDraft = ""
     @State private var renameBaselineHadUserCustomTitle = false
@@ -13335,12 +13231,19 @@ struct TabItemView: View, Equatable {
         settings.showsSSH
     }
 
-    private var workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot {
+    var workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot {
+        let presentationKey = workspaceSnapshotPresentationKey
         if let workspaceSnapshotStorage,
-           workspaceSnapshotStorage.presentationKey == workspaceSnapshotPresentationKey {
+           workspaceSnapshotStorage.presentationKey == presentationKey {
             return workspaceSnapshotStorage
         }
-        return makeWorkspaceSnapshot()
+        if let scratch = workspaceSnapshotScratch.value,
+           scratch.presentationKey == presentationKey {
+            return scratch
+        }
+        let snapshot = makeWorkspaceSnapshot()
+        workspaceSnapshotScratch.value = snapshot
+        return snapshot
     }
 
     private var activeTabIndicatorStyle: WorkspaceIndicatorStyle {
@@ -13597,11 +13500,11 @@ struct TabItemView: View, Equatable {
         }
     }
 
-    private func copyWorkspaceIdsToPasteboard(_ ids: [UUID], includeRefs: Bool = false) {
+    func copyWorkspaceIdsToPasteboard(_ ids: [UUID], includeRefs: Bool = false) {
         WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceIds(ids, includeRefs: includeRefs)
     }
 
-    private func copyWorkspaceLinksToPasteboard(_ ids: [UUID]) {
+    func copyWorkspaceLinksToPasteboard(_ ids: [UUID]) {
         WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceLinks(ids, resolvingStableIdsFrom: tabManager.tabs)
     }
 
@@ -13651,6 +13554,11 @@ struct TabItemView: View, Equatable {
             maxDisplayedCharacters: Self.maxDisplayedTitleCharacters
         )
         let scaledUnreadBadgeSize = 16 * fontScale
+        let scaledLoadingSpinnerSize = max(10, 12 * fontScale)
+        let titleFirstLineCenter = GlobalFontMagnification.scaledSize(
+            scaledFontSize(12.5),
+            percent: globalFontMagnificationPercent
+        ) * 0.6
         let scaledCloseButtonHitSize = max(16, 16 * fontScale)
         let scaledCloseButtonWidth = max(
             SidebarTrailingAccessoryWidthPolicy().closeButtonWidth,
@@ -13669,9 +13577,9 @@ struct TabItemView: View, Equatable {
         let spinnerTooltip = SidebarWorkspaceLoadingTooltip.text(count: workspaceSnapshot.activeCodingAgentCount)
         let spinnerColor = usesInvertedActiveForeground ? selectedWorkspaceForegroundNSColor(opacity: 0.55) : .secondaryLabelColor
         let rowView = VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .top, spacing: titleRowSpacing) {
+            HStack(alignment: .sidebarTitleFirstLineCenter, spacing: titleRowSpacing) {
                 if leadingSlotActive {
-                    SidebarWorkspaceLeadingStatusSlot(showsBadge: badgeOnLeading, showsSpinner: spinnerOnLeading, unreadCount: unreadCount, side: scaledUnreadBadgeSize, badgeFont: badgeFont, badgeFillColor: activeUnreadBadgeFillColor, badgeTextColor: activeUnreadBadgeTextColor, spinnerColor: spinnerColor, spinnerTooltip: spinnerTooltip)
+                    SidebarWorkspaceLeadingStatusSlot(showsBadge: badgeOnLeading, showsSpinner: spinnerOnLeading, unreadCount: unreadCount, side: badgeOnLeading ? scaledUnreadBadgeSize : scaledLoadingSpinnerSize, spinnerSide: scaledLoadingSpinnerSize, badgeFont: badgeFont, badgeFillColor: activeUnreadBadgeFillColor, badgeTextColor: activeUnreadBadgeTextColor, spinnerColor: spinnerColor, spinnerTooltip: spinnerTooltip)
                 }
 
                 if workspaceSnapshot.isPinned {
@@ -13684,38 +13592,11 @@ struct TabItemView: View, Equatable {
                 // background browser pane is surfaced on its workspace row,
                 // styled like the pin indicator. Audio is the must-have signal;
                 // mic/camera follow the macOS orange/green convention.
-                if workspaceSnapshot.mediaActivity.isPlayingAudio {
-                    let audioPlayingTooltip = String(
-                        localized: "sidebar.mediaActivity.audio.tooltip",
-                        defaultValue: "Playing audio"
-                    )
-                    CmuxSystemSymbolImage(magnified: "speaker.wave.2.fill", pointSize: scaledFontSize(9), weight: .semibold)
-                        .foregroundColor(activeSecondaryColor(0.8))
-                        .safeHelp(audioPlayingTooltip)
-                        .accessibilityLabel(audioPlayingTooltip)
-                }
-
-                if workspaceSnapshot.mediaActivity.isUsingMicrophone {
-                    let microphoneInUseTooltip = String(
-                        localized: "sidebar.mediaActivity.microphone.tooltip",
-                        defaultValue: "Microphone in use"
-                    )
-                    CmuxSystemSymbolImage(magnified: "mic.fill", pointSize: scaledFontSize(9), weight: .semibold)
-                        .foregroundColor(.orange)
-                        .safeHelp(microphoneInUseTooltip)
-                        .accessibilityLabel(microphoneInUseTooltip)
-                }
-
-                if workspaceSnapshot.mediaActivity.isUsingCamera {
-                    let cameraInUseTooltip = String(
-                        localized: "sidebar.mediaActivity.camera.tooltip",
-                        defaultValue: "Camera in use"
-                    )
-                    CmuxSystemSymbolImage(magnified: "video.fill", pointSize: scaledFontSize(9), weight: .semibold)
-                        .foregroundColor(.green)
-                        .safeHelp(cameraInUseTooltip)
-                        .accessibilityLabel(cameraInUseTooltip)
-                }
+                SidebarMediaActivityIndicators(
+                    mediaActivity: workspaceSnapshot.mediaActivity,
+                    symbolPointSize: scaledFontSize(9),
+                    audioColor: activeSecondaryColor(0.8)
+                )
 
                 if isEditing {
                     SidebarInlineRenameField(
@@ -13742,6 +13623,7 @@ struct TabItemView: View, Equatable {
                         onCancel: { isEditing = false }
                     )
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .alignmentGuide(.sidebarTitleFirstLineCenter) { _ in titleFirstLineCenter }
                     .layoutPriority(1)
                 } else {
                     Text(displayedTitle)
@@ -13751,6 +13633,7 @@ struct TabItemView: View, Equatable {
                         .truncationMode(.tail)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .alignmentGuide(.sidebarTitleFirstLineCenter) { _ in titleFirstLineCenter }
                         .layoutPriority(1)
                 }
 
@@ -13807,7 +13690,7 @@ struct TabItemView: View, Equatable {
             }
 
             if detailVisibility.showsLog, let latestLog = workspaceSnapshot.latestLog {
-                HStack(spacing: 4) {
+                HStack(alignment: .center, spacing: 4) {
                     CmuxSystemSymbolImage(magnified: logLevelIcon(latestLog.level), pointSize: scaledFontSize(8))
                         .foregroundColor(logLevelColor(latestLog.level, isActive: usesInvertedActiveForeground))
                     Text(latestLog.message)
@@ -13941,7 +13824,7 @@ struct TabItemView: View, Equatable {
                     ForEach(workspaceSnapshot.pullRequestRows) { pullRequest in
                         let pullRequestNumber = String(pullRequest.number)
                         let pullRequestTitle = "\(pullRequest.label) #\(pullRequestNumber)"
-                        let rowContent = HStack(spacing: 4) {
+                        let rowContent = HStack(alignment: .center, spacing: 4) {
                             PullRequestStatusIcon(
                                 status: pullRequest.status,
                                 color: pullRequestForegroundColor,
@@ -14082,6 +13965,7 @@ struct TabItemView: View, Equatable {
             workspaceFinderDirectoryOpenRequest = nil
         }
         .sidebarAgentRuntimeObservation(id: tab.id, model: tab.sidebarAgentRuntimeObservation) { refreshWorkspaceSnapshot() }
+        .sidebarProcessTitleObservation(id: tab.id, model: tab.sidebarProcessTitleObservation) { refreshWorkspaceSnapshot() }
         .onReceive(
             tab.sidebarImmediateObservationPublisher
                 .receive(on: RunLoop.main)
@@ -14151,7 +14035,7 @@ struct TabItemView: View, Equatable {
             onMoveDown: { moveBy(1) }
         ))
         .contextMenu {
-            workspaceContextMenu
+            TabItemWorkspaceContextMenuContent(row: self)
                 .onAppear {
                     rowInteractionState.contextMenuDidAppear()
                     contextMenuState.hasDeferredWorkspaceObservationInvalidation = false
@@ -14165,6 +14049,9 @@ struct TabItemView: View, Equatable {
                 }
         }
         let _ = SidebarProfilingSignposts.end(signpost)
+#if DEBUG
+        let _ = { sidebarLazyContractProbe.workspaceRowBodyEnd?() }()
+#endif
         rowView
     }
     private func beginInlineRename() {
@@ -14181,6 +14068,7 @@ struct TabItemView: View, Equatable {
 
     func refreshWorkspaceSnapshot(force: Bool = false) {
         let nextSnapshot = makeWorkspaceSnapshot()
+        workspaceSnapshotScratch.value = nextSnapshot
         let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
             current: workspaceSnapshotStorage,
             next: nextSnapshot,
@@ -14206,292 +14094,6 @@ struct TabItemView: View, Equatable {
             workspaceSnapshotStorage = pendingSnapshot
         }
         contextMenuState.pendingWorkspaceSnapshot = nil
-    }
-
-    private func contextMenuLabel(multi: String, single: String, isMulti: Bool) -> String {
-        isMulti ? multi : single
-    }
-
-    private func remoteContextMenuWorkspaces() -> [Workspace] {
-        guard !remoteContextMenuWorkspaceIds.isEmpty else { return [] }
-        return remoteContextMenuWorkspaceIds.compactMap { workspaceId in
-            tabManager.tabs.first(where: { $0.id == workspaceId })
-        }
-    }
-
-    @ViewBuilder
-    private var workspaceContextMenu: some View {
-        let workspaceSnapshot = self.workspaceSnapshot
-        let targetIds = contextMenuWorkspaceIds
-        let isMulti = targetIds.count > 1
-        let shouldPin = contextMenuPinState?.pinned ?? !tab.isPinned
-        let reconnectLabel = contextMenuLabel(
-            multi: String(localized: "contextMenu.reconnectWorkspaces", defaultValue: "Reconnect Workspaces"),
-            single: String(localized: "contextMenu.reconnectWorkspace", defaultValue: "Reconnect Workspace"),
-            isMulti: isMulti)
-        let disconnectLabel = contextMenuLabel(
-            multi: String(localized: "contextMenu.disconnectWorkspaces", defaultValue: "Disconnect Workspaces"),
-            single: String(localized: "contextMenu.disconnectWorkspace", defaultValue: "Disconnect Workspace"),
-            isMulti: isMulti)
-        let pinLabel = shouldPin
-            ? contextMenuLabel(
-                multi: String(localized: "contextMenu.pinWorkspaces", defaultValue: "Pin Workspaces"),
-                single: String(localized: "contextMenu.pinWorkspace", defaultValue: "Pin Workspace"),
-                isMulti: isMulti)
-            : contextMenuLabel(
-                multi: String(localized: "contextMenu.unpinWorkspaces", defaultValue: "Unpin Workspaces"),
-                single: String(localized: "contextMenu.unpinWorkspace", defaultValue: "Unpin Workspace"),
-                isMulti: isMulti)
-        let closeLabel = contextMenuLabel(
-            multi: String(localized: "contextMenu.closeWorkspaces", defaultValue: "Close Workspaces"),
-            single: String(localized: "contextMenu.closeWorkspace", defaultValue: "Close Workspace"),
-            isMulti: isMulti)
-        let markReadLabel = contextMenuLabel(
-            multi: String(localized: "contextMenu.markWorkspacesRead", defaultValue: "Mark Workspaces as Read"),
-            single: String(localized: "contextMenu.markWorkspaceRead", defaultValue: "Mark Workspace as Read"),
-            isMulti: isMulti)
-        let markUnreadLabel = contextMenuLabel(
-            multi: String(localized: "contextMenu.markWorkspacesUnread", defaultValue: "Mark Workspaces as Unread"),
-            single: String(localized: "contextMenu.markWorkspaceUnread", defaultValue: "Mark Workspace as Unread"),
-            isMulti: isMulti)
-        let clearLatestNotificationLabel = contextMenuLabel(
-            multi: String(localized: "contextMenu.clearLatestNotifications", defaultValue: "Clear Latest Notifications"),
-            single: String(localized: "contextMenu.clearLatestNotification", defaultValue: "Clear Latest Notification"),
-            isMulti: isMulti)
-        let copyWorkspaceIDLabel = contextMenuLabel(
-            multi: String(localized: "contextMenu.copyWorkspaceIDs", defaultValue: "Copy Workspace IDs"),
-            single: String(localized: "contextMenu.copyWorkspaceID", defaultValue: "Copy Workspace ID"),
-            isMulti: isMulti)
-        let copyWorkspaceLinkLabel = contextMenuLabel(
-            multi: String(localized: "contextMenu.copyWorkspaceLinks", defaultValue: "Copy Workspace Links"),
-            single: String(localized: "contextMenu.copyWorkspaceLink", defaultValue: "Copy Workspace Link"),
-            isMulti: isMulti)
-        let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
-        let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
-        let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
-        let referenceWindowId = AppDelegate.shared?.windowId(for: tabManager)
-        let windowMoveTargets = AppDelegate.shared?.windowMoveTargets(referenceWindowId: referenceWindowId) ?? []
-        let moveMenuTitle = targetIds.count > 1
-            ? String(localized: "contextMenu.moveWorkspacesToWindow", defaultValue: "Move Workspaces to Window")
-            : String(localized: "contextMenu.moveWorkspaceToWindow", defaultValue: "Move Workspace to Window")
-
-        Button(pinLabel) {
-            guard let contextMenuPinState else {
-                NSSound.beep()
-                return
-            }
-            let result = WorkspaceActionDispatcher.performPinAction(contextMenuPinState, in: tabManager)
-            if result.changedWorkspaceIds.isEmpty {
-                refreshWorkspaceSnapshot(force: true)
-            }
-            syncSelectionAfterMutation()
-        }
-        .disabled(contextMenuPinState == nil)
-
-        workspaceGroupContextMenuSection(targetIds: targetIds, isMulti: isMulti)
-
-        Divider()
-
-        if let key = renameWorkspaceShortcut.keyEquivalent {
-            Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) {
-                promptRename()
-            }
-            .keyboardShortcut(key, modifiers: renameWorkspaceShortcut.eventModifiers)
-        } else {
-            Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) {
-                promptRename()
-            }
-        }
-
-        if tab.hasCustomTitle {
-            Button(String(localized: "contextMenu.removeCustomWorkspaceName", defaultValue: "Remove Custom Workspace Name")) {
-                tabManager.clearCustomTitle(tabId: tab.id)
-            }
-        }
-
-        if !isMulti {
-            if let key = editWorkspaceDescriptionShortcut.keyEquivalent {
-                Button(String(localized: "contextMenu.editWorkspaceDescription", defaultValue: "Edit Workspace Description…")) {
-                    beginWorkspaceDescriptionEditFromContextMenu()
-                }
-                .keyboardShortcut(key, modifiers: editWorkspaceDescriptionShortcut.eventModifiers)
-            } else {
-                Button(String(localized: "contextMenu.editWorkspaceDescription", defaultValue: "Edit Workspace Description…")) {
-                    beginWorkspaceDescriptionEditFromContextMenu()
-                }
-            }
-
-            if tab.hasCustomDescription {
-                Button(String(localized: "contextMenu.clearWorkspaceDescription", defaultValue: "Clear Workspace Description")) {
-                    tabManager.clearCustomDescription(tabId: tab.id)
-                }
-            }
-        }
-
-        if !remoteContextMenuWorkspaceIds.isEmpty {
-            Divider()
-
-            Button(reconnectLabel) {
-                for workspace in remoteContextMenuWorkspaces() {
-                    workspace.reconnectRemoteConnection()
-                }
-            }
-            .disabled(allRemoteContextMenuTargetsConnecting)
-
-            Button(disconnectLabel) {
-                for workspace in remoteContextMenuWorkspaces() {
-                    workspace.disconnectRemoteConnection(clearConfiguration: false)
-                }
-            }
-            .disabled(allRemoteContextMenuTargetsDisconnected)
-        }
-
-        Menu(String(localized: "contextMenu.workspaceColor", defaultValue: "Workspace Color")) {
-            let tabColorPalette = WorkspaceTabColorSettings.palette()
-
-            if tab.customColor != nil {
-                Button {
-                    applyTabColor(nil, targetIds: targetIds)
-                } label: {
-                    Label(String(localized: "contextMenu.clearColor", defaultValue: "Clear Color"), systemImage: "xmark.circle")
-                }
-            }
-
-            Button {
-                promptCustomColor(targetIds: targetIds)
-            } label: {
-                Label(String(localized: "contextMenu.chooseCustomColor", defaultValue: "Choose Custom Color…"), systemImage: "paintpalette")
-            }
-
-            if !tabColorPalette.isEmpty {
-                Divider()
-            }
-
-            ForEach(tabColorPalette, id: \.id) { entry in
-                Button {
-                    applyTabColor(entry.hex, targetIds: targetIds)
-                } label: {
-                    Label {
-                        Text(entry.name)
-                    } icon: {
-                        Image(nsImage: coloredCircleImage(color: tabColorSwatchColor(for: entry.hex)))
-                    }
-                }
-            }
-        }
-
-        if let copyableSidebarSSHError = workspaceSnapshot.copyableSidebarSSHError {
-            Divider()
-
-            Button(String(localized: "contextMenu.copySshError", defaultValue: "Copy SSH Error")) {
-                WorkspaceSurfaceIdentifierClipboardText.copy(copyableSidebarSSHError)
-            }
-        }
-
-        Divider()
-
-        Button(String(localized: "contextMenu.moveUp", defaultValue: "Move Up")) {
-            moveBy(-1)
-        }
-        .disabled(index == 0)
-
-        Button(String(localized: "contextMenu.moveDown", defaultValue: "Move Down")) {
-            moveBy(1)
-        }
-        .disabled(index >= tabManager.tabs.count - 1)
-
-        Button(String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")) {
-            tabManager.moveTabsToTop(Set(targetIds))
-            syncSelectionAfterMutation()
-        }
-        .disabled(targetIds.isEmpty)
-
-        Menu(moveMenuTitle) {
-            Button(String(localized: "contextMenu.newWindow", defaultValue: "New Window")) {
-                moveWorkspacesToNewWindow(targetIds)
-            }
-            .disabled(targetIds.isEmpty)
-
-            if !windowMoveTargets.isEmpty {
-                Divider()
-            }
-
-            ForEach(windowMoveTargets) { target in
-                Button(target.label) {
-                    moveWorkspaces(targetIds, toWindow: target.windowId)
-                }
-                .disabled(target.isCurrentWindow || targetIds.isEmpty)
-            }
-        }
-        .disabled(targetIds.isEmpty)
-
-        Divider()
-
-        if let key = closeWorkspaceShortcut.keyEquivalent {
-            Button(closeLabel) {
-                closeTabs(targetIds, allowPinned: true)
-            }
-            .keyboardShortcut(key, modifiers: closeWorkspaceShortcut.eventModifiers)
-            .disabled(targetIds.isEmpty)
-        } else {
-            Button(closeLabel) {
-                closeTabs(targetIds, allowPinned: true)
-            }
-            .disabled(targetIds.isEmpty)
-        }
-
-        Button(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")) {
-            closeOtherTabs(targetIds)
-        }
-        .disabled(tabManager.tabs.count <= 1 || targetIds.count == tabManager.tabs.count)
-
-        Button(String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below")) {
-            closeTabsBelow(tabId: tab.id)
-        }
-        .disabled(index >= tabManager.tabs.count - 1)
-
-        Button(String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above")) {
-            closeTabsAbove(tabId: tab.id)
-        }
-        .disabled(index == 0)
-
-        Divider()
-
-        Button(markReadLabel) {
-            markTabsRead(targetIds)
-        }
-        .disabled(!notificationStore.canMarkWorkspaceRead(forTabIds: targetIds))
-
-        Button(markUnreadLabel) {
-            markTabsUnread(targetIds)
-        }
-        .disabled(!notificationStore.canMarkWorkspaceUnread(forTabIds: targetIds))
-
-        Button(clearLatestNotificationLabel) {
-            clearLatestNotifications(targetIds)
-        }
-        .disabled(!hasLatestNotifications(in: targetIds))
-
-        workspaceNotificationsContextMenu(targetIds)
-        Divider()
-        Button(copyWorkspaceIDLabel) {
-            copyWorkspaceIdsToPasteboard(targetIds)
-        }
-        .disabled(targetIds.isEmpty)
-
-        Button(copyWorkspaceLinkLabel) {
-            copyWorkspaceLinksToPasteboard(targetIds)
-        }
-        .disabled(targetIds.isEmpty)
-
-        if !isMulti {
-            Button(String(localized: "contextMenu.showWorkspaceInFinder", defaultValue: "Show in Finder")) {
-                let url = workspaceSnapshot.finderDirectoryPath
-                    .map { URL(fileURLWithPath: $0, isDirectory: true) }
-                workspaceFinderDirectoryOpenRequest = WorkspaceFinderDirectoryOpenRequest(directoryURL: url)
-            }
-            .disabled(workspaceSnapshot.finderDirectoryPath == nil)
-        }
     }
 
     private var backgroundColor: Color {
@@ -14522,7 +14124,7 @@ struct TabItemView: View, Equatable {
         return Color(nsColor: railColor).opacity(0.95)
     }
 
-    private func tabColorSwatchColor(for hex: String) -> NSColor {
+    func tabColorSwatchColor(for hex: String) -> NSColor {
         WorkspaceTabColorSettings.displayNSColor(
             hex: hex,
             colorScheme: colorScheme,
@@ -14534,7 +14136,7 @@ struct TabItemView: View, Equatable {
         String(localized: "accessibility.workspacePosition", defaultValue: "\(workspaceSnapshot.title), workspace \(index + 1) of \(accessibilityWorkspaceCount)")
     }
 
-    private func moveBy(_ delta: Int) {
+    func moveBy(_ delta: Int) {
         let targetIndex = index + delta
         guard targetIndex >= 0, targetIndex < tabManager.tabs.count else { return }
         guard tabManager.reorderWorkspace(tabId: tab.id, toIndex: targetIndex) else { return }
@@ -14622,52 +14224,52 @@ struct TabItemView: View, Equatable {
         setSelectionToTabs()
     }
 
-    private func closeTabs(_ targetIds: [UUID], allowPinned: Bool) {
+    func closeTabs(_ targetIds: [UUID], allowPinned: Bool) {
         tabManager.closeWorkspacesWithConfirmation(targetIds, allowPinned: allowPinned)
         syncSelectionAfterMutation()
     }
 
-    private func closeOtherTabs(_ targetIds: [UUID]) {
+    func closeOtherTabs(_ targetIds: [UUID]) {
         let keepIds = Set(targetIds)
         let idsToClose = tabManager.tabs.compactMap { keepIds.contains($0.id) ? nil : $0.id }
         closeTabs(idsToClose, allowPinned: true)
     }
 
-    private func closeTabsBelow(tabId: UUID) {
+    func closeTabsBelow(tabId: UUID) {
         guard let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == tabId }) else { return }
         let idsToClose = tabManager.tabs.suffix(from: anchorIndex + 1).map { $0.id }
         closeTabs(idsToClose, allowPinned: true)
     }
 
-    private func closeTabsAbove(tabId: UUID) {
+    func closeTabsAbove(tabId: UUID) {
         guard let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == tabId }) else { return }
         let idsToClose = tabManager.tabs.prefix(upTo: anchorIndex).map { $0.id }
         closeTabs(idsToClose, allowPinned: true)
     }
 
-    private func markTabsRead(_ targetIds: [UUID]) {
+    func markTabsRead(_ targetIds: [UUID]) {
         for id in targetIds {
             notificationStore.markRead(forTabId: id)
         }
     }
 
-    private func markTabsUnread(_ targetIds: [UUID]) {
+    func markTabsUnread(_ targetIds: [UUID]) {
         for id in targetIds {
             notificationStore.markUnread(forTabId: id)
         }
     }
 
-    private func clearLatestNotifications(_ targetIds: [UUID]) {
+    func clearLatestNotifications(_ targetIds: [UUID]) {
         for id in targetIds {
             notificationStore.clearLatestNotification(forTabId: id)
         }
     }
 
-    private func hasLatestNotifications(in targetIds: [UUID]) -> Bool {
+    func hasLatestNotifications(in targetIds: [UUID]) -> Bool {
         targetIds.contains { notificationStore.latestNotification(forTabId: $0) != nil }
     }
 
-    private func syncSelectionAfterMutation() {
+    func syncSelectionAfterMutation() {
         let existingIds = Set(tabManager.tabs.map { $0.id })
         selectedTabIds = selectedTabIds.filter { existingIds.contains($0) }
         if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
@@ -14754,6 +14356,9 @@ struct TabItemView: View, Equatable {
     }
 
     private func makeWorkspaceSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {
+#if DEBUG
+        sidebarLazyContractProbe.workspaceSnapshotBuild?()
+#endif
         let signpost = SidebarProfilingSignposts.begin("sidebar-workspace-snapshot", "workspace=\(sidebarShortTabId(tab.id)) details=\(settings.visibleAuxiliaryDetails)"); defer { SidebarProfilingSignposts.end(signpost) }
         let detailVisibility = visibleAuxiliaryDetails
         let orderedPanelIds: [UUID]? = (detailVisibility.showsBranchDirectory || detailVisibility.showsPullRequests)
@@ -14836,7 +14441,7 @@ struct TabItemView: View, Equatable {
         return description
     }
 
-    private func moveWorkspaces(_ workspaceIds: [UUID], toWindow windowId: UUID) {
+    func moveWorkspaces(_ workspaceIds: [UUID], toWindow windowId: UUID) {
         guard let app = AppDelegate.shared else { return }
         let orderedWorkspaceIds = tabManager.tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }
         guard !orderedWorkspaceIds.isEmpty else { return }
@@ -14850,7 +14455,7 @@ struct TabItemView: View, Equatable {
         syncSelectionAfterMutation()
     }
 
-    private func moveWorkspacesToNewWindow(_ workspaceIds: [UUID]) {
+    func moveWorkspacesToNewWindow(_ workspaceIds: [UUID]) {
         guard let app = AppDelegate.shared else { return }
         let orderedWorkspaceIds = tabManager.tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }
         guard let firstWorkspaceId = orderedWorkspaceIds.first else { return }
@@ -15194,11 +14799,11 @@ struct TabItemView: View, Equatable {
         }
     }
 
-    private func applyTabColor(_ hex: String?, targetIds: [UUID]) {
+    func applyTabColor(_ hex: String?, targetIds: [UUID]) {
         tabManager.applyWorkspaceColor(hex, toWorkspaceIds: targetIds)
     }
 
-    private func promptCustomColor(targetIds: [UUID]) {
+    func promptCustomColor(targetIds: [UUID]) {
         let alert = NSAlert()
         alert.messageText = String(localized: "alert.customColor.title", defaultValue: "Custom Workspace Color")
         alert.informativeText = String(localized: "alert.customColor.message", defaultValue: "Enter a hex color in the format #RRGGBB.")
@@ -15241,7 +14846,7 @@ struct TabItemView: View, Equatable {
         _ = alert.runModal()
     }
 
-    private func promptRename() {
+    func promptRename() {
         let alert = NSAlert()
         alert.messageText = String(localized: "alert.renameWorkspace.title", defaultValue: "Rename Workspace")
         alert.informativeText = String(localized: "alert.renameWorkspace.message", defaultValue: "Enter a custom name for this workspace.")
@@ -15262,7 +14867,7 @@ struct TabItemView: View, Equatable {
         tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
     }
 
-    private func beginWorkspaceDescriptionEditFromContextMenu() {
+    func beginWorkspaceDescriptionEditFromContextMenu() {
         selectedTabIds = [tab.id]
         lastSidebarSelectionIndex = index
         tabManager.selectTab(tab)
@@ -15456,7 +15061,7 @@ private struct SidebarMetadataEntryRow: View {
 
     @ViewBuilder
     private func rowContent(underlined: Bool) -> some View {
-        HStack(spacing: 4) {
+        HStack(alignment: .center, spacing: 4) {
             if let icon = iconView {
                 icon
                     .foregroundColor(foregroundColor.opacity(0.95))

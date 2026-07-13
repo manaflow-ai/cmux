@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "내 개인 플랜",
+        "free": "무료",
+        "pro": "Pro",
+        "loading": "불러오는 중…"
+      }
     }
   },
   "community": {
@@ -3461,6 +3469,9 @@
       "faqQ4": "Cursor CLI와 함께 쓰는 cmux는 무료인가요?",
       "faqA4": "네. cmux는 macOS용 무료 오픈 소스입니다."
     }
+  },
+  "pricing": {
+    "billingUnavailable": "지금은 결제를 사용할 수 없습니다. 나중에 다시 시도해 주세요."
   },
   "platforms": {
     "macos": "macOS",

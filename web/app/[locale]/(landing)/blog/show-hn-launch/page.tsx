@@ -1,7 +1,8 @@
 import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
+import { blogPostSeoCopy } from "@/i18n/audited-seo";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "@/i18n/navigation";
 import { Tweet } from "react-tweet";
@@ -10,26 +11,22 @@ import starHistory from "./star-history.png";
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "blog.showHnLaunch" });
+  const post = await getTranslations({ locale, namespace: "blog.posts.showHnLaunch" });
+  const siteMeta = await getTranslations({ locale, namespace: "meta" });
+  const alternates = buildAlternates(locale, "/blog/show-hn-launch");
+  const { title, description } = blogPostSeoCopy(locale, "showHnLaunch", t, post, siteMeta);
   return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    keywords: [
-      "cmux", "Show HN", "Hacker News", "terminal", "macOS", "Ghostty",
-      "libghostty", "AI coding agents", "Claude Code", "Codex", "launch",
-      "vertical tabs", "notification rings",
-    ],
+    title: { absolute: title },
+    description,
     openGraph: {
-      title: t("metaTitle"),
-      description: t("metaDescription"),
-      type: "article",
+      ...openGraphDefaults(locale, "article"),
+      title,
+      description,
+      url: alternates.canonical,
       publishedTime: "2026-02-21T00:00:00Z",
     },
-    twitter: {
-      card: "summary_large_image",
-      title: t("metaTitle"),
-      description: t("metaDescription"),
-    },
-    alternates: buildAlternates(locale, "/blog/show-hn-launch"),
+    twitter: twitterSummary(locale, title, description),
+    alternates,
   };
 }
 
@@ -39,7 +36,7 @@ export default function ShowHNLaunchPage() {
 
   return (
     <>
-      <BlogSchema postKey="showHnLaunch" path="/blog/show-hn-launch" datePublished="2026-02-21T00:00:00Z" />
+      <BlogSchema postKey="showHnLaunch" seoKey="showHnLaunch" path="/blog/show-hn-launch" datePublished="2026-02-21T00:00:00Z" />
       <div className="mb-8">
         <Link
           href="/blog"

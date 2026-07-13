@@ -47,6 +47,7 @@ extension CMUXCLI {
             "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "terminationReason",
             "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
             "additional_details", "additionalDetails", "description",
+            "campfire_event_type", "campfireEventType", "display_name", "displayName", "capability",
         ] {
             if let value = compactClaudeHookValue(object[key], key: key) {
                 compact[key] = value
@@ -124,6 +125,7 @@ extension CMUXCLI {
                 "assistantPreamble", "assistant_preamble", "user_message", "userMessage",
                 "title", "command", "description", "pattern_key", "patternKey",
                 "surface", "choice", "message", "body", "text", "prompt", "summary", "error",
+                "campfire_event_type", "campfireEventType", "display_name", "displayName", "capability",
             ] {
                 if let value = compactClaudeHookValue(extra[extraKey], key: extraKey) {
                     compactExtra[extraKey] = value
@@ -139,12 +141,14 @@ extension CMUXCLI {
 
     private func claudeHookCompactFieldLimit(for key: String) -> Int {
         switch key {
-        case "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source":
+        case "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "campfire_event_type", "campfireEventType", "capability":
             return 80
         case "transcript_path", "transcriptPath":
             return 240
         case "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse", "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description", "terminationReason", "user_message", "userMessage", "command":
             return 240
+        case "display_name", "displayName":
+            return 120
         default:
             return 160
         }

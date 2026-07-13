@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "Dein persönlicher Tarif",
+        "free": "Kostenlos",
+        "pro": "Pro",
+        "loading": "Wird geladen…"
+      }
     }
   },
   "community": {
@@ -1458,6 +1466,7 @@
       "title": "SSH",
       "metaTitle": "SSH",
       "metaDescription": "Stellen Sie mit cmux ssh eine Verbindung zu Remote-Computern her. Browserfenster werden durch das Remote-Netzwerk geleitet, Bilder werden per Drag-and-Drop per SCP verschoben und Agentenbenachrichtigungen kommen sofort nach Hause.",
+      "metaDescriptionShort": "Verbinde dich mit cmux ssh mit Remote-Computern. Browser laufen über das Remote-Netzwerk, Dateien über scp und Agentenmeldungen zurück zum Mac.",
       "intro": "cmux ssh erstellt einen Arbeitsbereich für einen Remote-Computer. Browserfenster werden durch das Remote-Netzwerk weitergeleitet, Dateien werden per Drag-and-Drop per SCP verschoben, Codierungsagenten senden Benachrichtigungen an Ihre lokale Seitenleiste und Sitzungen werden beim Ablegen wieder verbunden.",
       "usage": "Nutzung",
       "usageDesc": "cmux ssh liest Ihre ~/.ssh/config für Host-Aliase, Identitätsdateien und Proxy-Einstellungen. Alle Flags spiegeln ihre SSH-Entsprechungen wider.",
@@ -1527,11 +1536,13 @@
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode-Multi-Agent in cmux",
-      "metaDescription": "oh-my-opencode (cmux omo) führt die OpenCode CLI mit dem oh-my-openagent-Plugin in cmux aus. Orchestrieren Sie Claude, GPT, Gemini und Grok als parallele Agenten, jeder in einem nativen cmux-Split."
+      "metaDescription": "cmux omo startet OpenCode mit oh-my-openagent. Claude, GPT, Gemini und Grok arbeiten parallel als Agenten, jeweils in einem nativen cmux-Split.",
+      "metaDescriptionShort": "cmux omo startet OpenCode mit oh-my-openagent. Claude, GPT, Gemini und Grok arbeiten parallel als Agenten, jeweils in einem nativen cmux-Split."
     },
     "ios": {
       "metaTitle": "iOS-App",
       "metaDescription": "Richte die cmux-Begleit-App für iOS ein: TestFlight-Zugang, eigenes Netzwerk mit Tailscale oder WireGuard, Kopplung, Benachrichtigungen und welche Daten cmux speichert.",
+      "metaDescriptionShort": "Richte die cmux-App für iOS ein: TestFlight-Zugang, Tailscale- oder WireGuard-Netzwerk, Kopplung, Benachrichtigungen und gespeicherte Daten.",
       "title": "iOS-App",
       "intro": "Die cmux-App für iOS ist ein Begleiter für deinen Mac. Koppele dein iPhone oder iPad mit einem Mac, auf dem cmux läuft, und verbinde dich vom Telefon aus mit deinen Terminals, mit optionaler Weiterleitung von Terminal-Benachrichtigungen.",
       "betaNote": "Die iOS-App ist in der Beta. Sie wird über TestFlight als cmux BETA bereitgestellt.",
@@ -3461,6 +3472,9 @@
       "faqQ4": "Ist cmux mit Cursor CLI kostenlos nutzbar?",
       "faqA4": "Ja. cmux ist kostenlos und quelloffen für macOS."
     }
+  },
+  "pricing": {
+    "billingUnavailable": "Die Abrechnung ist derzeit nicht verfügbar. Bitte versuche es später erneut."
   },
   "platforms": {
     "macos": "macOS",

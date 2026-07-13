@@ -82,16 +82,17 @@ struct TerminalAccessoryConfigurationTests {
 
     @Test("Return's persisted identifier is stable")
     func returnKeyStableIdentifier() {
-        // The persisted key is `builtin.<rawValue>`; Return is appended last in the
-        // enum so existing built-ins keep their raw values. Lock the storage key so
-        // a future reorder of the enum cannot silently shift it.
+        // The persisted key is `builtin.<rawValue>`; the enum is append-only so
+        // existing built-ins keep their raw values. Lock the storage key so a
+        // future reorder of the enum cannot silently shift it.
         let stored = TerminalInputAccessoryAction.returnKey.itemID.storageKey
         #expect(stored == "builtin.\(TerminalInputAccessoryAction.returnKey.rawValue)")
         let parsed = ToolbarItemID(storageKey: stored)
         #expect(parsed == id(.returnKey))
-        // Appended last: its raw value is the max across all cases.
-        let maxRaw = TerminalInputAccessoryAction.allCases.map(\.rawValue).max()
-        #expect(TerminalInputAccessoryAction.returnKey.rawValue == maxRaw)
+        // Append-only enum: pin the persisted raw values of the appended cases
+        // so a reorder cannot silently shift them (new cases go after the max).
+        #expect(TerminalInputAccessoryAction.returnKey.rawValue == 29)
+        #expect(TerminalInputAccessoryAction.ollama.rawValue == 30)
     }
 
     // MARK: - Reorder + hide/show round-trips

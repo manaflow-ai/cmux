@@ -1,7 +1,8 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import Image from "next/image";
-import { buildAlternates } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
+import { assetsSeoCopy } from "@/i18n/audited-seo";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 
 const brandAssets = [
@@ -35,10 +36,20 @@ export async function generateMetadata({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "brandAssets" });
+  const siteMeta = await getTranslations({ locale, namespace: "meta" });
+  const alternates = buildAlternates(locale, "/assets");
+  const { title, description } = assetsSeoCopy(locale, t, siteMeta);
   return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/assets"),
+    title,
+    description,
+    alternates,
+    openGraph: {
+      ...openGraphDefaults(locale, "website"),
+      title,
+      description,
+      url: alternates.canonical,
+    },
+    twitter: twitterSummary(locale, title, description),
   };
 }
 

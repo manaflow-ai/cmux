@@ -9,30 +9,12 @@ const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
 const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
 
 let stackConfigured = false;
-let proActive = false;
 let stripeSubscriptionRows: Array<Record<string, unknown>> = [];
 const proUser = {
   id: "user-pro",
   isAnonymous: false,
   primaryEmail: "pro@example.com",
   clientReadOnlyMetadata: { cmuxPlan: "pro" },
-  listProducts: mock(async () =>
-    Object.assign(
-      proActive
-        ? [
-            {
-              id: "pro",
-              quantity: 1,
-              subscription: {
-                cancelAtPeriodEnd: false,
-                currentPeriodEnd: null,
-              },
-            },
-          ]
-        : [],
-      { nextCursor: null },
-    ),
-  ),
   update: mock(async () => undefined),
 };
 const getUser = mock(async () => proUser);
@@ -82,10 +64,8 @@ const { default: PricingPage } = await import("../app/[locale]/pricing/page");
 describe("localized pricing page", () => {
   beforeEach(() => {
     stackConfigured = false;
-    proActive = false;
     stripeSubscriptionRows = [];
     getUser.mockClear();
-    proUser.listProducts.mockClear();
     proUser.update.mockClear();
   });
 
@@ -97,23 +77,20 @@ describe("localized pricing page", () => {
     expect(html).not.toContain("Manage billing");
   });
 
-  test("renders the external billing note without a portal link for Stack Pro snapshots", async () => {
+  test("renders Stack metadata-only Pro snapshots as Free", async () => {
     stackConfigured = true;
-    proActive = true;
 
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
     const html = renderToStaticMarkup(element);
 
     expect(html).not.toContain('href="/api/billing/portal"');
-    expect(html).toContain(
-      "Your subscription is managed by our previous billing system. Contact support to make changes.",
-    );
-    expect(html).toContain("Current plan");
+    // PRO_CHECKOUT_URL appends the external-browser intent param, so match the
+    // path prefix rather than an exact href.
+    expect(html).toContain("/api/billing/checkout?plan=pro");
   });
 
   test("renders Manage billing for Stripe-managed Pro snapshots", async () => {
     stackConfigured = true;
-    proActive = true;
     stripeSubscriptionRows = [{ id: "sub_123" }];
 
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });

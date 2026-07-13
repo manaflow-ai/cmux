@@ -130,15 +130,20 @@ public struct PairedMacRestore: Sendable {
             }
             do {
                 let backupDate = Date(timeIntervalSince1970: backupSeconds)
-                try await store.upsert(
+                let restoredThisRecord = try await store.upsertIfNewer(
                     macDeviceID: record.macDeviceID,
                     displayName: record.displayName,
                     routes: record.routes,
+                    instanceTag: record.instanceTag,
+                    customName: record.customName,
+                    customColor: record.customColor,
+                    customIcon: record.customIcon,
                     markActive: markActive,
                     stackUserID: accountID,
                     teamID: teamID,
                     now: backupDate
                 )
+                guard restoredThisRecord else { continue }
                 if !isCurrent() {
                     if localByID[record.macDeviceID] == nil {
                         try? await store.remove(
@@ -149,19 +154,6 @@ public struct PairedMacRestore: Sendable {
                     }
                     return RestoreOutcome(completed: false, restored: restored)
                 }
-                // Apply the user customizations from the (fresher) backup so a
-                // rename / color / icon set on another device lands here. Set
-                // verbatim (including nil) so a cleared override clears here too;
-                // `upsert` preserves customizations, so this is the only writer.
-                try await store.setCustomization(
-                    macDeviceID: record.macDeviceID,
-                    customName: record.customName,
-                    customColor: record.customColor,
-                    customIcon: record.customIcon,
-                    stackUserID: accountID,
-                    teamID: teamID,
-                    now: backupDate
-                )
                 if !isCurrent() {
                     return RestoreOutcome(completed: false, restored: restored)
                 }

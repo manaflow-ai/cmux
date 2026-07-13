@@ -1,4 +1,3 @@
-import type { CSSProperties } from "react";
 import { headers } from "next/headers";
 import { NextRequest } from "next/server";
 import { redirect } from "next/navigation";
@@ -6,8 +5,13 @@ import { getStackServerApp, isStackConfigured } from "../lib/stack";
 import { validatedNativeCallbackScheme } from "../lib/native-callback";
 import { FREE_PLAN_ID, resolveProPlanStatus } from "../../services/billing/pro";
 import enMessages from "../../messages/en.json";
-import { appPricingCheckoutURL } from "../lib/billing";
+import { appPricingCheckoutURL, isAppStoreDistributionMode } from "../lib/billing";
 import { DOWNLOAD_CONFIRMATION_HREF } from "../lib/download";
+import {
+  appPricingAppearance,
+  appPricingPageBackground,
+  appPricingStyle,
+} from "./appearance";
 import {
   CurrentPlanBadge,
   DisabledButton,
@@ -24,6 +28,7 @@ import {
   type FaqItem,
   type SizeRow,
 } from "../components/pricing-shared";
+import { CheckoutButton } from "../components/checkout-navigation";
 
 const ENTERPRISE_CTA_URL = "/enterprise";
 const pricing = enMessages.pricing;
@@ -46,6 +51,7 @@ export default async function AppPricingPage({
     firstParam(params.cmux_scheme),
     appPricingRequest(headersList),
   );
+  const appStorePaymentGated = isAppStoreDistributionMode(params);
   const proCheckoutURL = appPricingCheckoutURL("pro", requestOrigin, cmuxScheme);
   const teamCheckoutURL = appPricingCheckoutURL("team", requestOrigin, cmuxScheme);
   const banner = appPricingBanner(params);
@@ -114,18 +120,16 @@ export default async function AppPricingPage({
               {snapshot.isPro ? (
                 <div className="space-y-2">
                   <DisabledButton>{pricing.currentPlan}</DisabledButton>
-                  {snapshot.billingManagement === "stripe" ? (
+                  {appStorePaymentGated ? null : (
                     <SecondaryLink href="/api/billing/portal">
                       {pricing.manageBilling}
                     </SecondaryLink>
-                  ) : (
-                    <p className="text-sm leading-6 text-muted">
-                      {pricing.billingExternal}
-                    </p>
                   )}
                 </div>
+              ) : appStorePaymentGated ? (
+                <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
               ) : (
-                <PrimaryLink href={proCheckoutURL}>{pricing.pro.cta}</PrimaryLink>
+                <CheckoutButton href={proCheckoutURL}>{pricing.pro.cta}</CheckoutButton>
               )}
               <p className="mt-5 text-sm font-medium">
                 {pricing.pro.featuresLead}
@@ -138,7 +142,11 @@ export default async function AppPricingPage({
               price={pricing.team.price}
               period={pricing.perUserMonth}
             >
-              <PrimaryLink href={teamCheckoutURL}>{pricing.team.cta}</PrimaryLink>
+              {appStorePaymentGated ? (
+                <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
+              ) : (
+                <CheckoutButton href={teamCheckoutURL}>{pricing.team.cta}</CheckoutButton>
+              )}
               <p className="mt-5 text-sm font-medium">
                 {pricing.team.featuresLead}
               </p>
@@ -149,9 +157,13 @@ export default async function AppPricingPage({
               name={pricing.enterprise.name}
               price={pricing.enterprise.price}
             >
-              <SecondaryLink href={ENTERPRISE_CTA_URL}>
-                {pricing.enterprise.cta}
-              </SecondaryLink>
+              {appStorePaymentGated ? (
+                <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
+              ) : (
+                <SecondaryLink href={ENTERPRISE_CTA_URL}>
+                  {pricing.enterprise.cta}
+                </SecondaryLink>
+              )}
               <p className="mt-5 text-sm font-medium">
                 {pricing.enterprise.featuresLead}
               </p>
@@ -186,17 +198,23 @@ export default async function AppPricingPage({
                   ),
                 pro: snapshot.isPro ? (
                   <DisabledButton size="compact">{pricing.currentPlan}</DisabledButton>
+                ) : appStorePaymentGated ? (
+                  <DisabledButton size="compact">{pricing.billingUnavailable}</DisabledButton>
                 ) : (
-                  <PrimaryLink href={proCheckoutURL} size="compact">
+                  <CheckoutButton href={proCheckoutURL} size="compact">
                     {pricing.pro.cta}
-                  </PrimaryLink>
+                  </CheckoutButton>
                 ),
-                team: (
-                  <PrimaryLink href={teamCheckoutURL} size="compact">
+                team: appStorePaymentGated ? (
+                  <DisabledButton size="compact">{pricing.billingUnavailable}</DisabledButton>
+                ) : (
+                  <CheckoutButton href={teamCheckoutURL} size="compact">
                     {pricing.team.cta}
-                  </PrimaryLink>
+                  </CheckoutButton>
                 ),
-                enterprise: (
+                enterprise: appStorePaymentGated ? (
+                  <DisabledButton size="compact">{pricing.billingUnavailable}</DisabledButton>
+                ) : (
                   <SecondaryLink href={ENTERPRISE_CTA_URL} size="compact">
                     {pricing.enterprise.cta}
                   </SecondaryLink>
@@ -237,7 +255,7 @@ type AppPlanSnapshot = {
   authenticated: boolean;
   planId: string;
   isPro: boolean;
-  billingManagement: "stripe" | "external" | "none";
+  billingManagement: "stripe" | "none";
   email: string | null;
 };
 
@@ -290,12 +308,6 @@ function appPricingBanner(
   if (welcome === "active") {
     return { message: pricing.welcomeActive };
   }
-  if (welcome === "pending") {
-    return {
-      message: pricing.welcomePending,
-      action: { href: "/api/billing/confirm", label: pricing.welcomePendingAction },
-    };
-  }
   if (welcome === "team") {
     return { message: pricing.welcomeTeam };
   }
@@ -304,9 +316,6 @@ function appPricingBanner(
   }
   if (billing === "unavailable") {
     return { message: pricing.billingUnavailable };
-  }
-  if (billing === "external") {
-    return { message: pricing.billingExternal };
   }
   if (billing === "cancelled") {
     return { message: pricing.billingCancelled };
@@ -342,53 +351,6 @@ function BillingBanner({ banner }: { banner: BillingBannerModel }) {
       ) : null}
     </div>
   );
-}
-
-function appPricingAppearance(
-  params: Record<string, string | string[] | undefined>,
-): "light" | "dark" {
-  return firstParam(params.appearance) === "dark" ? "dark" : "light";
-}
-
-function appPricingPageBackground(
-  params: Record<string, string | string[] | undefined>,
-  appearance: "light" | "dark",
-): string {
-  const background = firstParam(params.background);
-  if (background && /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(background)) {
-    return background;
-  }
-  return appearance === "dark" ? "#272822" : "#fafafa";
-}
-
-function appPricingStyle(
-  appearance: "light" | "dark",
-  pageBackground: string,
-): CSSProperties {
-  if (appearance === "dark") {
-    return {
-      "--foreground": "#ededed",
-      "--muted": "#a3a3a3",
-      "--border": "rgba(255, 255, 255, 0.18)",
-      "--code-bg": "rgba(24, 24, 24, 0.72)",
-      "--background": pageBackground,
-      "--pricing-sticky-bg": pageBackground,
-      "--button-foreground": pageBackground,
-      backgroundColor: pageBackground,
-      colorScheme: "dark",
-    } as CSSProperties;
-  }
-  return {
-    "--foreground": "#171717",
-    "--muted": "#5f6368",
-    "--border": "rgba(0, 0, 0, 0.14)",
-    "--code-bg": "rgba(245, 245, 245, 0.78)",
-    "--background": pageBackground,
-    "--pricing-sticky-bg": pageBackground,
-    "--button-foreground": "#ffffff",
-    backgroundColor: pageBackground,
-    colorScheme: "light",
-  } as CSSProperties;
 }
 
 function appPricingRequestOrigin(headersList: Headers): string | null {

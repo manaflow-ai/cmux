@@ -453,7 +453,7 @@ enum AgentResumeCommandBuilder {
 
         var environmentParts: [String] = []
         var preservedClaudeAuthSelectionEnvironmentKeys: [String] = []
-        let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment, kind: kind.rawValue)
+        let selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: environment, kind: kind.rawValue)
         for key in selectedEnvironment.keys.sorted() {
             guard let value = selectedEnvironment[key] else { continue }
             environmentParts.append("\(key)=\(value)")
@@ -489,9 +489,9 @@ enum AgentResumeCommandBuilder {
         case .passthrough:
             break
         }
-
         if case .custom = kind {
             guard let customRegistration else { return nil }
+            if let arguments = campfireBuiltInResumeArguments(customRegistration: customRegistration, sessionId: sessionId, launchCommand: launchCommand) { return arguments }
             if customRegistration.id == CmuxVaultAgentRegistration.builtInAntigravity.id {
                 return resumeWithOption(
                     kind: "antigravity",
@@ -739,26 +739,6 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     var launchCommand: AgentLaunchCommandSnapshot?
     var registration: CmuxVaultAgentRegistration? = nil
 
-    var resumeCommand: String? {
-        AgentResumeCommandBuilder.resumeShellCommand(
-            kind: kind,
-            sessionId: sessionId,
-            launchCommand: launchCommand,
-            workingDirectory: workingDirectory,
-            registrationOverride: registration
-        )
-    }
-
-    var forkCommand: String? {
-        AgentResumeCommandBuilder.forkShellCommand(
-            kind: kind,
-            sessionId: sessionId,
-            launchCommand: launchCommand,
-            workingDirectory: workingDirectory,
-            registrationOverride: registration
-        )
-    }
-
     func resumeStartupInput(
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
@@ -838,16 +818,6 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
 
         let scriptInput = "/bin/zsh \(shellSingleQuoted(scriptURL.path))\n"
         return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
-    }
-}
-
-extension SessionRestorableAgentSnapshot {
-    var agentDisplayName: String {
-        if let name = registration?.name.trimmingCharacters(in: .whitespacesAndNewlines),
-           !name.isEmpty {
-            return name
-        }
-        return kind.displayName
     }
 }
 
@@ -940,6 +910,7 @@ struct RestorableAgentSessionIndex: Sendable {
         case explicit
         case inferredLatestSessionFile
         case forkParentFallback
+        case relaunchOnly
     }
 
     typealias ProcessDetectedSnapshotEntry = (
@@ -963,7 +934,7 @@ struct RestorableAgentSessionIndex: Sendable {
     private let entriesByPanel: [PanelKey: Entry]
     private let entriesByPanelId: [UUID: Entry]
 
-    private func entry(workspaceId: UUID, panelId: UUID) -> Entry? {
+    func entry(workspaceId: UUID, panelId: UUID) -> Entry? {
         entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? entriesByPanelId[panelId]
     }
 
@@ -1081,6 +1052,7 @@ struct RestorableAgentSessionIndex: Sendable {
             homeDirectory: homeDirectory,
             fileManager: fileManager
         )
+        let codexCwdLookup = CodexSessionCwdLookupCache(fileManager: fileManager)
         let builtInKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
         let hookKinds: [(kind: RestorableAgentKind, registration: CmuxVaultAgentRegistration?)] =
             RestorableAgentKind.allCases.map { (kind: $0, registration: nil) }
@@ -1136,7 +1108,8 @@ struct RestorableAgentSessionIndex: Sendable {
                         kind: kind,
                         registration: registration,
                         fileManager: fileManager,
-                        lookup: claudeTranscriptLookup
+                        lookup: claudeTranscriptLookup,
+                        codexCwdLookup: codexCwdLookup
                     ),
                     launchCommand: effectiveRecord.launchCommand,
                     registration: registration
@@ -1537,7 +1510,8 @@ struct RestorableAgentSessionIndex: Sendable {
         kind: RestorableAgentKind,
         registration: CmuxVaultAgentRegistration?,
         fileManager: FileManager,
-        lookup: ClaudeTranscriptLookupCache
+        lookup: ClaudeTranscriptLookupCache,
+        codexCwdLookup: CodexSessionCwdLookupCache
     ) -> String? {
         let recordedCwd = normalizedWorkingDirectory(record.cwd)
         let launchCwd = normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
@@ -1555,7 +1529,7 @@ struct RestorableAgentSessionIndex: Sendable {
         case .cwdInFile:
             // Resume is addressed by id and the cwd lives inside the record, so the runtime cwd is
             // fine — keeping it preserves the directory the agent was working in.
-            return recordedCwd ?? launchCwd
+            return recordedCwd ?? launchCwd ?? codexCwdLookup.workingDirectory(kind: kind, sessionId: record.sessionId, launchCommand: record.launchCommand)
         case .byDirectory:
             if kind == .claude,
                let verified = claudeVerifiedRestorableWorkingDirectory(
@@ -2146,25 +2120,12 @@ struct RestorableAgentSessionIndex: Sendable {
             kind: kind,
             liveExecutable: liveExecutable,
             recordedExecutable: recordedExecutable,
-            arguments: process.arguments
+            arguments: process.arguments,
+            environment: process.environment
         ) else {
             return nil
         }
         return pid
-    }
-
-    private static func liveProcessExecutableMatchesRecordedAgent(
-        kind: RestorableAgentKind,
-        liveExecutable: String,
-        recordedExecutable: String,
-        arguments: [String]
-    ) -> Bool {
-        if liveExecutable.compare(recordedExecutable, options: [.caseInsensitive, .literal]) == .orderedSame {
-            return true
-        }
-
-        return CachedAgentProcessIdentityValidator.liveClaudeProcessExecutableMatches(kind: kind, liveExecutable: liveExecutable, arguments: arguments)
-            || CachedAgentProcessIdentityValidator.liveCodexProcessExecutableMatches(kind: kind, liveExecutable: liveExecutable, arguments: arguments)
     }
 
     private static func recordedExecutableBasename(_ record: RestorableAgentHookSessionRecord) -> String? {

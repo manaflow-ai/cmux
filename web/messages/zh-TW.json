@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "你的個人方案",
+        "free": "免費",
+        "pro": "Pro",
+        "loading": "載入中…"
+      }
     }
   },
   "community": {
@@ -1514,6 +1522,7 @@
       "title": "TextBox（測試版）",
       "metaTitle": "TextBox（測試版）",
       "metaDescription": "為新的終端機分頁、分割和工作區設定 cmux 測試版 TextBox 輸入。",
+      "metaDescriptionShort": "TextBox 是 cmux 的富文字終端機輸入介面，可在傳送到終端機前編寫與編輯提示，並支援多行輸入、歷史記錄、鍵盤快捷鍵與可設定的終端機整合。",
       "intro": "TextBox 是 cmux 的富文字終端機輸入介面，可在傳送到終端機前編寫提示。",
       "betaCallout": "TextBox 是測試版功能。測試期間，預設值和行為可能會變更。",
       "defaultsTitle": "預設值",
@@ -1527,7 +1536,8 @@
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode：在 cmux 中執行 OpenCode 多代理",
-      "metaDescription": "oh-my-opencode（cmux omo）在 cmux 中執行帶 oh-my-openagent 外掛的 OpenCode CLI。將 Claude、GPT、Gemini 和 Grok 作為並行代理編排，每個都在獨立的原生 cmux 分割中。"
+      "metaDescription": "oh-my-opencode（cmux omo）在 cmux 中執行帶 oh-my-openagent 外掛的 OpenCode CLI。將 Claude、GPT、Gemini 和 Grok 作為並行代理編排，每個都在獨立的原生 cmux 分割中。",
+      "metaDescriptionShort": "oh-my-opencode（cmux omo）在 cmux 中執行帶 oh-my-openagent 外掛的 OpenCode CLI。將 Claude、GPT、Gemini 和 Grok 作為並行代理編排，每個都在獨立的原生 cmux 分割中。"
     },
     "ios": {
       "metaTitle": "iOS 應用程式",
@@ -3461,6 +3471,9 @@
       "faqQ4": "搭配 Cursor CLI 使用的 cmux 免費嗎？",
       "faqA4": "免費。cmux 是面向 macOS 的免費開源軟體。"
     }
+  },
+  "pricing": {
+    "billingUnavailable": "目前無法使用結算功能。請稍後再試。"
   },
   "platforms": {
     "macos": "macOS",
