@@ -1604,6 +1604,7 @@ struct ContentView: View {
                 )
             },
             observedWindow: observedWindow,
+            sidebarTabSearchEntriesProvider: { commandPaletteSwitcherEntries(includeSurfaces: true) },
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
         )
@@ -9878,6 +9879,10 @@ struct VerticalTabsSidebar: View {
     let onToggleSidebar: () -> Void
     let onNewTab: () -> Void
     let observedWindow: NSWindow?
+    /// Supplies the tab-name search field with the Cmd-P switcher corpus
+    /// (workspaces + surfaces, each with its focus action). Defaulted so
+    /// previews and tests can construct the sidebar without wiring it.
+    var sidebarTabSearchEntriesProvider: () -> [CommandPaletteCommand] = { [] }
     @EnvironmentObject var tabManager: TabManager
     // Observe the coalesced unread projection instead of the notification store
     // so notification churn (terminal/agent activity) no longer reconstructs
@@ -10011,6 +10016,9 @@ struct VerticalTabsSidebar: View {
     private var sidebarTitlebarInteractionHeight: CGFloat {
         MinimalModeChromeMetrics.titlebarHeight
     }
+    /// Vertical space reserved under the titlebar strip for the pinned
+    /// ``SidebarTabSearchView`` field so the first workspace row clears it.
+    static let sidebarTabSearchBandHeight: CGFloat = 40
 
     /// Adapter binding for unmigrated consumers (extension sidebar drop
     /// delegates, bonsplit overlays) that still expect @Binding<UUID?>. Reads
@@ -10442,7 +10450,14 @@ struct VerticalTabsSidebar: View {
     }
 
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
-        let scrollInsets = SidebarWorkspaceScrollInsets.workspaceList
+        let baseInsets = SidebarWorkspaceScrollInsets.workspaceList
+        // Reserve a band under the titlebar strip for the pinned tab-search
+        // field. Folding it into `scrollInsets.top` keeps the first-row offset,
+        // reorder drop zone, and content-height math consistent in one place.
+        let scrollInsets = SidebarWorkspaceScrollInsets(
+            top: baseInsets.top + Self.sidebarTabSearchBandHeight,
+            bottom: baseInsets.bottom
+        )
         return ScrollViewReader { scrollProxy in
             ScrollView(.vertical) {
                 workspaceScrollContent(renderContext: renderContext, minHeight: workspaceScrollContentMinHeight)
@@ -10484,6 +10499,14 @@ struct VerticalTabsSidebar: View {
                 )
                 .frame(maxWidth: .infinity)
                 .frame(height: scrollInsets.top)
+            }
+            .overlay(alignment: .top) {
+                // Applied after `.mask(...)` so the fade never dims the field.
+                // Padded below the draggable titlebar strip / window controls.
+                SidebarTabSearchView(entriesProvider: sidebarTabSearchEntriesProvider)
+                    .padding(.top, sidebarTitlebarInteractionHeight)
+                    .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
+                    .frame(maxWidth: .infinity, alignment: .top)
             }
             .background(Color.clear)
             .modifier(ClearScrollBackground())
