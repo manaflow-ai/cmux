@@ -10,12 +10,18 @@ extension GitDiffService {
     ///     partial record is dropped, and the result is marked truncated, so
     ///     a workspace with an enormous change set cannot accumulate
     ///     unbounded memory.
+    ///   - maxFiles: Maximum rows to prepare with snapshot tokens.
     /// - Returns: Changed-file summaries in path order with a truncation marker,
     ///   or `nil` when any required Git command fails or times out.
-    public func changedFiles(repoRoot: String, maxOutputBytes: Int = 4 * 1024 * 1024) -> GitChangedFiles? {
+    public func changedFiles(
+        repoRoot: String,
+        maxOutputBytes: Int = 4 * 1024 * 1024,
+        maxFiles: Int = 4_000
+    ) -> GitChangedFiles? {
         guard case .success(let changed) = changedFilesResult(
             repoRoot: repoRoot,
-            maxOutputBytes: maxOutputBytes
+            maxOutputBytes: maxOutputBytes,
+            maxFiles: maxFiles
         ) else { return nil }
         return changed
     }
@@ -24,9 +30,10 @@ extension GitDiffService {
     /// callers that present actionable errors.
     public func changedFilesResult(
         repoRoot: String,
-        maxOutputBytes: Int = 4 * 1024 * 1024
+        maxOutputBytes: Int = 4 * 1024 * 1024,
+        maxFiles: Int = 4_000
     ) -> GitDiffQueryResult<GitChangedFiles> {
-        guard maxOutputBytes > 0 else { return .notFound }
+        guard maxOutputBytes > 0, maxFiles > 0 else { return .notFound }
         let baseline: String
         switch diffBaselineResult(in: repoRoot) {
         case .success(let value):
@@ -50,7 +57,7 @@ extension GitDiffService {
         let numstat = runGit(
             in: repoRoot,
             arguments: [
-                "diff", baseline, "--numstat", "-z", "--no-color", "--find-renames",
+                "diff", baseline, "-O/dev/null", "--numstat", "-z", "--no-color", "--find-renames",
                 "--no-ext-diff", "--no-textconv",
             ],
             maxOutputBytes: maxOutputBytes
@@ -61,7 +68,7 @@ extension GitDiffService {
         let nameStatus = runGit(
             in: repoRoot,
             arguments: [
-                "diff", baseline, "--name-status", "-z", "--no-color", "--find-renames",
+                "diff", baseline, "-O/dev/null", "--name-status", "-z", "--no-color", "--find-renames",
                 "--no-ext-diff", "--no-textconv",
             ],
             maxOutputBytes: maxOutputBytes
@@ -97,6 +104,9 @@ extension GitDiffService {
             guard let verifiedNameStatusPath else { return false }
             return !Self.gitPathPrecedes(verifiedNameStatusPath, summary.path)
         }
+        let boundedFiles = Array(verifiedFiles.prefix(maxFiles))
+        let reachedFileLimit = boundedFiles.count < verifiedFiles.count
+        guard !Task.isCancelled else { return .failed }
         let finalContext: SnapshotContext
         switch snapshotContextResult(repoRoot: repoRoot, baselineObjectID: baseline) {
         case .success(let value):
@@ -108,8 +118,9 @@ extension GitDiffService {
         }
         guard finalContext == initialContext else { return .failed }
         var snapshotFiles: [GitDiffSummary] = []
-        snapshotFiles.reserveCapacity(verifiedFiles.count)
-        for summary in verifiedFiles {
+        snapshotFiles.reserveCapacity(boundedFiles.count)
+        for summary in boundedFiles {
+            guard !Task.isCancelled else { return .failed }
             let token: String
             switch snapshotTokenResult(repoRoot: repoRoot, context: finalContext, summary: summary) {
             case .success(let value):
@@ -133,7 +144,7 @@ extension GitDiffService {
         return .success(
             GitChangedFiles(
                 files: snapshotFiles,
-                truncated: numstat.capped || nameStatus.capped || untracked.capped
+                truncated: numstat.capped || nameStatus.capped || untracked.capped || reachedFileLimit
             )
         )
     }

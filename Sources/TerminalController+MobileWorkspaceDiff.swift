@@ -214,7 +214,8 @@ extension TerminalController {
         let changed: GitChangedFiles
         switch service.changedFilesResult(
             repoRoot: repoRoot,
-            maxOutputBytes: mobileWorkspaceDiffStatusReadCap
+            maxOutputBytes: mobileWorkspaceDiffStatusReadCap,
+            maxFiles: mobileWorkspaceDiffMaxFiles
         ) {
         case .success(let value):
             changed = value
@@ -223,11 +224,10 @@ extension TerminalController {
         case .timedOut:
             return .gitTimedOut
         }
-        let files = Array(changed.files.prefix(mobileWorkspaceDiffMaxFiles))
         return .ok(
             repoRoot: repoRoot,
-            files: files,
-            truncated: changed.truncated || files.count < changed.files.count
+            files: changed.files,
+            truncated: changed.truncated
         )
     }
 
