@@ -1,4 +1,5 @@
 import CmuxDiffModel
+import CmuxMobileShellModel
 import Foundation
 import Testing
 
@@ -6,6 +7,17 @@ import Testing
 
 @MainActor
 @Suite struct DiffReviewSessionTests {
+    @Test func workspaceIdentityChangesAcrossSidebarSelection() {
+        let first = DiffReviewWorkspaceIdentity(
+            workspaceID: MobileWorkspacePreview.ID(rawValue: "workspace-a")
+        )
+        let second = DiffReviewWorkspaceIdentity(
+            workspaceID: MobileWorkspacePreview.ID(rawValue: "workspace-b")
+        )
+
+        #expect(first != second)
+    }
+
     @Test func missingCurrentFileDoesNotProjectIdleState() {
         let state = DiffReviewFileLoadState.loading(path: "A.swift")
 

@@ -105,6 +105,27 @@ import Testing
         })
     }
 
+    @Test func filesystemMetadataTimeoutIsReported() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        try Data("new\n".utf8).write(to: repo.appendingPathComponent("untracked.txt"))
+        let stalledStat = repo.appendingPathComponent("stalled-stat.sh")
+        try Data("#!/bin/sh\nsleep 5\n".utf8).write(to: stalledStat)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: stalledStat.path
+        )
+        let service = GitDiffService(
+            fileSystemStatExecutableURL: stalledStat,
+            processDeadlineSeconds: 0.25
+        )
+
+        guard case .timedOut = service.changedFilesResult(repoRoot: repo.path) else {
+            Issue.record("Expected supervised filesystem metadata timeout")
+            return
+        }
+    }
+
     private func makeTempRepo() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-git-snapshot-bounds-tests-\(UUID().uuidString)")
