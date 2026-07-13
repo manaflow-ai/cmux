@@ -148,7 +148,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// of querying live surfaces during body evaluation — means view updates
     /// can never observe half-applied surface state, and a snapshot change is
     /// itself the (observable, equality-guarded) signal to re-derive frames.
-    private(set) var geometrySnapshot: RemoteTmuxMirrorGeometry?
+    var geometrySnapshot: RemoteTmuxMirrorGeometry?
 
     /// Injected source of render constants; `nil` measures live surfaces.
     /// Unit tests inject fixed constants here (no live surfaces exist there).
