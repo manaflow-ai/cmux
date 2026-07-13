@@ -8,24 +8,27 @@ import Testing
         let snapshotRows = [TerminalPickerMenuRow(terminal)]
         let baseline = menuValue(liveTerminals: [terminal], snapshotRows: snapshotRows)
 
-        var churnedTerminal = terminal
-        churnedTerminal.name = "Build output"
-        churnedTerminal.isFocused = true
-        churnedTerminal.viewportFit = MobileTerminalViewportFit(
+        var titleOnlyTerminal = terminal
+        titleOnlyTerminal.name = "Build output"
+        let titleOnlyChange = menuValue(liveTerminals: [titleOnlyTerminal], snapshotRows: snapshotRows)
+
+        var viewportOnlyTerminal = terminal
+        viewportOnlyTerminal.viewportFit = MobileTerminalViewportFit(
             effective: MobileTerminalViewportSize(columns: 80, rows: 24),
             client: MobileTerminalViewportSize(columns: 100, rows: 30),
             isCurrentClientLimiting: false
         )
-        let previewChurn = menuValue(liveTerminals: [churnedTerminal], snapshotRows: snapshotRows)
+        let viewportOnlyChange = menuValue(liveTerminals: [viewportOnlyTerminal], snapshotRows: snapshotRows)
 
         let addedTerminal = MobileTerminalPreview(id: "terminal-2", name: "Tests")
         let membershipRows = snapshotRows + [TerminalPickerMenuRow(addedTerminal)]
         let membershipChange = menuValue(
-            liveTerminals: [churnedTerminal, addedTerminal],
+            liveTerminals: [viewportOnlyTerminal, addedTerminal],
             snapshotRows: membershipRows
         )
 
-        #expect(previewChurn == baseline)
+        #expect(titleOnlyChange == baseline)
+        #expect(viewportOnlyChange == baseline)
         #expect(membershipChange != baseline)
     }
 
@@ -53,6 +56,23 @@ import Testing
         #expect(selected.selectedName == "Selected")
         #expect(staleSelection.selectedID == MobileTerminalPreview.ID(rawValue: "terminal-snapshot"))
         #expect(staleSelection.selectedName == "Snapshot")
+    }
+
+    @Test func emptySnapshotUsesLiveRowsAndHandlesNoTerminals() {
+        let liveTerminal = MobileTerminalPreview(id: "terminal-live", name: "Live")
+        let firstOpen = menuValue(
+            liveTerminals: [liveTerminal],
+            snapshotRows: [],
+            selectedID: "missing"
+        )
+        let noTerminals = menuValue(liveTerminals: [], snapshotRows: [], selectedID: "missing")
+
+        #expect(firstOpen.rows == [TerminalPickerMenuRow(liveTerminal)])
+        #expect(firstOpen.selectedID == liveTerminal.id)
+        #expect(firstOpen.selectedName == liveTerminal.name)
+        #expect(noTerminals.rows.isEmpty)
+        #expect(noTerminals.selectedID == nil)
+        #expect(noTerminals.selectedName == nil)
     }
 
     private func menuValue(
