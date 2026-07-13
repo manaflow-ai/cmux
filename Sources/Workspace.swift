@@ -5555,7 +5555,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    func trackRemoteTerminalSurface(_ panelId: UUID, preserveTrustedRemoteDirectory: Bool = false, preserveEndedRemotePTYState: Bool = false) {
+    func trackRemoteTerminalSurface(_ panelId: UUID, preserveTrustedRemoteDirectory: Bool = false) {
         let previousPresentedDirectory = presentedCurrentDirectory
         let existingDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let removedTrustedDirectory: Bool
@@ -5567,7 +5567,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         remoteDirectoryTrustRequiredPanelIds.insert(panelId)
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
-        if !preserveEndedRemotePTYState { endedPersistentRemotePTYAttachSurfaceIds.remove(panelId) }
+        endedPersistentRemotePTYAttachSurfaceIds.remove(panelId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
         pendingRemoteDisconnectReplacementsBySurfaceId.removeValue(forKey: panelId)
         transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
@@ -6130,24 +6130,6 @@ final class Workspace: Identifiable, ObservableObject {
         removeRemoteRelaySurfaceAliases(targeting: surfaceId)
         untrackRemoteTerminalSurface(surfaceId)
         return (true, wasTracked)
-    }
-
-    func markPersistentRemotePTYAttachFailed(surfaceId: UUID) {
-        guard remoteConfiguration?.preserveAfterTerminalExit == true else { return }
-        let previousPresentedDirectory = presentedCurrentDirectory
-        let sessionID = normalizedRemotePTYSessionID(remotePTYSessionIDsByPanelId[surfaceId])
-            ?? Self.defaultSSHPTYSessionID(workspaceId: id, panelId: surfaceId)
-        remotePTYSessionIDsByPanelId[surfaceId] = sessionID
-        remoteDisconnectPlaceholderPanelIds.insert(surfaceId)
-        pendingRemoteTerminalChildExitSurfaceIds.remove(surfaceId)
-        cancelPendingRemoteDisconnectReplacement(surfaceId: surfaceId)
-        transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: surfaceId)
-        surfaceTTYNames.removeValue(forKey: surfaceId)
-        let removedTrustedDirectory = remoteDirectoryReportPanelIds.remove(surfaceId) != nil; if removedTrustedDirectory { clearPanelGitBranch(panelId: surfaceId) }
-        trackRemoteTerminalSurface(surfaceId, preserveEndedRemotePTYState: true)
-        syncRemotePortScanTTYs()
-        applyBrowserRemoteWorkspaceStatusToPanels()
-        notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: removedTrustedDirectory)
     }
 
     private func maybeDemoteRemoteWorkspaceAfterSSHSessionEnded() {

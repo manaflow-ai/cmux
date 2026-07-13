@@ -11,13 +11,36 @@ extension Workspace {
         )
     }
 
+    func markPersistentRemotePTYAttachFailed(surfaceId: UUID) {
+        guard remoteConfiguration?.preserveAfterTerminalExit == true else { return }
+        let previousPresentedDirectory = presentedCurrentDirectory
+        let sessionEnded = endedPersistentRemotePTYAttachSurfaceIds.contains(surfaceId)
+        if !sessionEnded {
+            let sessionID = normalizedRemotePTYSessionID(remotePTYSessionIDsByPanelId[surfaceId])
+                ?? Self.defaultSSHPTYSessionID(workspaceId: id, panelId: surfaceId)
+            remotePTYSessionIDsByPanelId[surfaceId] = sessionID
+        }
+        remoteDisconnectPlaceholderPanelIds.insert(surfaceId)
+        pendingRemoteTerminalChildExitSurfaceIds.remove(surfaceId)
+        cancelPendingRemoteDisconnectReplacement(surfaceId: surfaceId)
+        transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: surfaceId)
+        surfaceTTYNames.removeValue(forKey: surfaceId)
+        let removedTrustedDirectory = remoteDirectoryReportPanelIds.remove(surfaceId) != nil
+        if removedTrustedDirectory { clearPanelGitBranch(panelId: surfaceId) }
+        if !sessionEnded { trackRemoteTerminalSurface(surfaceId) }
+        syncRemotePortScanTTYs()
+        applyBrowserRemoteWorkspaceStatusToPanels()
+        notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: removedTrustedDirectory)
+    }
+
     /// Replaces dead persistent-PTY panels with require-existing attach wrappers.
     @discardableResult
     func reattachPersistentRemotePTYPanels(
         requestedSurfaceId: UUID? = nil,
         restartEndedSessions: Bool = false
     ) -> Set<UUID> {
-        guard remoteConfiguration?.preserveAfterTerminalExit == true else { return [] }
+        guard let configuration = remoteConfiguration,
+              configuration.preserveAfterTerminalExit == true else { return [] }
         let candidateIDs = requestedSurfaceId.map { Set([$0]) } ?? remoteDisconnectPlaceholderPanelIds
         var reattached = Set<UUID>()
 
@@ -34,8 +57,10 @@ extension Workspace {
             let sessionEnded = endedPersistentRemotePTYAttachSurfaceIds.contains(panelId)
             guard restartEndedSessions || !sessionEnded else { continue }
             let command: String
-            if sessionEnded {
-                guard let startupCommand = effectiveRemoteTerminalStartupCommand(from: remoteConfiguration) else {
+            let usesPersistentSSHPTY = configuration.transport == .ssh &&
+                !configuration.skipDaemonBootstrap && configuration.persistentDaemonSlot != nil
+            if sessionEnded || !usesPersistentSSHPTY {
+                guard let startupCommand = effectiveRemoteTerminalStartupCommand(from: configuration) else {
                     continue
                 }
                 command = startupCommand
