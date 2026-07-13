@@ -41,8 +41,11 @@ struct GitProcessRunner: Sendable {
             "set -m; /usr/bin/env -u SHELLOPTS -u BASHOPTS \"$@\" 2>/dev/null & child=$!; printf '%s\\n' \"$child\" >&2; exec 2>&-; wait \"$child\"; exit $?",
             "cmux-git",
             gitExecutableURL.path,
-        ] + arguments
-        process.currentDirectoryURL = URL(fileURLWithPath: directory)
+        ] + ["-C", directory] + arguments
+        // Launch only from a local, stable directory. Git performs the
+        // repository chdir after entering the supervised process group, so a
+        // stalled network filesystem is covered by the subprocess deadline.
+        process.currentDirectoryURL = URL(fileURLWithPath: "/", isDirectory: true)
         process.environment = nonLockingGitEnvironment()
         let pipe = Pipe()
         let processGroupPipe = Pipe()

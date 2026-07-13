@@ -9777,6 +9777,23 @@
         }
       }
     },
+    "mobile.diff.chooseFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose File"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを選択"
+          }
+        }
+      }
+    },
     "mobile.diff.renameFormat": {
       "extractionState": "manual",
       "localizations": {

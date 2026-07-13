@@ -12,6 +12,8 @@ struct DiffReviewFileView: View {
     @State private var loadState = DiffReviewFileLoadState.idle
     @State private var activeRequest: DiffReviewFileLoadRequest?
     @State private var loadAttempt = 0
+    @State private var isFileSwitcherPresented = false
+    @State private var fileSearchText = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -62,6 +64,9 @@ struct DiffReviewFileView: View {
         }
         .task(id: currentRequest) {
             await loadCurrentFile(request: currentRequest)
+        }
+        .sheet(isPresented: $isFileSwitcherPresented) {
+            filePicker
         }
         .sensoryFeedback(.selection, trigger: session.navigationGeneration)
     }
@@ -142,18 +147,8 @@ struct DiffReviewFileView: View {
     }
 
     private var fileSwitcher: some View {
-        Menu {
-            ForEach(Array(session.files.enumerated()), id: \.element.id) { index, file in
-                Button {
-                    session.openFile(at: index)
-                } label: {
-                    if index == session.currentFileIndex {
-                        Label(file.path, systemImage: "checkmark")
-                    } else {
-                        Text(file.path)
-                    }
-                }
-            }
+        Button {
+            isFileSwitcherPresented = true
         } label: {
             VStack(spacing: 0) {
                 Text(currentFileName)
@@ -170,6 +165,7 @@ struct DiffReviewFileView: View {
             .frame(maxWidth: 220)
             .contentShape(.rect)
         }
+        .buttonStyle(.plain)
         .accessibilityLabel(
             String(
                 format: L10n.string(
@@ -180,6 +176,50 @@ struct DiffReviewFileView: View {
             )
         )
         .accessibilityIdentifier("DiffReviewFileSwitcher")
+    }
+
+    private var filePicker: some View {
+        NavigationStack {
+            List(filteredFiles) { file in
+                Button {
+                    session.openFile(path: file.path)
+                    fileSearchText = ""
+                    isFileSwitcherPresented = false
+                } label: {
+                    HStack(spacing: 8) {
+                        Text(file.path)
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 8)
+                        if file.path == session.currentFile?.path {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(.tint)
+                        }
+                    }
+                    .contentShape(.rect)
+                }
+                .accessibilityIdentifier("DiffReviewFilePickerRow")
+            }
+            .searchable(text: $fileSearchText)
+            .navigationTitle(L10n.string("mobile.diff.chooseFile", defaultValue: "Choose File"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.string("mobile.common.done", defaultValue: "Done")) {
+                        fileSearchText = ""
+                        isFileSwitcherPresented = false
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private var filteredFiles: [MobileWorkspaceDiffStatusResponse.File] {
+        let query = fileSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return session.files }
+        return session.files.filter { $0.path.localizedCaseInsensitiveContains(query) }
     }
 
     private var bottomBar: some View {

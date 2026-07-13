@@ -103,8 +103,8 @@ extension TerminalController {
         guard !workspace.isRemoteWorkspace, !workspace.isRemoteTmuxMirror else {
             return .failure(.err(code: "unavailable", message: "diff unavailable for remote workspaces", data: nil))
         }
-        guard let directory = workspace.presentedCurrentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !directory.isEmpty else {
+        guard let directory = workspace.presentedCurrentDirectory,
+              !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .failure(.err(code: "unavailable", message: "Workspace directory is unavailable", data: nil))
         }
         return .success(MobileWorkspaceDiffSnapshot(directory: directory))
@@ -197,8 +197,10 @@ extension TerminalController {
         case .timedOut:
             return .gitTimedOut
         }
-        guard URL(fileURLWithPath: repoRoot).resolvingSymlinksInPath().standardizedFileURL
-            == URL(fileURLWithPath: expectedRepoRoot).resolvingSymlinksInPath().standardizedFileURL else {
+        // `expectedRepoRoot` is the exact opaque token returned by the status
+        // request. Comparing it directly avoids unsupervised filesystem probes
+        // and detects any repository change between status and file requests.
+        guard repoRoot == expectedRepoRoot else {
             return .repositoryChanged
         }
         let diff: GitFileDiff

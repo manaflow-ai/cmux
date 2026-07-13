@@ -1,4 +1,3 @@
-internal import Darwin
 public import Foundation
 
 /// Runs git commands needed by the mobile diff-review flow.
@@ -48,7 +47,8 @@ public struct GitDiffService: Sendable {
         case .cancelled, .launchFailed:
             return .failed
         case nil:
-            guard let root = result.successOutput?.trimmingCharacters(in: .whitespacesAndNewlines),
+            guard let output = result.successOutput,
+                  let root = Self.removingGitLineTerminator(output),
                   !root.isEmpty else { return .notFound }
             return .success(root)
         }
@@ -159,29 +159,6 @@ public struct GitDiffService: Sendable {
         // byte-exact because repository paths may legitimately start or end
         // with whitespace (`changedFiles` reports them verbatim).
         guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .notFound }
-        // Single-file API: a directory-shaped request ("." or a subdirectory)
-        // would expand as a leading-directory pathspec into a combined
-        // multi-file diff, bypassing the changed-file selection the response
-        // is modeled around. Deleted files no longer exist on disk, so this
-        // only rejects paths that currently resolve to a directory.
-        var isDirectory: ObjCBool = false
-        let absolutePath = URL(fileURLWithPath: repoRoot, isDirectory: true)
-            .appendingPathComponent(path).path
-        let pathExists = FileManager.default.fileExists(atPath: absolutePath, isDirectory: &isDirectory)
-        let isSymbolicLink = Self.isSymbolicLink(atPath: absolutePath)
-        let isActualDirectory = isDirectory.boolValue && !isSymbolicLink
-        if pathExists, isActualDirectory {
-            switch isExactTrackedGitlink(repoRoot: repoRoot, path: path, maxOutputBytes: maxOutputBytes) {
-            case .success(true):
-                break
-            case .success(false), .notFound:
-                return .notFound
-            case .failed:
-                return .failed
-            case .timedOut:
-                return .timedOut
-            }
-        }
         let baseline: String
         switch diffBaselineResult(in: repoRoot) {
         case .success(let value):
@@ -204,16 +181,20 @@ public struct GitDiffService: Sendable {
         case .timedOut:
             return .timedOut
         }
-        if pathExists, !isActualDirectory {
-            // A baseline tree and a current file can share the same spelling;
-            // Git would expand the pathspec to both the file and every deleted
-            // descendant instead of returning one file diff.
-            guard requestedBaselineEntry != .directory else { return .notFound }
-        } else if !pathExists {
-            // Deleted paths are valid only when the baseline contains one
-            // exact file or gitlink. A missing baseline tree is a directory-
-            // shaped request and must not widen to all of its descendants.
-            guard requestedBaselineEntry == .file else { return .notFound }
+        // A baseline tree is always a directory-shaped request. Even if the
+        // worktree now has a file with the same spelling, Git would otherwise
+        // widen the pathspec to deleted descendants.
+        guard requestedBaselineEntry != .directory else { return .notFound }
+        let indexed: Bool
+        switch isExactIndexedEntry(repoRoot: repoRoot, path: path, maxOutputBytes: maxOutputBytes) {
+        case .success(let value):
+            indexed = value
+        case .notFound:
+            return .notFound
+        case .failed:
+            return .failed
+        case .timedOut:
+            return .timedOut
         }
         let untracked: Bool
         switch isUntracked(repoRoot: repoRoot, path: path, maxOutputBytes: maxOutputBytes) {
@@ -225,6 +206,12 @@ public struct GitDiffService: Sendable {
             return .failed
         case .timedOut:
             return .timedOut
+        }
+        // With no exact baseline, index, or untracked entry, this is either a
+        // directory-shaped pathspec or a missing path. Fail closed before a
+        // diff command can expand it to descendants.
+        guard requestedBaselineEntry == .file || indexed || untracked else {
+            return .notFound
         }
         if untracked, requestedBaselineEntry == .missing {
             // In `--no-index` mode a bare `-` names stdin even after `--`.
@@ -312,17 +299,10 @@ public struct GitDiffService: Sendable {
         )
     }
 
-    private static func isSymbolicLink(atPath path: String) -> Bool {
-        var fileStatus = stat()
-        guard lstat(path, &fileStatus) == 0 else { return false }
-        return fileStatus.st_mode & S_IFMT == S_IFLNK
-    }
-
-    /// A gitlink is the only index entry whose working-tree representation is
-    /// a directory but whose path is still one exact diffable file. Ordinary
-    /// directories must fail closed because `ls-files` pathspecs recursively
-    /// match their descendants even with `--error-unmatch`.
-    private func isExactTrackedGitlink(
+    /// Whether the index contains one entry at exactly `path`. Files,
+    /// symlinks, and gitlinks all have exact records; ordinary directories do
+    /// not, so this classification needs no unsupervised filesystem probes.
+    private func isExactIndexedEntry(
         repoRoot: String,
         path: String,
         maxOutputBytes: Int
@@ -337,13 +317,12 @@ public struct GitDiffService: Sendable {
             return failure
         }
         guard let output = result.successOutput, !result.capped else { return .failed }
-        let isGitlink = output.split(separator: "\0", omittingEmptySubsequences: true).contains { record in
+        let isExactEntry = output.split(separator: "\0", omittingEmptySubsequences: true).contains { record in
             guard let tab = record.firstIndex(of: "\t") else { return false }
-            let metadata = record[..<tab].split(separator: " ", omittingEmptySubsequences: true)
             let recordedPath = record[record.index(after: tab)...]
-            return metadata.first == "160000" && recordedPath == path
+            return recordedPath == path
         }
-        return .success(isGitlink)
+        return .success(isExactEntry)
     }
 
     /// Verifies a rename source is one exact file in the selected baseline.
@@ -403,9 +382,22 @@ public struct GitDiffService: Sendable {
         if let failure: GitDiffQueryResult<String> = queryFailure(from: emptyTree) {
             return failure
         }
-        guard let baseline = emptyTree.successOutput?.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard let output = emptyTree.successOutput,
+              let baseline = Self.removingGitLineTerminator(output),
               !baseline.isEmpty else { return .failed }
         return .success(baseline)
+    }
+
+    /// Git terminates one scalar result with a line ending. Remove only that
+    /// protocol terminator, preserving valid spaces and newlines in paths.
+    private static func removingGitLineTerminator(_ output: String) -> String? {
+        if output.hasSuffix("\r\n") {
+            return String(output.dropLast(2))
+        }
+        if output.hasSuffix("\n") || output.hasSuffix("\r") {
+            return String(output.dropLast())
+        }
+        return output
     }
 
     private func queryFailure<Value: Sendable>(
