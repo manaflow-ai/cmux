@@ -4530,15 +4530,6 @@ final class Workspace: Identifiable, ObservableObject {
             return
         }
         panelShellActivityStates[panelId] = state
-        let exitedAgentBinding: SurfaceResumeBindingSnapshot? = if previousState == .commandRunning,
-                                                                   state == .promptIdle,
-                                                                   let terminalPanel = panels[panelId] as? TerminalPanel,
-                                                                   !terminalPanel.isAgentHibernated,
-                                                                   surfaceResumeBindingsByPanelId[panelId]?.isAgentHookBinding == true {
-            surfaceResumeBindingsByPanelId[panelId]
-        } else {
-            nil
-        }
         if let terminalPanel = panels[panelId] as? TerminalPanel {
             terminalPanel.updateShellActivityState(state)
         }
@@ -4551,15 +4542,7 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             updateBindingOnlyRestoredAgentResumeState(panelId: panelId, shellState: state)
         }
-        if state == .promptIdle {
-            let clearedExitedAgent = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true)
-            if clearedExitedAgent,
-               let kindValue = exitedAgentBinding?.kind,
-               let kind = RestorableAgentKind(rawValue: kindValue),
-               let sessionId = exitedAgentBinding?.checkpointId {
-                AgentHookSessionStateWriter().schedule(kind: kind, sessionId: sessionId)
-            }
-        }
+        if state == .promptIdle { AgentHookSessionStateWriter.recordRootExitIfNeeded(binding: AgentHookSessionStateWriter.rootExitCandidate(previousWasRunning: previousState == .commandRunning, isPromptIdle: true, isHibernated: (panels[panelId] as? TerminalPanel)?.isAgentHibernated == true, binding: surfaceResumeBindingsByPanelId[panelId])) { clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) } }
 #if DEBUG
         cmuxDebugLog(
             "surface.shellState workspace=\(id.uuidString.prefix(5)) " +
@@ -4593,10 +4576,7 @@ final class Workspace: Identifiable, ObservableObject {
         agent: SessionRestorableAgentSnapshot,
         lastActivityAt: Date
     ) {
-        guard let terminalPanel = panels[panelId] as? TerminalPanel,
-              !terminalPanel.isAgentHibernated else {
-            return
-        }
+        guard let terminalPanel = panels[panelId] as? TerminalPanel, !terminalPanel.isAgentHibernated else { return }
         guard agent.resumeCommand != nil else { return }
         restoredAgentSnapshotsByPanelId[panelId] = agent
         restoredAgentResumeStatesByPanelId[panelId] = .manualResumeAvailable
@@ -4609,11 +4589,7 @@ final class Workspace: Identifiable, ObservableObject {
             refreshTrackedAgentPorts()
         }
         terminalPanel.enterAgentHibernation(agent: agent, lastActivityAt: lastActivityAt)
-        AgentHookSessionStateWriter().scheduleLifecycle(
-            kind: agent.kind,
-            sessionId: agent.sessionId,
-            state: .hibernated
-        )
+        AgentHookSessionStateWriter.recordLifecycle(agent: agent, state: .hibernated)
     }
 
     @discardableResult
@@ -4624,13 +4600,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         let preparation = terminalPanel.prepareAgentHibernationResume()
         guard preparation.didResume else { return false }
-        if let agent = restoredAgentSnapshotsByPanelId[panelId] {
-            AgentHookSessionStateWriter().scheduleLifecycle(
-                kind: agent.kind,
-                sessionId: agent.sessionId,
-                state: .restoring
-            )
-        }
+        AgentHookSessionStateWriter.recordLifecycle(agent: restoredAgentSnapshotsByPanelId[panelId], state: .restoring)
         if restoredAgentSnapshotsByPanelId[panelId] != nil {
             restoredAgentResumeStatesByPanelId[panelId] = preparation.queuedStartupInput
                 ? .awaitingAutoResumeCommand

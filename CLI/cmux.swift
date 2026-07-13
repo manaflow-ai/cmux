@@ -74,10 +74,6 @@ private func agentHookDebugSocketName(_ socketPath: String?) -> String {
     return URL(fileURLWithPath: socketPath).lastPathComponent
 }
 #endif
-
-
-
-
 final class ClaudeHookSessionStore {
     private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7

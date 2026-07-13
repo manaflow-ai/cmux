@@ -338,8 +338,7 @@ enum AgentResumeCommandBuilder {
             launchCommand: launchCommand,
             workingDirectory: workingDirectory,
             customRegistration: customRegistration,
-            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
-            additionalEnvironment: [:]
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
         )
     }
 
@@ -369,29 +368,21 @@ enum AgentResumeCommandBuilder {
             kind: kind,
             launchCommand: launchCommand,
             workingDirectory: workingDirectory,
-            customRegistration: customRegistration,
-            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
-            additionalEnvironment: [
-                "CMUX_AGENT_PARENT_SESSION_ID": sessionId,
-                "CMUX_AGENT_RELATIONSHIP": "forked",
-            ]
+            customRegistration: customRegistration, includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
+            additionalEnvironment: ["CMUX_AGENT_PARENT_SESSION_ID": sessionId, "CMUX_AGENT_RELATIONSHIP": "forked"]
         )
     }
-
     private static func shellCommand(
         argv: [String],
         kind: RestorableAgentKind,
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?,
-        customRegistration: CmuxVaultAgentRegistration?,
-        includeWorkingDirectoryPrefix: Bool,
-        additionalEnvironment: [String: String]
+        customRegistration: CmuxVaultAgentRegistration?, includeWorkingDirectoryPrefix: Bool,
+        additionalEnvironment: [String: String] = [:]
     ) -> String {
         var commandParts: [String] = []
         var environmentParts = launchEnvironmentParts(kind: kind, environment: launchCommand?.environment)
-        environmentParts.append(contentsOf: additionalEnvironment.keys.sorted().compactMap { key in
-            additionalEnvironment[key].map { "\(key)=\($0)" }
-        })
+        environmentParts.append(contentsOf: additionalEnvironment.keys.sorted().compactMap { key in additionalEnvironment[key].map { "\(key)=\($0)" } })
         if !environmentParts.isEmpty {
             commandParts.append("env")
             commandParts.append(contentsOf: environmentParts)
@@ -898,7 +889,6 @@ private enum AgentResumeScriptStore {
     }
 }
 
-/// Joins hook history and process observations into restorable surface owners.
 struct RestorableAgentSessionIndex: Sendable {
     static let empty = RestorableAgentSessionIndex(entriesByPanel: [:])
 
@@ -1082,8 +1072,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 continue
             }
 
-            for record in state.sessions.values {
-                guard record.restoreAuthority != false, record.completedAt == nil else { continue }
+            for record in state.sessions.values where record.restoreAuthority != false && record.completedAt == nil {
                 var effectiveRecord = kind == .claude
                     ? resolvedClaudeWorkflowRecord(
                         record,
@@ -1137,9 +1126,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 )
                 let entry = Entry(
                     snapshot: snapshot,
-                    lifecycle: effectiveRecord.workloads?.contains(where: {
-                        $0.keepsSessionBusy && $0.phase.isActive
-                    }) == true ? .running : effectiveRecord.agentLifecycle,
+                    lifecycle: effectiveRecord.effectiveHibernationLifecycle,
                     updatedAt: effectiveRecord.updatedAt,
                     processIDs: liveProcessID.map { [$0] } ?? [],
                     agentProcessIDs: liveProcessID.map { [$0] } ?? [],

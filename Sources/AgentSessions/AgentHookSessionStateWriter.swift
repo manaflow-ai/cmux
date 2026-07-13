@@ -20,6 +20,40 @@ struct AgentHookSessionStateWriter: Sendable {
         self.environment = environment
     }
 
+    static func rootExitCandidate(
+        previousWasRunning: Bool,
+        isPromptIdle: Bool,
+        isHibernated: Bool,
+        binding: SurfaceResumeBindingSnapshot?
+    ) -> SurfaceResumeBindingSnapshot? {
+        previousWasRunning && isPromptIdle && !isHibernated && binding?.isAgentHookBinding == true
+            ? binding
+            : nil
+    }
+
+    static func recordRootExitIfNeeded(
+        binding: SurfaceResumeBindingSnapshot?,
+        clearAgent: () -> Bool
+    ) {
+        guard clearAgent(),
+              let kindValue = binding?.kind,
+              let kind = RestorableAgentKind(rawValue: kindValue),
+              let sessionId = binding?.checkpointId else { return }
+        AgentHookSessionStateWriter().schedule(kind: kind, sessionId: sessionId)
+    }
+
+    static func recordLifecycle(
+        agent: SessionRestorableAgentSnapshot?,
+        state: AgentSessionLifecycleState
+    ) {
+        guard let agent else { return }
+        AgentHookSessionStateWriter().scheduleLifecycle(
+            kind: agent.kind,
+            sessionId: agent.sessionId,
+            state: state
+        )
+    }
+
     func schedule(kind: RestorableAgentKind, sessionId: String, now: TimeInterval = Date().timeIntervalSince1970) {
         let normalized = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return }

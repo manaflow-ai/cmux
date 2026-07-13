@@ -17,4 +17,8 @@ struct RestorableAgentHookSessionRecord: Codable, Sendable {
     var sessionState: AgentSessionLifecycleState? = nil
     var agentLifecycle: AgentHibernationLifecycleState?
     var updatedAt: TimeInterval
+
+    var effectiveHibernationLifecycle: AgentHibernationLifecycleState? {
+        workloads?.contains { $0.keepsSessionBusy && $0.phase.isActive } == true ? .running : agentLifecycle
+    }
 }
