@@ -166,6 +166,7 @@ extension TerminalController {
         for workspace in self.tabManager?.tabs ?? [] {
             guard let session = workspace.remoteTmuxSessionMirror else { continue }
             let connected = session.connection.connectionState == .connected
+            connectionsConnected = connectionsConnected && connected
             let liveWindowIds = Set(session.connection.windowOrder)
             for (windowId, mirror) in session.windowMirrorByWindowId {
                 // A window tmux no longer lists cannot settle and
@@ -175,7 +176,6 @@ extension TerminalController {
                 // once and their surfaces report collapsed sizes);
                 // only the visible mirror's state is judgeable.
                 guard mirror.isEffectivelyVisibleForSizing else { continue }
-                connectionsConnected = connectionsConnected && connected
                 let claimed = mirror.connection?.lastWindowSizes[windowId]
                 var mismatches: [String] = []
                 // While zoomed, the visible tree is what panes render.

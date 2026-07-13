@@ -162,10 +162,11 @@ extension RemoteTmuxWindowMirror {
         sizingPassScheduled = false
         guard !isTornDown else { return }
         let intent = pendingSizingPassIntent
+        let visibleHostingBound = visibleHostingContentSize()
         // Adopt a detached callback, or re-clamp a prior value, as soon as
         // any pane is visibly hosted. This pass is also the recovery path
         // when attachment itself does not emit another geometry callback.
-        if let bound = visibleHostingContentSize() {
+        if let bound = visibleHostingBound {
             if var size = pendingContainerSizePt {
                 size.width = min(size.width, bound.width)
                 size.height = min(size.height, bound.height)
@@ -185,7 +186,7 @@ extension RemoteTmuxWindowMirror {
         guard updateClientSize() else { return }
         pendingSizingPassIntent = .inputChange
         lastCompletedSizingInputs = inputs
-        if inputs.visible {
+        if inputs.visible, visibleHostingBound != nil {
             imposeDividerPlan(retryImposedExtents: intent == .constraintRecovery)
             // The imposition applies to bonsplit on the NEXT runloop turn
             // (coalesced), so the anchors move after this pass returns. The
