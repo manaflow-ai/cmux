@@ -4,6 +4,7 @@ import os
 final class CommandCancellationRegistration: Sendable {
     private struct State {
         var isCancelled = false
+        var isFinished = false
         var handler: (@Sendable () -> Void)?
     }
 
@@ -13,6 +14,7 @@ final class CommandCancellationRegistration: Sendable {
 
     func install(_ handler: @escaping @Sendable () -> Void) {
         let handlerToRun = state.withLock { state -> (@Sendable () -> Void)? in
+            guard !state.isFinished else { return nil }
             guard !state.isCancelled else { return handler }
             state.handler = handler
             return nil
@@ -31,6 +33,9 @@ final class CommandCancellationRegistration: Sendable {
     }
 
     func finish() {
-        state.withLock { $0.handler = nil }
+        state.withLock {
+            $0.isFinished = true
+            $0.handler = nil
+        }
     }
 }

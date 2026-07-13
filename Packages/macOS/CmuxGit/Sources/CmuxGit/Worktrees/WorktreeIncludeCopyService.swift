@@ -328,7 +328,11 @@ struct WorktreeIncludeCopyService: Sendable {
         guard !fileManager.fileExists(atPath: destinationItem.path) else {
             throw CocoaError(.fileWriteFileExists)
         }
-        guard fileManager.createFile(atPath: destinationItem.path, contents: nil) else {
+        guard fileManager.createFile(
+            atPath: destinationItem.path,
+            contents: nil,
+            attributes: [.posixPermissions: 0o600]
+        ) else {
             throw CocoaError(.fileWriteUnknown)
         }
 
