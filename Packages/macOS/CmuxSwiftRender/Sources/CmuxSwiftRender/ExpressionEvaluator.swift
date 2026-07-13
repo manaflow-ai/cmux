@@ -23,6 +23,9 @@ public struct ExpressionEvaluator: Sendable {
         if let literal = expr.as(BooleanLiteralExprSyntax.self) {
             return .bool(literal.literal.text == "true")
         }
+        if expr.is(NilLiteralExprSyntax.self) {
+            return .null
+        }
         if let literal = expr.as(StringLiteralExprSyntax.self) {
             return .string(evalString(literal, env))
         }
@@ -162,6 +165,13 @@ public struct ExpressionEvaluator: Sendable {
 
     private func evalInfix(_ node: InfixOperatorExprSyntax, _ env: EvalEnvironment) -> SwiftValue? {
         guard let op = node.operator.as(BinaryOperatorExprSyntax.self)?.operator.text else { return nil }
+
+        if op == "==" || op == "!=" {
+            guard let lhs = evalEqualityOperand(node.leftOperand, env),
+                  let rhs = evalEqualityOperand(node.rightOperand, env) else { return nil }
+            return .bool(op == "==" ? lhs == rhs : lhs != rhs)
+        }
+
         guard let lhs = eval(node.leftOperand, env) else { return nil }
 
         // Short-circuit logical operators on the left operand before forcing the
@@ -184,8 +194,6 @@ public struct ExpressionEvaluator: Sendable {
         case "..<", "...":
             guard case let .int(l) = lhs, case let .int(r) = rhs else { return nil }
             return .range(lower: l, upper: r, inclusive: op == "...")
-        case "==": return .bool(lhs == rhs)
-        case "!=": return .bool(lhs != rhs)
         default: break
         }
 
@@ -219,6 +227,19 @@ public struct ExpressionEvaluator: Sendable {
         case ">=": return .bool(l >= r)
         default: return nil
         }
+    }
+
+    /// Equality is the one context where a missing object field has a value:
+    /// it represents an absent optional and therefore compares equal to `nil`.
+    /// Other evaluation failures remain `nil` so typos and unsupported syntax
+    /// do not silently masquerade as an absent value.
+    private func evalEqualityOperand(_ expr: ExprSyntax, _ env: EvalEnvironment) -> SwiftValue? {
+        if let value = eval(expr, env) { return value }
+        guard let member = expr.as(MemberAccessExprSyntax.self),
+              let baseExpression = member.base,
+              case let .object(fields)? = eval(baseExpression, env),
+              fields[member.declName.baseName.text] == nil else { return nil }
+        return .null
     }
 
     private func numericPair(_ lhs: SwiftValue, _ rhs: SwiftValue) -> (Double?, Double?, Bool) {
