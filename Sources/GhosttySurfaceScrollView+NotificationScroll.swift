@@ -138,22 +138,7 @@ extension GhosttySurfaceScrollView {
     func expireSessionScrollbackReplayCompletionDeadline() {
         guard notificationScrollRestorePhase.sessionScrollbackReplayCompletionMarker != nil ||
                 sessionScrollbackReplayMarkerRenderedFrameGeneration != nil else { return }
-        cancelSessionScrollbackReplayCompletionDeadline()
-        cancelSessionScrollbackReplayRendererWait()
-        switch notificationScrollRestorePhase {
-        case .idle:
-            break
-        case .sessionScrollbackReplayActive:
-            notificationScrollRestorePhase = .idle
-        case .sessionScrollbackReplayCompleted:
-            notificationScrollRestorePhase = .idle
-        case .pending(let position, _):
-            notificationScrollRestorePhase = .pending(
-                position,
-                sessionScrollbackReplayCompletionMarker: nil
-            )
-            _ = retryPendingNotificationScrollRestore()
-        }
+        cancelPendingNotificationScrollRestore()
     }
 
     private func scheduleSessionScrollbackReplayCompletionDeadline() {

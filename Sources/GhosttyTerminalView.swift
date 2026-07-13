@@ -3563,7 +3563,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
     func currentRenderedFrameSourceGeneration() -> UInt64 { (layer as? GhosttyMetalLayer)?.currentFrameGeneration() ?? 0 }
-
     var desiredFocus: Bool = false
     var suppressingReparentFocus: Bool = false
     var tabId: UUID?
@@ -4297,7 +4296,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
         }
     }
-
     @discardableResult
     func toggleKeyboardCopyMode() -> Bool {
         guard surface != nil else { return false }

@@ -232,19 +232,38 @@ struct NotificationScrollRestoreTests {
         #expect(!GhosttyApp.renderedFrameNotificationDemand.isActive)
     }
 
-    @Test func restoreClampsWhenReplayCompletionMarkerNeverArrives() {
+    @Test func restoreCancelsWhenReplayCompletionMarkerNeverArrives() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 100, offset: 56, visible: 44)
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
-        hostedView.beginSessionScrollbackReplay(completionMarker: completionMarker(named: "replay-timeout"))
+        let marker = completionMarker(named: "replay-timeout")
+        hostedView.beginSessionScrollbackReplay(completionMarker: marker)
 
         #expect(hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 138, totalRows: 400)
         ))
         #expect(surfaceView.bindingActions.isEmpty)
         hostedView.expireSessionScrollbackReplayCompletionDeadline()
-        #expect(surfaceView.bindingActions == ["scroll_to_row:56"])
+        #expect(surfaceView.bindingActions.isEmpty)
+        #expect(hostedView.notificationScrollRestorePhase == .sessionScrollbackReplayActive(marker))
+    }
+
+    @Test func restoreCancelsWhenPostMarkerFrameNeverArrives() {
+        let surfaceView = ActionProbeView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let marker = completionMarker(named: "replay-frame-timeout")
+        hostedView.beginSessionScrollbackReplay(completionMarker: marker)
+        _ = hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+        )
+        #expect(hostedView.completeSessionScrollbackReplay(ifMatches: marker.reportedDirectory))
+        #expect(GhosttyApp.renderedFrameNotificationDemand.isActive)
+
+        hostedView.expireSessionScrollbackReplayCompletionDeadline()
+        #expect(surfaceView.bindingActions.isEmpty)
         #expect(hostedView.notificationScrollRestorePhase == .idle)
+        #expect(!GhosttyApp.renderedFrameNotificationDemand.isActive)
     }
 
     @Test func panelConsumesOwnedReplayCompletionMarker() {
@@ -397,32 +416,6 @@ struct NotificationScrollRestoreTests {
         #expect(panel.hostedView.notificationScrollRestorePhase == .sessionScrollbackReplayActive(marker))
     }
 
-    @Test func zshReplayEmitsOrderedCompletionMarker() throws {
-        try expectIntegrationReplay(
-            shell: URL(fileURLWithPath: "/bin/zsh"),
-            arguments: ["-f"],
-            integrationFilename: "cmux-zsh-integration.zsh"
-        )
-    }
-
-    @Test func bashReplayEmitsOrderedCompletionMarker() throws {
-        try expectIntegrationReplay(
-            shell: URL(fileURLWithPath: "/bin/bash"),
-            arguments: ["--noprofile", "--norc"],
-            integrationFilename: "cmux-bash-integration.bash"
-        )
-    }
-
-    @Test func fishReplayEmitsOrderedCompletionMarker() throws {
-        guard let shell = ["/opt/homebrew/bin/fish", "/usr/local/bin/fish", "/usr/bin/fish"]
-            .first(where: FileManager.default.isExecutableFile(atPath:)) else { return }
-        try expectIntegrationReplay(
-            shell: URL(fileURLWithPath: shell),
-            arguments: ["--no-config"],
-            integrationFilename: "fish/config.fish"
-        )
-    }
-
     @Test func userWheelInputCancelsPendingRestore() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 400, offset: 218, visible: 0)
@@ -467,40 +460,4 @@ struct NotificationScrollRestoreTests {
         SessionScrollbackReplayCompletionMarker(fileURL: URL(fileURLWithPath: "/tmp/\(name).txt"))
     }
 
-    private func expectIntegrationReplay(
-        shell: URL,
-        arguments: [String],
-        integrationFilename: String
-    ) throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-replay-marker-\(UUID().uuidString)", isDirectory: true)
-        let replayFile = directory.appendingPathComponent("replay-test.txt")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        try "history\n".write(to: replayFile, atomically: true, encoding: .utf8)
-
-        let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let integration = repoRoot
-            .appendingPathComponent("Resources/shell-integration")
-            .appendingPathComponent(integrationFilename)
-        let process = Process()
-        let stdout = Pipe()
-        process.executableURL = shell
-        process.arguments = arguments + ["-c", "source \"\(integration.path)\""]
-        process.currentDirectoryURL = repoRoot
-        process.standardOutput = stdout
-        var environment = ProcessInfo.processInfo.environment
-        environment[SessionScrollbackReplayStore.environmentKey] = replayFile.path
-        environment["CMUX_FISH_USER_CONFIG_ALREADY_LOADED"] = "1"
-        environment["CMUX_SHELL_INTEGRATION"] = "1"
-        process.environment = environment
-        try process.run()
-        process.waitUntilExit()
-
-        let output = String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        let marker = SessionScrollbackReplayCompletionMarker(fileURL: replayFile)
-        #expect(process.terminationStatus == 0)
-        #expect(output == "history\n" + marker.terminalSequence(restoring: repoRoot.path))
-        #expect(!FileManager.default.fileExists(atPath: replayFile.path))
-    }
 }

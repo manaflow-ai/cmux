@@ -754,14 +754,8 @@ final class TerminalPanel: Panel, ObservableObject {
         }
     }
 
-    func performBindingAction(_ action: String) -> Bool {
-        performBindingAction(action, recordsExplicitInput: true)
-    }
-
-    func performBindingAction(_ action: String, recordsExplicitInput: Bool) -> Bool {
-        guard !isAgentHibernated else { return false }
-        return surface.performBindingAction(action, recordsExplicitInput: recordsExplicitInput)
-    }
+    func performBindingAction(_ action: String) -> Bool { performBindingAction(action, recordsExplicitInput: true) }
+    func performBindingAction(_ action: String, recordsExplicitInput: Bool) -> Bool { guard !isAgentHibernated else { return false }; return surface.performBindingAction(action, recordsExplicitInput: recordsExplicitInput) }
 
     @discardableResult
     func clearScreenKeepingScrollback() -> Bool {
