@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxRemoteSession
 
+extension RemoteSubprocessTests {
 @Suite("Remote host-wide port scan script")
 struct RemoteAllPortsScanScriptTests {
     @Test("A failed scanner preserves partial positive observations without claiming completeness")
@@ -53,8 +54,6 @@ struct RemoteAllPortsScanScriptTests {
         """.write(to: fakeSS, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeSS.path)
 
-        remoteSubprocessTestLock.lock()
-        defer { remoteSubprocessTestLock.unlock() }
         let process = Process()
         let standardOutput = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -75,4 +74,5 @@ struct RemoteAllPortsScanScriptTests {
         )
         return (process.terminationStatus, output)
     }
+}
 }

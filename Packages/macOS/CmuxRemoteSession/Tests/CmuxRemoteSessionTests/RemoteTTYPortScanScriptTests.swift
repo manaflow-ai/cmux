@@ -2,7 +2,8 @@ import Foundation
 import Testing
 @testable import CmuxRemoteSession
 
-@Suite("Remote TTY port scan script", .serialized)
+extension RemoteSubprocessTests {
+@Suite("Remote TTY port scan script")
 struct RemoteTTYPortScanScriptTests {
     @Test("A pid-less row for a published port withholds completeness")
     func protectedPIDLessRowIsIncomplete() throws {
@@ -197,8 +198,6 @@ struct RemoteTTYPortScanScriptTests {
             with: "[ 1 -eq 1 ]"
         )
 
-        remoteSubprocessTestLock.lock()
-        defer { remoteSubprocessTestLock.unlock() }
         let process = Process()
         let output = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -226,4 +225,5 @@ struct RemoteTTYPortScanScriptTests {
         try body.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
     }
+}
 }
