@@ -441,6 +441,24 @@ import Testing
         )
     }
 
+    @Test @MainActor func hoverReconcilerDoesNotMutateSwiftUIOnTheAppKitLifecycleStack() {
+        var reportedHover: Bool?
+        let view = SidebarWorkspaceRowHoverReconcilerView()
+        view.frame = NSRect(x: 0, y: 0, width: 120, height: 28)
+        view.onPointerHoverChanged = { reportedHover = $0 }
+
+        view.reconcilePointerLocation(pointInView: NSPoint(x: 60, y: 14))
+
+        #expect(
+            reportedHover == nil,
+            """
+            AppKit hover reconciliation must not call into SwiftUI synchronously. The real row invokes this path from \
+            updateTrackingAreas and viewDidMoveToWindow; a synchronous Binding write there re-enters NSHostingView \
+            layout and can livelock AttributeGraph.
+            """
+        )
+    }
+
     @Test func contextMenuAppearanceHidesExistingCloseButtonUntilPointerIsReconciled() {
         var state = SidebarWorkspaceRowInteractionState()
 
