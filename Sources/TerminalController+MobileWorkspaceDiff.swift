@@ -167,10 +167,18 @@ extension TerminalController {
         case .timedOut:
             return .gitTimedOut
         }
-        guard let changed = service.changedFiles(
+        let changed: GitChangedFiles
+        switch service.changedFilesResult(
             repoRoot: repoRoot,
             maxOutputBytes: mobileWorkspaceDiffStatusReadCap
-        ) else { return .gitFailed }
+        ) {
+        case .success(let value):
+            changed = value
+        case .notFound, .failed:
+            return .gitFailed
+        case .timedOut:
+            return .gitTimedOut
+        }
         let files = Array(changed.files.prefix(mobileWorkspaceDiffMaxFiles))
         return .ok(
             repoRoot: repoRoot,

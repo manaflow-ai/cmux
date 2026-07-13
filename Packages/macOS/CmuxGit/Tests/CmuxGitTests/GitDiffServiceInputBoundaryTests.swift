@@ -148,10 +148,20 @@ import Testing
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
         try Data("valid\n".utf8).write(to: repo.appendingPathComponent("valid.txt"))
-        try writeRawPath(
-            Array("invalid-".utf8) + [0xFF] + Array(".txt".utf8),
-            contents: Data("unsupported path\n".utf8),
-            in: repo
+        let blobOutput = try runTestGit(
+            in: repo,
+            ["hash-object", "-w", "--stdin"],
+            standardInput: Data("unsupported path\n".utf8)
+        )
+        let blob = try #require(String(data: blobOutput, encoding: .utf8))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var indexRecord = Data("100644 \(blob)\tinvalid-".utf8)
+        indexRecord.append(0xFF)
+        indexRecord.append(Data(".txt\0".utf8))
+        _ = try runTestGit(
+            in: repo,
+            ["update-index", "-z", "--index-info"],
+            standardInput: indexRecord
         )
 
         let changed = try #require(GitDiffService().changedFiles(repoRoot: repo.path))
@@ -220,25 +230,6 @@ import Testing
         return root
     }
 
-    private func writeRawPath(_ pathBytes: [UInt8], contents: Data, in directory: URL) throws {
-        let directoryDescriptor = open(directory.path, O_RDONLY | O_DIRECTORY)
-        guard directoryDescriptor >= 0 else { throw CocoaError(.fileWriteUnknown) }
-        defer { close(directoryDescriptor) }
-
-        var terminatedPath = pathBytes + [0]
-        let fileDescriptor = terminatedPath.withUnsafeMutableBufferPointer { buffer in
-            buffer.baseAddress!.withMemoryRebound(to: CChar.self, capacity: buffer.count) { path in
-                openat(directoryDescriptor, path, O_WRONLY | O_CREAT | O_TRUNC, 0o600)
-            }
-        }
-        guard fileDescriptor >= 0 else { throw CocoaError(.fileWriteUnknown) }
-        defer { close(fileDescriptor) }
-        let written = contents.withUnsafeBytes { bytes in
-            Darwin.write(fileDescriptor, bytes.baseAddress, bytes.count)
-        }
-        guard written == contents.count else { throw CocoaError(.fileWriteUnknown) }
-    }
-
     private func runTestGit(in root: URL, _ arguments: [String]) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
@@ -249,5 +240,28 @@ import Testing
         try process.run()
         process.waitUntilExit()
         try #require(process.terminationStatus == 0)
+    }
+
+    private func runTestGit(
+        in root: URL,
+        _ arguments: [String],
+        standardInput: Data
+    ) throws -> Data {
+        let process = Process()
+        let input = Pipe()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = arguments
+        process.currentDirectoryURL = root
+        process.standardInput = input
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        try input.fileHandleForWriting.write(contentsOf: standardInput)
+        try input.fileHandleForWriting.close()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        try #require(process.terminationStatus == 0)
+        return data
     }
 }

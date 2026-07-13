@@ -87,6 +87,7 @@ struct GitProcessRunner: Sendable {
                 // exit status reflects our signal, not a git failure. Return
                 // the bounded partial output and mark it cut off.
                 return GitProcessResult(
+                    rawOutput: read.data,
                     output: Self.decodeUTF8Lossy(read.data, maxOutputBytes: maxOutputBytes),
                     capped: true
                 )
@@ -97,7 +98,10 @@ struct GitProcessRunner: Sendable {
             guard acceptedTerminationStatuses.contains(process.terminationStatus) else {
                 return GitProcessResult(output: nil, failure: .unsuccessfulExit)
             }
-            return GitProcessResult(output: Self.decodeUTF8Lossy(read.data, maxOutputBytes: nil))
+            return GitProcessResult(
+                rawOutput: read.data,
+                output: Self.decodeUTF8Lossy(read.data, maxOutputBytes: nil)
+            )
         } catch {
             return GitProcessResult(output: nil, failure: .launchFailed)
         }
@@ -189,12 +193,21 @@ struct GitProcessRunner: Sendable {
 }
 
 struct GitProcessResult {
+    /// Exact stdout bytes for protocols where byte identity matters, such as
+    /// NUL-delimited Git paths. Human-readable diff content uses `output`.
+    let rawOutput: Data?
     let output: String?
     /// Whether the output was cut off at the caller's byte bound.
     let capped: Bool
     let failure: GitProcessFailure?
 
-    init(output: String?, capped: Bool = false, failure: GitProcessFailure? = nil) {
+    init(
+        rawOutput: Data? = nil,
+        output: String?,
+        capped: Bool = false,
+        failure: GitProcessFailure? = nil
+    ) {
+        self.rawOutput = rawOutput
         self.output = output
         self.capped = capped
         self.failure = failure

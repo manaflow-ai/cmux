@@ -65,11 +65,32 @@ public struct GitDiffService: Sendable {
     ///     unignored generated tree) cannot make one status call accumulate
     ///     unbounded memory.
     /// - Returns: Changed-file summaries in path order with a truncation marker,
-    ///   or `nil` when any required git command fails or times out.
+    ///   or `nil` when any required Git command fails or times out.
     public func changedFiles(repoRoot: String, maxOutputBytes: Int = 4 * 1024 * 1024) -> GitChangedFiles? {
-        guard maxOutputBytes > 0 else { return nil }
-        guard let baseline = diffBaseline(in: repoRoot) else {
-            return nil
+        guard case .success(let changed) = changedFilesResult(
+            repoRoot: repoRoot,
+            maxOutputBytes: maxOutputBytes
+        ) else { return nil }
+        return changed
+    }
+
+    /// Lists changed files while preserving timeout and execution failures for
+    /// callers that present actionable errors.
+    public func changedFilesResult(
+        repoRoot: String,
+        maxOutputBytes: Int = 4 * 1024 * 1024
+    ) -> GitDiffQueryResult<GitChangedFiles> {
+        guard maxOutputBytes > 0 else { return .notFound }
+        let baseline: String
+        switch diffBaselineResult(in: repoRoot) {
+        case .success(let value):
+            baseline = value
+        case .notFound:
+            return .notFound
+        case .failed:
+            return .failed
+        case .timedOut:
+            return .timedOut
         }
         let numstat = runGit(
             in: repoRoot,
@@ -79,6 +100,9 @@ public struct GitDiffService: Sendable {
             ],
             maxOutputBytes: maxOutputBytes
         )
+        if let failure: GitDiffQueryResult<GitChangedFiles> = queryFailure(from: numstat) {
+            return failure
+        }
         let nameStatus = runGit(
             in: repoRoot,
             arguments: [
@@ -87,35 +111,40 @@ public struct GitDiffService: Sendable {
             ],
             maxOutputBytes: maxOutputBytes
         )
+        if let failure: GitDiffQueryResult<GitChangedFiles> = queryFailure(from: nameStatus) {
+            return failure
+        }
         let untracked = runGit(
             in: repoRoot,
             arguments: ["ls-files", "--others", "--exclude-standard", "-z"],
             maxOutputBytes: maxOutputBytes
         )
-        guard numstat.successOutput != nil,
-              nameStatus.successOutput != nil,
-              untracked.successOutput != nil,
-              !numstat.timedOut,
-              !nameStatus.timedOut,
-              !untracked.timedOut else { return nil }
+        if let failure: GitDiffQueryResult<GitChangedFiles> = queryFailure(from: untracked) {
+            return failure
+        }
+        guard let numstatData = completeRecordData(numstat),
+              let nameStatusData = completeRecordData(nameStatus),
+              let untrackedData = completeRecordData(untracked) else { return .failed }
         let files = parseChangedFiles(
-            numstatOutput: completeRecords(numstat),
-            nameStatusOutput: completeRecords(nameStatus),
-            untrackedOutput: completeRecords(untracked)
+            numstatData: numstatData,
+            nameStatusData: nameStatusData,
+            untrackedData: untrackedData
         )
-        return GitChangedFiles(
-            files: files,
-            truncated: numstat.capped || nameStatus.capped || untracked.capped
+        return .success(
+            GitChangedFiles(
+                files: files,
+                truncated: numstat.capped || nameStatus.capped || untracked.capped
+            )
         )
     }
 
     /// Drops the trailing partial NUL-separated record a byte cap can leave
     /// behind, so capped listings only contribute complete records.
-    private func completeRecords(_ result: GitProcessResult) -> String? {
-        guard let output = result.successOutput else { return nil }
+    private func completeRecordData(_ result: GitProcessResult) -> Data? {
+        guard let output = result.rawOutput else { return nil }
         guard result.capped else { return output }
-        guard let lastNul = output.lastIndex(of: "\0") else { return "" }
-        return String(output[...lastNul])
+        guard let lastNul = output.lastIndex(of: 0) else { return Data() }
+        return Data(output[...lastNul])
     }
 
     /// Reads a unified diff for one repository-relative file path.
@@ -368,11 +397,6 @@ public struct GitDiffService: Sendable {
     /// `git diff HEAD` fails before the first commit. In that state Git's
     /// hash-format-aware empty tree is the correct baseline for index and
     /// working-tree changes, including files already staged in the index.
-    private func diffBaseline(in repoRoot: String) -> String? {
-        guard case .success(let baseline) = diffBaselineResult(in: repoRoot) else { return nil }
-        return baseline
-    }
-
     private func diffBaselineResult(in repoRoot: String) -> GitDiffQueryResult<String> {
         let head = runGit(in: repoRoot, arguments: ["rev-parse", "--verify", "--quiet", "HEAD"])
         switch head.failure {

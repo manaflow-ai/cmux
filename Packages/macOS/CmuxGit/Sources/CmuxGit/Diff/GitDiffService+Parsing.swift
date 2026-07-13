@@ -6,18 +6,40 @@ extension GitDiffService {
         nameStatusOutput: String?,
         untrackedOutput: String?
     ) -> [GitDiffSummary] {
+        parseChangedFiles(
+            numstatData: numstatOutput.map { Data($0.utf8) },
+            nameStatusData: nameStatusOutput.map { Data($0.utf8) },
+            untrackedData: untrackedOutput.map { Data($0.utf8) }
+        )
+    }
+
+    func parseChangedFiles(
+        numstatData: Data?,
+        nameStatusData: Data?,
+        untrackedData: Data?
+    ) -> [GitDiffSummary] {
         var partials: [String: GitDiffSummaryPartial] = [:]
-        parseNumstatOutput(numstatOutput, into: &partials)
-        parseNameStatusOutput(nameStatusOutput, into: &partials)
-        parseUntrackedOutput(untrackedOutput, into: &partials)
+        parseNumstatTokens(Self.strictUTF8Tokens(numstatData), into: &partials)
+        parseNameStatusTokens(Self.strictUTF8Tokens(nameStatusData), into: &partials)
+        parseUntrackedTokens(Self.strictUTF8Tokens(untrackedData), into: &partials)
         return partials.values
             .map(\.summary)
             .sorted { lhs, rhs in lhs.path.localizedStandardCompare(rhs.path) == .orderedAscending }
     }
 
-    private func parseNumstatOutput(_ output: String?, into partials: inout [String: GitDiffSummaryPartial]) {
-        guard let output, !output.isEmpty else { return }
-        let tokens = output.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
+    /// Git paths are byte identities. Decode each NUL-delimited field strictly
+    /// and retain a `nil` slot for unsupported bytes so a malformed rename
+    /// cannot shift later fields into the wrong path position.
+    private static func strictUTF8Tokens(_ output: Data?) -> [String?] {
+        guard let output, !output.isEmpty else { return [] }
+        var fields = output.split(separator: 0, omittingEmptySubsequences: false)
+        if output.last == 0, fields.last?.isEmpty == true {
+            fields.removeLast()
+        }
+        return fields.map { String(data: Data($0), encoding: .utf8) }
+    }
+
+    private func parseNumstatTokens(_ tokens: [String?], into partials: inout [String: GitDiffSummaryPartial]) {
         var index = 0
         while index < tokens.count {
             let token = tokens[index]
@@ -30,9 +52,7 @@ extension GitDiffService {
         }
     }
 
-    private func parseNameStatusOutput(_ output: String?, into partials: inout [String: GitDiffSummaryPartial]) {
-        guard let output, !output.isEmpty else { return }
-        let tokens = output.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
+    private func parseNameStatusTokens(_ tokens: [String?], into partials: inout [String: GitDiffSummaryPartial]) {
         var index = 0
         while index < tokens.count {
             let token = tokens[index]
@@ -45,10 +65,8 @@ extension GitDiffService {
         }
     }
 
-    private func parseUntrackedOutput(_ output: String?, into partials: inout [String: GitDiffSummaryPartial]) {
-        guard let output, !output.isEmpty else { return }
-        let paths = output.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
-        for path in paths where partials[path] == nil {
+    private func parseUntrackedTokens(_ paths: [String?], into partials: inout [String: GitDiffSummaryPartial]) {
+        for case let path? in paths where partials[path] == nil {
             partials[path] = GitDiffSummaryPartial(path: path, status: .untracked)
         }
     }
@@ -107,15 +125,18 @@ private struct GitDiffNumstatToken {
     let additions: Int?
     let deletions: Int?
 
-    init?(token: String, tokens: [String], index: inout Int) {
+    init?(token: String?, tokens: [String?], index: inout Int) {
+        guard let token else { return nil }
         let pieces = token.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
         guard pieces.count == 3 else { return nil }
         additions = Int(pieces[0])
         deletions = Int(pieces[1])
         if pieces[2].isEmpty {
-            guard index + 2 < tokens.count else { return nil }
-            oldPath = tokens[index + 1]
-            path = tokens[index + 2]
+            guard index + 2 < tokens.count,
+                  let decodedOldPath = tokens[index + 1],
+                  let decodedPath = tokens[index + 2] else { return nil }
+            oldPath = decodedOldPath
+            path = decodedPath
             index += 3
         } else {
             oldPath = nil
@@ -130,7 +151,8 @@ private struct GitDiffNameStatusToken {
     let oldPath: String?
     let status: GitDiffStatus
 
-    init?(token: String, tokens: [String], index: inout Int) {
+    init?(token: String?, tokens: [String?], index: inout Int) {
+        guard let token else { return nil }
         let pieces = token.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
         let statusRaw = pieces[0]
         guard let first = statusRaw.first else { return nil }
@@ -152,9 +174,11 @@ private struct GitDiffNameStatusToken {
                 path = pieces[2]
                 index += 1
             } else {
-                guard index + 2 < tokens.count else { return nil }
-                oldPath = tokens[index + 1]
-                path = tokens[index + 2]
+                guard index + 2 < tokens.count,
+                      let decodedOldPath = tokens[index + 1],
+                      let decodedPath = tokens[index + 2] else { return nil }
+                oldPath = decodedOldPath
+                path = decodedPath
                 index += 3
             }
         } else if pieces.count >= 2 {
@@ -162,9 +186,10 @@ private struct GitDiffNameStatusToken {
             path = pieces[1]
             index += 1
         } else {
-            guard index + 1 < tokens.count else { return nil }
+            guard index + 1 < tokens.count,
+                  let decodedPath = tokens[index + 1] else { return nil }
             oldPath = nil
-            path = tokens[index + 1]
+            path = decodedPath
             index += 2
         }
     }
