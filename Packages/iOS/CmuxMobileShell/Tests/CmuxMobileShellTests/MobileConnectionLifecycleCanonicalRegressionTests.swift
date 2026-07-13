@@ -297,6 +297,43 @@ import Testing
         #expect(store.hasKnownPairedMac)
     }
 
+    @Test func reconnectRenewsItsDeadlineForEveryFallbackRoute() async throws {
+        let deadline = ControlledStoredMacReconnectDeadline()
+        let routes = [
+            try loopbackRoute(id: "stale", port: 51_016),
+            try loopbackRoute(id: "good", port: 51_017),
+        ]
+        var mac = storedMac(id: "mac-a", route: routes[0])
+        mac.routes = routes
+        let pairedMacStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["": [mac]],
+            blockedTeams: []
+        )
+        let factory = RouteRecordingTransportFactory(
+            router: LivenessHostRouter(),
+            box: TransportBox(),
+            failingPorts: [51_016]
+        )
+        let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { Date() },
+                supportedRouteKinds: [.debugLoopback]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedMacStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            storedMacReconnectDeadline: { await deadline.wait() }
+        )
+
+        let connected = await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+
+        #expect(connected)
+        #expect(factory.attemptedPorts().contains(51_017))
+        #expect(await deadline.currentArmCount() >= 3)
+        store.signOut()
+    }
+
     @Test func joinedNetworkChangeRefreshesStoredSecondaryMacs() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()

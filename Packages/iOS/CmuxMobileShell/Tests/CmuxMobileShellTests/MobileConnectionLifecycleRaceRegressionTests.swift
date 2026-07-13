@@ -187,6 +187,35 @@ import Testing
         #expect(active?.macDeviceID == "mac-c")
     }
 
+    @Test func preservingLegacyAuthorityMigratesItsInstanceTagIntoTeamScope() async throws {
+        let route = try reconnectRoute()
+        var legacy = storedMac(id: "mac-b", route: route)
+        legacy.instanceTag = "feature-a"
+        legacy.teamID = nil
+        let pairedMacStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["": [legacy]],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedMacStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" }
+        )
+
+        let accepted = await store.persistPairedMacFromTicket(
+            try compactTicket(macDeviceID: "mac-b", route: route),
+            instanceTagUpdate: .preserve
+        )
+
+        #expect(accepted)
+        let migrated = try await pairedMacStore.loadAll(
+            stackUserID: "user-1",
+            teamID: "team-a"
+        ).first { $0.teamID == "team-a" && $0.macDeviceID == "mac-b" }
+        #expect(migrated?.instanceTag == "feature-a")
+    }
+
     private func reconnectRoute() throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: "debug_loopback",
