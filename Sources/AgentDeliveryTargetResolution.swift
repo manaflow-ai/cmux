@@ -30,17 +30,13 @@ struct AgentDeliveryTargetCandidate: Equatable {
 }
 
 /// Combines the two pid signals. The controlling-tty match is the live kernel
-/// fact and is required; the inherited `CMUX_SURFACE_ID` environment is
-/// spawn-time evidence that can be leaked from the operator's focused pane
-/// (see `testCodexHookOverridesLeakedEnvSurfaceWithProcessTTYBinding`), so it
-/// only corroborates the tty match — an env-only answer refuses so the caller
-/// falls back to the legacy chain and the re-home probes.
+/// fact and is required; inherited `CMUX_SURFACE_ID` is leakable spawn-time
+/// evidence, so it can corroborate but never veto a unique tty match.
 nonisolated func agentDeliveryTargetCombining(
     ttyTarget: AgentDeliveryTargetCandidate?,
     envTarget: AgentDeliveryTargetCandidate?
 ) -> AgentDeliveryTargetCandidate? {
     guard let ttyTarget else { return nil }
-    if let envTarget, envTarget.surfaceId != ttyTarget.surfaceId { return nil }
     return ttyTarget
 }
 
@@ -78,9 +74,8 @@ extension AppDelegate {
     /// process's controlling tty matched against every surface's pty device
     /// (unique-match only), corroborated — never replaced — by the process's
     /// own `CMUX_SURFACE_ID` environment re-homed through
-    /// `workspaceContainingPanel`. Disagreement (e.g. a pid-number collision
-    /// with an unrelated process) or an env-only answer refuses to resolve
-    /// rather than guessing; see `agentDeliveryTargetCombining`.
+    /// `workspaceContainingPanel`. The environment can corroborate but never
+    /// veto the unique kernel tty match; an env-only answer still refuses.
     func liveAgentDeliveryTarget(forAgentPID pid: pid_t) -> AgentDeliveryTargetCandidate? {
         guard let identity = agentLiveProcessIdentity(pid: pid) else { return nil }
 

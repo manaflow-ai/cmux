@@ -13,7 +13,8 @@ extension TerminalController {
         surfaceId: UUID?,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        retargetsToLiveSurfaceOwner: Bool = true
     ) {
         // Retarget to the surface's CURRENT workspace at delivery time so a
         // stale caller-supplied workspace id (spawn-time env, moved pane —
@@ -40,7 +41,8 @@ extension TerminalController {
             surfaceId: target.surfaceId,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner
         )
     }
 }
@@ -79,7 +81,32 @@ extension TerminalNotificationStore {
             surfaceId: target.surfaceId,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            retargetsToLiveSurfaceOwner: true
+        )
+    }
+
+    /// Re-resolves canonical surface identity at the final apply boundary,
+    /// after any asynchronous notification-policy hooks have finished.
+    func notificationPolicyRequestAtLiveOwner(
+        _ request: TerminalNotificationPolicyRequest
+    ) -> TerminalNotificationPolicyRequest? {
+        guard request.retargetsToLiveSurfaceOwner else { return request }
+        guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
+            claimedTabId: request.tabId,
+            surfaceId: request.surfaceId
+        ) else { return nil }
+        return TerminalNotificationPolicyRequest(
+            tabId: target.tabId,
+            surfaceId: target.surfaceId,
+            panelId: request.panelId,
+            retargetsToLiveSurfaceOwner: true,
+            title: request.title,
+            subtitle: request.subtitle,
+            body: request.body,
+            cwd: request.cwd,
+            isAppFocused: request.isAppFocused,
+            isFocusedPanel: request.isFocusedPanel
         )
     }
 }
