@@ -12,7 +12,7 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `302964c51`. It extends the prior cmux pin
+Current cmux pinned fork head: `8ff16c82e`. It extends the prior cmux pin
 `096622763`, current fork `main` (`81a6daa8e`), and upstream
 `ghostty-org/ghostty` `main` through `7e02af879` (2026-07-09), followed by the
 render-grid preserved-page OOM fix, lock-free selection notifications, and
@@ -31,7 +31,7 @@ release tag below, independent of the feature branch lifecycle. The fork's
 default branch is unchanged because cmux changes may not be pushed there
 directly.
 Its prebuilt framework is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-302964c51f5484db9e5afbe64da9c1c0e0c820e1-crashsubdir-cmux-crash-v1.
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-8ff16c82e0364b6150a1cd31b699dec0678c875f-crashsubdir-cmux-crash-v1.
 
 ### Upstream TLDR (`d560c645..7e02af879`)
 

@@ -2908,7 +2908,9 @@ class GhosttyApp {
             return true
         case GHOSTTY_ACTION_PWD:
             let pwd = action.action.pwd.pwd.flatMap { String(cString: $0) } ?? ""
-            let scrollbarAtMarker = GhosttyScrollbar(c: action.action.pwd.scrollbar)
+            // The action pointer is callback-scoped, so copy it before hopping
+            // to MainActor through performOnMain.
+            let scrollbarAtMarker = action.action.pwd.scrollbar.map { GhosttyScrollbar(c: $0.pointee) }
             if SessionScrollbackReplayCompletionMarker.isReservedReportedDirectory(pwd), performOnMain({
                 completeSessionScrollbackReplayIfNeeded(
                     surfaceView: surfaceView,
