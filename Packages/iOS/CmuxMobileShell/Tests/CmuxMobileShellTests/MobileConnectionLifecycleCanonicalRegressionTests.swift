@@ -272,6 +272,43 @@ import Testing
         await pairedMacStore.release(teamID: nil)
     }
 
+    @Test func retiredTransportConnectDoesNotRetainShellAfterDeadline() async throws {
+        let deadline = ControlledStoredMacReconnectDeadline()
+        let route = try loopbackRoute(id: "held", port: 51_005)
+        let pairedMacStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["": [storedMac(id: "mac-a", route: route)]],
+            blockedTeams: []
+        )
+        let factory = RouteRecordingTransportFactory(
+            router: LivenessHostRouter(),
+            box: TransportBox(),
+            failingPorts: [51_005],
+            holdFirstFailingPort: 51_005
+        )
+        var store: MobileShellComposite? = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { Date() },
+                supportedRouteKinds: [.debugLoopback]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedMacStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            storedMacReconnectDeadline: { await deadline.wait() }
+        )
+        weak let weakStore = store
+        store?.requestConnectionLifecycleRecovery(.manualRetry)
+        #expect(try await pollUntil { factory.attemptedPorts() == [51_005] })
+        await deadline.waitUntilArmed()
+
+        await deadline.expire()
+        #expect(try await pollUntil { store?.connectionLifecycle.activeEpisode == nil })
+        store = nil
+
+        #expect(try await pollUntil { weakStore == nil })
+        factory.releaseHeldConnect()
+    }
+
     private func loopbackRoute(id: String, port: Int) throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: id,
