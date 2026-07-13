@@ -454,27 +454,6 @@ struct TaskComposerSheet: View {
         failureText = nil
     }
 
-    /// Applies a composer mutation and rotates the idempotency key only when
-    /// the exact request sent to the Mac changes.
-    private func updateSubmissionRequest(_ update: () -> Void) {
-        let before = submissionSnapshot()
-        update()
-        let after = submissionSnapshot()
-        submissionIdentity.rotateIfRequestChanged(from: before, to: after)
-    }
-
-    private func submissionSnapshot() -> MobileTaskSubmissionSnapshot? {
-        guard let selectedTemplate else { return nil }
-        return MobileTaskSubmissionSnapshot(
-            template: selectedTemplate,
-            prompt: prompt,
-            macDeviceID: selectedMacDeviceID,
-            directory: directory,
-            didEditDirectory: didEditDirectory,
-            operationID: submissionIdentity.id
-        )
-    }
-
     private func persistDraft() {
         guard shouldPersistDraftOnDisappear else { return }
         if let activeSubmissionSnapshot {
