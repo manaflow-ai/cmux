@@ -36,10 +36,12 @@ import Testing
 
         let first = await store.connectPairingURLResult(Self.qrURL)
         let second = await store.connectPairingURLResult(Self.qrURL)
+        let connectCount = await transport.connectCount()
+        await transport.releaseStuckConnects()
 
         #expect(first == .failed)
         #expect(second == .failed)
-        #expect(await transport.connectCount() == 1)
+        #expect(connectCount == 1)
         #expect(store.connectionState == .disconnected)
     }
 

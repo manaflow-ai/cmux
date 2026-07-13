@@ -51,6 +51,7 @@ extension AgentLaunchSanitizer {
             "--allowedTools",
             "--allowed-tools",
             "--betas",
+            "--dangerously-load-development-channels",
             "--disallowedTools",
             "--disallowed-tools",
             "--file",
@@ -101,6 +102,7 @@ extension AgentLaunchSanitizer {
             "-p",
             "--no-session-persistence"
         ],
+        scansOptionsPastPositionals: true,
         skipClaudeHookSettings: true
     )
 
@@ -167,80 +169,6 @@ extension AgentLaunchSanitizer {
         resumeSubcommand: "resume"
     )
 
-    static let grokPolicy = Policy(
-        valueOptions: [
-            "--agent",
-            "--agents",
-            "--allow",
-            "--cwd",
-            "--deny",
-            "--disallowed-tools",
-            "--effort",
-            "--max-turns",
-            "--model",
-            "-m",
-            "--permission-mode",
-            "--reasoning-effort",
-            "--resume",
-            "-r",
-            "--rules",
-            "--sandbox",
-            "--system-prompt-override",
-            "--tools",
-            "--worktree",
-            "-w"
-        ],
-        optionalValueOptions: [
-            "--resume",
-            "-r",
-            "--worktree",
-            "-w"
-        ],
-        nonRestorableCommands: [
-            "agent",
-            "help",
-            "import",
-            "inspect",
-            "leader",
-            "login",
-            "mcp",
-            "memory",
-            "models",
-            "sessions",
-            "setup",
-            "share",
-            "ssh",
-            "trace",
-            "update",
-            "version",
-            "v",
-            "worktree"
-        ],
-        droppedOptions: [
-            "--continue",
-            "-c",
-            "--restore-code",
-            "--resume",
-            "-r",
-            "--worktree",
-            "-w"
-        ],
-        droppedOptionPrefixes: [
-            "--resume=",
-            "-r=",
-            "--worktree=",
-            "-w="
-        ],
-        rejectOptions: [
-            "--best-of-n",
-            "--output-format",
-            "--prompt-file",
-            "--prompt-json",
-            "--single",
-            "-p"
-        ]
-    )
-
     static let piPolicy = Policy(
         valueOptions: [
             "--append-system-prompt",
@@ -302,6 +230,22 @@ extension AgentLaunchSanitizer {
             "-v"
         ]
     )
+
+    /// Campfire embeds vanilla pi and forwards unrecognized flags to it, so its
+    /// policy is pi's plus the campfire-only surface. `--relay` is safe to
+    /// replay (a relay URL, not a credential); `--join-as`/`--name` are
+    /// joiner-only display names that make no sense on a host resume. An invite
+    /// URL is a positional argument and is dropped by the default positional
+    /// handling — it carries the lobby capability token and must never be
+    /// persisted or replayed.
+    static let campfirePolicy: Policy = {
+        var policy = piPolicy
+        policy.valueOptions.formUnion(["--relay", "--join", "--join-as", "--name"])
+        policy.nonRestorableCommands.insert("init")
+        policy.droppedOptions.formUnion(["--join", "--join-as", "--name", "--auto-exit"])
+        policy.droppedOptionPrefixes.append(contentsOf: ["--join=", "--join-as=", "--name="])
+        return policy
+    }()
 
     static let ampPolicy = Policy(
         valueOptions: [

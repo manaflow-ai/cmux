@@ -524,6 +524,32 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testTerminalDropdownKeepsBottomScrollDuringWorkspaceRefresh() throws {
+        let app = launchWorkspaceDetailRefreshingTerminalMenuPreviewApp()
+
+        tap(app.buttons["MobileTerminalDropdown"], in: app)
+        assertTerminalMenuItemExists("terminal-build", in: app)
+        let target = scrollTerminalMenuToItem("terminal-extra-24", in: app)
+        XCTAssertTrue(target.isHittable, "Bottom terminal must be visible before refresh pulses start.")
+
+        let refreshedTarget = app.buttons["MobileTerminalMenuItem-terminal-extra-24"]
+        let deadline = Date().addingTimeInterval(3.0)
+        while Date() < deadline {
+            XCTAssertTrue(
+                refreshedTarget.exists && refreshedTarget.isHittable,
+                "Bottom terminal must stay visible and hittable while workspace refreshes update terminal titles."
+            )
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        tapMenuItem(refreshedTarget, in: app)
+        let selectedValue = app.buttons["MobileTerminalDropdown"].value as? String ?? ""
+        XCTAssertTrue(
+            selectedValue.contains("Terminal 24"),
+            "Selecting the bottom terminal should update the picker value. value=\(selectedValue)"
+        )
+    }
+
+    @MainActor
     func testTerminalDropdownSwitchesToAlternateScreenSnapshot() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()
@@ -1933,6 +1959,17 @@ final class cmuxUITests: XCTestCase {
         }
         let app = launchApp(mockData: false, environment: launchEnvironment)
         XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
+        return app
+    }
+
+    @MainActor
+    private func launchWorkspaceDetailRefreshingTerminalMenuPreviewApp() -> XCUIApplication {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_DETAIL_REFRESHING_TERMINAL_MENU": "1",
+            "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
+        ])
+        XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
         return app
     }
 

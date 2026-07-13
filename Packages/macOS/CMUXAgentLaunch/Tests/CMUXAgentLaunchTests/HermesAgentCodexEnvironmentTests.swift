@@ -104,7 +104,7 @@ struct HermesAgentCodexEnvironmentTests {
     @Test("Allows Hermes Codex subrouter URLs in captured launch environment")
     func allowsHermesCodexSubrouterURLsInCapturedLaunchEnvironment() {
         #expect(
-            AgentLaunchEnvironmentPolicy.selectedEnvironment(
+            AgentLaunchEnvironmentPolicy().selectedEnvironment(
                 from: [
                     "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",
                     "HERMES_CODEX_BASE_URL": "http://subrouter-team:31415/backend-api/codex",
@@ -116,7 +116,7 @@ struct HermesAgentCodexEnvironmentTests {
             ]
         )
         #expect(
-            AgentLaunchEnvironmentPolicy.selectedEnvironment(
+            AgentLaunchEnvironmentPolicy().selectedEnvironment(
                 from: [
                     "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",
                     "HERMES_CODEX_BASE_URL": "http://subrouter-team:31415/backend-api/codex",

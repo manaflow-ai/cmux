@@ -2422,9 +2422,9 @@ struct TextBoxInputContainer: View {
     @AppStorage(TerminalTextBoxInputSettings.submitActionsKey)
     var configuredSubmitActionsJSON = ""
     @State var submitActionImageCache: [String: NSImage] = [:]
+    @State var submitActionAssetAvailabilityCache: [String: Bool] = [:]
     @State var cachedSubmitActionsJSON: String?
     @State var cachedSubmitActions = TerminalTextBoxInputSettings.submitActions(configuredJSON: "")
-
     @Binding var text: String
     @Binding var attachments: [TextBoxAttachment]
     @Binding var selectedSubmitActionID: String?

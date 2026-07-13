@@ -11,6 +11,7 @@ extension CMUXCLI {
         hookSurfaceFlagIsExplicit: Bool,
         preferCallerTTYRouting: Bool,
         callerTTYBindingProvider: (() -> CallerTerminalBinding?)?,
+        markFeedTelemetryHandled: () -> Void,
         sendFeedTelemetry: (String?, String?) -> Void
     ) throws {
         telemetry.breadcrumb("claude-hook.push-notification")
@@ -35,13 +36,18 @@ extension CMUXCLI {
             return
         }
         let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-        let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+        guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
             preferred: mappedSession?.workspaceId,
             fallback: workspaceArg,
             preferCallerTTYOverFallback: preferCallerTTYRouting,
             callerTerminalBinding: callerTTYBindingProvider,
             client: client
-        )
+        ) else {
+            markFeedTelemetryHandled()
+            telemetry.breadcrumb("claude-hook.push-notification.unresolved")
+            print(String(localized: "common.ok", defaultValue: "OK"))
+            return
+        }
         let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
             preferred: mappedSession?.surfaceId,
             fallback: surfaceArg,

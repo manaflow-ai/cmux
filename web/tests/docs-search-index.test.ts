@@ -54,6 +54,20 @@ describe("docs search index", () => {
     expect(
       pages.some((page) => page.locale === "ja" && page.href === "/docs/task-manager"),
     ).toBe(true);
+    expect(
+      pages.some(
+        (page) =>
+          page.locale === "de" &&
+          page.href === "/docs/agent-integrations/oh-my-pi",
+      ),
+    ).toBe(false);
+    expect(
+      pages.some(
+        (page) =>
+          page.locale === "ja" &&
+          page.href === "/docs/agent-integrations/oh-my-pi",
+      ),
+    ).toBe(true);
   });
 
   test("uses the API page message namespace in every locale", async () => {

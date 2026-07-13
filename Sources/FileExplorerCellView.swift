@@ -1,8 +1,9 @@
 import AppKit
+import CmuxAppKitSupportUI
 import UniformTypeIdentifiers
 
 final class FileExplorerCellView: NSTableCellView {
-    private let iconView = NSImageView()
+    private let iconView = CmuxResolvedIconImageView()
     private let nameLabel = NSTextField(labelWithString: "")
     private let loadingIndicator = NSProgressIndicator()
     private var trackingArea: NSTrackingArea?
@@ -27,7 +28,6 @@ final class FileExplorerCellView: NSTableCellView {
 
     private func setupViews() {
         iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.imageScaling = .scaleProportionallyDown
 
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         nameLabel.textColor = .labelColor
@@ -90,27 +90,32 @@ final class FileExplorerCellView: NSTableCellView {
 
         if style == .finder {
             if node.isDirectory {
-                let folderIcon = NSWorkspace.shared.icon(for: .folder)
-                folderIcon.size = NSSize(width: style.iconSize, height: style.iconSize)
-                iconView.image = folderIcon
-                iconView.contentTintColor = nil
+                iconView.apply(CmuxResolvedIconRequest(
+                    source: .image(NSWorkspace.shared.icon(for: .folder)),
+                    size: NSSize(width: style.iconSize, height: style.iconSize)
+                ))
             } else {
                 let pathExtension = (node.name as NSString).pathExtension
-                let fileIcon = NSWorkspace.shared.icon(for: UTType(filenameExtension: pathExtension) ?? .data)
-                fileIcon.size = NSSize(width: style.iconSize, height: style.iconSize)
-                iconView.image = fileIcon
-                iconView.contentTintColor = nil
+                iconView.apply(CmuxResolvedIconRequest(
+                    source: .image(NSWorkspace.shared.icon(for: UTType(filenameExtension: pathExtension) ?? .data)),
+                    size: NSSize(width: style.iconSize, height: style.iconSize)
+                ))
             }
         } else {
-            let symbolConfig = NSImage.SymbolConfiguration(pointSize: style.iconSize, weight: style.iconWeight)
             if node.isDirectory {
-                iconView.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)?
-                    .withSymbolConfiguration(symbolConfig)
-                iconView.contentTintColor = style.folderIconTint
+                iconView.apply(CmuxResolvedIconRequest(
+                    source: .systemSymbol(name: "folder.fill", accessibilityDescription: nil),
+                    size: NSSize(width: style.iconSize, height: style.iconSize),
+                    tintColor: style.folderIconTint,
+                    symbolWeight: style.iconWeight
+                ))
             } else {
-                iconView.image = NSImage(systemSymbolName: "doc", accessibilityDescription: nil)?
-                    .withSymbolConfiguration(symbolConfig)
-                iconView.contentTintColor = style.fileIconTint
+                iconView.apply(CmuxResolvedIconRequest(
+                    source: .systemSymbol(name: "doc", accessibilityDescription: nil),
+                    size: NSSize(width: style.iconSize, height: style.iconSize),
+                    tintColor: style.fileIconTint,
+                    symbolWeight: style.iconWeight
+                ))
             }
         }
 

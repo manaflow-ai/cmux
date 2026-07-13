@@ -219,6 +219,76 @@ import Testing
         #expect(mappedOlder.lastActivityAt == nil)
     }
 
+    @Test func workspaceMoveRequestEncodesGroupAndBeforeWorkspace() throws {
+        let data = try MobileCoreRPCClient.requestData(
+            method: "workspace.move",
+            params: [
+                "workspace_id": "workspace-dragged",
+                "group_id": "group-target",
+                "before_workspace_id": "workspace-before",
+                "client_id": "client-1",
+            ],
+            id: "move-request"
+        )
+        let request = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(request["id"] as? String == "move-request")
+        #expect(request["method"] as? String == "workspace.move")
+        #expect(params["workspace_id"] as? String == "workspace-dragged")
+        #expect(params["group_id"] as? String == "group-target")
+        #expect(params["before_workspace_id"] as? String == "workspace-before")
+        #expect(params["client_id"] as? String == "client-1")
+    }
+
+    @Test func workspaceCreateRequestEncodesGroupID() throws {
+        let data = try MobileCoreRPCClient.requestData(
+            method: "workspace.create",
+            params: [
+                "group_id": "group-target",
+            ],
+            id: "create-request"
+        )
+        let request = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(request["id"] as? String == "create-request")
+        #expect(request["method"] as? String == "workspace.create")
+        #expect(params["group_id"] as? String == "group-target")
+    }
+
+    @Test func workspaceGroupActionRequestEncodesActionAndTitle() throws {
+        let data = try MobileCoreRPCClient.requestData(
+            method: "workspace.group.action",
+            params: [
+                "group_id": "group-target",
+                "action": "rename",
+                "title": "Project Alpha",
+            ],
+            id: "group-action-request"
+        )
+        let request = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(request["id"] as? String == "group-action-request")
+        #expect(request["method"] as? String == "workspace.group.action")
+        #expect(params["group_id"] as? String == "group-target")
+        #expect(params["action"] as? String == "rename")
+        #expect(params["title"] as? String == "Project Alpha")
+    }
+
+    @Test func workspaceGroupCreateRequestEncodesTitle() throws {
+        let data = try MobileCoreRPCClient.requestData(
+            method: "workspace.group.create",
+            params: [
+                "title": "Ops",
+            ],
+            id: "group-create-request"
+        )
+        let request = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(request["id"] as? String == "group-create-request")
+        #expect(request["method"] as? String == "workspace.group.create")
+        #expect(params["title"] as? String == "Ops")
+    }
+
     @Test func attachTicketInputDecodesAttachURL() throws {
         let route = try CmxAttachRoute(
             id: "tailscale",
@@ -363,4 +433,48 @@ import Testing
         #expect(frame.stackAccessToken == "test-stack-token")
         #expect(frame.hasAuth)
     }
+
+    @Test func workspaceMoveCarriesMacWideAttachTicketContext() async throws {
+        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
+        let transport = QueuedCancellationProbeTransport()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
+            stackAccessToken: "test-stack-token"
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "workspace.move",
+            params: [
+                "workspace_id": "workspace-main",
+                "group_id": "group-main",
+                "before_workspace_id": "workspace-next",
+            ]
+        )
+        let task = Task { try await client.sendRequest(request) }
+        let sent = try await transport.waitForSentRequestCount(1)
+        task.cancel()
+        _ = try? await task.value
+
+        let frame = try #require(sent.first)
+        #expect(frame.method == "workspace.move")
+        #expect(frame.workspaceID == "workspace-main")
+        #expect(frame.attachToken == "ticket-secret")
+        #expect(frame.stackAccessToken == "test-stack-token")
+        #expect(frame.hasAuth)
+    }
+
 }
