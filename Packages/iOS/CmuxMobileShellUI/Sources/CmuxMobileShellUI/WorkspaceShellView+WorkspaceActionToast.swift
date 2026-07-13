@@ -6,6 +6,7 @@ import SwiftUI
 enum WorkspaceActionToastAction {
     case createWorkspace
     case createWorkspaceInGroup
+    case createWorkspaceGroup
     case moveWorkspace
     case renameWorkspace
     case pinWorkspace
@@ -59,6 +60,8 @@ extension WorkspaceShellView {
             return L10n.string("mobile.workspaceAction.failure.action.createWorkspace", defaultValue: "create workspace")
         case .createWorkspaceInGroup:
             return L10n.string("mobile.workspaceAction.failure.action.createWorkspaceInGroup", defaultValue: "create workspace in group")
+        case .createWorkspaceGroup:
+            return L10n.string("mobile.workspaceAction.failure.action.createWorkspaceGroup", defaultValue: "create workspace group")
         case .moveWorkspace:
             return L10n.string("mobile.workspaceAction.failure.action.moveWorkspace", defaultValue: "move workspace")
         case .renameWorkspace:

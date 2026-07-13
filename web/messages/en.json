@@ -101,9 +101,6 @@
         "pendingBody": "{team} is scheduled to end on {date}.",
         "price": "$35/seat/month"
       },
-      "legacy": {
-        "body": "Your subscription is managed by our previous billing system. Contact support to make changes."
-      },
       "details": {
         "renewsOn": "Renews on",
         "endsOn": "Ends on",
@@ -124,6 +121,12 @@
         "cancelSummary": "Cancel plan",
         "confirmCancel": "Confirm cancellation",
         "resume": "Resume plan"
+      },
+      "plan": {
+        "heading": "Your personal plan",
+        "free": "Free",
+        "pro": "Pro",
+        "loading": "Loading…"
       }
     },
     "testflight": {
@@ -338,7 +341,9 @@
   "pricing": {
     "metaTitle": "Pricing — cmux",
     "metaDescription": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for Cloud VMs, cmux Vault session backup, and a model gateway. Enterprise adds SSO and self-hosting.",
+    "metaDescriptionShort": "cmux is a free, open source macOS terminal. Pro adds Cloud VMs, Vault session backup, and a model gateway; Enterprise adds SSO and self-hosting.",
     "metaDescriptionNoVault": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for Cloud VMs and a model gateway. Enterprise adds SSO and self-hosting.",
+    "metaDescriptionNoVaultShort": "cmux is a free, open source macOS terminal. Pro adds Cloud VMs and a model gateway; Enterprise adds SSO and self-hosting.",
     "title": "Pricing",
     "perMonth": "/month",
     "perUserMonth": "/user/month",
@@ -617,7 +622,6 @@
     "welcomePendingAction": "Check again",
     "billingError": "Something went wrong starting checkout. Please try again in a moment.",
     "billingUnavailable": "Billing is not available right now. Please try again later.",
-    "billingExternal": "Your subscription is managed by our previous billing system. Contact support to make changes.",
     "billingCancelled": "Checkout cancelled. You have not been charged.",
     "billingInvalidPlan": "That plan is not available. Pick a plan below.",
     "welcomeTeam": "Your cmux Team purchase is complete."
@@ -692,7 +696,7 @@
   },
   "community": {
     "title": "Community",
-    "description": "Browse projects built by the cmux community, from agent hooks to multi-agent orchestration and remote access.",
+    "description": "Browse projects built by the cmux community, from agent hooks to multi-agent orchestration and remote access tools.",
     "metaTitle": "Community — cmux",
     "metaDescription": "Browse every project from awesome-cmux on the cmux community page",
     "sourceAction": "View awesome-cmux",
@@ -992,7 +996,7 @@
     },
     "cmuxOmo": {
       "metaTitle": "oh-my-openagent subagents as native cmux panes",
-      "metaDescription": "oh-my-openagent (formerly oh-my-opencode) orchestrates parallel specialist agents across Claude, GPT, and Gemini. cmux omo turns their tmux panes into native splits."
+      "metaDescription": "oh-my-openagent orchestrates specialist Claude, GPT, and Gemini agents in parallel. cmux omo turns each tmux pane into a native split."
     },
     "gpl": {
       "metaTitle": "cmux is now GPL",
@@ -1088,7 +1092,7 @@
       },
       "cmuxOmo": {
         "title": "oh-my-openagent subagents as native cmux panes",
-        "summary": "oh-my-openagent (formerly oh-my-opencode) orchestrates parallel specialist agents across Claude, GPT, and Gemini. cmux omo turns their tmux panes into native splits.",
+        "summary": "oh-my-openagent orchestrates specialist Claude, GPT, and Gemini agents in parallel. cmux omo turns each tmux pane into a native split.",
         "date": "March 30, 2026",
         "p1": "<code>cmux omo</code> integrates oh-my-openagent (formerly oh-my-opencode), a plugin for OpenCode that orchestrates specialist agents across Claude, GPT, and Gemini in parallel. Each agent gets its own tmux pane. <code>cmux omo</code> uses the same tmux shim as <claudeTeamsLink><code>cmux claude-teams</code></claudeTeamsLink>: fake <code>TMUX</code> env var, every tmux command translated to cmux splits. It auto-installs the plugin into a shadow config so <code>~/.config/opencode</code> stays untouched.",
         "p2": "The shim also intercepts <code>terminal-notifier</code> calls and routes them through <code>cmux notify</code>. Works over SSH via the Go relay daemon."
@@ -1401,9 +1405,9 @@
       "enableTitle": "Enable it",
       "enableDesc": "Open Settings → Beta Features and turn on Remote tmux. The toggle is off by default, so nothing changes for local terminals until you opt in.",
       "attachTitle": "Attaching",
-      "attachIntro": "Run cmux ssh-tmux <destination> in a terminal — an ~/.ssh/config alias or user@host. cmux opens a new window that mirrors that host's tmux sessions: each session becomes a workspace, each window a tab, and multi-pane windows become in-tab splits.",
-      "attachSockets": "The remote.tmux.* socket commands (below) give finer control — for example, remote.tmux.mirror mirrors a host's sessions into the current window's sidebar instead of opening a dedicated window.",
-      "attachCli": "Hosts that authenticate non-interactively (ssh-agent, or a key in ~/.ssh/config) attach with no prompt. If the host needs interactive authentication (a password, host-key confirmation, or MFA), cmux runs ssh inline in your terminal so you can authenticate, then opens the mirror window. Accepts --port and --identity.",
+      "attachIntro": "Run cmux ssh-tmux <destination> in a terminal — an ~/.ssh/config alias or user@host. cmux mirrors that host's tmux sessions into the current window's sidebar: each session becomes a workspace, each window a tab, and multi-pane windows become in-tab splits.",
+      "attachSockets": "The remote.tmux.* socket commands (below) give finer control. remote.tmux.mirror is the mirror entry point; it accepts window/caller routing and can optionally select the mirrored workspace.",
+      "attachCli": "Hosts that authenticate non-interactively (ssh-agent, or a key in ~/.ssh/config) attach with no prompt. If the host needs interactive authentication (a password, host-key confirmation, or MFA), cmux runs ssh inline in your terminal so you can authenticate, then mirrors into the current window. Accepts --port, --identity, and --no-focus.",
       "troubleshootTitle": "If you get \"Permission denied\"",
       "troubleshootDesc": "The destination is handed to ssh as-is, so an alias must carry everything ssh needs to log in — most commonly User (without it, ssh tries your local username) and IdentityFile:",
       "troubleshootFallback": "Or pass the user explicitly: cmux ssh-tmux dev@my-ssh-alias. If plain ssh <destination> doesn't log you in, cmux ssh-tmux <destination> won't either.",
@@ -1418,14 +1422,13 @@
       "behaviorMouse": "Mouse: clicks, scroll, and drag reach the remote app when it has mouse mode on. Hold Shift while dragging for a native cmux text selection/copy (the same as any terminal running a mouse-mode app).",
       "behaviorUnicode": "Unicode-correct output: multi-byte characters are preserved even when tmux splits them across updates, so box-drawing and other wide content render cleanly.",
       "socketTitle": "Socket commands",
-      "socketDesc": "The feature is also driven by socket commands (gated on the Beta Features flag). host is an SSH destination or ~/.ssh/config alias; session is a tmux session name.",
+      "socketDesc": "The feature is also driven by socket commands (gated on the Beta Features flag). host is an SSH destination or ~/.ssh/config alias; session is a tmux session name; mirror also accepts standard window/workspace/surface/pane routing.",
       "socketMethod": "Method",
       "socketParams": "Params",
       "socketMeaning": "Description",
       "methodSessions": "List the tmux sessions on a host.",
       "methodAttach": "Attach a control client to a session (create attaches-or-creates).",
-      "methodMirror": "Mirror every session on a host, each as its own workspace (windows become tabs).",
-      "methodWindow": "Open a dedicated window mirroring every session on a host (the cmux ssh-tmux entry point); returns the ssh command to run for interactive auth when the host needs it.",
+      "methodMirror": "Mirror every session on a host into the resolved window, each as its own workspace (windows become tabs); returns the ssh command to run for interactive auth when the host needs it.",
       "methodDetach": "Detach the control client; the remote session keeps running.",
       "methodState": "Report the control client's observed state (diagnostics).",
       "socketSafetyDesc": "A dash-prefixed host or identity file is rejected at the trust boundary as a defense against SSH option injection.",
@@ -2947,6 +2950,10 @@
       "title": "Guides",
       "intro": "Comparisons, background, and use-case guides for cmux. For product documentation, see the docs."
     },
+    "remoteTmux": {
+      "title": "Remote tmux",
+      "metaDescription": "Use cmux as a native macOS front end for tmux running on another machine."
+    },
     "compare": {
       "metaTitle": "Compare cmux with AI coding terminals and agent workspaces",
       "metaDescription": "Compare cmux with Superset, Conductor, Cursor, Devin, VS Code, Zed, Warp, Ghostty, iTerm2, Kitty, Alacritty, WezTerm, Herdr, and other tools for running Claude Code, Codex, OpenCode, and coding agents.",
@@ -4464,6 +4471,7 @@
       "cursorCli": "A terminal for Cursor CLI",
       "keyboardShortcuts": "Keyboard shortcuts",
       "browserAutomation": "Browser automation",
+      "remoteTmux": "Remote tmux",
       "compare": "Compare cmux"
     },
     "agents": {
@@ -4665,6 +4673,34 @@
       "submitting": "Submitting...",
       "success": "Thanks. We received your request and will reply from founders@manaflow.com.",
       "error": "Something went wrong. Please try again or email founders@manaflow.com."
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro is active",
+    "title": "Welcome to cmux Pro",
+    "body": "Your plan includes cloud agents on Cloud VMs, 20 monthly compute-hours, the model gateway, and the cmux iOS app. Start here.",
+    "done": "Go to dashboard",
+    "steps": {
+      "modelGateway": {
+        "title": "Model gateway",
+        "body": "Route across providers with usage and cost analytics.",
+        "action": "Open model gateway"
+      },
+      "aiAccounts": {
+        "title": "Connect your AI accounts",
+        "body": "Add provider accounts so cmux can route work through them.",
+        "action": "Connect providers"
+      },
+      "iosApp": {
+        "title": "cmux iOS app",
+        "body": "Use cmux on your phone.",
+        "action": "Join the iOS beta"
+      },
+      "billing": {
+        "title": "Manage your plan",
+        "body": "See your plan, invoices, and cancellation.",
+        "action": "Manage plan"
+      }
     }
   }
 }

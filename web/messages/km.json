@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "គម្រោងផ្ទាល់ខ្លួនរបស់អ្នក",
+        "free": "ឥតគិតថ្លៃ",
+        "pro": "Pro",
+        "loading": "កំពុងផ្ទុក…"
+      }
     }
   },
   "community": {
@@ -1060,7 +1068,7 @@
     "keyboardShortcuts": {
       "title": "ផ្លូវកាត់ក្ដារចុច",
       "description": "ផ្លូវកាត់ក្ដារចុចទាំងអស់ដែលមានក្នុង cmux, ដាក់ជាក្រុមតាមប្រភេទ។",
-      "metaDescription": "ផ្លូវកាត់ក្ដារចុច cmux ទាំងអស់សម្រាប់ workspace, surface, បន្ទះបំបែក, កម្មវិធីរុករក, ជូនដំណឹង, ស្វែងរក, និងការគ្រប់គ្រងបង្អួចនៅលើ macOS។",
+      "metaDescription": "ផ្លូវកាត់ក្ដារចុច cmux ទាំងអស់សម្រាប់ workspace, surface, បន្ទះបំបែក, កម្មវិធីរុករក, ជូនដំណឹង, ស្វែងរក និងការគ្រប់គ្រងបង្អួចនៅលើ macOS។",
       "searchPlaceholder": "ស្វែងរកផ្លូវកាត់...",
       "searchLabel": "ស្វែងរកផ្លូវកាត់ក្ដារចុច",
       "noResults": "រកមិនឃើញផ្លូវកាត់ទេ",
@@ -1311,6 +1319,7 @@
       "title": "ជំនាញ",
       "metaTitle": "ជំនាញ",
       "metaDescription": "ដំឡើង និងប្រើជំនាញ agent របស់ cmux សម្រាប់ការគ្រប់គ្រង CLI មូលដ្ឋាន ការធ្វើស្វ័យប្រវត្តិកម្ម browser, ផ្ទាំង Markdown, បង្អួច debug និងការចេញផ្សាយ។",
+      "metaDescriptionShort": "ជំនាញ cmux គ្រប់គ្រង CLI និង browser ព្រមទាំងផ្ទាំង Markdown ការ debug release និងលំហូរការងារ agent។",
       "intro": "cmux ភ្ជាប់មកជាមួយជំនាញដែលបង្រៀន coding agents ឱ្យប្រើការគ្រប់គ្រង cmux CLI, ផ្ទៃ browser, ផ្ទាំង Markdown, បង្អួច debug និង workflow ចេញផ្សាយ។",
       "installTitle": "ដំឡើង",
       "installIntro": "រត់ <code>skills.sh</code> ដើម្បីដំឡើងជំនាញដែលមានក្នុង repo ទៅកាន់ថតជំនាញ Codex របស់អ្នក។",
@@ -1527,7 +1536,7 @@
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode ពហុភ្នាក់ងារក្នុង cmux",
-      "metaDescription": "oh-my-opencode (cmux omo) ដំណើរការ OpenCode CLI ជាមួយកម្មវិធីជំនួយ oh-my-openagent នៅក្នុង cmux។ រៀបចំ Claude, GPT, Gemini, និង Grok ជាភ្នាក់ងារប៉ារ៉ាឡែល នីមួយៗនៅក្នុងបន្ទះបំបែកដើមរបស់ cmux។"
+      "metaDescription": "cmux omo ដំណើរការ OpenCode ជាមួយ oh-my-openagent។ Claude, GPT, Gemini និង Grok ធ្វើការជាភ្នាក់ងារប៉ារ៉ាឡែលក្នុងបន្ទះ cmux។"
     },
     "ios": {
       "metaTitle": "កម្មវិធី iOS",

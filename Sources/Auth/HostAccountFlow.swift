@@ -62,7 +62,7 @@ final class HostAccountFlow: AccountFlow {
     }
 
     var isWorkingOnAuth: Bool {
-        coordinator.isLoading || coordinator.isRestoringSession || browserSignIn.isSigningIn
+        coordinator.isLoading || coordinator.isRestoringSession || browserSignIn.isPresentingSignIn
     }
 
     var signInIsSlow: Bool {

@@ -454,7 +454,7 @@ enum AgentResumeCommandBuilder {
 
         var environmentParts: [String] = []
         var preservedClaudeAuthSelectionEnvironmentKeys: [String] = []
-        let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment, kind: kind.rawValue)
+        let selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: environment, kind: kind.rawValue)
         for key in selectedEnvironment.keys.sorted() {
             guard let value = selectedEnvironment[key] else { continue }
             environmentParts.append("\(key)=\(value)")
@@ -490,9 +490,9 @@ enum AgentResumeCommandBuilder {
         case .passthrough:
             break
         }
-
         if case .custom = kind {
             guard let customRegistration else { return nil }
+            if let arguments = campfireBuiltInResumeArguments(customRegistration: customRegistration, sessionId: sessionId, launchCommand: launchCommand) { return arguments }
             if customRegistration.id == CmuxVaultAgentRegistration.builtInAntigravity.id {
                 return resumeWithOption(
                     kind: "antigravity",
@@ -740,26 +740,6 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     var launchCommand: AgentLaunchCommandSnapshot?
     var registration: CmuxVaultAgentRegistration? = nil
 
-    var resumeCommand: String? {
-        AgentResumeCommandBuilder.resumeShellCommand(
-            kind: kind,
-            sessionId: sessionId,
-            launchCommand: launchCommand,
-            workingDirectory: workingDirectory,
-            registrationOverride: registration
-        )
-    }
-
-    var forkCommand: String? {
-        AgentResumeCommandBuilder.forkShellCommand(
-            kind: kind,
-            sessionId: sessionId,
-            launchCommand: launchCommand,
-            workingDirectory: workingDirectory,
-            registrationOverride: registration
-        )
-    }
-
     func resumeStartupInput(
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
@@ -839,16 +819,6 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
 
         let scriptInput = "/bin/zsh \(shellSingleQuoted(scriptURL.path))\n"
         return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
-    }
-}
-
-extension SessionRestorableAgentSnapshot {
-    var agentDisplayName: String {
-        if let name = registration?.name.trimmingCharacters(in: .whitespacesAndNewlines),
-           !name.isEmpty {
-            return name
-        }
-        return kind.displayName
     }
 }
 
@@ -941,6 +911,7 @@ struct RestorableAgentSessionIndex: Sendable {
         case explicit
         case inferredLatestSessionFile
         case forkParentFallback
+        case relaunchOnly
     }
 
     typealias ProcessDetectedSnapshotEntry = (
@@ -964,7 +935,7 @@ struct RestorableAgentSessionIndex: Sendable {
     private let entriesByPanel: [PanelKey: Entry]
     private let entriesByPanelId: [UUID: Entry]
 
-    private func entry(workspaceId: UUID, panelId: UUID) -> Entry? {
+    func entry(workspaceId: UUID, panelId: UUID) -> Entry? {
         entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? entriesByPanelId[panelId]
     }
 

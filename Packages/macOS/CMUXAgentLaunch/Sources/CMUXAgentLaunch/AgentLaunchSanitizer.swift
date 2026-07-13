@@ -112,6 +112,8 @@ public enum AgentLaunchSanitizer {
             return preserveOptions(args, policy: grokPolicy)
         case "pi", "omp":
             return preserveOptions(args, policy: piPolicy)
+        case "campfire":
+            return preserveOptions(args, policy: campfirePolicy)
         case "amp":
             // Strip the `threads continue <id>` resume sub-subcommand if the
             // captured launch already started by resuming a thread, so we
@@ -188,6 +190,8 @@ public enum AgentLaunchSanitizer {
             return preserveOptions(args, policy: factoryPolicy)
         case "qoder":
             return preserveOptions(args, policy: qoderPolicy)
+        case "ollama":
+            return OllamaLaunchArgumentsPreserver().preservedArguments(args)
         default:
             return nil
         }

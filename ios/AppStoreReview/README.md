@@ -5,6 +5,8 @@ readiness. Keep it separate from the TestFlight beta lane.
 
 ## Production Lane
 
+The official cmux iOS App Store Connect app is Apple ID `6783338052`.
+
 Upload a production App Store Connect build:
 
 ```bash
@@ -19,7 +21,8 @@ ios/scripts/upload-app-store.sh --export-only
 
 Defaults:
 
-- Bundle ID: `com.cmuxterm.app`
+- Bundle ID: `com.cmux.app`
+- Marketing version: `CMUX_IOS_APPSTORE_MARKETING_VERSION` in `ios/Config/Shared.xcconfig`
 - Display name: `cmux`
 - Provisioning profile: `cmux App Store Distribution`
 - Entitlements: `Config/cmux-release.entitlements`
@@ -38,7 +41,6 @@ Run the App Store readiness package after upload:
 ```bash
 ios/scripts/validate-app-store-release.sh \
   --app "$ASC_APP_ID" \
-  --version "$(sed -nE 's/^[[:space:]]*MARKETING_VERSION[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p' ios/Config/Shared.xcconfig | head -1)" \
   --build-number "$CF_BUNDLE_VERSION" \
   --wait-build \
   --strict
@@ -82,6 +84,7 @@ ios/scripts/validate-app-store-release.sh \
 ## Files
 
 - `review-notes.md` contains the notes to paste into App Store Connect Review Information.
+- `reviewer-setup.md` contains the prepared Mac and manual-pairing setup needed so App Review can test without owning a Mac.
 - `metadata-screenshots-checklist.md` lists the metadata, screenshots, privacy, and payment gates that must be complete before submission.
 
 Do not commit demo account passwords. Add them only in App Store Connect Review

@@ -16,22 +16,39 @@ import { codexAdapter } from "./adapters/codex";
 import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
 import { pickAccentColor, resolveGhosttyTheme, resolveGhosttyThemeAsync, type GhosttyTheme } from "./theme";
+import { agentModelCatalog, type AgentModelProviderCatalog } from "./catalog";
 import { existsSync, readFileSync, statSync, watch, type FSWatcher } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
+import { mkdir, readdir, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename as pathBasename, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename as pathBasename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 
-const PORT = Number(process.env.CMUX_AGENT_UI_PORT ?? 7739);
+function argValue(name: string): string | undefined {
+  const eq = Bun.argv.find((arg) => arg.startsWith(`${name}=`));
+  if (eq) return eq.slice(name.length + 1);
+  const i = Bun.argv.indexOf(name);
+  return i >= 0 ? Bun.argv[i + 1] : undefined;
+}
+
+const PORT = Number(argValue("--port") ?? process.env.CMUX_AGENT_CHAT_PORT ?? process.env.CMUX_AGENT_UI_PORT ?? 7739);
+const AUTH_TOKEN = argValue("--token") ?? process.env.CMUX_AGENT_CHAT_TOKEN ?? "";
+if (AUTH_TOKEN.includes("/")) throw new Error("CMUX_AGENT_CHAT_TOKEN must be a single path segment");
+const AUTH_PREFIX = AUTH_TOKEN ? `/${encodeURIComponent(AUTH_TOKEN)}` : "";
+const STATE_FILE = process.env.CMUX_AGENT_CHAT_STATE_FILE ?? "";
 
 // The sidecar binds loopback only, but browsers can still reach loopback from
 // arbitrary web origins (CSRF against the WS control plane) and DNS rebinding
-// can defeat a bind-address check alone. Require a loopback Host header and,
+// can defeat a bind-address check alone. Require a loopback Host header and
 // for browser-originated requests, a same-origin Origin header. Requests
 // without an Origin header (CLI curl, Bun's WebSocket client) are trusted.
-const ALLOWED_HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`, `[::1]:${PORT}`]);
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 
 function hasTrustedHost(req: Request): boolean {
-  return ALLOWED_HOSTS.has(req.headers.get("host") ?? "");
+  const host = req.headers.get("host") ?? "";
+  try {
+    return LOOPBACK_HOSTS.has(new URL(`http://${host}`).hostname);
+  } catch {
+    return false;
+  }
 }
 
 function hasTrustedOrigin(req: Request): boolean {
@@ -39,10 +56,54 @@ function hasTrustedOrigin(req: Request): boolean {
   if (origin === null) return true;
   try {
     const u = new URL(origin);
-    return u.protocol === "http:" && ALLOWED_HOSTS.has(u.host);
+    return u.protocol === "http:" && LOOPBACK_HOSTS.has(u.hostname) && u.host === (req.headers.get("host") ?? "");
   } catch {
     return false;
   }
+}
+
+function stripAuthPrefixWithToken(url: URL, token: string): URL | null {
+  const prefix = token ? `/${encodeURIComponent(token)}` : "";
+  if (!prefix) return url;
+  if (url.pathname === "/healthz") return url;
+  if (url.pathname !== prefix && !url.pathname.startsWith(`${prefix}/`)) return null;
+  const next = new URL(url);
+  next.pathname = url.pathname.slice(prefix.length) || "/";
+  return next;
+}
+
+function stripAuthPrefix(url: URL): URL | null {
+  return stripAuthPrefixWithToken(url, AUTH_TOKEN);
+}
+
+export function stripAuthPrefixForTest(path: string, token: string): string | null {
+  const stripped = stripAuthPrefixWithToken(new URL(`http://127.0.0.1${path}`), token);
+  return stripped?.pathname ?? null;
+}
+
+function prefixedPath(path: string): string {
+  return `${AUTH_PREFIX}${path}`;
+}
+
+async function writeStateFilePath(path: string, port: number) {
+  if (!path) return;
+  const dir = dirname(path);
+  await mkdir(dir, { recursive: true });
+  const tmp = join(dir, `${pathBasename(path)}.${process.pid}.tmp`);
+  // launchId lets the app match the file to ITS launch: with a stable state
+  // path, a stale file from a previous sidecar (different token) must never
+  // satisfy a new launch's discovery.
+  const launchId = process.env.CMUX_AGENT_CHAT_LAUNCH_ID ?? null;
+  await writeFile(tmp, JSON.stringify({ port, pid: process.pid, protocolVersion: 1, launchId }) + "\n", "utf8");
+  await rename(tmp, path);
+}
+
+async function writeStateFile(port: number) {
+  await writeStateFilePath(STATE_FILE, port);
+}
+
+export async function writeStateFileForTest(path: string, port: number) {
+  await writeStateFilePath(path, port);
 }
 
 // Under launchd the PATH is minimal; make sure the agent CLIs resolve.
@@ -73,6 +134,16 @@ const GEMINI_MODELS = [
   { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite" },
 ];
 
+function geminiCatalogModels(): { value: string; label: string; description?: string }[] {
+  const remote = agentModelCatalog.provider("gemini");
+  if (remote) return remote.models.map((model) => ({ value: model.id, label: model.label, description: model.description }));
+  return agentModelCatalog.hasPayload ? [] : GEMINI_MODELS;
+}
+
+function geminiDefaultModel(): string | undefined {
+  return agentModelCatalog.provider("gemini")?.defaultModel ?? (agentModelCatalog.hasPayload ? undefined : "gemini-3.1-pro-preview");
+}
+
 const PROVIDERS: ProviderDef[] = [
   { id: "claude", label: "Claude Code", adapter: "claude", cmd: ["claude"], installCommand: "npm i -g @anthropic-ai/claude-code" },
   { id: "codex", label: "Codex", adapter: "codex", cmd: ["codex"], installCommand: "npm i -g @openai/codex" },
@@ -85,8 +156,8 @@ const PROVIDERS: ProviderDef[] = [
     cmd: ["gemini", "--acp"],
     autoApproveArgs: ["--yolo"],
     installCommand: "npm i -g @google/gemini-cli",
-    models: GEMINI_MODELS,
-    defaultModel: "gemini-3.1-pro-preview",
+    models: geminiCatalogModels(),
+    defaultModel: geminiDefaultModel(),
   },
 ];
 
@@ -195,6 +266,37 @@ function broadcastSessions() {
     sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionSummary),
   });
   for (const ws of allSockets) ws.send(payload);
+}
+
+function syncCatalogProviderDefs() {
+  const gemini = PROVIDERS.find((provider) => provider.id === "gemini");
+  if (!gemini) return;
+  gemini.models = geminiCatalogModels();
+  gemini.defaultModel = geminiDefaultModel();
+}
+
+async function applyAgentModelCatalog() {
+  syncCatalogProviderDefs();
+  const cwd = process.env.CMUX_AGENT_UI_CWD ?? DEFAULT_CWD;
+  const providers = ["claude", "codex", "gemini"];
+  const options = new Map<string, SessionOption[]>();
+  await Promise.all(providers.map(async (provider) => {
+    optionCatalog.delete(provider);
+    try {
+      options.set(provider, await refreshCatalog(provider, cwd));
+    } catch {
+      options.set(provider, mergeRemoteModelOptions(provider, fallbackOptions(provider)));
+    }
+  }));
+  for (const [provider, providerOptions] of options) {
+    const payload = JSON.stringify({ kind: "options-list", provider, options: providerOptions });
+    for (const ws of allSockets) ws.send(payload);
+  }
+  for (const sess of sessions.values()) {
+    if (!providers.includes(sess.provider)) continue;
+    sess.seedOptions = options.get(sess.provider);
+    sess.adapter.refreshOptions?.(sess).catch(() => {});
+  }
 }
 
 function createSession(
@@ -527,6 +629,32 @@ function fallbackOptions(provider: string): SessionOption[] {
   return adapters.get(provider)?.capabilities?.options ?? [];
 }
 
+function mergeRemoteModelOptions(provider: string, options: SessionOption[], remote = agentModelCatalog.provider(provider)): SessionOption[] {
+  if (!remote) return options;
+  const model = options.find((option) => option.id === "model" && option.kind === "select");
+  const binary = new Map((model?.choices ?? []).map((choice) => [choice.value, choice]));
+  const choices: import("./types").OptionChoice[] = remote.models.map((entry) => {
+    const reported = binary.get(entry.id);
+    binary.delete(entry.id);
+    return { ...reported, value: entry.id, label: entry.label, description: entry.description ?? reported?.description };
+  });
+  choices.push(...binary.values());
+  const current = typeof model?.value === "string" ? choices.find((choice) => choice.value === model.value && !choice.disabled) : undefined;
+  const preferred = choices.find((choice) => choice.value === remote.defaultModel && !choice.disabled);
+  const value = current?.value ?? preferred?.value ?? choices.find((choice) => !choice.disabled)?.value ?? "";
+  const nextModel: SessionOption = {
+    ...(model ?? { id: "model", label: "Model", kind: "select" as const, value }),
+    value,
+    choices,
+    disabled: !choices.some((choice) => !choice.disabled),
+  };
+  return model ? options.map((option) => option === model ? nextModel : option) : [nextModel, ...options];
+}
+
+export function mergeRemoteModelOptionsForTest(provider: string, options: SessionOption[], remote: AgentModelProviderCatalog): SessionOption[] {
+  return mergeRemoteModelOptions(provider, options, remote);
+}
+
 function shouldRefreshCatalog(provider: string): boolean {
   const entry = optionCatalog.get(provider);
   return !entry || Date.now() - entry.fetchedAt > CATALOG_TTL_MS;
@@ -539,6 +667,7 @@ function refreshCatalog(provider: string, cwd: string): Promise<SessionOption[]>
   if (current?.refreshing) return current.refreshing;
   const refreshing = Promise.resolve(adapter.listOptions?.(cwd) ?? adapter.capabilities?.options ?? [])
     .then((options) => {
+      options = mergeRemoteModelOptions(provider, options);
       optionCatalog.set(provider, { options, fetchedAt: Date.now() });
       return options;
     })
@@ -826,9 +955,9 @@ async function changedFiles(cwd: string, timeoutMs = GIT_TIMEOUT_MS): Promise<Ch
   const deadline = makeDeadline(timeoutMs);
   if (!(await isGitRepo(cwd, remainingTimeout(deadline)))) return [];
   checkDeadline(deadline);
-  const status = await gitOutput(cwd, ["status", "--porcelain=v1"], 80_000, remainingTimeout(deadline)).catch(() => "");
+  const status = await gitOutput(cwd, ["status", "--porcelain=v1", "--", "."], 80_000, remainingTimeout(deadline)).catch(() => "");
   checkDeadline(deadline);
-  const numstat = await gitOutput(cwd, ["diff", "--numstat", "HEAD", "--"], 120_000, remainingTimeout(deadline)).catch(() => "");
+  const numstat = await gitOutput(cwd, ["diff", "--numstat", "HEAD", "--", "."], 120_000, remainingTimeout(deadline)).catch(() => "");
   const stats = new Map<string, { adds: number; dels: number }>();
   for (const line of numstat.split(/\r?\n/)) {
     const [adds, dels, ...rest] = line.split("\t");
@@ -1170,8 +1299,8 @@ function iconResponse(url: URL): Response {
 }
 
 const providerIconInfo = new Map(PROVIDERS.map((p) => {
-  const iconUrl = iconFile(p.id, false) ? `/icons/${p.id}` : undefined;
-  const iconDarkUrl = p.id === "codex" && iconFile(p.id, true) ? `/icons/${p.id}?dark=1` : undefined;
+  const iconUrl = iconFile(p.id, false) ? prefixedPath(`/icons/${p.id}`) : undefined;
+  const iconDarkUrl = p.id === "codex" && iconFile(p.id, true) ? `${prefixedPath(`/icons/${p.id}`)}?dark=1` : undefined;
   return [p.id, { ...(iconUrl ? { iconUrl } : {}), ...(iconDarkUrl ? { iconDarkUrl } : {}) }];
 }));
 
@@ -1438,7 +1567,7 @@ export function themeMessageForTest(theme: GhosttyTheme): string {
 // appended by openers that created the browser surface with
 // transparent_background, so only genuinely transparent surfaces get an alpha
 // body; `?opacity=` is a dogfood override.
-function renderPage(url: URL): string {
+function renderPage(url: URL, prefix = AUTH_PREFIX): string {
   if (!cmuxThemeOverride) {
     fileTheme = resolveGhosttyTheme();
     currentTheme = fileTheme;
@@ -1452,18 +1581,25 @@ function renderPage(url: URL): string {
   const css = `:root { ${themeCssVars(currentTheme, { transparent, opacity: Number.isNaN(override) ? undefined : override })} }`;
   // Shell: theme vars first (so the first paint is the terminal bg), the
   // static stylesheet, a mount point, and the bundled React app (Base UI).
-  const script = url.pathname === "/gallery" ? "/gallery.js" : "/app.js";
+  const script = url.pathname === "/gallery" ? "gallery.js" : "app.js";
+  const base = prefix ? `${prefix}/` : "/";
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>cmux agent</title>
-<link rel="stylesheet" href="/app.css">
+<base href="${base}">
+<script>window.__AGENT_CHAT_BASE__=${JSON.stringify(prefix)};</script>
+<link rel="stylesheet" href="app.css">
 <style>${css}</style>
 </head><body>
 <div id="root"></div>
 <script type="module" src="${script}"></script>
 </body></html>`;
+}
+
+export function renderPageForTest(pathname: string, prefix = ""): string {
+  return renderPage(new URL(`http://127.0.0.1${pathname}`), prefix);
 }
 
 interface StaticAsset {
@@ -1598,15 +1734,17 @@ function startServer() {
     port: PORT,
     hostname: "127.0.0.1",
     async fetch(req, srv) {
-    const url = new URL(req.url);
+    const originalUrl = new URL(req.url);
     if (!hasTrustedHost(req)) return new Response("forbidden", { status: 403 });
+    if (originalUrl.pathname === "/healthz") return new Response("ok");
+    const url = stripAuthPrefix(originalUrl);
+    if (!url) return new Response("not found", { status: 404 });
     if (url.pathname === "/ws") {
       if (!hasTrustedOrigin(req)) return new Response("forbidden", { status: 403 });
       return srv.upgrade(req, { data: { subscribed: null } })
         ? undefined
         : new Response("upgrade failed", { status: 400 });
     }
-    if (url.pathname === "/healthz") return new Response("ok");
     if (url.pathname.startsWith("/icons/")) return iconResponse(url);
     if (url.pathname === "/app.js" || url.pathname === "/gallery.js" || /^\/chunk-[\w-]+\.js$/.test(url.pathname)) {
       try {
@@ -1665,7 +1803,7 @@ function startServer() {
       }
       refreshSession(sess);
       if (prompt) sendPrompt(sess, prompt);
-      return Response.json({ id: sess.id, url: `http://127.0.0.1:${PORT}/s/${sess.id}` });
+      return Response.json({ id: sess.id, url: `http://127.0.0.1:${server.port}${prefixedPath(`/s/${sess.id}`)}` });
     }
     if (url.pathname === "/api/sessions" && req.method === "GET") {
       return Response.json([...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionSummary));
@@ -1720,7 +1858,15 @@ function startServer() {
       console.warn(`catalog warm failed for ${p.id}: ${String(err)}`);
     });
   }
+  agentModelCatalog.subscribe(() => {
+    applyAgentModelCatalog().catch((err) => console.warn(`model catalog apply failed: ${String(err)}`));
+  });
+  agentModelCatalog.refreshIfStale().catch((err) => console.warn(`model catalog refresh failed: ${String(err)}`));
+  setInterval(() => {
+    agentModelCatalog.refreshIfStale().catch((err) => console.warn(`model catalog refresh failed: ${String(err)}`));
+  }, 60_000);
   startThemeWatcher();
+  writeStateFile(server.port).catch((err) => console.error(`failed to write agent-chat state file: ${String(err)}`));
 
   console.log(`cmux-agent-ui listening on http://127.0.0.1:${server.port}`);
 }

@@ -8,7 +8,7 @@ import Network
 /// Loopback SOCKS5/HTTP-CONNECT proxy tunnel for one remote workspace: owns a
 /// `RemoteDaemonRPCClient`, a local `NWListener` bound to `127.0.0.1`, the
 /// per-connection ``RemoteDaemonProxySession``s, and any
-/// ``RemotePTYBridgeServer``s started through it.
+/// ``RemotePTYBridgeServer``s plus their logical lifecycle generations.
 ///
 /// Faithful lift of the legacy `WorkspaceRemoteDaemonProxyTunnel` (renamed;
 /// no runtime strings mention the type name).
@@ -27,16 +27,17 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
     private let remotePath: String
     private let localPort: Int
     private let strings: RemoteDaemonStrings
-    private let ptyBridgeStrings: any RemotePTYBridgeStrings
-    private let clock: any RemoteProxyRetryClock
+    let ptyBridgeStrings: any RemotePTYBridgeStrings
+    let clock: any RemoteProxyRetryClock
     private let onFatalError: (String) -> Void
-    private let queue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-tunnel.\(UUID().uuidString)", qos: .utility)
+    let queue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-tunnel.\(UUID().uuidString)", qos: .utility)
 
     private var listener: NWListener?
-    private var rpcClient: RemoteDaemonRPCClient?
+    var rpcClient: (any RemoteDaemonTunnelRPCClient)?
     private var sessions: [UUID: RemoteDaemonProxySession] = [:]
-    private var ptyBridgeServers: [UUID: RemotePTYBridgeServer] = [:]
-    private var isStopped = false
+    var ptyBridgeServers: [UUID: RemotePTYBridgeServerRecord] = [:]
+    var ptyLifecycleRegistry = RemotePTYLifecycleRegistry()
+    var isStopped = false
 
     /// Creates a tunnel for `configuration`.
     ///
@@ -116,7 +117,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                 listener.start(queue: queue)
             } catch {
                 capturedError = error
-                stopLocked(notify: false)
+                stopLocked(notify: false, preservePTYLifecycle: false)
             }
         }
         if let capturedError {
@@ -127,7 +128,23 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
     /// Stops the listener, all sessions, all PTY bridges, and the RPC client.
     public func stop() {
         queue.sync {
-            stopLocked(notify: false)
+            stopLocked(notify: false, preservePTYLifecycle: false)
+        }
+    }
+
+    /// Stops a replaceable runtime while retaining its logical PTY generations.
+    public func stopPreservingPTYLifecycle() -> RemotePTYLifecycleSnapshot {
+        queue.sync {
+            stopLocked(notify: false, preservePTYLifecycle: true)
+            return RemotePTYLifecycleSnapshot(registry: ptyLifecycleRegistry)
+        }
+    }
+
+    /// Restores logical PTY generations before this replacement runtime starts.
+    public func restorePTYLifecycle(_ snapshot: RemotePTYLifecycleSnapshot) {
+        queue.sync {
+            precondition(ptyBridgeServers.isEmpty)
+            ptyLifecycleRegistry = snapshot.registry
         }
     }
 
@@ -143,18 +160,6 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                 ])
             }
             return try rpcClient.listPTY()
-        }
-    }
-
-    /// Closes a persistent PTY session on the daemon.
-    public func closePTY(sessionID: String) throws {
-        try queue.sync {
-            guard let rpcClient, !isStopped else {
-                throw NSError(domain: "cmux.remote.pty", code: 31, userInfo: [
-                    NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
-                ])
-            }
-            try rpcClient.closePTY(sessionID: sessionID)
         }
     }
 
@@ -189,36 +194,6 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                 attachmentID: attachmentID,
                 attachmentToken: attachmentToken
             )
-        }
-    }
-
-    /// Starts a single-use loopback PTY bridge server for a terminal attach
-    /// and returns its endpoint.
-    public func startPTYBridge(sessionID: String, attachmentID: String, command: String?, requireExisting: Bool) throws -> RemotePTYBridgeServer.Endpoint {
-        try queue.sync {
-            guard let rpcClient, !isStopped else {
-                throw NSError(domain: "cmux.remote.pty", code: 33, userInfo: [
-                    NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
-                ])
-            }
-            let bridgeID = UUID()
-            let server = RemotePTYBridgeServer(
-                rpcClient: rpcClient,
-                sessionID: sessionID,
-                attachmentID: attachmentID,
-                command: command,
-                requireExisting: requireExisting,
-                strings: ptyBridgeStrings,
-                clock: clock
-            ) { [weak self] in
-                guard let self else { return }
-                self.queue.async {
-                    self.ptyBridgeServers.removeValue(forKey: bridgeID)
-                }
-            }
-            let endpoint = try server.start()
-            ptyBridgeServers[bridgeID] = server
-            return endpoint
         }
     }
 
@@ -623,11 +598,11 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
 
     private func failLocked(_ detail: String) {
         guard !isStopped else { return }
-        stopLocked(notify: false)
+        stopLocked(notify: false, preservePTYLifecycle: true)
         onFatalError(detail)
     }
 
-    private func stopLocked(notify: Bool) {
+    private func stopLocked(notify: Bool, preservePTYLifecycle: Bool) {
         guard !isStopped else { return }
         isStopped = true
 
@@ -641,11 +616,18 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         for session in activeSessions {
             session.stop()
         }
-        let activePTYBridges = ptyBridgeServers.values
+        let activePTYBridges = ptyBridgeServers
         ptyBridgeServers.removeAll()
-        for bridge in activePTYBridges {
-            bridge.stop()
+        for (bridgeID, record) in activePTYBridges {
+            let disposition = record.server.stopAndWaitForDisposition()
+            let lifecycleEnded = ptyLifecycleRegistry.bridgeStopped(
+                key: record.lifecycleKey,
+                bridgeID: bridgeID,
+                disposition: disposition
+            )
+            if lifecycleEnded { record.onLifecycleEnded() }
         }
+        if !preservePTYLifecycle { ptyLifecycleRegistry.removeAll() }
 
         rpcClient?.stop()
         rpcClient = nil

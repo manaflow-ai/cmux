@@ -396,7 +396,7 @@ enum AgentForkSupport {
     ) -> [String: String] {
         var processEnvironment = sanitizedBaseEnvironmentForOpenCodeProbe(baseEnvironment)
         if let environment {
-            let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment)
+            let selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: environment)
             for (key, value) in selectedEnvironment {
                 processEnvironment[key] = value
             }
@@ -429,7 +429,7 @@ enum AgentForkSupport {
             }
             processEnvironment[key] = value
         }
-        let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment)
+        let selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: environment)
         for (key, value) in selectedEnvironment {
             processEnvironment[key] = value
         }

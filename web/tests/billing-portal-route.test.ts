@@ -15,30 +15,12 @@ const signedInUser = {
   clientReadOnlyMetadata: {},
   selectedTeam: null as null | { id: string; displayName?: string },
   listTeams: mock(async () => [] as Array<{ id: string; displayName?: string }>),
-  listProducts: mock(async () =>
-    Object.assign(
-      stackProductsActive
-        ? [
-            {
-              id: "pro",
-              quantity: 1,
-              subscription: {
-                cancelAtPeriodEnd: false,
-                currentPeriodEnd: null,
-              },
-            },
-          ]
-        : [],
-      { nextCursor: null },
-    ),
-  ),
   update: mock(async () => undefined),
 };
 const anonymousUser = {
   id: "anonymous-pro",
   isAnonymous: true,
   clientReadOnlyMetadata: {},
-  listProducts: mock(async () => Object.assign([], { nextCursor: null })),
   update: mock(async () => undefined),
 };
 
@@ -48,7 +30,6 @@ let returnNullUser: unknown = signedInUser;
 let anonymousIfExistsUser: unknown = null;
 let customerRows: { id: string }[] = [{ id: "cus_123" }];
 let stripeSubscriptionRows: { id: string }[] = [];
-let stackProductsActive = false;
 
 const getUser = mock(async (options?: unknown) => {
   const or =
@@ -118,13 +99,10 @@ describe("billing portal route", () => {
     anonymousIfExistsUser = null;
     customerRows = [{ id: "cus_123" }];
     stripeSubscriptionRows = [];
-    stackProductsActive = false;
     signedInUser.selectedTeam = null;
     signedInUser.listTeams.mockClear();
     getUser.mockClear();
-    signedInUser.listProducts.mockClear();
     signedInUser.update.mockClear();
-    anonymousUser.listProducts.mockClear();
     anonymousUser.update.mockClear();
     createPortalSession.mockClear();
     createPortalSession.mockResolvedValue({
@@ -147,6 +125,21 @@ describe("billing portal route", () => {
       return_url: "https://cmux.test/pricing",
     });
     expect(getUser).toHaveBeenCalledWith({ or: "return-null" });
+  });
+
+  test("blocks direct portal requests from the iOS App Store distribution", async () => {
+    const response = await GET(
+      new NextRequest(
+        "https://cmux.test/api/billing/portal?cmux_distribution=appstore&cmux_scheme=cmux",
+      ),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/app-pricing?cmux_app=1&cmux_distribution=appstore&billing=unavailable",
+    );
+    expect(getUser).not.toHaveBeenCalled();
+    expect(createPortalSession).not.toHaveBeenCalled();
   });
 
   test("falls back to an existing anonymous purchaser and opens that portal", async () => {
@@ -233,9 +226,8 @@ describe("billing portal route", () => {
     expect(createPortalSession).not.toHaveBeenCalled();
   });
 
-  test("redirects legacy Pro users without a Stripe customer row to external billing", async () => {
+  test("redirects users without a Stripe customer row to billing unavailable", async () => {
     customerRows = [];
-    stackProductsActive = true;
 
     const response = await GET(
       new NextRequest("https://cmux.test/api/billing/portal"),
@@ -243,13 +235,13 @@ describe("billing portal route", () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe(
-      "https://cmux.test/pricing?billing=external",
+      "https://cmux.test/pricing?billing=unavailable",
     );
     expect(captureBillingError).not.toHaveBeenCalled();
     expect(createPortalSession).not.toHaveBeenCalled();
   });
 
-  test("captures missing customer rows for Stripe-managed users and redirects external", async () => {
+  test("captures missing customer rows for Stripe-managed users and redirects unavailable", async () => {
     customerRows = [];
     stripeSubscriptionRows = [{ id: "sub_123" }];
 
@@ -259,7 +251,7 @@ describe("billing portal route", () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe(
-      "https://cmux.test/pricing?billing=external",
+      "https://cmux.test/pricing?billing=unavailable",
     );
     expect(captureBillingError).toHaveBeenCalledWith(
       expect.objectContaining({
