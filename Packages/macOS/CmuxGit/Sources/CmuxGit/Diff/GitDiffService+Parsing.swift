@@ -76,8 +76,13 @@ extension GitDiffService {
     }
 
     private func parseUntrackedTokens(_ paths: [String?], into partials: inout [String: GitDiffSummaryPartial]) {
-        for case let path? in paths where partials[path] == nil {
-            partials[path] = GitDiffSummaryPartial(path: path, status: .untracked)
+        for case let path? in paths {
+            if var partial = partials[path], partial.status == .deleted {
+                partial.applyUntrackedReplacement()
+                partials[path] = partial
+            } else if partials[path] == nil {
+                partials[path] = GitDiffSummaryPartial(path: path, status: .untracked)
+            }
         }
     }
 }
@@ -131,6 +136,13 @@ private struct GitDiffSummaryPartial {
         if let oldPath {
             self.oldPath = oldPath
         }
+    }
+
+    mutating func applyUntrackedReplacement() {
+        status = .modified
+        oldPath = nil
+        additions = nil
+        deletions = nil
     }
 }
 

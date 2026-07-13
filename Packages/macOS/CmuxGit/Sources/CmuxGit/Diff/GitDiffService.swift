@@ -241,6 +241,24 @@ public struct GitDiffService: Sendable {
         case .timedOut:
             return .timedOut
         }
+        if let status {
+            switch currentFileSummary(
+                repoRoot: repoRoot,
+                baseline: baseline,
+                path: path,
+                isUntracked: untracked,
+                maxOutputBytes: maxOutputBytes
+            ) {
+            case .success(let current) where current.status == status && current.oldPath == oldPath:
+                break
+            case .success, .notFound:
+                return .notFound
+            case .failed:
+                return .failed
+            case .timedOut:
+                return .timedOut
+            }
+        }
         // With no exact baseline, index, or untracked entry, this is either a
         // directory-shaped pathspec or a missing path. A baseline directory is
         // accepted only when the current tree has an exact file replacement.
@@ -263,6 +281,19 @@ public struct GitDiffService: Sendable {
             case .timedOut:
                 return .timedOut
             }
+        }
+        let isUntrackedReplacement = status == .modified
+            && requestedBaselineEntry.isFile
+            && !indexed
+            && untracked
+            && oldPath == nil
+        if isUntrackedReplacement {
+            return untrackedReplacementDiffResult(
+                repoRoot: repoRoot,
+                baseline: baseline,
+                path: path,
+                maxOutputBytes: maxOutputBytes
+            )
         }
         let shouldDiffAsUntracked = status == .untracked
             || (status == nil && untracked && !requestedBaselineEntry.isFile)
@@ -319,6 +350,9 @@ public struct GitDiffService: Sendable {
         }
         guard let output = result.successOutput else { return .failed }
         guard Self.hasExactlyOneFileSection(output) else { return .notFound }
+        if let status, Self.fileSectionStatus(output) != status {
+            return .notFound
+        }
         if oldPath != nil, !Self.hasRenameHeaders(output) {
             return .notFound
         }
@@ -328,14 +362,14 @@ public struct GitDiffService: Sendable {
     /// Wraps a repository path in `:(literal)` pathspec magic so glob
     /// characters in real filenames (`*`, `?`, `[`) match the file byte-exact
     /// instead of expanding as a wildcard pattern over the whole tree.
-    private static func literalPathspec(_ path: String) -> String {
+    static func literalPathspec(_ path: String) -> String {
         ":(literal)\(path)"
     }
 
     /// Excludes descendants when Git compares an exact file request. This is
     /// inert for ordinary files, but prevents a baseline directory replaced by
     /// an indexed file from widening the response to deleted children.
-    private static func descendantExclusionPathspec(_ path: String) -> String {
+    static func descendantExclusionPathspec(_ path: String) -> String {
         ":(top,literal,exclude)\(path)/"
     }
 

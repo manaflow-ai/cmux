@@ -25,6 +25,30 @@ extension GitDiffService {
         }
         return hasRenameFrom && hasRenameTo
     }
+
+    /// Classifies one tracked diff from Git's protocol metadata. Content lines
+    /// retain their unified-diff prefix, so they cannot spoof these headers.
+    static func fileSectionStatus(_ output: String) -> GitDiffStatus? {
+        guard hasExactlyOneFileSection(output) else { return nil }
+        var isAdded = false
+        var isDeleted = false
+        var hasRenameFrom = false
+        var hasRenameTo = false
+        for line in GitProtocolLineSequence(output) {
+            isAdded = isAdded || line.hasPrefix("new file mode ")
+            isDeleted = isDeleted || line.hasPrefix("deleted file mode ")
+            hasRenameFrom = hasRenameFrom || line.hasPrefix("rename from ")
+            hasRenameTo = hasRenameTo || line.hasPrefix("rename to ")
+        }
+        if hasRenameFrom || hasRenameTo {
+            guard hasRenameFrom, hasRenameTo, !isAdded, !isDeleted else { return nil }
+            return .renamed
+        }
+        guard !(isAdded && isDeleted) else { return nil }
+        if isAdded { return .added }
+        if isDeleted { return .deleted }
+        return .modified
+    }
 }
 
 /// Git's text protocol uses the LF byte as its record separator. Iterating

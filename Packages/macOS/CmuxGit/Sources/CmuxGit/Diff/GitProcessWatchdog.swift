@@ -24,20 +24,21 @@ final class GitProcessWatchdog: @unchecked Sendable {
     }
 
     func fire() {
-        let shouldTerminate = lock.withLock {
-            guard !fired else { return false }
+        let groupSignalFailed: Bool? = lock.withLock {
+            guard !fired, !completed else { return nil }
             fired = true
-            return true
+            scheduleSigkillLocked()
+            // Completion and the first signal share one critical section, so
+            // a reaped process group can never be signalled after cancellation.
+            return kill(-processGroupIdentifier, SIGTERM) != 0
         }
-        guard shouldTerminate else { return }
-        scheduleSigkill()
-        guard kill(-processGroupIdentifier, SIGTERM) == 0 else {
+        guard let groupSignalFailed else { return }
+        if groupSignalFailed {
             cancelEscalation()
             try? outputHandle.close()
             if process.isRunning {
                 process.terminate()
             }
-            return
         }
     }
 
@@ -60,31 +61,29 @@ final class GitProcessWatchdog: @unchecked Sendable {
         timer?.cancel()
     }
 
-    private func scheduleSigkill() {
-        lock.withLock {
-            guard !completed else { return }
-            escalationGeneration &+= 1
-            let generation = escalationGeneration
-            let timer = DispatchSource.makeTimerSource(queue: Self.timerQueue)
-            escalationTimer = timer
-            timer.schedule(deadline: .now() + Self.sigkillGraceSeconds)
-            timer.setEventHandler { [weak self] in
-                defer { timer.cancel() }
-                guard let self else { return }
-                self.lock.withLock {
-                    guard !self.completed,
-                          self.escalationGeneration == generation else { return }
-                    // Keep the generation check and signal atomic with respect
-                    // to cancellation after `waitUntilExit`.
-                    let groupSignalFailed = kill(-self.processGroupIdentifier, SIGKILL) != 0
-                    if groupSignalFailed, self.process.isRunning {
-                        self.process.terminate()
-                    }
-                    try? self.outputHandle.close()
-                    self.escalationTimer = nil
+    /// Schedules escalation while the caller owns `lock`.
+    private func scheduleSigkillLocked() {
+        escalationGeneration &+= 1
+        let generation = escalationGeneration
+        let timer = DispatchSource.makeTimerSource(queue: Self.timerQueue)
+        escalationTimer = timer
+        timer.schedule(deadline: .now() + Self.sigkillGraceSeconds)
+        timer.setEventHandler { [weak self] in
+            defer { timer.cancel() }
+            guard let self else { return }
+            self.lock.withLock {
+                guard !self.completed,
+                      self.escalationGeneration == generation else { return }
+                // Keep the generation check and signal atomic with respect
+                // to cancellation after `waitUntilExit`.
+                let groupSignalFailed = kill(-self.processGroupIdentifier, SIGKILL) != 0
+                if groupSignalFailed, self.process.isRunning {
+                    self.process.terminate()
                 }
+                try? self.outputHandle.close()
+                self.escalationTimer = nil
             }
-            timer.resume()
         }
+        timer.resume()
     }
 }
