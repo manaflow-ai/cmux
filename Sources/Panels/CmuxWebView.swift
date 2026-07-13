@@ -421,6 +421,7 @@ final class CmuxWebView: WKWebView {
     private var pasteAsPlainTextTargetAvailable = false
     private var lastPasteAsPlainTextPerformKeyEventTimestamp: TimeInterval?
     private var diffViewerDocumentConfirmed = false
+    private var diffViewerFocusStateConfirmed = false
     private var diffViewerEditableElementFocused = false
     private let diffViewerNavigationKeyRouter = ViewerNavigationKeyRouter(actions: [
         .diffViewerScrollDown, .diffViewerScrollUp,
@@ -455,7 +456,11 @@ final class CmuxWebView: WKWebView {
             controller,
             &Self.diffViewerEditableFocusHandlerInstalledKey
         ) == nil else { return }
-        controller.add(DiffViewerEditableFocusMessageHandler.shared, name: DiffViewerEditableFocusMessageHandler.name)
+        controller.addScriptMessageHandler(
+            DiffViewerEditableFocusMessageHandler.shared,
+            contentWorld: DiffViewerEditableFocusMessageHandler.contentWorld,
+            name: DiffViewerEditableFocusMessageHandler.name
+        )
         let name = DiffViewerEditableFocusMessageHandler.name
         controller.addUserScript(WKUserScript(
             source: """
@@ -473,11 +478,13 @@ final class CmuxWebView: WKWebView {
               document.addEventListener('DOMContentLoaded', publish, { once: true });
               document.addEventListener('focusin', publish, true);
               document.addEventListener('focusout', () => queueMicrotask(publish), true);
+              document.addEventListener('pointerdown', () => requestAnimationFrame(publish), true);
               publish();
             })();
             """,
             injectionTime: .atDocumentStart,
-            forMainFrameOnly: true
+            forMainFrameOnly: true,
+            in: DiffViewerEditableFocusMessageHandler.contentWorld
         ))
         objc_setAssociatedObject(
             controller,
@@ -489,6 +496,7 @@ final class CmuxWebView: WKWebView {
 
     func diffViewerFocusStateDidChange(viewer: Bool, editable: Bool) {
         diffViewerDocumentConfirmed = viewer
+        diffViewerFocusStateConfirmed = true
         diffViewerEditableElementFocused = editable
         if !viewer || editable {
             diffViewerNavigationKeyRouter.reset()
@@ -498,6 +506,7 @@ final class CmuxWebView: WKWebView {
     private func handleDiffViewerNavigationKey(_ event: NSEvent) -> Bool {
         guard DiffCommentsBridge.diffViewerToken(from: url) != nil,
               diffViewerDocumentConfirmed,
+              diffViewerFocusStateConfirmed,
               !diffViewerEditableElementFocused else {
             diffViewerNavigationKeyRouter.reset()
             return false
@@ -851,6 +860,9 @@ final class CmuxWebView: WKWebView {
             )
         }
 #endif
+        if event.keyCode == 48, diffViewerDocumentConfirmed {
+            diffViewerFocusStateConfirmed = false
+        }
         if handleDiffViewerNavigationKey(event) {
 #if DEBUG
             route = "diffViewerNavigation"
@@ -926,6 +938,9 @@ final class CmuxWebView: WKWebView {
     // NSView (WKWebView), not to sibling SwiftUI overlays. Notify the panel system so
     // bonsplit focus tracks which pane the user clicked in.
     override func mouseDown(with event: NSEvent) {
+        if diffViewerDocumentConfirmed {
+            diffViewerFocusStateConfirmed = false
+        }
 #if DEBUG
         let windowNumber = window?.windowNumber ?? -1
         let firstResponderType = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"

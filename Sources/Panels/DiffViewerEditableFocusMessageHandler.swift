@@ -3,6 +3,7 @@ import WebKit
 @MainActor
 final class DiffViewerEditableFocusMessageHandler: NSObject, WKScriptMessageHandler {
     static let name = "cmuxDiffViewerEditableFocus"
+    static let contentWorld = WKContentWorld.world(name: "cmuxDiffViewerNavigation")
     static let shared = DiffViewerEditableFocusMessageHandler()
 
     func userContentController(
