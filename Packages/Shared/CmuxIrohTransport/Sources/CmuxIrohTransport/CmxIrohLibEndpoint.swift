@@ -6,8 +6,8 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
     private let driver: Endpoint
     private let peerIdentity: CmxIrohPeerIdentity
     private let alpns: Set<Data>
-    private let managedRelayURLs: Set<String>
-    private var relayConfigurations: [String: CmxIrohRelayConfiguration]
+    private var relayProfile: CmxIrohEndpointRelayProfile
+    private var relayConfigurations: [String: CmxIrohEndpointRelayProfile.Relay]
     private var addressWatch: WatchHandle?
     private var onlineTask: Task<Void, Never>?
     private var closureTask: Task<Void, Never>?
@@ -26,9 +26,9 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
         self.driver = driver
         peerIdentity = identity
         alpns = Set(configuration.alpns)
-        managedRelayURLs = configuration.managedRelayURLs
+        relayProfile = configuration.relayProfile
         relayConfigurations = Dictionary(
-            uniqueKeysWithValues: configuration.relays.map { ($0.url, $0) }
+            uniqueKeysWithValues: configuration.relayProfile.activeRelays.map { ($0.url, $0) }
         )
     }
 
@@ -64,7 +64,7 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
         let now = Date()
         let expiresAt = now.addingTimeInterval(CmxIrohPathHint.maximumPrivateHintTTL)
         var hints: [CmxIrohPathHint] = []
-        if let relayURL = address.relayUrl(), managedRelayURLs.contains(relayURL),
+        if let relayURL = address.relayUrl(), relayProfile.allowedRelayURLs.contains(relayURL),
            let hint = try? CmxIrohPathHint(
                kind: .relayURL,
                value: relayURL,
@@ -128,28 +128,46 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
     }
 
     func replaceRelays(_ relays: [CmxIrohRelayConfiguration]) async throws {
-        guard relays.count <= 8 else {
-            throw CmxIrohEndpointConfigurationError.tooManyRelays(relays.count)
-        }
-        var next: [String: CmxIrohRelayConfiguration] = [:]
+        let profile = try relayProfile.replacingManagedRelays(relays)
+        try await replaceRelayProfile(profile)
+    }
+
+    func replaceRelayProfile(_ profile: CmxIrohEndpointRelayProfile) async throws {
+        let next = Dictionary(
+            uniqueKeysWithValues: profile.activeRelays.map { ($0.url, $0) }
+        )
         let now = Date()
-        for relay in relays {
-            guard managedRelayURLs.contains(relay.url) else {
+        for relay in profile.activeRelays {
+            guard profile.allowedRelayURLs.contains(relay.url) else {
                 throw CmxIrohLibError.unmanagedRelayURL(relay.url)
             }
-            guard relay.expiresAt > now else {
+            guard relay.isUsable(at: now) else {
                 throw CmxIrohLibError.expiredRelayCredential(relay.url)
             }
-            guard next.updateValue(relay, forKey: relay.url) == nil else {
-                throw CmxIrohEndpointConfigurationError.duplicateRelayURL(relay.url)
+        }
+
+        let previous = relayConfigurations
+        do {
+            for relay in profile.activeRelays {
+                try await driver.insertRelay(config: Self.relayConfig(relay))
             }
+            for staleURL in previous.keys where next[staleURL] == nil {
+                _ = try await driver.removeRelay(url: staleURL)
+            }
+        } catch {
+            let restored = await restoreRelayConfigurations(
+                previous: previous,
+                attempted: next
+            )
+            if !restored {
+                // A partially mutated driver is no longer safe to publish. Its
+                // health observer will recreate the same EndpointID from the
+                // supervisor's unchanged last-known-good configuration.
+                try? await driver.close()
+            }
+            throw error
         }
-        for relay in relays {
-            try await driver.insertRelay(config: Self.relayConfig(relay))
-        }
-        for staleURL in relayConfigurations.keys where next[staleURL] == nil {
-            _ = try await driver.removeRelay(url: staleURL)
-        }
+        relayProfile = profile
         relayConfigurations = next
     }
 
@@ -205,7 +223,7 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
         for hint in usable {
             switch hint.kind {
             case .relayURL:
-                guard managedRelayURLs.contains(hint.value) else {
+                guard relayProfile.allowedRelayURLs.contains(hint.value) else {
                     throw CmxIrohLibError.unmanagedRelayURL(hint.value)
                 }
                 if observedRelayURLs.insert(hint.value).inserted {
@@ -259,7 +277,33 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
         observers.removeAll(keepingCapacity: false)
     }
 
-    static func relayConfig(_ relay: CmxIrohRelayConfiguration) -> RelayConfig {
-        RelayConfig(url: relay.url, quicPort: nil, authToken: relay.token)
+    private func restoreRelayConfigurations(
+        previous: [String: CmxIrohEndpointRelayProfile.Relay],
+        attempted: [String: CmxIrohEndpointRelayProfile.Relay]
+    ) async -> Bool {
+        var restored = true
+        for relay in previous.values {
+            do {
+                try await driver.insertRelay(config: Self.relayConfig(relay))
+            } catch {
+                restored = false
+            }
+        }
+        for addedURL in attempted.keys where previous[addedURL] == nil {
+            do {
+                _ = try await driver.removeRelay(url: addedURL)
+            } catch {
+                restored = false
+            }
+        }
+        return restored
+    }
+
+    static func relayConfig(_ relay: CmxIrohEndpointRelayProfile.Relay) -> RelayConfig {
+        RelayConfig(
+            url: relay.url,
+            quicPort: nil,
+            authToken: relay.authenticationToken
+        )
     }
 }

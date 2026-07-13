@@ -152,6 +152,7 @@ extension CmxIrohClientRuntime {
             broker: broker,
             localBindingExpectation: policy.expectation,
             managedRelayURLs: configuration.managedRelayURLs,
+            allowedRouteRelayURLs: endpointRelayProfile.allowedRelayURLs,
             networkPathSnapshot: networkPathSnapshot,
             offlinePolicy: offlinePolicy,
             lanFallback: lanFallback,
@@ -159,6 +160,13 @@ extension CmxIrohClientRuntime {
         )
         await contextRouter.install(provider)
         localBinding = policy.binding
+
+        guard endpointRelayProfile.source == .managed,
+              !endpointRelayProfile.allowedRelayURLs.isEmpty else {
+            await relayCoordinator?.deactivate()
+            relayCoordinator = nil
+            return
+        }
 
         let coordinator: CmxIrohRelayCredentialCoordinator
         if let relayCoordinator {
@@ -168,6 +176,7 @@ extension CmxIrohClientRuntime {
                 supervisor: supervisor,
                 broker: broker,
                 managedRelayURLs: configuration.managedRelayURLs,
+                selectedRelayURLs: endpointRelayProfile.allowedRelayURLs,
                 credentialDidInstall: { [handleRelayCredential] response in
                     await handleRelayCredential(response, policy.binding)
                 }

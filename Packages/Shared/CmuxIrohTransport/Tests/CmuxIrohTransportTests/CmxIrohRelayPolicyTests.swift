@@ -1,0 +1,434 @@
+import CryptoKit
+import Foundation
+import Testing
+@testable import CmuxIrohTransport
+
+@Suite
+struct CmxIrohRelayPolicyTests {
+    @Test
+    func signatureAuthorizesCatalogAndSelectionFiltersByStableID() throws {
+        let fixture = try Fixture()
+        let token = try fixture.token(sequence: 7)
+
+        let policy = try CmxIrohRelayPolicyVerifier().verify(
+            token,
+            trustRoot: fixture.trustRoot,
+            now: fixture.now
+        )
+        let automatic = try CmxIrohRelayPolicySnapshot(
+            policy: policy,
+            selection: .automatic
+        )
+        #expect(automatic.relayURLs == Set(fixture.relayURLs))
+
+        let selected = try CmxIrohRelayPolicySnapshot(
+            policy: policy,
+            selection: .only(["cmux-eu"])
+        )
+        #expect(selected.relays.map(\.id) == ["cmux-eu"])
+        #expect(selected.relayURLs == [fixture.relayURLs[1]])
+    }
+
+    @Test
+    func substitutedRelayAndUnknownSelectionFailClosed() throws {
+        let fixture = try Fixture()
+        let valid = try fixture.token(sequence: 7)
+        let segments = valid.split(separator: ".", omittingEmptySubsequences: false)
+        let substitutedPayload = try fixture.payload(
+            sequence: 7,
+            relayURLs: [
+                fixture.relayURLs[0],
+                "https://capture.example.com/",
+            ]
+        )
+        let substituted = [
+            String(segments[0]),
+            Fixture.base64URL(substitutedPayload),
+            String(segments[2]),
+        ].joined(separator: ".")
+
+        #expect(throws: CmxIrohRelayPolicyError.invalidSignature) {
+            try CmxIrohRelayPolicyVerifier().verify(
+                substituted,
+                trustRoot: fixture.trustRoot,
+                now: fixture.now
+            )
+        }
+
+        let policy = try CmxIrohRelayPolicyVerifier().verify(
+            valid,
+            trustRoot: fixture.trustRoot,
+            now: fixture.now
+        )
+        #expect(throws: CmxIrohRelayPolicyError.invalidSelection) {
+            try CmxIrohRelayPolicySnapshot(
+                policy: policy,
+                selection: .only(["removed-relay"])
+            )
+        }
+    }
+
+    @Test
+    func policyTimeProtocolAndKeyIDAreStrict() throws {
+        let fixture = try Fixture()
+        let expired = try fixture.token(
+            sequence: 1,
+            expiresAt: fixture.nowSeconds + 60
+        )
+        #expect(throws: CmxIrohRelayPolicyError.expired) {
+            try CmxIrohRelayPolicyVerifier().verify(
+                expired,
+                trustRoot: fixture.trustRoot,
+                now: fixture.now.addingTimeInterval(60)
+            )
+        }
+
+        let unsupported = try fixture.token(
+            sequence: 2,
+            relayProtocol: "iroh-relay-v2"
+        )
+        #expect(throws: CmxIrohRelayPolicyError.unsupportedRelayProtocol) {
+            try CmxIrohRelayPolicyVerifier().verify(
+                unsupported,
+                trustRoot: fixture.trustRoot,
+                now: fixture.now
+            )
+        }
+
+        let unknownKey = try fixture.token(sequence: 3, keyID: "future-key")
+        #expect(throws: CmxIrohRelayPolicyError.unknownKeyID) {
+            try CmxIrohRelayPolicyVerifier().verify(
+                unknownKey,
+                trustRoot: fixture.trustRoot,
+                now: fixture.now
+            )
+        }
+    }
+
+    @Test
+    func cacheRejectsPolicyRollbackAndReverifiesOnLoad() async throws {
+        let fixture = try Fixture()
+        let store = TestSecureCredentialStore()
+        let cache = CmxIrohRelayPolicyCache(secureStore: store)
+        let sequenceSeven = try fixture.token(sequence: 7)
+
+        let installed = try await cache.install(
+            signedPolicy: sequenceSeven,
+            trustRoot: fixture.trustRoot,
+            now: fixture.now
+        )
+        #expect(installed.sequence == 7)
+        #expect(await store.observedAccessibilities() == [.afterFirstUnlockThisDeviceOnly])
+
+        let sequenceSix = try fixture.token(sequence: 6)
+        await #expect(throws: CmxIrohRelayPolicyError.rollback) {
+            try await cache.install(
+                signedPolicy: sequenceSix,
+                trustRoot: fixture.trustRoot,
+                now: fixture.now
+            )
+        }
+        let equivocatedSequenceSeven = try fixture.token(
+            sequence: 7,
+            relayURLs: [
+                fixture.relayURLs[0],
+                "https://alternate.relay.cmux.dev/",
+            ]
+        )
+        await #expect(throws: CmxIrohRelayPolicyError.rollback) {
+            try await cache.install(
+                signedPolicy: equivocatedSequenceSeven,
+                trustRoot: fixture.trustRoot,
+                now: fixture.now
+            )
+        }
+        let restored = try await cache.load(
+            trustRoot: fixture.trustRoot,
+            now: fixture.now
+        )
+        #expect(restored?.sequence == 7)
+    }
+
+    @Test
+    func corruptPolicyCacheCannotEraseTheRollbackFloor() async throws {
+        let fixture = try Fixture()
+        let store = TestSecureCredentialStore()
+        let cache = CmxIrohRelayPolicyCache(secureStore: store)
+        _ = try await cache.install(
+            signedPolicy: fixture.token(sequence: 7),
+            trustRoot: fixture.trustRoot,
+            now: fixture.now
+        )
+        await store.write(
+            Data("corrupt".utf8),
+            account: "managed-relay-policy",
+            accessibility: .afterFirstUnlockThisDeviceOnly
+        )
+
+        await #expect(throws: CmxIrohRelayPolicyError.invalidClaims) {
+            try await cache.load(trustRoot: fixture.trustRoot, now: fixture.now)
+        }
+        await #expect(throws: CmxIrohRelayPolicyError.invalidClaims) {
+            try await cache.install(
+                signedPolicy: fixture.token(sequence: 6),
+                trustRoot: fixture.trustRoot,
+                now: fixture.now
+            )
+        }
+        #expect(await store.recordCount() == 1)
+    }
+
+    @Test
+    func customProfileAllowsPrivateProviderPortWithoutManagedFallback() throws {
+        let first = try CmxIrohCustomRelay(
+            url: "https://relay.example.net:8443/",
+            authenticationToken: "private-token"
+        )
+        let second = try CmxIrohCustomRelay(url: "https://backup.example.net/")
+        let profile = try CmxIrohCustomRelayProfile(relays: [first, second])
+
+        #expect(profile.relays.map(\.url) == [
+            "https://relay.example.net:8443/",
+            "https://backup.example.net/",
+        ])
+        #expect(profile.relays[0].authenticationToken == "private-token")
+        #expect(profile.relays[1].authenticationToken == nil)
+
+        #expect(throws: CmxIrohRelayPolicyError.invalidSelection) {
+            try CmxIrohCustomRelayProfile(relays: [first, first])
+        }
+        #expect(throws: CmxIrohRelayPolicyError.invalidClaims) {
+            try CmxIrohCustomRelay(url: "http://relay.example.net/")
+        }
+    }
+
+    @Test
+    func endpointProfileRequiresExactCredentialsForVerifiedSelection() throws {
+        let fixture = try Fixture()
+        let policy = try CmxIrohRelayPolicyVerifier().verify(
+            fixture.token(sequence: 7),
+            trustRoot: fixture.trustRoot,
+            now: fixture.now
+        )
+        let snapshot = try CmxIrohRelayPolicySnapshot(
+            policy: policy,
+            selection: .only(["cmux-eu"])
+        )
+        let selected = try fixture.relayConfiguration(url: fixture.relayURLs[1])
+        let profile = try CmxIrohEndpointRelayProfile(
+            snapshot: snapshot,
+            relays: [selected]
+        )
+
+        #expect(profile.allowedRelayURLs == [fixture.relayURLs[1]])
+        #expect(profile.managedRelays == [selected])
+        #expect(throws: CmxIrohEndpointConfigurationError.incompleteManagedRelayCredentials) {
+            try CmxIrohEndpointRelayProfile(snapshot: snapshot, relays: [])
+        }
+        let substituted = try fixture.relayConfiguration(
+            url: "https://capture.example.com/"
+        )
+        #expect(
+            throws: CmxIrohEndpointConfigurationError.unmanagedRelayURL(substituted.url)
+        ) {
+            try CmxIrohEndpointRelayProfile(snapshot: snapshot, relays: [substituted])
+        }
+    }
+
+    @Test
+    func customProfileStoreKeepsTokensInSecureStorageAndRevalidatesRecords() async throws {
+        let secureStore = TestSecureCredentialStore()
+        let selectionStore = RelayPolicyTestInstallStateStore()
+        let store = CmxIrohCustomRelayProfileStore(
+            secureStore: secureStore,
+            selectionStore: selectionStore
+        )
+        let profile = try CmxIrohCustomRelayProfile(
+            relays: [
+                CmxIrohCustomRelay(
+                    url: "https://private.example.net:8443/",
+                    authenticationToken: "private-token"
+                ),
+            ]
+        )
+
+        try await store.save(profile)
+        #expect(try await store.load() == profile)
+        #expect(await store.loadSelection() == .custom(profile))
+        #expect(
+            await secureStore.observedAccessibilities()
+                == [.afterFirstUnlockThisDeviceOnly]
+        )
+
+        let invalid = Data(
+            #"{"version":1,"relays":[{"url":"http://capture.example/","authenticationToken":null}]}"#.utf8
+        )
+        await secureStore.write(
+            invalid,
+            account: "active-custom-relay-profile",
+            accessibility: .afterFirstUnlockThisDeviceOnly
+        )
+        #expect(try await store.load() == nil)
+        #expect(await store.loadSelection() == .customUnavailable)
+        #expect(await secureStore.recordCount() == 0)
+
+        try await store.clear()
+        #expect(await store.loadSelection() == .managed)
+    }
+
+    @Test
+    func selectedCustomProfileFailsClosedWhenSecureStorageIsUnavailable() async throws {
+        let secureStore = TestSecureCredentialStore()
+        let selectionStore = RelayPolicyTestInstallStateStore()
+        let store = CmxIrohCustomRelayProfileStore(
+            secureStore: secureStore,
+            selectionStore: selectionStore
+        )
+        let profile = try CmxIrohCustomRelayProfile(
+            relays: [CmxIrohCustomRelay(url: "https://private.example.net/")]
+        )
+        try await store.save(profile)
+        let unavailableStore = CmxIrohCustomRelayProfileStore(
+            secureStore: RelayPolicyUnavailableSecureStore(),
+            selectionStore: selectionStore
+        )
+
+        #expect(await unavailableStore.loadSelection() == .customUnavailable)
+
+        let endpointProfile = CmxIrohEndpointRelayProfile.unavailableCustomOverride
+        #expect(endpointProfile.allowedRelayURLs.isEmpty)
+        #expect(endpointProfile.activeRelays.isEmpty)
+        #expect(endpointProfile.source == .custom)
+    }
+
+    private struct Fixture {
+        let privateKey: Curve25519.Signing.PrivateKey
+        let trustRoot: CmxIrohRelayPolicyTrustRoot
+        let now = Date(timeIntervalSince1970: 1_782_000_000)
+        let relayURLs = [
+            "https://usc1.relay.cmux.dev/",
+            "https://euw4.relay.cmux.dev/",
+        ]
+
+        var nowSeconds: Int64 { Int64(now.timeIntervalSince1970) }
+
+        init() throws {
+            privateKey = Curve25519.Signing.PrivateKey()
+            let key = try CmxIrohRelayPolicyVerificationKey(
+                keyID: "policy-2026-1",
+                rawPublicKeyBase64: privateKey.publicKey.rawRepresentation.base64EncodedString()
+            )
+            trustRoot = try CmxIrohRelayPolicyTrustRoot(keys: [key])
+        }
+
+        func token(
+            sequence: Int64,
+            expiresAt: Int64? = nil,
+            relayProtocol: String = "iroh-relay-v1",
+            keyID: String = "policy-2026-1",
+            relayURLs: [String]? = nil
+        ) throws -> String {
+            let header = try JSONSerialization.data(
+                withJSONObject: [
+                    "alg": "EdDSA",
+                    "typ": "cmux-relay-policy-v1+jwt",
+                    "kid": keyID,
+                ],
+                options: [.sortedKeys]
+            )
+            let payload = try payload(
+                sequence: sequence,
+                relayURLs: relayURLs,
+                expiresAt: expiresAt,
+                relayProtocol: relayProtocol
+            )
+            let signingInput = "\(Self.base64URL(header)).\(Self.base64URL(payload))"
+            let signature = try privateKey.signature(for: Data(signingInput.utf8))
+            return "\(signingInput).\(Self.base64URL(signature))"
+        }
+
+        func payload(
+            sequence: Int64,
+            relayURLs: [String]? = nil,
+            expiresAt: Int64? = nil,
+            relayProtocol: String = "iroh-relay-v1"
+        ) throws -> Data {
+            let urls = relayURLs ?? self.relayURLs
+            let relayIDs = ["cmux-us", "cmux-eu"]
+            let regions = ["us-central1", "europe-west4"]
+            let relays = urls.enumerated().map { index, url in
+                [
+                    "id": relayIDs[index],
+                    "provider": "cmux",
+                    "region": regions[index],
+                    "url": url,
+                ]
+            }
+            return try JSONSerialization.data(
+                withJSONObject: [
+                    "version": 1,
+                    "jti": "123e4567-e89b-42d3-a456-426614174000",
+                    "sequence": sequence,
+                    "iat": nowSeconds,
+                    "nbf": nowSeconds,
+                    "exp": expiresAt ?? nowSeconds + 3_600,
+                    "aud": "cmux-iroh-relay-policy",
+                    "relay_protocol": relayProtocol,
+                    "relays": relays,
+                ],
+                options: [.sortedKeys]
+            )
+        }
+
+        static func base64URL(_ data: Data) -> String {
+            data.base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-")
+                .replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: "=", with: "")
+        }
+
+        func relayConfiguration(url: String) throws -> CmxIrohRelayConfiguration {
+            try CmxIrohRelayConfiguration(
+                url: url,
+                token: "aaaa",
+                expiresAt: now.addingTimeInterval(3_600),
+                refreshAfter: now.addingTimeInterval(1_800),
+                now: now
+            )
+        }
+    }
+}
+
+private final class RelayPolicyTestInstallStateStore:
+    CmxIrohInstallStateStoring,
+    @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var values: [String: String] = [:]
+
+    func string(forKey key: String) -> String? {
+        lock.withLock { values[key] }
+    }
+
+    func set(_ value: String?, forKey key: String) {
+        lock.withLock { values[key] = value }
+    }
+}
+
+private struct RelayPolicyUnavailableSecureStore: CmxIrohSecureCredentialStoring {
+    private struct Unavailable: Error {}
+
+    func read(account: String) async throws -> Data? {
+        throw Unavailable()
+    }
+
+    func write(
+        _ data: Data,
+        account: String,
+        accessibility: CmxIrohSecureCredentialAccessibility
+    ) async throws {}
+
+    func delete(account: String) async throws {}
+
+    func deleteAll() async throws {}
+}

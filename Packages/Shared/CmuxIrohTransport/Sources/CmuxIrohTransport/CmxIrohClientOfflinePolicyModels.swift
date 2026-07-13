@@ -23,7 +23,9 @@ public struct CmxIrohClientOfflinePolicyExpectation: Equatable, Sendable {
         guard !accountID.isEmpty,
               accountID.utf8.count <= 1_024,
               localBindingExpectation.platform == .ios,
-              (1 ... 8).contains(managedRelayURLs.count),
+              (1 ... CmxIrohRelayPolicyVerifier.maximumRelayCount).contains(
+                  managedRelayURLs.count
+              ),
               managedRelayURLs.allSatisfy(Self.isCanonicalRelayURL) else {
             throw CmxIrohClientOfflinePolicyCacheError.invalidExpectation
         }

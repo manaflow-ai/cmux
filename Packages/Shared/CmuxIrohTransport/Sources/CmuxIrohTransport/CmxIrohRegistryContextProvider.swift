@@ -13,6 +13,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     let broker: any CmxIrohRegistryServing
     let localBindingExpectation: CmxIrohLocalBindingExpectation
     let managedRelayURLs: Set<String>
+    let allowedRouteRelayURLs: Set<String>
     let networkPathSnapshot: (@Sendable () async throws -> CmxIrohNetworkPathSnapshot)?
     let offlinePolicy: CmxIrohClientOfflinePolicyContext?
     let lanFallback: LANFallbackProvider?
@@ -27,6 +28,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         broker: any CmxIrohRegistryServing,
         localBindingExpectation: CmxIrohLocalBindingExpectation,
         managedRelayURLs: Set<String>,
+        allowedRouteRelayURLs: Set<String>? = nil,
         activeNetworkProfiles: @escaping @Sendable () async -> Set<CmxIrohNetworkProfileKey>,
         offlinePolicy: CmxIrohClientOfflinePolicyContext? = nil,
         lanFallback: LANFallbackProvider? = nil,
@@ -37,6 +39,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         self.broker = broker
         self.localBindingExpectation = localBindingExpectation
         self.managedRelayURLs = managedRelayURLs
+        self.allowedRouteRelayURLs = allowedRouteRelayURLs ?? managedRelayURLs
         _ = activeNetworkProfiles
         networkPathSnapshot = nil
         self.offlinePolicy = offlinePolicy
@@ -51,6 +54,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         broker: any CmxIrohRegistryServing,
         localBindingExpectation: CmxIrohLocalBindingExpectation,
         managedRelayURLs: Set<String>,
+        allowedRouteRelayURLs: Set<String>? = nil,
         networkPathSnapshot: @escaping @Sendable () async throws -> CmxIrohNetworkPathSnapshot,
         offlinePolicy: CmxIrohClientOfflinePolicyContext? = nil,
         lanFallback: LANFallbackProvider? = nil,
@@ -61,6 +65,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         self.broker = broker
         self.localBindingExpectation = localBindingExpectation
         self.managedRelayURLs = managedRelayURLs
+        self.allowedRouteRelayURLs = allowedRouteRelayURLs ?? managedRelayURLs
         self.networkPathSnapshot = networkPathSnapshot
         self.offlinePolicy = offlinePolicy
         self.lanFallback = lanFallback
@@ -196,7 +201,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             primary: targetBinding.pathHints,
             fallback: routeHints,
             at: clock,
-            managedRelayURLs: managedRelayURLs,
+            managedRelayURLs: allowedRouteRelayURLs,
             activeNetworkProfiles: profiles
         )
         let endpointAddress = CmxAttachEndpoint.peer(
@@ -205,7 +210,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         )
         guard let dialPlan = endpointAddress.irohDialPlan(
             at: clock,
-            managedRelayURLs: managedRelayURLs,
+            managedRelayURLs: allowedRouteRelayURLs,
             activeNetworkProfiles: profiles
         ) else {
             throw CmxIrohRegistryContextError.dialPlanUnavailable
@@ -267,7 +272,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             primary: context.dialPlan.publicPaths + context.dialPlan.privateFallbackPaths,
             fallback: lanHints,
             at: clock,
-            managedRelayURLs: managedRelayURLs,
+            managedRelayURLs: allowedRouteRelayURLs,
             activeNetworkProfiles: (try await availableNetworkPathSnapshot(
                 for: lanHints,
                 at: clock
@@ -283,7 +288,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             pathHints: combined
         ).irohDialPlan(
             at: clock,
-            managedRelayURLs: managedRelayURLs,
+            managedRelayURLs: allowedRouteRelayURLs,
             activeNetworkProfiles: profiles
         ), dialPlan.publicPaths == context.dialPlan.publicPaths else {
             return context

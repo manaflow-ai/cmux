@@ -19,6 +19,7 @@ public actor CmxIrohRelayCredentialCoordinator {
     private let supervisor: CmxIrohEndpointSupervisor
     private let broker: any CmxIrohRelayTokenServing
     private let managedRelayURLs: Set<String>
+    private let selectedRelayURLs: Set<String>
     private let clock: any CmxIrohRelayClock
     private let jitter: @Sendable (_ now: Date, _ refreshAfter: Date) -> Date
     private let credentialDidInstall: @Sendable (CmxIrohRelayTokenResponse) async -> Void
@@ -32,6 +33,7 @@ public actor CmxIrohRelayCredentialCoordinator {
         supervisor: CmxIrohEndpointSupervisor,
         broker: any CmxIrohRelayTokenServing,
         managedRelayURLs: Set<String>,
+        selectedRelayURLs: Set<String>? = nil,
         clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
         jitter: @escaping @Sendable (_ now: Date, _ refreshAfter: Date) -> Date = {
             now,
@@ -46,6 +48,7 @@ public actor CmxIrohRelayCredentialCoordinator {
         self.supervisor = supervisor
         self.broker = broker
         self.managedRelayURLs = managedRelayURLs
+        self.selectedRelayURLs = selectedRelayURLs ?? managedRelayURLs
         self.clock = clock
         self.jitter = jitter
         self.credentialDidInstall = credentialDidInstall
@@ -204,18 +207,37 @@ public actor CmxIrohRelayCredentialCoordinator {
         }
         let now = clock.now()
         let configurations = try response.relayConfigurations(now: now)
+        let selectedConfigurations = configurations.filter {
+            selectedRelayURLs.contains($0.url)
+        }
+        guard !selectedRelayURLs.isEmpty,
+              selectedConfigurations.count == selectedRelayURLs.count,
+              selectedRelayURLs.isSubset(of: managedRelayURLs) else {
+            throw CmxIrohRelayCredentialCoordinatorError.relayFleetMismatch
+        }
         try Task.checkCancellation()
         guard isCurrent(revision), binding == expectedBinding else {
             throw CancellationError()
         }
-        try await supervisor.replaceRelays(
-            configurations,
-            expectedIdentity: expectedBinding.endpointIdentity
-        )
+        if selectedRelayURLs == managedRelayURLs {
+            try await supervisor.replaceRelays(
+                configurations,
+                expectedIdentity: expectedBinding.endpointIdentity
+            )
+        } else {
+            let profile = try CmxIrohEndpointRelayProfile(
+                managedRelayURLs: selectedRelayURLs,
+                relays: selectedConfigurations
+            )
+            try await supervisor.replaceRelayProfile(
+                profile,
+                expectedIdentity: expectedBinding.endpointIdentity
+            )
+        }
         try Task.checkCancellation()
         guard isCurrent(revision), binding == expectedBinding,
-              let refreshAfter = configurations.map(\.refreshAfter).min(),
-              let expiresAt = configurations.map(\.expiresAt).min() else {
+              let refreshAfter = selectedConfigurations.map(\.refreshAfter).min(),
+              let expiresAt = selectedConfigurations.map(\.expiresAt).min() else {
             throw CancellationError()
         }
         let installed = InstalledCredential(

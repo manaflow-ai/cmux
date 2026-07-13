@@ -45,6 +45,35 @@ struct CmxIrohHostRuntimeTests {
             ) == [pending]
         )
     }
+
+    @Test
+    func customRelayOverrideStartsHostWithoutManagedTokenIssuance() async throws {
+        let fixture = try HostRuntimeFixture()
+        let custom = try CmxIrohCustomRelayProfile(
+            relays: [CmxIrohCustomRelay(url: "https://private.example.net:8443/")]
+        )
+        let profile = CmxIrohEndpointRelayProfile(customProfile: custom)
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let factory = TestIrohEndpointFactory(endpoints: [endpoint])
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: factory,
+            broker: broker,
+            configuration: fixture.configuration(endpointRelayProfile: profile),
+            pendingRevocations: fixture.pendingRevocations(),
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+
+        #expect(await runtime.snapshot().state == .active)
+        #expect(await broker.observedRelayIssueCount() == 0)
+        #expect(await factory.observedConfigurations().first?.relayProfile == profile)
+        await runtime.stop()
+    }
 }
 
 struct HostRuntimeFixture {
@@ -88,7 +117,8 @@ struct HostRuntimeFixture {
 
     func configuration(
         cachedHostPolicy: CmxIrohCachedHostPolicy? = nil,
-        bindPolicy: CmxIrohEndpointBindPolicy = .ephemeral
+        bindPolicy: CmxIrohEndpointBindPolicy = .ephemeral,
+        endpointRelayProfile: CmxIrohEndpointRelayProfile? = nil
     ) -> CmxIrohHostRuntimeConfiguration {
         CmxIrohHostRuntimeConfiguration(
             accountID: configuration.accountID,
@@ -101,6 +131,7 @@ struct HostRuntimeFixture {
             capabilities: binding.capabilities,
             bindPolicy: bindPolicy,
             managedRelayURLs: managedRelays,
+            endpointRelayProfile: endpointRelayProfile,
             cachedHostPolicy: cachedHostPolicy
         )
     }
@@ -207,6 +238,7 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     private let registrationHook: (@Sendable () async -> Bool)?
     private var subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError]
     private var registrationCount = 0
+    private var relayIssueCount = 0
     private var registrationHookResult: Bool?
     private var revokedBindingIDs: [String] = []
     private var registrationCountWaiters: [
@@ -277,7 +309,8 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         bindingID _: String,
         endpointID _: CmxIrohPeerIdentity
     ) -> CmxIrohRelayTokenResponse {
-        CmxIrohRelayTokenResponse(
+        relayIssueCount += 1
+        return CmxIrohRelayTokenResponse(
             token: "testrelaytoken",
             expiresAt: "2027-07-10T12:00:00.000Z",
             refreshAfter: "2027-07-10T11:00:00.000Z",
@@ -291,6 +324,7 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     }
 
     func observedRegistrationCount() -> Int { registrationCount }
+    func observedRelayIssueCount() -> Int { relayIssueCount }
 
     func waitForRegistrationCount(_ minimum: Int) async {
         if registrationCount >= minimum { return }

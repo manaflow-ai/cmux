@@ -24,6 +24,11 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
     /// The complete relay fleet trusted by this app build.
     public let managedRelayURLs: Set<String>
 
+    /// Optional selected-managed or strict-custom profile for the local endpoint.
+    ///
+    /// `nil` preserves automatic use of the complete managed fleet.
+    public let endpointRelayProfile: CmxIrohEndpointRelayProfile?
+
     /// A previously validated endpoint-scoped relay credential, when available.
     public let cachedRelayCredential: CmxIrohRelayTokenResponse?
 
@@ -40,6 +45,7 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
     ///   - identity: The account-scoped endpoint identity material.
     ///   - capabilities: The advertised protocol capabilities.
     ///   - managedRelayURLs: The exact managed relay fleet.
+    ///   - endpointRelayProfile: An optional local selection or custom override.
     ///   - cachedRelayCredential: A validated cached relay capability.
     public init(
         accountID: String,
@@ -50,6 +56,7 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
         identity: CmxIrohIdentityMaterial,
         capabilities: [String],
         managedRelayURLs: Set<String>,
+        endpointRelayProfile: CmxIrohEndpointRelayProfile? = nil,
         cachedRelayCredential: CmxIrohRelayTokenResponse? = nil
     ) {
         self.accountID = accountID
@@ -60,6 +67,7 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
         self.identity = identity
         self.capabilities = capabilities
         self.managedRelayURLs = managedRelayURLs
+        self.endpointRelayProfile = endpointRelayProfile
         self.cachedRelayCredential = cachedRelayCredential
     }
 }

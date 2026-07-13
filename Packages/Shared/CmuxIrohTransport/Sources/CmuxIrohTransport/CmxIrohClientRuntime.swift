@@ -66,6 +66,7 @@ public actor CmxIrohClientRuntime {
     let sessionPool: CmxIrohClientSessionPool
     let broker: any CmxIrohClientBrokerServing
     let configuration: CmxIrohClientRuntimeConfiguration
+    let endpointRelayProfile: CmxIrohEndpointRelayProfile
     let pendingRevocations: CmxIrohPendingRevocationOutbox
     let protocolConfiguration: CmxIrohProtocolConfiguration
     let offlinePolicyCache: CmxIrohClientOfflinePolicyCache?
@@ -129,15 +130,13 @@ public actor CmxIrohClientRuntime {
         handleLocalDeactivation: @escaping LocalDeactivationHandler = {},
         handlePolicyInvalidation: @escaping PolicyInvalidationHandler = {}
     ) throws {
-        let cachedRelays = Self.cachedRelayConfigurations(
-            configuration: configuration,
+        let endpointRelayProfile = try configuration.resolvedEndpointRelayProfile(
             now: now()
         )
-        let endpointConfiguration = try CmxIrohEndpointConfiguration(
+        let endpointConfiguration = CmxIrohEndpointConfiguration(
             secretKey: configuration.identity.secretKey,
             alpns: [protocolConfiguration.alpn],
-            managedRelayURLs: configuration.managedRelayURLs,
-            relays: cachedRelays
+            relayProfile: endpointRelayProfile
         )
         let supervisor = CmxIrohEndpointSupervisor(
             factory: factory,
@@ -154,6 +153,7 @@ public actor CmxIrohClientRuntime {
         self.sessionPool = sessionPool
         self.broker = broker
         self.configuration = configuration
+        self.endpointRelayProfile = endpointRelayProfile
         self.pendingRevocations = pendingRevocations
         self.protocolConfiguration = protocolConfiguration
         self.offlinePolicyCache = offlinePolicyCache

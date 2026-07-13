@@ -48,6 +48,36 @@ struct CmxIrohRelayCredentialCoordinatorTests {
     }
 
     @Test
+    func selectedManagedSubsetInstallsOnlyChosenRelayAfterFullFleetValidation() async throws {
+        let fixture = try RelayCoordinatorFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.identity)
+        let supervisor = try await fixture.activeSupervisor(endpoint: endpoint)
+        let clock = TestRelayClock(now: fixture.now)
+        let selectedURL = fixture.relayURLs[1]
+        let coordinator = CmxIrohRelayCredentialCoordinator(
+            supervisor: supervisor,
+            broker: TestRelayTokenBroker(steps: []),
+            managedRelayURLs: Set(fixture.relayURLs),
+            selectedRelayURLs: [selectedURL],
+            clock: clock,
+            jitter: { _, refreshAfter in refreshAfter }
+        )
+
+        try await coordinator.activate(
+            bindingID: fixture.bindingID,
+            endpointIdentity: fixture.identity,
+            bootstrap: try fixture.response()
+        )
+
+        let profiles = await endpoint.observedRelayProfileUpdates()
+        #expect(profiles.count == 1)
+        #expect(profiles[0].allowedRelayURLs == [selectedURL])
+        #expect(profiles[0].managedRelays.map(\.url) == [selectedURL])
+        #expect(await endpoint.observedRelayUpdates().isEmpty)
+        await coordinator.deactivate()
+    }
+
+    @Test
     func missingBootstrapRefreshesImmediatelyAndInstallsWithoutRebinding() async throws {
         let fixture = try RelayCoordinatorFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.identity)

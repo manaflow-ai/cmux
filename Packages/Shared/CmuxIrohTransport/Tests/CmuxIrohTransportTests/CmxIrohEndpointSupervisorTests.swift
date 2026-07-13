@@ -222,6 +222,37 @@ struct CmxIrohEndpointSupervisorTests {
     }
 
     @Test
+    func customProfileReplacementSurvivesEndpointRecovery() async throws {
+        let firstEndpoint = TestIrohEndpoint(identity: identity)
+        let secondEndpoint = TestIrohEndpoint(identity: identity)
+        let factory = TestIrohEndpointFactory(endpoints: [firstEndpoint, secondEndpoint])
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: factory,
+            configuration: try endpointConfiguration()
+        )
+        _ = try await supervisor.activate()
+        let custom = try CmxIrohCustomRelayProfile(
+            relays: [
+                CmxIrohCustomRelay(
+                    url: "https://private.example.net:8443/",
+                    authenticationToken: "private-token"
+                ),
+            ]
+        )
+        let profile = CmxIrohEndpointRelayProfile(customProfile: custom)
+
+        try await supervisor.replaceRelayProfile(profile)
+        await supervisor.deactivate()
+        _ = try await supervisor.activate()
+
+        #expect(await firstEndpoint.observedRelayProfileUpdates() == [profile])
+        let configurations = await factory.observedConfigurations()
+        #expect(configurations.count == 2)
+        #expect(configurations[1].relayProfile == profile)
+        #expect(configurations[1].secretKey == configurations[0].secretKey)
+    }
+
+    @Test
     func supersededRelayRefreshCannotPoisonAReplacementGeneration() async throws {
         let firstEndpoint = TestBlockingRelayUpdateEndpoint(identity: identity)
         let secondEndpoint = TestIrohEndpoint(identity: identity)

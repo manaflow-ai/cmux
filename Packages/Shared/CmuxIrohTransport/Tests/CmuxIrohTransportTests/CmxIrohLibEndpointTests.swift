@@ -121,6 +121,46 @@ struct CmxIrohLibEndpointTests {
     }
 
     @Test
+    func liveCustomProfileReplacesTheAllowlistWithoutChangingIdentity() async throws {
+        let endpoint = try await makeEndpoint(managedRelayURLs: [])
+        let concrete = try #require(endpoint as? CmxIrohLibEndpoint)
+        let identity = await endpoint.identity()
+        let customURL = "https://private.example.net:8443/"
+        let custom = try CmxIrohCustomRelayProfile(
+            relays: [CmxIrohCustomRelay(url: customURL)]
+        )
+
+        try await endpoint.replaceRelayProfile(
+            CmxIrohEndpointRelayProfile(customProfile: custom)
+        )
+
+        let now = Date()
+        let hint = try CmxIrohPathHint(
+            kind: .relayURL,
+            value: customURL,
+            source: .native,
+            privacyScope: .publicInternet,
+            observedAt: now,
+            expiresAt: now.addingTimeInterval(60)
+        )
+        let attempts = try await concrete.endpointAddresses(
+            CmxIrohEndpointAddress(identity: identity, pathHints: [hint])
+        )
+        #expect(attempts.map { $0.relayUrl() } == [customURL])
+        #expect(await endpoint.identity() == identity)
+
+        try await endpoint.replaceRelayProfile(
+            CmxIrohEndpointRelayProfile(managedRelayURLs: [], relays: [])
+        )
+        await #expect(throws: CmxIrohLibError.unmanagedRelayURL(customURL)) {
+            _ = try await concrete.endpointAddresses(
+                CmxIrohEndpointAddress(identity: identity, pathHints: [hint])
+            )
+        }
+        await endpoint.close()
+    }
+
+    @Test
     func requiredBindPortFailsOnCollisionAndSucceedsAfterRelease() async throws {
         let reservation = try reserveUDPPort()
         let policy = try CmxIrohEndpointBindPolicy.required(

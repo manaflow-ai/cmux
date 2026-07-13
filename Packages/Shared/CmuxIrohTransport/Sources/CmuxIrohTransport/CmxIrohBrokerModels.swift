@@ -228,7 +228,9 @@ public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
         let relayFleet = try container.decode([String].self, forKey: .relayFleet)
         guard bindings.count <= 32,
               Set(bindings.map(\.bindingID)).count == bindings.count,
-              (1 ... 8).contains(relayFleet.count),
+              (1 ... CmxIrohRelayPolicyVerifier.maximumRelayCount).contains(
+                  relayFleet.count
+              ),
               Set(relayFleet).count == relayFleet.count,
               relayFleet.allSatisfy(Self.isCanonicalRelayURL) else {
             throw DecodingError.dataCorrupted(

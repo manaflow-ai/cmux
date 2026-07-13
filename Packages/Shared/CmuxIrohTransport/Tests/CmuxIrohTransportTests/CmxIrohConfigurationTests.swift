@@ -77,6 +77,28 @@ struct CmxIrohConfigurationTests {
     }
 
     @Test
+    func customEndpointProfileExcludesManagedFallbackAndPreservesDirectPaths() throws {
+        let custom = try CmxIrohCustomRelayProfile(
+            relays: [
+                CmxIrohCustomRelay(
+                    url: "https://private.example.net:8443/",
+                    authenticationToken: "private-token"
+                ),
+            ]
+        )
+        let profile = CmxIrohEndpointRelayProfile(customProfile: custom)
+        let configuration = CmxIrohEndpointConfiguration(
+            secretKey: try CmxIrohSecretKey(bytes: Data(repeating: 0, count: 32)),
+            alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
+            relayProfile: profile
+        )
+
+        #expect(configuration.relayProfile.allowedRelayURLs == [custom.relays[0].url])
+        #expect(configuration.managedRelayURLs.isEmpty)
+        #expect(configuration.relays.isEmpty)
+    }
+
+    @Test
     func bindPolicyDefaultsToEphemeralAndSerializesNumericStableAddresses() throws {
         let secret = try CmxIrohSecretKey(bytes: Data(repeating: 0, count: 32))
         let defaultConfiguration = try CmxIrohEndpointConfiguration(

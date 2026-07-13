@@ -290,7 +290,9 @@ public actor CmxIrohTrustBrokerClient {
     ) throws -> CmxIrohRelayTokenResponse {
         guard response.ttlSeconds == 300,
               response.expiresAt > response.ttlSeconds,
-              (1 ... 8).contains(response.relays.count),
+              (1 ... CmxIrohRelayPolicyVerifier.maximumRelayCount).contains(
+                  response.relays.count
+              ),
               validRelayToken(
                   response.token,
                   expiresAt: response.expiresAt,

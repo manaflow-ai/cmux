@@ -11,11 +11,18 @@ public struct CmxIrohEndpointConfiguration: Equatable, Sendable {
     /// The endpoint's local UDP socket policy.
     public let bindPolicy: CmxIrohEndpointBindPolicy
 
+    /// The exact relay policy used by this endpoint generation.
+    public let relayProfile: CmxIrohEndpointRelayProfile
+
     /// The exact managed relay origins allowed for this build or policy.
-    public let managedRelayURLs: Set<String>
+    public var managedRelayURLs: Set<String> {
+        relayProfile.source == .managed ? relayProfile.allowedRelayURLs : []
+    }
 
     /// Endpoint-scoped credentials for some or all allowed relays.
-    public let relays: [CmxIrohRelayConfiguration]
+    public var relays: [CmxIrohRelayConfiguration] {
+        relayProfile.managedRelays
+    }
 
     /// Creates a validated endpoint bind configuration.
     ///
@@ -33,22 +40,32 @@ public struct CmxIrohEndpointConfiguration: Equatable, Sendable {
         managedRelayURLs: Set<String>,
         relays: [CmxIrohRelayConfiguration]
     ) throws {
-        guard relays.count <= 8 else {
-            throw CmxIrohEndpointConfigurationError.tooManyRelays(relays.count)
-        }
-        var observedURLs = Set<String>()
-        for relay in relays {
-            guard managedRelayURLs.contains(relay.url) else {
-                throw CmxIrohEndpointConfigurationError.unmanagedRelayURL(relay.url)
-            }
-            guard observedURLs.insert(relay.url).inserted else {
-                throw CmxIrohEndpointConfigurationError.duplicateRelayURL(relay.url)
-            }
-        }
+        let relayProfile = try CmxIrohEndpointRelayProfile(
+            managedRelayURLs: managedRelayURLs,
+            relays: relays
+        )
         self.secretKey = secretKey
         self.alpns = alpns
         self.bindPolicy = bindPolicy
-        self.managedRelayURLs = managedRelayURLs
-        self.relays = relays
+        self.relayProfile = relayProfile
+    }
+
+    /// Creates an endpoint with an already validated relay profile.
+    ///
+    /// - Parameters:
+    ///   - secretKey: The stable endpoint key.
+    ///   - alpns: ALPNs advertised by the endpoint.
+    ///   - bindPolicy: Ephemeral by default, or an exact required socket address.
+    ///   - relayProfile: The complete managed or custom relay policy.
+    public init(
+        secretKey: CmxIrohSecretKey,
+        alpns: [Data],
+        bindPolicy: CmxIrohEndpointBindPolicy = .ephemeral,
+        relayProfile: CmxIrohEndpointRelayProfile
+    ) {
+        self.secretKey = secretKey
+        self.alpns = alpns
+        self.bindPolicy = bindPolicy
+        self.relayProfile = relayProfile
     }
 }

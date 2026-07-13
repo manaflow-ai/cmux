@@ -9,6 +9,7 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
     private var registrationError: (any Error)?
     private var preparedRegistrations: [CmxIrohPreparedRegistration] = []
     private var revokedBindingIDs: [String] = []
+    private var relayIssueCount = 0
 
     init(
         binding: CmxIrohBrokerBinding,
@@ -52,7 +53,8 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
         bindingID _: String,
         endpointID _: CmxIrohPeerIdentity
     ) -> CmxIrohRelayTokenResponse {
-        relayResponse
+        relayIssueCount += 1
+        return relayResponse
     }
 
     func revoke(bindingID: String) throws {
@@ -66,6 +68,10 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
 
     func observedRevokedBindingIDs() -> [String] {
         revokedBindingIDs
+    }
+
+    func observedRelayIssueCount() -> Int {
+        relayIssueCount
     }
 
     func setRegistrationError(_ error: (any Error)?) {

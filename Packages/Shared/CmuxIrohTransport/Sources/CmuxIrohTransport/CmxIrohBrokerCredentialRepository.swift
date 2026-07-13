@@ -240,7 +240,7 @@ public actor CmxIrohBrokerCredentialRepository {
     }
 
     private func hasExactFleet(_ fleet: [String], expected: Set<String>) -> Bool {
-        (1 ... 8).contains(expected.count)
+        (1 ... CmxIrohRelayPolicyVerifier.maximumRelayCount).contains(expected.count)
             && fleet.count == expected.count
             && Set(fleet) == expected
     }

@@ -163,13 +163,14 @@ public actor CmxIrohHostRuntime {
         )
 
         do {
-            let cachedRelays = cachedRelayConfigurations()
-            let endpointConfiguration = try CmxIrohEndpointConfiguration(
+            let endpointRelayProfile = try configuration.resolvedEndpointRelayProfile(
+                now: now()
+            )
+            let endpointConfiguration = CmxIrohEndpointConfiguration(
                 secretKey: configuration.identity.secretKey,
                 alpns: [protocolConfiguration.alpn],
                 bindPolicy: configuration.bindPolicy,
-                managedRelayURLs: configuration.managedRelayURLs,
-                relays: cachedRelays
+                relayProfile: endpointRelayProfile
             )
             let supervisor = CmxIrohEndpointSupervisor(
                 factory: factory,
@@ -210,14 +211,21 @@ public actor CmxIrohHostRuntime {
                 offlineSessions: offlineSessions,
                 onlineRegistry: onlineAdmissionRegistry
             )
-            let relayCoordinator = CmxIrohRelayCredentialCoordinator(
-                supervisor: supervisor,
-                broker: broker,
-                managedRelayURLs: configuration.managedRelayURLs,
-                credentialDidInstall: { [handleRelayCredential] response in
-                    await handleRelayCredential(response, policy.binding)
-                }
-            )
+            let relayCoordinator: CmxIrohRelayCredentialCoordinator?
+            if endpointRelayProfile.source == .managed,
+               !endpointRelayProfile.allowedRelayURLs.isEmpty {
+                relayCoordinator = CmxIrohRelayCredentialCoordinator(
+                    supervisor: supervisor,
+                    broker: broker,
+                    managedRelayURLs: configuration.managedRelayURLs,
+                    selectedRelayURLs: endpointRelayProfile.allowedRelayURLs,
+                    credentialDidInstall: { [handleRelayCredential] response in
+                        await handleRelayCredential(response, policy.binding)
+                    }
+                )
+            } else {
+                relayCoordinator = nil
+            }
 
             self.offlineSessions = offlineSessions
             self.onlineAdmissionRegistry = onlineAdmissionRegistry
@@ -241,15 +249,17 @@ public actor CmxIrohHostRuntime {
             endpointServer = server
             await server.start()
 
-            do {
-                try await relayCoordinator.activate(
+            if let relayCoordinator {
+                do {
+                    try await relayCoordinator.activate(
                     bindingID: policy.binding.bindingID,
                     endpointIdentity: endpointID,
                     bootstrap: policy.relayBootstrap
-                )
-            } catch {
-                // The coordinator schedules a bounded broker retry. Direct paths
-                // remain available and the binding stays authoritative.
+                    )
+                } catch {
+                    // The coordinator schedules a bounded broker retry. Direct paths
+                    // remain available and the binding stays authoritative.
+                }
             }
 
             lifecyclePhase = .active

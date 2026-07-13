@@ -25,6 +25,7 @@ final class MobileHostIrohRuntime {
     let brokerCredentials: CmxIrohBrokerCredentialRepository
     let hostPolicies: CmxIrohHostPolicyCache
     let pendingRevocations: CmxIrohPendingRevocationOutbox
+    let customRelayProfiles: CmxIrohCustomRelayProfileStore
     let lanPublisher: CmxIrohLANHostPublisher
     let authObserver = MobileHostIrohAuthObserver()
 
@@ -71,6 +72,11 @@ final class MobileHostIrohRuntime {
                 )
             )
         )
+        customRelayProfiles = CmxIrohCustomRelayProfileStore(
+            secureStore: CmxIrohDevelopmentFileCredentialStore(
+                directory: Self.developmentStoreDirectory(service: "custom-relays")
+            )
+        )
         #else
         identities = CmxIrohIdentityRepository()
         brokerCredentials = CmxIrohBrokerCredentialRepository()
@@ -80,6 +86,7 @@ final class MobileHostIrohRuntime {
                 service: "com.cmuxterm.iroh.pending-revocations.v1"
             )
         )
+        customRelayProfiles = CmxIrohCustomRelayProfileStore()
         #endif
         lanPublisher = CmxIrohLANHostPublisher()
     }
@@ -298,6 +305,18 @@ final class MobileHostIrohRuntime {
             ),
             relayTokenEndpoint: Self.relayDeployment.tokenEndpoint
         )
+        let endpointRelayProfile: CmxIrohEndpointRelayProfile?
+        switch await customRelayProfiles.loadSelection() {
+        case .managed:
+            endpointRelayProfile = nil
+        case let .custom(profile):
+            endpointRelayProfile = CmxIrohEndpointRelayProfile(customProfile: profile)
+        case .customUnavailable:
+            mobileHostIrohLog.error(
+                "Custom relay profile unavailable; managed relays remain disabled"
+            )
+            endpointRelayProfile = .unavailableCustomOverride
+        }
         let configuration = CmxIrohHostRuntimeConfiguration(
             accountID: accountID,
             deviceID: deviceID,
@@ -314,6 +333,7 @@ final class MobileHostIrohRuntime {
                 )
             ),
             managedRelayURLs: Self.managedRelayURLs,
+            endpointRelayProfile: endpointRelayProfile,
             cachedRelayCredential: cachedRelay,
             cachedHostPolicy: cachedHostPolicy
         )

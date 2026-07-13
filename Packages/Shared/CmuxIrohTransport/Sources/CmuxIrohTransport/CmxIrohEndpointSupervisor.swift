@@ -233,12 +233,12 @@ public actor CmxIrohEndpointSupervisor {
         _ relays: [CmxIrohRelayConfiguration],
         expectedIdentity: CmxIrohPeerIdentity?
     ) async throws {
-        let candidateConfiguration = try CmxIrohEndpointConfiguration(
+        let candidateProfile = try configuration.relayProfile.replacingManagedRelays(relays)
+        let candidateConfiguration = CmxIrohEndpointConfiguration(
             secretKey: configuration.secretKey,
             alpns: configuration.alpns,
             bindPolicy: configuration.bindPolicy,
-            managedRelayURLs: configuration.managedRelayURLs,
-            relays: relays
+            relayProfile: candidateProfile
         )
         guard let endpoint else {
             guard expectedIdentity == nil else {
@@ -257,6 +257,63 @@ public actor CmxIrohEndpointSupervisor {
             }
         }
         try await endpoint.replaceRelays(relays)
+        guard lifecycleRevision == revision, snapshot.state == .active else {
+            throw CmxIrohEndpointSupervisorError.superseded
+        }
+        configuration = candidateConfiguration
+    }
+
+    /// Installs a complete managed selection or custom relay override live.
+    ///
+    /// The endpoint keeps its stable key and adds replacement relays before it
+    /// removes stale relays. A failed update leaves the supervisor's future bind
+    /// configuration unchanged.
+    ///
+    /// - Parameter profile: Exact relay allowlist and active configurations.
+    public func replaceRelayProfile(
+        _ profile: CmxIrohEndpointRelayProfile
+    ) async throws {
+        try await replaceRelayProfile(
+            profile,
+            expectedIdentity: Optional<CmxIrohPeerIdentity>.none
+        )
+    }
+
+    /// Installs a profile only on the active endpoint identity that requested it.
+    public func replaceRelayProfile(
+        _ profile: CmxIrohEndpointRelayProfile,
+        expectedIdentity: CmxIrohPeerIdentity
+    ) async throws {
+        try await replaceRelayProfile(profile, expectedIdentity: Optional(expectedIdentity))
+    }
+
+    private func replaceRelayProfile(
+        _ profile: CmxIrohEndpointRelayProfile,
+        expectedIdentity: CmxIrohPeerIdentity?
+    ) async throws {
+        let candidateConfiguration = CmxIrohEndpointConfiguration(
+            secretKey: configuration.secretKey,
+            alpns: configuration.alpns,
+            bindPolicy: configuration.bindPolicy,
+            relayProfile: profile
+        )
+        guard let endpoint else {
+            guard expectedIdentity == nil else {
+                throw CmxIrohEndpointSupervisorError.inactive
+            }
+            configuration = candidateConfiguration
+            return
+        }
+        let revision = lifecycleRevision
+        if let expectedIdentity {
+            let actualIdentity = await endpoint.identity()
+            guard lifecycleRevision == revision,
+                  snapshot.state == .active,
+                  actualIdentity == expectedIdentity else {
+                throw CmxIrohEndpointSupervisorError.superseded
+            }
+        }
+        try await endpoint.replaceRelayProfile(profile)
         guard lifecycleRevision == revision, snapshot.state == .active else {
             throw CmxIrohEndpointSupervisorError.superseded
         }

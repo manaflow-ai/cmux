@@ -62,6 +62,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     private let brokerCredentials: CmxIrohBrokerCredentialRepository
     private let pendingRevocations: CmxIrohPendingRevocationOutbox
     private let offlinePolicies: CmxIrohClientOfflinePolicyCache
+    private let customRelayProfiles: CmxIrohCustomRelayProfileStore?
     private let endpointFactory: any CmxIrohEndpointFactory
     private let brokerFactory: BrokerFactory
     private let deviceID: @Sendable () -> String
@@ -149,6 +150,12 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
                     bundleIdentifier: bundleIdentifier
                 )
             ),
+            customRelayProfiles: CmxIrohCustomRelayProfileStore(
+                secureStore: Self.credentialStore(
+                    service: "custom-relays",
+                    bundleIdentifier: bundleIdentifier
+                )
+            ),
             endpointFactory: CmxIrohLibEndpointFactory(),
             brokerFactory: { tokenSource in
                 guard let baseURL else {
@@ -185,6 +192,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         brokerCredentials: CmxIrohBrokerCredentialRepository,
         pendingRevocations: CmxIrohPendingRevocationOutbox,
         offlinePolicies: CmxIrohClientOfflinePolicyCache = CmxIrohClientOfflinePolicyCache(),
+        customRelayProfiles: CmxIrohCustomRelayProfileStore? = nil,
         endpointFactory: any CmxIrohEndpointFactory,
         brokerFactory: @escaping BrokerFactory,
         deviceID: @escaping @Sendable () -> String,
@@ -202,6 +210,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         self.brokerCredentials = brokerCredentials
         self.pendingRevocations = pendingRevocations
         self.offlinePolicies = offlinePolicies
+        self.customRelayProfiles = customRelayProfiles
         self.endpointFactory = endpointFactory
         self.brokerFactory = brokerFactory
         self.deviceID = deviceID
@@ -844,6 +853,18 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
                 }
             )
         )
+        let endpointRelayProfile: CmxIrohEndpointRelayProfile?
+        switch await customRelayProfiles?.loadSelection() {
+        case nil, .managed:
+            endpointRelayProfile = nil
+        case let .custom(profile):
+            endpointRelayProfile = CmxIrohEndpointRelayProfile(customProfile: profile)
+        case .customUnavailable:
+            mobileIrohLog.error(
+                "Custom relay profile unavailable; managed relays remain disabled"
+            )
+            endpointRelayProfile = .unavailableCustomOverride
+        }
         let configuration = CmxIrohClientRuntimeConfiguration(
             accountID: accountID,
             deviceID: deviceID,
@@ -853,6 +874,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
             identity: identity,
             capabilities: Self.capabilities,
             managedRelayURLs: Self.managedRelayURLs,
+            endpointRelayProfile: endpointRelayProfile,
             cachedRelayCredential: cachedRelay
         )
         let credentialRepository = brokerCredentials

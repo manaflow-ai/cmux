@@ -9,6 +9,7 @@ actor TestIrohEndpoint: CmxIrohEndpoint {
     private let healthContinuation: AsyncStream<CmxIrohEndpointHealthEvent>.Continuation
     private var closeCallCount = 0
     private var relayUpdates: [[CmxIrohRelayConfiguration]] = []
+    private var relayProfileUpdates: [CmxIrohEndpointRelayProfile] = []
     private var relayUpdateShouldFail = false
     private var healthy = true
 
@@ -51,6 +52,13 @@ actor TestIrohEndpoint: CmxIrohEndpoint {
         relayUpdates.append(relays)
     }
 
+    func replaceRelayProfile(_ profile: CmxIrohEndpointRelayProfile) throws {
+        if relayUpdateShouldFail {
+            throw TestIrohTransportError.relayUpdateFailed
+        }
+        relayProfileUpdates.append(profile)
+    }
+
     func healthEvents() -> AsyncStream<CmxIrohEndpointHealthEvent> {
         healthStream
     }
@@ -82,5 +90,9 @@ actor TestIrohEndpoint: CmxIrohEndpoint {
 
     func observedRelayUpdates() -> [[CmxIrohRelayConfiguration]] {
         relayUpdates
+    }
+
+    func observedRelayProfileUpdates() -> [CmxIrohEndpointRelayProfile] {
+        relayProfileUpdates
     }
 }

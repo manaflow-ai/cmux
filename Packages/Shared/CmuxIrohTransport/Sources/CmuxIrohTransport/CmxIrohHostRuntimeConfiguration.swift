@@ -13,6 +13,10 @@ public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
     /// The UDP bind behavior applied to every endpoint generation.
     public let bindPolicy: CmxIrohEndpointBindPolicy
     public let managedRelayURLs: Set<String>
+    /// Optional selected-managed or strict-custom profile for the local endpoint.
+    ///
+    /// `nil` preserves automatic use of the complete managed fleet.
+    public let endpointRelayProfile: CmxIrohEndpointRelayProfile?
     public let cachedRelayCredential: CmxIrohRelayTokenResponse?
     /// A previously verified offline policy considered only after broker connectivity failure.
     public let cachedHostPolicy: CmxIrohCachedHostPolicy?
@@ -30,6 +34,7 @@ public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
     ///   - capabilities: The complete host capability set.
     ///   - bindPolicy: The UDP bind behavior, ephemeral by default.
     ///   - managedRelayURLs: The exact managed relay allowlist.
+    ///   - endpointRelayProfile: An optional local selection or custom override.
     ///   - cachedRelayCredential: A validated relay bootstrap for this endpoint.
     ///   - cachedHostPolicy: A policy previously verified by ``CmxIrohHostPolicyCache``.
     public init(
@@ -43,6 +48,7 @@ public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
         capabilities: [String],
         bindPolicy: CmxIrohEndpointBindPolicy = .ephemeral,
         managedRelayURLs: Set<String>,
+        endpointRelayProfile: CmxIrohEndpointRelayProfile? = nil,
         cachedRelayCredential: CmxIrohRelayTokenResponse? = nil,
         cachedHostPolicy: CmxIrohCachedHostPolicy? = nil
     ) {
@@ -56,6 +62,7 @@ public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
         self.capabilities = capabilities
         self.bindPolicy = bindPolicy
         self.managedRelayURLs = managedRelayURLs
+        self.endpointRelayProfile = endpointRelayProfile
         self.cachedRelayCredential = cachedRelayCredential
         self.cachedHostPolicy = cachedHostPolicy
     }

@@ -249,6 +249,27 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func discoveryAcceptsCombinedManagedFleetAboveLegacyLimit() async throws {
+        var object = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(Self.discoveryResponse.utf8)
+            ) as? [String: Any]
+        )
+        let relayFleet = (1 ... 11).map { "https://relay-\($0).example.com/" }
+        object["relay_fleet"] = relayFleet
+        let data = try JSONSerialization.data(withJSONObject: object)
+        let body = try #require(String(data: data, encoding: .utf8))
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 200, body: body),
+        ])
+        let client = try makeClient(transport: transport)
+
+        let discovery = try await client.discover()
+
+        #expect(discovery.relayFleet == relayFleet)
+    }
+
+    @Test
     func brokerErrorMapsOnlyStatusAndCoarseCode() async throws {
         let transport = RecordingBrokerTransport(responses: [
             .json(status: 403, body: #"{"error":"target_not_pairable","secret":"do-not-copy"}"#),

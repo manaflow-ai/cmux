@@ -8,4 +8,13 @@ public enum CmxIrohEndpointConfigurationError: Error, Equatable, Sendable {
 
     /// A credential names a relay outside the explicit fleet allowlist.
     case unmanagedRelayURL(String)
+
+    /// A verified managed selection is missing one or more relay credentials.
+    case incompleteManagedRelayCredentials
+
+    /// Managed broker credentials cannot mutate a strict custom relay override.
+    case managedCredentialUpdateInCustomProfile
+
+    /// The endpoint implementation cannot apply a complete profile replacement.
+    case unsupportedRelayProfileReplacement
 }
