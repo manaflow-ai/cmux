@@ -52,8 +52,11 @@ public final class SidebarScrollViewResolverView: NSView {
             let candidates = descendantScrollViews(in: currentAncestor).filter { scrollView in
                 scrollView.bounds.contains(scrollView.convert(resolverPoint, from: currentAncestor))
             }
-            if let nearest = candidates.min(by: { $0.bounds.width * $0.bounds.height < $1.bounds.width * $1.bounds.height }) {
-                return nearest
+            if candidates.count > 1 {
+                return nil
+            }
+            if let candidate = candidates.first {
+                return candidate
             }
             ancestor = currentAncestor.superview
         }
