@@ -16,10 +16,12 @@ import Testing
         macDeviceId: nil,
         retargetsToLiveSurfaceOwner: false
     )
+    let firstNavigationToken = store.deeplinkWorkspaceNavigationRequest?.token
     coordinator.workspacesDidChange()
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
     #expect(store.selectedTerminalID?.rawValue != "terminal-build")
+    #expect(store.deeplinkWorkspaceNavigationRequest?.token == firstNavigationToken)
 }
 
 @Test @MainActor func trustedNotificationTapStillFollowsSurfaceToLiveWorkspace() {

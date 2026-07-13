@@ -394,8 +394,8 @@ struct AgentNotificationRegressionTests {
         #expect(!recorded.contains { $0.tabId == fixture.destination.id })
     }
 
-    @Test("A source surface clear invalidates source-confined in-flight relay delivery")
-    func sourceSurfaceClearInvalidatesInFlightRelayDelivery() async throws {
+    @Test("A stale source surface clear preserves destination-confined in-flight relay delivery")
+    func staleSourceSurfaceClearPreservesDestinationConfinedInFlightRelayDelivery() async throws {
         let completionURL = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-policy-relay-source-clear-finished-\(UUID().uuidString)"
         )
@@ -427,13 +427,15 @@ struct AgentNotificationRegressionTests {
         try movePanel(fixture)
         _ = TerminalController.shared.controlNotificationCreateForTarget(
             routing: routing, workspaceID: fixture.destination.id, surfaceID: fixture.panelId,
-            title: "Relay live", subtitle: "Completed", body: "Must also stay cleared"
+            title: "Relay live", subtitle: "Completed", body: "Must survive stale source clear"
         )
         fixture.store.clearNotifications(forTabId: fixture.source.id, surfaceId: fixture.panelId)
 
         #expect(await waitForFile(at: completionURL))
         for _ in 0..<100 { await Task.yield() }
-        #expect(fixture.store.notifications.isEmpty)
+        let recorded = fixture.store.notifications.filter { $0.title.hasPrefix("Relay") }
+        #expect(recorded.map(\.tabId) == [fixture.destination.id])
+        #expect(recorded.map(\.body) == ["Must survive stale source clear"])
     }
 
     @Test("A clear invalidates policy-delayed delivery that has not applied")
